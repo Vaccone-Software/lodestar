@@ -126,6 +126,7 @@ struct Config {
     #   hyper ⏎          web bar                hyper .      menu search
     #   hyper <letters>  graph chains           hyper ,      scroll mode
     #   hyper ;          click hints (⇧; sticky)   double-tap: see below
+    #   hyper =          claim the focused window (⇧= beside)
     #   hyper `          marks                  hyper '      breaths
     #   hyper 0          sweep background       hyper O      flip orientation
     #   hyper Z / ⇧Z     undo / redo layout     hyper ?      cheat sheet

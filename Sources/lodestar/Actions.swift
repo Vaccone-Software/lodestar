@@ -149,6 +149,19 @@ final class Actions {
         }
     }
 
+    /// hyper = — claim the focused window: the summon treatment for a
+    /// window that arrived by other means. Full screen on the active
+    /// display (⇧ joins beside), everything else parked, undoable like
+    /// any summon.
+    func claimFocused(beside: Bool) {
+        guard let window = model.focusedWindow, window.isAlive else {
+            hud.flash("✕ no focused window to claim")
+            return
+        }
+        Log.info("claim", ["window": window.id, "app": window.appName, "beside": beside])
+        place(window, beside: beside)
+    }
+
     /// Summon a specific window by id (the window chooser's verb).
     func summonWindow(_ id: CGWindowID, beside: Bool) {
         guard let window = model.window(id), window.isAlive else {

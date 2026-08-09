@@ -199,6 +199,8 @@ final class HotkeyEngine {
                 if let app = actions.focusedAppInfo() {
                     searcher.showWindowChooser(pid: app.pid, appName: app.name)
                 }
+            case .claimFocused(let beside):
+                actions.claimFocused(beside: beside)
             case .enterScroll:
                 break // entry happened in the world callback; state is the record
             case .scrollGuide:
@@ -362,6 +364,7 @@ final class HotkeyEngine {
             GuideRow(key: "O", label: "flip layout orientation"),
             GuideRow(key: ",", label: "scroll mode — j/k · h/l · d/u · gg/G"),
             GuideRow(key: ";", label: "click hints — ⇧; chains · ⇧label right-clicks"),
+            GuideRow(key: "=", label: "claim the focused window — full screen · ⇧ beside"),
             GuideRow(key: "Z", label: "undo layout · ⇧Z redo"),
             GuideRow(key: "X", label: "back · ⇧X forward — the attention timeline"),
             GuideRow(key: "⇧1…9", label: "slide the focused window to that position"),

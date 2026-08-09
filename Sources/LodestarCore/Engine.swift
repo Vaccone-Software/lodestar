@@ -35,6 +35,7 @@ public enum EngineEffect: Equatable {
     case showWebBar
     case showMenuSearch
     case openWindowChooser
+    case claimFocused(beside: Bool)
     case enterScroll
     case scrollGuide
     case scrollExit
@@ -207,6 +208,11 @@ public struct EngineCore {
         case "tab":
             if world.searcherVisible { break } // the searcher owns its tab
             effects.append(world.hasFocusedApp ? .openWindowChooser : .flash("✕ no focused window"))
+        case "=":
+            // The deliberate half of adoption's bargain: floaters are left
+            // alone until the user says "this one" — then it gets the full
+            // summon treatment. ⇧ joins beside instead.
+            effects.append(world.hasFocusedApp ? .claimFocused(beside: shift) : .flash("✕ no focused window to claim"))
         case "o":
             effects.append(.flipOrientation)
         case "z":

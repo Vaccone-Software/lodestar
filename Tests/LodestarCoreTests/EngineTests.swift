@@ -174,6 +174,14 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(press("tab"), [], "the searcher owns its tab")
     }
 
+    func testClaimFocused() {
+        XCTAssertEqual(press("="), [.claimFocused(beside: false)])
+        XCTAssertEqual(press("=", shift: true), [.claimFocused(beside: true)])
+        world.hasFocusedApp = false
+        XCTAssertEqual(press("="), [.flash("✕ no focused window to claim")])
+        XCTAssertEqual(core.state, .idle)
+    }
+
     func testLayoutVerbs() {
         XCTAssertEqual(press("o"), [.flipOrientation])
         XCTAssertEqual(press("0"), [.sweep])

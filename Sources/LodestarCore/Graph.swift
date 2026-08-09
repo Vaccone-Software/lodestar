@@ -1,0 +1,152 @@
+import Foundation
+
+public enum GraphTarget: Equatable {
+    case app(String)
+    /// A Chromium profile: the registry key and the browser's display name.
+    case braveProfile(key: String, display: String)
+
+    public var label: String {
+        switch self {
+        case .app(let name): return name
+        case .braveProfile(_, let display): return "Brave (\(display))"
+        }
+    }
+}
+
+/// The chain trie. Built from config, so it is acyclic by construction; the
+/// only structural error possible is a letter that is both a leaf and an
+/// internal node, which the builder reports and resolves in favor of the
+/// subdivision.
+public final class GraphNode {
+    public var children: [String: GraphNode] = [:]
+
+    public init() {}
+    public var target: GraphTarget?
+
+    public static func build(from table: [String: ConfigValue], path: String,
+                      registry: [String: String], problems: inout [String]) -> GraphNode {
+        let node = GraphNode()
+        // Singles first, then multi-letter sugar, alphabetical within each —
+        // deterministic merging whatever the dictionary order.
+        let ordered = table.keys.sorted { ($0.count, $0) < ($1.count, $1) }
+        for key in ordered {
+            let value = table[key]!
+            let lowered = key.lowercased()
+            guard !lowered.isEmpty, lowered.allSatisfy(\.isLetter) else {
+                problems.append("graph key '\(path)\(key)' must be letters — ignored")
+                continue
+            }
+            if lowered.count == 1 {
+                switch value {
+                case .string(let raw):
+                    let child = GraphNode()
+                    child.target = parseTarget(raw, at: path + lowered, registry: registry, problems: &problems)
+                    if child.target == nil {
+                        continue
+                    }
+                    if node.children[lowered] != nil {
+                        problems.append("graph '\(path)\(lowered)' is bound twice — keeping the first")
+                        continue
+                    }
+                    node.children[lowered] = child
+                case .table(let sub):
+                    let child = GraphNode.build(from: sub, path: path + lowered + ".",
+                                                registry: registry, problems: &problems)
+                    node.children[lowered] = child
+                default:
+                    problems.append("graph '\(path)\(lowered)' must be a string or a table — ignored")
+                }
+                continue
+            }
+            // Sugar: "eo: Outlook" is e → o. Valid only while no letter on
+            // the way is already a destination — a leaf resolves instantly,
+            // so nothing can live past it.
+            guard case .string(let raw) = value else {
+                problems.append("graph '\(path)\(lowered)' — multi-letter keys take a target, not a table")
+                continue
+            }
+            var cursor = node
+            var walked = ""
+            var blocked = false
+            for ch in lowered.dropLast() {
+                walked.append(ch)
+                let next = cursor.children[String(ch)] ?? {
+                    let made = GraphNode()
+                    cursor.children[String(ch)] = made
+                    return made
+                }()
+                if next.target != nil {
+                    problems.append("graph '\(path)\(lowered)' is shadowed by leaf '\(path)\(walked)' — ignored")
+                    blocked = true
+                    break
+                }
+                cursor = next
+            }
+            if blocked { continue }
+            let last = String(lowered.last!)
+            if cursor.children[last] != nil {
+                problems.append("graph '\(path)\(lowered)' collides with existing '\(path)\(lowered)' — ignored")
+                continue
+            }
+            let child = GraphNode()
+            child.target = parseTarget(raw, at: path + lowered, registry: registry, problems: &problems)
+            if child.target != nil {
+                cursor.children[last] = child
+            }
+        }
+        return node
+    }
+
+    private static func parseTarget(_ raw: String, at path: String,
+                                    registry: [String: String], problems: inout [String]) -> GraphTarget? {
+        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else {
+            problems.append("graph '\(path)' has an empty target — ignored")
+            return nil
+        }
+        if trimmed.lowercased().hasPrefix("brave:") {
+            let key = String(trimmed.dropFirst("brave:".count))
+                .trimmingCharacters(in: .whitespaces).lowercased()
+            guard let display = registry[key] else {
+                problems.append("graph '\(path)' references unknown profile 'brave:\(key)' — ignored (declare it under profiles.brave)")
+                return nil
+            }
+            return .braveProfile(key: key, display: display)
+        }
+        if trimmed.lowercased().hasPrefix("app:") {
+            let name = String(trimmed.dropFirst("app:".count)).trimmingCharacters(in: .whitespaces)
+            return name.isEmpty ? nil : .app(name)
+        }
+        return .app(trimmed)
+    }
+
+    /// Walk a chain. Returns the outcome of the letters typed so far.
+    public enum Resolution {
+        case leaf(GraphTarget)
+        case deeper(GraphNode)
+        case miss
+    }
+
+    public func resolve(_ letters: [String]) -> Resolution {
+        var node = self
+        for letter in letters {
+            guard let next = node.children[letter.lowercased()] else { return .miss }
+            node = next
+        }
+        if let target = node.target, node.children.isEmpty { return .leaf(target) }
+        if node.children.isEmpty { return .miss }
+        return .deeper(node)
+    }
+
+    /// Guide rows for the persistent chain panel: keycap → destination.
+    public func guideRows() -> [(String, String)] {
+        children.keys.sorted().map { key in
+            let child = children[key]!
+            if let target = child.target, child.children.isEmpty {
+                return (key.uppercased(), target.label)
+            }
+            let letters = child.children.keys.sorted().map { $0.uppercased() }.joined(separator: " ")
+            return (key.uppercased(), "→ \(letters)")
+        }
+    }
+}

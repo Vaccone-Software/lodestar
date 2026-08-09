@@ -589,10 +589,10 @@ final class Actions {
 
     // MARK: - Plumbing
 
-    /// Adopt windows born outside lodestar (default on): a new real window
-    /// is a new destination, so it gets the summon treatment — full-screen
-    /// on the active display, the rest parked.
-    var adoptNewWindows = true
+    /// Adopt windows born outside Lodestar (off by default): when on, a new
+    /// real window is a new destination and gets the summon treatment —
+    /// full screen on the active display, the rest parked.
+    var adoptNewWindows = false
 
     private var adoptions = AdoptionLedger()
 

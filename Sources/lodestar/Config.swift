@@ -22,9 +22,11 @@ struct Config {
     /// Show the status item permanently; false hides it (picking lodestar
     /// in the searcher reveals it for a minute).
     var showMenuBar = true
-    /// Adopt windows born outside lodestar: summon them full-screen on the
-    /// active display. false = they float untouched.
-    var adoptNewWindows = true
+    /// Adopt windows born outside Lodestar, summoning them full screen on
+    /// the active display. Off by default: a window another tool opened
+    /// (a certificate prompt, a file reveal) floats untouched, and never
+    /// hides what you were reading.
+    var adoptNewWindows = false
     /// How the active display is chosen: pointer | focus.
     var activeDisplayMode = ActivePolicy.Mode.pointer
     /// Pixels per j/k/h/l press in scroll mode when smooth is off.
@@ -75,7 +77,7 @@ struct Config {
             "start-at-login": .boolean(description: "Keep the login LaunchAgent installed (installed app only)."),
             "show-menu-bar": .boolean(description: "Show the status item permanently; false hides it until lodestar is picked in the searcher."),
             "disabled-gestures": .string(allowed: nil, description: "Space-separated fixed-verb keys to turn off (e.g. \"o x [\"); disabled keys pass through to the app."),
-            "adopt-new-windows": .boolean(description: "Summon windows opened outside lodestar full-screen on the active display; false leaves them floating."),
+            "adopt-new-windows": .boolean(description: "Adopt windows opened outside Lodestar, summoning them full screen; off by default so external windows float untouched."),
             "active-display": .string(allowed: ["pointer", "focus"], description: "How the active display is chosen."),
         ], description: "App behavior."),
         "profiles": .table([
@@ -155,11 +157,13 @@ struct Config {
       # in the searcher reveals it (menu open) for 60 seconds.
       # default: true
       show-menu-bar: true
-      # Windows opened outside Lodestar (a launcher, the Dock, ⌘N …) are adopted:
-      # summoned full-screen on the active display, the rest parked. Set
-      # false for default macOS floating behavior on external opens.
-      # default: true
-      adopt-new-windows: true
+      # Windows opened outside Lodestar (a launcher, the Dock, ⌘N, a
+      # certificate prompt, a file reveal …) float untouched by default —
+      # they never hide what you were reading. Set true to adopt them:
+      # summoned full screen on the active display, the rest parked, and
+      # closing an adopted window restores what it displaced.
+      # default: false
+      adopt-new-windows: false
       # Turn off fixed verbs you never use — space-separated keys from:
       # space return tab o z x 0 , . ; ` ' [ ] /
       # A disabled key passes through to the focused app (⇧ variants too).

@@ -81,4 +81,16 @@ final class ConfigSchemaTests: XCTestCase {
         XCTAssertNotNil(properties?["hyper"])
         XCTAssertNotNil(properties?["graph"])
     }
+
+    /// A section holding only comments parses as null and means
+    /// all-defaults — the emitted schema must not flag it in editors.
+    func testJSONSchemaContainersAcceptNull() {
+        let json = ConfigSchema.jsonSchema(for: schema, title: "test")
+        let properties = json["properties"] as? [String: Any]
+        for section in ["hyper", "graph", "routes"] {
+            let type = (properties?[section] as? [String: Any])?["type"] as? [String]
+            XCTAssertEqual(type, ["object", "null"], "section \(section)")
+        }
+        XCTAssertEqual(json["type"] as? [String], ["object", "null"])
+    }
 }

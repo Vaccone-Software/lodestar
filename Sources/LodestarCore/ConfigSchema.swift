@@ -132,26 +132,28 @@ public enum ConfigSchema {
 
     private static func jsonNode(_ node: SchemaNode) -> [String: Any] {
         switch node {
+        // Containers accept null: a section holding only comments (the
+        // default file's shape) parses as null and means all-defaults.
         case .table(let known, let description):
             var properties: [String: Any] = [:]
             for (key, child) in known {
                 properties[key] = jsonNode(child)
             }
             return [
-                "type": "object",
+                "type": ["object", "null"],
                 "description": description,
                 "properties": properties,
                 "additionalProperties": false,
             ]
         case .freeTable(let value, let description):
             return [
-                "type": "object",
+                "type": ["object", "null"],
                 "description": description,
                 "additionalProperties": jsonNode(value),
             ]
         case .graph(let description):
             return [
-                "type": "object",
+                "type": ["object", "null"],
                 "description": description,
                 "additionalProperties": ["$ref": "#/definitions/graphNode"],
             ]

@@ -426,9 +426,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// The profile of the most recently focused Brave window, by title suffix.
     private func mostRecentBraveProfile() -> String? {
-        let braveWindows = model.windows.values
-            .filter { $0.isAlive && $0.bundleID == BraveProfiles.bundleID }
-            .sorted { ($0.lastFocused ?? .distantPast) > ($1.lastFocused ?? .distantPast) }
+        let braveWindows = model.aliveWindows(bundleID: BraveProfiles.bundleID)
+            .sorted { ($0.lastFocused ?? .distantPast, $0.id) > ($1.lastFocused ?? .distantPast, $1.id) }
         for window in braveWindows {
             for display in config.braveProfiles.values
             where BraveProfiles.windowMatches(title: window.title, profile: display) {

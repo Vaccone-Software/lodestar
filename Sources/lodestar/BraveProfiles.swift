@@ -24,15 +24,17 @@ enum BraveProfiles {
             || title.lowercased() == "brave - \(profile.lowercased())"
     }
 
-    /// Best alive window of this profile from the model.
+    /// Best alive window of this profile from the model: the focused window
+    /// if it matches, else the most recently focused match. Candidates come
+    /// verified — Chromium never reports window death (FINDINGS §8), so the
+    /// model must be asked through the paths that check.
     static func window(for profile: String, in model: WindowModel) -> WindowModel.Window? {
-        let candidates = model.windows.values.filter {
-            $0.isAlive && $0.bundleID == bundleID && windowMatches(title: $0.title, profile: profile)
-        }
+        let candidates = model.aliveWindows(bundleID: bundleID)
+            .filter { windowMatches(title: $0.title, profile: profile) }
         if let focused = model.focusedWindow, candidates.contains(where: { $0.id == focused.id }) {
             return focused
         }
-        return candidates.first
+        return WindowModel.mostCurrent(candidates)
     }
 
     /// Open a new window of the profile (also launches Brave if needed).

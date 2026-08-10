@@ -159,7 +159,7 @@ final class Actions {
     /// display (⇧ joins beside), everything else parked, undoable like
     /// any summon.
     func claimFocused(beside: Bool) {
-        guard let window = model.focusedWindow, window.isAlive else {
+        guard let window = model.focusedWindow, model.verify(window.id) else {
             hud.flash("✕ no focused window to claim")
             return
         }
@@ -169,7 +169,7 @@ final class Actions {
 
     /// Summon a specific window by id (the window chooser's verb).
     func summonWindow(_ id: CGWindowID, beside: Bool) {
-        guard let window = model.window(id), window.isAlive else {
+        guard let window = model.window(id), model.verify(id) else {
             hud.flash("✕ that window is gone")
             return
         }
@@ -230,7 +230,7 @@ final class Actions {
     /// hyper [ / ]: throw the focused window to the neighbor display —
     /// plain arrives full-screen there, shift arrives beside.
     func moveFocusedDisplay(direction: Int, beside: Bool) {
-        guard let focused = model.focusedWindow, focused.isAlive else {
+        guard let focused = model.focusedWindow, model.verify(focused.id) else {
             hud.flash("✕ no focused window")
             return
         }
@@ -252,7 +252,7 @@ final class Actions {
     /// hyper X / ⇧X: walk the attention timeline. A back-jump is a summon
     /// of the previous destination using the standard placement rules.
     func goBack() {
-        guard let id = history.stepBack(isAlive: { self.model.window($0)?.isAlive == true }),
+        guard let id = history.stepBack(isAlive: { self.model.verify($0) }),
               let window = model.window(id) else {
             hud.flash("✕ nothing further back")
             return
@@ -262,7 +262,7 @@ final class Actions {
     }
 
     func goForward() {
-        guard let id = history.stepForward(isAlive: { self.model.window($0)?.isAlive == true }),
+        guard let id = history.stepForward(isAlive: { self.model.verify($0) }),
               let window = model.window(id) else {
             hud.flash("✕ nothing forward")
             return
@@ -274,7 +274,7 @@ final class Actions {
     /// hyper ⇧digit: slide the focused window into that position on its
     /// display (insert-and-shift; 9 = last).
     func reorderFocused(toDigit digit: Int) {
-        guard let focused = model.focusedWindow, focused.isAlive,
+        guard let focused = model.focusedWindow, model.verify(focused.id),
               let display = layout.display(of: focused.id) else {
             hud.flash("✕ the focused window is not in a layout")
             return
@@ -295,6 +295,7 @@ final class Actions {
     /// hyper 0: park every background window — the world collapses to
     /// exactly what you summoned.
     func sweep() {
+        model.sweepAgainstWindowServer()
         let keep = layout.allMembers
         var count = 0
         for window in model.windows.values
@@ -315,7 +316,7 @@ final class Actions {
     func indexJump(_ digit: Int) {
         guard let active = layout.activeDisplay(),
               let id = layout.windowID(atDigit: digit, on: active.id),
-              let window = model.window(id) else {
+              let window = model.window(id), model.verify(id) else {
             hud.flash("✕ no window \(digit)")
             return
         }
@@ -437,7 +438,7 @@ final class Actions {
     }
 
     private func summonMark(_ record: MarkRecord, beside: Bool) {
-        if let window = model.window(CGWindowID(record.windowID)), window.isAlive {
+        if let window = model.window(CGWindowID(record.windowID)), model.verify(window.id) {
             place(window, beside: beside)
             return
         }
@@ -503,7 +504,8 @@ final class Actions {
     }
 
     private func currentBreathMembers() -> [BreathMember] {
-        layout.worldOrderedByPosition().compactMap { id in
+        model.sweepAgainstWindowServer()
+        return layout.worldOrderedByPosition().compactMap { id in
             guard let w = model.window(id), w.isAlive else { return nil }
             return BreathMember(
                 windowID: UInt32(id), bundleID: w.bundleID,
@@ -516,7 +518,7 @@ final class Actions {
         var resolvedPairs: [(member: BreathMember, id: CGWindowID)] = []
         var missing: [BreathMember] = []
         for member in record.members {
-            if let window = model.window(CGWindowID(member.windowID)), window.isAlive {
+            if let window = model.window(CGWindowID(member.windowID)), model.verify(window.id) {
                 resolvedPairs.append((member, window.id))
                 continue
             }
@@ -666,6 +668,12 @@ final class Actions {
     }
 
     private func place(_ window: WindowModel.Window, beside: Bool) {
+        // Backstop for every path that hands an id straight here: a window
+        // that died without telling anyone must not become a layout member.
+        guard model.verify(window.id) else {
+            hud.flash("✕ that window is gone")
+            return
+        }
         let began = Date()
         defer {
             Log.info("placed", ["window": window.id,
@@ -713,7 +721,7 @@ final class Actions {
            candidates.contains(where: { $0.id == best.id }) {
             return best
         }
-        return anyone
+        return WindowModel.mostCurrent(candidates)
     }
 
     private func aliveCandidates(bundleID: String?, appName: String) -> [WindowModel.Window] {

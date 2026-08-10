@@ -101,12 +101,60 @@ public final class WindowModel {
     public var focusedWindow: Window? { focusedID.flatMap { windows[$0] } }
 
     public func aliveWindows(bundleID: String) -> [Window] {
-        windows.values.filter { $0.isAlive && $0.bundleID == bundleID }
+        sweepAgainstWindowServer()
+        let ids = windows.values.filter { $0.isAlive && $0.bundleID == bundleID }.map(\.id)
+        return ids.filter { verify($0) }.compactMap { windows[$0] }
     }
 
     public func aliveWindows(appNamed name: String) -> [Window] {
+        sweepAgainstWindowServer()
         let lowered = name.lowercased()
-        return windows.values.filter { $0.isAlive && $0.appName.lowercased() == lowered }
+        let ids = windows.values.filter { $0.isAlive && $0.appName.lowercased() == lowered }.map(\.id)
+        return ids.filter { verify($0) }.compactMap { windows[$0] }
+    }
+
+    /// The best of several candidate destinations: the most recently focused
+    /// wins; never-focused falls back to newest — ids are monotonic within a
+    /// login session (FINDINGS §4), so the highest id is the youngest window.
+    public static func mostCurrent(_ candidates: [Window]) -> Window? {
+        candidates.max {
+            ($0.lastFocused ?? .distantPast, $0.id) < ($1.lastFocused ?? .distantPast, $1.id)
+        }
+    }
+
+    // MARK: - Liveness verification
+
+    /// Chromium never posts kAXUIElementDestroyed — registration succeeds
+    /// and the notification simply never fires (measured 2026-08-10,
+    /// FINDINGS §8) — so a closed Brave window would stay alive here
+    /// forever. The element itself is the truth: a destroyed element
+    /// answers .invalidUIElement. Nothing else kills — a hung app's
+    /// .cannotComplete timeout must read as alive.
+    @discardableResult
+    public func verify(_ id: CGWindowID) -> Bool {
+        guard let w = windows[id], w.isAlive else { return false }
+        var value: CFTypeRef?
+        let error = AXUIElementCopyAttributeValue(w.element, kAXRoleAttribute as CFString, &value)
+        guard error == .invalidUIElement else { return true }
+        onTrace?("ghost id=\(id) \(w.appName) — element dead")
+        bury(id)
+        return false
+    }
+
+    /// The cheap, hang-immune complement: one window-server call, and any
+    /// alive record the server no longer lists is dead. Absence is sound —
+    /// minimized, parked, tab-hidden, and other-Space windows all stay in
+    /// the all-windows list — but presence proves nothing (dead windows
+    /// linger server-side app-dependently, FINDINGS §3), so this never
+    /// resurrects. A failed or empty read touches nothing.
+    public func sweepAgainstWindowServer() {
+        let extant = Set(CGWindows.list(onScreenOnly: false).map(\.id))
+        guard !extant.isEmpty else { return }
+        let ghosts = windows.values.filter { $0.isAlive && !extant.contains($0.id) }
+        for w in ghosts {
+            onTrace?("ghost id=\(w.id) \(w.appName) — gone from window server")
+            bury(w.id)
+        }
     }
 
     /// The app's own idea of its focused window, tracked and returned; falls
@@ -151,14 +199,22 @@ public final class WindowModel {
     private func detach(_ pid: pid_t) {
         observers[pid]?.invalidate()
         observers.removeValue(forKey: pid)
-        for (id, var w) in windows where w.pid == pid && w.isAlive {
-            w.isAlive = false
-            w.deadAt = Date()
-            windows[id] = w
-            idByElement = idByElement.filter { $0.value != id }
-            if focusedID == id { focusedID = nil }
-            onDestroyed?(id)
+        for id in windows.values.filter({ $0.pid == pid && $0.isAlive }).map(\.id) {
+            bury(id)
         }
+    }
+
+    /// Mark a window dead and tell the world — the single path every death
+    /// signal funnels into: the destroy notification, app termination,
+    /// failed verification, and the window-server sweep.
+    private func bury(_ id: CGWindowID) {
+        guard var w = windows[id], w.isAlive else { return }
+        w.isAlive = false
+        w.deadAt = Date()
+        windows[id] = w
+        idByElement = idByElement.filter { $0.value != id }
+        if focusedID == id { focusedID = nil }
+        onDestroyed?(id)
     }
 
     private func scanWindows(of app: NSRunningApplication) {
@@ -215,6 +271,7 @@ public final class WindowModel {
 
     private func syncFocus(of app: NSRunningApplication) {
         pruneDead()
+        sweepAgainstWindowServer()
         let ax = AXApplication(app)
         guard let focused = ax.focusedWindow(),
               let id = track(element: focused.element, app: app) else { return }
@@ -247,14 +304,9 @@ public final class WindowModel {
                 setFocus(id)
             }
         case kAXUIElementDestroyedNotification:
-            let key = ElementKey(element: element)
-            guard let id = idByElement.removeValue(forKey: key), var w = windows[id] else { return }
-            w.isAlive = false
-            w.deadAt = Date()
-            windows[id] = w
-            onTrace?("destroyed id=\(id) \(w.appName)")
-            if focusedID == id { focusedID = nil }
-            onDestroyed?(id)
+            guard let id = idByElement[ElementKey(element: element)] else { return }
+            onTrace?("destroyed id=\(id) \(windows[id]?.appName ?? "?")")
+            bury(id)
         case kAXTitleChangedNotification:
             mutate(element) { w in
                 if let title = AXWindow(element: element)?.title { w.title = title }

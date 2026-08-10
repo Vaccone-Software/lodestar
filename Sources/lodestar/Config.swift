@@ -257,21 +257,16 @@ struct Config {
 
     # ── The graph ──────────────────────────────────────────────────────
     # hyper + letter chain -> app. A letter with a value is a leaf; a
-    # letter opening an indented block subdivides (hyper E O -> Outlook).
+    # letter opening an indented block subdivides (hyper E L -> Lodestar).
     # Values: an app name as it appears in Applications (list them
     # with `lodestar apps`), or brave:<profile> from the registry above.
+    # Both starters open Lodestar itself — the one app every machine
+    # has. Replace them with the places you actually go.
 
     graph:
-      s: Slack
-      f: Finder
-      m: Messages
-      t: Terminal
-      e:                           # email — hyper E M
-        m: Mail
-      eo: Microsoft Outlook        # multi-letter sugar: hyper E O
-      w:                           # web — browser profiles
-        p: brave:personal
-        w: brave:work
+      l: Lodestar                  # a leaf: hyper L
+      e:                           # a branch: hyper E L
+        l: Lodestar
     """
 
     /// Load the config, writing the default file first if none exists.

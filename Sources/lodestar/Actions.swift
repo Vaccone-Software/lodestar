@@ -101,6 +101,11 @@ final class Actions {
             "target": name, "resolved": entry?.name ?? "none",
             "candidates": aliveCandidates(bundleID: entry?.bundleID, appName: entry?.name ?? name).map(\.id),
         ])
+        // Lodestar has no window to summon — going there reveals the menu bar.
+        if name.lowercased() == "lodestar" || entry?.bundleID == Bundle.main.bundleIdentifier {
+            revealLodestar?()
+            return
+        }
         if let window = bestAliveWindow(bundleID: entry?.bundleID, appName: entry?.name ?? name) {
             place(window, beside: beside)
             return

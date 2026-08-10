@@ -5,7 +5,7 @@ import Foundation
 /// their own format versions so future lodestars can migrate old files
 /// instead of guessing what "unversioned" meant.
 public enum Lodestar {
-    public static let version = "0.9.3"
+    public static let version = "0.9.4"
 
     /// Repository home — swap to the company org at the public split.
     public static let repository = "https://github.com/Vaccone-Software/lodestar"

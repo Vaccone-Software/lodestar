@@ -32,7 +32,7 @@ enum Glass {
     }
 
     static func makePanel(level: NSWindow.Level) -> NSPanel {
-        let panel = NSPanel(
+        let panel = GlassPanel(
             contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
@@ -45,6 +45,34 @@ enum Glass {
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
         return panel
+    }
+}
+
+/// A borderless glass panel whose shadow survives reframing. The window
+/// server derives a window's shadow from its opaque content, but glass
+/// composites out-of-process: the shape it sees at order-in is empty, and
+/// it never asks again. Without the shadow the pane sits flush on the
+/// wallpaper and its rim reads as a drawn rectangle instead of an edge.
+/// Re-deriving after every reframe and every ordering keeps it lifted.
+class GlassPanel: NSPanel {
+    override func setFrame(_ frameRect: NSRect, display flag: Bool) {
+        super.setFrame(frameRect, display: flag)
+        invalidateShadow()
+    }
+
+    override func orderFront(_ sender: Any?) {
+        super.orderFront(sender)
+        invalidateShadow()
+    }
+
+    override func makeKeyAndOrderFront(_ sender: Any?) {
+        super.makeKeyAndOrderFront(sender)
+        invalidateShadow()
+    }
+
+    override func orderFrontRegardless() {
+        super.orderFrontRegardless()
+        invalidateShadow()
     }
 }
 

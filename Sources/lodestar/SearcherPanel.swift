@@ -473,8 +473,27 @@ private final class SearcherRowView: NSView {
     }
 }
 
-/// A borderless nonactivating panel that accepts key focus.
-final class KeyablePanel: NSPanel {
+/// A borderless-looking nonactivating panel that accepts key focus.
+/// Titled under the hood: a key window with no opaque shape gets its
+/// shadow — and the hairline the window server etches around it — drawn
+/// on the raw window rect, a square outline floating over the rounded
+/// glass. The hidden title bar hands the window server a real rounded
+/// shape instead; .fullSizeContentView keeps the content geometry
+/// identical to borderless.
+final class KeyablePanel: GlassPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    override init(contentRect: NSRect, styleMask style: NSWindow.StyleMask,
+                  backing backingStoreType: NSWindow.BackingStoreType, defer flag: Bool) {
+        super.init(contentRect: contentRect,
+                   styleMask: [.titled, .fullSizeContentView, .nonactivatingPanel],
+                   backing: backingStoreType, defer: flag)
+        titleVisibility = .hidden
+        titlebarAppearsTransparent = true
+        standardWindowButton(.closeButton)?.isHidden = true
+        standardWindowButton(.miniaturizeButton)?.isHidden = true
+        standardWindowButton(.zoomButton)?.isHidden = true
+        isMovable = false
+    }
 }

@@ -2,13 +2,14 @@ import Foundation
 
 public enum GraphTarget: Equatable {
     case app(String)
-    /// A Chromium profile: the registry key and the browser's display name.
-    case braveProfile(key: String, display: String)
+    /// A Chromium profile: the registry key and its resolved entry.
+    case browserProfile(key: String, profile: BrowserProfile)
 
     public var label: String {
         switch self {
         case .app(let name): return name
-        case .braveProfile(_, let display): return "Brave (\(display))"
+        case .browserProfile(_, let profile):
+            return "\(profile.browser.label) (\(profile.display))"
         }
     }
 }
@@ -24,7 +25,7 @@ public final class GraphNode {
     public var target: GraphTarget?
 
     public static func build(from table: [String: ConfigValue], path: String,
-                      registry: [String: String], problems: inout [String]) -> GraphNode {
+                      registry: [String: BrowserProfile], problems: inout [String]) -> GraphNode {
         let node = GraphNode()
         // Singles first, then multi-letter sugar, alphabetical within each —
         // deterministic merging whatever the dictionary order.
@@ -98,20 +99,25 @@ public final class GraphNode {
     }
 
     private static func parseTarget(_ raw: String, at path: String,
-                                    registry: [String: String], problems: inout [String]) -> GraphTarget? {
+                                    registry: [String: BrowserProfile], problems: inout [String]) -> GraphTarget? {
         let trimmed = raw.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else {
             problems.append("graph '\(path)' has an empty target — ignored")
             return nil
         }
-        if trimmed.lowercased().hasPrefix("brave:") {
-            let key = String(trimmed.dropFirst("brave:".count))
+        for browser in ChromiumBrowser.allCases
+        where trimmed.lowercased().hasPrefix("\(browser.rawValue):") {
+            let key = String(trimmed.dropFirst(browser.rawValue.count + 1))
                 .trimmingCharacters(in: .whitespaces).lowercased()
-            guard let display = registry[key] else {
-                problems.append("graph '\(path)' references unknown profile 'brave:\(key)' — ignored (declare it under profiles.brave)")
+            guard let profile = registry[key] else {
+                problems.append("graph '\(path)' references unknown profile '\(browser.rawValue):\(key)' — ignored (declare it under profiles.\(browser.rawValue))")
                 return nil
             }
-            return .braveProfile(key: key, display: display)
+            guard profile.browser == browser else {
+                problems.append("graph '\(path)': '\(key)' is declared under profiles.\(profile.browser.rawValue), not profiles.\(browser.rawValue) — ignored")
+                return nil
+            }
+            return .browserProfile(key: key, profile: profile)
         }
         if trimmed.lowercased().hasPrefix("app:") {
             let name = String(trimmed.dropFirst("app:".count)).trimmingCharacters(in: .whitespaces)

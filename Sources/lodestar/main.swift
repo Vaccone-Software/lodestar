@@ -111,9 +111,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         webBar = WebBarController()
         webBar.config = config
-        webBar.mostRecentProfile = { [weak self] in self?.mostRecentBraveProfile() }
-        webBar.perform = { [weak self] url, profileDisplay, beside in
-            self?.actions.openWeb(url: url, profileDisplay: profileDisplay, beside: beside)
+        webBar.mostRecentProfile = { [weak self] in self?.mostRecentBrowserProfile() }
+        webBar.perform = { [weak self] url, profile, beside in
+            self?.actions.openWeb(url: url, profile: profile, beside: beside)
         }
         engine = HotkeyEngine(config: config, actions: actions, hud: hud, searcher: searcher,
                               webBar: webBar, menuSearch: MenuSearchController(),
@@ -411,7 +411,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         Log.info("config-reload", [
             "graph": graphAddressByApp.count, "links": loaded.webLinks.count,
-            "routes": loaded.webRoutes.count, "profiles": loaded.braveProfiles.count,
+            "routes": loaded.webRoutes.count, "profiles": loaded.browserProfiles.count,
             "problems": problems.count, "auto-reload": loaded.autoReload,
             "start-at-login": loaded.startAtLogin,
         ])
@@ -514,14 +514,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// The profile of the most recently focused Brave window, by title suffix.
-    private func mostRecentBraveProfile() -> String? {
-        let braveWindows = model.aliveWindows(bundleID: BraveProfiles.bundleID)
+    /// The registry profile of the most recently focused browser window,
+    /// by title suffix, across every browser the config declares.
+    private func mostRecentBrowserProfile() -> BrowserProfile? {
+        let browsers = Set(config.browserProfiles.values.map(\.browser))
+        let windows = browsers
+            .flatMap { model.aliveWindows(bundleID: $0.bundleID) }
             .sorted { ($0.lastFocused ?? .distantPast, $0.id) > ($1.lastFocused ?? .distantPast, $1.id) }
-        for window in braveWindows {
-            for display in config.braveProfiles.values
-            where BraveProfiles.windowMatches(title: window.title, profile: display) {
-                return display
+        for window in windows {
+            for profile in config.browserProfiles.values
+            where profile.browser.bundleID == window.bundleID
+                && profile.browser.windowMatches(title: window.title, profile: profile.display) {
+                return profile
             }
         }
         return nil

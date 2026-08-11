@@ -6,14 +6,21 @@ import LodestarCore
 /// semantic warnings, schema emission. Shared by startup, Reload Config,
 /// and `lodestar --check`.
 enum ConfigDoctor {
-    /// Registry entries the browser doesn't actually have.
+    /// Registry entries the browser doesn't actually have. A browser with
+    /// no readable Local State (not installed, never launched) validates
+    /// nothing — absence of ground truth is not a verdict.
     static func groundTruthProblems(_ config: Config) -> [String] {
-        let known = BraveProfiles.knownDisplayNames()
-        guard !known.isEmpty else { return [] }
-        return config.braveProfiles
-            .filter { !known.contains($0.value.lowercased()) }
-            .map { "profiles.brave.\($0.key): Brave has no profile named '\($0.value)'" }
-            .sorted()
+        var problems: [String] = []
+        let byBrowser = Dictionary(grouping: config.browserProfiles, by: \.value.browser)
+        for (browser, entries) in byBrowser.sorted(by: { $0.key.rawValue < $1.key.rawValue }) {
+            let known = ChromiumProfiles.knownDisplayNames(for: browser)
+            guard !known.isEmpty else { continue }
+            problems += entries
+                .filter { !known.contains($0.value.display.lowercased()) }
+                .map { "profiles.\(browser.rawValue).\($0.key): \(browser.label) has no profile named '\($0.value.display)'" }
+                .sorted()
+        }
+        return problems
     }
 
     /// Typo'd app names and dead registry weight.
@@ -33,15 +40,16 @@ enum ConfigDoctor {
 
         var referenced = Set<String>()
         for (_, target) in graphTargets(config.graph, prefix: "") {
-            if case .braveProfile(let key, _) = target { referenced.insert(key) }
+            if case .browserProfile(let key, _) = target { referenced.insert(key) }
         }
         for link in config.webLinks {
             if let key = link.profileKey { referenced.insert(key) }
         }
         referenced.formUnion(config.webRoutes.values)
         if config.webFallback != "most-recent" { referenced.insert(config.webFallback) }
-        for key in config.braveProfiles.keys.sorted() where !referenced.contains(key) {
-            warnings.append("profiles.brave.\(key) is declared but never referenced")
+        for (key, profile) in config.browserProfiles.sorted(by: { $0.key < $1.key })
+        where !referenced.contains(key) {
+            warnings.append("profiles.\(profile.browser.rawValue).\(key) is declared but never referenced")
         }
 
         return warnings

@@ -5,7 +5,7 @@ import XCTest
 /// problems each malformation reports. The graph section is the config's
 /// most-edited surface; its failure modes must stay stable.
 final class GraphBuildTests: XCTestCase {
-    private func build(_ yaml: String, registry: [String: String] = [:]) throws -> (GraphNode, [String]) {
+    private func build(_ yaml: String, registry: [String: BrowserProfile] = [:]) throws -> (GraphNode, [String]) {
         var problems: [String] = []
         let root = try Yaml.parse(yaml)
         let node = GraphNode.build(from: Yaml.value(at: ["graph"], in: root)!.table!,
@@ -134,13 +134,32 @@ final class GraphBuildTests: XCTestCase {
     // MARK: - Browser profiles
 
     func testBrowserProfileResolvesThroughRegistry() throws {
+        let personal = BrowserProfile(browser: .brave, display: "Personal")
         let (node, problems) = try build("graph:\n  p: \"brave: personal\"",
-                                         registry: ["personal": "Personal"])
+                                         registry: ["personal": personal])
         XCTAssertTrue(problems.isEmpty, "\(problems)")
         guard case .leaf(let target) = node.resolve(["p"]),
-              target == .braveProfile(key: "personal", display: "Personal") else {
+              target == .browserProfile(key: "personal", profile: personal) else {
             return XCTFail("expected the registry profile")
         }
+        XCTAssertEqual(target.label, "Brave (Personal)")
+    }
+
+    func testEveryBrowserPrefixResolves() throws {
+        let registry = [
+            "work": BrowserProfile(browser: .chrome, display: "Work"),
+            "school": BrowserProfile(browser: .edge, display: "School"),
+        ]
+        let (node, problems) = try build("""
+        graph:
+          w: "chrome: work"
+          s: "edge: school"
+        """, registry: registry)
+        XCTAssertTrue(problems.isEmpty, "\(problems)")
+        guard case .leaf(let chrome) = node.resolve(["w"]) else { return XCTFail() }
+        XCTAssertEqual(chrome.label, "Chrome (Work)")
+        guard case .leaf(let edge) = node.resolve(["s"]) else { return XCTFail() }
+        XCTAssertEqual(edge.label, "Edge (School)")
     }
 
     func testUnknownProfileIsDroppedWithGuidance() throws {
@@ -148,6 +167,13 @@ final class GraphBuildTests: XCTestCase {
         guard case .miss = node.resolve(["p"]) else { return XCTFail() }
         XCTAssertTrue(problems.contains { $0.contains("unknown profile") && $0.contains("profiles.brave") },
                       "\(problems)")
+    }
+
+    func testWrongBrowserReferenceIsDroppedWithGuidance() throws {
+        let registry = ["work": BrowserProfile(browser: .chrome, display: "Work")]
+        let (node, problems) = try build("graph:\n  p: \"brave: work\"", registry: registry)
+        guard case .miss = node.resolve(["p"]) else { return XCTFail() }
+        XCTAssertTrue(problems.contains { $0.contains("declared under profiles.chrome") }, "\(problems)")
     }
 
     // MARK: - Guide

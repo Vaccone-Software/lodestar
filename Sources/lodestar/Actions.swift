@@ -50,27 +50,28 @@ final class Actions {
         switch target {
         case .app(let name):
             summonApp(named: name, beside: beside)
-        case .braveProfile(_, let display):
-            summonBrave(profile: display, beside: beside)
+        case .browserProfile(_, let profile):
+            summonBrowser(profile, beside: beside)
         }
     }
 
     /// The web bar's verb: open a URL in a profile, then go there.
-    func openWeb(url: String, profileDisplay: String, beside: Bool) {
-        Log.info("open-web", ["url": url, "profile": profileDisplay, "beside": beside])
-        guard BraveProfiles.openURL(url, profileDisplay: profileDisplay) else {
-            hud.flash("✕ profile '\(profileDisplay)' not found in Brave")
+    func openWeb(url: String, profile: BrowserProfile, beside: Bool) {
+        Log.info("open-web", ["url": url, "browser": profile.browser.rawValue,
+                              "profile": profile.display, "beside": beside])
+        guard ChromiumProfiles.openURL(url, in: profile) else {
+            hud.flash("✕ profile '\(profile.display)' not found in \(profile.browser.label)")
             return
         }
-        if let window = BraveProfiles.window(for: profileDisplay, in: model) {
+        if let window = ChromiumProfiles.window(for: profile, in: model) {
             place(window, beside: beside)
             return
         }
-        hud.flash("… opening Brave · \(profileDisplay)",
-                  icon: icon(forAppNamed: BraveProfiles.appName))
+        hud.flash("… opening \(profile.browser.label) · \(profile.display)",
+                  icon: icon(forAppNamed: profile.browser.appName))
         expect(seconds: 12, matches: { window in
-            window.bundleID == BraveProfiles.bundleID
-                && BraveProfiles.windowMatches(title: window.title, profile: profileDisplay)
+            window.bundleID == profile.browser.bundleID
+                && profile.browser.windowMatches(title: window.title, profile: profile.display)
         }, action: { [weak self] window in
             self?.place(window, beside: beside)
         })
@@ -117,20 +118,21 @@ final class Actions {
         launch(entry, beside: beside)
     }
 
-    private func summonBrave(profile: String, beside: Bool) {
-        if let window = BraveProfiles.window(for: profile, in: model) {
+    private func summonBrowser(_ profile: BrowserProfile, beside: Bool) {
+        if let window = ChromiumProfiles.window(for: profile, in: model) {
             place(window, beside: beside)
             return
         }
-        hud.flash("… opening Brave · \(profile)", icon: icon(forAppNamed: BraveProfiles.appName))
+        hud.flash("… opening \(profile.browser.label) · \(profile.display)",
+                  icon: icon(forAppNamed: profile.browser.appName))
         expect(seconds: 12, matches: { window in
-            window.bundleID == BraveProfiles.bundleID
-                && BraveProfiles.windowMatches(title: window.title, profile: profile)
+            window.bundleID == profile.browser.bundleID
+                && profile.browser.windowMatches(title: window.title, profile: profile.display)
         }, action: { [weak self] window in
             self?.place(window, beside: beside)
         })
-        if !BraveProfiles.openWindow(profile: profile) {
-            hud.flash("✕ Brave profile '\(profile)' not found")
+        if !ChromiumProfiles.openWindow(profile) {
+            hud.flash("✕ \(profile.browser.label) profile '\(profile.display)' not found")
         }
     }
 
@@ -197,7 +199,7 @@ final class Actions {
                 let rowIcon: NSImage?
                 switch target {
                 case .app(let name): rowIcon = icon(forAppNamed: name)
-                case .braveProfile(_, _): rowIcon = icon(forAppNamed: BraveProfiles.appName)
+                case .browserProfile(_, let profile): rowIcon = icon(forAppNamed: profile.browser.appName)
                 }
                 rows.append(GuideRow(key: path.joined(separator: " "), label: target.label, icon: rowIcon))
             } else {
@@ -379,8 +381,8 @@ final class Actions {
             let icon: NSImage?
             if label.hasPrefix("→") {
                 icon = nil
-            } else if label.hasPrefix("Brave (") {
-                icon = self.icon(forAppNamed: BraveProfiles.appName)
+            } else if let browser = ChromiumBrowser.allCases.first(where: { label.hasPrefix("\($0.label) (") }) {
+                icon = self.icon(forAppNamed: browser.appName)
             } else {
                 icon = self.icon(forAppNamed: label)
             }

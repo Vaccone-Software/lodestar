@@ -43,8 +43,9 @@ struct Config {
     var doubleTaps: [ModifierKey: TapVerb] = [:]
     /// Keys freed by gestures: toggles — they pass through to the app.
     var disabledGestures: Set<String> = []
-    /// Profile registry: lodestar key → Brave display name. Chromium only.
-    var braveProfiles: [String: String] = [:]
+    /// Profile registry: lodestar key → (browser, display name). Keys are
+    /// global across browsers so web links and routes reference them bare.
+    var browserProfiles: [String: BrowserProfile] = [:]
     /// Where an unrouted site opens: "most-recent" or a registry key.
     var webFallback = "most-recent"
     /// Search template; %s is replaced with the encoded query (appended if absent).
@@ -84,18 +85,21 @@ struct Config {
                 ($0.name, SchemaNode.boolean(description: $0.about))
             }),
             description: "Every gesture, one switch each; false frees its keys to the app."),
-        "profiles": .table([
-            "brave": .freeTable(value: .string(allowed: nil, description: "The browser's profile display name."),
-                                description: "lodestar name → Brave profile display name. Chromium only."),
-        ], description: "Browser profile registry."),
+        "profiles": .table(
+            Dictionary(uniqueKeysWithValues: ChromiumBrowser.allCases.map { browser in
+                (browser.rawValue,
+                 SchemaNode.freeTable(value: .string(allowed: nil, description: "The browser's profile display name."),
+                                      description: "lodestar name → \(browser.label) profile display name."))
+            }),
+            description: "Chromium profile registry; keys are global across browsers."),
         "web": .table([
-            "fallback": .string(allowed: nil, description: "most-recent, or a profiles.brave key."),
+            "fallback": .string(allowed: nil, description: "most-recent, or a profiles key."),
             "search-url": .string(allowed: nil, description: "Search template; %s becomes the encoded query."),
             "links": .freeTable(value: .table([
                 "url": .string(allowed: nil, description: "The site."),
-                "profile": .string(allowed: nil, description: "A profiles.brave key (omit to route)."),
+                "profile": .string(allowed: nil, description: "A profiles key (omit to route)."),
             ], description: "A quick link."), description: "Named quick links."),
-            "routes": .freeTable(value: .string(allowed: nil, description: "A profiles.brave key."),
+            "routes": .freeTable(value: .string(allowed: nil, description: "A profiles key."),
                                  description: "Substring pattern → profile; longest match wins."),
         ], description: "The web bar."),
         "scroll": .table([
@@ -112,7 +116,7 @@ struct Config {
         ], description: "Click hints."),
         "keys": .freeTable(value: .string(allowed: nil, description: "The key name this keycode produces."),
                            description: "Keycode → key-name overrides for non-ANSI layouts."),
-        "graph": .graph(description: "hyper + letter chains → apps. Values: app name or brave:<registry key>."),
+        "graph": .graph(description: "hyper + letter chains → apps. Values: app name or <browser>:<registry key>."),
     ], description: "lodestar configuration")
 
     static let defaultYaml = """
@@ -168,8 +172,9 @@ struct Config {
 
     profiles:
       # Chromium profile registry: lodestar name to the browser's
-      # profile name, used as brave:<name> in the graph and
-      # profile: <name> in web links. For example:
+      # profile name, used as <browser>:<name> in the graph and
+      # profile: <name> in web links. Browsers: brave, chrome, edge;
+      # keys are global across them. For example:
       #   brave:
       #     personal: Personal
       #     work: Work
@@ -183,7 +188,8 @@ struct Config {
     #     o: Microsoft Outlook
     #     p: Proton Mail
     # Values are an app name as spelled in Applications (list them with
-    # `lodestar apps`) or brave:<name> from profiles. The first letters
+    # `lodestar apps`) or <browser>:<name> from profiles, like
+    # brave:personal or chrome:work. The first letters
     # o, x, and z are reserved.
     # ⌘K on any searcher row edits this section for you.
     graph:
@@ -191,7 +197,7 @@ struct Config {
     web:
       # hyper ⏎ opens the web bar: quick links, domains, or a search.
       # Where an unrouted destination opens: most-recent (the profile
-      # of your last focused Chromium window) or a profiles.brave name.
+      # of your last focused Chromium window) or a profiles key.
       fallback: most-recent
       # Search template; %s becomes the query.
       search-url: https://search.brave.com/search?q=%s
@@ -323,22 +329,30 @@ struct Config {
         }
 
         // Profiles first — the graph and web sections reference them.
-        if let registry = Yaml.value(at: ["profiles", "brave"], in: root)?.table {
-            for (key, value) in registry {
-                if let display = value.string, !display.isEmpty {
-                    config.braveProfiles[key.lowercased()] = display
-                } else {
-                    problems.append("profiles.brave.\(key) must be a profile name string")
+        for browser in ChromiumBrowser.allCases {
+            guard let registry = Yaml.value(at: ["profiles", browser.rawValue], in: root)?.table else {
+                continue
+            }
+            for (key, value) in registry.sorted(by: { $0.key < $1.key }) {
+                let lowered = key.lowercased()
+                guard let display = value.string, !display.isEmpty else {
+                    problems.append("profiles.\(browser.rawValue).\(key) must be a profile name string")
+                    continue
                 }
+                if let taken = config.browserProfiles[lowered] {
+                    problems.append("profiles.\(browser.rawValue).\(key) collides with profiles.\(taken.browser.rawValue).\(key) — keys are global, keeping the first")
+                    continue
+                }
+                config.browserProfiles[lowered] = BrowserProfile(browser: browser, display: display)
             }
         }
 
         if let fallback = Yaml.value(at: ["web", "fallback"], in: root)?.string {
             let lowered = fallback.lowercased()
-            if lowered == "most-recent" || config.braveProfiles[lowered] != nil {
+            if lowered == "most-recent" || config.browserProfiles[lowered] != nil {
                 config.webFallback = lowered
             } else {
-                problems.append("web.fallback '\(fallback)' is neither most-recent nor a profiles.brave key")
+                problems.append("web.fallback '\(fallback)' is neither most-recent nor a profiles key")
             }
         }
         if let searchURL = Yaml.value(at: ["web", "search-url"], in: root)?.string {
@@ -353,7 +367,7 @@ struct Config {
                 var profileKey: String?
                 if let profile = table["profile"]?.string {
                     let lowered = profile.lowercased()
-                    if config.braveProfiles[lowered] != nil {
+                    if config.browserProfiles[lowered] != nil {
                         profileKey = lowered
                     } else {
                         problems.append("web.links.\(name) references unknown profile '\(profile)'")
@@ -379,7 +393,7 @@ struct Config {
             for (pattern, value) in routes {
                 guard let profile = value.string else { continue }
                 let lowered = profile.lowercased()
-                if config.braveProfiles[lowered] != nil {
+                if config.browserProfiles[lowered] != nil {
                     config.webRoutes[pattern.lowercased()] = lowered
                 } else {
                     problems.append("web.routes.\(pattern) references unknown profile '\(profile)'")
@@ -389,7 +403,7 @@ struct Config {
 
         if let graphTable = Yaml.value(at: ["graph"], in: root)?.table {
             config.graph = GraphNode.build(from: graphTable, path: "",
-                                           registry: config.braveProfiles, problems: &problems)
+                                           registry: config.browserProfiles, problems: &problems)
             for key in config.graph.children.keys where reservedTopLevel.contains(key) {
                 problems.append("graph uses reserved first letter '\(key)' — ignored")
                 config.graph.children.removeValue(forKey: key)

@@ -4,14 +4,14 @@ import LodestarCore
 /// The web bar (`hyper ⏎`): a second, deliberately separate grammar. Every
 /// row here is a destination on the web — quick links pinned to profiles,
 /// bare domains routed by rules, anything else a search — and each row wears
-/// the profile it will open in. Chromium (Brave) only for now.
+/// the profile it will open in. Chromium family only for now.
 final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     struct WebRow {
         enum Kind { case link, domain, search }
         let kind: Kind
         let title: String
         let url: String
-        let profileDisplay: String
+        let profile: BrowserProfile
     }
 
     private let panel: KeyablePanel
@@ -24,9 +24,9 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
     /// Wired by the app delegate; refreshed on config reload.
     var config = Config()
-    /// The profile of the most recently focused Brave window, if any.
-    var mostRecentProfile: () -> String? = { nil }
-    var perform: (_ url: String, _ profileDisplay: String, _ beside: Bool) -> Void = { _, _, _ in }
+    /// The profile of the most recently focused browser window, if any.
+    var mostRecentProfile: () -> BrowserProfile? = { nil }
+    var perform: (_ url: String, _ profile: BrowserProfile, _ beside: Bool) -> Void = { _, _, _ in }
 
     private var rows: [WebRow] = []
     private var selected = 0
@@ -127,22 +127,23 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
     /// The profile a destination opens in: explicit pin, then routes
     /// (longest substring match), then the fallback.
-    private func resolveProfile(pinned: String?, routedOn text: String) -> String {
-        if let pinned, let display = config.braveProfiles[pinned] {
-            return display
+    private func resolveProfile(pinned: String?, routedOn text: String) -> BrowserProfile {
+        if let pinned, let profile = config.browserProfiles[pinned] {
+            return profile
         }
         if let key = WebRouting.route(text, routes: config.webRoutes),
-           let display = config.braveProfiles[key] {
-            return display
+           let profile = config.browserProfiles[key] {
+            return profile
         }
         if config.webFallback != "most-recent",
-           let display = config.braveProfiles[config.webFallback] {
-            return display
+           let profile = config.browserProfiles[config.webFallback] {
+            return profile
         }
         if let recent = mostRecentProfile() {
             return recent
         }
-        return config.braveProfiles.values.sorted().first ?? "Default"
+        return config.browserProfiles.values.min { $0.display < $1.display }
+            ?? BrowserProfile(browser: .brave, display: "Default")
     }
 
     private func requery() {
@@ -157,7 +158,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
                 kind: .link,
                 title: "\(link.name)  ·  \(link.url)",
                 url: WebRouting.normalize(link.url),
-                profileDisplay: resolveProfile(pinned: link.profileKey, routedOn: "\(link.name) \(link.url)")
+                profile: resolveProfile(pinned: link.profileKey, routedOn: "\(link.name) \(link.url)")
             ))
         }
         if WebRouting.isDomainLike(query) {
@@ -165,7 +166,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
                 kind: .domain,
                 title: query,
                 url: WebRouting.normalize(query),
-                profileDisplay: resolveProfile(pinned: nil, routedOn: query)
+                profile: resolveProfile(pinned: nil, routedOn: query)
             ))
         }
         if !query.isEmpty {
@@ -173,14 +174,14 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
                 kind: .search,
                 title: "Search “\(query)”",
                 url: WebRouting.searchURL(template: config.webSearchURL, query: query),
-                profileDisplay: resolveProfile(pinned: nil, routedOn: query)
+                profile: resolveProfile(pinned: nil, routedOn: query)
             ))
         }
 
         rows = built
         selected = 0
         if HotkeyEngine.traceTap {
-            Log.info("webbar: '\(query)' -> \(rows.map { "\($0.title)@\($0.profileDisplay)" }.joined(separator: " | "))")
+            Log.info("webbar: '\(query)' -> \(rows.map { "\($0.title)@\($0.profile.display)" }.joined(separator: " | "))")
         }
         renderRows()
         reposition()
@@ -254,7 +255,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         guard rows.indices.contains(selected) else { return }
         let row = rows[selected]
         hide()
-        perform(row.url, row.profileDisplay, beside)
+        perform(row.url, row.profile, beside)
     }
 
     func windowDidResignKey(_ notification: Notification) {
@@ -326,7 +327,7 @@ private final class WebRowView: NSView {
             icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
         }
         if title.stringValue != row.title { title.stringValue = row.title }
-        if chipLabel.stringValue != row.profileDisplay { chipLabel.stringValue = row.profileDisplay }
+        if chipLabel.stringValue != row.profile.display { chipLabel.stringValue = row.profile.display }
     }
 
     func setSelected(_ selected: Bool) {

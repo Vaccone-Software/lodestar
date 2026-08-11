@@ -151,6 +151,11 @@ public struct EngineCore {
     public mutating func keyDown(key: String, held: Bool, shift: Bool, world: EngineWorld) -> [EngineEffect] {
         switch state {
         case .idle:
+            // Escape closes a visible cheat sheet, hyper or not — the
+            // press was aimed at the help, so it never reaches the app.
+            if key == "escape", world.cheatVisible {
+                return [.dismissCheat]
+            }
             guard held else { return [.passThrough] }
             return idlePress(key: key, shift: shift, world: world)
         case .chain(let kind, let letters, let deleting):

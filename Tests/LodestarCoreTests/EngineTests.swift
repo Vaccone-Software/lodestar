@@ -136,6 +136,17 @@ final class EngineTests: XCTestCase {
                        "? itself toggles rather than dismiss-then-reopen")
     }
 
+    func testEscapeDismissesVisibleCheat() {
+        world.cheatVisible = true
+        XCTAssertEqual(press("escape", held: false), [.dismissCheat],
+                       "swallowed — the escape was aimed at the help")
+        world.cheatVisible = true
+        XCTAssertEqual(press("escape"), [.dismissCheat], "hyper escape too")
+        world.cheatVisible = false
+        XCTAssertEqual(press("escape", held: false), [.passThrough],
+                       "no cheat: a plain escape is the app's")
+    }
+
     func testSearcherTogglesOnSpace() {
         XCTAssertEqual(press("space"), [.hideBars, .showSearcher])
         world.searcherVisible = true

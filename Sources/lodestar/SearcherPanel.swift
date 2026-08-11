@@ -5,10 +5,12 @@ import LodestarCore
 /// OS — glass, SF type, accent-filled selection. Two levels: apps (default),
 /// and the windows of one app (`hyper tab`, or Tab on a running app row;
 /// esc walks back). Enter = focus-or-launch full-screen; shift+enter =
-/// beside. Row views are cached and reused — typing repaints, it never
-/// rebuilds — and rows teach the faster paths: graph addresses and window
-/// counts on apps, mark paths on windows. The panel never activates
-/// lodestar, so focus context stays where it was.
+/// beside. ⌘K on an app row opens the graph card beside the list — add
+/// or remove chains, written straight into the config — while the list
+/// underneath stays frozen exactly as it was. Row views are cached and
+/// reused — typing repaints, it never rebuilds — and rows teach the faster
+/// paths: graph addresses and window counts on apps, mark paths on windows.
+/// The panel never activates lodestar, so focus context stays where it was.
 final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     private enum Row {
         case app(AppIndex.Entry)
@@ -27,6 +29,14 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         case windows(pid: pid_t, appName: String, cameFromApps: Bool)
     }
 
+    /// The ⌘K graph card's state. While it is open the searcher freezes:
+    /// every key routes here, none reach the query field.
+    private enum MenuState {
+        case closed
+        case list(entry: AppIndex.Entry, chains: [[String]], selected: Int, error: String?)
+        case chain(entry: AppIndex.Entry, letters: [String], error: String?)
+    }
+
     private let panel: KeyablePanel
     private let root = NSView()
     private let field = NSTextField()
@@ -42,12 +52,21 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     var graphAddress: (String) -> String? = { _ in nil }
     /// window id -> mark path, uppercased (e.g. "Q")
     var markPath: (CGWindowID) -> String? = { _ in nil }
+    /// lowercased app name -> every chain bound to it (lowercased letters)
+    var graphChains: (String) -> [[String]] = { _ in [] }
+    /// Why a pending chain can't be added, or nil when it's free.
+    var chainProblem: ([String]) -> String? = { _ in nil }
+    /// Write the edit into the config; an error string, or nil on success.
+    var addToGraph: ([String], AppIndex.Entry) -> String? = { _, _ in "graph editing is unavailable" }
+    var removeFromGraph: ([String]) -> String? = { _ in "graph editing is unavailable" }
 
     private var rows: [Row] = []
     private var rowViews: [SearcherRowView] = []
     private var viewCache: [String: SearcherRowView] = [:]
     private var selected = 0
     private var mode: Mode = .apps
+    private var menuState: MenuState = .closed
+    private let graphMenu = GraphMenu()
 
     private let panelWidth = BarTheme.panelWidth
     private let inputHeight = BarTheme.inputHeight
@@ -74,6 +93,12 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         panel.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
         panel.delegate = self
         panel.contentView = root
+        panel.onKeyEquivalent = { [weak self] event in
+            self?.handleKeyEquivalent(event) ?? false
+        }
+        panel.onKeyDown = { [weak self] event in
+            self?.handleMenuKey(event) ?? false
+        }
 
         Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
 
@@ -137,6 +162,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
 
     func show() {
         appIndex.refreshIfStale()
+        closeMenu()
         mode = .apps
         field.placeholderString = "Where to?"
         field.stringValue = ""
@@ -154,6 +180,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     }
 
     func hide() {
+        closeMenu()
         panel.orderOut(nil)
     }
 
@@ -203,6 +230,10 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         case .app(let entry): return entry.name
         case .window(let window): return window.title
         }
+    }
+
+    private static func display(_ chain: [String]) -> String {
+        chain.map { $0.uppercased() }.joined(separator: " ")
     }
 
     /// Reuse row views by identity — typing repaints, it never rebuilds, so
@@ -256,7 +287,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     private func updateFooter() {
         switch mode {
         case .apps:
-            footer.stringValue = "↵ open    ⇧↵ beside    ⇥ windows    esc close"
+            footer.stringValue = "↵ open    ⇧↵ beside    ⇥ windows    ⌘K graph    esc close"
         case .windows(_, _, let cameFromApps):
             footer.stringValue = "↵ open    ⇧↵ beside    esc \(cameFromApps ? "back" : "close")"
         }
@@ -343,6 +374,178 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         case .window(let window):
             actions.summonWindow(window.id, beside: beside)
         }
+    }
+
+    // MARK: - The graph card (⌘K)
+
+    /// ⌘K opens the card; a second ⌘K (or esc) closes it.
+    private func handleKeyEquivalent(_ event: NSEvent) -> Bool {
+        guard event.modifierFlags.intersection([.command, .option, .control]) == .command,
+              event.charactersIgnoringModifiers?.lowercased() == "k" else { return false }
+        if case .apps = mode, rows.indices.contains(selected),
+           case .app(let entry) = rows[selected] {
+            menuState = .list(entry: entry, chains: graphChains(entry.name.lowercased()),
+                              selected: 0, error: nil)
+            renderMenu()
+        }
+        return true
+    }
+
+    /// Every key while the card is open — the field never sees them, so
+    /// the query underneath stays frozen. Runs before AppKit's dispatch,
+    /// which is also what lets ⌘K toggle the card closed.
+    private func handleMenuKey(_ event: NSEvent) -> Bool {
+        if case .closed = menuState { return false }
+        let mods = event.modifierFlags.intersection([.command, .option, .control])
+        if mods == .command {
+            if event.charactersIgnoringModifiers?.lowercased() == "k" { closeMenu() }
+            return true
+        }
+        guard mods.isEmpty else { return true }
+
+        switch event.keyCode {
+        case 53: // esc walks back one level
+            if case .chain(let entry, _, _) = menuState {
+                menuState = .list(entry: entry, chains: graphChains(entry.name.lowercased()),
+                                  selected: 0, error: nil)
+                renderMenu()
+            } else {
+                closeMenu()
+            }
+            return true
+        case 36, 76: // return
+            fireMenuSelection()
+            return true
+        case 51: // delete backs the chain up
+            if case .chain(let entry, var letters, _) = menuState, !letters.isEmpty {
+                letters.removeLast()
+                menuState = .chain(entry: entry, letters: letters, error: nil)
+                renderMenu()
+            }
+            return true
+        case 125, 126: // arrows move the card's selection
+            if case .list(let entry, let chains, let selected, _) = menuState, chains.count > 1 {
+                let delta = event.keyCode == 125 ? 1 : -1
+                menuState = .list(entry: entry, chains: chains,
+                                  selected: (selected + delta + chains.count) % chains.count,
+                                  error: nil)
+                renderMenu()
+            }
+            return true
+        default:
+            break
+        }
+
+        guard let typed = event.charactersIgnoringModifiers?.lowercased(), !typed.isEmpty else {
+            return true
+        }
+        switch menuState {
+        case .list(let entry, let chains, _, _):
+            if chains.isEmpty {
+                if typed == "a" { beginChain(entry) }
+            } else if chains.count == 1 {
+                if typed == "d" { removeChain(chains[0]) }
+            } else if let index = Int(typed), (1...chains.count).contains(index) {
+                removeChain(chains[index - 1])
+            }
+        case .chain(let entry, var letters, _):
+            for ch in typed where ch.isASCII && ch.isLetter { letters.append(String(ch)) }
+            menuState = .chain(entry: entry, letters: letters, error: nil)
+            renderMenu()
+        case .closed:
+            break
+        }
+        return true
+    }
+
+    private func fireMenuSelection() {
+        switch menuState {
+        case .list(let entry, let chains, let selected, _):
+            if chains.isEmpty {
+                beginChain(entry)
+            } else {
+                removeChain(chains[min(selected, chains.count - 1)])
+            }
+        case .chain(let entry, let letters, _):
+            guard !letters.isEmpty, chainProblem(letters) == nil else { return }
+            if let problem = addToGraph(letters, entry) {
+                menuState = .chain(entry: entry, letters: letters, error: problem)
+                renderMenu()
+            } else {
+                closeMenu()
+                requery() // the row's address chip appears — that's the receipt
+            }
+        case .closed:
+            break
+        }
+    }
+
+    private func beginChain(_ entry: AppIndex.Entry) {
+        menuState = .chain(entry: entry, letters: [], error: nil)
+        renderMenu()
+    }
+
+    private func removeChain(_ chain: [String]) {
+        guard case .list(let entry, let chains, let selected, _) = menuState else { return }
+        if let problem = removeFromGraph(chain) {
+            menuState = .list(entry: entry, chains: chains, selected: selected, error: problem)
+            renderMenu()
+        } else {
+            closeMenu()
+            requery()
+        }
+    }
+
+    private func closeMenu() {
+        menuState = .closed
+        graphMenu.hide()
+    }
+
+    private func renderMenu() {
+        switch menuState {
+        case .closed:
+            graphMenu.hide()
+        case .list(let entry, let chains, let selected, let error):
+            let items: [GraphMenu.Item]
+            if chains.isEmpty {
+                items = [GraphMenu.Item(keycap: "a", title: "Add to graph", chain: [])]
+            } else if chains.count == 1 {
+                items = [GraphMenu.Item(keycap: "d", title: "Remove from graph", chain: [])]
+            } else {
+                // Several bindings: the chain is what tells the rows apart.
+                items = chains.enumerated().map {
+                    GraphMenu.Item(keycap: "\($0.offset + 1)", title: "Remove from graph", chain: $0.element)
+                }
+            }
+            graphMenu.present(.items(items, selected: selected, error: error),
+                              appName: entry.name,
+                              besideRow: selectedRowScreenFrame(), panelFrame: panel.frame)
+        case .chain(let entry, let letters, let error):
+            let verdict: String
+            let problem: Bool
+            if let error {
+                verdict = error
+                problem = true
+            } else if letters.isEmpty {
+                verdict = "each letter is a key in the chain"
+                problem = false
+            } else if let blocked = chainProblem(letters) {
+                verdict = blocked
+                problem = true
+            } else {
+                verdict = "add hyper \(Self.display(letters)) → \(entry.name)"
+                problem = false
+            }
+            graphMenu.present(.chain(letters: letters, verdict: verdict, problem: problem),
+                              appName: entry.name,
+                              besideRow: selectedRowScreenFrame(), panelFrame: panel.frame)
+        }
+    }
+
+    private func selectedRowScreenFrame() -> NSRect {
+        guard rowViews.indices.contains(selected) else { return panel.frame }
+        let view = rowViews[selected]
+        return panel.convertToScreen(view.convert(view.bounds, to: nil))
     }
 
     func windowDidResignKey(_ notification: Notification) {
@@ -483,6 +686,22 @@ private final class SearcherRowView: NSView {
 final class KeyablePanel: GlassPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    /// First look at ⌘-chords (the searcher's ⌘K) before AppKit routing.
+    var onKeyEquivalent: ((NSEvent) -> Bool)?
+    /// First look at every keystroke, ahead of the field editor — how the
+    /// graph card captures typing without the query field seeing it.
+    var onKeyDown: ((NSEvent) -> Bool)?
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if let onKeyEquivalent, onKeyEquivalent(event) { return true }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown, let onKeyDown, onKeyDown(event) { return }
+        super.sendEvent(event)
+    }
 
     override init(contentRect: NSRect, styleMask style: NSWindow.StyleMask,
                   backing backingStoreType: NSWindow.BackingStoreType, defer flag: Bool) {

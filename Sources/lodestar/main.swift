@@ -97,6 +97,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         searcher.markPath = { [store] id in
             store!.state.marks.first { $0.windowID == UInt32(id) }?.path.uppercased()
         }
+        searcher.graphChains = { [weak self] name in self?.graphChains(for: name) ?? [] }
+        searcher.chainProblem = { [weak self] letters in self?.chainProblem(letters) }
+        // No `self? … ??` here: these return nil on SUCCESS, and optional
+        // chaining would flatten that nil into the error fallback.
+        searcher.addToGraph = { [weak self] letters, entry in
+            guard let self else { return "lodestar is shutting down" }
+            return self.addAppToGraph(letters, entry: entry)
+        }
+        searcher.removeFromGraph = { [weak self] letters in
+            guard let self else { return "lodestar is shutting down" }
+            return self.removeChainFromGraph(letters)
+        }
         webBar = WebBarController()
         webBar.config = config
         webBar.mostRecentProfile = { [weak self] in self?.mostRecentBraveProfile() }
@@ -213,9 +225,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(header)
         menu.addItem(.separator())
         menu.addItem(makeItem("Report an Issue…", #selector(reportIssue), key: ""))
-        menu.addItem(makeItem("Pause Hotkeys", #selector(togglePause), key: ""))
-        menu.addItem(makeItem("Restore All Parked Windows", #selector(restoreParked), key: ""))
         menu.addItem(.separator())
+        menu.addItem(makeItem("Edit Config…", #selector(editConfig), key: ""))
+        menu.addItem(makeItem("Reveal Config in Finder", #selector(revealConfig), key: ""))
         menu.addItem(makeItem("Reload Config", #selector(reloadConfig), key: ""))
         menu.addItem(makeItem("Open Log", #selector(openLog), key: ""))
         menu.addItem(.separator())
@@ -258,17 +270,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return item
     }
 
-    @objc private func togglePause(_ sender: NSMenuItem) {
-        engine.isPaused.toggle()
-        sender.title = engine.isPaused ? "Resume Hotkeys" : "Pause Hotkeys"
-        hud.flash(engine.isPaused ? "⏸ hotkeys paused" : "▶ hotkeys resumed")
-        Log.info("hotkeys \(engine.isPaused ? "paused" : "resumed")")
-    }
-
-    @objc private func restoreParked() {
-        actions.restoreAllParked()
-    }
-
     /// lowercased app name -> graph chain display ("proton mail" -> "E P"),
     /// shown as teaching chips in the searcher.
     private var graphAddressByApp: [String: String] = [:]
@@ -295,7 +296,92 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         graphAddressByApp = map
     }
 
+    // MARK: - Graph editing (⌘K in the searcher)
+
+    /// Every chain bound to an app, shortest first — the card's remove rows.
+    private func graphChains(for name: String) -> [[String]] {
+        var chains: [[String]] = []
+        func walk(_ node: GraphNode, path: [String]) {
+            for (letter, child) in node.children {
+                if let target = child.target, child.children.isEmpty {
+                    if case .app(let app) = target, app.lowercased() == name {
+                        chains.append(path + [letter])
+                    }
+                } else {
+                    walk(child, path: path + [letter])
+                }
+            }
+        }
+        walk(config.graph, path: [])
+        return chains.sorted { ($0.count, $0.joined()) < ($1.count, $1.joined()) }
+    }
+
+    /// Why a chain can't be added, or nil when it's free. Judged against
+    /// the live trie, so sugar keys and merged branches are all visible.
+    private func chainProblem(_ letters: [String]) -> String? {
+        guard let first = letters.first else { return nil }
+        if Config.reservedTopLevel.contains(first) {
+            return "\(first.uppercased()) is reserved — O X Z are fixed verbs"
+        }
+        for depth in 1...letters.count {
+            let prefix = Array(letters[0..<depth])
+            let shown = prefix.map { $0.uppercased() }.joined(separator: " ")
+            switch config.graph.resolve(prefix) {
+            case .leaf(let target):
+                return "hyper \(shown) is \(target.label)"
+            case .deeper:
+                if depth == letters.count { return "hyper \(shown) leads deeper — add a letter" }
+            case .miss:
+                return nil
+            }
+        }
+        return nil
+    }
+
+    private func addAppToGraph(_ letters: [String], entry: AppIndex.Entry) -> String? {
+        if let problem = chainProblem(letters) { return problem }
+        let shown = letters.map { $0.uppercased() }.joined(separator: " ")
+        return rewriteGraph(flash: "✓ hyper \(shown) → \(entry.name)") {
+            try GraphFileEditor.addingPath(letters, target: entry.name, in: $0)
+        }
+    }
+
+    private func removeChainFromGraph(_ letters: [String]) -> String? {
+        let shown = letters.map { $0.uppercased() }.joined(separator: " ")
+        return rewriteGraph(flash: "✓ removed hyper \(shown)") {
+            try GraphFileEditor.deletingPath(letters, in: $0)
+        }
+    }
+
+    /// Read-edit-write the config file, then apply it. The HUD confirms
+    /// with `flash` unless the reload surfaces problems.
+    private func rewriteGraph(flash: String, edit: (String) throws -> String) -> String? {
+        guard let text = try? String(contentsOf: Config.file, encoding: .utf8) else {
+            return "could not read \(Config.file.lastPathComponent)"
+        }
+        let updated: String
+        do {
+            updated = try edit(text)
+        } catch let error as GraphFileEditor.EditError {
+            return error.description
+        } catch {
+            return "\(error)"
+        }
+        do {
+            try updated.write(to: Config.file, atomically: true, encoding: .utf8)
+        } catch {
+            return "could not write the config: \(error.localizedDescription)"
+        }
+        Log.info("graph-edit", ["edit": flash])
+        applyConfigReload(successFlash: flash)
+        return nil
+    }
+
     @objc private func reloadConfig() {
+        applyConfigReload(successFlash: "✓ config reloaded")
+    }
+
+    private func applyConfigReload(successFlash: String) {
         let (loaded, loadProblems) = Config.load()
         let problems = loadProblems
             + ConfigDoctor.groundTruthProblems(loaded)
@@ -318,7 +404,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             removeStatusItem()
         }
         for problem in problems { Log.error("config", ["problem": problem]) }
-        hud.flash(problems.isEmpty ? "✓ config reloaded" : "config reloaded with \(problems.count) problem(s) — see log")
+        if problems.isEmpty {
+            hud.flash(successFlash)
+        } else {
+            hud.flash("config: \(problems[0])\(problems.count > 1 ? " (+\(problems.count - 1) more, see log)" : "")", seconds: 4)
+        }
         Log.info("config-reload", [
             "graph": graphAddressByApp.count, "links": loaded.webLinks.count,
             "routes": loaded.webRoutes.count, "profiles": loaded.braveProfiles.count,
@@ -437,6 +527,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return nil
     }
 
+
+    @objc private func editConfig() {
+        ensureConfigOnDisk()
+        if !NSWorkspace.shared.open(Config.file) {
+            // No app claims .yaml — TextEdit always opens plain text.
+            NSWorkspace.shared.open([Config.file],
+                                    withApplicationAt: URL(fileURLWithPath: "/System/Applications/TextEdit.app"),
+                                    configuration: NSWorkspace.OpenConfiguration())
+        }
+    }
+
+    @objc private func revealConfig() {
+        ensureConfigOnDisk()
+        NSWorkspace.shared.activateFileViewerSelecting([Config.file])
+    }
+
+    /// The file can vanish between launch and the click; load() rewrites it.
+    private func ensureConfigOnDisk() {
+        if !FileManager.default.fileExists(atPath: Config.file.path) { _ = Config.load() }
+    }
 
     @objc private func openLog() {
         NSWorkspace.shared.open(Log.file)

@@ -1,9 +1,10 @@
 import Foundation
 
 /// Version identity — the single source of truth. make-app.sh stamps the
-/// bundle's Info.plist from `version`; boot logs it; state and config carry
-/// their own format versions so future lodestars can migrate old files
-/// instead of guessing what "unversioned" meant.
+/// bundle's Info.plist from `version`; boot logs it; the state file
+/// carries its own format version, and the config records the release
+/// that wrote it, so future lodestars can migrate old files instead of
+/// guessing what "unversioned" meant.
 public enum Lodestar {
     public static let version = "0.9.5"
 
@@ -14,11 +15,6 @@ public enum Lodestar {
     /// Bump when PersistedState's shape changes; StateMigrations carries
     /// old files forward on load.
     public static let stateVersion = 1
-
-    /// Bump when lodestar.yaml's shape changes. Config migrations are
-    /// parse-time adapters — the user's hand-edited file is never
-    /// rewritten by lodestar.
-    public static let configVersion = 1
 }
 
 /// The state-file migration chain. Each step lifts raw JSON one version;

@@ -6,9 +6,10 @@ configuration. The contract is four commands and one rule.
 ## The rule
 
 **Never rewrite the file wholesale.** `~/.config/lodestar/lodestar.yaml` is
-hand-edited and heavily commented; Lodestar itself never rewrites it, and
-neither should you. Make surgical edits — add a key, change a value, append
-a block — preserving every comment and the existing structure.
+hand-edited and heavily commented; Lodestar's own edits are surgical (⌘K in
+the searcher adds or removes single graph entries), and yours must be too.
+Make surgical edits — add a key, change a value, append a block —
+preserving every comment and the existing structure.
 
 ## The loop
 
@@ -36,8 +37,12 @@ lodestar diagnose           # one paste-able report: version, instance,
 
 ## Notes
 
-- The config carries `version:` — current format is 1. Old formats are
-  adapted at load; do not bump the version yourself.
+- The config carries `version:` — the Lodestar release that wrote the
+  file (e.g. "0.9.5"). Old formats are adapted at load; do not bump the
+  version yourself.
+- The `gestures:` section is one boolean per gesture, named by verb
+  (`scroll`, `hints`, `graph`, …); `false` frees that verb's keys to pass
+  through to the app. The schema enumerates the valid names.
 - The schema is also on disk at `~/.config/lodestar/lodestar-schema.json`
   with a yaml-language-server modeline on line 1 of the config, so
   editors and LSP-aware tools validate live.

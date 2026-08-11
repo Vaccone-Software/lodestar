@@ -41,14 +41,14 @@ struct Config {
     var hintRescanDelay: TimeInterval = 0.4
     /// Double-tap modifier bindings: modifier → verb. Custom triggers only.
     var doubleTaps: [ModifierKey: TapVerb] = [:]
-    /// Fixed verbs turned off — their keys pass through to the app.
+    /// Keys freed by gestures: toggles — they pass through to the app.
     var disabledGestures: Set<String> = []
     /// Profile registry: lodestar key → Brave display name. Chromium only.
     var braveProfiles: [String: String] = [:]
     /// Where an unrouted site opens: "most-recent" or a registry key.
     var webFallback = "most-recent"
     /// Search template; %s is replaced with the encoded query (appended if absent).
-    var webSearchURL = "https://www.google.com/search?q=%s"
+    var webSearchURL = "https://search.brave.com/search?q=%s"
     var webLinks: [WebLink] = []
     /// Substring pattern → registry key; longest match wins.
     var webRoutes: [String: String] = [:]
@@ -67,7 +67,7 @@ struct Config {
     /// The schema: one table driving reload validation and the JSON Schema
     /// editors read. Keep in lockstep with `parse` below.
     static let schema: SchemaNode = .table([
-        "version": .number(min: 1, max: 999, description: "Config format version; older formats are read automatically."),
+        "version": .string(allowed: nil, description: "The Lodestar release this config was written for."),
         "hyper": .table([
             "trigger": .string(allowed: ["right-command", "raw-hyper"],
                                description: "The physical trigger for every gesture."),
@@ -76,10 +76,14 @@ struct Config {
             "auto-reload": .boolean(description: "Reload automatically when the config file is saved."),
             "start-at-login": .boolean(description: "Keep the login LaunchAgent installed (installed app only)."),
             "show-menu-bar": .boolean(description: "Show the status item permanently; false hides it until lodestar is picked in the searcher."),
-            "disabled-gestures": .string(allowed: nil, description: "Space-separated fixed-verb keys to turn off (e.g. \"o x [\"); disabled keys pass through to the app."),
             "adopt-new-windows": .boolean(description: "Adopt windows opened outside Lodestar, summoning them full screen; off by default so external windows float untouched."),
             "active-display": .string(allowed: ["pointer", "focus"], description: "How the active display is chosen."),
         ], description: "App behavior."),
+        "gestures": .table(
+            Dictionary(uniqueKeysWithValues: Gestures.roster.map {
+                ($0.name, SchemaNode.boolean(description: $0.about))
+            }),
+            description: "Every gesture, one switch each; false frees its keys to the app."),
         "profiles": .table([
             "brave": .freeTable(value: .string(allowed: nil, description: "The browser's profile display name."),
                                 description: "lodestar name → Brave profile display name. Chromium only."),
@@ -113,160 +117,119 @@ struct Config {
 
     static let defaultYaml = """
     # yaml-language-server: $schema=lodestar-schema.json
-    # Config format version — Lodestar reads older formats automatically
-    # and never rewrites this file itself.
-    version: \(Lodestar.configVersion)
-    # ═══ Lodestar ═══════════════════════════════════════════════════════
-    # Keyboard-driven navigation: destination over process.
-    # Every option Lodestar understands is listed below with its default —
-    # edit anything, then menu bar → Reload Config.
-    #
-    # The fixed gestures (not configurable):
-    #   hyper space      searcher               hyper tab    window chooser
-    #   hyper ⏎          web bar                hyper .      menu search
-    #   hyper <letters>  graph chains           hyper ,      scroll mode
-    #   hyper ;          click hints (⇧; sticky)   double-tap: see below
-    #   hyper =          claim the focused window (⇧= beside)
-    #   hyper `          marks                  hyper '      breaths
-    #   hyper 0          sweep background       hyper O      flip orientation
-    #   hyper Z / ⇧Z     undo / redo layout     hyper ?      cheat sheet
-    #   hold hyper       peek the graph         hyper 1…9    index jump
-    #   hyper [ / ]      move window to prev/next display (⇧ = beside)
-    #   ⇧ on a summon    beside (equal split)   esc          clear a chain
-    #
-    #   hyper X / ⇧X     back / forward — walk the attention timeline
-    #   hyper ⇧1…9       slide the focused window to that position
-    # Reserved first letters (unusable in the graph): O X Z.
+    # Lodestar. Edit anything, then menu bar > Reload Config.
+    # Lodestar only writes to this file when you add or remove graph
+    # entries with ⌘K in the searcher. Everything else is yours.
+    # version is the Lodestar release that wrote this file.
+    version: "\(Lodestar.version)"
 
     hyper:
-      # The physical trigger for every gesture.
-      #   right-command — the right ⌘ key. Also accepts a hyper shim's ⌘⌃⌥
-      #                   output; configure any shim to EXCLUDE shift.
-      #   raw-hyper     — the literal ⌘⌃⌥⇧ chord.
-      # default: right-command
+      # The trigger for every gesture.
+      # right-command: the right ⌘ key. Also accepts a hyper shim's
+      # ⌘⌃⌥ output; configure shims to exclude shift.
+      # raw-hyper: the literal ⌘⌃⌥⇧ chord.
       trigger: right-command
 
+    gestures:
+      # Every gesture, one switch each. false frees its keys: they pass
+      # through to the app. Also fixed: esc clears a chain, holding
+      # hyper peeks the graph, ⇧ on any summon opens beside.
+      searcher: true          # hyper space
+      graph: true             # hyper letter chains
+      window-chooser: true    # hyper tab
+      web-bar: true           # hyper ⏎
+      menu-search: true       # hyper .
+      scroll: true            # hyper ,
+      hints: true             # hyper ; (⇧; sticky)
+      claim: true             # hyper = (⇧= beside)
+      marks: true             # hyper `
+      breaths: true           # hyper '
+      sweep: true             # hyper 0
+      index-jump: true        # hyper 1…9 (⇧ slides)
+      flip-orientation: true  # hyper O
+      layout-undo: true       # hyper Z (⇧Z redo)
+      back-forward: true      # hyper X (⇧X forward)
+      display-move: true      # hyper [ ] (⇧ beside)
+      cheat-sheet: true       # hyper ?
+
     app:
-      # Reload automatically whenever this file is saved.
-      # default: false
+      # Reload when this file is saved.
       auto-reload: false
-      # Keep the login LaunchAgent installed so Lodestar survives reboots.
-      # Only the installed app (~/Applications/lodestar.app) manages this.
-      # default: true
+      # Keep the login LaunchAgent installed (installed app only).
       start-at-login: true
-      # Show the menu bar star permanently. When false, picking "lodestar"
-      # in the searcher reveals it (menu open) for 60 seconds.
-      # default: true
+      # Show the menu bar star. When false, pick "lodestar" in the
+      # searcher to reveal it for a minute.
       show-menu-bar: true
-      # Windows opened outside Lodestar (a launcher, the Dock, ⌘N, a
-      # certificate prompt, a file reveal …) float untouched by default —
-      # they never hide what you were reading. Set true to adopt them:
-      # summoned full screen on the active display, the rest parked, and
-      # closing an adopted window restores what it displaced.
-      # default: false
+      # Summon windows opened outside Lodestar full screen. When false
+      # they float untouched.
       adopt-new-windows: false
-      # Turn off fixed verbs you never use — space-separated keys from:
-      # space return tab o z x 0 , . ; ` ' [ ] /
-      # A disabled key passes through to the focused app (⇧ variants too).
-      # default: (none)
-      # disabled-gestures: "o ["
-      # Which monitor is "here" — where summons land and panels appear.
-      #   pointer — the display under the mouse pointer
-      #   focus   — the display of the focused window
-      # default: pointer
+      # Which display summons land on: pointer or focus.
       active-display: pointer
 
     profiles:
-      # Browser profile registry: lodestar name → the browser's own profile
-      # name. Referenced everywhere else as brave:<name> (graph) or
-      # profile: <name> (web). Validated at load against the browser's real
-      # profile list. CHROMIUM ONLY for now — the browser key namespaces
-      # future engines (firefox:, safari: …).
+      # Chromium profile registry: lodestar name to the browser's
+      # profile name, used as brave:<name> in the graph and
+      # profile: <name> in web links. For example:
+      #   brave:
+      #     personal: Personal
+      #     work: Work
       brave:
-        personal: Personal
-        work: Work
+
+    # The graph: hyper plus a letter chain opens an app.
+    # One letter for the apps you live in:
+    #   g: Ghostty
+    # Nest letters to group (hyper E O, hyper E P):
+    #   e:
+    #     o: Microsoft Outlook
+    #     p: Proton Mail
+    # Values are an app name as spelled in Applications (list them with
+    # `lodestar apps`) or brave:<name> from profiles. The first letters
+    # o, x, and z are reserved.
+    # ⌘K on any searcher row edits this section for you.
+    graph:
 
     web:
-      # hyper ⏎ — the web bar. Quick links resolve to their profile; bare
-      # domains route by the rules below; anything else is a web search.
-      #
-      # Where an unrouted destination opens:
-      #   most-recent — the profile of your most recently focused Brave window
-      #   <name>      — a registry key from profiles.brave
-      # default: most-recent
+      # hyper ⏎ opens the web bar: quick links, domains, or a search.
+      # Where an unrouted destination opens: most-recent (the profile
+      # of your last focused Chromium window) or a profiles.brave name.
       fallback: most-recent
-      # Search template; %s becomes the encoded query (appended if absent).
-      # default: https://www.google.com/search?q=%s
-      search-url: https://www.google.com/search?q=%s
-      # Quick links: typed name → site, pinned to a profile (omit profile
-      # to use routes/fallback).
+      # Search template; %s becomes the query.
+      search-url: https://search.brave.com/search?q=%s
+      # Typed name to site, optionally pinned to a profile. For example:
+      #   yt:
+      #     url: youtube.com
+      #     profile: personal
       links:
-        yt:
-          url: youtube.com
-          profile: personal
-      # Routing rules for typed domains and link URLs: substring pattern →
-      # registry key, longest match wins.
+      # Substring pattern to profile; longest match wins. For example:
+      #   youtube: personal
       routes:
-        youtube: personal
-        yourcompany: work
 
     scroll:
-      # hyper , enters scroll mode: j/k down/up · h/l left/right ·
-      # d/u half-page · gg top / ⇧G bottom · tab cycles panes · esc closes.
-      #
-      # smooth — hold a direction key for constant-velocity scrolling that
-      # stops the instant you release; off = one step per key repeat.
-      # default: true
+      # hyper , scrolls: j/k down/up, h/l left/right, d/u half page,
+      # gg top, ⇧G bottom, tab cycles panes, esc closes.
+      # Hold a key for constant velocity; false steps once per press.
       smooth: true
-      # Smooth velocity, pixels per second. Range 200–4000.
-      # default: 1800
+      # Velocity in pixels per second (200 to 4000).
       speed: 1800
-      # Pixels per j/k/h/l press when smooth is off. Range 10–400.
-      # default: 60
+      # Pixels per press when smooth is false (10 to 400).
       step: 60
 
-    double-tap:
-      # Double-tap a modifier key ALONE (no chord, no keystroke between)
-      # to fire a verb — additional custom triggers; every default stays.
-      # Modifiers: cmd shift option control, or sided: left-cmd right-cmd
-      # left-shift right-shift left-option right-option left-control
-      # right-control. Verbs: searcher web menu scroll hints sticky-hints
-      # sweep cheat.
-      # default: (none)
-      # cmd: scroll
-
     hints:
-      # hyper ; labels every pressable element of the focused window —
-      # type a label to press it, ⇧label to right-click it, esc closes.
-      # hyper ⇧; is sticky: each click relabels after a beat (chain clicks).
-      #
-      # The label alphabet. Labels use only these letters — home row by
-      # default; add more for busier windows (capacity is length²).
-      # default: asdfghjkl
+      # hyper ; labels everything clickable: type a label to press it,
+      # ⇧label to right click. hyper ⇧; relabels after every click.
+      # The label alphabet; capacity is its length squared.
       letters: asdfghjkl
-      # Sticky hints: seconds between a click and the relabel.
-      # default: 0.4
+      # Seconds between a sticky click and the relabel.
       rescan-delay: 0.4
 
+    double-tap:
+      # Double tap a modifier alone to fire a verb. Modifiers: cmd
+      # shift option control, or sided forms like right-cmd. Verbs:
+      # searcher web menu scroll hints sticky-hints sweep cheat.
+      # cmd: scroll
+
     keys:
-      # Keycode → key-name overrides for non-ANSI keyboard layouts. The
-      # built-in table assumes ANSI; overlay any keycode here, e.g.:
-      #   10: s
-      # Names: a–z, 0–9, space, tab, return, delete, escape, and the
-      # punctuation Lodestar binds (` ' , . / ; [ ]).
-
-    # ── The graph ──────────────────────────────────────────────────────
-    # hyper + letter chain -> app. A letter with a value is a leaf; a
-    # letter opening an indented block subdivides (hyper E L -> Lodestar).
-    # Values: an app name as it appears in Applications (list them
-    # with `lodestar apps`), or brave:<profile> from the registry above.
-    # Both starters open Lodestar itself — the one app every machine
-    # has. Replace them with the places you actually go.
-
-    graph:
-      l: Lodestar                  # a leaf: hyper L
-      e:                           # a branch: hyper E L
-        l: Lodestar
+      # Keycode to key name overrides for non-ANSI layouts, e.g. 10: s
     """
 
     /// Load the config, writing the default file first if none exists.
@@ -333,6 +296,30 @@ struct Config {
         }
         if let speed = Yaml.value(at: ["scroll", "speed"], in: root)?.double {
             config.scrollSpeed = CGFloat(max(200, min(4000, speed)))
+        }
+        if let letters = Yaml.value(at: ["hints", "letters"], in: root)?.string {
+            // Lowercased ASCII letters, first occurrence wins — duplicate
+            // letters would mint colliding labels.
+            var seen = Set<Character>()
+            let cleaned = String(letters.lowercased()
+                .filter { $0.isASCII && $0.isLetter && seen.insert($0).inserted })
+            if cleaned.count >= 2 {
+                config.hintLetters = cleaned
+            } else {
+                problems.append("hints.letters needs at least two distinct letters — using \(config.hintLetters)")
+            }
+        }
+        if let delay = Yaml.value(at: ["hints", "rescan-delay"], in: root)?.double {
+            config.hintRescanDelay = max(0.1, min(2.0, delay))
+        }
+        if let gestures = Yaml.value(at: ["gestures"], in: root)?.table {
+            // Unknown names and non-boolean values are the schema walk's
+            // to report; here false just frees the verb's keys.
+            var toggles: [String: Bool] = [:]
+            for (name, value) in gestures {
+                if let enabled = value.bool { toggles[name] = enabled }
+            }
+            config.disabledGestures = Gestures.disabledKeys(from: toggles)
         }
 
         // Profiles first — the graph and web sections reference them.

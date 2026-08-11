@@ -115,7 +115,11 @@ public final class GraphNode {
         }
         if trimmed.lowercased().hasPrefix("app:") {
             let name = String(trimmed.dropFirst("app:".count)).trimmingCharacters(in: .whitespaces)
-            return name.isEmpty ? nil : .app(name)
+            guard !name.isEmpty else {
+                problems.append("graph '\(path)' has an empty target — ignored")
+                return nil
+            }
+            return .app(name)
         }
         return .app(trimmed)
     }

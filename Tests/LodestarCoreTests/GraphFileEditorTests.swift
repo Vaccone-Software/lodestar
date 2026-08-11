@@ -178,6 +178,26 @@ final class GraphFileEditorTests: XCTestCase {
 
     // MARK: - Round trip
 
+    func testAddThenDeleteRestoresTheFileByteForByte() throws {
+        let chains: [[String]] = [["m"], ["e", "x"], ["e", "d", "q"], ["w", "a"]]
+        var text = base
+        for chain in chains {
+            text = try GraphFileEditor.addingPath(chain, target: "App \(chain.joined())", in: text)
+        }
+        for chain in chains.reversed() {
+            text = try GraphFileEditor.deletingPath(chain, in: text)
+        }
+        XCTAssertEqual(text, base)
+    }
+
+    func testDeletionOrderDoesNotMatter() throws {
+        let chains: [[String]] = [["m"], ["e", "x"], ["e", "d", "q"]]
+        var text = base
+        for chain in chains { text = try GraphFileEditor.addingPath(chain, target: "X", in: text) }
+        for chain in chains { text = try GraphFileEditor.deletingPath(chain, in: text) }
+        XCTAssertEqual(text, base)
+    }
+
     func testEditedFileStillBuildsTheExpectedTrie() throws {
         var text = base
         text = try GraphFileEditor.addingPath(["e", "x"], target: "Xcode", in: text)

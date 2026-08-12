@@ -71,6 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // One hung app must never freeze the switcher.
         setGlobalAXTimeout(1.0)
 
+        Config.migrateIfNeeded()
         let (loaded, problems) = Config.load()
         config = loaded
         Keys.apply(overrides: loaded.keyOverrides)
@@ -365,33 +366,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let problem = chainProblem(letters) { return problem }
         let shown = letters.map { $0.uppercased() }.joined(separator: " ")
         return rewriteGraph(flash: "✓ hyper \(shown) → \(entry.name)") {
-            try GraphFileEditor.addingPath(letters, target: entry.name, in: $0)
+            try GraphJsonEditor.addingPath(letters, target: entry.name, in: $0)
         }
     }
 
     private func removeChainFromGraph(_ letters: [String]) -> String? {
         let shown = letters.map { $0.uppercased() }.joined(separator: " ")
         return rewriteGraph(flash: "✓ removed hyper \(shown)") {
-            try GraphFileEditor.deletingPath(letters, in: $0)
+            try GraphJsonEditor.deletingPath(letters, in: $0)
         }
     }
 
-    /// Read-edit-write the config file, then apply it. The HUD confirms
-    /// with `flash` unless the reload surfaces problems.
-    private func rewriteGraph(flash: String, edit: (String) throws -> String) -> String? {
-        guard let text = try? String(contentsOf: Config.file, encoding: .utf8) else {
+    /// Read-edit-write the config tree, then apply it. The edit is a tree
+    /// operation; the canonical emitter owns every byte of formatting.
+    /// The HUD confirms with `flash` unless the reload surfaces problems.
+    private func rewriteGraph(flash: String, edit: ([String: ConfigValue]) throws -> [String: ConfigValue]) -> String? {
+        Config.migrateIfNeeded() // an edit is a write; writes happen in the new format
+        guard let text = try? String(contentsOf: Config.file, encoding: .utf8),
+              let tree = try? Json.parse(text) else {
             return "could not read \(Config.file.lastPathComponent)"
         }
-        let updated: String
+        let updated: [String: ConfigValue]
         do {
-            updated = try edit(text)
-        } catch let error as GraphFileEditor.EditError {
+            updated = try edit(tree)
+        } catch let error as GraphJsonEditor.EditError {
             return error.description
         } catch {
             return "\(error)"
         }
         do {
-            try updated.write(to: Config.file, atomically: true, encoding: .utf8)
+            try Config.write(tree: updated)
         } catch {
             return "could not write the config: \(error.localizedDescription)"
         }
@@ -559,7 +563,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func editConfig() {
         ensureConfigOnDisk()
         if !NSWorkspace.shared.open(Config.file) {
-            // No app claims .yaml — TextEdit always opens plain text.
+            // No app claims .json — TextEdit always opens plain text.
             NSWorkspace.shared.open([Config.file],
                                     withApplicationAt: URL(fileURLWithPath: "/System/Applications/TextEdit.app"),
                                     configuration: NSWorkspace.OpenConfiguration())
@@ -663,6 +667,10 @@ func printUsage() {
 
       check [--json]   validate the config (schema, references, ground truth)
       reload           apply the config to the running instance
+      config           print the effective config (defaults + your file)
+      config get <path>          read one value, dotted path
+      config set <path> <value>  validated write, applied live
+      config unset <path>        back to the default
       diagnose         print a support report (paste this into bug reports)
       reset-config     back up the current config, write fresh defaults
       uninstall        remove lodestar (--dry-run to preview, --purge for data)
@@ -685,6 +693,9 @@ if !cliArguments.isEmpty {
 if cliArguments.isEmpty && getppid() != 1 {
     printUsage()
     exit(0)
+}
+if cliArguments.first == "config" {
+    runConfigVerb(Array(cliArguments.dropFirst()))
 }
 if cliArguments.contains("--check") || cliArguments.contains("check") {
     runConfigCheck(json: cliArguments.contains("--json"))

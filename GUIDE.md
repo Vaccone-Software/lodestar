@@ -1,6 +1,6 @@
 # Lodestar — the reference
 
-Hyper is **right ⌘** (configurable in `~/.config/lodestar/lodestar.yaml`).
+Hyper is **right ⌘** (configurable in `~/.config/lodestar/lodestar.json`).
 
 ## Gestures
 
@@ -80,50 +80,55 @@ The harvest is asynchronous and bounded — a heavy Chromium page can never stal
 
 Profiles live in a registry (`profiles.brave`, `profiles.chrome`, `profiles.edge`): Lodestar name → the browser's profile name, with keys global across browsers and referenced everywhere else (`brave:work` or `chrome:work` in the graph, `profile: work` in links). References are validated at Reload Config, and the registry itself is checked against each browser's real profile list — a renamed browser profile surfaces as one flagged line, not a mystery failure later.
 
-## Config (`lodestar.yaml`)
+## Config (`lodestar.json`)
 
-```yaml
-hyper:
-  trigger: right-command # right-command | raw-hyper
+The config is sparse JSON: it holds only what differs from the defaults,
+so the file reads as pure intent. Every option's documentation lives in
+the schema (editors surface it as you type; `lodestar schema` prints it),
+and every writer — a hand edit, ⌘K in the searcher, `lodestar config set`
+— converges on the same canonical bytes.
 
-profiles:
-  brave: # registry: lodestar name → browser profile
-    work: Work
-    google: Google
-
-web:
-  fallback: most-recent
-  links:
-    yt: { url: youtube.com, profile: google } # (written out as nested keys)
-  routes:
-    acme: work
-
-graph:
-  s: Slack
-  e: # subdivision: hyper E O -> Outlook
-    o: Microsoft Outlook
-    p: Proton Mail
-  w: # Brave profiles, by registry key
-    w: brave:work
+```json
+{
+  "$schema": "lodestar-schema.json",
+  "version": "0.9.10",
+  "profiles": {
+    "brave": { "work": "Work", "google": "Google" }
+  },
+  "web": {
+    "links": { "yt": { "url": "youtube.com", "profile": "google" } },
+    "routes": { "acme": "work" }
+  },
+  "graph": {
+    "s": "Slack",
+    "e": { "o": "Microsoft Outlook", "p": "Proton Mail" },
+    "w": { "w": "brave:work" }
+  }
+}
 ```
 
-Nested letters are the trie; values are an app name or `<browser>:<registry key>` (`brave:work`, `chrome:work`). **Multi-letter keys are sugar**: `eo: Outlook` binds the chain E → O without writing the nesting (any depth: `wgg:` works); a multi-letter key whose prefix is already a destination is refused with a validation problem. **Double-taps** (`double-tap:` section) bind a modifier tapped twice alone — `cmd: scroll` makes tap-tap-⌘ enter scroll mode — as additional triggers; every default gesture stays. **Disabling** (the `gestures:` section) gives every gesture a named switch — `scroll: false` frees its keys to pass through to the app, shift variants included. Reserved first letters: `O`, `Z`, `X`. Marks and breaths live on vim's two mark keys — `` ` `` for a saved window, `'` for a saved layout — so M is Messages and B is free to bind. The live config file lists every option with its default and comments. Menu bar → Reload Config applies edits and reports every validation problem.
+Nested letters are the trie; values are an app name or `<browser>:<registry key>` (`brave:work`, `chrome:work`). **Multi-letter keys are sugar**: `"eo": "Outlook"` binds the chain E → O without writing the nesting (any depth: `wgg` works); a multi-letter key whose prefix is already a destination is refused with a validation problem. **Double-taps** (the `double-tap` section) bind a modifier tapped twice alone — `"cmd": "scroll"` makes tap-tap-⌘ enter scroll mode — as additional triggers; every default gesture stays. **Disabling** (the `gestures` section) gives every gesture a named switch — `"scroll": false` frees its keys to pass through to the app, shift variants included. Reserved first letters: `O`, `Z`, `X`. Marks and breaths live on vim's two mark keys — `` ` `` for a saved window, `'` for a saved layout — so M is Messages and B is free to bind. Deleting a key restores its default; `lodestar config` prints the full effective picture. Menu bar → Reload Config applies edits and reports every validation problem.
+
+**Migrating from 0.9.9 and earlier**: the first boot of 0.9.10 converts
+`lodestar.yaml` to `lodestar.json` automatically — same settings, sparse
+form — and leaves the yaml in place, inert, until a later release retires
+it. A yaml that fails to parse is never converted.
 
 **Shift always means something** (beside, bind). If a hyper key shim rewrites right ⌘, configure it to exclude shift from its output — Lodestar accepts both the raw right-⌘ device bit and the shim's `⌘⌃⌥` form.
 
 ## Controls & state
 
 - Menu bar star: Check for Updates… · Report an Issue… · Edit Config… · Reveal Config in Finder · Reload Config · Open Log · Quit (quitting restores everything parked). Hide it with `app.show-menu-bar: false` — then picking **Lodestar** in the searcher reveals it for 60 seconds with the menu popped open, ready to use. (Hidden mode forgoes the chain-active star; the guide panel still shows every pending chain.) `kill -USR2 $(cat ~/.config/lodestar/lodestar.pid)` reloads the config from scripts.
-- CLI: `lodestar check [--json]` validates the config (schema + referential + ground truth); `lodestar reload` applies it to the running instance; `lodestar diagnose` prints one paste-able report (version, instance, trust, displays, config, state, log tail); `lodestar schema` and `lodestar config-path` serve tools and agents — see AGENTS.md for the agent contract.
+- CLI: `lodestar check [--json]` validates the config (schema + referential + ground truth); `lodestar reload` applies it to the running instance; `lodestar config` prints the effective config, `config get <path>` one value, `config set <path> <value>` a validated write applied live, `config unset <path>` the way back to default; `lodestar diagnose` prints one paste-able report (version, instance, trust, displays, config, state, log tail); `lodestar schema` and `lodestar config-path` serve tools and agents — see AGENTS.md for the agent contract.
 - `scripts/install-app.sh` — build, sign, and install `~/Applications/lodestar.app` with a login LaunchAgent, so Lodestar survives reboots. **First install**: grant the app Accessibility when it prompts (System Settings → Privacy & Security → Accessibility) — Lodestar wakes up on its own within seconds of the grant. Signed with your Apple Development identity, so the grant survives rebuilds.
 - `scripts/dev-restart.sh` — rebuild + hot-swap (unloads the login agent so launchd doesn't fight the dev instance).
 - State: `~/.config/lodestar/state.json` (marks, breaths, parked frames, usage) — **versioned and self-defending**: every boot keeps a last-known-good `state.json.bak`; a corrupted file is quarantined with a timestamp, restored from backup, and announced in a flash — never silently reset. Old formats migrate on load. Log: `lodestar.log`. `kill -USR1 $(cat ~/.config/lodestar/lodestar.pid)` dumps diagnostics to the log.
-- Versions: the binary knows its version (`lodestar 0.9.0 starting` in the log, shown in the menu header), and both `state.json` and `lodestar.yaml` carry format versions — the foundation for automatic migrations when updates ship. Lodestar never rewrites your hand-edited config; old config formats are adapted at parse time.
+- Versions: the binary knows its version (`lodestar 0.9.0 starting` in the log, shown in the menu header), and both `state.json` and `lodestar.json` record the release that wrote them — schema changes migrate the file at boot, with the writing release always on record.
 
 ## Config DX
 
-- **Every reload validates everything**: YAML syntax with line numbers, unknown keys with "did you mean" hints, types/enums/ranges, registry references, the registry against each browser's real profile list, app names against what's installed, and unused profiles. Problems flash on screen and land in the log.
-- **Editor intelligence for free**: the config's first line points `yaml-language-server` at `lodestar-schema.json` (emitted beside the config, generated from the same Swift table that validates reloads — they cannot drift). nvim with yamlls or VS Code's YAML extension gets completion, hover docs, and type checking.
+- **Every reload validates everything**: JSON syntax, unknown keys with "did you mean" hints, types/enums/ranges, registry references, the registry against each browser's real profile list, app names against what's installed, and unused profiles. Problems flash on screen and land in the log. `lodestar config set` refuses any write that would introduce a problem.
+- **Editor intelligence for free**: the config's `$schema` key points at `lodestar-schema.json` (emitted beside the config, generated from the same Swift table that validates reloads — they cannot drift). VS Code natively, and any LSP-aware editor, gets completion, hover docs, and type checking.
 - **`app.auto-reload: true`** watches the file and reloads the moment you save — your editor becomes the IDE because saving is validating. Off by default.
 - **`app.start-at-login`** (default true) — the installed app installs or removes its own LaunchAgent to match; setting false never kills the running session, it just stops the next login from starting one. Dev builds never touch login items.
 - **`app.auto-update`** (default true) — the installed app keeps itself current: a daily check, a background download, and a strict verification (signature integrity, this team's Developer ID, this bundle id, version matching the release) before anything moves. The swap waits for a quiet moment — no chain, no panel, ten minutes since the last gesture — hands the session over exactly like a manual reinstall, and a watchdog restores the previous version if the new one fails to boot. One flash afterward: quiet, never hidden. Menu bar → Check for Updates… checks and applies immediately. Dev builds never self-update.

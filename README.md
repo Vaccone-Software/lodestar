@@ -54,9 +54,11 @@ brew install --cask vaccone-software/tap/lodestar
 - [FINDINGS.md](FINDINGS.md): the engineering ledger. Every platform
   assumption probed, with verdicts.
 
-Your config is one commented YAML file with schema backed editor completion,
-validated against your machine with ground truth (`lodestar check`). Agents
-and tools get a stable contract: [AGENTS.md](AGENTS.md).
+Your config is one sparse JSON file: it holds only what you changed, the
+schema documents every option with editor completion, and every write is
+validated against your machine with ground truth (`lodestar check`,
+`lodestar config set`). Agents and tools get a stable contract:
+[AGENTS.md](AGENTS.md).
 
 ## Governance
 

@@ -172,19 +172,23 @@ func runDiagnose() -> Never {
 func runResetConfig() -> Never {
     let fm = FileManager.default
     try? fm.createDirectory(at: Config.directory, withIntermediateDirectories: true)
-    if fm.fileExists(atPath: Config.file.path) {
-        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-        let backup = Config.directory.appendingPathComponent("lodestar.yaml.backup-\(stamp)")
+    let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+    // Both generations get a backup — whichever exists is user data.
+    for source in [Config.file, Config.yamlFile] where fm.fileExists(atPath: source.path) {
+        let backup = Config.directory.appendingPathComponent("\(source.lastPathComponent).backup-\(stamp)")
         do {
-            try fm.copyItem(at: Config.file, to: backup)
-            print("backed up current config → \(backup.lastPathComponent)")
+            try fm.copyItem(at: source, to: backup)
+            print("backed up \(source.lastPathComponent) → \(backup.lastPathComponent)")
         } catch {
-            print("✕ could not back up the current config (\(error.localizedDescription)) — aborting, nothing changed")
+            print("✕ could not back up \(source.lastPathComponent) (\(error.localizedDescription)) — aborting, nothing changed")
             exit(1)
         }
     }
     do {
-        try Config.defaultYaml.write(to: Config.file, atomically: true, encoding: .utf8)
+        try Config.write(tree: [:])
+        // A reset supersedes the old yaml; backed up above, it would only
+        // shadow the fresh file for a rolled-back binary.
+        try? fm.removeItem(at: Config.yamlFile)
     } catch {
         print("✕ could not write the default config: \(error.localizedDescription)")
         exit(1)
@@ -249,6 +253,122 @@ func runUninstall(dryRun: Bool, purge: Bool) -> Never {
     }
     print("✓ Lodestar uninstalled. The Accessibility entry can be removed in System Settings → Privacy & Security.")
     exit(0)
+}
+
+/// `lodestar config` and friends — the blessed agent lane. Reads serve
+/// the effective view (defaults with the file's deviations over them);
+/// writes are validated before a byte moves, land sparse and canonical,
+/// and reach the running instance through the ordinary reload.
+func runConfigVerb(_ arguments: [String]) -> Never {
+    func userTree() -> [String: ConfigValue]? {
+        if let text = try? String(contentsOf: Config.file, encoding: .utf8) {
+            return try? Json.parse(text)
+        }
+        if let text = try? String(contentsOf: Config.yamlFile, encoding: .utf8) {
+            return try? Yaml.parse(text)
+        }
+        return [:]
+    }
+    func options(_ tree: [String: ConfigValue]) -> [String: ConfigValue] {
+        var out = tree
+        out.removeValue(forKey: "$schema")
+        out.removeValue(forKey: "version")
+        return out
+    }
+    func signalRunningInstance() {
+        let pidPath = Log.directory.appendingPathComponent("lodestar.pid")
+        if let raw = try? String(contentsOf: pidPath, encoding: .utf8),
+           let pid = Int32(raw.trimmingCharacters(in: .whitespacesAndNewlines)),
+           kill(pid, 0) == 0 {
+            kill(pid, SIGUSR2)
+            print("✓ applied to the running instance (pid \(pid))")
+        }
+    }
+
+    guard let tree = userTree() else {
+        print("✕ the config does not parse — run: lodestar check")
+        exit(1)
+    }
+
+    switch arguments.first {
+    case nil:
+        print(Json.emit(Json.merged(defaults: ConfigDefaults.tree, overlay: options(tree))), terminator: "")
+        exit(0)
+
+    case "get":
+        guard arguments.count == 2 else {
+            print("usage: lodestar config get <dotted.path>")
+            exit(64)
+        }
+        let path = arguments[1].split(separator: ".").map(String.init)
+        let effective = Json.merged(defaults: ConfigDefaults.tree, overlay: options(tree))
+        guard let value = Yaml.value(at: path, in: effective) else {
+            print("✕ nothing at \(arguments[1])")
+            exit(1)
+        }
+        print(Json.emitFragment(value))
+        exit(0)
+
+    case "set", "unset":
+        // Writes happen in the new format; convert first if needed.
+        Config.migrateIfNeeded()
+        guard let current = userTree() else {
+            print("✕ the config does not parse — fix it (lodestar check) before writing")
+            exit(1)
+        }
+        let updated: [String: ConfigValue]
+        if arguments.first == "set" {
+            guard arguments.count == 3 else {
+                print("usage: lodestar config set <dotted.path> <value>")
+                exit(64)
+            }
+            let path = arguments[1].split(separator: ".").map(String.init)
+            guard let next = Json.setting(current, path: path, to: Json.parseFragment(arguments[2])) else {
+                print("✕ a value already sits on that path — unset it first")
+                exit(1)
+            }
+            updated = next
+        } else {
+            guard arguments.count == 2 else {
+                print("usage: lodestar config unset <dotted.path>")
+                exit(64)
+            }
+            let path = arguments[1].split(separator: ".").map(String.init)
+            guard let next = Json.removing(current, path: path) else {
+                print("✓ \(arguments[1]) is already the default")
+                exit(0)
+            }
+            updated = next
+        }
+        // Refuse any write that introduces a problem the file didn't
+        // already have; pre-existing complaints stay the user's business.
+        let before = ConfigSchema.validate(options(current), against: Config.schema)
+        let after = ConfigSchema.validate(options(updated), against: Config.schema)
+        let introduced = after.filter { !before.contains($0) }
+        guard introduced.isEmpty else {
+            for problem in introduced { print("✕ \(problem)") }
+            print("nothing written")
+            exit(1)
+        }
+        do {
+            try Config.write(tree: updated)
+        } catch {
+            print("✕ could not write the config: \(error.localizedDescription)")
+            exit(1)
+        }
+        if arguments.first == "set" {
+            print("✓ \(arguments[1]) = \(Json.emitFragment(Json.parseFragment(arguments[2])))")
+        } else {
+            print("✓ \(arguments[1]) → default")
+        }
+        signalRunningInstance()
+        exit(0)
+
+    default:
+        print("unknown config command: \(arguments[0])")
+        print("usage: lodestar config [get <path> | set <path> <value> | unset <path>]")
+        exit(64)
+    }
 }
 
 /// The graph's valid vocabulary: every app name the index can resolve,

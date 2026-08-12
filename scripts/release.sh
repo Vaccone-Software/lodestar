@@ -1,5 +1,6 @@
 #!/bin/bash
-# Release pipeline: build → Developer ID sign → notarize → staple → zip.
+# Release pipeline: build → Developer ID sign → notarize → staple → zip,
+# then the drag-pane DMG from the stapled app, notarized in its own right.
 # One-time setup this script will walk you through:
 #   1. A "Developer ID Application" certificate (Xcode → Settings →
 #      Accounts → Manage Certificates → + → Developer ID Application).
@@ -26,7 +27,7 @@ echo "→ testing"
 swift test >/dev/null 2>&1 || { echo "✕ tests failed — no release from a red suite (run: swift test)"; exit 1; }
 
 echo "→ building v$VERSION"
-./scripts/make-app.sh >/dev/null
+./scripts/make-app.sh --universal >/dev/null
 
 echo "→ signing with: $IDENTITY"
 codesign --force --options runtime --timestamp --sign "$IDENTITY" "$APP"
@@ -47,5 +48,13 @@ xcrun stapler staple "$APP"
 rm "$ARTIFACT"
 ditto -c -k --keepParent "$APP" "$ARTIFACT"
 
-echo "✓ notarized release artifact: $ARTIFACT"
-shasum -a 256 "$ARTIFACT"
+DMG="dist/lodestar-$VERSION.dmg"
+./scripts/make-dmg.sh
+echo "→ signing the disk image"
+codesign --force --timestamp --sign "$IDENTITY" "$DMG"
+echo "→ notarizing the disk image"
+xcrun notarytool submit "$DMG" --keychain-profile "$PROFILE" --wait
+xcrun stapler staple "$DMG"
+
+echo "✓ notarized release artifacts:"
+shasum -a 256 "$ARTIFACT" "$DMG"

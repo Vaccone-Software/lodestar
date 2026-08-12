@@ -27,8 +27,8 @@ git push -q origin main
 ./scripts/release.sh
 
 echo "→ publishing release v$VERSION"
-gh release create "v$VERSION" "dist/lodestar-$VERSION.zip" $PRERELEASE \
-    --title "Lodestar $VERSION" --notes-file "$NOTES" --repo "$REPO"
+gh release create "v$VERSION" "dist/lodestar-$VERSION.zip" "dist/lodestar-$VERSION.dmg" \
+    $PRERELEASE --title "Lodestar $VERSION" --notes-file "$NOTES" --repo "$REPO"
 
 echo "→ bumping cask"
 SHA=$(shasum -a 256 "dist/lodestar-$VERSION.zip" | cut -d' ' -f1)

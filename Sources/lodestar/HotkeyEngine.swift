@@ -22,6 +22,16 @@ final class HotkeyEngine {
     private var isPeeking = false
     var isPaused = false
 
+    /// The last moment the engine acted on the user's behalf; the update
+    /// gate reads this to find a quiet stretch.
+    private(set) var lastActivityAt = Date.distantPast
+
+    /// Nothing in flight: no chain, no scroll, no hints, no panel, no
+    /// peek, no cheat sheet — a restart right now would be invisible.
+    var isQuiet: Bool {
+        core.isIdle && !anyBarVisible && !isPeeking && !cheat.isVisible
+    }
+
     var config: Config {
         didSet { applyGrammarConfig() }
     }
@@ -128,6 +138,7 @@ final class HotkeyEngine {
             if !isPaused,
                let verb = tapDetector.flagsChanged(event.flags, at: Date().timeIntervalSinceReferenceDate) {
                 cancelPeek(hideGuide: isPeeking)
+                lastActivityAt = Date()
                 let press = verb.keypress
                 let wasIdle = core.isIdle
                 _ = apply(core.keyDown(key: press.key, held: true, shift: press.shift, world: self),
@@ -160,6 +171,9 @@ final class HotkeyEngine {
         // Mid-chain and mid-scroll, hyper may or may not still be down —
         // shift keeps its meaning either way.
         let effectiveShift = core.isIdle ? shift : chainShift(event.flags)
+        // Ordinary typing is not engine activity; hyper gestures and
+        // anything mid-chain are.
+        if held || !core.isIdle { lastActivityAt = Date() }
 
         let wasIdle = core.isIdle
         let effects = core.keyDown(key: key, held: held, shift: effectiveShift, world: self)
@@ -265,6 +279,7 @@ final class HotkeyEngine {
             let work = DispatchWorkItem { [weak self] in
                 guard let self, self.core.isIdle, !self.anyBarVisible else { return }
                 self.isPeeking = true
+                self.lastActivityAt = Date()
                 self.hud.showGuide(
                     title: "⌖ graph",
                     rows: self.actions.graphGuideRows(self.config.graph),

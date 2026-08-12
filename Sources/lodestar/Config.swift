@@ -17,6 +17,9 @@ struct Config {
     var trigger: Trigger = .rightCommand
     /// Reload the config automatically when the file is saved.
     var autoReload = false
+    /// Keep Lodestar current: check daily, verify, apply when idle
+    /// (installed app only).
+    var autoUpdate = true
     /// Keep the login LaunchAgent installed (installed app only).
     var startAtLogin = true
     /// Show the status item permanently; false hides it (picking lodestar
@@ -75,6 +78,7 @@ struct Config {
         ], description: "The hyper key."),
         "app": .table([
             "auto-reload": .boolean(description: "Reload automatically when the config file is saved."),
+            "auto-update": .boolean(description: "Keep Lodestar current: check daily, verify the download, apply quietly when idle (installed app only)."),
             "start-at-login": .boolean(description: "Keep the login LaunchAgent installed (installed app only)."),
             "show-menu-bar": .boolean(description: "Show the status item permanently; false hides it until lodestar is picked in the searcher."),
             "adopt-new-windows": .boolean(description: "Adopt windows opened outside Lodestar, summoning them full screen; off by default so external windows float untouched."),
@@ -159,6 +163,9 @@ struct Config {
     app:
       # Reload when this file is saved.
       auto-reload: false
+      # Keep Lodestar current: check daily, verify the download,
+      # apply quietly when nothing is in flight.
+      auto-update: true
       # Keep the login LaunchAgent installed (installed app only).
       start-at-login: true
       # Show the menu bar star. When false, pick "lodestar" in the
@@ -270,6 +277,9 @@ struct Config {
 
         if let autoReload = Yaml.value(at: ["app", "auto-reload"], in: root)?.bool {
             config.autoReload = autoReload
+        }
+        if let autoUpdate = Yaml.value(at: ["app", "auto-update"], in: root)?.bool {
+            config.autoUpdate = autoUpdate
         }
         if let startAtLogin = Yaml.value(at: ["app", "start-at-login"], in: root)?.bool {
             config.startAtLogin = startAtLogin

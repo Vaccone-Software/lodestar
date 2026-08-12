@@ -7,7 +7,7 @@ Hyper is **right ⌘** (configurable in `~/.config/lodestar/lodestar.yaml`).
 | Gesture                        | Meaning                                                                 |
 | ------------------------------ | ----------------------------------------------------------------------- |
 | `hyper space`                  | Searcher — type, `↵` focus-or-launch full-screen, `⇧↵` beside           |
-| `hyper` + letter chain         | Graph: walk to an app (`S`=Slack … `E O`=Outlook, `W W`=Brave·Work)    |
+| `hyper` + letter chain         | Graph: walk to an app (`S`=Slack … `E O`=Outlook, `W W`=Brave·Work)     |
 | `⇧` on a graph/searcher summon | Beside me (equal split) instead of full-screen                          |
 | `hyper 1…8`                    | Jump to window by position (left→right, top→bottom)                     |
 | `hyper 9`                      | Always the last window                                                  |
@@ -113,7 +113,7 @@ Nested letters are the trie; values are an app name or `<browser>:<registry key>
 
 ## Controls & state
 
-- Menu bar star: Pause Hotkeys · Restore All Parked Windows · Reload Config · Open Log · Quit (quitting restores everything parked). Hide it with `app.show-menu-bar: false` — then picking **Lodestar** in the searcher reveals it for 60 seconds with the menu popped open, ready to use. (Hidden mode forgoes the chain-active star; the guide panel still shows every pending chain.) `kill -USR2 $(cat ~/.config/lodestar/lodestar.pid)` reloads the config from scripts.
+- Menu bar star: Check for Updates… · Report an Issue… · Edit Config… · Reveal Config in Finder · Reload Config · Open Log · Quit (quitting restores everything parked). Hide it with `app.show-menu-bar: false` — then picking **Lodestar** in the searcher reveals it for 60 seconds with the menu popped open, ready to use. (Hidden mode forgoes the chain-active star; the guide panel still shows every pending chain.) `kill -USR2 $(cat ~/.config/lodestar/lodestar.pid)` reloads the config from scripts.
 - CLI: `lodestar check [--json]` validates the config (schema + referential + ground truth); `lodestar reload` applies it to the running instance; `lodestar diagnose` prints one paste-able report (version, instance, trust, displays, config, state, log tail); `lodestar schema` and `lodestar config-path` serve tools and agents — see AGENTS.md for the agent contract.
 - `scripts/install-app.sh` — build, sign, and install `~/Applications/lodestar.app` with a login LaunchAgent, so Lodestar survives reboots. **First install**: grant the app Accessibility when it prompts (System Settings → Privacy & Security → Accessibility) — Lodestar wakes up on its own within seconds of the grant. Signed with your Apple Development identity, so the grant survives rebuilds.
 - `scripts/dev-restart.sh` — rebuild + hot-swap (unloads the login agent so launchd doesn't fight the dev instance).
@@ -126,6 +126,7 @@ Nested letters are the trie; values are an app name or `<browser>:<registry key>
 - **Editor intelligence for free**: the config's first line points `yaml-language-server` at `lodestar-schema.json` (emitted beside the config, generated from the same Swift table that validates reloads — they cannot drift). nvim with yamlls or VS Code's YAML extension gets completion, hover docs, and type checking.
 - **`app.auto-reload: true`** watches the file and reloads the moment you save — your editor becomes the IDE because saving is validating. Off by default.
 - **`app.start-at-login`** (default true) — the installed app installs or removes its own LaunchAgent to match; setting false never kills the running session, it just stops the next login from starting one. Dev builds never touch login items.
+- **`app.auto-update`** (default true) — the installed app keeps itself current: a daily check, a background download, and a strict verification (signature integrity, this team's Developer ID, this bundle id, version matching the release) before anything moves. The swap waits for a quiet moment — no chain, no panel, ten minutes since the last gesture — hands the session over exactly like a manual reinstall, and a watchdog restores the previous version if the new one fails to boot. One flash afterward: quiet, never hidden. Menu bar → Check for Updates… checks and applies immediately. Dev builds never self-update.
 - **`lodestar --check`** — full validation from the CLI, exit code included: `~/Applications/lodestar.app/Contents/MacOS/lodestar --check`.
 - **`keys:`** overlays the built-in ANSI keycode table for non-ANSI layouts (`keycode: name`).
 - **Crash self-healing**: the LaunchAgent restarts Lodestar after a crash (10s throttle) but never after a clean Quit.

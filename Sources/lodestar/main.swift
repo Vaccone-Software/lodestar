@@ -57,6 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var searcher: SearcherController!
     private var webBar: WebBarController!
     private var engine: HotkeyEngine!
+    private var updater: UpdateController!
     private var statusItem: NSStatusItem?
     private var menuBarHideTimer: Timer?
     private var signalSource: DispatchSourceSignal?
@@ -140,6 +141,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateConfigWatcher()
         reconcileLoginItem()
 
+        // The updater runs regardless of trust — an install stuck at the
+        // Accessibility prompt still deserves fixes.
+        updater = UpdateController()
+        updater.enabled = config.autoUpdate
+        updater.engineQuiet = { [weak self] in self?.engine.isQuiet ?? false }
+        updater.lastActivity = { [weak self] in self?.engine.lastActivityAt ?? Date() }
+        updater.flash = { [weak self] text, seconds in self?.hud.flash(text, seconds: seconds) }
+        updater.start()
+
         guard Permissions.isTrusted else {
             // A freshly installed bundle has its own TCC identity. Prompt,
             // then wake up on our own the moment the grant lands — no
@@ -187,7 +197,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Log.info("terminating: restoring parked windows")
         actions?.restoreAllParked()
         store?.save() // flush any coalesced write before the process dies
-        try? FileManager.default.removeItem(at: Self.pidFile)
+        // Only clear the pid file while it is still ours — in a takeover
+        // (manual reinstall or self-update) the successor has already
+        // written its own pid, and deleting it would blind the update
+        // watchdog into rolling back a healthy build.
+        if let text = try? String(contentsOf: Self.pidFile, encoding: .utf8),
+           Int32(text.trimmingCharacters(in: .whitespacesAndNewlines))
+               == ProcessInfo.processInfo.processIdentifier {
+            try? FileManager.default.removeItem(at: Self.pidFile)
+        }
+    }
+
+    @objc private func checkForUpdates() {
+        updater.check(force: true)
     }
 
     @objc private func reportIssue() {
@@ -224,6 +246,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         header.isEnabled = false
         menu.addItem(header)
         menu.addItem(.separator())
+        menu.addItem(makeItem("Check for Updates…", #selector(checkForUpdates), key: ""))
         menu.addItem(makeItem("Report an Issue…", #selector(reportIssue), key: ""))
         menu.addItem(.separator())
         menu.addItem(makeItem("Edit Config…", #selector(editConfig), key: ""))
@@ -392,6 +415,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         actions.adoptNewWindows = loaded.adoptNewWindows
         engine.config = loaded
         webBar.config = loaded
+        updater.enabled = loaded.autoUpdate
         rebuildGraphAddresses()
         ConfigDoctor.emitSchema()
         updateConfigWatcher()

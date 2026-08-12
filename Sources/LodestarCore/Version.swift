@@ -12,6 +12,10 @@ public enum Lodestar {
     public static let repository = "https://github.com/Vaccone-Software/lodestar"
     public static let issuesURL = repository + "/issues/new"
 
+    /// The Developer ID team every release is signed under. The updater
+    /// refuses any download whose signature chains to anyone else.
+    public static let teamID = "2PZMN57974"
+
     /// Bump when PersistedState's shape changes; StateMigrations carries
     /// old files forward on load.
     public static let stateVersion = 1

@@ -35,7 +35,14 @@ final class UpdateController {
     var flash: (String, TimeInterval) -> Void = { _, _ in }
 
     private var staged: (bundle: URL, version: String)?
-    private var checking = false
+    /// The single-flight rule, main-thread only: one run at a time, and
+    /// `applying` is terminal — after a successful swap this process only
+    /// waits to be taken over. Two racing pipelines destroyed an install
+    /// once; the phase machine is why there can never be two.
+    private var phase: Updater.Phase = .idle
+    /// The version mid-swap, kept after `staged` is consumed so a repeated
+    /// press can still hear which build is taking over.
+    private var applyingVersion: String?
     private var firstCheck: Timer?
     private var dailyCheck: Timer?
     private var applyPoll: Timer?
@@ -96,19 +103,25 @@ final class UpdateController {
     // MARK: - Check, download, verify
 
     /// force: the menu item — check now, tell the user either way, and
-    /// apply immediately instead of waiting for quiet.
+    /// apply immediately instead of waiting for quiet. A repeated press
+    /// joins the run in flight; it never starts a second one.
     func check(force: Bool) {
         guard installURL != nil else {
             if force { flash("updates manage the installed app only", 3) }
             return
         }
         guard enabled || force else { return }
-        if staged != nil {
+        switch Updater.checkDecision(in: phase, version: staged?.version ?? applyingVersion) {
+        case .refuse(let note):
+            if force { flash(note, 3) }
+            return
+        case .applyStaged:
             tryApply(force: force)
             return
+        case .startCheck:
+            break
         }
-        guard !checking else { return }
-        checking = true
+        phase = .checking
         Log.info("update", ["phase": "checking", "force": "\(force)"])
         var request = URLRequest(url: Self.feedURL, timeoutInterval: 30)
         request.setValue("lodestar/\(Lodestar.version)", forHTTPHeaderField: "User-Agent")
@@ -131,7 +144,7 @@ final class UpdateController {
     private func finishCheck(force: Bool, note: String, log message: String?) {
         if let message { Log.error("update check: \(message)") }
         DispatchQueue.main.async {
-            self.checking = false
+            self.phase = .idle
             if force { self.flash(note, 3) }
         }
     }
@@ -142,6 +155,9 @@ final class UpdateController {
             return
         }
         Log.info("update", ["phase": "downloading", "asset": release.zipName])
+        if force {
+            DispatchQueue.main.async { self.flash("⌖ \(release.tag) found — downloading…", 3) }
+        }
         let semaphore = DispatchSemaphore(value: 0)
         var fetched: URL?
         URLSession.shared.downloadTask(with: url) { location, _, _ in
@@ -192,7 +208,7 @@ final class UpdateController {
         Log.info("update", ["phase": "staged", "version": stagedVersion])
         DispatchQueue.main.async {
             self.staged = (bundle, stagedVersion)
-            self.checking = false
+            self.phase = .ready
             self.tryApply(force: force)
         }
     }
@@ -201,7 +217,7 @@ final class UpdateController {
         Log.error("update staging: \(message)")
         clearStaging()
         DispatchQueue.main.async {
-            self.checking = false
+            self.phase = .idle
             if force { self.flash("✕ update failed verification — see log", 4) }
         }
     }
@@ -225,7 +241,7 @@ final class UpdateController {
     // MARK: - The swap
 
     private func tryApply(force: Bool) {
-        guard let staged, let installURL else { return }
+        guard let staged, let installURL, Updater.canBeginApply(in: phase) else { return }
         if !force {
             guard enabled, Updater.mayApply(
                 engineQuiet: engineQuiet(),
@@ -235,17 +251,31 @@ final class UpdateController {
         let parent = installURL.deletingLastPathComponent()
         guard FileManager.default.isWritableFile(atPath: parent.path) else {
             Log.error("update: \(parent.path) is not writable — leaving the manual lanes to it")
-            self.staged = nil
-            worker.async { self.clearStaging() }
+            standDown()
             return
         }
-        if force { flash("⌖ updating to \(staged.version)…", 3) }
+
+        // Preflight: the swap moves exactly two things, and both slots
+        // must look untouched. A missing install or a lingering .previous
+        // means some other actor — a watchdog, a manual reinstall — is
+        // mid-story; deleting either from here is how an install died.
+        let previous = parent.appendingPathComponent("lodestar.app.previous")
+        guard FileManager.default.fileExists(atPath: installURL.path) else {
+            Log.error("update: nothing at \(installURL.path) — standing down")
+            standDown()
+            return
+        }
+        guard !FileManager.default.fileExists(atPath: previous.path) else {
+            Log.error("update: lodestar.app.previous still present — an earlier swap is unresolved, standing down")
+            standDown()
+            return
+        }
+
+        phase = .applying
+        applyingVersion = staged.version
+        if force { flash("⌖ updating to \(staged.version) — the new build takes over shortly", 4) }
         Log.info("update", ["phase": "applying", "to": staged.version])
 
-        let previous = parent.appendingPathComponent("lodestar.app.previous")
-        let marker = Self.directory.appendingPathComponent("updated-to")
-        try? FileManager.default.removeItem(at: previous)
-        try? staged.version.write(to: marker, atomically: true, encoding: .utf8)
         do {
             try FileManager.default.moveItem(at: installURL, to: previous)
             try FileManager.default.moveItem(at: staged.bundle, to: installURL)
@@ -255,19 +285,29 @@ final class UpdateController {
                FileManager.default.fileExists(atPath: previous.path) {
                 try? FileManager.default.moveItem(at: previous, to: installURL)
             }
-            try? FileManager.default.removeItem(at: marker)
             Log.error("update swap failed: \(error)")
-            self.staged = nil
-            worker.async { self.clearStaging() }
+            standDown()
             return
         }
 
+        let marker = Self.directory.appendingPathComponent("updated-to")
+        try? staged.version.write(to: marker, atomically: true, encoding: .utf8)
         spawnWatchdog(app: installURL, previous: previous, version: staged.version)
         self.staged = nil
         // The successor's boot takes over the pid file and SIGTERMs this
         // process — the same handoff every manual reinstall already uses.
+        // phase stays .applying: this process is done deciding things.
         NSWorkspace.shared.openApplication(at: installURL,
                                            configuration: NSWorkspace.OpenConfiguration()) { _, _ in }
+    }
+
+    /// Abandon the staged build and return to idle — a fresh check can
+    /// start over from a clean slate.
+    private func standDown() {
+        staged = nil
+        applyingVersion = nil
+        phase = .idle
+        worker.async { self.clearStaging() }
     }
 
     // MARK: - The watchdog (bless or roll back)
@@ -288,6 +328,10 @@ final class UpdateController {
                 exit 0
             fi
         done
+        # Roll back only while the old bundle is still there to restore.
+        # If .previous is gone, another actor already resolved this swap —
+        # deleting the app with nothing to put back is never the answer.
+        [ -d "$PREVIOUS" ] || exit 0
         rm -rf "$APP"
         mv "$PREVIOUS" "$APP"
         rm -f "$MARKERS/updated-to"

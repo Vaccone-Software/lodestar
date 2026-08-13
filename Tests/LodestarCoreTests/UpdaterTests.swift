@@ -100,4 +100,30 @@ final class UpdaterTests: XCTestCase {
         XCTAssertTrue(Updater.mayApply(engineQuiet: true, secondsSinceActivity: 5, minimumQuiet: 5))
         XCTAssertFalse(Updater.mayApply(engineQuiet: true, secondsSinceActivity: 4, minimumQuiet: 5))
     }
+
+    // MARK: - Single flight
+
+    func testCheckStartsOnlyFromIdle() {
+        XCTAssertEqual(Updater.checkDecision(in: .idle, version: nil), .startCheck)
+    }
+
+    func testRepeatedCheckJoinsTheRunInFlight() {
+        XCTAssertEqual(Updater.checkDecision(in: .checking, version: nil),
+                       .refuse(note: "⌖ already checking for updates…"))
+        XCTAssertEqual(Updater.checkDecision(in: .ready, version: "0.9.12"), .applyStaged)
+    }
+
+    func testCheckDuringApplyRefusesAndNamesTheVersion() {
+        guard case .refuse(let note) = Updater.checkDecision(in: .applying, version: "0.9.12") else {
+            return XCTFail("a check mid-apply must refuse — a second pipeline once destroyed the install")
+        }
+        XCTAssertTrue(note.contains("0.9.12"))
+    }
+
+    func testApplyBeginsOnlyFromReady() {
+        XCTAssertTrue(Updater.canBeginApply(in: .ready))
+        XCTAssertFalse(Updater.canBeginApply(in: .idle))
+        XCTAssertFalse(Updater.canBeginApply(in: .checking))
+        XCTAssertFalse(Updater.canBeginApply(in: .applying))
+    }
 }

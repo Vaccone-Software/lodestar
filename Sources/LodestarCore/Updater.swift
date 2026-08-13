@@ -73,4 +73,40 @@ public enum Updater {
                                 minimumQuiet: TimeInterval = 600) -> Bool {
         engineQuiet && secondsSinceActivity >= minimumQuiet
     }
+
+    /// Where an update run stands. One run at a time, ever: a repeated
+    /// "Check for Updates" must join the run in flight, never start a
+    /// second — two pipelines moving the same bundle destroyed an install
+    /// once. `applying` is terminal for the process (the successor's boot
+    /// SIGTERMs it); only a failed swap returns to `idle`.
+    public enum Phase: Equatable {
+        case idle, checking, ready, applying
+    }
+
+    /// What a check request may do in each phase — the single-flight rule.
+    public enum CheckDecision: Equatable {
+        case startCheck
+        case applyStaged
+        case refuse(note: String)
+    }
+
+    public static func checkDecision(in phase: Phase, version: String?) -> CheckDecision {
+        switch phase {
+        case .idle:
+            return .startCheck
+        case .checking:
+            return .refuse(note: "⌖ already checking for updates…")
+        case .ready:
+            return .applyStaged
+        case .applying:
+            let name = version.map { " to \($0)" } ?? ""
+            return .refuse(note: "⌖ already updating\(name) — the new build takes over shortly")
+        }
+    }
+
+    /// A swap may begin only with a verified staged build and no swap in
+    /// flight — never from `applying`, whatever else happens.
+    public static func canBeginApply(in phase: Phase) -> Bool {
+        phase == .ready
+    }
 }

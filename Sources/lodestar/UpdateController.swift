@@ -251,7 +251,7 @@ final class UpdateController {
         let parent = installURL.deletingLastPathComponent()
         guard FileManager.default.isWritableFile(atPath: parent.path) else {
             Log.error("update: \(parent.path) is not writable — leaving the manual lanes to it")
-            standDown()
+            standDown(force: force, note: "✕ update: install location not writable — see log")
             return
         }
 
@@ -262,12 +262,12 @@ final class UpdateController {
         let previous = parent.appendingPathComponent("lodestar.app.previous")
         guard FileManager.default.fileExists(atPath: installURL.path) else {
             Log.error("update: nothing at \(installURL.path) — standing down")
-            standDown()
+            standDown(force: force, note: "✕ update: the install is missing — see log")
             return
         }
         guard !FileManager.default.fileExists(atPath: previous.path) else {
             Log.error("update: lodestar.app.previous still present — an earlier swap is unresolved, standing down")
-            standDown()
+            standDown(force: force, note: "✕ update: an earlier update is unresolved — restart Lodestar to clear it")
             return
         }
 
@@ -286,7 +286,7 @@ final class UpdateController {
                 try? FileManager.default.moveItem(at: previous, to: installURL)
             }
             Log.error("update swap failed: \(error)")
-            standDown()
+            standDown(force: force, note: "✕ update failed — see log")
             return
         }
 
@@ -297,16 +297,25 @@ final class UpdateController {
         // The successor's boot takes over the pid file and SIGTERMs this
         // process — the same handoff every manual reinstall already uses.
         // phase stays .applying: this process is done deciding things.
-        NSWorkspace.shared.openApplication(at: installURL,
-                                           configuration: NSWorkspace.OpenConfiguration()) { _, _ in }
+        //
+        // createsNewApplicationInstance is the launch: by default
+        // LaunchServices "opens" a running app by activating the running
+        // process, so the swapped-in build would never start — the old
+        // instance would just come forward, the pid file would never
+        // change hands, and the watchdog would roll the swap back.
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: installURL, configuration: configuration) { _, _ in }
     }
 
     /// Abandon the staged build and return to idle — a fresh check can
-    /// start over from a clean slate.
-    private func standDown() {
+    /// start over from a clean slate. The manual check narrates every
+    /// outcome, so a forced run that stands down says why.
+    private func standDown(force: Bool = false, note: String? = nil) {
         staged = nil
         applyingVersion = nil
         phase = .idle
+        if force, let note { flash(note, 4) }
         worker.async { self.clearStaging() }
     }
 
@@ -336,7 +345,9 @@ final class UpdateController {
         mv "$PREVIOUS" "$APP"
         rm -f "$MARKERS/updated-to"
         printf '%s' "$VERSION" > "$MARKERS/rolled-back"
-        open "$APP"
+        # -n: launch a fresh instance even though the old process may still
+        # be running — its boot takes the pid file and announces the marker.
+        open -n "$APP"
         """
         let path = Self.directory.appendingPathComponent("watchdog.sh")
         try? script.write(to: path, atomically: true, encoding: .utf8)

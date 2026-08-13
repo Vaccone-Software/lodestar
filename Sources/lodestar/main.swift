@@ -166,14 +166,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.model.stop()
                 self.model.start()
                 if self.engine.start() {
-                    self.hud.flash("⌖ Lodestar ready · hyper space to begin", seconds: 2.5)
+                    self.hud.flash("⌖ Lodestar ready · lode space to begin", seconds: 2.5)
                     Log.info("ready: \(self.model.windows.count) windows tracked")
                 }
             }
             return
         }
         if engine.start() {
-            hud.flash("⌖ Lodestar ready · hyper space to begin", seconds: 2.5)
+            hud.flash("⌖ Lodestar ready · lode space to begin", seconds: 2.5)
             Log.info("ready: \(model.windows.count) windows tracked, \(config.graph.children.count) graph roots")
         } else {
             hud.flash("✕ Lodestar could not install its event tap", seconds: 6)
@@ -352,9 +352,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let shown = prefix.map { $0.uppercased() }.joined(separator: " ")
             switch config.graph.resolve(prefix) {
             case .leaf(let target):
-                return "hyper \(shown) is \(target.label)"
+                return "lode \(shown) is \(target.label)"
             case .deeper:
-                if depth == letters.count { return "hyper \(shown) leads deeper — add a letter" }
+                if depth == letters.count { return "lode \(shown) leads deeper — add a letter" }
             case .miss:
                 return nil
             }
@@ -365,14 +365,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func addAppToGraph(_ letters: [String], entry: AppIndex.Entry) -> String? {
         if let problem = chainProblem(letters) { return problem }
         let shown = letters.map { $0.uppercased() }.joined(separator: " ")
-        return rewriteGraph(flash: "✓ hyper \(shown) → \(entry.name)") {
+        return rewriteGraph(flash: "✓ lode \(shown) → \(entry.name)") {
             try GraphJsonEditor.addingPath(letters, target: entry.name, in: $0)
         }
     }
 
     private func removeChainFromGraph(_ letters: [String]) -> String? {
         let shown = letters.map { $0.uppercased() }.joined(separator: " ")
-        return rewriteGraph(flash: "✓ removed hyper \(shown)") {
+        return rewriteGraph(flash: "✓ removed lode \(shown)") {
             try GraphJsonEditor.deletingPath(letters, in: $0)
         }
     }

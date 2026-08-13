@@ -130,7 +130,7 @@ public struct EngineCore {
         }
     }
 
-    /// Shift for a mid-chain letter: hyper may or may not still be held.
+    /// Shift for a mid-chain letter: lode may or may not still be held.
     public static func chainShift(_ flags: CGEventFlags, trigger: Trigger) -> Bool {
         let (held, shift) = classify(flags, trigger: trigger)
         if held { return shift }
@@ -151,7 +151,7 @@ public struct EngineCore {
     public mutating func keyDown(key: String, held: Bool, shift: Bool, world: EngineWorld) -> [EngineEffect] {
         switch state {
         case .idle:
-            // Escape closes a visible cheat sheet, hyper or not — the
+            // Escape closes a visible cheat sheet, lode or not — the
             // press was aimed at the help, so it never reaches the app.
             if key == "escape", world.cheatVisible {
                 return [.dismissCheat]
@@ -316,7 +316,7 @@ public struct EngineCore {
         case .miss:
             if firstLetter {
                 // A complete failed gesture, not an abandoned traversal —
-                // do not trap the user in a mode over a stray hyper+letter.
+                // do not trap the user in a mode over a stray lode+letter.
                 state = .idle
                 effects.append(contentsOf: [.hideGuide, .flash("✕ \(Self.display(letters)) is not on the graph")])
             } else {
@@ -368,7 +368,7 @@ public struct EngineCore {
     // MARK: - Scroll
 
     /// Scroll is a lens, not a transaction: its own keys act, Escape or
-    /// hyper+J closes it, and any other hyper verb exits and executes.
+    /// lode+J closes it, and any other lode verb exits and executes.
     private mutating func scrollPress(key: String, held: Bool, shift: Bool,
                                       world: EngineWorld) -> [EngineEffect] {
         if held {
@@ -407,8 +407,8 @@ public struct EngineCore {
 
     // MARK: - Hints
 
-    /// Hints are a lens like scroll: its own keys act, Escape (or hyper ;
-    /// again) closes it, any other hyper verb exits and executes. Plain
+    /// Hints are a lens like scroll: its own keys act, Escape (or lode ;
+    /// again) closes it, any other lode verb exits and executes. Plain
     /// typing belongs to the labels; everything unlabeled is swallowed.
     private mutating func hintsPress(key: String, held: Bool, shift: Bool,
                                      sticky: Bool, world: EngineWorld) -> [EngineEffect] {

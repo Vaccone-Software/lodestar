@@ -107,7 +107,7 @@ final class EngineTests: XCTestCase {
         XCTAssertFalse(heldMeh)
     }
 
-    func testChainShiftReadsBareShiftWhenHyperReleased() {
+    func testChainShiftReadsBareShiftWhenLodeReleased() {
         XCTAssertTrue(EngineCore.chainShift(.maskShift, trigger: .rightCommand))
         XCTAssertFalse(EngineCore.chainShift([], trigger: .rightCommand))
     }
@@ -141,7 +141,7 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(press("escape", held: false), [.dismissCheat],
                        "swallowed — the escape was aimed at the help")
         world.cheatVisible = true
-        XCTAssertEqual(press("escape"), [.dismissCheat], "hyper escape too")
+        XCTAssertEqual(press("escape"), [.dismissCheat], "lode escape too")
         world.cheatVisible = false
         XCTAssertEqual(press("escape", held: false), [.passThrough],
                        "no cheat: a plain escape is the app's")
@@ -244,7 +244,7 @@ final class EngineTests: XCTestCase {
 
     func testFirstLetterMissExitsWithFlash() {
         XCTAssertEqual(press("q"), [.hideGuide, .flash("✕ Q is not on the graph")])
-        XCTAssertEqual(core.state, .idle, "a stray hyper+letter must not trap the user in a mode")
+        XCTAssertEqual(core.state, .idle, "a stray lode+letter must not trap the user in a mode")
     }
 
     func testMidChainMissKeepsValidPrefix() {
@@ -418,7 +418,7 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(core.state, .idle)
     }
 
-    func testScrollHyperJAndEscapeExitQuietly() {
+    func testScrollLodeJAndEscapeExitQuietly() {
         enterScrollMode()
         XCTAssertEqual(press("j"), [.scrollExit, .hideGuide])
         XCTAssertEqual(core.state, .idle)
@@ -433,7 +433,7 @@ final class EngineTests: XCTestCase {
         enterScrollMode()
         XCTAssertEqual(press("s"),
                        [.scrollExit, .hideGuide, .hideGuide, .summonGraph(letters: ["s"], beside: false)],
-                       "any other hyper verb exits and executes immediately")
+                       "any other lode verb exits and executes immediately")
         XCTAssertEqual(core.state, .idle)
     }
 

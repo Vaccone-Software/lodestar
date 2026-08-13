@@ -21,7 +21,7 @@ public enum ModifierKey: String, CaseIterable, Equatable {
     }
 }
 
-/// The verbs a double-tap can fire, resolved to the hyper keypress they
+/// The verbs a double-tap can fire, resolved to the lode keypress they
 /// are equivalent to — a tap binding is a second door into the same room,
 /// never a new room.
 public enum TapVerb: String, CaseIterable {

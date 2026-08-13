@@ -33,7 +33,7 @@ public enum Tiling {
         return frames
     }
 
-    /// Index order for `hyper`+digit: left-to-right, then top-to-bottom.
+    /// Index order for `lode`+digit: left-to-right, then top-to-bottom.
     public static func indexOrder(_ entries: [(id: CGWindowID, frame: CGRect)]) -> [CGWindowID] {
         entries.sorted {
             if abs($0.frame.minX - $1.frame.minX) > 1 { return $0.frame.minX < $1.frame.minX }

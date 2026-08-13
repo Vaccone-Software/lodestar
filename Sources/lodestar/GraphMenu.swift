@@ -86,7 +86,7 @@ final class GraphMenu {
             if letters.isEmpty {
                 chainRow.addArrangedSubview(label("type letters…", font: BarTheme.titleFont, color: .tertiaryLabelColor))
             } else {
-                chainRow.addArrangedSubview(label("hyper", font: BarTheme.chipFont, color: .secondaryLabelColor))
+                chainRow.addArrangedSubview(label("lode", font: BarTheme.chipFont, color: .secondaryLabelColor))
                 for letter in letters {
                     chainRow.addArrangedSubview(keycap(letter))
                 }
@@ -129,7 +129,7 @@ final class GraphMenu {
         stack.addArrangedSubview(label(item.title, font: .systemFont(ofSize: 14),
                                        color: selected ? .white : .labelColor))
         if !item.chain.isEmpty {
-            stack.addArrangedSubview(label("hyper", font: BarTheme.chipFont,
+            stack.addArrangedSubview(label("lode", font: BarTheme.chipFont,
                                            color: selected ? NSColor.white.withAlphaComponent(0.8) : .secondaryLabelColor))
             for letter in item.chain {
                 stack.addArrangedSubview(keycap(letter, inverted: selected))

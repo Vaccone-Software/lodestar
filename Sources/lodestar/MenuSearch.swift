@@ -1,7 +1,7 @@
 import AppKit
 import LodestarCore
 
-/// Menu search (`hyper .`): the frontmost app's entire menu bar, fuzzy-
+/// Menu search (`lode .`): the frontmost app's entire menu bar, fuzzy-
 /// searchable, `↵` executes. Rows wear the item's native shortcut as a
 /// chip — every search teaches the app's own faster path.
 final class MenuSearchController: NSObject, NSTextFieldDelegate, NSWindowDelegate {

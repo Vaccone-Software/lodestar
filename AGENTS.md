@@ -21,7 +21,7 @@ key, or a broken enum is refused with the problem printed and nothing
 written. Successful writes land in the file and reach the running
 instance immediately; there is no separate reload step.
 
-Bare words parse as strings (`config set hyper.trigger raw-hyper` needs
+Bare words parse as strings (`config set lode.trigger raw-hyper` needs
 no quoting); numbers, booleans, and quoted JSON strings read as
 themselves.
 

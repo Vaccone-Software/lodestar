@@ -111,11 +111,11 @@ final class EngineHintsTests: XCTestCase {
         XCTAssertEqual(core.state, .idle)
 
         _ = press(";")
-        XCTAssertEqual(press(";"), [.exitHints], "hyper ; toggles out quietly")
+        XCTAssertEqual(press(";"), [.exitHints], "lode ; toggles out quietly")
         XCTAssertEqual(core.state, .idle)
     }
 
-    func testOtherHyperVerbsExitAndExecute() {
+    func testOtherLodeVerbsExitAndExecute() {
         world.graph = ["s": .leaf]
         _ = press(";")
         XCTAssertEqual(press("s"),

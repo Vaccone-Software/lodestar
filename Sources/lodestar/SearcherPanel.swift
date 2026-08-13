@@ -3,7 +3,7 @@ import LodestarCore
 
 /// The entry point: a floating fuzzy searcher, styled like it belongs to the
 /// OS — glass, SF type, accent-filled selection. Two levels: apps (default),
-/// and the windows of one app (`hyper tab`, or Tab on a running app row;
+/// and the windows of one app (`lode tab`, or Tab on a running app row;
 /// esc walks back). Enter = focus-or-launch full-screen; shift+enter =
 /// beside. ⌘K on an app row opens the graph card beside the list — add
 /// or remove chains, written straight into the config — while the list
@@ -533,7 +533,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
                 verdict = blocked
                 problem = true
             } else {
-                verdict = "add hyper \(Self.display(letters)) → \(entry.name)"
+                verdict = "add lode \(Self.display(letters)) → \(entry.name)"
                 problem = false
             }
             graphMenu.present(.chain(letters: letters, verdict: verdict, problem: problem),

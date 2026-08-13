@@ -32,7 +32,7 @@ public enum Json {
 
     /// A single JSON value ("true", "1800", "\"pointer\"") for the config
     /// verbs; a bare word that fails JSON parsing reads as a string, so
-    /// `config set hyper.trigger raw-hyper` works unquoted.
+    /// `config set lode.trigger raw-hyper` works unquoted.
     public static func parseFragment(_ text: String) -> ConfigValue {
         let data = Data(text.utf8)
         if let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]),
@@ -68,7 +68,7 @@ public enum Json {
     /// Top-level section order; everything unknown trails alphabetically,
     /// where validation's complaints and the reader's eye both land last.
     private static let sectionOrder = [
-        "$schema", "version", "hyper", "gestures", "app", "profiles",
+        "$schema", "version", "lode", "gestures", "app", "profiles",
         "graph", "web", "scroll", "hints", "double-tap", "keys",
     ]
 

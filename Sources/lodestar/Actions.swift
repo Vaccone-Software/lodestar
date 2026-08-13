@@ -156,7 +156,7 @@ final class Actions {
         }
     }
 
-    /// hyper = — claim the focused window: the summon treatment for a
+    /// lode = — claim the focused window: the summon treatment for a
     /// window that arrived by other means. Full screen on the active
     /// display (⇧ joins beside), everything else parked, undoable like
     /// any summon.
@@ -229,7 +229,7 @@ final class Actions {
         }
     }
 
-    /// hyper [ / ]: throw the focused window to the neighbor display —
+    /// lode [ / ]: throw the focused window to the neighbor display —
     /// plain arrives full-screen there, shift arrives beside.
     func moveFocusedDisplay(direction: Int, beside: Bool) {
         guard let focused = model.focusedWindow, model.verify(focused.id) else {
@@ -251,7 +251,7 @@ final class Actions {
         raise(focused)
     }
 
-    /// hyper X / ⇧X: walk the attention timeline. A back-jump is a summon
+    /// lode X / ⇧X: walk the attention timeline. A back-jump is a summon
     /// of the previous destination using the standard placement rules.
     func goBack() {
         guard let id = history.stepBack(isAlive: { self.model.verify($0) }),
@@ -273,7 +273,7 @@ final class Actions {
         place(window, beside: false)
     }
 
-    /// hyper ⇧digit: slide the focused window into that position on its
+    /// lode ⇧digit: slide the focused window into that position on its
     /// display (insert-and-shift; 9 = last).
     func reorderFocused(toDigit digit: Int) {
         guard let focused = model.focusedWindow, model.verify(focused.id),
@@ -294,7 +294,7 @@ final class Actions {
         raise(window)
     }
 
-    /// hyper 0: park every background window — the world collapses to
+    /// lode 0: park every background window — the world collapses to
     /// exactly what you summoned.
     func sweep() {
         model.sweepAgainstWindowServer()

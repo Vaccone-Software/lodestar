@@ -31,18 +31,18 @@ A simple fuzzy-match app searcher. This is how an unaddressed app first enters t
 
 ### 2. Graph (permanent apps)
 
-`hyper` + a chain of letters resolves deterministically to an app or a sub-target of an app.
+`lode` + a chain of letters resolves deterministically to an app or a sub-target of an app.
 
-- Single app: `hyper S` -> Slack.
-- Subdivided app: `hyper B P` / `hyper B G` / `hyper B X` -> Brave profiles (personal / Google / work).
+- Single app: `lode S` -> Slack.
+- Subdivided app: `lode B P` / `lode B G` / `lode B X` -> Brave profiles (personal / Google / work).
 
 Focus-or-launch: if it exists, focus it; if not, create it. Always full-screen. The extra letters compile into muscle memory and stay deterministic. Cycle detection on the graph. App-scoped.
 
 ### 3. Marks (the temporary window tail)
 
-`hyper M` + a prefix chain, for windows not worth promoting to the graph.
+`lode M` + a prefix chain, for windows not worth promoting to the graph.
 
-- `hyper M G B` is valid as long as that path is free.
+- `lode M G B` is valid as long as that path is free.
 - Bound to **specific windows**, not apps. Reassignable/dynamic.
 - Persistence is a nice-to-have, not the point: best-effort by relaunching the parent app and repositioning.
 
@@ -52,9 +52,9 @@ Window-scoped. This is the first primitive to hit the window-identity question.
 
 A breath is a **snapshot** of a specific-window layout. It is not a mode. You compose a layout live (with shift, below), then save it, and can return to it later.
 
-- `hyper B` + a letter chain: save / return to a breath (addressed like the graph, e.g. `hyper B G B`).
-- `hyper B B`: update the latest breath to the current layout. (Reserves the `B B` path from being an address.)
-- A snapshot does not auto-update. To edit: add a window with shift, or remove one by closing it, then `hyper B B` to commit. To revert, re-summon the breath.
+- `lode B` + a letter chain: save / return to a breath (addressed like the graph, e.g. `lode B G B`).
+- `lode B B`: update the latest breath to the current layout. (Reserves the `B B` path from being an address.)
+- A snapshot does not auto-update. To edit: add a window with shift, or remove one by closing it, then `lode B B` to commit. To revert, re-summon the breath.
 - Persistence: session-first is guaranteed; cross-restart is best-effort (relaunch the parent apps, reposition as well as macOS allows). Breaths pin specific windows, so restore is inherently best-effort.
 
 Breaths are marks-plural plus layout, and inherit every window-identity problem marks have.
@@ -69,8 +69,8 @@ This is the only mechanism that composes multiplicity, and it does so in the mom
 
 - **Resting posture**: one app, full-screen. Multiplicity is always something you explicitly invoked (shift, or returning to a breath). You can never be confused about what you are looking at.
 - **Equal sizing**: windows in a multi-window layout are equal-sized.
-- **Index navigation**: `hyper` + a number jumps to a window by index, left-to-right then top-to-bottom.
-  - `hyper 1` = leftmost / topmost. `hyper 9` = rightmost / bottommost (Chrome-style: always the last, even if fewer than nine).
+- **Index navigation**: `lode` + a number jumps to a window by index, left-to-right then top-to-bottom.
+  - `lode 1` = leftmost / topmost. `lode 9` = rightmost / bottommost (Chrome-style: always the last, even if fewer than nine).
   - Cap at ten windows. Beyond that is not usefully navigable; prevent the instance rather than support it.
   - `0` is likely redundant (1 already covers first). Leave unassigned for now.
 - **Close behavior**: closing a window in a multi-window layout retiles the survivors to equal-sized. This preserves index order, which protects the muscle memory built on it.
@@ -112,6 +112,6 @@ Own everything else.
 ## Open questions (resolve by prototype, not reasoning)
 
 - **Window-identity stability** across close/reopen for the specific apps in use. The probe answers this.
-- **Namespace reservation**: `M`, `B`, and the digits are reserved as first characters (marks, breaths, index). Apps whose natural first letter is one of these need another path in the graph. Note in particular that Brave (`hyper B ...`) currently collides with the breath prefix; one of them moves.
+- **Namespace reservation**: `M`, `B`, and the digits are reserved as first characters (marks, breaths, index). Apps whose natural first letter is one of these need another path in the graph. Note in particular that Brave (`lode B ...`) currently collides with the breath prefix; one of them moves.
 - **Searcher windows vs apps**: whether the searcher surfaces individual windows (v2).
 - **Index `0`**: what, if anything, it does.

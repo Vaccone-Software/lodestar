@@ -33,7 +33,7 @@ final class JsonTests: XCTestCase {
         XCTAssertEqual(Json.parseFragment("0.4"), .double(0.4))
         XCTAssertEqual(Json.parseFragment("\"quoted\""), .string("quoted"))
         // A bare word is a string — agents should not need shell quoting
-        // gymnastics for `config set hyper.trigger raw-hyper`.
+        // gymnastics for `config set lode.trigger raw-hyper`.
         XCTAssertEqual(Json.parseFragment("raw-hyper"), .string("raw-hyper"))
     }
 
@@ -81,13 +81,13 @@ final class JsonTests: XCTestCase {
 
     func testPrunesDefaultsAndEmptyTables() {
         let pruned = Json.pruned([
-            "hyper": .table(["trigger": .string("right-command")]),
+            "lode": .table(["trigger": .string("right-command")]),
             "scroll": .table(["speed": .int(2200), "smooth": .bool(true)]),
             "gestures": .table(["scroll": .bool(false), "hints": .bool(true)]),
             "profiles": .table(["brave": .table([:])]),
             "graph": .table(["g": .string("Ghostty")]),
         ], defaults: ConfigDefaults.tree)
-        XCTAssertNil(pruned["hyper"])
+        XCTAssertNil(pruned["lode"])
         XCTAssertEqual(pruned["scroll"], .table(["speed": .int(2200)]))
         XCTAssertEqual(pruned["gestures"], .table(["scroll": .bool(false)]))
         XCTAssertNil(pruned["profiles"]) // an empty registry says nothing
@@ -180,10 +180,26 @@ final class JsonTests: XCTestCase {
         """
         var root = try Yaml.parse(yaml)
         root.removeValue(forKey: "version")
-        let sparse = Json.pruned(root, defaults: ConfigDefaults.tree)
+        let sparse = Json.pruned(ConfigDefaults.normalized(root), defaults: ConfigDefaults.tree)
         XCTAssertEqual(Set(sparse.keys), ["profiles", "graph", "scroll"])
         XCTAssertEqual(sparse["scroll"], .table(["speed": .int(2200)]))
         XCTAssertEqual(sparse["graph"]?.table?["g"], .string("Ghostty"))
         XCTAssertEqual(sparse["profiles"]?.table?["brave"]?.table?["work"], .string("Work"))
+    }
+
+    /// Pre-0.9.11 files named the lode key "hyper" — the old section reads
+    /// as the new, and a non-default trigger survives the move.
+    func testLegacyHyperSectionReadsAsLode() {
+        let normalized = ConfigDefaults.normalized(["hyper": .table(["trigger": .string("raw-hyper")])])
+        XCTAssertNil(normalized["hyper"])
+        XCTAssertEqual(normalized["lode"]?.table?["trigger"], .string("raw-hyper"))
+        let sparse = Json.pruned(normalized, defaults: ConfigDefaults.tree)
+        XCTAssertEqual(sparse["lode"]?.table?["trigger"], .string("raw-hyper"))
+        // A lode section already present wins; the stray legacy one is dropped.
+        let both = ConfigDefaults.normalized([
+            "hyper": .table(["trigger": .string("raw-hyper")]),
+            "lode": .table(["trigger": .string("right-command")]),
+        ])
+        XCTAssertEqual(both["lode"]?.table?["trigger"], .string("right-command"))
     }
 }

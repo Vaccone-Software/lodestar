@@ -80,10 +80,10 @@ struct Config {
     static let schema: SchemaNode = .table([
         "$schema": .string(allowed: nil, description: "Editor affordance — points at the emitted lodestar-schema.json so LSP-aware editors validate and complete."),
         "version": .string(allowed: nil, description: "The Lodestar release this config was written for."),
-        "hyper": .table([
+        "lode": .table([
             "trigger": .string(allowed: ["right-command", "raw-hyper"],
                                description: "The physical trigger for every gesture."),
-        ], description: "The hyper key."),
+        ], description: "The lode key."),
         "app": .table([
             "auto-reload": .boolean(description: "Reload automatically when the config file is saved."),
             "auto-update": .boolean(description: "Keep Lodestar current: check daily, verify the download, apply quietly when idle (installed app only)."),
@@ -128,14 +128,14 @@ struct Config {
         ], description: "Click hints."),
         "keys": .freeTable(value: .string(allowed: nil, description: "The key name this keycode produces."),
                            description: "Keycode → key-name overrides for non-ANSI layouts."),
-        "graph": .graph(description: "hyper + letter chains → apps. Values: app name or <browser>:<registry key>."),
+        "graph": .graph(description: "lode + letter chains → apps. Values: app name or <browser>:<registry key>."),
     ], description: "lodestar configuration")
 
     /// Every config write funnels here: the tree is pruned sparse against
     /// the defaults, stamped with the schema pointer and the writing
     /// release, and emitted canonically — every writer, the same bytes.
     static func write(tree: [String: ConfigValue]) throws {
-        var clean = tree
+        var clean = ConfigDefaults.normalized(tree)
         clean.removeValue(forKey: "$schema")
         clean.removeValue(forKey: "version")
         var out = Json.pruned(clean, defaults: ConfigDefaults.tree)
@@ -202,6 +202,7 @@ struct Config {
     /// the single home of every default value.
     static func build(from root: [String: ConfigValue], problems: inout [String]) -> Config {
         var config = Config()
+        let root = ConfigDefaults.normalized(root)
         problems.append(contentsOf: ConfigSchema.validate(root, against: schema))
         let effective = Json.merged(defaults: ConfigDefaults.tree, overlay: root)
 
@@ -227,11 +228,11 @@ struct Config {
                 problems.append("unknown app.active-display '\(active)' — using pointer")
             }
         }
-        if let raw = Yaml.value(at: ["hyper", "trigger"], in: effective)?.string {
+        if let raw = Yaml.value(at: ["lode", "trigger"], in: effective)?.string {
             if let trigger = Trigger(rawValue: raw) {
                 config.trigger = trigger
             } else {
-                problems.append("unknown hyper.trigger '\(raw)' — using right-command")
+                problems.append("unknown lode.trigger '\(raw)' — using right-command")
             }
         }
         if let step = Yaml.value(at: ["scroll", "step"], in: effective)?.double {

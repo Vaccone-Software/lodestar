@@ -147,7 +147,7 @@ final class GraphSugarTests: XCTestCase {
         let (node, problems) = build(["ww": .string("Brave")])
         XCTAssertTrue(problems.isEmpty)
         guard case .leaf = node.resolve(["w", "w"]) else {
-            return XCTFail("hyper W W")
+            return XCTFail("lode W W")
         }
     }
 }

@@ -9,15 +9,15 @@ destination, and the system takes you there: full screen, instantly, silently.
 
 <!-- TODO: demo GIF. Thirty seconds of hands owning a machine. -->
 
-- **`hyper S`**: you are in Slack. Not launching, not arranging. There.
-- **`hyper space`**: a searcher that ranks by what you actually use and
+- **`lode S`**: you are in Slack. Not launching, not arranging. There.
+- **`lode space`**: a searcher that ranks by what you actually use and
   teaches the faster gesture for everything you pick.
-- **`` hyper ` Q ``**: marks. Letter addresses for specific windows.
-- **`hyper ' W`**: breaths. Saved layouts that restore whole worlds, even
+- **`` lode ` Q ``**: marks. Letter addresses for specific windows.
+- **`lode ' W`**: breaths. Saved layouts that restore whole worlds, even
   relaunching apps that are not running.
-- **`hyper ;`**: click hints. Every pressable element wears a label. Type the
+- **`lode ;`**: click hints. Every pressable element wears a label. Type the
   label to click it.
-- **`hyper ,`** / **`hyper .`** / **`hyper ⏎`**: scroll mode, menu search,
+- **`lode ,`** / **`lode .`** / **`lode ⏎`**: scroll mode, menu search,
   and a web bar that routes each destination to the right browser profile.
 
 One grammar spans launching, windows, the inside of apps, and the web. Learn
@@ -34,7 +34,7 @@ git clone https://github.com/Vaccone-Software/lodestar.git && cd lodestar
 ```
 
 Grant Accessibility when prompted. Lodestar wakes on its own the moment the
-grant lands. Hyper is right ⌘ by default, which means right ⌘ stops being a
+grant lands. Lode is right ⌘ by default, which means right ⌘ stops being a
 command key. That is the trade, and it is configurable.
 
 Or with Homebrew:
@@ -45,8 +45,8 @@ brew install --cask vaccone-software/tap/lodestar
 
 ## Learn it
 
-- Hold **hyper** alone: the system teaches its own map.
-- **`hyper ?`**: the cheat sheet. Every gesture, your live graph, marks, and
+- Hold **lode** alone: the system teaches its own map.
+- **`lode ?`**: the cheat sheet. Every gesture, your live graph, marks, and
   breaths, generated from your actual config.
 - [GUIDE.md](GUIDE.md): the complete reference.
 - [DESIGN.md](DESIGN.md): the philosophy. Every feature must become a fixed

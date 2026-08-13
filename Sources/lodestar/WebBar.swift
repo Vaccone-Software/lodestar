@@ -1,7 +1,7 @@
 import AppKit
 import LodestarCore
 
-/// The web bar (`hyper ⏎`): a second, deliberately separate grammar. Every
+/// The web bar (`lode ⏎`): a second, deliberately separate grammar. Every
 /// row here is a destination on the web — quick links pinned to profiles,
 /// bare domains routed by rules, anything else a search — and each row wears
 /// the profile it will open in. Chromium family only for now.

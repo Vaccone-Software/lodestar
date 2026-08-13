@@ -1,9 +1,9 @@
 import AppKit
 import LodestarCore
 
-/// `hyper ?` — the whole system on one glass sheet, generated from live
+/// `lode ?` — the whole system on one glass sheet, generated from live
 /// config and state so it can never go stale. Toggles with the same key;
-/// any other hyper gesture dismisses it.
+/// any other lode gesture dismisses it.
 final class CheatSheet {
     struct Section {
         let header: String
@@ -64,7 +64,7 @@ final class CheatSheet {
             columns.addArrangedSubview(column)
         }
 
-        let footer = NSTextField(labelWithString: "hyper ? closes · everything here is live — bind more and it grows")
+        let footer = NSTextField(labelWithString: "lode ? closes · everything here is live — bind more and it grows")
         footer.font = .systemFont(ofSize: 11)
         footer.textColor = .secondaryLabelColor
 

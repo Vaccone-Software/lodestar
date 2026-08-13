@@ -1,6 +1,6 @@
 // E2E key driver for lodestar. Posts synthetic keystrokes.
-// Tokens: "s" = hyper+s · "+s" = hyper+shift+s · ".s" = plain s (no hyper)
-// Example: keypost w x        -> hyper+W, hyper+X (chain)
+// Tokens: "s" = lode+s · "+s" = lode+shift+s · ".s" = plain s (no lode)
+// Example: keypost w x        -> lode+W, lode+X (chain)
 //          keypost space .m .u .s .return   -> searcher, type "mus", enter
 import CoreGraphics
 import Foundation

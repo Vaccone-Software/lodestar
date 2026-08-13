@@ -67,7 +67,7 @@ public enum Updater {
 
     /// The quiet gate. A swap restarts the engine — losing the undo
     /// timeline and any pending chain — so it waits for a stretch with no
-    /// chain, no panel, and no recent hyper activity. Ten minutes of
+    /// chain, no panel, and no recent lode activity. Ten minutes of
     /// silence, by default, decides "away or settled".
     public static func mayApply(engineQuiet: Bool, secondsSinceActivity: TimeInterval,
                                 minimumQuiet: TimeInterval = 600) -> Bool {

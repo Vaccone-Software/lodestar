@@ -12,9 +12,9 @@ public enum GraphJsonEditor {
 
         public var description: String {
             switch self {
-            case .blockedByLeaf(let path): return "hyper \(path) is already a destination"
-            case .taken(let path): return "hyper \(path) is already bound"
-            case .missing(let path): return "hyper \(path) is not in the config"
+            case .blockedByLeaf(let path): return "lode \(path) is already a destination"
+            case .taken(let path): return "lode \(path) is already bound"
+            case .missing(let path): return "lode \(path) is not in the config"
             }
         }
     }

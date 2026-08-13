@@ -4,11 +4,11 @@ import LodestarCore
 
 /// The event tap and the chain state machine.
 ///
-/// Chains are deliberately sticky: once a traversal starts (`hyper W`,
-/// `hyper M`, …) it waits — for as long as it takes — until a letter
+/// Chains are deliberately sticky: once a traversal starts (`lode W`,
+/// `lode M`, …) it waits — for as long as it takes — until a letter
 /// completes it or Escape clears it. No timeout, so the gesture is identical
 /// every single time; the persistent guide panel is the state made visible.
-/// Holding hyper alone peeks the top-level guide: the system teaches itself.
+/// Holding lode alone peeks the top-level guide: the system teaches itself.
 final class HotkeyEngine {
     /// Fires when a chain starts or ends — the menu bar wears the state.
     var onChainActive: ((Bool) -> Void)?
@@ -168,10 +168,10 @@ final class HotkeyEngine {
             return Unmanaged.passUnretained(event)
         }
         let (held, shift) = classify(event.flags)
-        // Mid-chain and mid-scroll, hyper may or may not still be down —
+        // Mid-chain and mid-scroll, lode may or may not still be down —
         // shift keeps its meaning either way.
         let effectiveShift = core.isIdle ? shift : chainShift(event.flags)
-        // Ordinary typing is not engine activity; hyper gestures and
+        // Ordinary typing is not engine activity; lode gestures and
         // anything mid-chain are.
         if held || !core.isIdle { lastActivityAt = Date() }
 
@@ -268,7 +268,7 @@ final class HotkeyEngine {
         return pass ? Unmanaged.passUnretained(event) : nil
     }
 
-    // MARK: - Peek (hold hyper to see your world)
+    // MARK: - Peek (hold lode to see your world)
 
     private func handleFlagsChanged(_ event: CGEvent) {
         guard !isPaused else { return }
@@ -321,7 +321,7 @@ final class HotkeyEngine {
                 GuideRow(key: "G G", label: "top    ·    ⇧G bottom"),
                 GuideRow(key: "⇥", label: "next pane"),
             ],
-            footer: "other hyper verbs act and exit · esc or hyper J closes"
+            footer: "other lode verbs act and exit · esc or lode J closes"
         )
     }
 

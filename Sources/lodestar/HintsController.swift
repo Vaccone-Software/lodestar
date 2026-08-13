@@ -1,7 +1,7 @@
 import AppKit
 import LodestarCore
 
-/// Click hints (`hyper ;` / sticky `hyper ⇧;`): label every pressable
+/// Click hints (`lode ;` / sticky `lode ⇧;`): label every pressable
 /// element of the focused window, type a label to press it — the mouse's
 /// last territory annexed. Harvest is async and bounded (a heavy Chromium
 /// page must never stall the overlay), labels come from the user's own

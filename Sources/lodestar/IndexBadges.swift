@@ -1,7 +1,7 @@
 import AppKit
 
-/// Big numerals over each layout member while hyper is held (peek):
-/// `hyper 1…9` taught the same way peek teaches the graph. Static — they
+/// Big numerals over each layout member while lode is held (peek):
+/// `lode 1…9` taught the same way peek teaches the graph. Static — they
 /// appear, sit still, and vanish on release.
 final class IndexBadges {
     private var panels: [NSPanel] = []

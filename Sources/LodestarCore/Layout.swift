@@ -353,7 +353,7 @@ public final class LayoutController {
         Log.info("layout-corrective", ["display": display, "absorbed": alive.count - flexibleCount])
     }
 
-    /// hyper ⇧digit: insert-and-shift reorder within a display's layout.
+    /// lode ⇧digit: insert-and-shift reorder within a display's layout.
     @discardableResult
     public func move(_ id: CGWindowID, toDigit digit: Int, on display: CGDirectDisplayID) -> Bool {
         let ordered = orderedByPosition(on: display)
@@ -370,7 +370,7 @@ public final class LayoutController {
         return true
     }
 
-    /// hyper+digit on the active display: 1 = leftmost/topmost … 9 = last.
+    /// lode+digit on the active display: 1 = leftmost/topmost … 9 = last.
     public func windowID(atDigit digit: Int, on display: CGDirectDisplayID) -> CGWindowID? {
         let ordered = orderedByPosition(on: display)
         guard !ordered.isEmpty else { return nil }

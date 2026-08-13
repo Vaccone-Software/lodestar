@@ -3,7 +3,7 @@ import XCTest
 
 final class ConfigSchemaTests: XCTestCase {
     let schema = SchemaNode.table([
-        "hyper": .table([
+        "lode": .table([
             "trigger": .string(allowed: ["right-command", "raw-hyper"], description: ""),
         ], description: ""),
         "scroll": .table([
@@ -16,7 +16,7 @@ final class ConfigSchemaTests: XCTestCase {
 
     func testCleanConfigHasNoFindings() throws {
         let root = try Yaml.parse("""
-        hyper:
+        lode:
           trigger: right-command
         scroll:
           smooth: true
@@ -52,7 +52,7 @@ final class ConfigSchemaTests: XCTestCase {
     }
 
     func testEnumViolation() throws {
-        let root = try Yaml.parse("hyper:\n  trigger: left-command")
+        let root = try Yaml.parse("lode:\n  trigger: left-command")
         let findings = ConfigSchema.validate(root, against: schema)
         XCTAssertTrue(findings.contains { $0.contains("right-command") })
     }
@@ -78,7 +78,7 @@ final class ConfigSchemaTests: XCTestCase {
         XCTAssertEqual(json["title"] as? String, "test")
         XCTAssertNotNil(json["definitions"])
         let properties = (json["properties"] as? [String: Any])
-        XCTAssertNotNil(properties?["hyper"])
+        XCTAssertNotNil(properties?["lode"])
         XCTAssertNotNil(properties?["graph"])
     }
 
@@ -87,7 +87,7 @@ final class ConfigSchemaTests: XCTestCase {
     func testJSONSchemaContainersAcceptNull() {
         let json = ConfigSchema.jsonSchema(for: schema, title: "test")
         let properties = json["properties"] as? [String: Any]
-        for section in ["hyper", "graph", "routes"] {
+        for section in ["lode", "graph", "routes"] {
             let type = (properties?[section] as? [String: Any])?["type"] as? [String]
             XCTAssertEqual(type, ["object", "null"], "section \(section)")
         }

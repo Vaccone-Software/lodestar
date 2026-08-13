@@ -5,8 +5,18 @@ import Foundation
 /// the user's deviations merged over this tree, pruning writes back
 /// against it, and `config get` reads the merge — one table, no drift.
 public enum ConfigDefaults {
+    /// Parse-time adapter: pre-0.9.11 configs named the lode key "hyper".
+    /// The old name reads as the new; the next write emits "lode".
+    public static func normalized(_ root: [String: ConfigValue]) -> [String: ConfigValue] {
+        guard root["lode"] == nil, let legacy = root["hyper"] else { return root }
+        var out = root
+        out.removeValue(forKey: "hyper")
+        out["lode"] = legacy
+        return out
+    }
+
     public static let tree: [String: ConfigValue] = [
-        "hyper": .table([
+        "lode": .table([
             "trigger": .string("right-command"),
         ]),
         "gestures": .table(

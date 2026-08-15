@@ -28,8 +28,12 @@ plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP/Contents/Inf
 plutil -replace CFBundleVersion -string "$VERSION" "$APP/Contents/Info.plist"
 cp "$BIN" "$APP/Contents/MacOS/lodestar"
 
-IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
-    | awk -F'"' '/Apple Development/ {print $2; exit}')
+# LODESTAR_SIGN_IDENTITY overrides the choice. Worth reaching for when the
+# app already installed was signed with a different certificate: the
+# Accessibility grant is keyed to the signature, so testing a dev build over
+# a Developer ID install means re-granting unless you match it.
+IDENTITY="${LODESTAR_SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null \
+    | awk -F'"' '/Apple Development/ {print $2; exit}')}"
 if [ -n "${IDENTITY:-}" ]; then
     codesign --force --options runtime --sign "$IDENTITY" "$APP"
     echo "signed with: $IDENTITY"

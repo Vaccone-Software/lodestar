@@ -56,7 +56,16 @@ public enum Paths {
             let old = config.appendingPathComponent(name)
             let new = data.appendingPathComponent(name)
             guard fm.fileExists(atPath: old.path), !fm.fileExists(atPath: new.path) else { continue }
-            try? fm.moveItem(at: old, to: new)
+            do {
+                try fm.moveItem(at: old, to: new)
+            } catch {
+                // A move that fails silently would strand the file at a path
+                // nothing reads any more — breaths would simply appear gone.
+                // Copy instead, so the data exists at the new home even if
+                // the old one lingers, and say so.
+                try? fm.copyItem(at: old, to: new)
+                Log.error("paths: could not move \(name) (\(error)) — copied instead, old file left in place")
+            }
         }
     }
 }

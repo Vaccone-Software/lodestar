@@ -4,7 +4,14 @@ public enum Fuzzy {
     /// Subsequence match score; nil when the query does not match at all.
     /// Rewards starts of words, camel humps, consecutive runs, and short
     /// candidates — tuned for app names, not general text.
-    public static func score(query: String, candidate: String) -> Double? {
+    ///
+    /// `lengthPenalty` is the per-character cost of being long. It is the one
+    /// part of this that does not travel: for app names a short candidate is
+    /// a better answer, but for a clipboard preview length says nothing about
+    /// relevance, and charging for it ranks a stray word above the paragraph
+    /// you were looking for. Callers over long text pass 0.
+    public static func score(query: String, candidate: String,
+                             lengthPenalty: Double = 0.01) -> Double? {
         if query.isEmpty { return 0 }
         let q = Array(query.lowercased())
         let lower = Array(candidate.lowercased())
@@ -33,7 +40,7 @@ public enum Fuzzy {
         }
 
         guard qi == q.count else { return nil }
-        score -= Double(lower.count) * 0.01
+        score -= Double(lower.count) * lengthPenalty
         if candidate.lowercased().hasPrefix(query.lowercased()) { score += 2 }
         return score
     }

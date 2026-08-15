@@ -553,3 +553,100 @@ final class HandoverPathTests: XCTestCase {
         XCTAssertFalse(Clipboard.isOwnHandoverPath(nil, temporaryDirectory: temp))
     }
 }
+
+/// Searching the history: a literal hit is what you meant, the letters in
+/// order are how you find what you half remember.
+final class ClipboardSearchTests: XCTestCase {
+    private func clip(_ id: String, _ text: String, minutesAgo: Double) -> Clipboard.Clip {
+        Clipboard.Clip(id: id, kind: .text,
+                       created: Date().addingTimeInterval(-60 * minutesAgo),
+                       sourceBundleID: nil, sourceAppName: nil,
+                       preview: text, bytes: text.utf8.count)
+    }
+
+    func testLettersInOrderFindWhatSubstringCannot() {
+        let clips = [clip("a", "git commit -m \"the menu\"", minutesAgo: 1)]
+        XCTAssertEqual(Clipboard.search(clips, query: "gitcom").map(\.id), ["a"],
+                       "gitcom must reach git commit")
+        XCTAssertNil(Clipboard.relevance(of: "git commit", to: "zzz"))
+    }
+
+    func testALiteralHitOutranksLettersInOrder() {
+        let literal = clip("literal", "the release notes", minutesAgo: 90)
+        let scattered = clip("scattered", "table of extra elements", minutesAgo: 1)
+        // "tle" appears in order in the scattered one, literally in neither;
+        // "rel" is literal in the first only.
+        let ranked = Clipboard.search([scattered, literal], query: "rel")
+        XCTAssertEqual(ranked.first?.id, "literal",
+                       "a literal hit beats a newer subsequence match")
+    }
+
+    func testAnEarlierHitOutranksALaterOne() {
+        let early = clip("early", "lodestar ships tonight", minutesAgo: 200)
+        let late = clip("late", "a very long preamble before the word lodestar", minutesAgo: 1)
+        XCTAssertEqual(Clipboard.search([late, early], query: "lodestar").map(\.id),
+                       ["early", "late"])
+    }
+
+    func testOneLetterDoesNotMatchBySubsequence() {
+        // Every clip contains an "e" somewhere; that is noise, not a search.
+        let clips = [clip("a", "the quick brown fox", minutesAgo: 1),
+                     clip("b", "xyz", minutesAgo: 2)]
+        XCTAssertEqual(Clipboard.search(clips, query: "e").map(\.id), ["a"],
+                       "one letter is substring only")
+    }
+
+    func testTiesKeepNewestFirst() {
+        let older = clip("older", "same", minutesAgo: 50)
+        let newer = clip("newer", "same", minutesAgo: 1)
+        XCTAssertEqual(Clipboard.search([newer, older], query: "same").map(\.id),
+                       ["newer", "older"])
+    }
+
+    func testLengthIsNotHeldAgainstAClip() {
+        let long = clip("long", String(repeating: "context ", count: 200) + "needle", minutesAgo: 1)
+        let short = clip("short", "nettle", minutesAgo: 2)
+        XCTAssertEqual(Clipboard.search([short, long], query: "needle").first?.id, "long",
+                       "the clip that actually contains it wins, however long it is")
+    }
+
+    /// A single-pointer byte scan cannot do this: the failed third byte has
+    /// already eaten the second "a" that the match needed.
+    func testASubstringThatRepeatsIsStillFound() {
+        let clips = [clip("a", "aaab", minutesAgo: 1)]
+        XCTAssertEqual(Clipboard.search(clips, query: "aab").map(\.id), ["a"])
+        XCTAssertNotNil(Clipboard.relevance(of: "xxabcabd", to: "abcabd"))
+    }
+
+    func testMatchingIsCaseInsensitiveBothWays() {
+        XCTAssertNotNil(Clipboard.relevance(of: "The Release Notes", to: "release"))
+        XCTAssertNotNil(Clipboard.relevance(of: "SHOUTING CLIP", to: "shout"))
+    }
+
+    func testEmptyQueryIsTheOrdinaryStrip() {
+        let clips = [clip("a", "one", minutesAgo: 1), clip("b", "two", minutesAgo: 2)]
+        XCTAssertEqual(Clipboard.search(clips, query: "   ").map(\.id), ["a", "b"])
+    }
+
+    /// This runs on every keystroke while the strip is open, against a
+    /// history capped at ten thousand clips. A regression here is felt as
+    /// typing lag, so it is measured rather than assumed.
+    func testSearchingAFullHistoryStaysInteractive() {
+        let filler = String(repeating: "the quick brown fox jumps over it. ", count: 55)
+        let clips = (0..<10_000).map { clip("c\($0)", filler + "marker\($0)", minutesAgo: Double($0)) }
+        let started = Date()
+        let hits = Clipboard.search(clips, query: "marker9999")
+        let elapsed = Date().timeIntervalSince(started)
+        XCTAssertEqual(hits.first?.id, "c9999")
+        // The shipped app is optimized; a debug run carries bounds checks and
+        // no inlining and lands roughly ten times slower, so the number that
+        // matters is the release one.
+        #if DEBUG
+        let ceiling = 3.0
+        #else
+        let ceiling = 0.3
+        #endif
+        XCTAssertLessThan(elapsed, ceiling, "10k long clips searched in \(elapsed)s")
+        print("search over 10k × \(filler.count) chars: \(String(format: "%.3f", elapsed))s")
+    }
+}

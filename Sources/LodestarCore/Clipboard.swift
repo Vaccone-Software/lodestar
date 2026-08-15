@@ -278,11 +278,87 @@ public enum Clipboard {
         clips.filter(\.isPinned).sorted { ($0.pinnedSlot ?? 0) < ($1.pinnedSlot ?? 0) }
     }
 
-    /// Substring, case-insensitive, over the stored preview — the same
-    /// shape `web.routes` already uses, so it is one idea, not two.
+    /// How well a clip answers a query, or nil when it does not.
+    ///
+    /// Two tiers, because they mean different things. A literal hit is what
+    /// you typed, sitting in the text — the strongest possible signal, and
+    /// the earlier it sits the more the clip is *about* it. Failing that,
+    /// the letters in order: this is what lets "gitcom" find a commit
+    /// command, which is the whole reason to want more than substring.
+    ///
+    /// A subsequence over long text is permissive by nature, so it is scored
+    /// far below any literal hit rather than mixed in with one. It also
+    /// wants two characters: a single letter appears in order in nearly
+    /// every clip ever copied, which is noise rather than a search.
+    /// `needle` must already be lowercased and trimmed.
+    public static func relevance(of preview: String, to needle: String) -> Double? {
+        guard !needle.isEmpty else { return 0 }
+        // One cheap pass gates both tiers: a literal hit is necessarily also
+        // a subsequence, so anything this rejects cannot match either way.
+        // It is what keeps the expensive search off the 99% of clips that
+        // have nothing to do with the query. Only for an ASCII needle —
+        // byte folding is not Unicode case folding, and the correct search
+        // below is worth its cost on the rare query that needs it.
+        if isASCII(needle), !containsInOrder(needle, in: preview) { return nil }
+        if let position = literalPosition(of: needle, in: preview) {
+            return 1000 - Double(min(position, 800)) * 0.5
+        }
+        guard needle.count >= 2, containsInOrder(needle, in: preview) else { return nil }
+        // Only the survivors pay for scoring. No length penalty either: a
+        // clip is not worse for being long.
+        return Fuzzy.score(query: needle, candidate: preview.lowercased(), lengthPenalty: 0)
+    }
+
+    /// Foundation's search, deliberately. A hand-rolled byte scan looked
+    /// tempting for the hot loop, but a single-pointer one is wrong on
+    /// repeats — it cannot find "aab" inside "aaab", because the failed
+    /// third byte has already consumed the second "a" the match needed —
+    /// and getting that right means KMP for a gain that measurement did not
+    /// support. This allocates nothing over the haystack, and the cheap
+    /// subsequence reject below is what actually keeps the loop fast.
+    private static func literalPosition(of needle: String, in hay: String) -> Int? {
+        guard let hit = hay.range(of: needle, options: [.caseInsensitive]) else { return nil }
+        return hay.distance(from: hay.startIndex, to: hit.lowerBound)
+    }
+
+    /// Byte-wise, ASCII-folded, allocation free — and correct greedily,
+    /// unlike substring: a subsequence never needs to give back a character
+    /// it has already matched.
+    ///
+    /// This is the hot loop. It runs against every clip on every keystroke,
+    /// and a history is capped at ten thousand previews of up to two
+    /// thousand characters. Reaching `lowercased()` and `Array(candidate)`
+    /// first — building two grapheme-cluster arrays per clip merely to
+    /// discover it does not match — measured 3.6s on a full history.
+    private static func isASCII(_ text: String) -> Bool {
+        text.utf8.allSatisfy { $0 < 128 }
+    }
+
+    private static func containsInOrder(_ needle: String, in hay: String) -> Bool {
+        let n = Array(needle.utf8)
+        var matched = 0
+        for byte in hay.utf8 {
+            let folded = (byte >= 65 && byte <= 90) ? byte + 32 : byte
+            if folded == n[matched] {
+                matched += 1
+                if matched == n.count { return true }
+            }
+        }
+        return false
+    }
+
+    /// Newest-first among equals, so an untyped strip and a searched one
+    /// order the same way and the labels stay where the eye expects them.
     public static func search(_ clips: [Clip], query: String) -> [Clip] {
         let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
         guard !needle.isEmpty else { return recents(clips) }
-        return recents(clips).filter { $0.preview.lowercased().contains(needle) }
+        return recents(clips)
+            .enumerated()
+            .compactMap { position, clip -> (Clip, Double, Int)? in
+                guard let score = relevance(of: clip.preview, to: needle) else { return nil }
+                return (clip, score, position)
+            }
+            .sorted { $0.1 == $1.1 ? $0.2 < $1.2 : $0.1 > $1.1 }
+            .map(\.0)
     }
 }

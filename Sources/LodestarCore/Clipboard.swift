@@ -103,14 +103,15 @@ public enum Clipboard {
     // MARK: - Pasting into a terminal
 
     /// A terminal delivers a paste as bytes down a pty, and a pty has no way
-    /// to carry an image — so ⌘V into one lands as nothing at all, whatever
-    /// is on the pasteboard. Synthesizing it anyway is the worst outcome:
-    /// silence that reads as a broken paste while the clip sits right there.
+    /// to carry an image — so ⌘V into one can never land a picture, however
+    /// rich the pasteboard is.
     ///
-    /// Terminal programs that do take images — Claude Code among them — read
-    /// the pasteboard themselves out of band, on ⌃V. All they need is the
-    /// clip to be on it, which it is by the time this is asked. So the honest
-    /// move is to hand the last keystroke back to the user.
+    /// What every terminal *does* paste is text, and a path is text. The
+    /// tools you run in one read the image back off it: Claude Code turns a
+    /// pasted `.png` path into an attachment. So for an image into a
+    /// terminal the clip also goes on the pasteboard as a file, and the path
+    /// is what ⌘V delivers. Graphical apps never see this — they take the
+    /// picture itself, which is what they can actually accept.
     public static let terminalBundleIDs: Set<String> = [
         "com.mitchellh.ghostty",
         "com.googlecode.iterm2",
@@ -126,10 +127,15 @@ public enum Clipboard {
 
     /// Only images, and only into a terminal: text pastes down a pty exactly
     /// as it should, so nothing changes for the common case.
-    public static func needsPasteHandoff(kind: Kind, frontmostBundleID: String?) -> Bool {
+    public static func pastesAsFilePath(kind: Kind, frontmostBundleID: String?) -> Bool {
         guard kind == .image, let id = frontmostBundleID?.lowercased() else { return false }
         return terminalBundleIDs.contains(id)
     }
+
+    /// Extensions the far side will recognise as an image. A path only works
+    /// if it is named like a picture — the reader checks the extension
+    /// before it ever opens the file.
+    public static let pasteableImageExtension = "png"
 
     /// The card's line of text: collapsed whitespace, bounded, so a clip of
     /// a whole file does not become a giant index entry.

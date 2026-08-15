@@ -130,6 +130,21 @@ final class ClipboardController {
             item.setData(native.data, forType: NSPasteboard.PasteboardType(native.type))
             wrote = true
         }
+        // An image bound for a terminal rides as a file as well. The path is
+        // what ⌘V lands there, and the tool on the far side reads the
+        // picture back off it. Written after the image data so that stays
+        // the richer offer for anything able to take it.
+        var handedOverAsFile = false
+        if Clipboard.pastesAsFilePath(
+            kind: clip.kind,
+            frontmostBundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        ), let file = imageFileForPasting(clip) {
+            item.setString(file.path, forType: .string)
+            item.setString(file.absoluteString, forType: .fileURL)
+            handedOverAsFile = true
+            wrote = true
+        }
+
         guard wrote, board.writeObjects([item]) else {
             flash("✕ that clip could not be read")
             return
@@ -144,17 +159,45 @@ final class ClipboardController {
             flash("⌘V to paste — this field blocks synthetic input")
             return
         }
-        // The same bargain for an image into a terminal, which no ⌘V can
-        // carry. ⌃V is the key that works there, because the program on the
-        // far side reads the pasteboard itself rather than the pty.
-        if Clipboard.needsPasteHandoff(
+        // Only when the file could not be written does the last keystroke go
+        // back to the user: ⌃V still works, because the reader takes the
+        // image off the pasteboard itself.
+        if Clipboard.pastesAsFilePath(
             kind: clip.kind,
             frontmostBundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-        ) {
-            flash("⌃V to paste — ⌘V cannot carry an image here")
+        ), !handedOverAsFile {
+            flash("⌃V to paste — that image could not be written to a file")
             return
         }
         synthesizePaste()
+    }
+
+    /// The clip as a real PNG on disk — what a terminal can paste and what
+    /// the tool on the far side reads back. Named by content id, so pasting
+    /// the same clip twice writes the file once, and living in the temp
+    /// directory, so nothing accumulates in the user's data.
+    private func imageFileForPasting(_ clip: Clipboard.Clip) -> URL? {
+        guard let first = store.nativeData(clip).first else { return nil }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lodestar-\(clip.id).\(Clipboard.pasteableImageExtension)")
+        if FileManager.default.fileExists(atPath: url.path) { return url }
+
+        // The extension has to be honest: the reader checks it, then checks
+        // the bytes behind it. A TIFF renamed .png fails both halves.
+        let png: Data?
+        if first.type == NSPasteboard.PasteboardType.png.rawValue {
+            png = first.data
+        } else {
+            png = NSImage(data: first.data)?.pngData()
+        }
+        guard let png else { return nil }
+        do {
+            try png.write(to: url, options: .atomic)
+        } catch {
+            Log.error("clipboard: could not write \(url.lastPathComponent) (\(error))")
+            return nil
+        }
+        return url
     }
 
     /// ⌘V, built clean. The user very likely still has shift down from

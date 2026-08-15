@@ -354,26 +354,33 @@ extension PasteModeTests {
     }
 }
 
-/// An image into a terminal: ⌘V cannot carry it down a pty, so the paste
-/// hands the last keystroke back rather than firing one that does nothing.
-final class PasteHandoffTests: XCTestCase {
-    func testImageIntoTerminalHandsOff() {
-        XCTAssertTrue(Clipboard.needsPasteHandoff(
+/// An image into a terminal: ⌘V cannot carry a picture down a pty, so the
+/// clip rides as a file and the path is what lands.
+final class PasteAsFilePathTests: XCTestCase {
+    func testImageIntoTerminalGoesAsAPath() {
+        XCTAssertTrue(Clipboard.pastesAsFilePath(
             kind: .image, frontmostBundleID: "com.mitchellh.ghostty"))
-        XCTAssertTrue(Clipboard.needsPasteHandoff(
+        XCTAssertTrue(Clipboard.pastesAsFilePath(
             kind: .image, frontmostBundleID: "com.apple.Terminal"))
     }
 
     func testTextIntoTerminalPastesNormally() {
-        XCTAssertFalse(Clipboard.needsPasteHandoff(
+        XCTAssertFalse(Clipboard.pastesAsFilePath(
             kind: .text, frontmostBundleID: "com.mitchellh.ghostty"))
     }
 
-    func testImageIntoGraphicalAppPastesNormally() {
-        XCTAssertFalse(Clipboard.needsPasteHandoff(
+    func testImageIntoGraphicalAppKeepsThePicture() {
+        XCTAssertFalse(Clipboard.pastesAsFilePath(
             kind: .image, frontmostBundleID: "com.apple.Notes"))
-        XCTAssertFalse(Clipboard.needsPasteHandoff(
+        XCTAssertFalse(Clipboard.pastesAsFilePath(
             kind: .image, frontmostBundleID: nil))
+    }
+
+    /// The reader checks the extension before it opens the file, so the name
+    /// has to be one it recognises.
+    func testPasteExtensionIsRecognisedByReaders() {
+        XCTAssertTrue(["png", "jpg", "jpeg", "gif", "webp"]
+            .contains(Clipboard.pasteableImageExtension))
     }
 
     func testBundleIDsAreStoredLowercasedSoTheLookupCanFold() {

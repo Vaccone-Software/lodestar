@@ -70,6 +70,9 @@ public struct Config {
     public var clipboardMaxBytes = 500_000_000
     public var clipboardExcludedApps: Set<String> = []
     public var clipboardExcludePatterns: [String] = []
+    /// Watch how you reach things, locally, to make suggestions later. Off
+    /// means nothing is recorded and no file is written.
+    public var observationsEnabled = true
     /// Keycode → key-name overlays on the built-in ANSI table.
     public var keyOverrides: [Int64: String] = [:]
     public var graph: GraphNode = GraphNode()
@@ -151,6 +154,9 @@ public struct Config {
             "exclude": .freeTable(value: .boolean(description: "true to never record clips containing this text."),
                                   description: "Substring → true, matched case-insensitively against the clip. The same shape web.routes uses."),
         ], description: "Clipboard history."),
+        "observations": .table([
+            "enabled": .boolean(description: "Watch how you reach things, on this machine only, to suggest improvements later."),
+        ], description: "Local observations. Counts, never content; nothing leaves the machine."),
         "hints": .table([
             "letters": .string(allowed: nil, description: "The label alphabet, home row by default; labels are built only from these letters."),
             "rescan-delay": .number(min: 0.1, max: 2.0, description: "Sticky hints: seconds between a click and the relabel."),
@@ -375,6 +381,9 @@ public struct Config {
                     problems.append("web.routes.\(pattern) references unknown profile '\(profile)'")
                 }
             }
+        }
+        if let enabled = effective.value(at: ["observations", "enabled"])?.bool {
+            config.observationsEnabled = enabled
         }
         if let enabled = effective.value(at: ["web", "clicks", "enabled"])?.bool {
             config.webHandleClicks = enabled

@@ -425,3 +425,132 @@ func runReload() -> Never {
     for problem in problems { print("• \(problem)") }
     exit(1)
 }
+
+/// `lodestar observations` — what Lodestar has noticed about how you reach
+/// things, printed plainly, because a store you cannot read is a store you
+/// cannot consent to. Counts and pauses only: there is nothing in here about
+/// what you were doing, only how you got there.
+func runObservations(clear: Bool) -> Never {
+    Log.stdoutEnabled = false
+    let store = ObservationStore()
+    if clear {
+        store.clear()
+        // A running instance holds its own copy; tell it, or it saves that copy
+        // back over the deletion within seconds.
+        store.requestClear()
+        print("✓ observations cleared (\(ObservationStore.defaultFile.path))")
+        exit(0)
+    }
+    store.load()
+    let o = store.observations
+    let (config, _) = Config.load()
+
+    guard o.updated != .distantPast else {
+        print("no observations yet · \(ObservationStore.defaultFile.path)")
+        print("set observations.enabled to false to keep it that way.")
+        exit(0)
+    }
+
+    let days = max(1, Int(Date().timeIntervalSince(o.since) / 86400))
+    print("observations · \(days) day\(days == 1 ? "" : "s") · nothing here leaves this machine")
+    print("")
+
+    let bound = config.graph.leaves()
+    func pad(_ text: String, _ width: Int) -> String {
+        text.count >= width ? text : text + String(repeating: " ", count: width - text.count)
+    }
+    func seconds(_ value: TimeInterval) -> String { String(format: "%.2fs", value) }
+
+    if !bound.isEmpty {
+        print("addresses")
+        for leaf in bound.sorted(by: { $0.chain.joined() < $1.chain.joined() }) {
+            let shown = "lode " + leaf.chain.map { $0.uppercased() }.joined(separator: " ")
+            let record = o.addresses[Observations.key(leaf.chain)]
+            var columns = [pad(shown, 16), pad(leaf.target.label, 18)]
+            columns.append(pad("\(record?.completions ?? 0) uses", 10))
+            if let fluency = o.fluency(leaf.chain) {
+                columns.append(pad(seconds(fluency.median), 8))
+            } else {
+                columns.append(pad("", 8))
+            }
+            if let trend = o.learningTrend(leaf.chain) {
+                columns.append(pad(trend < -0.02 ? "learning" : "settled", 10))
+            } else {
+                columns.append(pad("", 10))
+            }
+            var notes: [String] = []
+            if let record, record.abandons > 0 { notes.append("\(record.abandons) abandoned") }
+            if let record, record.wrongLetters > 0 { notes.append("\(record.wrongLetters) wrong keys") }
+            print("  " + columns.joined() + notes.joined(separator: " · "))
+        }
+        print("")
+    }
+
+    let apps = o.apps.sorted { $0.value.reaches > $1.value.reaches }.prefix(15)
+    if !apps.isEmpty {
+        print("apps")
+        for (name, record) in apps {
+            var line = pad("  " + name, 26)
+            line += pad("graph \(record.graph)", 12) + pad("searcher \(record.searcher)", 14)
+            if let share = o.routeShare(name) {
+                line += pad("\(Int(share * 100))% searched", 15)
+            }
+            if let typed = o.medianTyped(name) { line += "\(typed) chars" }
+            print(line)
+        }
+        print("")
+    }
+
+    if !o.verbs.isEmpty {
+        let list = o.verbs.sorted { $0.value > $1.value }.map { "\($0.key) \($0.value)" }
+        print("verbs")
+        print("  " + list.joined(separator: " · "))
+        print("")
+    }
+
+    // The four situations, stated only where there is enough to say them.
+    var findings: [String] = []
+    // An address you have not used says nothing on the first day: of course you
+    // have not opened Music yet. A finding built on absence needs the window to
+    // have been open long enough for the absence to mean something, where one
+    // built on presence only needs its counts.
+    let longEnoughForAbsence = days >= 7
+    if longEnoughForAbsence {
+        for chain in o.unused(among: bound.map(\.chain)) where !chain.isEmpty {
+            let shown = "lode " + chain.map { $0.uppercased() }.joined(separator: " ")
+            findings.append("\(shown) has never been typed")
+        }
+    }
+    for leaf in bound {
+        let shown = "lode " + leaf.chain.map { $0.uppercased() }.joined(separator: " ")
+        if let rate = o.abandonRate(leaf.chain), rate > 0.2 {
+            findings.append("\(shown) is abandoned \(Int(rate * 100))% of the time")
+        }
+        if let trend = o.learningTrend(leaf.chain), trend > -0.01,
+           let fluency = o.fluency(leaf.chain), let typical = o.typicalPause(),
+           fluency.median > typical * 1.5 {
+            findings.append("\(shown) is slower than your usual and is not speeding up")
+        }
+        if let share = o.routeShare(leaf.target.label), share > 0.5 {
+            findings.append("\(leaf.target.label) is reached by search \(Int(share * 100))% of the time despite \(shown)")
+        }
+    }
+    let addressed = Set(bound.map { $0.target.label.lowercased() })
+    for (name, record) in apps where !addressed.contains(name) && record.searcher >= 5 {
+        if o.activeWeeks(app: name) >= 2 {
+            findings.append("\(name) is searched for often and has no address")
+        }
+    }
+    if findings.isEmpty {
+        print("nothing worth saying yet. Silence is the honest answer until the counts are there.")
+        if !longEnoughForAbsence {
+            print("(unused addresses stay unmentioned until a week has passed.)")
+        }
+    } else {
+        print("worth looking at")
+        for finding in findings.prefix(12) { print("  " + finding) }
+    }
+    print("")
+    print(ObservationStore.defaultFile.path)
+    exit(0)
+}

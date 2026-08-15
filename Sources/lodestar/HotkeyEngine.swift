@@ -12,6 +12,16 @@ import LodestarCore
 final class HotkeyEngine {
     /// Fires when a chain starts or ends — the menu bar wears the state.
     var onChainActive: ((Bool) -> Void)?
+    /// Where observations land. Nil until the app wires one, so the engine
+    /// works identically with nobody watching.
+    var observations: ObservationStore?
+
+    /// Chain timing, for the one measurement that says whether an address has
+    /// compiled into muscle memory: the pauses inside it. The first stamp is
+    /// the trigger itself, because the gap between lode and the first letter
+    /// is the recall, and single letter addresses have no other gap to offer.
+    private var chainStamps: [Date] = []
+    private var chainLetters: [String] = []
     /// An app excluded from the clipboard from inside the panel; the app
     /// delegate writes it to the config so the choice survives a restart.
     var onExcludeApp: ((String) -> Void)?
@@ -200,9 +210,97 @@ final class HotkeyEngine {
         let effects = core.keyDown(key: key, held: held, shift: effectiveShift,
                                    command: event.flags.contains(.maskCommand),
                                    option: event.flags.contains(.maskAlternate), world: self)
+        let arrived = Date()
         let verdict = apply(effects, event: event)
+        observeChain(effects, at: arrived)
         if wasIdle != core.isIdle { onChainActive?(!core.isIdle) }
         return verdict
+    }
+
+    /// Which verb an effect belongs to, for the count that lets a feature
+    /// nobody has ever touched say so. Names match the gesture roster, so the
+    /// report and the config speak the same words.
+    private static func verb(for effect: EngineEffect) -> String? {
+        switch effect {
+        case .showSearcher, .openWindowChooser: return "searcher"
+        case .showWebBar: return "web"
+        case .showMenuSearch: return "menu"
+        case .enterPaste: return "clipboard"
+        case .enterScroll: return "scroll"
+        case .toggleCheat: return "cheat"
+        case .summonGraph: return "graph"
+        case .indexJump, .reorder: return "index"
+        case .maximizeFocused: return "maximize"
+        case .flipOrientation: return "orientation"
+        case .undoLayout, .redoLayout: return "undo"
+        case .goBack, .goForward: return "timeline"
+        case .moveDisplay: return "displays"
+        default: return nil
+        }
+    }
+
+    /// What the grammar's own decisions say about how well an address is
+    /// known. A completion carries its pauses, a wrong letter is a collision
+    /// with the name in your head, and an escape is the clearest signal of all
+    /// that the address was in the way rather than merely slow.
+    private func observeChain(_ effects: [EngineEffect], at now: Date) {
+        guard let observations else { return }
+        // Decided before the walk, not during it. A completing chain emits
+        // hideGuide *before* summonGraph, so a flag set as the loop went along
+        // let the guide's own teardown wipe the timestamps a moment before the
+        // completion asked for them: every abandon recorded, every completion
+        // arrived with no timing at all.
+        let completed = effects.contains {
+            if case .summonGraph = $0 { return true }
+            return false
+        }
+        for effect in effects {
+            if let verb = Self.verb(for: effect) {
+                observations.record { $0.verbUsed(verb, at: now) }
+            }
+            switch effect {
+            case .summonGraph(let letters, _):
+                chainStamps.append(now)
+                // Every pause counts, including the ones where the guide
+                // appeared. Excluding those was the second mistake in this
+                // feature: the guide shows up after 0.45s of holding lode, so
+                // "the map was open" describes almost every deliberate gesture,
+                // and discarding them threw away exactly the slow addresses
+                // worth finding. A chain that needed the map is a chain that
+                // was not fluent, and the pause already says so.
+                var gaps: [TimeInterval] = []
+                for (index, stamp) in chainStamps.enumerated() where index > 0 {
+                    gaps.append(stamp.timeIntervalSince(chainStamps[index - 1]))
+                }
+                // A canary, kept: a completion with nothing to time means the
+                // trigger stamp went missing, which is how this feature was
+                // silently blind twice. Counts only, so it says nothing about
+                // where you went.
+                if chainStamps.count < 2 {
+                    Log.info("observations", ["untimed-chain-keys": letters.count,
+                                              "stamps": chainStamps.count])
+                }
+                observations.record { $0.chainCompleted(letters, gaps: gaps, at: now) }
+                chainStamps = []
+                chainLetters = []
+            case .showGuide(let kind, let letters, _, let note):
+                guard kind == .graph else { continue }
+                if note != nil {
+                    observations.record { $0.wrongLetter(after: chainLetters, at: now) }
+                } else if letters.count > chainLetters.count {
+                    chainStamps.append(now)
+                }
+                chainLetters = letters
+            case .hideGuide:
+                if !completed, !chainLetters.isEmpty {
+                    let abandoned = chainLetters
+                    observations.record { $0.chainAbandoned(abandoned, at: now) }
+                }
+                if !completed { chainStamps = []; chainLetters = [] }
+            default:
+                continue
+            }
+        }
     }
 
     /// Execute the core's decisions, in order. The one routing effect:
@@ -344,6 +442,10 @@ final class HotkeyEngine {
         guard core.isIdle else { return }
         let (held, _) = classify(event.flags)
         if held {
+            // The clock for a chain starts when lode goes down, not when the
+            // first letter arrives.
+            chainStamps = [Date()]
+            chainLetters = []
             guard peekWork == nil, !isPeeking, !anyBarVisible else { return }
             let work = DispatchWorkItem { [weak self] in
                 guard let self, self.core.isIdle, !self.anyBarVisible else { return }

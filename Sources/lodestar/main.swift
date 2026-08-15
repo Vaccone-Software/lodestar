@@ -52,6 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var layout: LayoutController!
     private var appIndex: AppIndex!
     private var store: StateStore!
+    private var observationStore: ObservationStore!
     private var hud: HUD!
     private var actions: Actions!
     private var searcher: SearcherController!
@@ -109,6 +110,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         layout = LayoutController(model: model, parking: parking)
         appIndex = AppIndex()
         store = StateStore()
+        observationStore = ObservationStore()
+        if observationStore.consumeClearRequest() {
+            observationStore.clear()
+        } else {
+            observationStore.load()
+        }
+        observationStore.setEnabled(loaded.observationsEnabled)
         hud = HUD()
 
         store.load()
@@ -118,6 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         actions = Actions(model: model, parking: parking, layout: layout,
                           appIndex: appIndex, store: store, hud: hud)
         actions.attach()
+        actions.observations = observationStore
         model.onTrace = { Log.info("model: \($0)") }
         searcher = SearcherController(appIndex: appIndex, actions: actions, model: model)
         rebuildGraphAddresses()
@@ -169,6 +178,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                               scroller: ScrollController(model: model),
                               hints: HintsController(model: model),
                               clipboard: clipboardController)
+
+        engine.observations = observationStore
 
         model.start()
         layout.reconcileDisplays() // learn the connected monitors' identities
@@ -251,6 +262,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Log.info("terminating: restoring parked windows")
         actions?.restoreAllParked()
         store?.save() // flush any coalesced write before the process dies
+        observationStore?.flush()
         // Only clear the pid file while it is still ours — in a takeover
         // (manual reinstall or self-update) the successor has already
         // written its own pid, and deleting it would blind the update
@@ -797,6 +809,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         clipboardController.excludedPatterns = loaded.clipboardExcludePatterns
         clipboardController.maxBytes = loaded.clipboardMaxBytes
         clipboardController.setEnabled(loaded.clipboardEnabled)
+        observationStore?.setEnabled(loaded.observationsEnabled)
+        if observationStore?.consumeClearRequest() == true {
+            observationStore?.clear()
+            hud.flash("⌂ observations cleared")
+        }
         rebuildGraphAddresses()
         ConfigDoctor.emitSchema()
         updateConfigWatcher()
@@ -1096,6 +1113,9 @@ if cliArguments.contains("schema") {
     }
     print(text)
     exit(0)
+}
+if cliArguments.contains("observations") {
+    runObservations(clear: cliArguments.contains("clear"))
 }
 if cliArguments.contains("clipboard") {
     if cliArguments.contains("clear") {

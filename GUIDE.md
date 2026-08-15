@@ -119,6 +119,16 @@ Routes only help where Lodestar is asked, which is the half of the problem that 
 
 Profiles live in a registry (`profiles.brave`, `profiles.chrome`, `profiles.edge`): Lodestar name → the browser's profile name, with keys global across browsers and referenced everywhere else (`brave:work` or `chrome:work` in the graph, `profile: work` in links). References are validated at Reload Config, and the registry itself is checked against each browser's real profile list — a renamed browser profile surfaces as one flagged line, not a mystery failure later.
 
+## What Lodestar notices
+
+Lodestar watches how you reach things, on this machine only, so it can eventually tell you something useful about it. `observations.enabled` turns it off, and off means nothing is recorded and no file is written.
+
+The rule is **counts, never content**. It records that an address was typed, the pauses inside it, whether a chain was abandoned, and which route reached an app. It never records a window title, a URL, a host, a clipboard, or what you typed into the searcher. The number of characters is enough to know what a search cost you; the characters are yours. The file lives in `~/.local/share/lodestar/observations.json`, deliberately not in `~/.config`, which is what people commit to dotfiles repositories, and nothing ever leaves the machine.
+
+Two measurements do most of the work, and neither needs to guess at what you would have done otherwise. **Pauses**: an address you own is typed at motor speed, one you are reconstructing has a gap in it, which is as close to "has this become muscle memory" as you can get without asking. **Abandons**: a chain you started and escaped out of is unambiguous in a way a slow chain is not, because a slow chain might be a phone call. Anything over two seconds is discarded rather than averaged, since chains wait indefinitely by design and one interruption would otherwise poison every number here.
+
+`lodestar observations` prints all of it, plainly, because a store you cannot read is one you cannot consent to; `lodestar observations clear` deletes it. The report stays silent where the counts are too thin to mean anything, which is most of the first week. Recommendations come later, and only for the situations the data can actually establish: an address that is never typed, one that is abandoned often, one that never gets faster, and an app you keep searching for that has no address at all.
+
 ## Config (`lodestar.json`)
 
 The config is sparse JSON: it holds only what differs from the defaults,

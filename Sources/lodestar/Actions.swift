@@ -9,6 +9,9 @@ final class Actions {
     private let layout: LayoutController
     private let appIndex: AppIndex
     private let store: StateStore
+    /// Set by the app. Reaches are recorded here beside the frecency the
+    /// searcher already keeps, so the two cannot drift apart.
+    var observations: ObservationStore?
     private let hud: HUD
 
     private var intents = IntentQueue()
@@ -44,6 +47,7 @@ final class Actions {
     // MARK: - Summoning
 
     func summon(_ target: GraphTarget, beside: Bool) {
+        observations?.record { $0.reached(target.label, via: .graph) }
         switch target {
         case .app(let name):
             summonApp(named: name, beside: beside)
@@ -84,11 +88,14 @@ final class Actions {
     // Successful navigation is silent — the screen changing IS the
     // feedback. Flashes are reserved for what you cannot see: pending
     // launches, invisible state changes (binds, deletes), and failures.
-    func pick(_ entry: AppIndex.Entry, beside: Bool) {
+    func pick(_ entry: AppIndex.Entry, beside: Bool, charactersTyped: Int? = nil) {
         if entry.bundleID == Bundle.main.bundleIdentifier
             || entry.name.lowercased() == "lodestar" {
             revealLodestar?()
             return
+        }
+        observations?.record {
+            $0.reached(entry.name, via: .searcher, charactersTyped: charactersTyped)
         }
         if let window = bestAliveWindow(bundleID: entry.bundleID, appName: entry.name) {
             place(window, beside: beside)

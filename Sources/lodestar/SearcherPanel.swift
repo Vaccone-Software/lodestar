@@ -366,9 +366,11 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         guard rows.indices.contains(selected) else { return }
         let row = rows[selected]
         hide()
+        // What the search actually cost, measured rather than assumed.
+        let typed = field.stringValue.trimmingCharacters(in: .whitespaces).count
         switch row {
         case .app(let entry):
-            actions.pick(entry, beside: beside)
+            actions.pick(entry, beside: beside, charactersTyped: typed)
         case .window(let window):
             actions.summonWindow(window.id, beside: beside)
         }

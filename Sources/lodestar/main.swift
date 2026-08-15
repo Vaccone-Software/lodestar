@@ -123,6 +123,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         webBar.perform = { [weak self] url, profile, beside in
             self?.actions.openWeb(url: url, profile: profile, beside: beside)
         }
+        // Returns nil on SUCCESS, so no optional chaining here either.
+        webBar.addLink = { [weak self] name, url, profileKey in
+            guard let self else { return "lodestar is shutting down" }
+            return self.addWebLink(name: name, url: url, profileKey: profileKey)
+        }
+        webBar.removeLink = { [weak self] name in
+            guard let self else { return "lodestar is shutting down" }
+            return self.removeWebLink(name: name)
+        }
+        webBar.addRoute = { [weak self] pattern, profileKey in
+            guard let self else { return "lodestar is shutting down" }
+            return self.addWebRoute(pattern: pattern, profileKey: profileKey)
+        }
+        webBar.removeRoute = { [weak self] pattern in
+            guard let self else { return "lodestar is shutting down" }
+            return self.removeWebRoute(pattern: pattern)
+        }
         engine = HotkeyEngine(config: config, actions: actions, hud: hud, searcher: searcher,
                               webBar: webBar, menuSearch: MenuSearchController(),
                               scroller: ScrollController(model: model),
@@ -321,7 +338,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         graphAddressByApp = map
     }
 
-    // MARK: - Graph editing (⌘K in the searcher)
+    // MARK: - Config editing (⌘K in the searcher and the web bar)
 
     /// Every chain bound to an app, shortest first — the card's remove rows.
     private func graphChains(for name: String) -> [[String]] {
@@ -365,22 +382,74 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func addAppToGraph(_ letters: [String], entry: AppIndex.Entry) -> String? {
         if let problem = chainProblem(letters) { return problem }
         let shown = letters.map { $0.uppercased() }.joined(separator: " ")
-        return rewriteGraph(flash: "✓ lode \(shown) → \(entry.name)") {
+        return rewriteConfig(flash: "✓ lode \(shown) → \(entry.name)") {
             try GraphJsonEditor.addingPath(letters, target: entry.name, in: $0)
         }
     }
 
     private func removeChainFromGraph(_ letters: [String]) -> String? {
         let shown = letters.map { $0.uppercased() }.joined(separator: " ")
-        return rewriteGraph(flash: "✓ removed lode \(shown)") {
+        return rewriteConfig(flash: "✓ removed lode \(shown)") {
             try GraphJsonEditor.deletingPath(letters, in: $0)
+        }
+    }
+
+    /// ⌘K in the web bar: a typed destination promoted to a named link. The
+    /// URL is stored as typed — the scheme is added when it opens — so this
+    /// lands in web.links as the same two lines a hand edit would write.
+    private func addWebLink(name: String, url: String, profileKey: String?) -> String? {
+        let key = WebJsonEditor.normalizeName(name)
+        if let problem = WebJsonEditor.nameProblem(key, url: url, existing: config.webLinks) {
+            return problem
+        }
+        // The flash shows the URL on screen and then is gone; the log line
+        // rewriteConfig writes keeps the name only. The config file holds the
+        // destination because that is its job — the log is paste-able, and
+        // must not become a list of where you go.
+        return rewriteConfig(flash: "✓ lode ⏎ \(key) → \(url)", logged: "link \(key)") {
+            try WebJsonEditor.addingLink(name: key, url: url, profileKey: profileKey, in: $0)
+        }
+    }
+
+    private func removeWebLink(name: String) -> String? {
+        let key = WebJsonEditor.normalizeName(name)
+        return rewriteConfig(flash: "✓ removed \(key)") {
+            try WebJsonEditor.removingLink(name: key, in: $0)
+        }
+    }
+
+    /// The other promotion: not this site by name, but every link that
+    /// matches a pattern, wherever it came from.
+    private func addWebRoute(pattern: String, profileKey: String) -> String? {
+        let key = WebJsonEditor.normalizePattern(pattern)
+        if let problem = WebJsonEditor.patternProblem(key, profileKey: profileKey,
+                                                      existing: config.webRoutes) {
+            return problem
+        }
+        // A pattern is a host, so it stays out of the log for the same
+        // reason a URL does — the profile it chose is the part worth keeping.
+        return rewriteConfig(flash: "✓ \(key) → \(profileKey)",
+                             logged: "route → \(profileKey)") {
+            try WebJsonEditor.addingRoute(pattern: key, profileKey: profileKey, in: $0)
+        }
+    }
+
+    /// Undoing a route from the card that told you it was there. The pattern
+    /// stays out of the log for the same reason a URL does.
+    private func removeWebRoute(pattern: String) -> String? {
+        let key = WebJsonEditor.normalizePattern(pattern)
+        return rewriteConfig(flash: "✓ removed route \(key)", logged: "route removed") {
+            try WebJsonEditor.removingRoute(pattern: key, in: $0)
         }
     }
 
     /// Read-edit-write the config tree, then apply it. The edit is a tree
     /// operation; the canonical emitter owns every byte of formatting.
     /// The HUD confirms with `flash` unless the reload surfaces problems.
-    private func rewriteGraph(flash: String, edit: ([String: ConfigValue]) throws -> [String: ConfigValue]) -> String? {
+    /// `logged` is what the log records — the same as the flash by default,
+    /// and something quieter when the flash names a destination.
+    private func rewriteConfig(flash: String, logged: String? = nil,
+                               edit: ([String: ConfigValue]) throws -> [String: ConfigValue]) -> String? {
         Config.migrateIfNeeded() // an edit is a write; writes happen in the new format
         guard let text = try? String(contentsOf: Config.file, encoding: .utf8),
               let tree = try? Json.parse(text) else {
@@ -391,6 +460,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             updated = try edit(tree)
         } catch let error as GraphJsonEditor.EditError {
             return error.description
+        } catch let error as WebJsonEditor.EditError {
+            return error.description
         } catch {
             return "\(error)"
         }
@@ -399,7 +470,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } catch {
             return "could not write the config: \(error.localizedDescription)"
         }
-        Log.info("graph-edit", ["edit": flash])
+        Log.info("config-edit", ["edit": logged ?? flash])
         applyConfigReload(successFlash: flash)
         return nil
     }

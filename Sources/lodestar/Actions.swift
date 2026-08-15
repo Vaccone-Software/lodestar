@@ -54,7 +54,11 @@ final class Actions {
 
     /// The web bar's verb: open a URL in a profile, then go there.
     func openWeb(url: String, profile: BrowserProfile, beside: Bool) {
-        Log.info("open-web", ["url": url, "browser": profile.browser.rawValue,
+        // Never the URL. The log is paste-able (`lodestar diagnose` tails it),
+        // and a list of everywhere you went is not diagnostics — it is a
+        // browsing history in a file. Where it opened is what a bug report
+        // needs; what you opened is yours.
+        Log.info("open-web", ["browser": profile.browser.rawValue,
                               "profile": profile.display, "beside": beside])
         guard ChromiumProfiles.openURL(url, in: profile) else {
             hud.flash("✕ profile '\(profile.display)' not found in \(profile.browser.label)")

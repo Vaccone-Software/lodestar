@@ -64,6 +64,36 @@ A breath is a **snapshot** of a specific-window layout. It is not a mode. You co
 
 Breaths pin specific windows, so they carry the window-identity risk in full.
 
+## The web bar (added after the four)
+
+`lode ⏎` opens a second bar with its own grammar, on the axis the four primitives do not address: a destination **inside** an app. The four are about which window you are looking at; the web bar is about which browser profile a URL lands in, which is the same question one level down.
+
+It stays a separate bar rather than rows in the searcher, and that separation is the design. The searcher answers "which app," and mixing web destinations into it would put two kinds of answer in one list, forcing a read-and-reject on every query. Two bars, two grammars, no ambiguity — the cost is one more gesture to learn, paid once.
+
+Three kinds of row, and the third is why it works: **links** (a name you typed for a site), **domains** (anything that looks like a destination), **searches** (everything else). Every row wears the profile it will open in. Profiles resolve by precedence — a link's pin, then a `web.routes` pattern, then `web.fallback`, then the browser you were in last — and every surface that shows a profile also shows _which_ of those decided it, because an inferred answer can change tomorrow and a chosen one cannot.
+
+Routes are the piece that earns its keep quietly: a pattern matched against whatever you typed, host or query alike, so `x.com` always opening in Personal is one line of config rather than a habit. The natural extension — catching links **clicked in other apps**, by registering as the default browser — is deliberately unbuilt: it is all-or-nothing (every link on the machine flows through Lodestar), so it needs its own slice with a guaranteed-terminal fallback path, not a bolt-on.
+
+Test it passes: the gesture is fixed (`lode ⏎`, type, `↵`), and the profile decision is removed from the moment of use rather than added to it.
+
+**Nothing is logged.** Not a URL, not a host, not a typed query — the log is paste-able (`lodestar diagnose` tails it), and a list of everywhere you went is not diagnostics. Where something opened is what a bug report needs; what you opened is yours. Config edits log the _name_ you chose, never the destination.
+
+## The clipboard (added after the four)
+
+`⇧⌘V` puts history on screen: recents along the bottom labelled by the home row, pins climbing the left edge numbered 1–3. Both meet at one corner, so the two things you are most likely to want — a pin, or what you just copied — are one hot region rather than two ends of a wide strip.
+
+The strip is **never key**: it reads its keys from the event tap, so the window you were typing in keeps focus and its insertion point, and the paste is a plain `⌘V` into an app that never lost the cursor. History lives in `~/.local/share`, not `~/.config`, because the config is what people commit to a dotfiles repo and clipboard history is the last thing that belongs there. `clipboard.exclude` / `exclude-apps` are how something never gets recorded in the first place.
+
+_(This section describes what the code does; the framing is worth your eye.)_
+
+## Promotion: ⌘K on the thing in front of you
+
+The bars share one editing gesture. `⌘K` acts on the selected row and offers only what that row can become: an app joins the graph, a domain becomes a named link or a route, a link can be routed or removed, a route can be removed from any row it sent somewhere. Every card shows what `↵` would commit before it commits it, and refuses with the reason rather than silently.
+
+This is how things graduate. The searcher is where an unaddressed app first appears; the web bar is where an unnamed destination first appears; `⌘K` is the one move that turns either into an address, and it writes straight into the config so the file and the UI are the same source of truth. Editing by hand and editing by card produce identical bytes.
+
+The decisions live in `WebMenu` (LodestarCore), tested without an app; the panels only draw and translate keystrokes. Any future card belongs there too — a state machine wearing an AppKit coat is still a state machine.
+
 ## Shift: the universal "beside me" modifier
 
 One rule, applied everywhere. Plain invocation of any app-opener (searcher, graph) means "take me there, full-screen." The same invocation with `shift` means "bring it beside my current window." The new window opens to the right or below the active one depending on orientation.
@@ -120,3 +150,6 @@ Own everything else.
 - **Namespace reservation**: `M`, `B`, and the digits are reserved as first characters (marks, breaths, index — marks and breaths since moved off letters entirely). Apps whose natural first letter is one of these need another path in the graph. Note in particular that Brave (`lode B ...`) currently collides with the breath prefix; one of them moves.
 - **Searcher windows vs apps**: whether the searcher surfaces individual windows (v2).
 - **Index `0`**: what, if anything, it does.
+- **Clicked links**: whether Lodestar becomes the default browser and routes every clicked link through `web.routes`. Mechanically settled (declare the http/https scheme, receive `application(_:open:)`, hand off with `open -na` so the dispatch never loops back). The open question is whether the all-or-nothing cost is acceptable — every link on the machine depends on us answering — and it needs the terminal fallback decided _before_ any routing runs, so a swallowed link is structurally impossible rather than merely handled.
+- **Naming the register**: "link" is the plain word, deliberately not Raycast's "quicklink". Whether a distinctive noun (beacon, waypoint) earns a config migration is unresolved; the plain word ships until it does.
+- **Noticing what you keep typing**: whether a domain visited repeatedly should wear a hint chip suggesting `⌘K`, the way searcher rows teach the graph address. It would mean persisting a count per host — a browsing record on disk — which is exactly the tradeoff the log rule rejects. Not automatically disqualified, but a decision rather than a side effect.

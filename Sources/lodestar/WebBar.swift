@@ -2,15 +2,37 @@ import AppKit
 import LodestarCore
 
 /// The web bar (`lode ⏎`): a second, deliberately separate grammar. Every
-/// row here is a destination on the web — quick links pinned to profiles,
-/// bare domains routed by rules, anything else a search — and each row wears
-/// the profile it will open in. Chromium family only for now.
+/// row here is a destination on the web — named links, bare domains routed
+/// by pattern, anything else a search — and each row wears the profile it
+/// will open in. ⌘K promotes the selected row: a domain becomes a named
+/// link or a route, a link can be routed or removed, all written straight
+/// into the config. Chromium family only for now.
 final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     struct WebRow {
-        enum Kind { case link, domain, search }
+        enum Kind {
+            case link, domain, search
+
+            /// The state machine's own vocabulary for the same three things.
+            var menuKind: WebMenu.RowKind {
+                switch self {
+                case .link: return .link
+                case .domain: return .domain
+                case .search: return .search
+                }
+            }
+        }
+
         let kind: Kind
         let title: String
+        /// The destination, ready to open: the scheme already added.
         let url: String
+        /// What was typed, before normalizing — what a saved link stores, so
+        /// the config keeps the line you would have written by hand.
+        let raw: String
+        /// The link's name, when this row is one: what a remove targets.
+        var name: String?
+        /// The link's pinned profile, when it has one.
+        var pinnedProfileKey: String?
         let profile: BrowserProfile
     }
 
@@ -27,9 +49,22 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     /// The profile of the most recently focused browser window, if any.
     var mostRecentProfile: () -> BrowserProfile? = { nil }
     var perform: (_ url: String, _ profile: BrowserProfile, _ beside: Bool) -> Void = { _, _, _ in }
+    /// The ⌘K writes. Each returns an error string, or nil on success.
+    var addLink: (_ name: String, _ url: String, _ profileKey: String?) -> String? = { _, _, _ in
+        "link editing is unavailable"
+    }
+    var removeLink: (_ name: String) -> String? = { _ in "link editing is unavailable" }
+    var addRoute: (_ pattern: String, _ profileKey: String) -> String? = { _, _ in
+        "route editing is unavailable"
+    }
+    var removeRoute: (_ pattern: String) -> String? = { _ in "route editing is unavailable" }
 
     private var rows: [WebRow] = []
     private var selected = 0
+    /// Every decision the ⌘K card makes lives in Core, where it is tested.
+    private var menu = WebMenu()
+    private let card = OptionsCard()
+    private let profileCard = OptionsCard()
 
     private let panelWidth = BarTheme.panelWidth
     private let inputHeight = BarTheme.inputHeight
@@ -53,6 +88,12 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         panel.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
         panel.delegate = self
         panel.contentView = root
+        panel.onKeyEquivalent = { [weak self] event in
+            self?.handleKeyEquivalent(event) ?? false
+        }
+        panel.onKeyDown = { [weak self] event in
+            self?.handleMenuKey(event) ?? false
+        }
 
         Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
 
@@ -112,6 +153,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     }
 
     func show() {
+        closeMenu()
         field.stringValue = ""
         requery()
         panel.makeKeyAndOrderFront(nil)
@@ -120,30 +162,19 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     }
 
     func hide() {
+        closeMenu()
         panel.orderOut(nil)
     }
-
     // MARK: - Resolution
 
-    /// The profile a destination opens in: explicit pin, then routes
-    /// (longest substring match), then the fallback.
+    /// Everything resolution and the ⌘K card need from the config, rebuilt
+    /// per query so a reload is picked up without wiring.
+    private var context: WebContext {
+        WebContext(config: config, mostRecent: mostRecentProfile())
+    }
+
     private func resolveProfile(pinned: String?, routedOn text: String) -> BrowserProfile {
-        if let pinned, let profile = config.browserProfiles[pinned] {
-            return profile
-        }
-        if let key = WebRouting.route(text, routes: config.webRoutes),
-           let profile = config.browserProfiles[key] {
-            return profile
-        }
-        if config.webFallback != "most-recent",
-           let profile = config.browserProfiles[config.webFallback] {
-            return profile
-        }
-        if let recent = mostRecentProfile() {
-            return recent
-        }
-        return config.browserProfiles.values.min { $0.display < $1.display }
-            ?? BrowserProfile(browser: .brave, display: "Default")
+        context.resolve(pinned: pinned, routedOn: text).profile
     }
 
     private func requery() {
@@ -158,6 +189,9 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
                 kind: .link,
                 title: "\(link.name)  ·  \(link.url)",
                 url: WebRouting.normalize(link.url),
+                raw: link.url,
+                name: link.name,
+                pinnedProfileKey: link.profileKey,
                 profile: resolveProfile(pinned: link.profileKey, routedOn: "\(link.name) \(link.url)")
             ))
         }
@@ -166,6 +200,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
                 kind: .domain,
                 title: query,
                 url: WebRouting.normalize(query),
+                raw: query,
                 profile: resolveProfile(pinned: nil, routedOn: query)
             ))
         }
@@ -174,6 +209,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
                 kind: .search,
                 title: "Search “\(query)”",
                 url: WebRouting.searchURL(template: config.webSearchURL, query: query),
+                raw: query,
                 profile: resolveProfile(pinned: nil, routedOn: query)
             ))
         }
@@ -181,10 +217,37 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         rows = built
         selected = 0
         if HotkeyEngine.traceTap {
-            Log.info("webbar: '\(query)' -> \(rows.map { "\($0.title)@\($0.profile.display)" }.joined(separator: " | "))")
+            // Shape, never content: which kinds of row the query produced and
+            // where each would open. Enough to debug routing; not a record of
+            // where you went, even behind the trace flag.
+            let shape = rows.map { "\($0.kind)@\($0.profile.display)" }.joined(separator: " | ")
+            Log.info("webbar: \(query.count) chars -> \(shape)")
         }
         renderRows()
+        updateFooter()
         reposition()
+    }
+
+    /// The hint names what ⌘K would actually offer on this row, read off the
+    /// same options the card would show — so it can never drift from them.
+    /// Two verbs is the budget; a footer is a hint, not the menu.
+    private func updateFooter() {
+        var verbs = ""
+        if let row = menuRow() {
+            let words = menu.options(for: row, in: context).items.prefix(2).map(Self.verb)
+            if !words.isEmpty { verbs = "    ⌘K " + words.joined(separator: " · ") }
+        }
+        footer.stringValue = "↵ open    ⇧↵ beside" + verbs + "    esc close"
+    }
+
+    private static func verb(_ item: WebMenu.Item) -> String {
+        switch item.role {
+        case .addLink: return "link"
+        case .route: return "route"
+        case .removeLink: return "remove"
+        case .removeRoute: return "unroute"
+        case .profile, .choice: return ""
+        }
     }
 
     /// Row views are pooled and mutated — typing repaints, it never rebuilds.
@@ -249,6 +312,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         guard !rows.isEmpty else { return }
         selected = (selected + delta + rows.count) % rows.count
         renderRows()
+        updateFooter()
     }
 
     private func pick(beside: Bool) {
@@ -258,6 +322,156 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         perform(row.url, row.profile, beside)
     }
 
+    // MARK: - The ⌘K card
+
+    /// ⌘K opens the card on the selected row; a second ⌘K (or esc) closes it.
+    /// The state machine decides what is on offer and what each key does —
+    /// this end translates keystrokes, draws what it returns, and performs
+    /// the writes it asks for.
+    private func handleKeyEquivalent(_ event: NSEvent) -> Bool {
+        guard event.modifierFlags.intersection([.command, .option, .control]) == .command,
+              event.charactersIgnoringModifiers?.lowercased() == "k" else { return false }
+        menu.toggle(on: menuRow(), in: context)
+        renderMenu()
+        return true
+    }
+
+    /// Every key while the card is open — the field never sees them, so the
+    /// query underneath stays frozen. Runs before AppKit's dispatch, which is
+    /// also what lets ⌘K toggle the card closed.
+    private func handleMenuKey(_ event: NSEvent) -> Bool {
+        guard menu.isOpen else { return false }
+        let mods = event.modifierFlags.intersection([.command, .option, .control])
+        if mods == .command {
+            if event.charactersIgnoringModifiers?.lowercased() == "k" { closeMenu() }
+            return true
+        }
+        guard mods.isEmpty, let key = Self.menuKey(for: event) else { return true }
+        perform(menu.handle(key, in: context))
+        return true
+    }
+
+    /// AppKit keystroke → the card's own alphabet. Arrow keys land here as
+    /// nil and are swallowed: the card has no selection to move.
+    private static func menuKey(for event: NSEvent) -> WebMenu.Key? {
+        switch event.keyCode {
+        case 53: return .escape
+        case 36, 76: return .enter
+        case 48: return .tab
+        case 51: return .delete
+        default:
+            guard let typed = event.charactersIgnoringModifiers?.lowercased(),
+                  let character = typed.first, typed.count == 1 else { return nil }
+            return .character(character)
+        }
+    }
+
+    /// The row the card acts on, in the state machine's terms.
+    private func menuRow() -> WebMenu.Row? {
+        guard rows.indices.contains(selected) else { return nil }
+        let row = rows[selected]
+        return WebMenu.Row(kind: row.kind.menuKind, raw: row.raw, name: row.name,
+                           pinnedProfileKey: row.pinnedProfileKey)
+    }
+
+    /// Do what the card asked for. A write that fails puts its reason back on
+    /// the card; one that lands closes it, and the bar redraws — the new row,
+    /// or the missing one, is the receipt.
+    private func perform(_ effect: WebMenu.Effect) {
+        let failure: String?
+        switch effect {
+        case .nothing:
+            renderMenu()
+            return
+        case .dismissed:
+            closeMenu()
+            return
+        case .addLink(let name, let url, let profileKey):
+            failure = addLink(name, url, profileKey)
+        case .removeLink(let name):
+            failure = removeLink(name)
+        case .addRoute(let pattern, let profileKey):
+            failure = addRoute(pattern, profileKey)
+        case .removeRoute(let pattern):
+            failure = removeRoute(pattern)
+        }
+        if let failure {
+            menu.failed(failure)
+            renderMenu()
+        } else {
+            closeMenu()
+            requery()
+        }
+    }
+
+    private func closeMenu() {
+        menu.close()
+        profileCard.hide()
+        card.hide()
+    }
+
+    // MARK: - Card rendering
+
+    private func renderMenu() {
+        let rendering = menu.rendering(in: context)
+        let anchor = OptionsCard.Anchor.row(selectedRowScreenFrame(), panel: panel.frame)
+
+        if let options = rendering.options {
+            card.present(.items(OptionsCard.Menu(
+                items: options.items.map(Self.item),
+                error: options.error,
+                note: options.note
+            )), anchor: anchor)
+        } else if let compose = rendering.compose {
+            card.present(.typing(OptionsCard.Typing(
+                header: compose.header,
+                body: .text(compose.text, placeholder: compose.placeholder),
+                verdict: compose.verdict,
+                problem: compose.problem,
+                control: compose.control.map(Self.item),
+                detail: compose.detail,
+                footer: compose.footer
+            )), anchor: anchor)
+        } else {
+            card.hide()
+        }
+
+        if let profiles = rendering.profiles {
+            profileCard.present(.items(OptionsCard.Menu(
+                header: profiles.header,
+                items: profiles.items.map(Self.item),
+                footer: profiles.footer
+            )), anchor: .card(card.frame, panel: panel.frame))
+        } else {
+            profileCard.hide()
+        }
+    }
+
+    /// The card's own vocabulary of roles, given symbols here — the state
+    /// machine names what a row *is*, and only this end knows what that looks
+    /// like.
+    private static func item(_ item: WebMenu.Item) -> OptionsCard.Item {
+        let symbol: String
+        switch item.role {
+        case .addLink: symbol = "link.badge.plus"
+        case .route: symbol = "arrow.triangle.branch"
+        case .removeLink, .removeRoute: symbol = "minus.circle"
+        case .profile(let pinned):
+            symbol = pinned ? "person.crop.circle.fill" : "person.crop.circle.dashed"
+        case .choice(let selected):
+            symbol = selected ? "checkmark.circle.fill" : "circle"
+        }
+        return OptionsCard.Item(keycap: item.key, title: item.title, symbol: symbol,
+                                isDestructive: item.role.isDestructive, detail: item.detail)
+    }
+
+    private func selectedRowScreenFrame() -> NSRect {
+        guard rowViews.indices.contains(selected), !rowViews[selected].isHidden else {
+            return panel.frame
+        }
+        let view = rowViews[selected]
+        return panel.convertToScreen(view.convert(view.bounds, to: nil))
+    }
     func windowDidResignKey(_ notification: Notification) {
         hide()
     }

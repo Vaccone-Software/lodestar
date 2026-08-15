@@ -64,7 +64,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     private var selected = 0
     private var mode: Mode = .apps
     private var menuState: MenuState = .closed
-    private let graphMenu = GraphMenu()
+    private let graphCard = OptionsCard()
 
     private let panelWidth = BarTheme.panelWidth
     private let inputHeight = BarTheme.inputHeight
@@ -493,31 +493,31 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
 
     private func closeMenu() {
         menuState = .closed
-        graphMenu.hide()
+        graphCard.hide()
     }
 
     private func renderMenu() {
+        let anchor = OptionsCard.Anchor.row(selectedRowScreenFrame(), panel: panel.frame)
         switch menuState {
         case .closed:
-            graphMenu.hide()
-        case .list(let entry, let chains, let error):
-            let items: [GraphMenu.Item]
+            graphCard.hide()
+        case .list(_, let chains, let error):
+            let items: [OptionsCard.Item]
             if chains.isEmpty {
-                items = [GraphMenu.Item(keycap: "a", title: "Add to graph",
-                                        symbol: "plus.circle", chain: [])]
+                items = [OptionsCard.Item(keycap: "a", title: "Add to graph",
+                                          symbol: "plus.circle")]
             } else if chains.count == 1 {
-                items = [GraphMenu.Item(keycap: "d", title: "Remove from graph",
-                                        symbol: "minus.circle", isDestructive: true, chain: [])]
+                items = [OptionsCard.Item(keycap: "d", title: "Remove from graph",
+                                          symbol: "minus.circle", isDestructive: true)]
             } else {
                 // Several bindings: the chain is what tells the rows apart.
                 items = chains.enumerated().map {
-                    GraphMenu.Item(keycap: "\($0.offset + 1)", title: "Remove from graph",
-                                   symbol: "minus.circle", isDestructive: true, chain: $0.element)
+                    OptionsCard.Item(keycap: "\($0.offset + 1)", title: "Remove from graph",
+                                     symbol: "minus.circle", isDestructive: true,
+                                     chain: $0.element)
                 }
             }
-            graphMenu.present(.items(items, error: error),
-                              appName: entry.name,
-                              besideRow: selectedRowScreenFrame(), panelFrame: panel.frame)
+            graphCard.present(.items(OptionsCard.Menu(items: items, error: error)), anchor: anchor)
         case .chain(let entry, let letters, let error):
             let verdict: String
             let problem: Bool
@@ -534,9 +534,13 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
                 verdict = "add lode \(Self.display(letters)) → \(entry.name)"
                 problem = false
             }
-            graphMenu.present(.chain(letters: letters, verdict: verdict, problem: problem),
-                              appName: entry.name,
-                              besideRow: selectedRowScreenFrame(), panelFrame: panel.frame)
+            graphCard.present(.typing(OptionsCard.Typing(
+                header: "Add \(entry.name) to graph",
+                body: .keys(letters),
+                verdict: verdict,
+                problem: problem,
+                footer: "⌫ back up    esc back"
+            )), anchor: anchor)
         }
     }
 

@@ -4,33 +4,34 @@ Lode is **right ⌘** (configurable in `~/.config/lodestar/lodestar.json`).
 
 ## Gestures
 
-| Gesture                        | Meaning                                                                 |
-| ------------------------------ | ----------------------------------------------------------------------- |
-| `lode space`                  | Searcher — type, `↵` focus-or-launch full-screen, `⇧↵` beside           |
-| `lode` + letter chain         | Graph: walk to an app (`S`=Slack … `E O`=Outlook, `W W`=Brave·Work)     |
-| `⇧` on a graph/searcher summon | Beside me (equal split) instead of full-screen                          |
-| `lode 1…8`                    | Jump to window by position (left→right, top→bottom)                     |
-| `lode 9`                      | Always the last window                                                  |
-| `lode O`                      | Flip layout horizontal ↔ vertical                                       |
-| `lode '` + letters            | Breaths: letter(s) restore a saved layout                               |
-| `lode '` + `⇧letter`          | Save the current layout at that path                                    |
-| `lode ' '`                    | Update the latest breath to the current layout                          |
-| `lode Tab`                    | Window chooser for the focused app (filter by title, `↵` summon)        |
-| `Tab` on a searcher app row    | Expand a running app into its windows                                   |
-| `lode ⏎`                      | Web bar: quick links · domains · search, each routed to its profile     |
-| `lode .`                      | Menu search: the frontmost app's menus, fuzzy, `↵` executes             |
-| `lode ,`                      | Scroll mode: `j/k` `h/l` · `d/u` half-page · `gg`/`⇧G` ends · `⇥` panes |
-| `lode ;` / `lode ⇧;`         | Click hints on the focused window — `⇧;` chains clicks (sticky)         |
-| `lode [` / `lode ]`          | Move the focused window to the prev/next display (`⇧` = arrive beside)  |
-| `lode Z` / `lode ⇧Z`         | Undo / redo the layout (summons, besides, flips, breaths)               |
-| `lode X` / `lode ⇧X`         | Back / forward — walk the attention timeline (previous destinations)    |
-| `lode ⇧1…9`                   | Slide the focused window to that position (insert-and-shift, 9 = last)  |
-| `lode 0` / `lode ⇧0`          | The focused window fills the display, rest parked — `⇧0` joins beside   |
-| `⌫` inside breaths             | Arm delete — the next path typed is deleted, not visited                |
-| hold `lode` alone             | Peek: the graph guide + index badges over each layout window            |
-| `⇧⌘V`                         | Clipboard: cards on screen, a letter pastes — see below                 |
-| `lode ?`                      | The cheat sheet — every gesture, your live graph and breaths          |
-| `esc`                          | Clear an active chain                                                   |
+| Gesture                        | Meaning                                                                     |
+| ------------------------------ | --------------------------------------------------------------------------- |
+| `lode space`                   | Searcher — type, `↵` focus-or-launch full-screen, `⇧↵` beside               |
+| `lode` + letter chain          | Graph: walk to an app (`S`=Slack … `E O`=Outlook, `W W`=Brave·Work)         |
+| `⇧` on a graph/searcher summon | Beside me (equal split) instead of full-screen                              |
+| `lode 1…8`                     | Jump to window by position (left→right, top→bottom)                         |
+| `lode 9`                       | Always the last window                                                      |
+| `lode O`                       | Flip layout horizontal ↔ vertical                                           |
+| `lode '` + letters             | Breaths: letter(s) restore a saved layout                                   |
+| `lode '` + `⇧letter`           | Save the current layout at that path                                        |
+| `lode ' '`                     | Update the latest breath to the current layout                              |
+| `lode Tab`                     | Window chooser for the focused app (filter by title, `↵` summon)            |
+| `Tab` on a searcher app row    | Expand a running app into its windows                                       |
+| `lode ⏎`                       | Web bar: links · domains · search, each routed to its profile               |
+| `⌘K` in the searcher / web bar | Add to graph · add a link · route a host or search — written into the config |
+| `lode .`                       | Menu search: the frontmost app's menus, fuzzy, `↵` executes                 |
+| `lode ,`                       | Scroll mode: `j/k` `h/l` · `d/u` half-page · `gg`/`⇧G` ends · `⇥` panes     |
+| `lode ;` / `lode ⇧;`           | Click hints on the focused window — `⇧;` chains clicks (sticky)             |
+| `lode [` / `lode ]`            | Move the focused window to the prev/next display (`⇧` = arrive beside)      |
+| `lode Z` / `lode ⇧Z`           | Undo / redo the layout (summons, besides, flips, breaths)                   |
+| `lode X` / `lode ⇧X`           | Back / forward — walk the attention timeline (previous destinations)        |
+| `lode ⇧1…9`                    | Slide the focused window to that position (insert-and-shift, 9 = last)      |
+| `lode 0` / `lode ⇧0`           | The focused window fills the display, rest parked — `⇧0` joins beside       |
+| `⌫` inside breaths             | Arm delete — the next path typed is deleted, not visited                    |
+| hold `lode` alone              | Peek: the graph guide + index badges over each layout window                |
+| `⇧⌘V`                          | Clipboard: cards on screen, a letter pastes — see below                     |
+| `lode ?`                       | The cheat sheet — every gesture, your live graph and breaths                |
+| `esc`                          | Clear an active chain                                                       |
 
 ## Chains are sticky, on purpose
 
@@ -89,7 +90,20 @@ The harvest is asynchronous and bounded — a heavy Chromium page can never stal
 
 ## The web bar
 
-`lode ⏎` — a second bar with its own grammar: everything typed here is a destination on the web. **Quick links** (`web.links`) are named sites pinned to a profile — type `yt`, hit `↵`, land in YouTube in your Google profile. **Bare domains** (anything with a dot) route by `web.routes` — case-insensitive substring patterns, longest match wins — so `app.acme.dev` opens in your Work profile without being listed anywhere. **Anything else is a web search** (`web.search-url`), and routes apply to queries too: searching "acme deploy" lands in the Work profile. Unrouted input opens in `web.fallback` — `most-recent` (the profile of your most recently focused browser window) or a pinned profile. Every row wears the profile it will open in as a chip; `⇧↵` opens beside. Chromium family (Brave, Chrome, Edge) for now.
+`lode ⏎` — a second bar with its own grammar: everything typed here is a destination on the web. **Links** (`web.links`) are named sites, optionally pinned to a profile — type `yt`, hit `↵`, land in YouTube in your Google profile. **Bare domains** (anything with a dot) route by `web.routes` — case-insensitive substring patterns, longest match wins — so `app.acme.dev` opens in your Work profile without being listed anywhere. **Anything else is a web search** (`web.search-url`), and routes apply to queries too: searching "acme deploy" lands in the Work profile. Unrouted input opens in `web.fallback` — `most-recent` (the profile of your most recently focused browser window) or a pinned profile. Every row wears the profile it will open in as a chip; `⇧↵` opens beside. Chromium family (Brave, Chrome, Edge) for now.
+
+**`⌘K` promotes the row you are looking at**, the way the searcher's `⌘K` promotes an app into the graph. The row decides what is on offer, and the two promotions answer different questions — _this site, by this name_ and _every link like this one, from anywhere_:
+
+- **`a` Add link** (bare-domain rows) — the card opens with a name prefilled from the host (`youtube.com` → `youtube`); type to replace it, `↵` writes it into `web.links`.
+- **`r` Route this host** (domain and link rows) — the pattern is prefilled with the whole host and the profile is seeded with wherever that destination already goes. `↵` writes it into `web.routes`, and from then on anything matching that pattern lands in that profile: paste a friend's `x.com` link and it opens in Personal, not Work.
+- **`r` Route this search** (search rows) — routes match *what you typed*, not just hosts, so a search is something to route even though it is nothing to name. The pattern is prefilled with the query's first word (`acme deploy` → `acme`), since the whole phrase as a pattern would match almost nothing. A search row is the one place `⌘K` offers no link: there is no site to point a name at, and the card says so.
+- **`d` Remove link** (link rows) — takes it back out; the emptied table is pruned rather than left as a husk.
+
+The profile is a **row inside the card** — its label, its current value, and `⇥` sitting where every other key sits — rather than a hint in the footer, so it looks like the control it is. `⇥` opens a second card, one column further out, listing the profile registry on digits. For a link, `0` leaves it **unpinned** — the default and usually the right answer: an unpinned link carries no `profile` key at all, so it keeps resolving through your routes and fallback instead of freezing today's answer into the file. A route has no `0`, because a route has to name a profile.
+
+The card always says _why_ a destination opens where it does — `opens in Work · pinned`, `· matched acme`, `· fallback`, `· most recent browser` — so an inferred answer is never mistaken for one you chose. You never type a scheme (`https://` for the web, `http://` for a dev server — see below), and a name or pattern already in use is refused with what it points at rather than overwritten. The new row appearing in the bar, wearing its profile, is the receipt.
+
+**Dev servers are destinations, not searches.** `localhost:3000`, `box.local`, `app.test/login`, `192.168.1.5:8080` all resolve as places to go — a port counts the same as a dot — and they open over `http://`, because a machine on your desk has no certificate and `https` would be the one guess that could never work. Loopback, `.local`/`.localhost`/`.test`/`.internal`, and the private IPv4 ranges get that treatment; everything else is still the web. An explicit scheme is never second-guessed.
 
 Profiles live in a registry (`profiles.brave`, `profiles.chrome`, `profiles.edge`): Lodestar name → the browser's profile name, with keys global across browsers and referenced everywhere else (`brave:work` or `chrome:work` in the graph, `profile: work` in links). References are validated at Reload Config, and the registry itself is checked against each browser's real profile list — a renamed browser profile surfaces as one flagged line, not a mystery failure later.
 
@@ -98,8 +112,8 @@ Profiles live in a registry (`profiles.brave`, `profiles.chrome`, `profiles.edge
 The config is sparse JSON: it holds only what differs from the defaults,
 so the file reads as pure intent. Every option's documentation lives in
 the schema (editors surface it as you type; `lodestar schema` prints it),
-and every writer — a hand edit, ⌘K in the searcher, `lodestar config set`
-— converges on the same canonical bytes.
+and every writer — a hand edit, ⌘K in the searcher or the web bar,
+`lodestar config set` — converges on the same canonical bytes.
 
 ```json
 {

@@ -99,16 +99,16 @@ enum StripPreview {
             app.run()
         }
 
-        if (9...12).contains(variant) {
-            let held = GraphMenu.preview(variant - 8)
+        if (9...14).contains(variant) {
+            let held = OptionsCard.preview(variant - 8)
             _ = held
             app.run()
         }
 
-        // 13 puts both menus on screen at once, over identical background,
+        // 15 puts both menus on screen at once, over identical background,
         // which is the only honest way to compare their materials.
-        var companion: GraphMenu?
-        if variant == 13 { companion = GraphMenu.preview(1) }
+        var companion: [OptionsCard]?
+        if variant == 15 { companion = OptionsCard.preview(1) }
         _ = companion
 
         let strip = ClipboardStrip()

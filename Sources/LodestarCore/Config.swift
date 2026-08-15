@@ -112,7 +112,7 @@ public struct Config {
             "links": .freeTable(value: .table([
                 "url": .string(allowed: nil, description: "The site."),
                 "profile": .string(allowed: nil, description: "A profiles key (omit to route)."),
-            ], description: "A quick link."), description: "Named quick links."),
+            ], description: "A named link."), description: "Named links."),
             "routes": .freeTable(value: .string(allowed: nil, description: "A profiles key."),
                                  description: "Substring pattern → profile; longest match wins."),
         ], description: "The web bar."),

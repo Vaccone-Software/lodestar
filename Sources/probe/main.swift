@@ -20,6 +20,8 @@ func usage() -> Never {
       probe move <wid> <x> <y> [<w> <h>]
                                        set a frame (size, position, size again)
       probe watch <app> [--seconds N]  log window ids while you close/reopen windows
+      probe selection [--write]        which apps expose character geometry and a settable
+                                       selection, the two facts a selection mode needs
 
     the slice-0 questions, and the command that answers each:
       1. does _AXUIElementGetWindow bridge AX windows to real window-server ids?  -> list
@@ -40,6 +42,7 @@ case "list": runList(&arguments)
 case "park": runPark(&arguments)
 case "move": runMove(&arguments)
 case "watch": runWatch(&arguments)
+case "selection": runSelection(&arguments)
 case "help", "--help", "-h": usage()
 default:
     fputs("probe: unknown command '\(command)'\n\n", stderr)

@@ -335,3 +335,103 @@ func runWatch(_ args: inout [String]) {
         print("VERDICT: no churn observed — close and reopen a window during the watch to get a signal.")
     }
 }
+
+// MARK: - Text selection
+
+/// Can Lodestar point at characters, and can it move a selection?
+///
+/// Two questions decide whether a selection mode is buildable at all. The
+/// first is geometry: `AXBoundsForRange` maps a character range to a screen
+/// rectangle, which is what lets labels be drawn *at* words rather than at
+/// whole elements. The second is authority: `AXSelectedTextRange` has to be
+/// settable, or the mode can find a span it is not allowed to take.
+///
+/// Read-only by default — nothing is focused, nothing is typed. `--write`
+/// additionally selects the first five characters of the frontmost app's
+/// focused element, which is visible but not destructive.
+func runSelection(_ args: inout [String]) {
+    requireTrust()
+    let write = args.contains("--write")
+    let textRoles: Set<String> = ["AXTextArea", "AXTextField", "AXStaticText",
+                                  "AXWebArea", "AXComboBox", "AXSearchField"]
+
+    func settable(_ element: AXUIElement, _ attribute: String) -> Bool {
+        var flag: DarwinBoolean = false
+        guard AXUIElementIsAttributeSettable(element, attribute as CFString, &flag) == .success
+        else { return false }
+        return flag.boolValue
+    }
+
+    func bounds(_ element: AXUIElement, _ location: Int, _ length: Int) -> CGRect? {
+        var range = CFRange(location: location, length: length)
+        guard let parameter = AXValueCreate(.cfRange, &range) else { return nil }
+        var out: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(
+            element, kAXBoundsForRangeParameterizedAttribute as CFString, parameter, &out
+        ) == .success, let raw = out, CFGetTypeID(raw) == AXValueGetTypeID() else { return nil }
+        var rect = CGRect.zero
+        guard AXValueGetValue(raw as! AXValue, .cgRect, &rect) else { return nil }
+        return rect
+    }
+
+    print(String(format: "%-20@ %-13@ %6@ %9@ %7@ %7@",
+                 "app" as NSString, "role" as NSString, "chars" as NSString,
+                 "settable" as NSString, "bounds" as NSString, "params" as NSString))
+
+    var visited = 0
+    func walk(_ element: AXUIElement, app: String, depth: Int, budget: inout Int) {
+        guard depth <= 6, budget > 0 else { return }
+        budget -= 1
+        visited += 1
+        let role = AX.string(element, kAXRoleAttribute as String) ?? "?"
+        if textRoles.contains(role) {
+            let chars = AX.int(element, kAXNumberOfCharactersAttribute as String) ?? -1
+            if chars != 0 {
+                var names: CFArray?
+                _ = AXUIElementCopyParameterizedAttributeNames(element, &names)
+                let box = chars > 0 ? bounds(element, 0, min(3, chars)) : nil
+                print(String(format: "%-20@ %-13@ %6d %9@ %7@ %7d",
+                             app as NSString, role as NSString, chars,
+                             (settable(element, kAXSelectedTextRangeAttribute as String)
+                                ? "YES" : "no") as NSString,
+                             ((box?.width ?? 0) > 0 ? "YES" : "no") as NSString,
+                             ((names as? [String])?.count ?? 0)))
+            }
+        }
+        guard let children = AX.elements(element, kAXChildrenAttribute as String) else { return }
+        for child in children.prefix(60) {
+            walk(child, app: app, depth: depth + 1, budget: &budget)
+        }
+    }
+
+    for running in NSWorkspace.shared.runningApplications
+    where running.activationPolicy == .regular {
+        let app = AXUIElementCreateApplication(running.processIdentifier)
+        AXUIElementSetMessagingTimeout(app, 1.0)
+        guard let windows = AX.elements(app, kAXWindowsAttribute as String), !windows.isEmpty
+        else { continue }
+        var budget = 1200
+        for window in windows.prefix(2) {
+            walk(window, app: running.localizedName ?? "?", depth: 0, budget: &budget)
+        }
+    }
+    print("\nvisited \(visited) nodes")
+
+    guard write else { return }
+    print("\n--- write test: frontmost app's focused element ---")
+    guard let front = NSWorkspace.shared.frontmostApplication else { return }
+    let app = AXUIElementCreateApplication(front.processIdentifier)
+    guard let focused = AX.element(app, kAXFocusedUIElementAttribute as String) else {
+        print("no focused element")
+        return
+    }
+    let role = AX.string(focused, kAXRoleAttribute as String) ?? "?"
+    var range = CFRange(location: 0, length: 5)
+    guard let parameter = AXValueCreate(.cfRange, &range) else { return }
+    let error = AXUIElementSetAttributeValue(
+        focused, kAXSelectedTextRangeAttribute as CFString, parameter)
+    let selected = AX.string(focused, kAXSelectedTextAttribute as String)
+    print("\(front.localizedName ?? "?") \(role): set 0..<5 -> AXError \(error.rawValue), "
+          + "selection now \(selected.map { "\"\($0)\"" } ?? "nil")")
+    if let box = bounds(focused, 0, 5) { print("bounds of 0..<5: \(box)") }
+}

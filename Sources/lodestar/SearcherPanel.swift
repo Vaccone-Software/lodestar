@@ -33,7 +33,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     /// every key routes here, none reach the query field.
     private enum MenuState {
         case closed
-        case list(entry: AppIndex.Entry, chains: [[String]], selected: Int, error: String?)
+        case list(entry: AppIndex.Entry, chains: [[String]], error: String?)
         case chain(entry: AppIndex.Entry, letters: [String], error: String?)
     }
 
@@ -383,7 +383,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         if case .apps = mode, rows.indices.contains(selected),
            case .app(let entry) = rows[selected] {
             menuState = .list(entry: entry, chains: graphChains(entry.name.lowercased()),
-                              selected: 0, error: nil)
+                              error: nil)
             renderMenu()
         }
         return true
@@ -405,7 +405,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         case 53: // esc walks back one level
             if case .chain(let entry, _, _) = menuState {
                 menuState = .list(entry: entry, chains: graphChains(entry.name.lowercased()),
-                                  selected: 0, error: nil)
+                                  error: nil)
                 renderMenu()
             } else {
                 closeMenu()
@@ -421,14 +421,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
                 renderMenu()
             }
             return true
-        case 125, 126: // arrows move the card's selection
-            if case .list(let entry, let chains, let selected, _) = menuState, chains.count > 1 {
-                let delta = event.keyCode == 125 ? 1 : -1
-                menuState = .list(entry: entry, chains: chains,
-                                  selected: (selected + delta + chains.count) % chains.count,
-                                  error: nil)
-                renderMenu()
-            }
+        case 125, 126: // swallowed: the card has no selection to move
             return true
         default:
             break
@@ -438,7 +431,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
             return true
         }
         switch menuState {
-        case .list(let entry, let chains, _, _):
+        case .list(let entry, let chains, _):
             if chains.isEmpty {
                 if typed == "a" { beginChain(entry) }
             } else if chains.count == 1 {
@@ -458,11 +451,15 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
 
     private func fireMenuSelection() {
         switch menuState {
-        case .list(let entry, let chains, let selected, _):
+        case .list(let entry, let chains, _):
+            // Only when there is one thing it could mean. With several
+            // bindings the rows are told apart by their keys, and a return
+            // that quietly picked one of them would remove a chain the user
+            // never pointed at.
             if chains.isEmpty {
                 beginChain(entry)
-            } else {
-                removeChain(chains[min(selected, chains.count - 1)])
+            } else if chains.count == 1 {
+                removeChain(chains[0])
             }
         case .chain(let entry, let letters, _):
             guard !letters.isEmpty, chainProblem(letters) == nil else { return }
@@ -484,9 +481,9 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     }
 
     private func removeChain(_ chain: [String]) {
-        guard case .list(let entry, let chains, let selected, _) = menuState else { return }
+        guard case .list(let entry, let chains, _) = menuState else { return }
         if let problem = removeFromGraph(chain) {
-            menuState = .list(entry: entry, chains: chains, selected: selected, error: problem)
+            menuState = .list(entry: entry, chains: chains, error: problem)
             renderMenu()
         } else {
             closeMenu()
@@ -503,7 +500,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         switch menuState {
         case .closed:
             graphMenu.hide()
-        case .list(let entry, let chains, let selected, let error):
+        case .list(let entry, let chains, let error):
             let items: [GraphMenu.Item]
             if chains.isEmpty {
                 items = [GraphMenu.Item(keycap: "a", title: "Add to graph",
@@ -518,7 +515,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
                                    symbol: "minus.circle", chain: $0.element)
                 }
             }
-            graphMenu.present(.items(items, selected: selected, error: error),
+            graphMenu.present(.items(items, error: error),
                               appName: entry.name,
                               besideRow: selectedRowScreenFrame(), panelFrame: panel.frame)
         case .chain(let entry, let letters, let error):

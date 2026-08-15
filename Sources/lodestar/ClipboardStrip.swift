@@ -117,11 +117,8 @@ final class ClipboardStrip {
         case .search(let query):
             addSearchField(query: query, frame: bandFrame)
         case .actions(let actions):
-            // A full card's height, so it sits in pin one's row exactly and
-            // nothing below it moves.
-            addActionCard(actions, frame: NSRect(x: bandFrame.minX, y: bandFrame.minY,
-                                                 width: min(bandFrame.width, Self.cardWidth * 1.6),
-                                                 height: Self.cardHeight))
+            addActionCard(actions,
+                          frame: actionFrame(for: actingOn, stripWidth: stripWidth))
         }
 
         for (offset, clip) in visibleRecents.enumerated() {
@@ -245,6 +242,32 @@ final class ClipboardStrip {
     /// directly under the cards it filters. A typed prefix read as a vim
     /// prompt; a glass field with a magnifier reads as the thing everyone
     /// already knows a search box to be.
+    private static let actionWidth: CGFloat = 262
+
+    /// Where a card's actions belong, relative to the card they act on.
+    ///
+    /// A pin opens to its right — the column is one card wide, so the space
+    /// beside it is always free. A recent opens above itself, into the row
+    /// the pins share. The exception is the first recent: it sits directly
+    /// under pin one, so its panel shifts one column right rather than
+    /// covering a pin.
+    private func actionFrame(for id: String?, stripWidth: CGFloat) -> NSRect {
+        let step = Self.cardWidth + Self.gap
+        var origin = NSPoint(x: step, y: Self.cardHeight + Self.gap)
+
+        if let id, let slot = shownPins.first(where: { $0.value.id == id })?.key {
+            origin = NSPoint(x: step,
+                             y: Self.cardHeight + Self.gap + CGFloat(slot - 1) * step)
+        } else if let id, let index = shownRecents.firstIndex(where: { $0.id == id }) {
+            origin = NSPoint(x: CGFloat(max(index, 1)) * step,
+                             y: Self.cardHeight + Self.gap)
+        }
+        // Never off the right edge of the strip.
+        origin.x = min(origin.x, max(step, stripWidth - Self.actionWidth))
+        return NSRect(x: origin.x, y: origin.y,
+                      width: Self.actionWidth, height: Self.cardHeight)
+    }
+
     private func addActionCard(_ actions: [(key: String, label: String)], frame: NSRect) {
         let plate = glassPlate(radius: BarTheme.rowRadius)
         plate.frame = frame

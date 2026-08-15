@@ -63,9 +63,16 @@ final class ClipboardStrip {
         cards.removeAll()
 
         let stripWidth = CGFloat(max(visibleRecents.count, 1)) * (Self.cardWidth + Self.gap) - Self.gap
-        let pinColumnHeight = CGFloat(Clipboard.pinSlots) * (Self.cardHeight + Self.gap)
+        // While searching the pin column is hidden: digits type into the
+        // query, so pins are unreachable anyway, and their space is exactly
+        // what the search field needs. Nothing shifts — the strip simply
+        // narrows to the zone search operates on.
+        let searching = query != nil
+        let pinColumnHeight = searching
+            ? 0
+            : CGFloat(Clipboard.pinSlots) * (Self.cardHeight + Self.gap)
         let height = Self.cardHeight + Self.gap + pinColumnHeight
-            + (query != nil ? Self.searchHeight + Self.gap : 0)
+            + (searching ? Self.searchHeight : 0)
         let width = max(stripWidth, Self.cardWidth) + Self.margin * 2
 
         let frame = NSRect(x: screen.minX + Self.margin,
@@ -87,7 +94,6 @@ final class ClipboardStrip {
         // Recents are the bottom row, always — opening search must not
         // shift the cards you are looking at.
         let y: CGFloat = 0
-        let searchBand = query != nil ? Self.searchHeight + Self.gap : 0
         if let query {
             addSearchField(query: query, width: max(stripWidth, Self.cardWidth),
                            bottom: Self.cardHeight + Self.gap)
@@ -107,7 +113,7 @@ final class ClipboardStrip {
         // Pins: climbing from the same corner, numbered and permanent. An
         // empty slot still draws, so the numbers are always visible and a
         // freed slot reads as reserved rather than missing.
-        for slot in 1...Clipboard.pinSlots {
+        for slot in 1...Clipboard.pinSlots where !searching {
             let card: NSView
             if let clip = shownPins[slot] {
                 card = makeCard(clip: clip, label: "\(slot)", height: Self.cardHeight,
@@ -116,7 +122,7 @@ final class ClipboardStrip {
                 card = makeEmptyPin(slot: slot)
             }
             card.frame = NSRect(x: 0,
-                                y: y + Self.cardHeight + Self.gap + searchBand
+                                y: y + Self.cardHeight + Self.gap
                                     + CGFloat(slot - 1) * (Self.cardHeight + Self.gap),
                                 width: Self.cardWidth, height: Self.cardHeight)
             root.addSubview(card)
@@ -174,11 +180,21 @@ final class ClipboardStrip {
         return card
     }
 
-    /// An empty slot is the same card, half there: the shape and its number
-    /// stay legible, and the material recedes instead of catching the eye.
+    /// An empty slot is a recess, not a faded card.
+    ///
+    /// Three attempts got this wrong in the same way. An outline drew a hard
+    /// rectangle on the content behind it; a dimmed scrim left the glass at
+    /// full strength so the pane still caught the eye; half opacity faded the
+    /// *number* too, and the number is the only part that must stay readable
+    /// — it is what says the slot exists and what it answers to.
+    ///
+    /// So: a faint adaptive fill for the shape, and a number at ordinary
+    /// weight. Glass is the material of content; an empty slot has none.
     private func makeEmptyPin(slot: Int) -> NSView {
-        let card = glassPlate(radius: BarTheme.rowRadius)
-        card.alphaValue = 0.5
+        let card = NSView()
+        card.wantsLayer = true
+        card.layer?.cornerRadius = BarTheme.rowRadius
+        card.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.06).cgColor
         let chip = NSTextField(labelWithString: "\(slot)")
         chip.font = BarTheme.chipFont
         chip.textColor = .tertiaryLabelColor

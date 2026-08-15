@@ -251,16 +251,25 @@ final class ClipboardStrip {
     private static let actionChip = NSSize(width: 30, height: 20)
     private static let actionFont = NSFont.systemFont(ofSize: 13, weight: .regular)
 
+    /// What a label needs, measured through the control that will draw it.
+    /// A glyph-run measurement comes up a few points short — the field's
+    /// cell keeps its own inset — and the whole menu is sized off this, so
+    /// being short by two points truncates the longest action.
+    private func actionLabelWidth(_ text: String) -> CGFloat {
+        let field = NSTextField(labelWithString: text)
+        field.font = Self.actionFont
+        field.sizeToFit()
+        return ceil(field.frame.width)
+    }
+
     /// Sized to its contents, not to the grid — bounded below by a card so
     /// it never looks like a scrap, and above so a long label wraps the
     /// menu rather than the strip.
     private func actionSize(_ actions: [(key: String, label: String)]) -> NSSize {
-        let widest = actions
-            .map { $0.label.size(withAttributes: [.font: Self.actionFont]).width }
-            .max() ?? 0
+        let widest = actions.map { actionLabelWidth($0.label) }.max() ?? 0
         let width = Self.actionInset * 2 + Self.actionChip.width
-            + Self.actionChipGap + ceil(widest)
-        return NSSize(width: min(max(width, Self.cardWidth), 320),
+            + Self.actionChipGap + widest
+        return NSSize(width: min(max(width, Self.cardWidth), 340),
                       height: CGFloat(actions.count) * Self.actionRow + Self.actionPadY * 2)
     }
 

@@ -754,6 +754,13 @@ if cliArguments.contains("--help") || cliArguments.contains("help") || cliArgume
     printUsage()
     exit(0)
 }
+#if DEBUG
+// Visual harness for the clipboard strip; compiled out of release builds.
+if let i = cliArguments.firstIndex(of: "__strip-preview") {
+    StripPreview.run(cliArguments.indices.contains(i + 1) ? (Int(cliArguments[i + 1]) ?? 1) : 1)
+}
+#endif
+
 if let stray = cliArguments.first(where: { !$0.hasPrefix("-NS") && !$0.hasPrefix("-psn") && !$0.hasPrefix("-App") }) {
     Log.stdoutEnabled = true
     print("unknown command: \(stray)\n")

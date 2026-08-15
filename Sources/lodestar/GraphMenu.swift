@@ -69,7 +69,8 @@ final class GraphMenu {
 
         switch content {
         case .items(let items, let error):
-            stack.addArrangedSubview(label(appName, font: BarTheme.secondaryFont, color: .secondaryLabelColor))
+            // No app name: the card is top-aligned with the row it belongs
+            // to and that row is lit, so naming the app again is furniture.
             for item in items {
                 let row = actionRow(item)
                 stack.addArrangedSubview(row)

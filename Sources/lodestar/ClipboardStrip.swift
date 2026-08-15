@@ -325,11 +325,12 @@ final class ClipboardStrip {
     }
 
     private func addActionCard(_ actions: [Action], frame: NSRect) {
-        // The weight the acted-on card wears, so the lit card and its menu
-        // read as one object — and dense enough to stay legible over
-        // whatever it floats above.
-        let plate = glassPlate(radius: BarTheme.rowRadius, weight: .highlighted)
-        plate.frame = frame
+        // The graph card's material exactly — plain glass, no scrim of our
+        // own. The strip's cards wear a scrim because they sit in a grid you
+        // read across; a menu floats above everything and belongs to the
+        // family of floating panels instead.
+        let plate = NSView(frame: frame)
+        _ = Glass.installBackdrop(in: plate, cornerRadius: BarTheme.glassRadius)
 
         let rule = separatorIndex(actions)
         var top = frame.height - Self.actionPadY

@@ -189,7 +189,7 @@ final class PasteModeTests: XCTestCase {
         open()
         XCTAssertEqual(press("a", command: true),
                        [.pasteRecent(label: "a", action: .panel), .pastePanelShow])
-        XCTAssertEqual(core.state, .pastePanel)
+        XCTAssertEqual(core.state, .pastePanel(searching: false))
         XCTAssertEqual(press("p"), [.pastePanelAct(.pin), .pastePanelDismiss])
         XCTAssertEqual(core.state, .paste(searching: false), "back to the strip, not out")
     }
@@ -265,7 +265,7 @@ extension PasteModeTests {
     func testPanelWithNoCardBehindItBacksOut() {
         _ = core.openPaste(world: world)
         _ = core.keyDown(key: "l", held: false, shift: false, command: true, world: world)
-        XCTAssertEqual(core.state, .pastePanel)
+        XCTAssertEqual(core.state, .pastePanel(searching: false))
         core.dismissPastePanel()
         XCTAssertEqual(core.state, .paste(searching: false), "back to a working strip")
     }
@@ -318,5 +318,38 @@ extension PasteModeTests {
         XCTAssertEqual(delete(option: true), [.pasteSearchDelete(.word)])
         XCTAssertEqual(delete(command: true), [.pasteSearchDelete(.all)])
         XCTAssertEqual(core.state, .paste(searching: true), "deleting never leaves search")
+    }
+}
+
+extension PasteModeTests {
+    /// Opening a card's actions mid-search and closing them must put you
+    /// back in the search you were in, not silently out of it.
+    func testPanelOpenedFromSearchReturnsToSearch() {
+        _ = core.openPaste(world: world)
+        _ = core.keyDown(key: "/", held: false, shift: false, world: world)
+        _ = core.keyDown(key: "return", held: false, shift: false, command: true, world: world)
+        XCTAssertEqual(core.state, .pastePanel(searching: true))
+        _ = core.keyDown(key: "escape", held: false, shift: false, world: world)
+        XCTAssertEqual(core.state, .paste(searching: true))
+    }
+
+    func testPanelActionFromSearchAlsoReturnsToSearch() {
+        _ = core.openPaste(world: world)
+        _ = core.keyDown(key: "/", held: false, shift: false, world: world)
+        _ = core.keyDown(key: "return", held: false, shift: false, command: true, world: world)
+        _ = core.keyDown(key: "d", held: false, shift: false, world: world)
+        XCTAssertEqual(core.state, .paste(searching: true))
+    }
+}
+
+extension PasteModeTests {
+    /// Typing a query must not eat the app's own shortcuts.
+    func testCommandLettersStillPassThroughWhileSearching() {
+        _ = core.openPaste(world: world)
+        _ = core.keyDown(key: "/", held: false, shift: false, world: world)
+        XCTAssertEqual(core.keyDown(key: "c", held: false, shift: false,
+                                    command: true, world: world), [.passThrough])
+        XCTAssertEqual(core.keyDown(key: "c", held: false, shift: false, world: world),
+                       [.pasteSearchType("c")], "without ⌘ it is just a character")
     }
 }

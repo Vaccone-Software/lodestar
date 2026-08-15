@@ -47,6 +47,11 @@ final class ClipboardController {
     // MARK: - Capture
 
     private func capture() {
+        if store.consumeClearRequest() {
+            store.clearAll()
+            onCapture?()
+            flash("⌂ clipboard history cleared")
+        }
         let board = NSPasteboard.general
         let count = board.changeCount
         guard count != lastChangeCount else { return }

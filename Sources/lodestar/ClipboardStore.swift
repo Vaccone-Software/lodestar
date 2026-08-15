@@ -34,6 +34,10 @@ final class ClipboardStore {
     }
 
     private var indexFile: URL { root.appendingPathComponent("index.json") }
+    /// Left by `lodestar clipboard clear` so a running instance drops its
+    /// in-memory index too — otherwise the next coalesced save would put
+    /// back everything the CLI had just removed.
+    var clearRequestFile: URL { root.appendingPathComponent("clear-requested") }
     private var items: URL { root.appendingPathComponent("items", isDirectory: true) }
     private var thumbs: URL { root.appendingPathComponent("thumbs", isDirectory: true) }
 
@@ -176,6 +180,17 @@ final class ClipboardStore {
             try? fm.removeItem(at: thumbs.appendingPathComponent("\(id).png"))
         }
         saveSoon()
+    }
+
+    /// True once, if a CLI clear happened while this process was running.
+    func consumeClearRequest() -> Bool {
+        guard FileManager.default.fileExists(atPath: clearRequestFile.path) else { return false }
+        try? FileManager.default.removeItem(at: clearRequestFile)
+        return true
+    }
+
+    func requestClear() {
+        try? Data().write(to: clearRequestFile)
     }
 
     func clearAll() {

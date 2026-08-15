@@ -419,6 +419,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         engine.config = loaded
         webBar.config = loaded
         updater.enabled = loaded.autoUpdate
+        clipboardController.excludedApps = loaded.clipboardExcludedApps
+        clipboardController.excludedPatterns = loaded.clipboardExcludePatterns
+        clipboardController.maxBytes = loaded.clipboardMaxBytes
         rebuildGraphAddresses()
         ConfigDoctor.emitSchema()
         updateConfigWatcher()
@@ -722,7 +725,10 @@ if cliArguments.contains("schema") {
 if cliArguments.contains("clipboard") {
     if cliArguments.contains("clear") {
         Log.stdoutEnabled = false
-        ClipboardStore().clearAll()
+        let store = ClipboardStore()
+        store.clearAll()
+        // A running instance holds the index in memory; tell it too.
+        store.requestClear()
         print("✓ clipboard history cleared")
         exit(0)
     }

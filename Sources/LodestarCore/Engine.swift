@@ -126,15 +126,17 @@ public struct EngineCore {
         case scroll
         case hints(sticky: Bool)
         case paste(searching: Bool)
-        /// A card's actions are open; the shell remembers which card.
-        case pastePanel
+        /// A card's actions are open; the shell remembers which card. The
+        /// flag carries where to return — closing a panel opened mid-search
+        /// must not silently drop you out of the search.
+        case pastePanel(searching: Bool)
     }
 
     /// The shell found no card behind the label ⌘ named. Without this the
     /// panel state would stick with nothing drawn in it — a dead end whose
     /// only exit is escape.
     public mutating func dismissPastePanel() {
-        if case .pastePanel = state { state = .paste(searching: false) }
+        if case .pastePanel(let searching) = state { state = .paste(searching: searching) }
     }
 
     /// ⇧⌘V, from the shell — the one trigger that lives outside the lode
@@ -228,8 +230,9 @@ public struct EngineCore {
         case .paste(let searching):
             return pastePress(key: key, held: held, shift: shift, command: command,
                               option: option, searching: searching, world: world)
-        case .pastePanel:
-            return pastePanelPress(key: key, held: held, shift: shift, world: world)
+        case .pastePanel(let searching):
+            return pastePanelPress(key: key, held: held, shift: shift,
+                                   searching: searching, world: world)
         }
     }
 
@@ -522,6 +525,13 @@ public struct EngineCore {
                 state = .paste(searching: false)
                 return [.pasteSearchEnd]
             case "return":
+                // ⌘↵ acts on the selected match without leaving: opening a
+                // panel and closing the mode in the same breath showed
+                // nothing at all.
+                if action == .panel {
+                    state = .pastePanel(searching: true)
+                    return [.pasteSearchCommit(action: .panel), .pastePanelShow]
+                }
                 state = .idle
                 return [.pasteSearchCommit(action: action), .exitPaste]
             case "delete":
@@ -537,6 +547,9 @@ public struct EngineCore {
             case "space":
                 return [.pasteSearchType(" ")]
             case _ where Self.isLetter(key) || Self.isDigit(key):
+                // ⌘ makes it the app's shortcut, not a character: ⌘C has to
+                // keep copying while you search, same as outside search.
+                if command { return [.passThrough] }
                 return [.pasteSearchType(shift ? key.uppercased() : key)]
             default:
                 return [] // swallowed — mode discipline
@@ -556,7 +569,7 @@ public struct EngineCore {
                 return command ? [.passThrough] : []
             }
             if action == .panel {
-                state = .pastePanel
+                state = .pastePanel(searching: searching)
                 return [.pastePinned(slot: slot, action: .panel), .pastePanelShow]
             }
             state = .idle
@@ -569,7 +582,7 @@ public struct EngineCore {
                 return command ? [.passThrough] : []
             }
             if action == .panel {
-                state = .pastePanel
+                state = .pastePanel(searching: searching)
                 return [.pasteRecent(label: key, action: .panel), .pastePanelShow]
             }
             state = .idle
@@ -582,6 +595,7 @@ public struct EngineCore {
     /// One keypress per action, and escape steps back to the strip rather
     /// than out of the mode — one escape per thing you opened.
     private mutating func pastePanelPress(key: String, held: Bool, shift: Bool,
+                                          searching: Bool,
                                           world: EngineWorld) -> [EngineEffect] {
         if held {
             state = .idle
@@ -594,7 +608,7 @@ public struct EngineCore {
         let action: PanelAction?
         switch key {
         case "escape":
-            state = .paste(searching: false)
+            state = .paste(searching: searching)
             return [.pastePanelDismiss]
         case "p": action = .pin
         case "d": action = .delete
@@ -602,7 +616,7 @@ public struct EngineCore {
         case "x": action = .excludeApp
         default: return []
         }
-        state = .paste(searching: false)
+        state = .paste(searching: searching)
         return [.pastePanelAct(action!), .pastePanelDismiss]
     }
 

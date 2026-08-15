@@ -114,14 +114,21 @@ final class ClipboardStrip {
             cards[label] = card
         }
 
+        // Nothing matched: one card-shaped absence where the first result
+        // would be, in the same material an empty pin uses. Bare text
+        // floating in the gap read as an error message, not a result.
         if query != nil, visibleRecents.isEmpty {
-            let empty = NSTextField(labelWithString: "no clips match")
-            empty.font = .systemFont(ofSize: 13, weight: .regular)
-            empty.textColor = .tertiaryLabelColor
-            empty.sizeToFit()
-            empty.frame.origin = NSPoint(x: Self.cardWidth + Self.gap + 18,
-                                         y: y + (Self.cardHeight - empty.frame.height) / 2)
-            root.addSubview(empty)
+            let card = glassPlate(radius: BarTheme.rowRadius, weight: .empty)
+            card.frame = NSRect(x: 0, y: y, width: Self.cardWidth, height: Self.cardHeight)
+            let label = NSTextField(labelWithString: "no matches")
+            label.font = .systemFont(ofSize: 13, weight: .regular)
+            label.textColor = .tertiaryLabelColor
+            label.alignment = .center
+            label.sizeToFit()
+            label.frame = NSRect(x: 0, y: (Self.cardHeight - label.frame.height) / 2,
+                                 width: Self.cardWidth, height: label.frame.height)
+            card.addSubview(label)
+            root.addSubview(card)
         }
 
         // Pins: climbing from the same corner, numbered and permanent. An

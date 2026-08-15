@@ -522,10 +522,10 @@ extension HotkeyEngine: EngineWorld {
                    band: band, selection: pasteSelection, actingOn: panelClip?.id)
     }
 
-    /// The rare half of a card's life. It goes in the strip's own band
-    /// rather than a popup at the card: a floating panel would cover the
-    /// neighbouring cards, and lighting the card it acts on says "this one"
-    /// more plainly than sitting next to it would.
+    /// The rare half of a card's life. The strip draws these beside the
+    /// card they act on — a pin's to its right, a recent's above it — and
+    /// lights that card at the same weight, so the menu and its subject
+    /// read as one object rather than two.
     private static func panelActions(for clip: Clipboard.Clip) -> [(key: String, label: String)] {
         var actions = [(key: "P", label: clip.isPinned ? "unpin" : "pin"),
                        (key: "D", label: "delete")]

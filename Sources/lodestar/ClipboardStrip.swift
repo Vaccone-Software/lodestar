@@ -117,8 +117,9 @@ final class ClipboardStrip {
         case .search(let query):
             addSearchField(query: query, frame: bandFrame)
         case .actions(let actions):
-            addActionCard(actions,
-                          frame: actionFrame(for: actingOn, stripWidth: stripWidth))
+            let size = actionSize(actions)
+            addActionCard(actions, frame: actionFrame(for: actingOn, size: size,
+                                                      stripWidth: stripWidth))
         }
 
         for (offset, clip) in visibleRecents.enumerated() {
@@ -238,60 +239,105 @@ final class ClipboardStrip {
         return card
     }
 
-    /// The same input surface the searcher and the web bar use, sitting
-    /// directly under the cards it filters. A typed prefix read as a vim
-    /// prompt; a glass field with a magnifier reads as the thing everyone
-    /// already knows a search box to be.
-    private static let actionWidth: CGFloat = 262
+    // MARK: - Actions
+
+    /// Menu metrics. The row height is fixed rather than divided out of the
+    /// card: a menu whose rows stretch when it has two actions and compress
+    /// when it has four reads as a different control every time it opens.
+    private static let actionRow: CGFloat = 32
+    private static let actionPadY: CGFloat = 12
+    private static let actionInset: CGFloat = 14
+    private static let actionChipGap: CGFloat = 9
+    private static let actionChip = NSSize(width: 30, height: 20)
+    private static let actionFont = NSFont.systemFont(ofSize: 13, weight: .regular)
+
+    /// Sized to its contents, not to the grid — bounded below by a card so
+    /// it never looks like a scrap, and above so a long label wraps the
+    /// menu rather than the strip.
+    private func actionSize(_ actions: [(key: String, label: String)]) -> NSSize {
+        let widest = actions
+            .map { $0.label.size(withAttributes: [.font: Self.actionFont]).width }
+            .max() ?? 0
+        let width = Self.actionInset * 2 + Self.actionChip.width
+            + Self.actionChipGap + ceil(widest)
+        return NSSize(width: min(max(width, Self.cardWidth), 320),
+                      height: CGFloat(actions.count) * Self.actionRow + Self.actionPadY * 2)
+    }
 
     /// Where a card's actions belong, relative to the card they act on.
     ///
-    /// A pin opens to its right — the column is one card wide, so the space
-    /// beside it is always free. A recent opens above itself, into the row
-    /// the pins share. The exception is the first recent: it sits directly
-    /// under pin one, so its panel shifts one column right rather than
-    /// covering a pin.
-    private func actionFrame(for id: String?, stripWidth: CGFloat) -> NSRect {
-        let step = Self.cardWidth + Self.gap
-        var origin = NSPoint(x: step, y: Self.cardHeight + Self.gap)
+    /// A pin opens to its right, top edges level, the way a menu unfurls
+    /// from the item it belongs to — the pin column is one card wide, so
+    /// that space is always free. A recent opens upward from just above
+    /// itself. The exception is the first recent: it sits directly under
+    /// pin one, so its menu shifts one column right rather than covering
+    /// a pin.
+    private func actionFrame(for id: String?, size: NSSize, stripWidth: CGFloat) -> NSRect {
+        let column = Self.cardWidth + Self.gap
+        let row = Self.cardHeight + Self.gap
+        var origin = NSPoint(x: column, y: row)
 
         if let id, let slot = shownPins.first(where: { $0.value.id == id })?.key {
-            origin = NSPoint(x: step,
-                             y: Self.cardHeight + Self.gap + CGFloat(slot - 1) * step)
+            let pinTop = row + CGFloat(slot - 1) * row + Self.cardHeight
+            origin = NSPoint(x: column, y: pinTop - size.height)
         } else if let id, let index = shownRecents.firstIndex(where: { $0.id == id }) {
-            origin = NSPoint(x: CGFloat(max(index, 1)) * step,
-                             y: Self.cardHeight + Self.gap)
+            origin = NSPoint(x: CGFloat(max(index, 1)) * column, y: row)
         }
-        // Never off the right edge of the strip.
-        origin.x = min(origin.x, max(step, stripWidth - Self.actionWidth))
-        return NSRect(x: origin.x, y: origin.y,
-                      width: Self.actionWidth, height: Self.cardHeight)
+        // Never down over the recents, never off the right edge. A menu
+        // taller than its pin grows upward instead.
+        origin.y = max(origin.y, row)
+        origin.x = min(origin.x, max(column, stripWidth - size.width))
+        return NSRect(origin: origin, size: size)
     }
 
     private func addActionCard(_ actions: [(key: String, label: String)], frame: NSRect) {
-        let plate = glassPlate(radius: BarTheme.rowRadius)
+        // The weight the acted-on card wears, so the lit card and its menu
+        // read as one object — and dense enough to stay legible over
+        // whatever it floats above.
+        let plate = glassPlate(radius: BarTheme.rowRadius, weight: .highlighted)
         plate.frame = frame
-        let rowHeight = frame.height / CGFloat(max(actions.count, 1))
+
         for (offset, action) in actions.enumerated() {
-            let y = frame.height - CGFloat(offset + 1) * rowHeight
-            let key = NSTextField(labelWithString: action.key)
+            let bottom = frame.height - Self.actionPadY - CGFloat(offset + 1) * Self.actionRow
+
+            // The keycap every other surface draws: chip, not bare glyph.
+            let chip = NSView(frame: NSRect(
+                x: Self.actionInset,
+                y: bottom + (Self.actionRow - Self.actionChip.height) / 2,
+                width: Self.actionChip.width, height: Self.actionChip.height))
+            chip.wantsLayer = true
+            chip.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.09).cgColor
+            chip.layer?.cornerRadius = BarTheme.chipRadius
+            let key = NSTextField(labelWithString: action.key.uppercased())
             key.font = BarTheme.chipFont
             key.textColor = .labelColor
             key.alignment = .center
-            key.frame = NSRect(x: 14, y: y + (rowHeight - 15) / 2, width: 18, height: 15)
-            plate.addSubview(key)
+            key.sizeToFit()
+            key.frame = NSRect(x: 0, y: (Self.actionChip.height - key.frame.height) / 2,
+                               width: Self.actionChip.width, height: key.frame.height)
+            chip.addSubview(key)
+            plate.addSubview(chip)
 
+            // Full strength: the label is the thing you are choosing, not a
+            // caption under something else.
             let label = NSTextField(labelWithString: action.label)
-            label.font = .systemFont(ofSize: 13, weight: .regular)
-            label.textColor = .secondaryLabelColor
+            label.font = Self.actionFont
+            label.textColor = .labelColor
             label.lineBreakMode = .byTruncatingTail
-            label.frame = NSRect(x: 40, y: y + (rowHeight - 16) / 2,
-                                 width: frame.width - 54, height: 16)
+            label.sizeToFit()
+            let x = Self.actionInset + Self.actionChip.width + Self.actionChipGap
+            label.frame = NSRect(x: x, y: bottom + (Self.actionRow - label.frame.height) / 2,
+                                 width: frame.width - x - Self.actionInset,
+                                 height: label.frame.height)
             plate.addSubview(label)
         }
         root.addSubview(plate)
     }
 
+    /// The same input surface the searcher and the web bar use, sitting
+    /// directly under the cards it filters. A typed prefix read as a vim
+    /// prompt; a glass field with a magnifier reads as the thing everyone
+    /// already knows a search box to be.
     private func addSearchField(query: String, frame: NSRect) {
         let width = frame.width
         let plate = glassPlate(radius: BarTheme.rowRadius)

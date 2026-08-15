@@ -121,7 +121,7 @@ final class ClipboardStrip {
         if query != nil, visibleRecents.isEmpty {
             let card = glassPlate(radius: BarTheme.rowRadius, weight: .empty)
             card.frame = NSRect(x: 0, y: y, width: stripWidth, height: Self.cardHeight)
-            let label = NSTextField(labelWithString: "no matches")
+            let label = NSTextField(labelWithString: "No matches")
             label.font = .systemFont(ofSize: 13, weight: .regular)
             label.textColor = .tertiaryLabelColor
             label.alignment = .center
@@ -234,8 +234,9 @@ final class ClipboardStrip {
         symbol.frame = NSRect(x: 18, y: (Self.searchHeight - 18) / 2, width: 18, height: 18)
         plate.addSubview(symbol)
 
+        let font = NSFont.systemFont(ofSize: 19, weight: .regular)
         let field = NSTextField(labelWithString: query.isEmpty ? "Search clips" : query)
-        field.font = .systemFont(ofSize: 19, weight: .regular)
+        field.font = font
         field.textColor = query.isEmpty ? .tertiaryLabelColor : .labelColor
         field.lineBreakMode = .byTruncatingHead
         field.sizeToFit()
@@ -244,11 +245,16 @@ final class ClipboardStrip {
         plate.addSubview(field)
 
         // A still caret, never a blinking one — nothing in Lodestar pulses.
+        //
+        // Positioned from the measured glyphs, not from the field's frame:
+        // an NSTextField reports a width including the cell's trailing
+        // inset, which put the caret a space past the last letter.
         if !query.isEmpty {
+            let glyphs = (query as NSString).size(withAttributes: [.font: font]).width
             let caret = NSView()
             caret.wantsLayer = true
             caret.layer?.backgroundColor = NSColor.tertiaryLabelColor.cgColor
-            caret.frame = NSRect(x: field.frame.maxX + 3,
+            caret.frame = NSRect(x: field.frame.minX + min(glyphs, field.frame.width) + 2,
                                  y: (Self.searchHeight - 20) / 2, width: 1.5, height: 20)
             plate.addSubview(caret)
         }

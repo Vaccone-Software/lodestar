@@ -48,8 +48,7 @@ public struct PersistedState: Codable {
 /// Breaths and parking bookkeeping — saved on every change so a crash or
 /// restart can still find and restore everything best-effort.
 public final class StateStore {
-    public static let defaultFile = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".config/lodestar/state.json")
+    public static let defaultFile = Paths.data.appendingPathComponent("state.json")
 
     public let file: URL
     private var backupFile: URL { file.appendingPathExtension("bak") }

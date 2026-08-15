@@ -69,7 +69,7 @@ public enum Json {
     /// where validation's complaints and the reader's eye both land last.
     private static let sectionOrder = [
         "$schema", "version", "lode", "gestures", "app", "profiles",
-        "graph", "web", "scroll", "hints", "double-tap", "keys",
+        "graph", "web", "scroll", "hints", "clipboard", "double-tap", "keys",
     ]
 
     public static func emit(_ root: [String: ConfigValue]) -> String {

@@ -48,6 +48,12 @@ public enum ConfigDefaults {
             "speed": .int(1800),
             "step": .int(60),
         ]),
+        "clipboard": .table([
+            "enabled": .bool(true),
+            "max-size-mb": .int(500),
+            "exclude-apps": .table([:]),
+            "exclude": .table([:]),
+        ]),
         "hints": .table([
             "letters": .string("asdfghjkl"),
             "rescan-delay": .double(0.4),

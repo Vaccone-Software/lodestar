@@ -28,6 +28,7 @@ Lode is **right ⌘** (configurable in `~/.config/lodestar/lodestar.json`).
 | `lode 0` / `lode ⇧0`          | The focused window fills the display, rest parked — `⇧0` joins beside   |
 | `⌫` inside breaths             | Arm delete — the next path typed is deleted, not visited                |
 | hold `lode` alone             | Peek: the graph guide + index badges over each layout window            |
+| `⇧⌘V`                         | Clipboard: cards on screen, a letter pastes — see below                 |
 | `lode ?`                      | The cheat sheet — every gesture, your live graph and breaths          |
 | `esc`                          | Clear an active chain                                                   |
 
@@ -56,6 +57,23 @@ Results are ranked by fuzzy match quality **plus frecency** — every summon (gr
 **They are left alone.** A window born outside Lodestar — a launcher, the Dock, `⌘N`, a certificate prompt, a file reveal — floats untouched above your layout, exactly as macOS would have it, and never hides what you were reading. System and accessibility floaters (notch apps, Control Center, overlay slivers) belong to accessory processes the model never even tracks.
 
 **`lode 0` makes the focused window fill the display** when you want it managed: the summon treatment on demand, everything already in the layout parked, `⇧0` to join beside instead. It also **enrols** the window, so from then on it answers to `lode 1…9`, breaths, orientation flips, and `lode Z` like anything Lodestar summoned. That is the only way an unmanaged window becomes managed — Lodestar never decides on its own that a new window is a destination, and nothing is ever parked except what a placement displaced.
+
+## The clipboard
+
+`⇧⌘V` opens the paste strip: **recents along the bottom** labelled by the home row, left to right, and **pins climbing the left edge** numbered 1 to 3. Both of the things you are most likely to want — a pin, or what you just copied — sit at the same corner, so there is one place to look.
+
+- **A letter pastes it as plain text.** Most pasting is unformatted and that is the good default.
+- **`⇧letter` pastes it as copied** — rich text, HTML, or whatever proprietary flavour the source app offered. An image has no plain form, so both paste the image.
+- **`⌘letter` opens that card's actions**: pin or unpin, delete, save an image to Downloads, or never save from that app again.
+- **`1` `2` `3` reach the pins.** Slots are permanent: a new pin takes the lowest free one, and unpinning leaves a hole rather than renumbering the others, so a pin you have learned never moves. Empty slots still draw, so the numbers are always visible.
+- **`/` searches**, `↵` pastes the match, `esc` steps back to the strip. A second `esc` closes.
+- Any lode gesture exits and executes, the same as scroll and hints.
+
+Pasting sets your system clipboard, so plain `⌘V` repeats it. What it never does is **reorder the list** — copies reorder, pastes do not, so the strip stays your copy history and the positions hold still while you use them.
+
+**What is never recorded**: anything a password manager marks concealed, transient, or auto-generated; anything from an app in `clipboard.exclude-apps`; and anything containing a substring in `clipboard.exclude` — which is how you keep a reel you are forwarding out of your history without banning your browser. History lives in `~/.local/share/lodestar/clipboard`, never in `~/.config`, because that directory ends up in dotfiles repositories. It is excluded from backups and readable only by you. `clipboard.max-size-mb` decides how far back it reaches; pins are never trimmed. `lodestar clipboard clear` erases it.
+
+In a password field macOS blocks synthetic keystrokes outright, so Lodestar puts the clip on the clipboard and tells you to press `⌘V` yourself rather than failing silently.
 
 ## Scroll mode
 
@@ -117,7 +135,7 @@ it. A yaml that fails to parse is never converted.
 - CLI: `lodestar check [--json]` validates the config (schema + referential + ground truth); `lodestar reload` applies it to the running instance; `lodestar config` prints the effective config, `config get <path>` one value, `config set <path> <value>` a validated write applied live, `config unset <path>` the way back to default; `lodestar diagnose` prints one paste-able report (version, instance, trust, displays, config, state, log tail); `lodestar schema` and `lodestar config-path` serve tools and agents — see AGENTS.md for the agent contract.
 - `scripts/install-app.sh` — build, sign, and install `~/Applications/lodestar.app` with a login LaunchAgent, so Lodestar survives reboots. **First install**: grant the app Accessibility when it prompts (System Settings → Privacy & Security → Accessibility) — Lodestar wakes up on its own within seconds of the grant. Signed with your Apple Development identity, so the grant survives rebuilds.
 - `scripts/dev-restart.sh` — rebuild + hot-swap (unloads the login agent so launchd doesn't fight the dev instance).
-- State: `~/.config/lodestar/state.json` (breaths, parked frames, usage) — **versioned and self-defending**: every boot keeps a last-known-good `state.json.bak`; a corrupted file is quarantined with a timestamp, restored from backup, and announced in a flash — never silently reset. Old formats migrate on load. Log: `lodestar.log`. `kill -USR1 $(cat ~/.config/lodestar/lodestar.pid)` dumps diagnostics to the log.
+- State: `~/.local/share/lodestar/state.json` (breaths, parked frames, usage) — **versioned and self-defending**: every boot keeps a last-known-good `state.json.bak`; a corrupted file is quarantined with a timestamp, restored from backup, and announced in a flash — never silently reset. Old formats migrate on load. Log: `~/.local/share/lodestar/lodestar.log`. Config and the pid file stay in `~/.config/lodestar`; everything Lodestar accumulates lives in `~/.local/share/lodestar`, which is deliberate — `~/.config` is what people commit to dotfiles repositories. `kill -USR1 $(cat ~/.config/lodestar/lodestar.pid)` dumps diagnostics to the log.
 - Versions: the binary knows its version (`lodestar 0.9.0 starting` in the log, shown in the menu header), and both `state.json` and `lodestar.json` record the release that wrote them — schema changes migrate the file at boot, with the writing release always on record.
 
 ## Config DX

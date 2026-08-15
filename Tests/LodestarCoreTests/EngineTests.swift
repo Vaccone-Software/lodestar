@@ -44,6 +44,12 @@ final class WorldStub: EngineWorld {
         return scrollEnterSucceeds
     }
 
+    var pasteAvailable = true
+    func enterPaste() -> Bool {
+        calls.append("enterPaste")
+        return pasteAvailable
+    }
+
     func enterHints(sticky: Bool) -> Bool {
         calls.append("enterHints\(sticky ? ":sticky" : "")")
         return hintsEnterSucceeds

@@ -19,8 +19,7 @@ final class UpdateController {
     /// translocated copies — the updater stands down entirely.
     private let installURL: URL?
 
-    private static let directory = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".config/lodestar/update", isDirectory: true)
+    private static let directory = Paths.update
     /// Survives the rolled-back announcement: the tag we refuse to re-apply.
     private static let refusedFile = directory.appendingPathComponent("refused")
     private static let feedURL = URL(string: Lodestar.repository
@@ -407,8 +406,7 @@ final class UpdateController {
         """
         let path = Self.directory.appendingPathComponent("watchdog.sh")
         try? script.write(to: path, atomically: true, encoding: .utf8)
-        let pidFile = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/lodestar/lodestar.pid")
+        let pidFile = Paths.pidFile
         spawnDetached(["/bin/bash", path.path, app.path, previous.path,
                        "\(ProcessInfo.processInfo.processIdentifier)", version,
                        Self.directory.path, pidFile.path])

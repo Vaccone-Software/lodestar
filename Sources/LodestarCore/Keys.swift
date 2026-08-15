@@ -12,6 +12,7 @@ public enum Keys {
         40: "k", 41: ";", 43: ",", 44: "/", 45: "n", 46: "m", 47: ".",
         36: "return", 48: "tab", 49: "space", 51: "delete", 53: "escape",
         50: "`", 33: "[", 30: "]", 39: "'", 24: "=", 27: "-",
+        123: "left", 124: "right", 125: "down", 126: "up",
     ]
 
     /// The live table: ANSI overlaid with config `keys:` overrides.

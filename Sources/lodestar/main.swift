@@ -58,6 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var webBar: WebBarController!
     private var engine: HotkeyEngine!
     private var updater: UpdateController!
+    private var clipboardController: ClipboardController!
     private var statusItem: NSStatusItem?
     private var menuBarHideTimer: Timer?
     private var signalSource: DispatchSourceSignal?
@@ -71,6 +72,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // One hung app must never freeze the switcher.
         setGlobalAXTimeout(1.0)
 
+        // Before anything opens a file: settle where files live.
+        Paths.migrateIfNeeded()
         Config.migrateIfNeeded()
         let (loaded, problems) = Config.load()
         config = loaded
@@ -107,6 +110,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return "lodestar is shutting down" }
             return self.removeChainFromGraph(letters)
         }
+        clipboardController = ClipboardController()
+        clipboardController.flash = { [weak self] text in self?.hud.flash(text) }
+        clipboardController.excludedApps = config.clipboardExcludedApps
+        clipboardController.excludedPatterns = config.clipboardExcludePatterns
+        clipboardController.maxBytes = config.clipboardMaxBytes
+        clipboardController.start()
+
         webBar = WebBarController()
         webBar.config = config
         webBar.mostRecentProfile = { [weak self] in self?.mostRecentBrowserProfile() }
@@ -116,7 +126,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         engine = HotkeyEngine(config: config, actions: actions, hud: hud, searcher: searcher,
                               webBar: webBar, menuSearch: MenuSearchController(),
                               scroller: ScrollController(model: model),
-                              hints: HintsController(model: model))
+                              hints: HintsController(model: model),
+                              clipboard: clipboardController)
 
         model.start()
         layout.reconcileDisplays() // learn the connected monitors' identities
@@ -132,6 +143,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if config.showMenuBar { createStatusItem() }
         actions.revealLodestar = { [weak self] in self?.revealMenuBar() }
+        engine.onExcludeApp = { [weak self] bundleID in self?.excludeAppFromClipboard(bundleID) }
         installSignalHandler()
 
         ConfigDoctor.emitSchema()
@@ -336,6 +348,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         return nil
+    }
+
+    /// "Never save from this app", chosen from a card's panel: written to
+    /// the config so the choice survives a restart, the same as any other
+    /// deliberate setting.
+    private func excludeAppFromClipboard(_ bundleID: String) {
+        var root = (try? Json.parse((try? String(contentsOf: Config.file, encoding: .utf8)) ?? "{}")) ?? [:]
+        guard let updated = Json.setting(root, path: ["clipboard", "exclude-apps", bundleID.lowercased()],
+                                         to: .bool(true)) else { return }
+        root = updated
+        try? Config.write(tree: root)
+        Log.info("clipboard", ["excluded-app": bundleID])
     }
 
     private func addAppToGraph(_ letters: [String], entry: AppIndex.Entry) -> String? {
@@ -565,8 +589,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Process management
 
-    private static let pidFile = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".config/lodestar/lodestar.pid")
+    private static let pidFile = Paths.pidFile
 
     private func takeOverPidFile() {
         if let text = try? String(contentsOf: Self.pidFile, encoding: .utf8),
@@ -650,6 +673,7 @@ func printUsage() {
       reset-config     back up the current config, write fresh defaults
       uninstall        remove lodestar (--dry-run to preview, --purge for data)
       schema           print the config JSON Schema
+      clipboard clear  erase the clipboard history
       config-path      print the config file path
       apps             list every app name the graph can bind
 
@@ -694,6 +718,16 @@ if cliArguments.contains("schema") {
     }
     print(text)
     exit(0)
+}
+if cliArguments.contains("clipboard") {
+    if cliArguments.contains("clear") {
+        Log.stdoutEnabled = false
+        ClipboardStore().clearAll()
+        print("✓ clipboard history cleared")
+        exit(0)
+    }
+    print("usage: lodestar clipboard clear")
+    exit(64)
 }
 if cliArguments.contains("config-path") {
     print(Config.file.path)

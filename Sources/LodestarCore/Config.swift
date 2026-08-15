@@ -50,6 +50,12 @@ public struct Config {
     public var webLinks: [WebLink] = []
     /// Substring pattern → registry key; longest match wins.
     public var webRoutes: [String: String] = [:]
+    /// Clipboard history: how much disk it may claim, and what it must
+    /// never record.
+    public var clipboardEnabled = true
+    public var clipboardMaxBytes = 500_000_000
+    public var clipboardExcludedApps: Set<String> = []
+    public var clipboardExcludePatterns: [String] = []
     /// Keycode → key-name overlays on the built-in ANSI table.
     public var keyOverrides: [Int64: String] = [:]
     public var graph: GraphNode = GraphNode()
@@ -59,8 +65,7 @@ public struct Config {
     /// anything. `ConfigDefaults.tree` is where a default is chosen.
     public init() {}
 
-    public static let directory = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".config/lodestar", isDirectory: true)
+    public static let directory = Paths.config
     /// The config: sparse canonical JSON — only what differs from
     /// defaults, documentation living in the schema, every writer
     /// producing the same bytes.
@@ -119,6 +124,14 @@ public struct Config {
         "double-tap": .freeTable(value: .string(allowed: TapVerb.allCases.map(\.rawValue),
                                                 description: "The verb this double-tap fires."),
                                  description: "Double-tap a modifier alone to fire a verb — additional triggers; defaults untouched. Keys: cmd, shift, option, control, or sided forms like right-cmd."),
+        "clipboard": .table([
+            "enabled": .boolean(description: "⇧⌘V opens the clipboard strip. The one Lodestar binding outside the lode key, so it is also the one that can collide with an app; false gives ⇧⌘V back."),
+            "max-size-mb": .number(min: 10, max: 20_000, description: "Disk the clipboard history may claim; the oldest clips are dropped to stay under it. Pins are never dropped."),
+            "exclude-apps": .freeTable(value: .boolean(description: "true to never record clips copied from this app."),
+                                       description: "Bundle id → true. Nothing copied in these apps is ever written to disk."),
+            "exclude": .freeTable(value: .boolean(description: "true to never record clips containing this text."),
+                                  description: "Substring → true, matched case-insensitively against the clip. The same shape web.routes uses."),
+        ], description: "Clipboard history."),
         "hints": .table([
             "letters": .string(allowed: nil, description: "The label alphabet, home row by default; labels are built only from these letters."),
             "rescan-delay": .number(min: 0.1, max: 2.0, description: "Sticky hints: seconds between a click and the relabel."),
@@ -234,6 +247,18 @@ public struct Config {
         }
         if let speed = effective.value(at: ["scroll", "speed"])?.double {
             config.scrollSpeed = CGFloat(max(200, min(4000, speed)))
+        }
+        if let enabled = effective.value(at: ["clipboard", "enabled"])?.bool {
+            config.clipboardEnabled = enabled
+        }
+        if let megabytes = effective.value(at: ["clipboard", "max-size-mb"])?.double {
+            config.clipboardMaxBytes = Int(max(10, min(20_000, megabytes)) * 1_000_000)
+        }
+        if let apps = effective.value(at: ["clipboard", "exclude-apps"])?.table {
+            config.clipboardExcludedApps = Set(apps.filter { $0.value.bool == true }.keys.map { $0.lowercased() })
+        }
+        if let patterns = effective.value(at: ["clipboard", "exclude"])?.table {
+            config.clipboardExcludePatterns = patterns.filter { $0.value.bool == true }.keys.sorted()
         }
         if let letters = effective.value(at: ["hints", "letters"])?.string {
             // Lowercased ASCII letters, first occurrence wins — duplicate

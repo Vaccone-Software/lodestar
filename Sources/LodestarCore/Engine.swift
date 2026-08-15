@@ -21,6 +21,18 @@ public enum GraphResolution: Equatable {
     case leaf, deeper, miss
 }
 
+/// What a label does to the card it names. The label always names the card;
+/// the modifier names the verb.
+public enum PasteAction: Equatable {
+    /// Paste as plain text — the common case, and what a bare label does.
+    case plain
+    /// Paste as copied: rich text, HTML, or whatever proprietary flavour the
+    /// source app offered. An image has no plain form, so both are the image.
+    case native
+    /// Open the card's actions: save an image, pin, delete, exclude.
+    case panel
+}
+
 /// What the shell must do in response to a keypress, in order.
 public enum EngineEffect: Equatable {
     /// Hand the event back to the system untouched.
@@ -58,6 +70,24 @@ public enum EngineEffect: Equatable {
     case flash(String)
     case showGuide(kind: ChainKind, letters: [String], deleting: Bool, note: String?)
     case hideGuide
+    case enterPaste
+    case exitPaste
+    case pasteRecent(label: String, action: PasteAction)
+    case pastePinned(slot: Int, action: PasteAction)
+    case pasteSearchBegin
+    case pasteSearchEnd
+    case pasteSearchType(String)
+    case pasteSearchBackspace
+    case pasteSearchMove(delta: Int)
+    case pasteSearchCommit(action: PasteAction)
+    case pastePanelShow
+    case pastePanelDismiss
+    case pastePanelAct(PanelAction)
+}
+
+/// The rare half of a card's life, kept off the hot path deliberately.
+public enum PanelAction: Equatable {
+    case pin, delete, saveImage, excludeApp
 }
 
 /// The world as the grammar sees it: queries about what is visible, and
@@ -73,6 +103,8 @@ public protocol EngineWorld: AnyObject {
     func enterScroll() -> Bool
     /// Enter hints on the focused window; false when there is none.
     func enterHints(sticky: Bool) -> Bool
+    /// Open the clipboard strip; false when nothing has been copied yet.
+    func enterPaste() -> Bool
     /// A plain letter while hints are up — the overlay narrows or fires.
     func hintType(_ letter: String, shift: Bool) -> HintStep
     var searcherVisible: Bool { get }
@@ -88,6 +120,22 @@ public struct EngineCore {
         case chain(kind: ChainKind, letters: [String], deleting: Bool)
         case scroll
         case hints(sticky: Bool)
+        case paste(searching: Bool)
+        /// A card's actions are open; the shell remembers which card.
+        case pastePanel
+    }
+
+    /// ⇧⌘V, from the shell — the one trigger that lives outside the lode
+    /// namespace, because pasting happens inside a stream of typing rather
+    /// than between them.
+    public mutating func openPaste(world: EngineWorld) -> [EngineEffect] {
+        if case .paste = state {
+            state = .idle
+            return [.exitPaste]
+        }
+        guard world.enterPaste() else { return [.flash("⌂ nothing copied yet")] }
+        state = .paste(searching: false)
+        return [.hideBars, .enterPaste]
     }
 
     public private(set) var state: State = .idle
@@ -144,7 +192,10 @@ public struct EngineCore {
         return [.passThrough]
     }
 
-    public mutating func keyDown(key: String, held: Bool, shift: Bool, world: EngineWorld) -> [EngineEffect] {
+    /// `command` matters only inside paste mode, where ⌘label opens a
+    /// card's actions; every other state ignores it.
+    public mutating func keyDown(key: String, held: Bool, shift: Bool,
+                                 command: Bool = false, world: EngineWorld) -> [EngineEffect] {
         switch state {
         case .idle:
             // Escape closes a visible cheat sheet, lode or not — the
@@ -161,6 +212,11 @@ public struct EngineCore {
             return scrollPress(key: key, held: held, shift: shift, world: world)
         case .hints(let sticky):
             return hintsPress(key: key, held: held, shift: shift, sticky: sticky, world: world)
+        case .paste(let searching):
+            return pastePress(key: key, held: held, shift: shift, command: command,
+                              searching: searching, world: world)
+        case .pastePanel:
+            return pastePanelPress(key: key, held: held, shift: shift, world: world)
         }
     }
 
@@ -423,6 +479,107 @@ public struct EngineCore {
         default:
             return [] // swallowed — mode discipline
         }
+    }
+
+    // MARK: - Paste
+
+    /// The clipboard strip. A mode, not a hold: the cards on screen are what
+    /// make it unforgettable, and paging or searching needs both hands free.
+    /// Its own keys act; escape leaves; any lode verb exits and executes,
+    /// the same bargain scroll and hints already make.
+    private mutating func pastePress(key: String, held: Bool, shift: Bool, command: Bool,
+                                     searching: Bool, world: EngineWorld) -> [EngineEffect] {
+        if held {
+            state = .idle
+            var effects: [EngineEffect] = [.exitPaste]
+            if key != "escape" {
+                effects.append(contentsOf: idlePress(key: key, shift: shift, world: world))
+            }
+            return effects
+        }
+
+        let action: PasteAction = command ? .panel : (shift ? .native : .plain)
+
+        if searching {
+            switch key {
+            case "escape":
+                // Back to the strip, not out of the mode — one escape per
+                // thing you opened.
+                state = .paste(searching: false)
+                return [.pasteSearchEnd]
+            case "return":
+                state = .idle
+                return [.pasteSearchCommit(action: action), .exitPaste]
+            case "delete":
+                return [.pasteSearchBackspace]
+            case "left":
+                return [.pasteSearchMove(delta: -1)]
+            case "right":
+                return [.pasteSearchMove(delta: 1)]
+            case "space":
+                return [.pasteSearchType(" ")]
+            case _ where Self.isLetter(key) || Self.isDigit(key):
+                return [.pasteSearchType(shift ? key.uppercased() : key)]
+            default:
+                return [] // swallowed — mode discipline
+            }
+        }
+
+        switch key {
+        case "escape":
+            state = .idle
+            return [.exitPaste]
+        case "/":
+            state = .paste(searching: true)
+            return [.pasteSearchBegin]
+        case _ where Self.isDigit(key):
+            // Digits address the pinned column; the slots are few and fixed.
+            guard let slot = Int(key), slot >= 1, slot <= Clipboard.pinSlots else { return [] }
+            if action == .panel {
+                state = .pastePanel
+                return [.pastePinned(slot: slot, action: .panel), .pastePanelShow]
+            }
+            state = .idle
+            return [.pastePinned(slot: slot, action: action), .exitPaste]
+        case _ where Self.isLetter(key):
+            // Any letter is a candidate label; the strip ignores the ones it
+            // has no card for, so the grammar needs no alphabet of its own.
+            if action == .panel {
+                state = .pastePanel
+                return [.pasteRecent(label: key, action: .panel), .pastePanelShow]
+            }
+            state = .idle
+            return [.pasteRecent(label: key, action: action), .exitPaste]
+        default:
+            return [] // swallowed — mode discipline
+        }
+    }
+
+    /// One keypress per action, and escape steps back to the strip rather
+    /// than out of the mode — one escape per thing you opened.
+    private mutating func pastePanelPress(key: String, held: Bool, shift: Bool,
+                                          world: EngineWorld) -> [EngineEffect] {
+        if held {
+            state = .idle
+            var effects: [EngineEffect] = [.pastePanelDismiss, .exitPaste]
+            if key != "escape" {
+                effects.append(contentsOf: idlePress(key: key, shift: shift, world: world))
+            }
+            return effects
+        }
+        let action: PanelAction?
+        switch key {
+        case "escape":
+            state = .paste(searching: false)
+            return [.pastePanelDismiss]
+        case "p": action = .pin
+        case "d": action = .delete
+        case "s": action = .saveImage
+        case "x": action = .excludeApp
+        default: return []
+        }
+        state = .paste(searching: false)
+        return [.pastePanelAct(action!), .pastePanelDismiss]
     }
 
     // MARK: - Small helpers

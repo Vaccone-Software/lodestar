@@ -1,12 +1,11 @@
 import Foundation
 
-/// Structured, rotating file log at ~/.config/lodestar/lodestar.log,
+/// Structured, rotating file log at ~/.local/share/lodestar/lodestar.log,
 /// mirrored to stdout. logfmt shape — `HH:mm:ss.SSS INFO summon target=Slack
 /// chose=8688` — so humans tail it and tools parse it. Rotates at 5MB,
 /// keeping two predecessors (.1, .2): bounded at ~15MB, history preserved.
 public enum Log {
-    public static let directory = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".config/lodestar", isDirectory: true)
+    public static let directory = Paths.data
     public static let file = directory.appendingPathComponent("lodestar.log")
 
     private static let maxBytes = 5_000_000

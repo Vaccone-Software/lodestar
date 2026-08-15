@@ -125,7 +125,7 @@ func runDiagnose() -> Never {
     lines.append("═══ Lodestar diagnose · v\(Lodestar.version) · \(ISO8601DateFormatter().string(from: Date()))")
     lines.append("")
 
-    let pidPath = Log.directory.appendingPathComponent("lodestar.pid")
+    let pidPath = Paths.pidFile
     if let raw = try? String(contentsOf: pidPath, encoding: .utf8),
        let pid = Int32(raw.trimmingCharacters(in: .whitespacesAndNewlines)),
        kill(pid, 0) == 0 {
@@ -194,7 +194,7 @@ func runResetConfig() -> Never {
         exit(1)
     }
     print("✓ fresh default config written — \(Config.file.path)")
-    let pidPath = Log.directory.appendingPathComponent("lodestar.pid")
+    let pidPath = Paths.pidFile
     if let raw = try? String(contentsOf: pidPath, encoding: .utf8),
        let pid = Int32(raw.trimmingCharacters(in: .whitespacesAndNewlines)),
        kill(pid, 0) == 0 {
@@ -213,7 +213,7 @@ func runUninstall(dryRun: Bool, purge: Bool) -> Never {
     let agentPlist = home.appendingPathComponent("Library/LaunchAgents/com.vaccone.lodestar.plist")
     let appBundle = home.appendingPathComponent("Applications/lodestar.app")
     let links = ["/opt/homebrew/bin/lodestar", "/usr/local/bin/lodestar"]
-    let dataDir = Log.directory
+    let roots = [Paths.config, Paths.data]
 
     var plan: [(String, () -> Void)] = []
     plan.append(("unload login agent (stops the running instance)", {
@@ -234,13 +234,15 @@ func runUninstall(dryRun: Bool, purge: Bool) -> Never {
         plan.append(("remove \(appBundle.path)", { try? fm.removeItem(at: appBundle) }))
     }
     if purge {
-        plan.append(("remove \(dataDir.path) — config, breaths, logs", { try? fm.removeItem(at: dataDir) }))
+        for root in roots where fm.fileExists(atPath: root.path) {
+            plan.append(("remove \(root.path)", { try? fm.removeItem(at: root) }))
+        }
     }
 
     if dryRun {
         print("uninstall would:")
         for (step, _) in plan { print("  • \(step)") }
-        if !purge { print("  (keeping \(dataDir.path) — add --purge to remove your config and breaths)") }
+        if !purge { print("  (keeping \(Paths.config.path) and \(Paths.data.path) — add --purge to remove your config, breaths, and clipboard)") }
         exit(0)
     }
     for (step, action) in plan {
@@ -248,7 +250,7 @@ func runUninstall(dryRun: Bool, purge: Bool) -> Never {
         action()
     }
     if !purge {
-        print("kept \(dataDir.path) — your config and breaths survive a reinstall")
+        print("kept \(Paths.config.path) and \(Paths.data.path) — your config, breaths, and clipboard survive a reinstall")
         print("(remove it later with: lodestar uninstall --purge, or rm -rf)")
     }
     print("✓ Lodestar uninstalled. The Accessibility entry can be removed in System Settings → Privacy & Security.")
@@ -276,7 +278,7 @@ func runConfigVerb(_ arguments: [String]) -> Never {
         return out
     }
     func signalRunningInstance() {
-        let pidPath = Log.directory.appendingPathComponent("lodestar.pid")
+        let pidPath = Paths.pidFile
         if let raw = try? String(contentsOf: pidPath, encoding: .utf8),
            let pid = Int32(raw.trimmingCharacters(in: .whitespacesAndNewlines)),
            kill(pid, 0) == 0 {
@@ -384,7 +386,7 @@ func runApps() -> Never {
 
 /// SIGUSR2 to the running instance — apply the config without the menu.
 func runReload() -> Never {
-    let pidPath = Log.directory.appendingPathComponent("lodestar.pid")
+    let pidPath = Paths.pidFile
     guard let raw = try? String(contentsOf: pidPath, encoding: .utf8),
           let pid = Int32(raw.trimmingCharacters(in: .whitespacesAndNewlines)),
           kill(pid, 0) == 0 else {

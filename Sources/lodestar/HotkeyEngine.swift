@@ -12,6 +12,9 @@ import LodestarCore
 final class HotkeyEngine {
     /// Fires when a chain starts or ends — the menu bar wears the state.
     var onChainActive: ((Bool) -> Void)?
+    /// An app excluded from the clipboard from inside the panel; the app
+    /// delegate writes it to the config so the choice survives a restart.
+    var onExcludeApp: ((String) -> Void)?
 
     /// The grammar lives in LodestarCore, pure and tested; this class is
     /// the AppKit shell that feeds it keys and executes its effects.
@@ -42,6 +45,11 @@ final class HotkeyEngine {
     private let menuSearch: MenuSearchController
     private let scroller: ScrollController
     private let hints: HintsController
+    private let clipboard: ClipboardController
+    private let strip = ClipboardStrip()
+    private var pasteQuery: String?
+    private var pasteSelection = 0
+    private var panelClip: Clipboard.Clip?
     private let badges = IndexBadges()
     private let cheat = CheatSheet()
 
@@ -50,7 +58,8 @@ final class HotkeyEngine {
 
     init(config: Config, actions: Actions, hud: HUD, searcher: SearcherController,
          webBar: WebBarController, menuSearch: MenuSearchController,
-         scroller: ScrollController, hints: HintsController) {
+         scroller: ScrollController, hints: HintsController,
+         clipboard: ClipboardController) {
         self.config = config
         self.actions = actions
         self.hud = hud
@@ -59,6 +68,7 @@ final class HotkeyEngine {
         self.menuSearch = menuSearch
         self.scroller = scroller
         self.hints = hints
+        self.clipboard = clipboard
         applyGrammarConfig()
     }
 
@@ -168,6 +178,16 @@ final class HotkeyEngine {
             return Unmanaged.passUnretained(event)
         }
         let (held, shift) = classify(event.flags)
+
+        // ⇧⌘V opens the clipboard strip — but only while lode is *not* the
+        // command being held. Right ⌘ is the lode trigger, so lode ⇧V has to
+        // stay a beside-summon of the graph's V; the device bit is what
+        // tells the two apart.
+        if !held, key == "v", config.clipboardEnabled,
+           event.flags.contains(.maskShift), event.flags.contains(.maskCommand) {
+            lastActivityAt = Date()
+            return apply(core.openPaste(world: self), event: event)
+        }
         // Mid-chain and mid-scroll, lode may or may not still be down —
         // shift keeps its meaning either way.
         let effectiveShift = core.isIdle ? shift : chainShift(event.flags)
@@ -176,7 +196,8 @@ final class HotkeyEngine {
         if held || !core.isIdle { lastActivityAt = Date() }
 
         let wasIdle = core.isIdle
-        let effects = core.keyDown(key: key, held: held, shift: effectiveShift, world: self)
+        let effects = core.keyDown(key: key, held: held, shift: effectiveShift,
+                                   command: event.flags.contains(.maskCommand), world: self)
         let verdict = apply(effects, event: event)
         if wasIdle != core.isIdle { onChainActive?(!core.isIdle) }
         return verdict
@@ -190,6 +211,49 @@ final class HotkeyEngine {
             switch effect {
             case .passThrough:
                 pass = true
+            case .enterPaste:
+                renderStrip()
+            case .exitPaste:
+                pasteQuery = nil
+                strip.hide()
+            case .pasteRecent(let label, let action):
+                actOnClip(strip.shownRecents.first { clip in
+                    ClipboardStrip.labels.firstIndex(of: label)
+                        .map { strip.shownRecents.indices.contains($0) && strip.shownRecents[$0].id == clip.id }
+                        ?? false
+                }, action: action)
+            case .pastePinned(let slot, let action):
+                actOnClip(strip.shownPins[slot], action: action)
+            case .pasteSearchBegin:
+                pasteQuery = ""
+                pasteSelection = 0
+                renderStrip()
+            case .pasteSearchEnd:
+                pasteQuery = nil
+                renderStrip()
+            case .pasteSearchType(let text):
+                pasteQuery = (pasteQuery ?? "") + text
+                pasteSelection = 0
+                renderStrip()
+            case .pasteSearchBackspace:
+                if let query = pasteQuery, !query.isEmpty { pasteQuery = String(query.dropLast()) }
+                pasteSelection = 0
+                renderStrip()
+            case .pasteSearchMove(let delta):
+                pasteSelection = max(0, min(strip.shownRecents.count - 1, pasteSelection + delta))
+                renderStrip()
+            case .pasteSearchCommit(let action):
+                let target = strip.shownRecents.indices.contains(pasteSelection)
+                    ? strip.shownRecents[pasteSelection] : nil
+                actOnClip(target, action: action)
+            case .pastePanelShow:
+                showClipPanel()
+            case .pastePanelDismiss:
+                panelClip = nil
+                hud.hide()
+                if case .paste = core.state { renderStrip() }
+            case .pastePanelAct(let panelAction):
+                performPanel(panelAction)
             case .exitHints:
                 hints.exit()
             case .hintBackspace:
@@ -377,6 +441,7 @@ final class HotkeyEngine {
             GuideRow(key: "'", label: "breaths — ' ' updates latest"),
             GuideRow(key: "hold", label: "peek the graph + window indexes"),
             GuideRow(key: "?", label: "this sheet — whenever you forget"),
+            GuideRow(key: "⇧⌘V", label: "clipboard — label pastes · ⇧ as copied · ⌘ actions · / search"),
             GuideRow(key: "esc", label: "clear a chain"),
         ]
         return [
@@ -396,6 +461,10 @@ final class HotkeyEngine {
             return "scroll"
         case .hints(let sticky):
             return "hints\(sticky ? "(sticky)" : "")"
+        case .paste(let searching):
+            return "paste\(searching ? "(searching)" : "")"
+        case .pastePanel:
+            return "paste(panel)"
         }
     }
 }
@@ -415,6 +484,66 @@ extension HotkeyEngine: EngineWorld {
     func breathBind(_ letters: [String]) -> ChainStep { actions.bindBreath(letters) }
     func breathDelete(_ letters: [String]) -> ChainStep { actions.deleteBreathStep(letters) }
     func breathUpdateLatest() -> ChainStep { actions.updateLatestBreath() }
+
+    /// Redraw the strip for the current query and selection. Cheap: the
+    /// previews are already in memory and the thumbnails already decoded.
+    private func renderStrip() {
+        let all = clipboard.history.clips
+        let recents = pasteQuery.map { Clipboard.search(all, query: $0) } ?? Clipboard.recents(all)
+        strip.show(recents: recents, pins: Clipboard.pins(all),
+                   thumbnail: { [clipboard] id in clipboard.history.thumbnail(for: id) },
+                   query: pasteQuery, selection: pasteSelection)
+    }
+
+    /// A short list, drawn where the guide already draws — this is the rare
+    /// half of a card's life and does not deserve a surface of its own.
+    private func showClipPanel() {
+        guard let clip = panelClip else { return }
+        var rows = [GuideRow(key: "P", label: clip.isPinned ? "unpin" : "pin"),
+                    GuideRow(key: "D", label: "delete this clip")]
+        if clip.kind == .image { rows.append(GuideRow(key: "S", label: "save to Downloads")) }
+        if let app = clip.sourceAppName { rows.append(GuideRow(key: "X", label: "never save from \(app)")) }
+        hud.showGuide(title: "⌂ clip", rows: rows, footer: "esc back to the strip")
+    }
+
+    private func performPanel(_ action: PanelAction) {
+        guard let clip = panelClip else { return }
+        switch action {
+        case .pin: clipboard.togglePin(clip)
+        case .delete: clipboard.history.delete(clip.id)
+        case .saveImage: clipboard.saveImage(clip)
+        case .excludeApp:
+            if let bundleID = clipboard.excludeApp(of: clip) {
+                onExcludeApp?(bundleID)
+                clipboard.excludedApps.insert(bundleID)
+            }
+        }
+        panelClip = nil
+    }
+
+    /// One card, one verb. A panel action leaves the strip up; a paste has
+    /// already closed it by the time this runs.
+    private func actOnClip(_ clip: Clipboard.Clip?, action: PasteAction) {
+        guard let clip else {
+            if action != .panel { strip.hide() }
+            return
+        }
+        switch action {
+        case .plain, .native:
+            strip.hide()
+            clipboard.paste(clip, action: action)
+        case .panel:
+            panelClip = clip
+        }
+    }
+
+    func enterPaste() -> Bool {
+        guard !clipboard.history.clips.isEmpty else { return false }
+        pasteQuery = nil
+        pasteSelection = 0
+        renderStrip()
+        return true
+    }
 
     func enterHints(sticky: Bool) -> Bool {
         hints.letters = config.hintLetters

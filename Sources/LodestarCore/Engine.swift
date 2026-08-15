@@ -125,6 +125,13 @@ public struct EngineCore {
         case pastePanel
     }
 
+    /// The shell found no card behind the label ⌘ named. Without this the
+    /// panel state would stick with nothing drawn in it — a dead end whose
+    /// only exit is escape.
+    public mutating func dismissPastePanel() {
+        if case .pastePanel = state { state = .paste(searching: false) }
+    }
+
     /// ⇧⌘V, from the shell — the one trigger that lives outside the lode
     /// namespace, because pasting happens inside a stream of typing rather
     /// than between them.

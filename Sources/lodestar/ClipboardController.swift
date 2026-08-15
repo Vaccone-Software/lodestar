@@ -34,6 +34,11 @@ final class ClipboardController {
     var history: ClipboardStore { store }
 
     func start() {
+        // What is already on the pasteboard counts: a restart or a quiet
+        // auto-update must not lose the clip you copied a moment before it.
+        // Every filter still applies, so a concealed clip stays refused.
+        lastChangeCount = -1
+        capture()
         poll = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { [weak self] _ in
             self?.capture()
         }
@@ -82,7 +87,8 @@ final class ClipboardController {
         let id = ClipboardStore.identity(for: identityData)
 
         let preview = text.map { Clipboard.preview(of: $0) }
-            ?? (image != nil ? "image" : "clip")
+            ?? image.map { "image \(Int($0.size.width))×\(Int($0.size.height))" }
+            ?? "clip"
         store.record(id: id, kind: image != nil ? .image : .text,
                      plain: text.map { Data($0.utf8) }, natives: natives, image: image,
                      preview: preview,

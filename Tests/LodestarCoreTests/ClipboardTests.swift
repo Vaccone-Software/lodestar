@@ -258,3 +258,24 @@ extension PasteModeTests {
                                     command: false, world: world), [])
     }
 }
+
+extension PasteModeTests {
+    /// ⌘ on a label with no card behind it must not strand the mode in a
+    /// panel that draws nothing and swallows every label until escape.
+    func testPanelWithNoCardBehindItBacksOut() {
+        _ = core.openPaste(world: world)
+        _ = core.keyDown(key: "l", held: false, shift: false, command: true, world: world)
+        XCTAssertEqual(core.state, .pastePanel)
+        core.dismissPastePanel()
+        XCTAssertEqual(core.state, .paste(searching: false), "back to a working strip")
+    }
+
+    func testDismissingThePanelIsHarmlessWhenNoPanelIsOpen() {
+        _ = core.openPaste(world: world)
+        core.dismissPastePanel()
+        XCTAssertEqual(core.state, .paste(searching: false))
+        core = EngineCore()
+        core.dismissPastePanel()
+        XCTAssertEqual(core.state, .idle)
+    }
+}

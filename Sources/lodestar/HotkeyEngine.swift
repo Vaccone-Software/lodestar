@@ -537,7 +537,9 @@ extension HotkeyEngine: EngineWorld {
     /// already closed it by the time this runs.
     private func actOnClip(_ clip: Clipboard.Clip?, action: PasteAction) {
         guard let clip else {
-            if action != .panel { strip.hide() }
+            // Nothing behind that label. A paste closes the strip anyway; a
+            // panel request must not strand the mode in a panel with no card.
+            if action == .panel { core.dismissPastePanel() } else { strip.hide() }
             return
         }
         switch action {

@@ -506,13 +506,16 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         case .list(let entry, let chains, let selected, let error):
             let items: [GraphMenu.Item]
             if chains.isEmpty {
-                items = [GraphMenu.Item(keycap: "a", title: "Add to graph", chain: [])]
+                items = [GraphMenu.Item(keycap: "a", title: "Add to graph",
+                                        symbol: "plus.circle", chain: [])]
             } else if chains.count == 1 {
-                items = [GraphMenu.Item(keycap: "d", title: "Remove from graph", chain: [])]
+                items = [GraphMenu.Item(keycap: "d", title: "Remove from graph",
+                                        symbol: "minus.circle", chain: [])]
             } else {
                 // Several bindings: the chain is what tells the rows apart.
                 items = chains.enumerated().map {
-                    GraphMenu.Item(keycap: "\($0.offset + 1)", title: "Remove from graph", chain: $0.element)
+                    GraphMenu.Item(keycap: "\($0.offset + 1)", title: "Remove from graph",
+                                   symbol: "minus.circle", chain: $0.element)
                 }
             }
             graphMenu.present(.items(items, selected: selected, error: error),

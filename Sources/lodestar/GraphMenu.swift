@@ -11,7 +11,9 @@ final class GraphMenu {
     struct Item {
         let keycap: String
         let title: String
-        /// The chain a remove targets, drawn as keycaps after the title.
+        /// Recognised before it is read, as in the clipboard's menu.
+        let symbol: String
+        /// The chain a remove targets, drawn as keycaps beside the key.
         let chain: [String]
     }
 
@@ -111,10 +113,13 @@ final class GraphMenu {
         self.content = stack
     }
 
+    /// Icon, name, then key — the clipboard menu's row, wearing a selection
+    /// because this list is one you walk with arrows rather than fire by
+    /// letter alone.
     private func actionRow(_ item: Item, selected: Bool) -> NSView {
         let container = NSView()
         container.wantsLayer = true
-        container.layer?.cornerRadius = 8
+        container.layer?.cornerRadius = BarTheme.rowRadius
         if selected {
             container.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
         }
@@ -122,56 +127,82 @@ final class GraphMenu {
         let stack = NSStackView()
         stack.orientation = .horizontal
         stack.alignment = .centerY
-        stack.spacing = 8
-        stack.edgeInsets = NSEdgeInsets(top: 5, left: 7, bottom: 5, right: 10)
+        stack.spacing = BarTheme.rowGap
+        // A little more on the right: the selection is a pill, and its
+        // curve eats into whatever sits at the trailing edge.
+        stack.edgeInsets = NSEdgeInsets(top: 7, left: 12, bottom: 7, right: 15)
         stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.addArrangedSubview(keycap(item.keycap, inverted: selected))
-        stack.addArrangedSubview(label(item.title, font: .systemFont(ofSize: 14),
-                                       color: selected ? .white : .labelColor))
-        if !item.chain.isEmpty {
-            stack.addArrangedSubview(label("lode", font: BarTheme.chipFont,
-                                           color: selected ? NSColor.white.withAlphaComponent(0.8) : .secondaryLabelColor))
-            for letter in item.chain {
-                stack.addArrangedSubview(keycap(letter, inverted: selected))
-            }
+
+        let icon = NSImageView(image: NSImage(
+            systemSymbolName: item.symbol, accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 13, weight: .medium)) ?? NSImage())
+        icon.contentTintColor = selected ? .white : .labelColor
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            icon.widthAnchor.constraint(equalToConstant: BarTheme.rowIcon),
+            icon.heightAnchor.constraint(equalToConstant: BarTheme.rowIcon),
+        ])
+
+        let title = label(item.title, font: BarTheme.rowLabelFont,
+                          color: selected ? .white : .labelColor)
+        title.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+
+        let spacer = NSView()
+        spacer.translatesAutoresizingMaskIntoConstraints = false
+        spacer.setContentHuggingPriority(.init(1), for: .horizontal)
+        spacer.widthAnchor.constraint(
+            greaterThanOrEqualToConstant: BarTheme.rowKeyGap).isActive = true
+
+        stack.addArrangedSubview(icon)
+        stack.addArrangedSubview(title)
+        // Several bindings carry the same title and differ only by chain, so
+        // the chain travels with the title it distinguishes. Only the key
+        // you press sits at the trailing edge — beside it the chain would
+        // read as one run of chips and hide which one is pressable.
+        for letter in item.chain {
+            stack.addArrangedSubview(keycap(letter, inverted: selected, quiet: true))
         }
+        stack.addArrangedSubview(spacer)
+        stack.addArrangedSubview(keycap(item.keycap, inverted: selected))
 
         container.addSubview(stack)
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: container.topAnchor),
             stack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             stack.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            stack.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor),
+            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
         ])
         return container
     }
 
-    /// A bordered square that reads as a key on a keyboard — the border is
-    /// what separates "press this" from the searcher's informational chips.
-    private func keycap(_ text: String, inverted: Bool = false) -> NSView {
+    /// The chip every other surface draws. It used to wear a border here, to
+    /// separate "press this" from the searcher's informational chips — but
+    /// the guides and the clipboard's menu now draw the pressable key flat
+    /// too, so the border was the one thing out of step.
+    private func keycap(_ text: String, inverted: Bool = false, quiet: Bool = false) -> NSView {
         let cap = NSTextField(labelWithString: text.uppercased())
         cap.font = BarTheme.chipFont
         cap.alignment = .center
-        cap.textColor = inverted ? .white : .labelColor
+        cap.textColor = inverted
+            ? (quiet ? NSColor.white.withAlphaComponent(0.75) : .white)
+            : (quiet ? .tertiaryLabelColor : .secondaryLabelColor)
         cap.translatesAutoresizingMaskIntoConstraints = false
 
         let box = NSView()
         box.wantsLayer = true
-        box.layer?.cornerRadius = 4
-        box.layer?.borderWidth = 1
-        box.layer?.borderColor = (inverted ? NSColor.white.withAlphaComponent(0.55)
-                                           : NSColor.labelColor.withAlphaComponent(0.35)).cgColor
-        box.layer?.backgroundColor = (inverted ? NSColor.white.withAlphaComponent(0.16)
-                                               : NSColor.labelColor.withAlphaComponent(0.06)).cgColor
+        box.layer?.cornerRadius = BarTheme.chipRadius
+        box.layer?.backgroundColor = (inverted
+            ? NSColor.white.withAlphaComponent(quiet ? 0.14 : 0.22)
+            : NSColor.labelColor.withAlphaComponent(quiet ? 0.05 : 0.09)).cgColor
         box.translatesAutoresizingMaskIntoConstraints = false
+        box.setContentHuggingPriority(.required, for: .horizontal)
         box.addSubview(cap)
-        // Exactly square: every cap is a single glyph, and an inequality
-        // here leaves the width ambiguous — stack fitting can stretch it.
         NSLayoutConstraint.activate([
-            box.heightAnchor.constraint(equalToConstant: 22),
-            box.widthAnchor.constraint(equalTo: box.heightAnchor),
-            cap.centerXAnchor.constraint(equalTo: box.centerXAnchor),
+            cap.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: BarTheme.chipPadX),
+            cap.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -BarTheme.chipPadX),
             cap.centerYAnchor.constraint(equalTo: box.centerYAnchor),
+            box.heightAnchor.constraint(equalToConstant: BarTheme.chipHeight),
+            box.widthAnchor.constraint(greaterThanOrEqualToConstant: BarTheme.chipMinWidth),
         ])
         return box
     }
@@ -183,3 +214,38 @@ final class GraphMenu {
         return field
     }
 }
+
+#if DEBUG
+/// Visual harness for the ⌘K graph card, which otherwise needs the searcher
+/// and the whole app index standing behind it.
+extension GraphMenu {
+    static func preview(_ which: Int) -> GraphMenu {
+        let menu = GraphMenu()
+        let panel = NSRect(x: 300, y: 300, width: 640, height: 420)
+        let row = NSRect(x: 300, y: 620, width: 640, height: 48)
+        switch which {
+        case 1:
+            menu.present(.items([Item(keycap: "d", title: "Remove from graph",
+                                      symbol: "minus.circle", chain: [])],
+                                selected: 0, error: nil),
+                         appName: "Ghostty", besideRow: row, panelFrame: panel)
+        case 2:
+            menu.present(.items([Item(keycap: "a", title: "Add to graph",
+                                      symbol: "plus.circle", chain: [])],
+                                selected: 0, error: nil),
+                         appName: "Linear", besideRow: row, panelFrame: panel)
+        case 4:
+            menu.present(.chain(letters: ["e", "o"], verdict: "adds lode E O", problem: false),
+                         appName: "Microsoft Outlook", besideRow: row, panelFrame: panel)
+        default:
+            menu.present(.items([Item(keycap: "1", title: "Remove from graph",
+                                      symbol: "minus.circle", chain: ["e", "o"]),
+                                 Item(keycap: "2", title: "Remove from graph",
+                                      symbol: "minus.circle", chain: ["m"])],
+                                selected: 1, error: nil),
+                         appName: "Microsoft Outlook", besideRow: row, panelFrame: panel)
+        }
+        return menu
+    }
+}
+#endif

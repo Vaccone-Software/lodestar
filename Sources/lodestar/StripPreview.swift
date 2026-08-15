@@ -99,6 +99,12 @@ enum StripPreview {
             app.run()
         }
 
+        if variant >= 9 {
+            let held = GraphMenu.preview(variant - 8)
+            _ = held
+            app.run()
+        }
+
         let strip = ClipboardStrip()
         strip.show(recents: recents, pins: pins, thumbnail: { _ in nil },
                    band: .actions(actions), selection: 0, actingOn: target.id)

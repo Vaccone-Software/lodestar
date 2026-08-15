@@ -114,19 +114,20 @@ final class ClipboardStrip {
             cards[label] = card
         }
 
-        // Nothing matched: one card-shaped absence where the first result
-        // would be, in the same material an empty pin uses. Bare text
-        // floating in the gap read as an error message, not a result.
+        // Nothing matched, and that is a fact about the whole region rather
+        // than about one slot. An empty *pin* is card-shaped because it is
+        // still addressable — you can press 4. Nothing answers to a label
+        // here, so it must not wear a card's shape and imply otherwise.
         if query != nil, visibleRecents.isEmpty {
             let card = glassPlate(radius: BarTheme.rowRadius, weight: .empty)
-            card.frame = NSRect(x: 0, y: y, width: Self.cardWidth, height: Self.cardHeight)
+            card.frame = NSRect(x: 0, y: y, width: stripWidth, height: Self.cardHeight)
             let label = NSTextField(labelWithString: "no matches")
             label.font = .systemFont(ofSize: 13, weight: .regular)
             label.textColor = .tertiaryLabelColor
             label.alignment = .center
             label.sizeToFit()
             label.frame = NSRect(x: 0, y: (Self.cardHeight - label.frame.height) / 2,
-                                 width: Self.cardWidth, height: label.frame.height)
+                                 width: stripWidth, height: label.frame.height)
             card.addSubview(label)
             root.addSubview(card)
         }

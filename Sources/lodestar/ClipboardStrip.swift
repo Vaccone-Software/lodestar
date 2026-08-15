@@ -14,16 +14,14 @@ import LodestarCore
 final class ClipboardStrip {
     static let labels = Clipboard.recentLabels
 
-    /// What the region beside the pins is carrying. That band is the only
-    /// spare space in the layout, and it is exactly one row tall — so it
-    /// holds whatever the strip currently has to say, and never more than
-    /// one thing at a time.
+    /// What the region beside the pins is carrying, when it is carrying
+    /// anything. Idle it stays empty — a bar sitting there permanently is
+    /// furniture, and the strip is something you look at every day.
     enum Band {
-        /// Nothing in flight: the strip explains its own keys, the way peek
-        /// and the scroll guide explain theirs.
-        case hints
+        case none
         case search(String)
-        /// A card's actions, with the card itself lit rather than pointed at.
+        /// A card's actions, drawn as a card: a row of text where a card
+        /// belongs reads as a caption, not as a menu.
         case actions([(key: String, label: String)])
     }
 
@@ -114,11 +112,16 @@ final class ClipboardStrip {
                                width: max(Self.cardWidth, stripWidth - bandLeft),
                                height: Self.searchHeight)
         switch band {
-        case .search(let query): addSearchField(query: query, frame: bandFrame)
-        case .hints: addBandText(Self.hintLine, frame: bandFrame, dimmed: true)
+        case .none:
+            break
+        case .search(let query):
+            addSearchField(query: query, frame: bandFrame)
         case .actions(let actions):
-            addBandText(actions.map { "\($0.key)  \($0.label)" }.joined(separator: "     "),
-                        frame: bandFrame, dimmed: false)
+            // A full card's height, so it sits in pin one's row exactly and
+            // nothing below it moves.
+            addActionCard(actions, frame: NSRect(x: bandFrame.minX, y: bandFrame.minY,
+                                                 width: min(bandFrame.width, Self.cardWidth * 1.6),
+                                                 height: Self.cardHeight))
         }
 
         for (offset, clip) in visibleRecents.enumerated() {
@@ -242,17 +245,27 @@ final class ClipboardStrip {
     /// directly under the cards it filters. A typed prefix read as a vim
     /// prompt; a glass field with a magnifier reads as the thing everyone
     /// already knows a search box to be.
-    private static let hintLine = "⇧ as copied     ⌘ actions     / search     esc close"
-
-    private func addBandText(_ text: String, frame: NSRect, dimmed: Bool) {
+    private func addActionCard(_ actions: [(key: String, label: String)], frame: NSRect) {
         let plate = glassPlate(radius: BarTheme.rowRadius)
         plate.frame = frame
-        let label = NSTextField(labelWithString: text)
-        label.font = .systemFont(ofSize: 12.5, weight: .regular)
-        label.textColor = dimmed ? .tertiaryLabelColor : .secondaryLabelColor
-        label.sizeToFit()
-        label.frame.origin = NSPoint(x: 18, y: (frame.height - label.frame.height) / 2)
-        plate.addSubview(label)
+        let rowHeight = frame.height / CGFloat(max(actions.count, 1))
+        for (offset, action) in actions.enumerated() {
+            let y = frame.height - CGFloat(offset + 1) * rowHeight
+            let key = NSTextField(labelWithString: action.key)
+            key.font = BarTheme.chipFont
+            key.textColor = .labelColor
+            key.alignment = .center
+            key.frame = NSRect(x: 14, y: y + (rowHeight - 15) / 2, width: 18, height: 15)
+            plate.addSubview(key)
+
+            let label = NSTextField(labelWithString: action.label)
+            label.font = .systemFont(ofSize: 13, weight: .regular)
+            label.textColor = .secondaryLabelColor
+            label.lineBreakMode = .byTruncatingTail
+            label.frame = NSRect(x: 40, y: y + (rowHeight - 16) / 2,
+                                 width: frame.width - 54, height: 16)
+            plate.addSubview(label)
+        }
         root.addSubview(plate)
     }
 

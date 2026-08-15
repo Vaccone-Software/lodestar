@@ -515,7 +515,7 @@ extension HotkeyEngine: EngineWorld {
         } else if let query = pasteQuery {
             band = .search(query)
         } else {
-            band = .hints
+            band = .none
         }
         strip.show(recents: recents, pins: Clipboard.pins(all),
                    thumbnail: { [clipboard] id in clipboard.history.thumbnail(for: id) },

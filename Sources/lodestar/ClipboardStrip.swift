@@ -63,16 +63,8 @@ final class ClipboardStrip {
         cards.removeAll()
 
         let stripWidth = CGFloat(max(visibleRecents.count, 1)) * (Self.cardWidth + Self.gap) - Self.gap
-        // While searching the pin column is hidden: digits type into the
-        // query, so pins are unreachable anyway, and their space is exactly
-        // what the search field needs. Nothing shifts — the strip simply
-        // narrows to the zone search operates on.
-        let searching = query != nil
-        let pinColumnHeight = searching
-            ? 0
-            : CGFloat(Clipboard.pinSlots) * (Self.cardHeight + Self.gap)
+        let pinColumnHeight = CGFloat(Clipboard.pinSlots) * (Self.cardHeight + Self.gap)
         let height = Self.cardHeight + Self.gap + pinColumnHeight
-            + (searching ? Self.searchHeight : 0)
         let width = max(stripWidth, Self.cardWidth) + Self.margin * 2
 
         let frame = NSRect(x: screen.minX + Self.margin,
@@ -94,9 +86,15 @@ final class ClipboardStrip {
         // Recents are the bottom row, always — opening search must not
         // shift the cards you are looking at.
         let y: CGFloat = 0
+        // The field lives beside the pins, in the band above the recents
+        // that the one-card-wide pin column leaves empty. Nothing moves and
+        // nothing disappears — it fills space that was already there.
         if let query {
-            addSearchField(query: query, width: max(stripWidth, Self.cardWidth),
-                           bottom: Self.cardHeight + Self.gap)
+            let left = Self.cardWidth + Self.gap
+            addSearchField(query: query,
+                           frame: NSRect(x: left, y: Self.cardHeight + Self.gap,
+                                         width: max(Self.cardWidth, stripWidth - left),
+                                         height: Self.searchHeight))
         }
 
         for (offset, clip) in visibleRecents.enumerated() {
@@ -113,7 +111,7 @@ final class ClipboardStrip {
         // Pins: climbing from the same corner, numbered and permanent. An
         // empty slot still draws, so the numbers are always visible and a
         // freed slot reads as reserved rather than missing.
-        for slot in 1...Clipboard.pinSlots where !searching {
+        for slot in 1...Clipboard.pinSlots {
             let card: NSView
             if let clip = shownPins[slot] {
                 card = makeCard(clip: clip, label: "\(slot)", height: Self.cardHeight,
@@ -180,21 +178,12 @@ final class ClipboardStrip {
         return card
     }
 
-    /// An empty slot is a recess, not a faded card.
-    ///
-    /// Three attempts got this wrong in the same way. An outline drew a hard
-    /// rectangle on the content behind it; a dimmed scrim left the glass at
-    /// full strength so the pane still caught the eye; half opacity faded the
-    /// *number* too, and the number is the only part that must stay readable
-    /// — it is what says the slot exists and what it answers to.
-    ///
-    /// So: a faint adaptive fill for the shape, and a number at ordinary
-    /// weight. Glass is the material of content; an empty slot has none.
+    /// An empty slot keeps the material and loses the frosting. An outline
+    /// drew a hard rectangle on the content behind it, half opacity faded
+    /// the number along with the card, and a flat fill was fainter still —
+    /// what works is the same glass, less dense, with the number legible.
     private func makeEmptyPin(slot: Int) -> NSView {
-        let card = NSView()
-        card.wantsLayer = true
-        card.layer?.cornerRadius = BarTheme.rowRadius
-        card.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.06).cgColor
+        let card = glassPlate(radius: BarTheme.rowRadius, weight: .empty)
         let chip = NSTextField(labelWithString: "\(slot)")
         chip.font = BarTheme.chipFont
         chip.textColor = .tertiaryLabelColor
@@ -208,9 +197,10 @@ final class ClipboardStrip {
     /// directly under the cards it filters. A typed prefix read as a vim
     /// prompt; a glass field with a magnifier reads as the thing everyone
     /// already knows a search box to be.
-    private func addSearchField(query: String, width: CGFloat, bottom: CGFloat) {
+    private func addSearchField(query: String, frame: NSRect) {
+        let width = frame.width
         let plate = glassPlate(radius: BarTheme.glassRadius)
-        plate.frame = NSRect(x: 0, y: bottom, width: width, height: Self.searchHeight)
+        plate.frame = frame
 
         let symbol = NSImageView(image: NSImage(
             systemSymbolName: "magnifyingglass",
@@ -243,6 +233,10 @@ final class ClipboardStrip {
 
     enum Weight {
         case normal, highlighted
+        /// An empty pin: the same material, less frosted. Keeping the glass
+        /// holds the column visually together; the lighter scrim is what
+        /// says the slot is waiting rather than full.
+        case empty
     }
 
     /// The locked recipe: clear liquid glass over a scrim of our own, never
@@ -250,7 +244,12 @@ final class ClipboardStrip {
     /// beyond a transaction's reach.
     private func glassPlate(radius: CGFloat, weight: Weight = .normal) -> NSView {
         let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        let base: CGFloat = weight == .highlighted ? (dark ? 0.62 : 0.72) : (dark ? 0.45 : 0.55)
+        let base: CGFloat
+        switch weight {
+        case .normal: base = dark ? 0.45 : 0.55
+        case .highlighted: base = dark ? 0.62 : 0.72
+        case .empty: base = dark ? 0.28 : 0.34
+        }
         let scrim = NSView()
         scrim.wantsLayer = true
         scrim.layer?.backgroundColor = (dark

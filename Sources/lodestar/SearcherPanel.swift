@@ -587,8 +587,18 @@ private final class SearcherRowView: NSView {
         stack.spacing = 10
         stack.edgeInsets = NSEdgeInsets(top: 0, left: 12, bottom: 0, right: 16)
         stack.translatesAutoresizingMaskIntoConstraints = false
+        // Absorbs the slack so the address chips land at the trailing edge,
+        // in one column down the list — the same place the guides and the
+        // clipboard's menu keep their keys.
+        let spacer = NSView()
+        spacer.translatesAutoresizingMaskIntoConstraints = false
+        spacer.setContentHuggingPriority(.init(1), for: .horizontal)
+        spacer.widthAnchor.constraint(
+            greaterThanOrEqualToConstant: BarTheme.rowKeyGap).isActive = true
+
         stack.addArrangedSubview(icon)
         stack.addArrangedSubview(name)
+        stack.addArrangedSubview(spacer)
 
         addSubview(stack)
         NSLayoutConstraint.activate([
@@ -649,7 +659,7 @@ private final class SearcherRowView: NSView {
         for box in chipBoxes {
             box.layer?.backgroundColor = selectedState
                 ? NSColor.white.withAlphaComponent(0.22).cgColor
-                : NSColor.labelColor.withAlphaComponent(0.08).cgColor
+                : NSColor.labelColor.withAlphaComponent(0.09).cgColor
         }
         dot?.textColor = selectedState ? NSColor.white.withAlphaComponent(0.85) : .controlAccentColor
     }
@@ -657,6 +667,7 @@ private final class SearcherRowView: NSView {
     private static func makeChip(_ text: String) -> (NSView, NSTextField) {
         let label = NSTextField(labelWithString: text)
         label.font = BarTheme.chipFont
+        label.alignment = .center
         label.translatesAutoresizingMaskIntoConstraints = false
 
         let box = NSView()
@@ -664,11 +675,15 @@ private final class SearcherRowView: NSView {
         box.layer?.cornerRadius = BarTheme.chipRadius
         box.translatesAutoresizingMaskIntoConstraints = false
         box.addSubview(label)
+        // The same chip the guides and the clipboard's menu draw. Left to
+        // itself this one sized purely to its text, so a one-letter address
+        // came out visibly smaller than the identical chip elsewhere.
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: 6),
-            label.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -6),
-            label.topAnchor.constraint(equalTo: box.topAnchor, constant: 2),
-            label.bottomAnchor.constraint(equalTo: box.bottomAnchor, constant: -2),
+            label.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: BarTheme.chipPadX),
+            label.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -BarTheme.chipPadX),
+            label.centerYAnchor.constraint(equalTo: box.centerYAnchor),
+            box.heightAnchor.constraint(equalToConstant: BarTheme.chipHeight),
+            box.widthAnchor.constraint(greaterThanOrEqualToConstant: BarTheme.chipMinWidth),
         ])
         return (box, label)
     }
@@ -714,3 +729,54 @@ final class KeyablePanel: GlassPanel {
         isMovable = false
     }
 }
+
+#if DEBUG
+/// Visual harness for the searcher's rows. The controller needs the whole
+/// app standing behind it; a row needs nothing, and the row is where the
+/// shared chip lives.
+enum SearcherRowPreview {
+    static func show() -> NSPanel {
+        let panel = Glass.makePanel(level: .statusBar)
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: BarTheme.panelWidth, height: 230))
+        Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.spacing = 2
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        func icon(_ path: String) -> NSImage? {
+            FileManager.default.fileExists(atPath: path)
+                ? NSWorkspace.shared.icon(forFile: path) : nil
+        }
+        let samples: [(String, String, [String], Bool)] = [
+            ("/Applications/Safari.app", "Safari", ["W"], false),
+            ("/System/Applications/Mail.app", "Mail", ["E P", "⇥ 3"], true),
+            ("/System/Applications/Notes.app", "Notes", ["N"], false),
+            ("/System/Applications/Utilities/Terminal.app", "Terminal", [], false),
+        ]
+        for (offset, sample) in samples.enumerated() {
+            let row = SearcherRowView(rowHeight: BarTheme.rowHeight)
+            row.configure(identity: sample.1, icon: { icon(sample.0) },
+                          title: sample.1, chips: sample.2, showDot: sample.3)
+            row.setSelected(offset == 1)
+            stack.addArrangedSubview(row)
+            // As the real list does: rows span the panel, so the name
+            // stretches and the chips land at the trailing edge.
+            row.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        }
+
+        root.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 12),
+            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 10),
+            stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -10),
+        ])
+        panel.contentView = root
+        panel.setFrame(NSRect(x: 400, y: 400, width: BarTheme.panelWidth, height: 230),
+                       display: true)
+        panel.orderFrontRegardless()
+        return panel
+    }
+}
+#endif

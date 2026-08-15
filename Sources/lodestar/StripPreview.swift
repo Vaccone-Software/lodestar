@@ -93,6 +93,12 @@ enum StripPreview {
             app.run()
         }
 
+        if variant == 8 {
+            let held = SearcherRowPreview.show()
+            _ = held
+            app.run()
+        }
+
         let strip = ClipboardStrip()
         strip.show(recents: recents, pins: pins, thumbnail: { _ in nil },
                    band: .actions(actions), selection: 0, actingOn: target.id)

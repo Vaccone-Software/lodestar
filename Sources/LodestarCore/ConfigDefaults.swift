@@ -42,6 +42,11 @@ public enum ConfigDefaults {
             "search-url": .string("https://search.brave.com/search?q=%s"),
             "links": .table([:]),
             "routes": .table([:]),
+            "clicks": .table([
+                "enabled": .bool(false),
+                "browser": .string(""),
+                "trace": .bool(false),
+            ]),
         ]),
         "scroll": .table([
             "smooth": .bool(true),

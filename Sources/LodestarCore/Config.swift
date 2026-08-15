@@ -50,6 +50,20 @@ public struct Config {
     public var webLinks: [WebLink] = []
     /// Substring pattern → registry key; longest match wins.
     public var webRoutes: [String: String] = [:]
+    /// Whether Lodestar is standing as the http handler and routing clicked
+    /// links. Not a switch you are meant to find and flip: the menu-bar flow
+    /// records it after macOS confirms the change. Setting it false while
+    /// still registered makes Lodestar a transparent pass-through, which is
+    /// the off switch that works from a text file.
+    public var webHandleClicks = false
+    /// The browser clicked links go to when no rule diverts them: the bundle
+    /// id of whatever was your default before Lodestar took over. Recorded
+    /// *before* the switch, because afterwards the answer is gone.
+    public var webClickBrowser = ""
+    /// Log the host and chosen profile of clicked links while you chase
+    /// something. Off, because the log is paste-able and where you go is not
+    /// diagnostics.
+    public var webTraceClicks = false
     /// Clipboard history: how much disk it may claim, and what it must
     /// never record.
     public var clipboardEnabled = true
@@ -115,6 +129,11 @@ public struct Config {
             ], description: "A named link."), description: "Named links."),
             "routes": .freeTable(value: .string(allowed: nil, description: "A profiles key."),
                                  description: "Substring pattern → profile; longest match wins."),
+            "clicks": .table([
+                "enabled": .boolean(description: "Route links clicked in other apps. Set by the menu-bar flow."),
+                "browser": .string(allowed: nil, description: "Bundle id links go to when no route matches (your previous default browser)."),
+                "trace": .boolean(description: "Log host and profile for clicked links while debugging."),
+            ], description: "Links clicked in other apps."),
         ], description: "The web bar."),
         "scroll": .table([
             "smooth": .boolean(description: "Constant velocity while held; instant stop on release."),
@@ -356,6 +375,21 @@ public struct Config {
                     problems.append("web.routes.\(pattern) references unknown profile '\(profile)'")
                 }
             }
+        }
+        if let enabled = effective.value(at: ["web", "clicks", "enabled"])?.bool {
+            config.webHandleClicks = enabled
+        }
+        if let browser = effective.value(at: ["web", "clicks", "browser"])?.string {
+            config.webClickBrowser = browser
+        }
+        if let trace = effective.value(at: ["web", "clicks", "trace"])?.bool {
+            config.webTraceClicks = trace
+        }
+        // Standing as the handler with nowhere to hand a link back to would
+        // strand every link that matches no rule. Say so at reload rather
+        // than at the moment a link vanishes.
+        if config.webHandleClicks, config.webClickBrowser.isEmpty {
+            problems.append("web.clicks.enabled is on but web.clicks.browser is empty — unrouted links have nowhere to go")
         }
 
         if let graphTable = effective.value(at: ["graph"])?.table {

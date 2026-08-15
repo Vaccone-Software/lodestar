@@ -67,21 +67,24 @@ public struct WebContext {
     public let fallback: String
     /// The profile of the most recently focused browser window, if any.
     public let mostRecent: BrowserProfile?
+    /// Whether clicked links are ours to route at all.
+    public let handlesClicks: Bool
 
     public init(links: [Config.WebLink] = [], routes: [String: String] = [:],
                 profiles: [String: BrowserProfile] = [:], fallback: String = "most-recent",
-                mostRecent: BrowserProfile? = nil) {
+                mostRecent: BrowserProfile? = nil, handlesClicks: Bool = false) {
         self.links = links
         self.routes = routes
         self.profiles = profiles
         self.fallback = fallback
         self.mostRecent = mostRecent
+        self.handlesClicks = handlesClicks
     }
 
     public init(config: Config, mostRecent: BrowserProfile?) {
         self.init(links: config.webLinks, routes: config.webRoutes,
                   profiles: config.browserProfiles, fallback: config.webFallback,
-                  mostRecent: mostRecent)
+                  mostRecent: mostRecent, handlesClicks: config.webHandleClicks)
     }
 
     /// Registry keys, sorted — the digit list's order, stable across opens.

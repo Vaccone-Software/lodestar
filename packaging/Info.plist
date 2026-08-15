@@ -24,5 +24,76 @@
 	<true/>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<!-- Every real Cocoa app declares this; an SPM binary in a hand-written
+	     bundle does not get it for free. Lodestar has always used NSApplication
+	     (main.swift builds one), so this states what was already true. -->
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+
+	<!-- Standing as the http handler, so a clicked link lands in the profile
+	     your rules name. Declaring this only makes Lodestar *eligible*:
+	     nothing changes until it is chosen, and macOS raises its own
+	     confirmation panel for the browser role.
+
+	     The three keys below are one unit, copied from Finicky, which does
+	     exactly this job and works on current macOS. Declaring http and https
+	     used to be enough; it stopped being enough around Big Sur, when apps
+	     that only claimed the schemes quietly vanished from the default
+	     browser picker. What Apple appears to want is an app that looks like
+	     a browser in full: it views HTML documents, and it declares the
+	     web-browsing activity type. Neither is a claim Lodestar can honor by
+	     rendering anything — it chooses a browser rather than being one — but
+	     eligibility is what they gate, and a link handed straight to Brave is
+	     still a link viewed.
+
+	     Deliberately absent: LSHandlerRank (Finicky omits it; Alternate is
+	     actively wrong, since it means "do not consider me a default"), and
+	     ASWebAuthenticationSessionWebBrowserSupportCapabilities, which would
+	     route other apps' sign-in flows to us and we cannot present them. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLName</key>
+			<string>Web site URL</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>http</string>
+				<string>https</string>
+			</array>
+		</dict>
+	</array>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>HTML Document</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSTypeIsPackage</key>
+			<integer>0</integer>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.html</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>XHTML Document</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSTypeIsPackage</key>
+			<integer>0</integer>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.xhtml</string>
+			</array>
+		</dict>
+	</array>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>NSUserActivityTypeBrowsingWeb</string>
+	</array>
 </dict>
 </plist>

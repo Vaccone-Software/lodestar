@@ -216,6 +216,28 @@ func runUninstall(dryRun: Bool, purge: Bool) -> Never {
     let roots = [Paths.config, Paths.data]
 
     var plan: [(String, () -> Void)] = []
+
+    // Give the browser role back first, while we are still here to do it.
+    // Removing the app that answers for http and leaving macOS to guess is
+    // how someone ends up with links that open nothing.
+    let (uninstallConfig, _) = Config.load()
+    if uninstallConfig.webHandleClicks, !uninstallConfig.webClickBrowser.isEmpty,
+       let browser = NSWorkspace.shared.urlForApplication(
+           withBundleIdentifier: uninstallConfig.webClickBrowser) {
+        let name = browser.deletingPathExtension().lastPathComponent
+        plan.append(("restore \(name) as your default browser", {
+            let done = DispatchSemaphore(value: 0)
+            NSWorkspace.shared.setDefaultApplication(at: browser,
+                                                    toOpenURLsWithScheme: "https") { _ in
+                NSWorkspace.shared.setDefaultApplication(at: browser,
+                                                         toOpenURLsWithScheme: "http") { _ in
+                    done.signal()
+                }
+            }
+            _ = done.wait(timeout: .now() + 5)
+        }))
+    }
+
     plan.append(("unload login agent (stops the running instance)", {
         let uid = getuid()
         let task = Process()

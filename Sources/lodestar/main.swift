@@ -45,7 +45,7 @@ enum StatusIcon {
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var config = Config()
     private var model: WindowModel!
     private var parking: ParkingLot!
@@ -64,6 +64,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var signalSource: DispatchSourceSignal?
     private var trustPoll: Timer?
     private var displayReconcile: DispatchWorkItem?
+    private var clickHandler: ClickHandler?
+    /// Links that arrived before the handler existed. A URL open can be the
+    /// reason we were launched, so the event can beat our own setup; the queue
+    /// is what stops that link from being the one that vanishes.
+    private var pendingClicks: [URL] = []
+    private var defaultBrowserItem: NSMenuItem?
+
+    /// Links clicked in other apps land here. Deliberately the shortest path
+    /// in the app: it needs the config and nothing else — not the window
+    /// model, not the app index, and not Accessibility, so it answers while
+    /// the rest of Lodestar is still waking up or waiting on a grant.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        guard let clickHandler else {
+            pendingClicks.append(contentsOf: urls)
+            return
+        }
+        clickHandler.open(urls)
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Log.info("Lodestar \(Lodestar.version) starting (pid \(ProcessInfo.processInfo.processIdentifier))")
@@ -79,6 +97,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         config = loaded
         Keys.apply(overrides: loaded.keyOverrides)
         ActivePolicy.mode = loaded.activeDisplayMode
+
+        // Stood up here, first thing after the config, and above everything
+        // heavy: the model, the index, the clipboard, and the Accessibility
+        // guard all come later, and a clicked link must not wait for any of
+        // them. Anything that arrived before now goes out immediately.
+        installClickHandler()
 
         model = WindowModel()
         parking = ParkingLot()
@@ -174,7 +198,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updater.engineQuiet = { [weak self] in self?.engine.isQuiet ?? false }
         updater.lastActivity = { [weak self] in self?.engine.lastActivityAt ?? Date() }
         updater.flash = { [weak self] text, seconds in self?.hud.flash(text, seconds: seconds) }
+        updater.requiresRouting = { [weak self] in self?.config.webHandleClicks ?? false }
         updater.start()
+        rememberDefaultBrowser()
+        adoptBrowserRoleIfNeeded()
+        confirmClickRoutingHealthy()
 
         guard Permissions.isTrusted else {
             // A freshly installed bundle has its own TCC identity. Prompt,
@@ -275,6 +303,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(makeItem("Check for Updates…", #selector(checkForUpdates), key: ""))
         menu.addItem(makeItem("Report an Issue…", #selector(reportIssue), key: ""))
         menu.addItem(.separator())
+        // Title set at menu-open time, since it names what the item will do
+        // and that depends on where the role currently sits.
+        let browserItem = makeItem("", #selector(toggleDefaultBrowser), key: "")
+        defaultBrowserItem = browserItem
+        menu.addItem(browserItem)
+        menu.delegate = self
+        menu.addItem(.separator())
         menu.addItem(makeItem("Edit Config…", #selector(editConfig), key: ""))
         menu.addItem(makeItem("Reveal Config in Finder", #selector(revealConfig), key: ""))
         menu.addItem(makeItem("Reload Config", #selector(reloadConfig), key: ""))
@@ -282,6 +317,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
         menu.addItem(makeItem("Quit lodestar", #selector(quit), key: "q"))
         item.menu = menu
+    }
+
+    /// The browser item reads the world each time the menu opens: it says what
+    /// pressing it does, not what state you are in.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard let item = defaultBrowserItem else { return }
+        // Reality, not config: the role can be handed to us or taken away in
+        // System Settings without going through this menu, and an item that
+        // offered to "give links back" while we do not hold them would be
+        // describing a world that no longer exists.
+        guard holdsBrowserRole() else {
+            item.title = "Route Clicked Links Through Lodestar…"
+            return
+        }
+        let saved = config.webClickBrowser
+        item.title = saved.isEmpty
+            ? "Stop Routing Clicked Links"
+            : "Give Links Back to \(Self.shortBrowserName(saved))"
+    }
+
+    /// com.brave.Browser reads as Brave. A bundle id in a menu is furniture.
+    private static func shortBrowserName(_ bundleID: String) -> String {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {
+            return bundleID
+        }
+        return url.deletingPathExtension().lastPathComponent
     }
 
     private func removeStatusItem() {
@@ -336,6 +397,248 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         graphAddressByApp = map
+    }
+
+    // MARK: - Clicked links
+
+    private func installClickHandler() {
+        let handler = ClickHandler()
+        handler.context = { [weak self] in
+            WebContext(config: self?.config ?? Config(), mostRecent: nil)
+        }
+        handler.savedBrowser = { [weak self] in self?.config.webClickBrowser ?? "" }
+        handler.trace = { [weak self] in self?.config.webTraceClicks ?? false }
+        // The HUD is not up yet at install time, and a link is not worth
+        // waiting for one; failures flash if there is anything to flash with.
+        handler.flash = { [weak self] text in self?.hud?.flash(text, seconds: 5) }
+        handler.adoptIfUnconfigured = { [weak self] in self?.adoptBrowserRoleIfNeeded() }
+        clickHandler = handler
+        if !pendingClicks.isEmpty {
+            let queued = pendingClicks
+            pendingClicks = []
+            handler.open(queued)
+        }
+    }
+
+    /// Prove the click path works, or say nothing and let the watchdog put the
+    /// last build back. Two things have to hold: the router answers correctly,
+    /// and there is a real browser to hand an unrouted link to. Either one
+    /// failing means links would break, which is not a thing to discover from
+    /// a bug report.
+    private func confirmClickRoutingHealthy() {
+        guard config.webHandleClicks else { return }
+        let hasBrowser = !config.webClickBrowser.isEmpty
+            && NSWorkspace.shared.urlForApplication(
+                withBundleIdentifier: config.webClickBrowser) != nil
+        guard ClickRouter.selfCheck(), hasBrowser else {
+            Log.error("click", ["self-check": "failed",
+                                "router": ClickRouter.selfCheck(),
+                                "browser": hasBrowser])
+            hud.flash("⚠ Lodestar is your browser but cannot route links — check web.clicks", seconds: 8)
+            return
+        }
+        updater.confirmRoutingHealthy()
+        Log.info("click", ["self-check": "ok"])
+    }
+
+    /// The bundle id of whatever answers for https right now, us included.
+    private func httpsHandler() -> String? {
+        guard let probe = URL(string: "https://example.com"),
+              let application = NSWorkspace.shared.urlForApplication(toOpen: probe) else {
+            return nil
+        }
+        return Bundle(url: application)?.bundleIdentifier
+    }
+
+    /// Whether macOS is handing links to us at this moment. Asked rather than
+    /// remembered: the role can change in System Settings without telling us,
+    /// and a menu that reports config instead of reality lies.
+    private func holdsBrowserRole() -> Bool {
+        httpsHandler() == Bundle.main.bundleIdentifier
+    }
+
+    /// The browser to give the role back to — the question you can only ask
+    /// *before* taking it, because afterwards the answer is us.
+    private func currentDefaultBrowser() -> String? {
+        guard let handler = httpsHandler(),
+              handler != Bundle.main.bundleIdentifier else { return nil }
+        return handler
+    }
+
+    /// Note which browser answers for links, whenever that answer is not us.
+    ///
+    /// Lodestar runs continuously, so by the time the role is handed over —
+    /// through the menu or through System Settings — the answer is already on
+    /// file and nothing has to be inferred. Inference was the first attempt
+    /// and it failed in the worst way: LaunchServices ranks the *current*
+    /// default first, so asking "what else could open this" reshuffles the
+    /// moment we take the role. The browser you were using drops out of first
+    /// place, Apple's own rises, and the guess is wrong exactly when it
+    /// matters. Remembering costs one query at boot and is never wrong.
+    private func rememberDefaultBrowser() {
+        guard let handler = httpsHandler(),
+              handler != Bundle.main.bundleIdentifier,
+              handler != config.webClickBrowser else { return }
+        Log.info("click", ["remembered-browser": handler])
+        persistClickBrowser(handler)
+    }
+
+    /// A one-key write: no reload, no flash. Observing which browser you use is
+    /// not an event worth announcing.
+    private func persistClickBrowser(_ bundleID: String) {
+        config.webClickBrowser = bundleID
+        guard let text = try? String(contentsOf: Config.file, encoding: .utf8),
+              let tree = try? Json.parse(text),
+              let updated = Json.setting(tree, path: ["web", "clicks", "browser"],
+                                         to: .string(bundleID)) else { return }
+        try? Config.write(tree: updated)
+    }
+
+    /// We hold the role but routing is off and no browser is recorded: Lodestar
+    /// was picked in System Settings and this session never saw the handover.
+    /// Adopt what that choice implies, so the rules actually apply. Deliberately
+    /// narrow: a recorded browser with routing off is the documented
+    /// pass-through state, and this must not stomp it.
+    private func adoptBrowserRoleIfNeeded() {
+        guard holdsBrowserRole(), !config.webHandleClicks else { return }
+        // Remembered, from before the switch — the answer that is never a
+        // guess. Discovery is the last resort, and it says so out loud.
+        var browser = config.webClickBrowser
+        var guessed = false
+        if browser.isEmpty {
+            guard let discovered = ClickHandler.discoverBrowser(),
+                  let bundleID = Bundle(url: discovered)?.bundleIdentifier else {
+                hud.flash("⚠ Lodestar is your default browser but no browser is set — see web.clicks.browser", seconds: 8)
+                Log.error("click", ["adopt": "no browser to hand off to"])
+                return
+            }
+            browser = bundleID
+            guessed = true
+        }
+        Log.info("click", ["adopted-role": "true", "handoff": browser, "guessed": guessed])
+        recordClickSettings(enabled: true, browser: browser)
+        let name = Self.shortBrowserName(browser)
+        hud.flash(guessed
+            ? "⌖ Routing links · unrouted go to \(name)? change it with web.clicks.browser"
+            : "⌖ Routing links · unrouted go to \(name)", seconds: 6)
+    }
+
+    @objc private func toggleDefaultBrowser() {
+        // Same question the label asked, so the item always does what it says.
+        holdsBrowserRole() ? standDownAsBrowser() : becomeDefaultBrowser()
+    }
+
+    /// Where macOS keeps the choice, since macOS will not let us make it. The
+    /// pane is Desktop & Dock on Ventura and later; the flash says what to look
+    /// for, because the setting is a long way down that page.
+    private func openDefaultBrowserSettings() {
+        let pane = URL(string: "x-apple.systempreferences:com.apple.Desktop-Settings.extension")
+        if let pane { NSWorkspace.shared.open(pane) }
+        hud.flash("Choose “lodestar” as your default web browser, then links follow your rules",
+                  seconds: 9)
+    }
+
+    /// Take the role, or take you to where it is taken.
+    ///
+    /// `setDefaultApplication` is asked first, because when it works it is one
+    /// keystroke and no detour. On this machine it has never worked: it refuses
+    /// with permErr regardless of rank, activation policy, bundle identity, or
+    /// how the process was launched, while the System Settings picker accepts
+    /// the same app happily. Rather than keep failing at the user, a refusal
+    /// falls through to opening that picker. The important half — remembering
+    /// which browser you were using — happens here either way, before the role
+    /// changes hands and the answer becomes unobtainable.
+    private func becomeDefaultBrowser() {
+        rememberDefaultBrowser()
+        let policy = NSApp.activationPolicy()
+        NSApp.setActivationPolicy(.regular)
+        // Deployment target is 13; activate() is 14-only.
+        NSApp.activate(ignoringOtherApps: true)
+        NSWorkspace.shared.setDefaultApplication(
+            at: Bundle.main.bundleURL, toOpenURLsWithScheme: "https"
+        ) { [weak self] error in
+            DispatchQueue.main.async {
+                NSApp.setActivationPolicy(policy)
+                guard let self else { return }
+                if let error {
+                    // The whole error, not its polite summary: LaunchServices
+                    // hides the real reason in the underlying OSStatus, and
+                    // "The file couldn't be opened" describes nothing.
+                    let wrapped = error as NSError
+                    let underlying = wrapped.userInfo[NSUnderlyingErrorKey] as? NSError
+                    Log.error("default-browser", [
+                        "asked-for": Bundle.main.bundleURL.path,
+                        "bundle-id": Bundle.main.bundleIdentifier ?? "nil",
+                        "domain": wrapped.domain,
+                        "code": wrapped.code,
+                        "underlying": underlying.map { "\($0.domain) \($0.code)" } ?? "-",
+                        "message": (underlying?.userInfo["_LSErrorMessage"] as? String) ?? error.localizedDescription,
+                    ])
+                    self.openDefaultBrowserSettings()
+                    return
+                }
+                // http usually follows https as one role; ask separately only
+                // if it did not, so the common case shows one panel.
+                if self.currentDefaultBrowser() != nil {
+                    NSWorkspace.shared.setDefaultApplication(
+                        at: Bundle.main.bundleURL, toOpenURLsWithScheme: "http"
+                    ) { _ in }
+                }
+                let previous = self.config.webClickBrowser
+                self.recordClickSettings(enabled: true, browser: previous)
+                self.hud.flash("⌖ Links now route through Lodestar · unrouted go to "
+                    + Self.shortBrowserName(previous), seconds: 4)
+                Log.info("default-browser", ["took-over-from": previous])
+            }
+        }
+    }
+
+    /// Give the role back. Routing stops **first** and unconditionally, which
+    /// is the half we can guarantee: from that moment every link goes straight
+    /// to your browser untouched, whether or not macOS lets us hand the role
+    /// back. Then try to hand it back, and take you to the picker if the API
+    /// refuses, as it does here.
+    private func standDownAsBrowser() {
+        let saved = config.webClickBrowser
+        recordClickSettings(enabled: false, browser: saved)
+        let name = saved.isEmpty ? "your browser" : Self.shortBrowserName(saved)
+        Log.info("default-browser", ["stood-down-to": saved.isEmpty ? "-" : saved])
+        guard !saved.isEmpty,
+              let application = NSWorkspace.shared.urlForApplication(withBundleIdentifier: saved) else {
+            openDefaultBrowserSettings()
+            return
+        }
+        NSWorkspace.shared.setDefaultApplication(at: application,
+                                                 toOpenURLsWithScheme: "https") { [weak self] error in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if error != nil {
+                    self.openDefaultBrowserSettings()
+                    return
+                }
+                NSWorkspace.shared.setDefaultApplication(at: application,
+                                                         toOpenURLsWithScheme: "http") { _ in }
+                self.hud.flash("Links go straight to \(name) again", seconds: 4)
+            }
+        }
+    }
+
+    private func recordClickSettings(enabled: Bool, browser: String) {
+        var root = (try? Json.parse((try? String(contentsOf: Config.file, encoding: .utf8)) ?? "{}")) ?? [:]
+        guard let withFlag = Json.setting(root, path: ["web", "clicks", "enabled"], to: .bool(enabled)),
+              let withBrowser = Json.setting(withFlag, path: ["web", "clicks", "browser"],
+                                             to: .string(browser)) else {
+            Log.error("default-browser", ["write": "web.clicks is not a section"])
+            return
+        }
+        root = withBrowser
+        do {
+            try Config.write(tree: root)
+        } catch {
+            Log.error("default-browser", ["write-failed": error.localizedDescription])
+            return
+        }
+        applyConfigReload(successFlash: "✓ config reloaded")
     }
 
     // MARK: - Config editing (⌘K in the searcher and the web bar)

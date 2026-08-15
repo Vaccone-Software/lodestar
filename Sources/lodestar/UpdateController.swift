@@ -42,6 +42,19 @@ final class UpdateController {
     var engineQuiet: () -> Bool = { false }
     var lastActivity: () -> Date = { .distantPast }
     var flash: (String, TimeInterval) -> Void = { _, _ in }
+    /// Whether a successor has to prove it can route clicked links before the
+    /// watchdog blesses it. True exactly while Lodestar holds the http role.
+    var requiresRouting: () -> Bool = { false }
+
+    /// The successor's own voice, at boot: the router answered. Written with
+    /// this process's pid so no earlier build's marker can stand in for it.
+    func confirmRoutingHealthy() {
+        let marker = Self.directory.appendingPathComponent("routes-ok")
+        try? FileManager.default.createDirectory(at: Self.directory,
+                                                withIntermediateDirectories: true)
+        try? "\(ProcessInfo.processInfo.processIdentifier)"
+            .write(to: marker, atomically: true, encoding: .utf8)
+    }
 
     /// The single-flight rule, main-thread only: one run at a time, and
     /// `applying` is terminal — after a successful swap this process only
@@ -374,21 +387,31 @@ final class UpdateController {
     // MARK: - The watchdog (bless or roll back)
 
     /// A detached observer, in its own session so neither our exit nor
-    /// launchd's process-group cleanup takes it down. It never decides
-    /// health itself — the pid file changing hands is the verdict.
+    /// launchd's process-group cleanup takes it down. It never decides health
+    /// itself: the pid file changing hands is the verdict, plus the
+    /// successor's word that its router answered when links depend on it.
     private func spawnWatchdog(app: URL, previous: URL, version: String) {
         let script = """
         #!/bin/bash
         # lodestar update watchdog: bless the new build or put the old one back.
         APP="$1"; PREVIOUS="$2"; OLDPID="$3"; VERSION="$4"; MARKERS="$5"; PIDFILE="$6"
+        ROUTING="$7"
         for _ in 1 2 3 4 5 6 7 8 9; do
             sleep 5
             PID=$(cat "$PIDFILE" 2>/dev/null)
             if [ -n "$PID" ] && [ "$PID" != "$OLDPID" ] && kill -0 "$PID" 2>/dev/null; then
+                # While Lodestar holds the browser role, booting is not proof.
+                # The successor has to say its router answered, in its own
+                # voice: the marker carries the new pid, so a stale one from
+                # the build being replaced cannot bless anything.
+                if [ "$ROUTING" = "1" ] && [ "$(cat "$MARKERS/routes-ok" 2>/dev/null)" != "$PID" ]; then
+                    continue
+                fi
                 rm -rf "$PREVIOUS"
                 exit 0
             fi
         done
+        rm -f "$MARKERS/routes-ok"
         # The handover failed, whatever happens next: drop the success
         # marker first, above the rollback gate. Left behind, it would fire
         # a false "updated" flash whenever that version finally does boot.
@@ -409,7 +432,8 @@ final class UpdateController {
         let pidFile = Paths.pidFile
         spawnDetached(["/bin/bash", path.path, app.path, previous.path,
                        "\(ProcessInfo.processInfo.processIdentifier)", version,
-                       Self.directory.path, pidFile.path])
+                       Self.directory.path, pidFile.path,
+                       requiresRouting() ? "1" : "0"])
     }
 
     /// posix_spawn with SETSID: the child leads its own session, immune to

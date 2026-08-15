@@ -353,3 +353,33 @@ extension PasteModeTests {
                        [.pasteSearchType("c")], "without ⌘ it is just a character")
     }
 }
+
+/// An image into a terminal: ⌘V cannot carry it down a pty, so the paste
+/// hands the last keystroke back rather than firing one that does nothing.
+final class PasteHandoffTests: XCTestCase {
+    func testImageIntoTerminalHandsOff() {
+        XCTAssertTrue(Clipboard.needsPasteHandoff(
+            kind: .image, frontmostBundleID: "com.mitchellh.ghostty"))
+        XCTAssertTrue(Clipboard.needsPasteHandoff(
+            kind: .image, frontmostBundleID: "com.apple.Terminal"))
+    }
+
+    func testTextIntoTerminalPastesNormally() {
+        XCTAssertFalse(Clipboard.needsPasteHandoff(
+            kind: .text, frontmostBundleID: "com.mitchellh.ghostty"))
+    }
+
+    func testImageIntoGraphicalAppPastesNormally() {
+        XCTAssertFalse(Clipboard.needsPasteHandoff(
+            kind: .image, frontmostBundleID: "com.apple.Notes"))
+        XCTAssertFalse(Clipboard.needsPasteHandoff(
+            kind: .image, frontmostBundleID: nil))
+    }
+
+    func testBundleIDsAreStoredLowercasedSoTheLookupCanFold() {
+        for id in Clipboard.terminalBundleIDs {
+            XCTAssertEqual(id, id.lowercased(),
+                           "\(id) would never match a folded lookup")
+        }
+    }
+}

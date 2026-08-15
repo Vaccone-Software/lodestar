@@ -100,6 +100,37 @@ public enum Clipboard {
         return nil
     }
 
+    // MARK: - Pasting into a terminal
+
+    /// A terminal delivers a paste as bytes down a pty, and a pty has no way
+    /// to carry an image — so ⌘V into one lands as nothing at all, whatever
+    /// is on the pasteboard. Synthesizing it anyway is the worst outcome:
+    /// silence that reads as a broken paste while the clip sits right there.
+    ///
+    /// Terminal programs that do take images — Claude Code among them — read
+    /// the pasteboard themselves out of band, on ⌃V. All they need is the
+    /// clip to be on it, which it is by the time this is asked. So the honest
+    /// move is to hand the last keystroke back to the user.
+    public static let terminalBundleIDs: Set<String> = [
+        "com.mitchellh.ghostty",
+        "com.googlecode.iterm2",
+        "com.apple.terminal",
+        "org.alacritty",
+        "io.alacritty",
+        "net.kovidgoyal.kitty",
+        "com.github.wez.wezterm",
+        "dev.warp.warp-stable",
+        "co.zeit.hyper",
+        "com.raphaelamorim.rio",
+    ]
+
+    /// Only images, and only into a terminal: text pastes down a pty exactly
+    /// as it should, so nothing changes for the common case.
+    public static func needsPasteHandoff(kind: Kind, frontmostBundleID: String?) -> Bool {
+        guard kind == .image, let id = frontmostBundleID?.lowercased() else { return false }
+        return terminalBundleIDs.contains(id)
+    }
+
     /// The card's line of text: collapsed whitespace, bounded, so a clip of
     /// a whole file does not become a giant index entry.
     public static func preview(of text: String, limit: Int = 2000) -> String {

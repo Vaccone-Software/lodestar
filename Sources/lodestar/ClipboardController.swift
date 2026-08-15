@@ -144,6 +144,16 @@ final class ClipboardController {
             flash("⌘V to paste — this field blocks synthetic input")
             return
         }
+        // The same bargain for an image into a terminal, which no ⌘V can
+        // carry. ⌃V is the key that works there, because the program on the
+        // far side reads the pasteboard itself rather than the pty.
+        if Clipboard.needsPasteHandoff(
+            kind: clip.kind,
+            frontmostBundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        ) {
+            flash("⌃V to paste — ⌘V cannot carry an image here")
+            return
+        }
         synthesizePaste()
     }
 

@@ -68,7 +68,7 @@ final class ClipboardTests: XCTestCase {
         XCTAssertEqual(Clipboard.lowestFreeSlot(taken: []), 1)
         XCTAssertEqual(Clipboard.lowestFreeSlot(taken: [1]), 2)
         XCTAssertEqual(Clipboard.lowestFreeSlot(taken: [1, 3]), 2, "the hole is refilled before the end")
-        XCTAssertNil(Clipboard.lowestFreeSlot(taken: [1, 2, 3]), "full")
+        XCTAssertNil(Clipboard.lowestFreeSlot(taken: Set(1...Clipboard.pinSlots)), "full")
     }
 
     /// The property the whole pin design rests on: unpinning must not

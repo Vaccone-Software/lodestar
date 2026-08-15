@@ -143,7 +143,10 @@ final class ClipboardStrip {
             card.addSubview(view)
         } else {
             let preview = NSTextField(wrappingLabelWithString: String(clip.preview.prefix(220)))
-            preview.font = BarTheme.secondaryFont
+            // Not BarTheme.secondaryFont: that size is for supporting text
+            // under a title. Here the preview *is* the content, so it takes
+            // a reading size rather than a captioning one.
+            preview.font = .systemFont(ofSize: 13, weight: .regular)
             preview.textColor = .secondaryLabelColor
             preview.maximumNumberOfLines = 4
             preview.frame = NSRect(x: 11, y: 9, width: Self.cardWidth - 22, height: height - 38)

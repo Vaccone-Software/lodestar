@@ -122,7 +122,7 @@ public enum Clipboard {
     /// same consistent-mapping rule that governs every other lode gesture.
     /// So a new pin takes the lowest free slot, and unpinning leaves a hole
     /// rather than renumbering the survivors.
-    public static let pinSlots = 3
+    public static let pinSlots = 5
 
     public static func lowestFreeSlot(taken: Set<Int>, slots: Int = pinSlots) -> Int? {
         (1...slots).first { !taken.contains($0) }

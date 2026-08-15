@@ -62,7 +62,13 @@ final class ClipboardStrip {
         root.subviews.forEach { $0.removeFromSuperview() }
         cards.removeAll()
 
-        let stripWidth = CGFloat(max(visibleRecents.count, 1)) * (Self.cardWidth + Self.gap) - Self.gap
+        // Searching holds the full width whatever the results do. Sized to
+        // the matches, the field would resize on every keystroke and vanish
+        // entirely when a query matched nothing.
+        let lanes = query != nil
+            ? min(fit, Self.labels.count)
+            : max(visibleRecents.count, 1)
+        let stripWidth = CGFloat(lanes) * (Self.cardWidth + Self.gap) - Self.gap
         let pinColumnHeight = CGFloat(Clipboard.pinSlots) * (Self.cardHeight + Self.gap)
         let height = Self.cardHeight + Self.gap + pinColumnHeight
         let width = max(stripWidth, Self.cardWidth) + Self.margin * 2
@@ -106,6 +112,16 @@ final class ClipboardStrip {
                                 y: y, width: Self.cardWidth, height: Self.cardHeight)
             root.addSubview(card)
             cards[label] = card
+        }
+
+        if query != nil, visibleRecents.isEmpty {
+            let empty = NSTextField(labelWithString: "no clips match")
+            empty.font = .systemFont(ofSize: 13, weight: .regular)
+            empty.textColor = .tertiaryLabelColor
+            empty.sizeToFit()
+            empty.frame.origin = NSPoint(x: Self.cardWidth + Self.gap + 18,
+                                         y: y + (Self.cardHeight - empty.frame.height) / 2)
+            root.addSubview(empty)
         }
 
         // Pins: climbing from the same corner, numbered and permanent. An

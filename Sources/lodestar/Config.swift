@@ -70,7 +70,6 @@ struct Config {
     /// disk through the rollback window so an auto-updated install that
     /// rolls back still finds its config. Retired at 1.0.
     static let yamlFile = directory.appendingPathComponent("lodestar.yaml")
-    static let legacyTomlFile = directory.appendingPathComponent("lodestar.toml")
 
     /// Top-level chain letters the primitives own; the graph may not use them.
     static let reservedTopLevel: Set<String> = ["o", "z", "x"]
@@ -174,9 +173,6 @@ struct Config {
     static func load() -> (Config, [String]) {
         var problems: [String] = []
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        if FileManager.default.fileExists(atPath: legacyTomlFile.path) {
-            try? FileManager.default.removeItem(at: legacyTomlFile)
-        }
         var root: [String: ConfigValue] = [:]
         if let text = try? String(contentsOf: file, encoding: .utf8) {
             do {
@@ -206,45 +202,45 @@ struct Config {
         problems.append(contentsOf: ConfigSchema.validate(root, against: schema))
         let effective = Json.merged(defaults: ConfigDefaults.tree, overlay: root)
 
-        if let autoReload = Yaml.value(at: ["app", "auto-reload"], in: effective)?.bool {
+        if let autoReload = effective.value(at: ["app", "auto-reload"])?.bool {
             config.autoReload = autoReload
         }
-        if let autoUpdate = Yaml.value(at: ["app", "auto-update"], in: effective)?.bool {
+        if let autoUpdate = effective.value(at: ["app", "auto-update"])?.bool {
             config.autoUpdate = autoUpdate
         }
-        if let startAtLogin = Yaml.value(at: ["app", "start-at-login"], in: effective)?.bool {
+        if let startAtLogin = effective.value(at: ["app", "start-at-login"])?.bool {
             config.startAtLogin = startAtLogin
         }
-        if let showMenuBar = Yaml.value(at: ["app", "show-menu-bar"], in: effective)?.bool {
+        if let showMenuBar = effective.value(at: ["app", "show-menu-bar"])?.bool {
             config.showMenuBar = showMenuBar
         }
-        if let adopt = Yaml.value(at: ["app", "adopt-new-windows"], in: effective)?.bool {
+        if let adopt = effective.value(at: ["app", "adopt-new-windows"])?.bool {
             config.adoptNewWindows = adopt
         }
-        if let active = Yaml.value(at: ["app", "active-display"], in: effective)?.string {
+        if let active = effective.value(at: ["app", "active-display"])?.string {
             if let mode = ActivePolicy.Mode(rawValue: active) {
                 config.activeDisplayMode = mode
             } else {
                 problems.append("unknown app.active-display '\(active)' — using pointer")
             }
         }
-        if let raw = Yaml.value(at: ["lode", "trigger"], in: effective)?.string {
+        if let raw = effective.value(at: ["lode", "trigger"])?.string {
             if let trigger = Trigger(rawValue: raw) {
                 config.trigger = trigger
             } else {
                 problems.append("unknown lode.trigger '\(raw)' — using right-command")
             }
         }
-        if let step = Yaml.value(at: ["scroll", "step"], in: effective)?.double {
+        if let step = effective.value(at: ["scroll", "step"])?.double {
             config.scrollStep = CGFloat(max(10, min(400, step)))
         }
-        if let smooth = Yaml.value(at: ["scroll", "smooth"], in: effective)?.bool {
+        if let smooth = effective.value(at: ["scroll", "smooth"])?.bool {
             config.scrollSmooth = smooth
         }
-        if let speed = Yaml.value(at: ["scroll", "speed"], in: effective)?.double {
+        if let speed = effective.value(at: ["scroll", "speed"])?.double {
             config.scrollSpeed = CGFloat(max(200, min(4000, speed)))
         }
-        if let letters = Yaml.value(at: ["hints", "letters"], in: effective)?.string {
+        if let letters = effective.value(at: ["hints", "letters"])?.string {
             // Lowercased ASCII letters, first occurrence wins — duplicate
             // letters would mint colliding labels.
             var seen = Set<Character>()
@@ -256,10 +252,10 @@ struct Config {
                 problems.append("hints.letters needs at least two distinct letters — using \(config.hintLetters)")
             }
         }
-        if let delay = Yaml.value(at: ["hints", "rescan-delay"], in: effective)?.double {
+        if let delay = effective.value(at: ["hints", "rescan-delay"])?.double {
             config.hintRescanDelay = max(0.1, min(2.0, delay))
         }
-        if let gestures = Yaml.value(at: ["gestures"], in: effective)?.table {
+        if let gestures = effective.value(at: ["gestures"])?.table {
             // Unknown names and non-boolean values are the schema walk's
             // to report; here false just frees the verb's keys.
             var toggles: [String: Bool] = [:]
@@ -271,7 +267,7 @@ struct Config {
 
         // Profiles first — the graph and web sections reference them.
         for browser in ChromiumBrowser.allCases {
-            guard let registry = Yaml.value(at: ["profiles", browser.rawValue], in: effective)?.table else {
+            guard let registry = effective.value(at: ["profiles", browser.rawValue])?.table else {
                 continue
             }
             for (key, value) in registry.sorted(by: { $0.key < $1.key }) {
@@ -288,7 +284,7 @@ struct Config {
             }
         }
 
-        if let fallback = Yaml.value(at: ["web", "fallback"], in: effective)?.string {
+        if let fallback = effective.value(at: ["web", "fallback"])?.string {
             let lowered = fallback.lowercased()
             if lowered == "most-recent" || config.browserProfiles[lowered] != nil {
                 config.webFallback = lowered
@@ -296,10 +292,10 @@ struct Config {
                 problems.append("web.fallback '\(fallback)' is neither most-recent nor a profiles key")
             }
         }
-        if let searchURL = Yaml.value(at: ["web", "search-url"], in: effective)?.string {
+        if let searchURL = effective.value(at: ["web", "search-url"])?.string {
             config.webSearchURL = searchURL
         }
-        if let links = Yaml.value(at: ["web", "links"], in: effective)?.table {
+        if let links = effective.value(at: ["web", "links"])?.table {
             for (name, value) in links.sorted(by: { $0.key < $1.key }) {
                 guard let table = value.table, let url = table["url"]?.string, !url.isEmpty else {
                     problems.append("web.links.\(name) needs a url")
@@ -317,7 +313,7 @@ struct Config {
                 config.webLinks.append(WebLink(name: name.lowercased(), url: url, profileKey: profileKey))
             }
         }
-        if let keys = Yaml.value(at: ["keys"], in: effective)?.table {
+        if let keys = effective.value(at: ["keys"])?.table {
             for (code, value) in keys {
                 guard let keycode = Int64(code) else {
                     problems.append("keys.\(code): keycodes are numbers")
@@ -330,7 +326,7 @@ struct Config {
                 config.keyOverrides[keycode] = name
             }
         }
-        if let routes = Yaml.value(at: ["web", "routes"], in: effective)?.table {
+        if let routes = effective.value(at: ["web", "routes"])?.table {
             for (pattern, value) in routes {
                 guard let profile = value.string else { continue }
                 let lowered = profile.lowercased()
@@ -342,7 +338,7 @@ struct Config {
             }
         }
 
-        if let graphTable = Yaml.value(at: ["graph"], in: effective)?.table {
+        if let graphTable = effective.value(at: ["graph"])?.table {
             config.graph = GraphNode.build(from: graphTable, path: "",
                                            registry: config.browserProfiles, problems: &problems)
             for key in config.graph.children.keys where reservedTopLevel.contains(key) {

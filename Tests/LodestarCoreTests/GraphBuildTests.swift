@@ -8,7 +8,7 @@ final class GraphBuildTests: XCTestCase {
     private func build(_ yaml: String, registry: [String: BrowserProfile] = [:]) throws -> (GraphNode, [String]) {
         var problems: [String] = []
         let root = try Yaml.parse(yaml)
-        let node = GraphNode.build(from: Yaml.value(at: ["graph"], in: root)!.table!,
+        let node = GraphNode.build(from: root.value(at: ["graph"])!.table!,
                                    path: "", registry: registry, problems: &problems)
         return (node, problems)
     }
@@ -188,5 +188,62 @@ final class GraphBuildTests: XCTestCase {
         """)
         let rows = node.guideRows().map { "\($0.0)=\($0.1)" }
         XCTAssertEqual(rows, ["E=→ O P", "S=Slack"])
+    }
+
+    // MARK: - Leaf walk (the searcher's chips and the ⌘K card ride on this)
+
+    func testLeavesWalkEveryDestinationDepthFirstAndSorted() throws {
+        let (node, _) = try build("""
+        graph:
+          s: Slack
+          e:
+            o: Outlook
+            p: Proton Mail
+          a:
+            b:
+              c: Deep App
+        """)
+        let walked = node.leaves().map { "\($0.chain.joined())=\($0.target.label)" }
+        XCTAssertEqual(walked, ["abc=Deep App", "eo=Outlook", "ep=Proton Mail", "s=Slack"])
+    }
+
+    /// Two equal-length chains to one app must resolve the same way every
+    /// run — the walk used to iterate the dictionary, so the teaching chip
+    /// could change between launches.
+    func testLeafOrderIsStableAcrossWalks() throws {
+        let (node, _) = try build("""
+        graph:
+          a:
+            q: Slack
+          b:
+            q: Slack
+        """)
+        let first = node.leaves().map(\.chain)
+        for _ in 0..<20 { XCTAssertEqual(node.leaves().map(\.chain), first) }
+        XCTAssertEqual(first, [["a", "q"], ["b", "q"]])
+    }
+
+    func testChainsToAppNamedFindsEveryBindingShortestFirst() throws {
+        let (node, _) = try build("""
+        graph:
+          s: Slack
+          w:
+            k: Slack
+          o: Outlook
+        """)
+        XCTAssertEqual(node.chains(toAppNamed: "slack"), [["s"], ["w", "k"]])
+        XCTAssertEqual(node.chains(toAppNamed: "SLACK"), [["s"], ["w", "k"]], "case-insensitive")
+        XCTAssertEqual(node.chains(toAppNamed: "Nothing"), [])
+    }
+
+    func testLeavesSkipBranchNodesThatAlsoCarryTargets() throws {
+        // A letter that is both a leaf and a branch resolves in favor of the
+        // subdivision, so the walk must report the children, not the letter.
+        let (node, _) = try build("""
+        graph:
+          e:
+            o: Outlook
+        """)
+        XCTAssertEqual(node.leaves().map(\.chain), [["e", "o"]])
     }
 }

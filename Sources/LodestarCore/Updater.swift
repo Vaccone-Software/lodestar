@@ -79,8 +79,21 @@ public enum Updater {
     /// second — two pipelines moving the same bundle destroyed an install
     /// once. `applying` is terminal for the process (the successor's boot
     /// SIGTERMs it); only a failed swap returns to `idle`.
+    ///
+    /// The version rides on the phase rather than beside it: a run's state
+    /// is one value, so no edit can set half of it.
     public enum Phase: Equatable {
-        case idle, checking, ready, applying
+        case idle
+        case checking
+        case ready(version: String)
+        case applying(version: String)
+
+        public var version: String? {
+            switch self {
+            case .ready(let version), .applying(let version): return version
+            case .idle, .checking: return nil
+            }
+        }
     }
 
     /// What a check request may do in each phase — the single-flight rule.
@@ -90,7 +103,7 @@ public enum Updater {
         case refuse(note: String)
     }
 
-    public static func checkDecision(in phase: Phase, version: String?) -> CheckDecision {
+    public static func checkDecision(in phase: Phase) -> CheckDecision {
         switch phase {
         case .idle:
             return .startCheck
@@ -98,15 +111,24 @@ public enum Updater {
             return .refuse(note: "⌖ already checking for updates…")
         case .ready:
             return .applyStaged
-        case .applying:
-            let name = version.map { " to \($0)" } ?? ""
-            return .refuse(note: "⌖ already updating\(name) — the new build takes over shortly")
+        case .applying(let version):
+            return .refuse(note: "⌖ already updating to \(version) — the new build takes over shortly")
         }
     }
 
     /// A swap may begin only with a verified staged build and no swap in
     /// flight — never from `applying`, whatever else happens.
     public static func canBeginApply(in phase: Phase) -> Bool {
-        phase == .ready
+        if case .ready = phase { return true }
+        return false
+    }
+
+    /// A release that already failed its handover once is refused until a
+    /// different one ships. Without this, a build that crashes before
+    /// taking the pid file is rolled back, found "newer" on the next check,
+    /// and applied again — a loop that restarts the engine every cycle.
+    public static func shouldOffer(_ release: Release, refusedTag: String?) -> Bool {
+        guard let refusedTag else { return true }
+        return release.tag != refusedTag
     }
 }

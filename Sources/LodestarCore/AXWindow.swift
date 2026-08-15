@@ -31,11 +31,6 @@ public struct AXWindow {
         withoutMoveAnimation { AX.set(element, kAXPositionAttribute, to: point) }
     }
 
-    @discardableResult
-    public func setSize(_ size: CGSize) -> Bool {
-        withoutMoveAnimation { AX.set(element, kAXSizeAttribute, to: size) }
-    }
-
     /// Cross display truth: set size, then position, then size again —
     /// macOS clamps sizes to the display the window currently sits on, so a
     /// cross-display move needs the second size pass.

@@ -9,7 +9,7 @@ public enum ChainKind: String, Equatable {
     case graph, breath
 }
 
-/// The outcome of a mark/breath operation against the stores — the seam
+/// The outcome of a breath operation against the stores — the seam
 /// between grammar (core) and world (actions).
 public enum ChainStep: Equatable {
     case done(flash: String?)

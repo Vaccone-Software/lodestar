@@ -302,7 +302,7 @@ func runConfigVerb(_ arguments: [String]) -> Never {
         }
         let path = arguments[1].split(separator: ".").map(String.init)
         let effective = Json.merged(defaults: ConfigDefaults.tree, overlay: options(tree))
-        guard let value = Yaml.value(at: path, in: effective) else {
+        guard let value = effective.value(at: path) else {
             print("✕ nothing at \(arguments[1])")
             exit(1)
         }

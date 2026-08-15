@@ -297,23 +297,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func rebuildGraphAddresses() {
         var map: [String: String] = [:]
-        func walk(_ node: GraphNode, path: [String]) {
-            for (letter, child) in node.children {
-                let deeper = path + [letter.uppercased()]
-                if let target = child.target, child.children.isEmpty {
-                    if case .app(let name) = target {
-                        let key = name.lowercased()
-                        let address = deeper.joined(separator: " ")
-                        if map[key].map({ $0.count > address.count }) ?? true {
-                            map[key] = address
-                        }
-                    }
-                } else {
-                    walk(child, path: deeper)
-                }
+        for (chain, target) in config.graph.leaves() {
+            guard case .app(let name) = target else { continue }
+            let key = name.lowercased()
+            let address = chain.map { $0.uppercased() }.joined(separator: " ")
+            // Shortest chain wins; ties break on the sorted walk, so the
+            // chip an app shows is stable across launches.
+            if map[key].map({ $0.count > address.count }) ?? true {
+                map[key] = address
             }
         }
-        walk(config.graph, path: [])
         graphAddressByApp = map
     }
 
@@ -321,20 +314,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Every chain bound to an app, shortest first — the card's remove rows.
     private func graphChains(for name: String) -> [[String]] {
-        var chains: [[String]] = []
-        func walk(_ node: GraphNode, path: [String]) {
-            for (letter, child) in node.children {
-                if let target = child.target, child.children.isEmpty {
-                    if case .app(let app) = target, app.lowercased() == name {
-                        chains.append(path + [letter])
-                    }
-                } else {
-                    walk(child, path: path + [letter])
-                }
-            }
-        }
-        walk(config.graph, path: [])
-        return chains.sorted { ($0.count, $0.joined()) < ($1.count, $1.joined()) }
+        config.graph.chains(toAppNamed: name)
     }
 
     /// Why a chain can't be added, or nil when it's free. Judged against

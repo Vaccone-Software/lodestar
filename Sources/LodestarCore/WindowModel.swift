@@ -101,15 +101,20 @@ public final class WindowModel {
     public var focusedWindow: Window? { focusedID.flatMap { windows[$0] } }
 
     public func aliveWindows(bundleID: String) -> [Window] {
-        sweepAgainstWindowServer()
-        let ids = windows.values.filter { $0.isAlive && $0.bundleID == bundleID }.map(\.id)
-        return ids.filter { verify($0) }.compactMap { windows[$0] }
+        aliveWindows { $0.bundleID == bundleID }
     }
 
     public func aliveWindows(appNamed name: String) -> [Window] {
-        sweepAgainstWindowServer()
         let lowered = name.lowercased()
-        let ids = windows.values.filter { $0.isAlive && $0.appName.lowercased() == lowered }.map(\.id)
+        return aliveWindows { $0.appName.lowercased() == lowered }
+    }
+
+    /// Sweep first, then verify each survivor: the two-tier liveness check
+    /// every destination lookup runs (FINDINGS §8). Ids are collected before
+    /// verifying because `verify` buries, which mutates `windows`.
+    private func aliveWindows(_ matches: (Window) -> Bool) -> [Window] {
+        sweepAgainstWindowServer()
+        let ids = windows.values.filter { $0.isAlive && matches($0) }.map(\.id)
         return ids.filter { verify($0) }.compactMap { windows[$0] }
     }
 

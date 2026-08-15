@@ -37,12 +37,4 @@ enum Keys {
     }
 
     static func name(for keycode: Int64) -> String? { names[keycode] }
-
-    static func isLetter(_ name: String) -> Bool {
-        name.count == 1 && name.first!.isLetter
-    }
-
-    static func isDigit(_ name: String) -> Bool {
-        name.count == 1 && name.first!.isNumber
-    }
 }

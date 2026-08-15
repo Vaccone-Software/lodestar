@@ -9,7 +9,7 @@ let package = Package(
     targets: [
         // The AX layer every slice builds on. No dependencies, by design.
         .target(name: "LodestarCore"),
-        // The product: menu-bar app, hotkeys, searcher, graph, marks, breaths.
+        // The product: menu-bar app, hotkeys, searcher, graph, breaths.
         .executableTarget(name: "lodestar", dependencies: ["LodestarCore"]),
         // Slice 0: the window-identity probe. Throwaway by design.
         .executableTarget(name: "probe", dependencies: ["LodestarCore"]),

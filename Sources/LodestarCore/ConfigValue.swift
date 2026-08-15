@@ -22,3 +22,17 @@ public enum ConfigValue: Equatable {
         }
     }
 }
+
+public extension Dictionary where Key == String, Value == ConfigValue {
+    /// Walk a path from this tree's root; nil when any hop is missing or is
+    /// a scalar where a table was needed. Syntax-agnostic: the tree is the
+    /// same shape whichever parser produced it.
+    func value(at path: [String]) -> ConfigValue? {
+        var current: ConfigValue = .table(self)
+        for hop in path {
+            guard let table = current.table, let next = table[hop] else { return nil }
+            current = next
+        }
+        return current
+    }
+}

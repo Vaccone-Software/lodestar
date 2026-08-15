@@ -148,6 +148,36 @@ public final class GraphNode {
         return .deeper(node)
     }
 
+    /// Every destination in the trie as (chain, target), depth-first and
+    /// sorted at each level. The one walk the searcher's teaching chips and
+    /// the ⌘K card both build on; sorting is what makes an app bound to two
+    /// equal-length chains show the same address every run.
+    public func leaves() -> [(chain: [String], target: GraphTarget)] {
+        var found: [(chain: [String], target: GraphTarget)] = []
+        func walk(_ node: GraphNode, path: [String]) {
+            for letter in node.children.keys.sorted() {
+                let child = node.children[letter]!
+                let deeper = path + [letter]
+                if let target = child.target, child.children.isEmpty {
+                    found.append((deeper, target))
+                } else {
+                    walk(child, path: deeper)
+                }
+            }
+        }
+        walk(self, path: [])
+        return found
+    }
+
+    /// Chains bound to one app, shortest first.
+    public func chains(toAppNamed name: String) -> [[String]] {
+        let lowered = name.lowercased()
+        return leaves()
+            .filter { if case .app(let app) = $0.target { return app.lowercased() == lowered }; return false }
+            .map(\.chain)
+            .sorted { ($0.count, $0.joined()) < ($1.count, $1.joined()) }
+    }
+
     /// Guide rows for the persistent chain panel: keycap → destination.
     public func guideRows() -> [(String, String)] {
         children.keys.sorted().map { key in

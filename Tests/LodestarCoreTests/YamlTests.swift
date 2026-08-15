@@ -55,20 +55,20 @@ final class YamlTests: XCTestCase {
           sibling: 2
         next: 3
         """)
-        XCTAssertEqual(Yaml.value(at: ["outer", "inner", "deep"], in: root)?.int, 1)
-        XCTAssertEqual(Yaml.value(at: ["outer", "sibling"], in: root)?.int, 2)
+        XCTAssertEqual(root.value(at: ["outer", "inner", "deep"])?.int, 1)
+        XCTAssertEqual(root.value(at: ["outer", "sibling"])?.int, 2)
         XCTAssertEqual(root["next"]?.int, 3)
     }
 
     func testSingleSpaceIndentNests() throws {
         let root = try Yaml.parse("a:\n b: 1")
-        XCTAssertEqual(Yaml.value(at: ["a", "b"], in: root)?.int, 1)
+        XCTAssertEqual(root.value(at: ["a", "b"])?.int, 1)
     }
 
     func testEmptySectionIsEmptyTable() throws {
         let root = try Yaml.parse("graph:\n\nweb:\n  x: 1")
         XCTAssertEqual(root["graph"]?.table?.count, 0)
-        XCTAssertEqual(Yaml.value(at: ["web", "x"], in: root)?.int, 1)
+        XCTAssertEqual(root.value(at: ["web", "x"])?.int, 1)
     }
 
     func testCommentAndBlankLinesAreInvisible() throws {
@@ -79,18 +79,18 @@ final class YamlTests: XCTestCase {
           # interior comment
           b: 1
         """)
-        XCTAssertEqual(Yaml.value(at: ["a", "b"], in: root)?.int, 1)
+        XCTAssertEqual(root.value(at: ["a", "b"])?.int, 1)
     }
 
     func testSameKeyAtDifferentLevelsIsFine() throws {
         let root = try Yaml.parse("a:\n  a: 1")
-        XCTAssertEqual(Yaml.value(at: ["a", "a"], in: root)?.int, 1)
+        XCTAssertEqual(root.value(at: ["a", "a"])?.int, 1)
     }
 
     func testValueAtMissingHopIsNil() throws {
         let root = try Yaml.parse("a:\n  b: 1")
-        XCTAssertNil(Yaml.value(at: ["a", "c"], in: root))
-        XCTAssertNil(Yaml.value(at: ["a", "b", "d"], in: root), "scalars end the walk")
+        XCTAssertNil(root.value(at: ["a", "c"]))
+        XCTAssertNil(root.value(at: ["a", "b", "d"]), "scalars end the walk")
     }
 
     // MARK: - Errors

@@ -104,26 +104,52 @@ final class UpdaterTests: XCTestCase {
     // MARK: - Single flight
 
     func testCheckStartsOnlyFromIdle() {
-        XCTAssertEqual(Updater.checkDecision(in: .idle, version: nil), .startCheck)
+        XCTAssertEqual(Updater.checkDecision(in: .idle), .startCheck)
     }
 
     func testRepeatedCheckJoinsTheRunInFlight() {
-        XCTAssertEqual(Updater.checkDecision(in: .checking, version: nil),
+        XCTAssertEqual(Updater.checkDecision(in: .checking),
                        .refuse(note: "⌖ already checking for updates…"))
-        XCTAssertEqual(Updater.checkDecision(in: .ready, version: "0.9.12"), .applyStaged)
+        XCTAssertEqual(Updater.checkDecision(in: .ready(version: "0.9.12")), .applyStaged)
     }
 
     func testCheckDuringApplyRefusesAndNamesTheVersion() {
-        guard case .refuse(let note) = Updater.checkDecision(in: .applying, version: "0.9.12") else {
+        guard case .refuse(let note) = Updater.checkDecision(in: .applying(version: "0.9.12")) else {
             return XCTFail("a check mid-apply must refuse — a second pipeline once destroyed the install")
         }
         XCTAssertTrue(note.contains("0.9.12"))
     }
 
     func testApplyBeginsOnlyFromReady() {
-        XCTAssertTrue(Updater.canBeginApply(in: .ready))
+        XCTAssertTrue(Updater.canBeginApply(in: .ready(version: "0.9.12")))
         XCTAssertFalse(Updater.canBeginApply(in: .idle))
         XCTAssertFalse(Updater.canBeginApply(in: .checking))
-        XCTAssertFalse(Updater.canBeginApply(in: .applying))
+        XCTAssertFalse(Updater.canBeginApply(in: .applying(version: "0.9.12")))
+    }
+
+    /// The version travels with the phase, so no edit can set one without
+    /// the other — the split that used to need two fields kept in step.
+    func testPhaseCarriesItsOwnVersion() {
+        XCTAssertNil(Updater.Phase.idle.version)
+        XCTAssertNil(Updater.Phase.checking.version)
+        XCTAssertEqual(Updater.Phase.ready(version: "0.9.12").version, "0.9.12")
+        XCTAssertEqual(Updater.Phase.applying(version: "0.9.12").version, "0.9.12")
+    }
+
+    // MARK: - The rollback tombstone
+
+    func testARolledBackReleaseIsNotOfferedAgain() {
+        let release = Updater.Release(tag: "v0.9.12", version: [0, 9, 12],
+                                      zipName: "lodestar-0.9.12.zip", zipURL: "https://example/z.zip")
+        XCTAssertTrue(Updater.shouldOffer(release, refusedTag: nil))
+        XCTAssertFalse(Updater.shouldOffer(release, refusedTag: "v0.9.12"),
+                       "a build that never took the pid file must not be re-applied on a loop")
+    }
+
+    func testANewerReleaseClearsTheRefusal() {
+        let next = Updater.Release(tag: "v0.9.13", version: [0, 9, 13],
+                                   zipName: "lodestar-0.9.13.zip", zipURL: "https://example/z.zip")
+        XCTAssertTrue(Updater.shouldOffer(next, refusedTag: "v0.9.12"),
+                      "the fix ships as a new tag and must be offered")
     }
 }

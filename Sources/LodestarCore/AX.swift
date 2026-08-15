@@ -3,9 +3,10 @@ import CoreGraphics
 
 /// Thin, synchronous wrappers over the C Accessibility API.
 ///
-/// Known trap: every one of these calls blocks on the
-/// target app's event loop. `setGlobalAXTimeout` caps the damage for now; the
-/// real switcher will need a cached model so one hung app can never freeze it.
+/// Known trap: every one of these calls blocks on the target app's event
+/// loop, so one hung app can freeze whatever is calling. Two mitigations are
+/// in place: `setGlobalAXTimeout` bounds each call, and `WindowModel` keeps
+/// the cached model that answers most questions without calling at all.
 public enum AX {
     public static func copy(_ element: AXUIElement, _ attribute: String) -> CFTypeRef? {
         var value: CFTypeRef?

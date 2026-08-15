@@ -9,7 +9,7 @@ import LodestarCore
 /// or remove chains, written straight into the config — while the list
 /// underneath stays frozen exactly as it was. Row views are cached and
 /// reused — typing repaints, it never rebuilds — and rows teach the faster
-/// paths: graph addresses and window counts on apps, mark paths on windows.
+/// paths: graph addresses and window counts on apps.
 /// The panel never activates lodestar, so focus context stays where it was.
 final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     private enum Row {
@@ -50,7 +50,6 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
 
     /// lowercased app name -> graph chain (e.g. "proton mail" -> "E P")
     var graphAddress: (String) -> String? = { _ in nil }
-    /// window id -> mark path, uppercased (e.g. "Q")
     /// lowercased app name -> every chain bound to it (lowercased letters)
     var graphChains: (String) -> [[String]] = { _ in [] }
     /// Why a pending chain can't be added, or nil when it's free.

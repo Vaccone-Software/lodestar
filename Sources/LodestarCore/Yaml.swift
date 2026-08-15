@@ -1,7 +1,13 @@
 import Foundation
 
 /// A deliberate YAML subset — enough for lodestar.yaml, owned instead of
-/// depended on. Supports nested maps by two-or-more-space indentation,
+/// depended on.
+///
+/// Read-only since 0.9.10: the config is sparse JSON now, and this exists
+/// solely to migrate a pre-0.9.10 file on first boot. Retire it, and
+/// `Config.yamlFile` with it, once the rollback window is long past.
+///
+/// Supports nested maps by two-or-more-space indentation,
 /// `key: value` scalars (unquoted strings, "quoted strings", numbers,
 /// booleans), `key:` opening a nested map, and `#` comments. No anchors, no
 /// flow syntax, no sequences, no multi-line scalars, no tabs.
@@ -58,16 +64,6 @@ public enum Yaml {
             }
         }
         return convert(root)
-    }
-
-    /// Walk a dotted path from the root; nil when any hop is missing.
-    public static func value(at path: [String], in root: [String: ConfigValue]) -> ConfigValue? {
-        var current: ConfigValue = .table(root)
-        for hop in path {
-            guard let table = current.table, let next = table[hop] else { return nil }
-            current = next
-        }
-        return current
     }
 
     // MARK: - Internals

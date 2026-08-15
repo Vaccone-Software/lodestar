@@ -21,6 +21,8 @@ final class UpdateController {
 
     private static let directory = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".config/lodestar/update", isDirectory: true)
+    /// Survives the rolled-back announcement: the tag we refuse to re-apply.
+    private static let refusedFile = directory.appendingPathComponent("refused")
     private static let feedURL = URL(string: Lodestar.repository
         .replacingOccurrences(of: "https://github.com/", with: "https://api.github.com/repos/")
         + "/releases?per_page=1")!
@@ -29,23 +31,38 @@ final class UpdateController {
         and certificate leaf[subject.OU] = "\(Lodestar.teamID)"
         """
 
-    var enabled = true
+    /// Turning updates off mid-run also drops anything already staged: a
+    /// bundle parked here for weeks would otherwise be installed, stale, by
+    /// the next forced check.
+    var enabled = true {
+        didSet {
+            guard !enabled, oldValue else { return }
+            if case .ready = phase { standDown() }
+        }
+    }
     var engineQuiet: () -> Bool = { false }
     var lastActivity: () -> Date = { .distantPast }
     var flash: (String, TimeInterval) -> Void = { _, _ in }
 
-    private var staged: (bundle: URL, version: String)?
     /// The single-flight rule, main-thread only: one run at a time, and
     /// `applying` is terminal — after a successful swap this process only
     /// waits to be taken over. Two racing pipelines destroyed an install
-    /// once; the phase machine is why there can never be two.
+    /// once; the phase machine is why there can never be two. The version
+    /// rides on the phase, so there is no second field to keep in step.
     private var phase: Updater.Phase = .idle
-    /// The version mid-swap, kept after `staged` is consumed so a repeated
-    /// press can still hear which build is taking over.
-    private var applyingVersion: String?
+    /// The verified bundle waiting to be swapped in; set only while `.ready`.
+    private var stagedBundle: URL?
     private var firstCheck: Timer?
     private var dailyCheck: Timer?
     private var applyPoll: Timer?
+    /// A bounded session: URLSession.shared would let a trickling download
+    /// hold the run in `.checking` for days, refusing every later check.
+    private let network: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 30
+        configuration.timeoutIntervalForResource = 180
+        return URLSession(configuration: configuration)
+    }()
     private let worker = DispatchQueue(label: "lodestar.update", qos: .utility)
 
     init() {
@@ -63,7 +80,10 @@ final class UpdateController {
         // bundle from the last swap is long past its watchdog by then.
         firstCheck = Timer.scheduledTimer(withTimeInterval: 180, repeats: false) { [weak self] _ in
             guard let self else { return }
-            if let install = self.installURL {
+            // Only reap the leftover while nothing is in flight: a forced
+            // check early in this session could still be mid-swap, and its
+            // watchdog needs that bundle to roll back to.
+            if case .idle = self.phase, let install = self.installURL {
                 let previous = install.deletingLastPathComponent()
                     .appendingPathComponent("lodestar.app.previous")
                 try? FileManager.default.removeItem(at: previous)
@@ -93,11 +113,20 @@ final class UpdateController {
         }
         if let version = try? String(contentsOf: rolledBack, encoding: .utf8) {
             try? FileManager.default.removeItem(at: rolledBack)
-            Log.error("update rolled back: \(version) never took the pid file")
+            // The tombstone outlives the announcement: a release that could
+            // not take the pid file must not be offered again, or every
+            // check re-applies it and the watchdog rolls it back forever.
+            try? version.write(to: Self.refusedFile, atomically: true, encoding: .utf8)
+            Log.error("update rolled back: \(version) never took the pid file — refusing it until a newer release ships")
             DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [flash] in
                 flash("⚠ update to \(version) failed — rolled back, still on \(Lodestar.version)", 8)
             }
         }
+    }
+
+    /// The tag of a release that already failed its handover, if any.
+    private var refusedTag: String? {
+        try? String(contentsOf: Self.refusedFile, encoding: .utf8)
     }
 
     // MARK: - Check, download, verify
@@ -106,12 +135,12 @@ final class UpdateController {
     /// apply immediately instead of waiting for quiet. A repeated press
     /// joins the run in flight; it never starts a second one.
     func check(force: Bool) {
-        guard installURL != nil else {
+        guard let installURL else {
             if force { flash("updates manage the installed app only", 3) }
             return
         }
         guard enabled || force else { return }
-        switch Updater.checkDecision(in: phase, version: staged?.version ?? applyingVersion) {
+        switch Updater.checkDecision(in: phase) {
         case .refuse(let note):
             if force { flash(note, 3) }
             return
@@ -121,11 +150,18 @@ final class UpdateController {
         case .startCheck:
             break
         }
+        // The swap's cheap preconditions, judged before the expensive part:
+        // a read-only install directory would otherwise cost a download,
+        // an unpack, and two signature passes on every daily check, every
+        // day, only to be discarded. They are re-checked at swap time,
+        // because a quiet-moment apply can run hours after this.
+        guard canSwap(installURL: installURL, force: force) else { return }
+
         phase = .checking
         Log.info("update", ["phase": "checking", "force": "\(force)"])
         var request = URLRequest(url: Self.feedURL, timeoutInterval: 30)
         request.setValue("lodestar/\(Lodestar.version)", forHTTPHeaderField: "User-Agent")
-        URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
+        network.dataTask(with: request) { [weak self] data, _, error in
             guard let self else { return }
             guard let data, error == nil, let release = Updater.parseFeed(data) else {
                 self.finishCheck(force: force, note: "✕ update check failed — see log",
@@ -137,8 +173,30 @@ final class UpdateController {
                 self.finishCheck(force: force, note: "⌖ up to date · \(Lodestar.version)", log: nil)
                 return
             }
+            guard Updater.shouldOffer(release, refusedTag: self.refusedTag) else {
+                self.finishCheck(force: force,
+                                 note: "⌖ \(release.tag) already failed to start — waiting for a newer release",
+                                 log: "refusing \(release.tag): it was rolled back once")
+                return
+            }
             self.worker.async { self.download(release, force: force) }
         }.resume()
+    }
+
+    /// Can this process move bundles at all? Cheap stats only.
+    private func canSwap(installURL: URL, force: Bool) -> Bool {
+        let parent = installURL.deletingLastPathComponent()
+        guard FileManager.default.isWritableFile(atPath: parent.path) else {
+            Log.error("update: \(parent.path) is not writable — leaving the manual lanes to it")
+            if force { flash("✕ update: install location not writable — see log", 4) }
+            return false
+        }
+        guard FileManager.default.fileExists(atPath: installURL.path) else {
+            Log.error("update: nothing at \(installURL.path) — standing down")
+            if force { flash("✕ update: the install is missing — see log", 4) }
+            return false
+        }
+        return true
     }
 
     private func finishCheck(force: Bool, note: String, log message: String?) {
@@ -160,7 +218,7 @@ final class UpdateController {
         }
         let semaphore = DispatchSemaphore(value: 0)
         var fetched: URL?
-        URLSession.shared.downloadTask(with: url) { location, _, _ in
+        network.downloadTask(with: url) { location, _, _ in
             if let location {
                 let kept = Self.directory.appendingPathComponent("download.zip")
                 try? FileManager.default.removeItem(at: kept)
@@ -207,8 +265,8 @@ final class UpdateController {
 
         Log.info("update", ["phase": "staged", "version": stagedVersion])
         DispatchQueue.main.async {
-            self.staged = (bundle, stagedVersion)
-            self.phase = .ready
+            self.stagedBundle = bundle
+            self.phase = .ready(version: stagedVersion)
             self.tryApply(force: force)
         }
     }
@@ -241,44 +299,40 @@ final class UpdateController {
     // MARK: - The swap
 
     private func tryApply(force: Bool) {
-        guard let staged, let installURL, Updater.canBeginApply(in: phase) else { return }
+        guard case .ready(let version) = phase, let bundle = stagedBundle, let installURL else { return }
         if !force {
             guard enabled, Updater.mayApply(
                 engineQuiet: engineQuiet(),
                 secondsSinceActivity: Date().timeIntervalSince(lastActivity())
             ) else { return }
         }
+        guard canSwap(installURL: installURL, force: force) else {
+            standDown()
+            return
+        }
         let parent = installURL.deletingLastPathComponent()
-        guard FileManager.default.isWritableFile(atPath: parent.path) else {
-            Log.error("update: \(parent.path) is not writable — leaving the manual lanes to it")
-            standDown(force: force, note: "✕ update: install location not writable — see log")
-            return
-        }
 
-        // Preflight: the swap moves exactly two things, and both slots
-        // must look untouched. A missing install or a lingering .previous
-        // means some other actor — a watchdog, a manual reinstall — is
-        // mid-story; deleting either from here is how an install died.
+        // Preflight: the swap moves exactly two things, and both slots must
+        // look untouched. A lingering .previous means some other actor — a
+        // watchdog mid-verdict, a manual reinstall — is still mid-story;
+        // deleting it from here is how an install died once. This one is
+        // usually transient (a watchdog reaps it within ~45s), so the
+        // verified bundle is kept and the 60s poll retries rather than
+        // paying for the whole download again.
         let previous = parent.appendingPathComponent("lodestar.app.previous")
-        guard FileManager.default.fileExists(atPath: installURL.path) else {
-            Log.error("update: nothing at \(installURL.path) — standing down")
-            standDown(force: force, note: "✕ update: the install is missing — see log")
-            return
-        }
         guard !FileManager.default.fileExists(atPath: previous.path) else {
-            Log.error("update: lodestar.app.previous still present — an earlier swap is unresolved, standing down")
-            standDown(force: force, note: "✕ update: an earlier update is unresolved — restart Lodestar to clear it")
+            Log.info("update", ["phase": "deferred", "reason": "an earlier swap is still unresolved"])
+            if force { flash("⌖ an earlier update is still settling — retrying shortly", 4) }
             return
         }
 
-        phase = .applying
-        applyingVersion = staged.version
-        if force { flash("⌖ updating to \(staged.version) — the new build takes over shortly", 4) }
-        Log.info("update", ["phase": "applying", "to": staged.version])
+        phase = .applying(version: version)
+        if force { flash("⌖ updating to \(version) — the new build takes over shortly", 4) }
+        Log.info("update", ["phase": "applying", "to": version])
 
         do {
             try FileManager.default.moveItem(at: installURL, to: previous)
-            try FileManager.default.moveItem(at: staged.bundle, to: installURL)
+            try FileManager.default.moveItem(at: bundle, to: installURL)
         } catch {
             // Put the world back exactly as it was and stand down.
             if !FileManager.default.fileExists(atPath: installURL.path),
@@ -291,9 +345,9 @@ final class UpdateController {
         }
 
         let marker = Self.directory.appendingPathComponent("updated-to")
-        try? staged.version.write(to: marker, atomically: true, encoding: .utf8)
-        spawnWatchdog(app: installURL, previous: previous, version: staged.version)
-        self.staged = nil
+        try? version.write(to: marker, atomically: true, encoding: .utf8)
+        spawnWatchdog(app: installURL, previous: previous, version: version)
+        stagedBundle = nil
         // The successor's boot takes over the pid file and SIGTERMs this
         // process — the same handoff every manual reinstall already uses.
         // phase stays .applying: this process is done deciding things.
@@ -312,8 +366,7 @@ final class UpdateController {
     /// start over from a clean slate. The manual check narrates every
     /// outcome, so a forced run that stands down says why.
     private func standDown(force: Bool = false, note: String? = nil) {
-        staged = nil
-        applyingVersion = nil
+        stagedBundle = nil
         phase = .idle
         if force, let note { flash(note, 4) }
         worker.async { self.clearStaging() }
@@ -337,13 +390,16 @@ final class UpdateController {
                 exit 0
             fi
         done
+        # The handover failed, whatever happens next: drop the success
+        # marker first, above the rollback gate. Left behind, it would fire
+        # a false "updated" flash whenever that version finally does boot.
+        rm -f "$MARKERS/updated-to"
         # Roll back only while the old bundle is still there to restore.
         # If .previous is gone, another actor already resolved this swap —
         # deleting the app with nothing to put back is never the answer.
         [ -d "$PREVIOUS" ] || exit 0
         rm -rf "$APP"
         mv "$PREVIOUS" "$APP"
-        rm -f "$MARKERS/updated-to"
         printf '%s' "$VERSION" > "$MARKERS/rolled-back"
         # -n: launch a fresh instance even though the old process may still
         # be running — its boot takes the pid file and announces the marker.

@@ -2,8 +2,6 @@ import AppKit
 import CoreGraphics
 import LodestarCore
 
-/// What a chain keystroke did, so the hotkey engine knows whether to keep
-/// collecting, stop, or flash an error.
 /// Every verb in the system. One instance, main-thread only.
 final class Actions {
     private let model: WindowModel
@@ -650,7 +648,7 @@ final class Actions {
         return model.aliveWindows(appNamed: appName)
     }
 
-    /// Title similarity for re-matching a dead mark/breath member: exact,
+    /// Title similarity for re-matching a dead breath member: exact,
     /// containment, then longest common prefix.
     private func bestTitleMatch(_ target: String, in candidates: [WindowModel.Window]) -> WindowModel.Window? {
         guard !candidates.isEmpty else { return nil }

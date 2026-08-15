@@ -507,12 +507,12 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
                                         symbol: "plus.circle", chain: [])]
             } else if chains.count == 1 {
                 items = [GraphMenu.Item(keycap: "d", title: "Remove from graph",
-                                        symbol: "minus.circle", chain: [])]
+                                        symbol: "minus.circle", isDestructive: true, chain: [])]
             } else {
                 // Several bindings: the chain is what tells the rows apart.
                 items = chains.enumerated().map {
                     GraphMenu.Item(keycap: "\($0.offset + 1)", title: "Remove from graph",
-                                   symbol: "minus.circle", chain: $0.element)
+                                   symbol: "minus.circle", isDestructive: true, chain: $0.element)
                 }
             }
             graphMenu.present(.items(items, error: error),

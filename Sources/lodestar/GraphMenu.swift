@@ -4,15 +4,17 @@ import LodestarCore
 /// The ⌘K graph card: a small glass panel floating beside the searcher
 /// for adding an app to the graph or removing it. Appearing next to the
 /// list — not replacing it — is what says "you are somewhere else now."
-/// Display-only: the searcher panel stays key and feeds keys in. Every
-/// action leads with the keycap that fires it, and chains are drawn as
-/// keycaps too — a chain is keys, so it should look like keys.
+/// Display-only: the searcher panel stays key and feeds keys in. Rows are
+/// the clipboard menu's rows — icon, name, then the key that fires them —
+/// and chains are drawn as keycaps too, because a chain is keys.
 final class GraphMenu {
     struct Item {
         let keycap: String
         let title: String
         /// Recognised before it is read, as in the clipboard's menu.
         let symbol: String
+        /// Drawn in red, for the same reason the clipboard's Delete is.
+        var isDestructive = false
         /// The chain a remove targets, drawn as keycaps beside the key.
         let chain: [String]
     }
@@ -79,7 +81,6 @@ final class GraphMenu {
             if let error {
                 stack.addArrangedSubview(label("✕ \(error)", font: BarTheme.secondaryFont, color: .labelColor))
             }
-            stack.addArrangedSubview(label("esc back", font: BarTheme.footerFont, color: .tertiaryLabelColor))
 
         case .chain(let letters, let verdict, let problem):
             stack.addArrangedSubview(label("Add \(appName) to graph", font: BarTheme.secondaryFont, color: .secondaryLabelColor))
@@ -127,17 +128,18 @@ final class GraphMenu {
         stack.edgeInsets = NSEdgeInsets(top: 6, left: 2, bottom: 6, right: 2)
         stack.translatesAutoresizingMaskIntoConstraints = false
 
+        let tint: NSColor = item.isDestructive ? .systemRed : .labelColor
         let icon = NSImageView(image: NSImage(
             systemSymbolName: item.symbol, accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: 13, weight: .medium)) ?? NSImage())
-        icon.contentTintColor = .labelColor
+        icon.contentTintColor = tint
         icon.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             icon.widthAnchor.constraint(equalToConstant: BarTheme.rowIcon),
             icon.heightAnchor.constraint(equalToConstant: BarTheme.rowIcon),
         ])
 
-        let title = label(item.title, font: BarTheme.rowLabelFont, color: .labelColor)
+        let title = label(item.title, font: BarTheme.rowLabelFont, color: tint)
         title.setContentHuggingPriority(.defaultHigh, for: .horizontal)
 
         let spacer = NSView()
@@ -216,7 +218,7 @@ extension GraphMenu {
         switch which {
         case 1:
             menu.present(.items([Item(keycap: "d", title: "Remove from graph",
-                                      symbol: "minus.circle", chain: [])], error: nil),
+                                      symbol: "minus.circle", isDestructive: true, chain: [])], error: nil),
                          appName: "Ghostty", besideRow: row, panelFrame: panel)
         case 2:
             menu.present(.items([Item(keycap: "a", title: "Add to graph",
@@ -227,9 +229,9 @@ extension GraphMenu {
                          appName: "Microsoft Outlook", besideRow: row, panelFrame: panel)
         default:
             menu.present(.items([Item(keycap: "1", title: "Remove from graph",
-                                      symbol: "minus.circle", chain: ["e", "o"]),
+                                      symbol: "minus.circle", isDestructive: true, chain: ["e", "o"]),
                                  Item(keycap: "2", title: "Remove from graph",
-                                      symbol: "minus.circle", chain: ["m"])], error: nil),
+                                      symbol: "minus.circle", isDestructive: true, chain: ["m"])], error: nil),
                          appName: "Microsoft Outlook", besideRow: row, panelFrame: panel)
         }
         return menu

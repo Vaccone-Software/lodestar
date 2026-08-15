@@ -50,6 +50,15 @@ final class WorldStub: EngineWorld {
         return pasteAvailable
     }
 
+    /// Addresses with a card behind them right now. Default covers the
+    /// first three recents and pin one.
+    var pasteCards: Set<String> = ["a", "s", "d", "1"]
+
+    func pasteCardExists(address: String) -> Bool {
+        calls.append("pasteCardExists:\(address)")
+        return pasteCards.contains(address)
+    }
+
     func enterHints(sticky: Bool) -> Bool {
         calls.append("enterHints\(sticky ? ":sticky" : "")")
         return hintsEnterSucceeds

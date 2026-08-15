@@ -231,16 +231,18 @@ final class PasteModeTests: XCTestCase {
 }
 
 extension PasteModeTests {
-    /// ⌘C while the strip is up must still copy. The alphabet has no c, x,
-    /// v or z, so the app's own shortcuts pass straight through and the new
-    /// clip simply appears as the first card.
-    func testCommandShortcutsOutsideTheAlphabetPassThrough() {
-        _ = core.openPaste(world: world)
+    /// ⌘C, ⌘X, ⌘V, ⌘Z belong to the app underneath — none of them address
+    /// a card, so reaching for one ends the mode and the keystroke lands
+    /// where it was aimed.
+    func testCommandShortcutsOutsideTheAlphabetLeaveTheMode() {
         for key in ["c", "x", "v", "z"] {
+            var core = EngineCore()
+            _ = core.openPaste(world: world)
             XCTAssertFalse(Clipboard.recentLabels.contains(key), "\(key) must not be a label")
             XCTAssertEqual(core.keyDown(key: key, held: false, shift: false,
-                                        command: true, world: world), [.passThrough])
-            XCTAssertEqual(core.state, .paste(searching: false), "and the strip stays up")
+                                        command: true, world: world),
+                           [.exitPaste, .passThrough])
+            XCTAssertTrue(core.isIdle, "and the strip is gone")
         }
     }
 
@@ -250,21 +252,38 @@ extension PasteModeTests {
                                     command: false, world: world), [], "mode discipline")
     }
 
-    func testDigitsBeyondThePinsPassThroughWithCommand() {
+    func testDigitsBeyondThePinsLeaveTheModeWithCommand() {
         _ = core.openPaste(world: world)
         XCTAssertEqual(core.keyDown(key: "7", held: false, shift: false,
-                                    command: true, world: world), [.passThrough])
+                                    command: true, world: world),
+                       [.exitPaste, .passThrough])
+        XCTAssertTrue(core.isIdle)
+    }
+
+    func testDigitsBeyondThePinsAreStillSwallowedWithoutCommand() {
+        _ = core.openPaste(world: world)
         XCTAssertEqual(core.keyDown(key: "7", held: false, shift: false,
-                                    command: false, world: world), [])
+                                    command: false, world: world), [], "mode discipline")
+        XCTAssertEqual(core.state, .paste(searching: false))
     }
 }
 
 extension PasteModeTests {
-    /// ⌘ on a label with no card behind it must not strand the mode in a
-    /// panel that draws nothing and swallows every label until escape.
-    func testPanelWithNoCardBehindItBacksOut() {
+    /// ⌘ on a label with no card behind it leaves rather than opening a
+    /// panel that would draw nothing and swallow every label until escape.
+    func testPanelWithNoCardBehindItLeavesInstead() {
         _ = core.openPaste(world: world)
-        _ = core.keyDown(key: "l", held: false, shift: false, command: true, world: world)
+        XCTAssertFalse(world.pasteCardExists(address: "l"))
+        XCTAssertEqual(core.keyDown(key: "l", held: false, shift: false,
+                                    command: true, world: world),
+                       [.exitPaste, .passThrough])
+        XCTAssertTrue(core.isIdle)
+    }
+
+    /// The panel still opens for a label that does have a card.
+    func testPanelOpensForALiveLabel() {
+        _ = core.openPaste(world: world)
+        _ = core.keyDown(key: "a", held: false, shift: false, command: true, world: world)
         XCTAssertEqual(core.state, .pastePanel(searching: false))
         core.dismissPastePanel()
         XCTAssertEqual(core.state, .paste(searching: false), "back to a working strip")
@@ -343,12 +362,20 @@ extension PasteModeTests {
 }
 
 extension PasteModeTests {
-    /// Typing a query must not eat the app's own shortcuts.
-    func testCommandLettersStillPassThroughWhileSearching() {
+    /// Typing a query must not eat the app's own shortcuts — and reaching
+    /// for one says the search is over.
+    func testCommandLettersLeaveTheModeWhileSearching() {
         _ = core.openPaste(world: world)
         _ = core.keyDown(key: "/", held: false, shift: false, world: world)
         XCTAssertEqual(core.keyDown(key: "c", held: false, shift: false,
-                                    command: true, world: world), [.passThrough])
+                                    command: true, world: world),
+                       [.exitPaste, .passThrough])
+        XCTAssertTrue(core.isIdle)
+    }
+
+    func testPlainLettersAreStillCharactersWhileSearching() {
+        _ = core.openPaste(world: world)
+        _ = core.keyDown(key: "/", held: false, shift: false, world: world)
         XCTAssertEqual(core.keyDown(key: "c", held: false, shift: false, world: world),
                        [.pasteSearchType("c")], "without ⌘ it is just a character")
     }
@@ -388,5 +415,81 @@ final class PasteAsFilePathTests: XCTestCase {
             XCTAssertEqual(id, id.lowercased(),
                            "\(id) would never match a folded lookup")
         }
+    }
+}
+
+/// Leaving clipboard mode for reasons that are not a paste: a click landing
+/// somewhere else, or ⌘ reaching for a shortcut the strip has no claim on.
+final class PasteModeExitTests: XCTestCase {
+    private func opened(_ world: WorldStub) -> EngineCore {
+        var core = EngineCore()
+        _ = core.openPaste(world: world)
+        return core
+    }
+
+    func testClickLeavesTheMode() {
+        var core = opened(WorldStub())
+        let effects = core.leavePaste()
+        XCTAssertTrue(core.isIdle)
+        XCTAssertTrue(effects.contains(.exitPaste))
+        XCTAssertTrue(effects.contains(.pastePanelDismiss))
+    }
+
+    func testClickWithNoStripOpenDoesNothing() {
+        var core = EngineCore()
+        XCTAssertTrue(core.leavePaste().isEmpty)
+        XCTAssertTrue(core.isIdle)
+    }
+
+    func testCommandWithNoCardBehindItLeavesAndPassesThrough() {
+        let world = WorldStub()
+        var core = opened(world)
+        // "w" addresses nothing on the strip: ⌘W belongs to the app.
+        let effects = core.keyDown(key: "w", held: false, shift: false,
+                                   command: true, option: false, world: world)
+        XCTAssertTrue(core.isIdle)
+        XCTAssertEqual(effects, [.exitPaste, .passThrough])
+    }
+
+    func testCommandOnAnEmptyPinSlotLeavesToo() {
+        let world = WorldStub()
+        var core = opened(world)
+        // Pin one is filled in the stub; pin four is not.
+        let effects = core.keyDown(key: "4", held: false, shift: false,
+                                   command: true, option: false, world: world)
+        XCTAssertTrue(core.isIdle)
+        XCTAssertEqual(effects, [.exitPaste, .passThrough])
+    }
+
+    func testCommandOnALiveCardStillOpensItsActions() {
+        let world = WorldStub()
+        var core = opened(world)
+        let effects = core.keyDown(key: "s", held: false, shift: false,
+                                   command: true, option: false, world: world)
+        XCTAssertFalse(core.isIdle)
+        XCTAssertEqual(effects, [.pasteRecent(label: "s", action: .panel), .pastePanelShow])
+    }
+
+    func testCommandWhileSearchingLeavesTheMode() {
+        let world = WorldStub()
+        var core = opened(world)
+        _ = core.keyDown(key: "/", held: false, shift: false,
+                         command: false, option: false, world: world)
+        let effects = core.keyDown(key: "c", held: false, shift: false,
+                                   command: true, option: false, world: world)
+        XCTAssertTrue(core.isIdle)
+        XCTAssertEqual(effects, [.exitPaste, .passThrough])
+    }
+
+    /// The editing shortcuts belong to the search field, not to the app.
+    func testCommandDeleteAndReturnStillServeTheSearch() {
+        let world = WorldStub()
+        var core = opened(world)
+        _ = core.keyDown(key: "/", held: false, shift: false,
+                         command: false, option: false, world: world)
+        XCTAssertEqual(core.keyDown(key: "delete", held: false, shift: false,
+                                    command: true, option: false, world: world),
+                       [.pasteSearchDelete(.all)])
+        XCTAssertFalse(core.isIdle)
     }
 }

@@ -110,6 +110,10 @@ public protocol EngineWorld: AnyObject {
     func enterHints(sticky: Bool) -> Bool
     /// Open the clipboard strip; false when nothing has been copied yet.
     func enterPaste() -> Bool
+    /// Does a card answer to this address at this moment? Letters address
+    /// the recents on show, digits the filled pin slots. Asked before ⌘ is
+    /// treated as addressing the strip rather than the app underneath.
+    func pasteCardExists(address: String) -> Bool
     /// A plain letter while hints are up — the overlay narrows or fires.
     func hintType(_ letter: String, shift: Bool) -> HintStep
     var searcherVisible: Bool { get }
@@ -150,6 +154,19 @@ public struct EngineCore {
         guard world.enterPaste() else { return [.flash("⌂ nothing copied yet")] }
         state = .paste(searching: false)
         return [.hideBars, .enterPaste]
+    }
+
+    /// Something outside the keyboard ended the mode — a click landed
+    /// elsewhere, so the strip is no longer what the user is looking at.
+    /// Nothing to interpret, nothing to pass on.
+    public mutating func leavePaste() -> [EngineEffect] {
+        switch state {
+        case .paste, .pastePanel:
+            state = .idle
+            return [.pastePanelDismiss, .exitPaste]
+        default:
+            return []
+        }
     }
 
     public private(set) var state: State = .idle
@@ -547,13 +564,26 @@ public struct EngineCore {
             case "space":
                 return [.pasteSearchType(" ")]
             case _ where Self.isLetter(key) || Self.isDigit(key):
-                // ⌘ makes it the app's shortcut, not a character: ⌘C has to
-                // keep copying while you search, same as outside search.
-                if command { return [.passThrough] }
+                // ⌘ makes it the app's shortcut rather than a character, and
+                // reaching for one means this search is over. ⌘⌫ and ⌘↵ are
+                // handled above, being about the search itself.
+                if command {
+                    state = .idle
+                    return [.exitPaste, .passThrough]
+                }
                 return [.pasteSearchType(shift ? key.uppercased() : key)]
             default:
                 return [] // swallowed — mode discipline
             }
+        }
+
+        // ⌘ addressing a card opens its actions; ⌘ anything else is a
+        // shortcut of the app underneath, and reaching for one says the
+        // strip is no longer what you are working in. Sitting invisibly on
+        // top of someone's ⌘S is worse than getting out of the way.
+        if command, !world.pasteCardExists(address: key) {
+            state = .idle
+            return [.exitPaste, .passThrough]
         }
 
         switch key {
@@ -565,8 +595,9 @@ public struct EngineCore {
             return [.pasteSearchBegin]
         case _ where Self.isDigit(key):
             // Digits address the pinned column; the slots are few and fixed.
+            // With ⌘, an unfilled slot has already left the mode above.
             guard let slot = Int(key), slot >= 1, slot <= Clipboard.pinSlots else {
-                return command ? [.passThrough] : []
+                return []
             }
             if action == .panel {
                 state = .pastePanel(searching: searching)
@@ -575,11 +606,10 @@ public struct EngineCore {
             state = .idle
             return [.pastePinned(slot: slot, action: action), .exitPaste]
         case _ where Self.isLetter(key):
-            // A letter outside the alphabet is not a label. Carrying ⌘ it
-            // belongs to the app underneath — ⌘C while the strip is up must
-            // still copy, and the new clip simply appears as the first card.
+            // A letter outside the alphabet is not a label, and with ⌘ it
+            // has already left the mode above.
             guard Clipboard.recentLabels.contains(key) else {
-                return command ? [.passThrough] : []
+                return []
             }
             if action == .panel {
                 state = .pastePanel(searching: searching)

@@ -50,6 +50,8 @@ final class HotkeyEngine {
     private var pasteQuery: String?
     private var pasteSelection = 0
     private var panelClip: Clipboard.Clip?
+    /// Live only while the strip is up; see `watchClicks`.
+    private var clickMonitor: Any?
     private let badges = IndexBadges()
     private let cheat = CheatSheet()
 
@@ -207,7 +209,7 @@ final class HotkeyEngine {
 
     /// Execute the core's decisions, in order. The one routing effect:
     /// .passThrough hands the event back to the system.
-    private func apply(_ effects: [EngineEffect], event: CGEvent) -> Unmanaged<CGEvent>? {
+    private func apply(_ effects: [EngineEffect], event: CGEvent?) -> Unmanaged<CGEvent>? {
         var pass = false
         for effect in effects {
             switch effect {
@@ -217,6 +219,8 @@ final class HotkeyEngine {
                 renderStrip()
             case .exitPaste:
                 pasteQuery = nil
+                panelClip = nil
+                stopWatchingClicks()
                 strip.hide()
             case .pasteRecent(let label, let action):
                 actOnClip(strip.shownRecents.first { clip in
@@ -333,7 +337,7 @@ final class HotkeyEngine {
                 hud.hide()
             }
         }
-        return pass ? Unmanaged.passUnretained(event) : nil
+        return pass ? event.map { Unmanaged.passUnretained($0) } : nil
     }
 
     // MARK: - Peek (hold lode to see your world)
@@ -589,8 +593,42 @@ extension HotkeyEngine: EngineWorld {
         guard !clipboard.history.clips.isEmpty else { return false }
         pasteQuery = nil
         pasteSelection = 0
+        panelClip = nil
+        watchClicks()
         renderStrip()
         return true
+    }
+
+    func pasteCardExists(address: String) -> Bool {
+        if let slot = Int(address) { return strip.shownPins[slot] != nil }
+        guard let index = ClipboardStrip.labels.firstIndex(of: address) else { return false }
+        return strip.shownRecents.indices.contains(index)
+    }
+
+    /// A click means the user is looking at something else now, and the
+    /// strip is a thing you read — leaving it up over the window they just
+    /// reached for is the one state it should never be in.
+    ///
+    /// Observed, never intercepted: the tap watches keys only, and the strip
+    /// takes no mouse events at all, so the click lands exactly where it was
+    /// aimed and the mode simply ends behind it.
+    private func watchClicks() {
+        guard clickMonitor == nil else { return }
+        clickMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        ) { [weak self] _ in
+            // Off the callback before touching the monitor: tearing it down
+            // from inside its own handler is asking for trouble.
+            DispatchQueue.main.async {
+                guard let self else { return }
+                _ = self.apply(self.core.leavePaste(), event: nil)
+            }
+        }
+    }
+
+    private func stopWatchingClicks() {
+        if let clickMonitor { NSEvent.removeMonitor(clickMonitor) }
+        clickMonitor = nil
     }
 
     func enterHints(sticky: Bool) -> Bool {

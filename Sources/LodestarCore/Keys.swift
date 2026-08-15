@@ -2,9 +2,9 @@ import CoreGraphics
 
 /// ANSI virtual keycode table — the classic kVK_ANSI_* values, which are
 /// layout-position codes, not characters. Good enough for a US-style board.
-enum Keys {
+public enum Keys {
     /// The built-in ANSI-layout table.
-    static let ansi: [Int64: String] = [
+    public static let ansi: [Int64: String] = [
         0: "a", 1: "s", 2: "d", 3: "f", 4: "h", 5: "g", 6: "z", 7: "x", 8: "c",
         9: "v", 11: "b", 12: "q", 13: "w", 14: "e", 15: "r", 16: "y", 17: "t",
         18: "1", 19: "2", 20: "3", 21: "4", 22: "6", 23: "5", 25: "9", 26: "7",
@@ -15,13 +15,13 @@ enum Keys {
     ]
 
     /// The live table: ANSI overlaid with config `keys:` overrides.
-    private(set) static var names: [Int64: String] = ansi
+    public private(set) static var names: [Int64: String] = ansi
 
     /// Reverse lookup, cached — the scroll dead-man guard reads it at 120Hz.
-    private(set) static var codes: [String: Int64] = reverse(ansi)
+    public private(set) static var codes: [String: Int64] = reverse(ansi)
 
     /// Overlay config overrides (reload-safe: always rebuilds from ANSI).
-    static func apply(overrides: [Int64: String]) {
+    public static func apply(overrides: [Int64: String]) {
         names = ansi.merging(overrides) { _, override in override }
         codes = reverse(names)
     }
@@ -32,9 +32,9 @@ enum Keys {
         return reversed
     }
 
-    static func isValidName(_ name: String) -> Bool {
+    public static func isValidName(_ name: String) -> Bool {
         ansi.values.contains(name)
     }
 
-    static func name(for keycode: Int64) -> String? { names[keycode] }
+    public static func name(for keycode: Int64) -> String? { names[keycode] }
 }

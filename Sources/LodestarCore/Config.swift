@@ -1,82 +1,86 @@
 import CoreGraphics
 import Foundation
-import LodestarCore
 
-struct Config {
-    enum Trigger: String {
+public struct Config {
+    public enum Trigger: String {
         case rightCommand = "right-command"
         case rawHyper = "raw-hyper"
     }
 
-    struct WebLink {
-        let name: String
-        let url: String
-        let profileKey: String?
+    public struct WebLink {
+        public let name: String
+        public let url: String
+        public let profileKey: String?
     }
 
-    var trigger: Trigger = .rightCommand
+    public var trigger: Trigger = .rightCommand
     /// Reload the config automatically when the file is saved.
-    var autoReload = false
+    public var autoReload = false
     /// Keep Lodestar current: check daily, verify, apply when idle
     /// (installed app only).
-    var autoUpdate = true
+    public var autoUpdate = true
     /// Keep the login LaunchAgent installed (installed app only).
-    var startAtLogin = true
+    public var startAtLogin = true
     /// Show the status item permanently; false hides it (picking lodestar
     /// in the searcher reveals it for a minute).
-    var showMenuBar = true
+    public var showMenuBar = true
     /// Adopt windows born outside Lodestar, summoning them full screen on
     /// the active display. Off by default: a window another tool opened
     /// (a certificate prompt, a file reveal) floats untouched, and never
     /// hides what you were reading.
-    var adoptNewWindows = false
+    public var adoptNewWindows = false
     /// How the active display is chosen: pointer | focus.
-    var activeDisplayMode = ActivePolicy.Mode.pointer
+    public var activeDisplayMode = ActivePolicy.Mode.pointer
     /// Pixels per j/k/h/l press in scroll mode when smooth is off.
-    var scrollStep: CGFloat = 60
+    public var scrollStep: CGFloat = 60
     /// Constant velocity while a direction key is held; instant stop on release.
-    var scrollSmooth = true
+    public var scrollSmooth = true
     /// Smooth-scroll velocity in pixels per second.
-    var scrollSpeed: CGFloat = 1800
+    public var scrollSpeed: CGFloat = 1800
     /// The hint label alphabet — the letters labels are built from.
-    var hintLetters = "asdfghjkl"
+    public var hintLetters = "asdfghjkl"
     /// Sticky hints: seconds between a click and the relabel.
-    var hintRescanDelay: TimeInterval = 0.4
+    public var hintRescanDelay: TimeInterval = 0.4
     /// Double-tap modifier bindings: modifier → verb. Custom triggers only.
-    var doubleTaps: [ModifierKey: TapVerb] = [:]
+    public var doubleTaps: [ModifierKey: TapVerb] = [:]
     /// Keys freed by gestures: toggles — they pass through to the app.
-    var disabledGestures: Set<String> = []
+    public var disabledGestures: Set<String> = []
     /// Profile registry: lodestar key → (browser, display name). Keys are
     /// global across browsers so web links and routes reference them bare.
-    var browserProfiles: [String: BrowserProfile] = [:]
+    public var browserProfiles: [String: BrowserProfile] = [:]
     /// Where an unrouted site opens: "most-recent" or a registry key.
-    var webFallback = "most-recent"
+    public var webFallback = "most-recent"
     /// Search template; %s is replaced with the encoded query (appended if absent).
-    var webSearchURL = "https://search.brave.com/search?q=%s"
-    var webLinks: [WebLink] = []
+    public var webSearchURL = "https://search.brave.com/search?q=%s"
+    public var webLinks: [WebLink] = []
     /// Substring pattern → registry key; longest match wins.
-    var webRoutes: [String: String] = [:]
+    public var webRoutes: [String: String] = [:]
     /// Keycode → key-name overlays on the built-in ANSI table.
-    var keyOverrides: [Int64: String] = [:]
-    var graph: GraphNode = GraphNode()
+    public var keyOverrides: [Int64: String] = [:]
+    public var graph: GraphNode = GraphNode()
 
-    static let directory = FileManager.default.homeDirectoryForCurrentUser
+    /// All-defaults, and inert: `build` overwrites every field from the
+    /// merge, so this exists to make the type constructible, not to decide
+    /// anything. `ConfigDefaults.tree` is where a default is chosen.
+    public init() {}
+
+    public static let directory = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".config/lodestar", isDirectory: true)
     /// The config: sparse canonical JSON — only what differs from
     /// defaults, documentation living in the schema, every writer
     /// producing the same bytes.
-    static let file = directory.appendingPathComponent("lodestar.json")
+    public static let file = directory.appendingPathComponent("lodestar.json")
     /// The pre-0.9.10 format, read-only: the migration source, kept on
     /// disk through the rollback window so an auto-updated install that
     /// rolls back still finds its config. Retired at 1.0.
-    static let yamlFile = directory.appendingPathComponent("lodestar.yaml")
+    public static let yamlFile = directory.appendingPathComponent("lodestar.yaml")
 
     /// Top-level chain letters the primitives own; the graph may not use them.
-    static let reservedTopLevel: Set<String> = ["o", "z", "x"]
+    public static let reservedTopLevel: Set<String> = ["o", "z", "x"]
 
     /// The schema: one table driving reload validation and the JSON Schema
     /// editors read. Keep in lockstep with `parse` below.
-    static let schema: SchemaNode = .table([
+    public static let schema: SchemaNode = .table([
         "$schema": .string(allowed: nil, description: "Editor affordance — points at the emitted lodestar-schema.json so LSP-aware editors validate and complete."),
         "version": .string(allowed: nil, description: "The Lodestar release this config was written for."),
         "lode": .table([
@@ -133,7 +137,7 @@ struct Config {
     /// Every config write funnels here: the tree is pruned sparse against
     /// the defaults, stamped with the schema pointer and the writing
     /// release, and emitted canonically — every writer, the same bytes.
-    static func write(tree: [String: ConfigValue]) throws {
+    public static func write(tree: [String: ConfigValue]) throws {
         var clean = ConfigDefaults.normalized(tree)
         clean.removeValue(forKey: "$schema")
         clean.removeValue(forKey: "version")
@@ -149,7 +153,7 @@ struct Config {
     /// that fails to parse is never converted: nothing is written, load()
     /// surfaces the problem, and the human keeps their file.
     @discardableResult
-    static func migrateIfNeeded() -> Bool {
+    public static func migrateIfNeeded() -> Bool {
         let fm = FileManager.default
         guard !fm.fileExists(atPath: file.path), fm.fileExists(atPath: yamlFile.path) else { return false }
         guard let text = try? String(contentsOf: yamlFile, encoding: .utf8),
@@ -170,7 +174,7 @@ struct Config {
     /// Load the config: JSON when it exists, the legacy YAML read-only
     /// otherwise (so `check` before migration sees the same truth the
     /// migration will write), a fresh minimal file when neither does.
-    static func load() -> (Config, [String]) {
+    public static func load() -> (Config, [String]) {
         var problems: [String] = []
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         var root: [String: ConfigValue] = [:]
@@ -196,7 +200,7 @@ struct Config {
     /// Build a Config from a parsed tree: the user's deviations are
     /// validated as written, then read merged over ConfigDefaults.tree —
     /// the single home of every default value.
-    static func build(from root: [String: ConfigValue], problems: inout [String]) -> Config {
+    public static func build(from root: [String: ConfigValue], problems: inout [String]) -> Config {
         var config = Config()
         let root = ConfigDefaults.normalized(root)
         problems.append(contentsOf: ConfigSchema.validate(root, against: schema))

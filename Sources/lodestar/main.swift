@@ -684,7 +684,17 @@ if cliArguments.contains("reload") {
     runReload()
 }
 if cliArguments.contains("schema") {
-    print(ConfigSchema.jsonSchema(for: Config.schema, title: "lodestar configuration"))
+    // Serialized, not described: printing the dictionary emits Swift's debug
+    // form, which no editor or agent can parse — and this verb exists to be
+    // piped somewhere.
+    let schema = ConfigSchema.jsonSchema(for: Config.schema, title: "lodestar configuration")
+    guard let data = try? JSONSerialization.data(withJSONObject: schema,
+                                                 options: [.prettyPrinted, .sortedKeys]),
+          let text = String(data: data, encoding: .utf8) else {
+        FileHandle.standardError.write(Data("✕ could not serialize the schema\n".utf8))
+        exit(70)
+    }
+    print(text)
     exit(0)
 }
 if cliArguments.contains("config-path") {

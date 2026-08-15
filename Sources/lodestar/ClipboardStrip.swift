@@ -258,14 +258,15 @@ final class ClipboardStrip {
     private static let actionRow: CGFloat = 32
     private static let actionPadY: CGFloat = 12
     private static let actionInset: CGFloat = 14
-    private static let actionChipGap: CGFloat = 9
+    private static let actionChipGap = BarTheme.rowGap
     /// Clear water between the longest label and the key column, so the two
     /// never read as one run of text.
     private static let actionKeyGap: CGFloat = 28
-    private static let actionIcon: CGFloat = 16
+    private static let actionIcon = BarTheme.rowIcon
     private static let actionSeparator: CGFloat = 11
-    private static let actionChip = NSSize(width: 30, height: 20)
-    private static let actionFont = NSFont.systemFont(ofSize: 13, weight: .regular)
+    private static let actionChip = NSSize(width: BarTheme.chipMinWidth,
+                                           height: BarTheme.chipHeight)
+    private static let actionFont = BarTheme.rowLabelFont
 
     /// What a label needs, measured through the control that will draw it.
     /// A glyph-run measurement comes up a few points short — the field's

@@ -45,6 +45,35 @@ enum StripPreview {
         // The real menu, not a copy of it — the harness must not drift.
         let actions = HotkeyEngine.panelActions(for: target)
 
+        // 5 and 6 are the other two surfaces that draw key-and-label rows,
+        // shown so the three can be compared against each other.
+        if variant == 5 {
+            let sheet = CheatSheet()
+            sheet.toggle(sections: {
+                [CheatSheet.Section(header: "verbs", rows: [
+                    GuideRow(key: "␣", label: "searcher"),
+                    GuideRow(key: "⏎", label: "web bar — links · domains · search"),
+                    GuideRow(key: "1…9", label: "jump to window by position"),
+                    GuideRow(key: "⇧⌘V", label: "clipboard — label pastes · ⌘ actions"),
+                ]),
+                 CheatSheet.Section(header: "motion", rows: [
+                    GuideRow(key: "J K", label: "down · up"),
+                    GuideRow(key: "⇥", label: "next pane"),
+                    GuideRow(key: "esc", label: "clear a chain"),
+                 ])]
+            })
+            app.run()
+        }
+        if variant == 6 {
+            let hud = HUD()
+            hud.showGuide(title: "lode", rows: [
+                GuideRow(key: "W", label: "browser"),
+                GuideRow(key: "E", label: "mail"),
+                GuideRow(key: "→ D", label: "development"),
+            ], footer: "esc clears")
+            app.run()
+        }
+
         let strip = ClipboardStrip()
         strip.show(recents: recents, pins: pins, thumbnail: { _ in nil },
                    band: .actions(actions), selection: 0, actingOn: target.id)

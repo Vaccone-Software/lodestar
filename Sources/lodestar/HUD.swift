@@ -147,10 +147,10 @@ final class HUD {
         let row = NSStackView()
         row.orientation = .horizontal
         row.alignment = .centerY
-        row.spacing = 10
+        row.spacing = BarTheme.rowGap
 
         let keycap = NSTextField(labelWithString: guideRow.key)
-        keycap.font = .monospacedSystemFont(ofSize: 12, weight: .semibold)
+        keycap.font = BarTheme.chipFont
         keycap.textColor = .labelColor
         keycap.alignment = .center
         keycap.translatesAutoresizingMaskIntoConstraints = false
@@ -158,19 +158,19 @@ final class HUD {
         let chip = NSView()
         chip.wantsLayer = true
         chip.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.09).cgColor
-        chip.layer?.cornerRadius = 6
+        chip.layer?.cornerRadius = BarTheme.chipRadius
         chip.translatesAutoresizingMaskIntoConstraints = false
         chip.addSubview(keycap)
         NSLayoutConstraint.activate([
-            keycap.leadingAnchor.constraint(equalTo: chip.leadingAnchor, constant: 7),
-            keycap.trailingAnchor.constraint(equalTo: chip.trailingAnchor, constant: -7),
-            keycap.topAnchor.constraint(equalTo: chip.topAnchor, constant: 3),
-            keycap.bottomAnchor.constraint(equalTo: chip.bottomAnchor, constant: -3),
-            chip.widthAnchor.constraint(greaterThanOrEqualToConstant: 28),
+            keycap.leadingAnchor.constraint(equalTo: chip.leadingAnchor, constant: BarTheme.chipPadX),
+            keycap.trailingAnchor.constraint(equalTo: chip.trailingAnchor, constant: -BarTheme.chipPadX),
+            keycap.centerYAnchor.constraint(equalTo: chip.centerYAnchor),
+            chip.heightAnchor.constraint(equalToConstant: BarTheme.chipHeight),
+            chip.widthAnchor.constraint(greaterThanOrEqualToConstant: BarTheme.chipMinWidth),
         ])
 
         let text = NSTextField(labelWithString: guideRow.label)
-        text.font = .systemFont(ofSize: 13, weight: .regular)
+        text.font = BarTheme.rowLabelFont
         text.textColor = .labelColor
         text.lineBreakMode = .byTruncatingTail
 
@@ -179,8 +179,8 @@ final class HUD {
             let iconView = NSImageView(image: icon)
             iconView.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
-                iconView.widthAnchor.constraint(equalToConstant: 19),
-                iconView.heightAnchor.constraint(equalToConstant: 19),
+                iconView.widthAnchor.constraint(equalToConstant: BarTheme.rowIcon),
+                iconView.heightAnchor.constraint(equalToConstant: BarTheme.rowIcon),
             ])
             row.addArrangedSubview(iconView)
         }

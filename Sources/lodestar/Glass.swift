@@ -87,11 +87,22 @@ enum BarTheme {
     static let glassRadius: CGFloat = 18
     static let rowRadius: CGFloat = 18
     static let chipRadius: CGFloat = 5
+    /// One key-and-label row, shared by every surface that draws them: the
+    /// chain guide, the cheat sheet, and the clipboard's actions menu. Left
+    /// to themselves they drifted into three chip shapes, three keycap
+    /// sizes and three icon sizes; this is the one set.
+    static let chipMinWidth: CGFloat = 30
+    static let chipHeight: CGFloat = 20
+    static let chipPadX: CGFloat = 6
+    static let rowGap: CGFloat = 9
+    static let rowIcon: CGFloat = 17
 
     static let inputFont = NSFont.systemFont(ofSize: 23, weight: .regular)
     static let inputSymbol = NSImage.SymbolConfiguration(pointSize: 19, weight: .medium)
     static let titleFont = NSFont.systemFont(ofSize: 16, weight: .regular)
     static let secondaryFont = NSFont.systemFont(ofSize: 11.5, weight: .regular)
+    /// What a key's row says it does — the reading size, not a caption.
+    static let rowLabelFont = NSFont.systemFont(ofSize: 13, weight: .regular)
     static let chipFont = NSFont.monospacedSystemFont(ofSize: 11.5, weight: .semibold)
     static let footerFont = NSFont.systemFont(ofSize: 11, weight: .regular)
 }

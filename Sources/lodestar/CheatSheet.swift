@@ -101,10 +101,10 @@ final class CheatSheet {
         let container = NSStackView()
         container.orientation = .horizontal
         container.alignment = .centerY
-        container.spacing = 9
+        container.spacing = BarTheme.rowGap
 
         let keycap = NSTextField(labelWithString: row.key)
-        keycap.font = .monospacedSystemFont(ofSize: 11.5, weight: .semibold)
+        keycap.font = BarTheme.chipFont
         keycap.textColor = .labelColor
         keycap.alignment = .center
         keycap.translatesAutoresizingMaskIntoConstraints = false
@@ -112,19 +112,19 @@ final class CheatSheet {
         let chip = NSView()
         chip.wantsLayer = true
         chip.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.09).cgColor
-        chip.layer?.cornerRadius = 5
+        chip.layer?.cornerRadius = BarTheme.chipRadius
         chip.translatesAutoresizingMaskIntoConstraints = false
         chip.addSubview(keycap)
         NSLayoutConstraint.activate([
-            keycap.leadingAnchor.constraint(equalTo: chip.leadingAnchor, constant: 6),
-            keycap.trailingAnchor.constraint(equalTo: chip.trailingAnchor, constant: -6),
-            keycap.topAnchor.constraint(equalTo: chip.topAnchor, constant: 2),
-            keycap.bottomAnchor.constraint(equalTo: chip.bottomAnchor, constant: -2),
-            chip.widthAnchor.constraint(greaterThanOrEqualToConstant: 30),
+            keycap.leadingAnchor.constraint(equalTo: chip.leadingAnchor, constant: BarTheme.chipPadX),
+            keycap.trailingAnchor.constraint(equalTo: chip.trailingAnchor, constant: -BarTheme.chipPadX),
+            keycap.centerYAnchor.constraint(equalTo: chip.centerYAnchor),
+            chip.heightAnchor.constraint(equalToConstant: BarTheme.chipHeight),
+            chip.widthAnchor.constraint(greaterThanOrEqualToConstant: BarTheme.chipMinWidth),
         ])
 
         let text = NSTextField(labelWithString: row.label)
-        text.font = .systemFont(ofSize: 12.5)
+        text.font = BarTheme.rowLabelFont
         text.textColor = .labelColor
         text.lineBreakMode = .byTruncatingTail
 
@@ -133,8 +133,8 @@ final class CheatSheet {
             let iconView = NSImageView(image: icon)
             iconView.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
-                iconView.widthAnchor.constraint(equalToConstant: 17),
-                iconView.heightAnchor.constraint(equalToConstant: 17),
+                iconView.widthAnchor.constraint(equalToConstant: BarTheme.rowIcon),
+                iconView.heightAnchor.constraint(equalToConstant: BarTheme.rowIcon),
             ])
             container.addArrangedSubview(iconView)
         }

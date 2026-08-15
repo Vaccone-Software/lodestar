@@ -66,11 +66,30 @@ enum StripPreview {
         }
         if variant == 6 {
             let hud = HUD()
+            func appIcon(_ path: String) -> NSImage? {
+                FileManager.default.fileExists(atPath: path)
+                    ? NSWorkspace.shared.icon(forFile: path) : nil
+            }
             hud.showGuide(title: "lode", rows: [
-                GuideRow(key: "W", label: "browser"),
-                GuideRow(key: "E", label: "mail"),
+                GuideRow(key: "W", label: "Safari",
+                         icon: appIcon("/Applications/Safari.app")),
+                GuideRow(key: "E", label: "Mail",
+                         icon: appIcon("/System/Applications/Mail.app")),
+                GuideRow(key: "N", label: "Notes",
+                         icon: appIcon("/System/Applications/Notes.app")),
                 GuideRow(key: "→ D", label: "development"),
             ], footer: "esc clears")
+            app.run()
+        }
+
+        if variant == 7 {
+            // A guide with no icons at all, as the scroll guide is.
+            let hud = HUD()
+            hud.showGuide(title: "scroll", rows: [
+                GuideRow(key: "J K", label: "down · up"),
+                GuideRow(key: "D U", label: "half-page down · up"),
+                GuideRow(key: "⇥", label: "next pane"),
+            ], footer: "esc leaves")
             app.run()
         }
 

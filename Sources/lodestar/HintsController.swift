@@ -217,8 +217,10 @@ final class HintOverlay {
     private let status = NSTextField(labelWithString: "")
     private let statusChip = NSView()
 
-    private static let chipFont = NSFont.monospacedSystemFont(ofSize: 11, weight: .bold)
-    private static let chipHeight: CGFloat = 16
+    private static let chipFont = NSFont.monospacedSystemFont(ofSize: 12, weight: .bold)
+    /// Grown with the label: at 16 a 12pt chip hugs its text hard enough to
+    /// read as clipped.
+    private static let chipHeight: CGFloat = 18
 
     init() {
         panel = Glass.makePanel(level: .statusBar)

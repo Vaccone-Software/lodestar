@@ -96,6 +96,9 @@ enum BarTheme {
     static let chipPadX: CGFloat = 6
     static let rowGap: CGFloat = 9
     static let rowIcon: CGFloat = 17
+    /// Clear water between the longest label and the key column, so the two
+    /// never read as one run of text.
+    static let rowKeyGap: CGFloat = 28
 
     static let inputFont = NSFont.systemFont(ofSize: 23, weight: .regular)
     static let inputSymbol = NSImage.SymbolConfiguration(pointSize: 19, weight: .medium)

@@ -259,9 +259,7 @@ final class ClipboardStrip {
     private static let actionPadY: CGFloat = 12
     private static let actionInset: CGFloat = 14
     private static let actionChipGap = BarTheme.rowGap
-    /// Clear water between the longest label and the key column, so the two
-    /// never read as one run of text.
-    private static let actionKeyGap: CGFloat = 28
+    private static let actionKeyGap = BarTheme.rowKeyGap
     private static let actionIcon = BarTheme.rowIcon
     private static let actionSeparator: CGFloat = 11
     private static let actionChip = NSSize(width: BarTheme.chipMinWidth,

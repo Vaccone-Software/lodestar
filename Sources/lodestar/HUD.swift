@@ -122,6 +122,11 @@ final class HUD {
         let columns = min(maxColumns, max(1, (rows.count + perColumnTarget - 1) / perColumnTarget))
         let perColumn = (rows.count + columns - 1) / columns
 
+        // Hold the icon column only when this guide actually has icons —
+        // otherwise every label in a set like the scroll guide is indented
+        // against nothing.
+        let hasIcons = rows.contains { $0.icon != nil }
+
         let grid = NSStackView()
         grid.orientation = .horizontal
         grid.alignment = .top
@@ -133,25 +138,56 @@ final class HUD {
             let slice = rows[start..<min(start + perColumn, rows.count)]
             let columnStack = NSStackView()
             columnStack.orientation = .vertical
-            columnStack.alignment = .leading
+            // Equal widths down the column, which is what lets each row's
+            // key sit at the same trailing edge instead of trailing its own
+            // label.
+            columnStack.alignment = .width
             columnStack.spacing = 6
             for row in slice {
-                columnStack.addArrangedSubview(makeRow(row))
+                columnStack.addArrangedSubview(makeRow(row, reserveIcon: hasIcons))
             }
             grid.addArrangedSubview(columnStack)
         }
         return grid
     }
 
-    private func makeRow(_ guideRow: GuideRow) -> NSView {
+    private func makeRow(_ guideRow: GuideRow, reserveIcon: Bool) -> NSView {
         let row = NSStackView()
         row.orientation = .horizontal
         row.alignment = .centerY
         row.spacing = BarTheme.rowGap
 
+        // Icon, name, then key — the order the clipboard's actions menu
+        // reads in. The icon's slot is held even when a row has none, so
+        // the names line up down the column rather than stepping in and out.
+        var iconView: NSImageView?
+        if reserveIcon {
+            let view = NSImageView(image: guideRow.icon ?? NSImage())
+            view.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                view.widthAnchor.constraint(equalToConstant: BarTheme.rowIcon),
+                view.heightAnchor.constraint(equalToConstant: BarTheme.rowIcon),
+            ])
+            iconView = view
+        }
+
+        let text = NSTextField(labelWithString: guideRow.label)
+        text.font = BarTheme.rowLabelFont
+        text.textColor = .labelColor
+        text.lineBreakMode = .byTruncatingTail
+        text.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+
+        // Absorbs the slack, so the key lands at the trailing edge where a
+        // menu keeps its shortcut.
+        let spacer = NSView()
+        spacer.translatesAutoresizingMaskIntoConstraints = false
+        spacer.setContentHuggingPriority(.init(1), for: .horizontal)
+        spacer.widthAnchor.constraint(
+            greaterThanOrEqualToConstant: BarTheme.rowKeyGap).isActive = true
+
         let keycap = NSTextField(labelWithString: guideRow.key)
         keycap.font = BarTheme.chipFont
-        keycap.textColor = .labelColor
+        keycap.textColor = .secondaryLabelColor
         keycap.alignment = .center
         keycap.translatesAutoresizingMaskIntoConstraints = false
 
@@ -160,6 +196,7 @@ final class HUD {
         chip.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.09).cgColor
         chip.layer?.cornerRadius = BarTheme.chipRadius
         chip.translatesAutoresizingMaskIntoConstraints = false
+        chip.setContentHuggingPriority(.required, for: .horizontal)
         chip.addSubview(keycap)
         NSLayoutConstraint.activate([
             keycap.leadingAnchor.constraint(equalTo: chip.leadingAnchor, constant: BarTheme.chipPadX),
@@ -169,22 +206,10 @@ final class HUD {
             chip.widthAnchor.constraint(greaterThanOrEqualToConstant: BarTheme.chipMinWidth),
         ])
 
-        let text = NSTextField(labelWithString: guideRow.label)
-        text.font = BarTheme.rowLabelFont
-        text.textColor = .labelColor
-        text.lineBreakMode = .byTruncatingTail
-
-        row.addArrangedSubview(chip)
-        if let icon = guideRow.icon {
-            let iconView = NSImageView(image: icon)
-            iconView.translatesAutoresizingMaskIntoConstraints = false
-            NSLayoutConstraint.activate([
-                iconView.widthAnchor.constraint(equalToConstant: BarTheme.rowIcon),
-                iconView.heightAnchor.constraint(equalToConstant: BarTheme.rowIcon),
-            ])
-            row.addArrangedSubview(iconView)
-        }
+        if let iconView { row.addArrangedSubview(iconView) }
         row.addArrangedSubview(text)
+        row.addArrangedSubview(spacer)
+        row.addArrangedSubview(chip)
         return row
     }
 

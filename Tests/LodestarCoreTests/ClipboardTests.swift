@@ -279,3 +279,18 @@ extension PasteModeTests {
         XCTAssertEqual(core.state, .idle)
     }
 }
+
+extension ClipboardTests {
+    func testAgeReadsShortAndHonestly() {
+        let base = Date(timeIntervalSince1970: 1_000_000)
+        func clipAged(_ seconds: TimeInterval) -> Clipboard.Clip {
+            Clipboard.Clip(id: "x", kind: .text, created: base.addingTimeInterval(-seconds),
+                           sourceBundleID: nil, sourceAppName: nil, preview: "", bytes: 0)
+        }
+        XCTAssertEqual(Clipboard.age(of: clipAged(5), now: base), "now")
+        XCTAssertEqual(Clipboard.age(of: clipAged(300), now: base), "5m")
+        XCTAssertEqual(Clipboard.age(of: clipAged(7200), now: base), "2h")
+        XCTAssertEqual(Clipboard.age(of: clipAged(3 * 86_400), now: base), "3d")
+        XCTAssertEqual(Clipboard.age(of: clipAged(-10), now: base), "now", "clock skew is not negative time")
+    }
+}

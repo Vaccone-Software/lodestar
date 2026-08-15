@@ -109,6 +109,17 @@ public enum Clipboard {
         return collapsed.count <= limit ? collapsed : String(collapsed.prefix(limit))
     }
 
+    /// How long ago, in the shortest honest form. You reach for old clips
+    /// temporally — "the one from this morning" — and a preview alone
+    /// cannot say that.
+    public static func age(of clip: Clip, now: Date = Date()) -> String {
+        let seconds = max(0, now.timeIntervalSince(clip.created))
+        if seconds < 45 { return "now" }
+        if seconds < 3600 { return "\(Int(seconds / 60))m" }
+        if seconds < 86_400 { return "\(Int(seconds / 3600))h" }
+        return "\(Int(seconds / 86_400))d"
+    }
+
     /// The recents alphabet: home row, left to right, so the keys under
     /// your fingers sit in the same order as the cards under your eyes.
     /// Its own alphabet, not the hints one — hint labels are arbitrary

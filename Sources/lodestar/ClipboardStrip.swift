@@ -25,6 +25,7 @@ final class ClipboardStrip {
     /// look at every day.
     private static let cardHeight: CGFloat = 112
     private static let gap: CGFloat = 10
+    private static let searchHeight: CGFloat = 54
     private static let margin: CGFloat = 22
 
     var isVisible: Bool { panel.isVisible }
@@ -63,7 +64,8 @@ final class ClipboardStrip {
 
         let stripWidth = CGFloat(max(visibleRecents.count, 1)) * (Self.cardWidth + Self.gap) - Self.gap
         let pinColumnHeight = CGFloat(Clipboard.pinSlots) * (Self.cardHeight + Self.gap)
-        let height = Self.cardHeight + Self.gap + pinColumnHeight + (query != nil ? 34 : 0)
+        let height = Self.cardHeight + Self.gap + pinColumnHeight
+            + (query != nil ? Self.searchHeight + Self.gap : 0)
         let width = max(stripWidth, Self.cardWidth) + Self.margin * 2
 
         let frame = NSRect(x: screen.minX + Self.margin,
@@ -84,8 +86,8 @@ final class ClipboardStrip {
 
         var y: CGFloat = 0
         if let query {
-            addSearchField(query: query, width: root.bounds.width)
-            y = 34
+            addSearchField(query: query, width: max(stripWidth, Self.cardWidth))
+            y = Self.searchHeight + Self.gap
         }
 
         // Recents: the bottom row, newest at the left where the pins are.
@@ -127,7 +129,7 @@ final class ClipboardStrip {
 
     private func makeCard(clip: Clipboard.Clip, label: String, height: CGFloat,
                           thumbnail: NSImage?, highlighted: Bool) -> NSView {
-        let card = glassPlate(radius: BarTheme.rowRadius, highlighted: highlighted)
+        let card = glassPlate(radius: BarTheme.rowRadius, weight: highlighted ? .highlighted : .normal)
 
         let chip = NSTextField(labelWithString: label.uppercased())
         chip.font = BarTheme.chipFont
@@ -160,15 +162,18 @@ final class ClipboardStrip {
             icon.alphaValue = 0.7
             card.addSubview(icon)
         }
+
+        let age = NSTextField(labelWithString: Clipboard.age(of: clip))
+        age.font = .systemFont(ofSize: 10, weight: .medium)
+        age.textColor = .tertiaryLabelColor
+        age.sizeToFit()
+        age.frame.origin = NSPoint(x: Self.cardWidth - age.frame.width - 11, y: 8)
+        card.addSubview(age)
         return card
     }
 
     private func makeEmptyPin(slot: Int) -> NSView {
-        let card = NSView()
-        card.wantsLayer = true
-        card.layer?.cornerRadius = BarTheme.rowRadius
-        card.layer?.borderWidth = 1
-        card.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.5).cgColor
+        let card = glassPlate(radius: BarTheme.rowRadius, weight: .empty)
         let chip = NSTextField(labelWithString: "\(slot)")
         chip.font = BarTheme.chipFont
         chip.textColor = .tertiaryLabelColor
@@ -178,22 +183,64 @@ final class ClipboardStrip {
         return card
     }
 
+    /// The same input surface the searcher and the web bar use, sitting
+    /// directly under the cards it filters. A typed prefix read as a vim
+    /// prompt; a glass field with a magnifier reads as the thing everyone
+    /// already knows a search box to be.
     private func addSearchField(query: String, width: CGFloat) {
-        let field = NSTextField(labelWithString: "/ \(query)")
-        field.font = BarTheme.titleFont
-        field.textColor = .labelColor
-        field.frame = NSRect(x: 4, y: 4, width: width - 8, height: 26)
-        root.addSubview(field)
+        let plate = glassPlate(radius: BarTheme.glassRadius, weight: .normal)
+        plate.frame = NSRect(x: 0, y: 0, width: width, height: Self.searchHeight)
+
+        let symbol = NSImageView(image: NSImage(
+            systemSymbolName: "magnifyingglass",
+            accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 15, weight: .medium)) ?? NSImage())
+        symbol.contentTintColor = .secondaryLabelColor
+        symbol.frame = NSRect(x: 18, y: (Self.searchHeight - 18) / 2, width: 18, height: 18)
+        plate.addSubview(symbol)
+
+        let field = NSTextField(labelWithString: query.isEmpty ? "Search clips" : query)
+        field.font = .systemFont(ofSize: 19, weight: .regular)
+        field.textColor = query.isEmpty ? .tertiaryLabelColor : .labelColor
+        field.lineBreakMode = .byTruncatingHead
+        field.sizeToFit()
+        field.frame = NSRect(x: 46, y: (Self.searchHeight - field.frame.height) / 2,
+                             width: min(field.frame.width, width - 70), height: field.frame.height)
+        plate.addSubview(field)
+
+        // A still caret, never a blinking one — nothing in Lodestar pulses.
+        if !query.isEmpty {
+            let caret = NSView()
+            caret.wantsLayer = true
+            caret.layer?.backgroundColor = NSColor.tertiaryLabelColor.cgColor
+            caret.frame = NSRect(x: field.frame.maxX + 3,
+                                 y: (Self.searchHeight - 20) / 2, width: 1.5, height: 20)
+            plate.addSubview(caret)
+        }
+        root.addSubview(plate)
+    }
+
+    enum Weight {
+        case normal, highlighted
+        /// An empty pin slot: present, reserved, and quiet. An outline over
+        /// a busy terminal reads as a hard rectangle drawn on the content;
+        /// the same glass at a fraction of the scrim reads as an empty pane.
+        case empty
     }
 
     /// The locked recipe: clear liquid glass over a scrim of our own, never
     /// a tint — tinting flashes, because the glass animates it internally
     /// beyond a transaction's reach.
-    private func glassPlate(radius: CGFloat, highlighted: Bool) -> NSView {
+    private func glassPlate(radius: CGFloat, weight: Weight = .normal) -> NSView {
         let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let base: CGFloat
+        switch weight {
+        case .normal: base = dark ? 0.45 : 0.55
+        case .highlighted: base = dark ? 0.62 : 0.72
+        case .empty: base = dark ? 0.16 : 0.22
+        }
         let scrim = NSView()
         scrim.wantsLayer = true
-        let base: CGFloat = highlighted ? (dark ? 0.62 : 0.72) : (dark ? 0.45 : 0.55)
         scrim.layer?.backgroundColor = (dark
             ? NSColor.black.withAlphaComponent(base)
             : NSColor.white.withAlphaComponent(base)).cgColor

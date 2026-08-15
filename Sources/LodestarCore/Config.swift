@@ -73,6 +73,10 @@ public struct Config {
     /// Watch how you reach things, locally, to make suggestions later. Off
     /// means nothing is recorded and no file is written.
     public var observationsEnabled = true
+    /// What to call you. Used sparingly, in the welcome and in a digest, never
+    /// in a routine flash: a coach who says your name every time is not a
+    /// coach. Empty means no salutation at all rather than "hey there".
+    public var yourName = ""
     /// Keycode → key-name overlays on the built-in ANSI table.
     public var keyOverrides: [Int64: String] = [:]
     public var graph: GraphNode = GraphNode()
@@ -154,6 +158,9 @@ public struct Config {
             "exclude": .freeTable(value: .boolean(description: "true to never record clips containing this text."),
                                   description: "Substring → true, matched case-insensitively against the clip. The same shape web.routes uses."),
         ], description: "Clipboard history."),
+        "you": .table([
+            "name": .string(allowed: nil, description: "What Lodestar should call you. Left empty it addresses you as nobody in particular, which is better than a guess."),
+        ], description: "About the person, rather than the program."),
         "observations": .table([
             "enabled": .boolean(description: "Watch how you reach things, on this machine only, to suggest improvements later."),
         ], description: "Local observations. Counts, never content; nothing leaves the machine."),
@@ -381,6 +388,9 @@ public struct Config {
                     problems.append("web.routes.\(pattern) references unknown profile '\(profile)'")
                 }
             }
+        }
+        if let name = effective.value(at: ["you", "name"])?.string {
+            config.yourName = name.trimmingCharacters(in: .whitespaces)
         }
         if let enabled = effective.value(at: ["observations", "enabled"])?.bool {
             config.observationsEnabled = enabled

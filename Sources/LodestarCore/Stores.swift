@@ -43,6 +43,10 @@ public struct PersistedState: Codable {
     public var latestBreath: String?
     public var parked: [UInt32: CGRect] = [:]
     public var usage: [String: UsageRecord]?
+    /// The release whose walkthrough has been seen. Machine owned, so it lives
+    /// here rather than in the config: nobody should have to edit a file to
+    /// stop being shown a tour.
+    public var onboardedVersion: String?
 }
 
 /// Breaths and parking bookkeeping — saved on every change so a crash or
@@ -171,6 +175,15 @@ public final class StateStore {
         guard let memberIndex = state.breaths[index].members.firstIndex(where: { $0.windowID == oldID }) else { return }
         state.breaths[index].members[memberIndex].windowID = newID
         state.breaths[index].members[memberIndex].title = title
+        save()
+    }
+
+    // MARK: - Onboarding
+
+    public var onboardedVersion: String? { state.onboardedVersion }
+
+    public func markOnboarded(version: String) {
+        state.onboardedVersion = version
         save()
     }
 

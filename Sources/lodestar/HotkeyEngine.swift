@@ -15,6 +15,12 @@ final class HotkeyEngine {
     /// Where observations land. Nil until the app wires one, so the engine
     /// works identically with nobody watching.
     var observations: ObservationStore?
+    /// While a modal walkthrough is up it owns the gestures it is teaching.
+    /// Returning true swallows the key, which is what stops practising
+    /// `lode space` from opening the real searcher behind the lesson — or
+    /// worse, letting ⌘space through to Spotlight. Anything it declines passes
+    /// to the system untouched, so ⌘Q still works.
+    var interceptor: ((_ key: String, _ held: Bool, _ shift: Bool) -> Bool)?
 
     /// Chain timing, for the one measurement that says whether an address has
     /// compiled into muscle memory: the pauses inside it. The first stamp is
@@ -189,6 +195,8 @@ final class HotkeyEngine {
             return Unmanaged.passUnretained(event)
         }
         let (held, shift) = classify(event.flags)
+
+        if let interceptor, interceptor(key, held, shift) { return nil }
 
         // ⇧⌘V opens the clipboard strip — but only while lode is *not* the
         // command being held. Right ⌘ is the lode trigger, so lode ⇧V has to

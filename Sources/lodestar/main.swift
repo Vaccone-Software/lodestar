@@ -71,6 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// is what stops that link from being the one that vanishes.
     private var pendingClicks: [URL] = []
     private var defaultBrowserItem: NSMenuItem?
+    private let onboarding = OnboardingController()
 
     /// Links clicked in other apps land here. Deliberately the shortest path
     /// in the app: it needs the config and nothing else — not the window
@@ -214,6 +215,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         rememberDefaultBrowser()
         adoptBrowserRoleIfNeeded()
         confirmClickRoutingHealthy()
+        installOnboarding()
 
         guard Permissions.isTrusted else {
             // A freshly installed bundle has its own TCC identity. Prompt,
@@ -312,6 +314,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         header.isEnabled = false
         menu.addItem(header)
         menu.addItem(.separator())
+        menu.addItem(makeItem("How Lodestar Works…", #selector(showOnboarding), key: ""))
         menu.addItem(makeItem("Check for Updates…", #selector(checkForUpdates), key: ""))
         menu.addItem(makeItem("Report an Issue…", #selector(reportIssue), key: ""))
         menu.addItem(.separator())
@@ -409,6 +412,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         }
         graphAddressByApp = map
+    }
+
+    // MARK: - Onboarding
+
+    private func installOnboarding() {
+        onboarding.config = config
+        onboarding.appIndex = appIndex
+        onboarding.acceptGraph = { [weak self] proposals in
+            self?.acceptStarterGraph(proposals)
+        }
+        onboarding.routeClickedLinks = { [weak self] in self?.becomeDefaultBrowser() }
+        onboarding.onFinished = { [weak self] in
+            guard let self else { return }
+            self.engine.interceptor = nil
+            self.store.markOnboarded(version: Lodestar.version)
+        }
+
+        // Shown once per release, and never in the same breath as an update:
+        // the updater applies when you are idle, so a full screen panel on that
+        // boot would be waiting for you when you came back rather than opening
+        // because you asked for something.
+        guard store.onboardedVersion != Lodestar.version, !updater.justUpdated else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+            self?.showOnboarding()
+        }
+    }
+
+    @objc private func showOnboarding() {
+        guard !onboarding.isVisible else { return }
+        onboarding.config = config
+        engine.interceptor = { [weak self] key, held, shift in
+            self?.onboarding.handle(key: key, held: held, shift: shift) ?? false
+        }
+        onboarding.show(startingAt: Permissions.isTrusted)
+    }
+
+    /// The drafted graph, accepted. Written one address at a time through the
+    /// same editor ⌘K uses, so what onboarding produces is indistinguishable
+    /// from what a hand edit would have.
+    private func acceptStarterGraph(_ proposals: [StarterGraph.Proposal]) -> String? {
+        guard !proposals.isEmpty else { return nil }
+        let shown = proposals.map { $0.letter.uppercased() }.joined(separator: " ")
+        return rewriteConfig(flash: "✓ graph: \(shown)", logged: "starter graph \(proposals.count)") { tree in
+            var updated = tree
+            for proposal in proposals {
+                updated = try GraphJsonEditor.addingPath([proposal.letter],
+                                                         target: proposal.app, in: updated)
+            }
+            return updated
+        }
     }
 
     // MARK: - Clicked links

@@ -59,6 +59,9 @@ public enum ConfigDefaults {
             "exclude-apps": .table([:]),
             "exclude": .table([:]),
         ]),
+        "you": .table([
+            "name": .string(""),
+        ]),
         "observations": .table([
             "enabled": .bool(true),
         ]),

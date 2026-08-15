@@ -46,6 +46,11 @@ final class UpdateController {
     /// watchdog blesses it. True exactly while Lodestar holds the http role.
     var requiresRouting: () -> Bool = { false }
 
+    /// True when this launch is the one that completed an update, which is a
+    /// bad moment to put anything modal on screen: the swap happens while you
+    /// are away.
+    private(set) var justUpdated = false
+
     /// The successor's own voice, at boot: the router answered. Written with
     /// this process's pid so no earlier build's marker can stand in for it.
     func confirmRoutingHealthy() {
@@ -117,6 +122,7 @@ final class UpdateController {
         let rolledBack = Self.directory.appendingPathComponent("rolled-back")
         if let version = try? String(contentsOf: updated, encoding: .utf8),
            version == Lodestar.version {
+            justUpdated = true
             try? FileManager.default.removeItem(at: updated)
             Log.info("update", ["phase": "completed", "version": version])
             DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [flash] in

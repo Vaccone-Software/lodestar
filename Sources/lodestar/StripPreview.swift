@@ -99,6 +99,15 @@ enum StripPreview {
             app.run()
         }
 
+        // 20…26 walk the onboarding screens; 30…36 the same screens with their
+        // lesson already performed.
+        if (20...36).contains(variant) {
+            let held = OnboardingController.preview(variant >= 30 ? variant - 30 : variant - 20,
+                                                    performed: variant >= 30)
+            _ = held
+            app.run()
+        }
+
         if (9...14).contains(variant) {
             let held = OptionsCard.preview(variant - 8)
             _ = held

@@ -69,6 +69,7 @@ final class HotkeyEngine {
         self.scroller = scroller
         self.hints = hints
         self.clipboard = clipboard
+        clipboard.onCapture = { [weak self] in self?.refreshStripIfOpen() }
         applyGrammarConfig()
     }
 
@@ -485,11 +486,22 @@ extension HotkeyEngine: EngineWorld {
     func breathDelete(_ letters: [String]) -> ChainStep { actions.deleteBreathStep(letters) }
     func breathUpdateLatest() -> ChainStep { actions.updateLatestBreath() }
 
+    /// Something new landed on the pasteboard. If the strip is up it is a
+    /// live view, so it shows the arrival immediately — copy with the cards
+    /// open and the new clip is simply the first one.
+    private func refreshStripIfOpen() {
+        switch core.state {
+        case .paste, .pastePanel: renderStrip()
+        default: break
+        }
+    }
+
     /// Redraw the strip for the current query and selection. Cheap: the
     /// previews are already in memory and the thumbnails already decoded.
     private func renderStrip() {
         let all = clipboard.history.clips
         let recents = pasteQuery.map { Clipboard.search(all, query: $0) } ?? Clipboard.recents(all)
+        pasteSelection = max(0, min(pasteSelection, max(0, recents.count - 1)))
         strip.show(recents: recents, pins: Clipboard.pins(all),
                    thumbnail: { [clipboard] id in clipboard.history.thumbnail(for: id) },
                    query: pasteQuery, selection: pasteSelection)

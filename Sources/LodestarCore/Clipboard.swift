@@ -109,6 +109,12 @@ public enum Clipboard {
         return collapsed.count <= limit ? collapsed : String(collapsed.prefix(limit))
     }
 
+    /// The recents alphabet: home row, left to right, so the keys under
+    /// your fingers sit in the same order as the cards under your eyes.
+    /// Its own alphabet, not the hints one — hint labels are arbitrary
+    /// assignments to screen positions, these are ordinal.
+    public static let recentLabels = Array("asdfghjkl").map(String.init)
+
     // MARK: - Pins
 
     /// Pins are slots, not a list. A slot's meaning must never change, or

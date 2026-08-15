@@ -534,7 +534,9 @@ public struct EngineCore {
             return [.pasteSearchBegin]
         case _ where Self.isDigit(key):
             // Digits address the pinned column; the slots are few and fixed.
-            guard let slot = Int(key), slot >= 1, slot <= Clipboard.pinSlots else { return [] }
+            guard let slot = Int(key), slot >= 1, slot <= Clipboard.pinSlots else {
+                return command ? [.passThrough] : []
+            }
             if action == .panel {
                 state = .pastePanel
                 return [.pastePinned(slot: slot, action: .panel), .pastePanelShow]
@@ -542,8 +544,12 @@ public struct EngineCore {
             state = .idle
             return [.pastePinned(slot: slot, action: action), .exitPaste]
         case _ where Self.isLetter(key):
-            // Any letter is a candidate label; the strip ignores the ones it
-            // has no card for, so the grammar needs no alphabet of its own.
+            // A letter outside the alphabet is not a label. Carrying ⌘ it
+            // belongs to the app underneath — ⌘C while the strip is up must
+            // still copy, and the new clip simply appears as the first card.
+            guard Clipboard.recentLabels.contains(key) else {
+                return command ? [.passThrough] : []
+            }
             if action == .panel {
                 state = .pastePanel
                 return [.pasteRecent(label: key, action: .panel), .pastePanelShow]

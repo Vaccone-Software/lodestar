@@ -12,11 +12,7 @@ import LodestarCore
 /// are typing in keeps focus and its insertion point the whole time. That is
 /// what lets the paste be a plain ⌘V into an app that never lost the cursor.
 final class ClipboardStrip {
-    /// The recents alphabet: home row, left to right, so the keys under your
-    /// fingers are laid out in the same order as the cards under your eyes.
-    /// Its own alphabet, not the hints one — hint labels are arbitrary
-    /// assignments to screen positions, these are ordinal.
-    static let labels = Array("asdfghjkl").map(String.init)
+    static let labels = Clipboard.recentLabels
 
     private let panel: NSPanel
     private let root = NSView()

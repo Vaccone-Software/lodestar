@@ -229,3 +229,32 @@ final class PasteModeTests: XCTestCase {
         XCTAssertEqual(core.state, .paste(searching: false))
     }
 }
+
+extension PasteModeTests {
+    /// ⌘C while the strip is up must still copy. The alphabet has no c, x,
+    /// v or z, so the app's own shortcuts pass straight through and the new
+    /// clip simply appears as the first card.
+    func testCommandShortcutsOutsideTheAlphabetPassThrough() {
+        _ = core.openPaste(world: world)
+        for key in ["c", "x", "v", "z"] {
+            XCTAssertFalse(Clipboard.recentLabels.contains(key), "\(key) must not be a label")
+            XCTAssertEqual(core.keyDown(key: key, held: false, shift: false,
+                                        command: true, world: world), [.passThrough])
+            XCTAssertEqual(core.state, .paste(searching: false), "and the strip stays up")
+        }
+    }
+
+    func testNonLabelLettersWithoutCommandAreStillSwallowed() {
+        _ = core.openPaste(world: world)
+        XCTAssertEqual(core.keyDown(key: "c", held: false, shift: false,
+                                    command: false, world: world), [], "mode discipline")
+    }
+
+    func testDigitsBeyondThePinsPassThroughWithCommand() {
+        _ = core.openPaste(world: world)
+        XCTAssertEqual(core.keyDown(key: "7", held: false, shift: false,
+                                    command: true, world: world), [.passThrough])
+        XCTAssertEqual(core.keyDown(key: "7", held: false, shift: false,
+                                    command: false, world: world), [])
+    }
+}

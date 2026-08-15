@@ -17,6 +17,8 @@ final class ClipboardController {
     private var selfWrittenChangeCount = -1
 
     var flash: (String) -> Void = { _ in }
+    /// Fired after a clip is recorded, so an open strip can show it at once.
+    var onCapture: (() -> Void)?
     var excludedApps: Set<String> = []
     var excludedPatterns: [String] = []
     var maxBytes = 500_000_000
@@ -87,6 +89,7 @@ final class ClipboardController {
                      sourceBundleID: source?.bundleIdentifier,
                      sourceAppName: source?.localizedName)
         store.trim(maxBytes: maxBytes, maxItems: maxItems)
+        onCapture?()
     }
 
     // MARK: - Pasting

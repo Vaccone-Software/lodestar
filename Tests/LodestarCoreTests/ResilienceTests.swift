@@ -91,18 +91,17 @@ final class StateStoreTests: XCTestCase {
         try? FileManager.default.removeItem(at: directory)
     }
 
-    private func makeMark(_ path: String) -> MarkRecord {
-        MarkRecord(path: path, windowID: 1, bundleID: nil, appName: "App",
-                   title: "T", frame: .zero)
+    private func makeBreath(_ path: String) -> BreathRecord {
+        BreathRecord(path: path, orientation: "horizontal", members: [])
     }
 
     func testRoundTripStampsVersion() {
         let store = StateStore(file: file)
-        store.setMark(makeMark("q"))
+        store.setBreath(makeBreath("q"))
 
         let reloaded = StateStore(file: file)
         reloaded.load()
-        XCTAssertEqual(reloaded.state.marks.map(\.path), ["q"])
+        XCTAssertEqual(reloaded.state.breaths.map(\.path), ["q"])
         XCTAssertEqual(reloaded.state.version, Lodestar.stateVersion)
         XCTAssertNil(reloaded.bootWarning)
     }
@@ -120,16 +119,29 @@ final class StateStoreTests: XCTestCase {
         XCTAssertEqual(raw["version"] as? Int, Lodestar.stateVersion)
     }
 
+    /// Marks retired in 0.9.14: a file still carrying them loads without
+    /// complaint, and the next save writes the key away.
+    func testRetiredMarksKeyDecodesAwayQuietly() {
+        let legacy = #"{"version":1,"marks":[{"path":"q","windowID":1,"appName":"App","title":"T","frame":{"origin":{"x":0,"y":0},"size":{"width":1,"height":1}}}],"breaths":[],"parked":[]}"#
+        try! legacy.data(using: .utf8)!.write(to: file)
+        let store = StateStore(file: file)
+        store.load()
+        XCTAssertNil(store.bootWarning, "a legacy marks key is not corruption")
+        store.save()
+        let raw = try! JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! [String: Any]
+        XCTAssertNil(raw["marks"], "the retired key does not survive a save")
+    }
+
     func testCorruptionRestoresFromBackup() {
         let store = StateStore(file: file)
-        store.setMark(makeMark("q"))
+        store.setBreath(makeBreath("q"))
         store.load() // a good load writes the .bak generation
 
         try! "{ definitely not json".data(using: .utf8)!.write(to: file)
         let recovered = StateStore(file: file)
         recovered.load()
 
-        XCTAssertEqual(recovered.state.marks.map(\.path), ["q"], "backup carried the marks")
+        XCTAssertEqual(recovered.state.breaths.map(\.path), ["q"], "backup carried the breaths")
         XCTAssertNotNil(recovered.bootWarning)
         let quarantined = try! FileManager.default.contentsOfDirectory(atPath: directory.path)
             .filter { $0.contains("corrupt") }
@@ -140,7 +152,7 @@ final class StateStoreTests: XCTestCase {
         try! "nope".data(using: .utf8)!.write(to: file)
         let store = StateStore(file: file)
         store.load()
-        XCTAssertTrue(store.state.marks.isEmpty)
+        XCTAssertTrue(store.state.breaths.isEmpty)
         XCTAssertNotNil(store.bootWarning)
     }
 

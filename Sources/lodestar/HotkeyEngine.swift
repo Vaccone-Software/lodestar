@@ -283,7 +283,7 @@ final class HotkeyEngine {
                 self.hud.showGuide(
                     title: "⌖ graph",
                     rows: self.actions.graphGuideRows(self.config.graph),
-                    footer: "letter to go · space searcher · ⏎ web · ; hints · ` marks · ' breaths · ? everything · release to dismiss"
+                    footer: "letter to go · space searcher · ⏎ web · ; hints · ' breaths · ? everything · release to dismiss"
                 )
                 self.badges.show(self.actions.indexBadgeItems())
             }
@@ -343,13 +343,6 @@ final class HotkeyEngine {
             }
             hud.showGuide(title: "⌖ \(prefix.isEmpty ? "graph" : prefix)", rows: rows,
                           footer: footer(note: note, base: "esc clears"))
-        case .mark:
-            let rows = actions.markGuide(prefix: letters.joined())
-            let title = deleting ? "◆ delete mark \(prefix)" : "◆ mark \(prefix)"
-            let base = deleting
-                ? "type a path to delete it · ⌫ disarms · esc clears"
-                : "letter goes · ⇧letter binds here · ⌫ arms delete · esc clears"
-            hud.showGuide(title: title, rows: rows, footer: footer(note: note, base: base))
         case .breath:
             var rows = actions.breathGuide(prefix: letters.joined())
             if letters.isEmpty && !deleting {
@@ -384,7 +377,6 @@ final class HotkeyEngine {
             GuideRow(key: "X", label: "back · ⇧X forward — the attention timeline"),
             GuideRow(key: "⇧1…9", label: "slide the focused window to that position"),
             GuideRow(key: "[ ]", label: "move window to prev/next display — ⇧ beside"),
-            GuideRow(key: "`", label: "marks — ⇧ binds · ⌫ deletes"),
             GuideRow(key: "'", label: "breaths — ' ' updates latest"),
             GuideRow(key: "hold", label: "peek the graph + window indexes"),
             GuideRow(key: "?", label: "this sheet — whenever you forget"),
@@ -393,7 +385,6 @@ final class HotkeyEngine {
         return [
             .init(header: "verbs", rows: verbs),
             .init(header: "graph", rows: actions.graphCheatRows(config.graph)),
-            .init(header: "marks", rows: actions.markGuide(prefix: "")),
             .init(header: "breaths", rows: actions.breathGuide(prefix: "")),
         ]
     }
@@ -423,9 +414,6 @@ extension HotkeyEngine: EngineWorld {
         }
     }
 
-    func markGo(_ letters: [String]) -> ChainStep { actions.markChain(letters) }
-    func markBind(_ letters: [String]) -> ChainStep { actions.bindMark(letters) }
-    func markDelete(_ letters: [String]) -> ChainStep { actions.deleteMarkStep(letters) }
     func breathGo(_ letters: [String]) -> ChainStep { actions.breathChain(letters) }
     func breathBind(_ letters: [String]) -> ChainStep { actions.bindBreath(letters) }
     func breathDelete(_ letters: [String]) -> ChainStep { actions.deleteBreathStep(letters) }

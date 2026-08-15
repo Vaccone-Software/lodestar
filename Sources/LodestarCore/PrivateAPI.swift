@@ -2,7 +2,7 @@ import ApplicationServices
 
 // The single private call this project allows itself — the same one, and the
 // only one, widely relied upon in this category. It bridges an AX window element to its
-// CGWindowID: the durable handle marks and breaths pin to. Read-only, and it
+// CGWindowID: the durable handle breaths pin to. Read-only, and it
 // works with SIP fully enabled.
 @_silgen_name("_AXUIElementGetWindow")
 @discardableResult

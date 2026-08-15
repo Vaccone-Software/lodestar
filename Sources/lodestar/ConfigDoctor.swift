@@ -150,7 +150,7 @@ func runDiagnose() -> Never {
 
     let store = StateStore()
     store.load()
-    lines.append("state: \(store.state.marks.count) marks, \(store.state.breaths.count) breaths, \(store.state.parked.count) parked, version \(store.state.version.map(String.init) ?? "unversioned")")
+    lines.append("state: \(store.state.breaths.count) breaths, \(store.state.parked.count) parked, version \(store.state.version.map(String.init) ?? "unversioned")")
     if let warning = store.bootWarning { lines.append("  ⚠ \(warning)") }
     lines.append("")
 
@@ -205,7 +205,7 @@ func runResetConfig() -> Never {
 }
 
 /// Remove lodestar from the machine: agent, PATH link, app bundle. User
-/// data (config, marks, breaths) stays unless --purge; --dry-run prints
+/// data (config, breaths) stays unless --purge; --dry-run prints
 /// the plan and touches nothing. A clean exit is part of professionalism.
 func runUninstall(dryRun: Bool, purge: Bool) -> Never {
     let fm = FileManager.default
@@ -234,13 +234,13 @@ func runUninstall(dryRun: Bool, purge: Bool) -> Never {
         plan.append(("remove \(appBundle.path)", { try? fm.removeItem(at: appBundle) }))
     }
     if purge {
-        plan.append(("remove \(dataDir.path) — config, marks, breaths, logs", { try? fm.removeItem(at: dataDir) }))
+        plan.append(("remove \(dataDir.path) — config, breaths, logs", { try? fm.removeItem(at: dataDir) }))
     }
 
     if dryRun {
         print("uninstall would:")
         for (step, _) in plan { print("  • \(step)") }
-        if !purge { print("  (keeping \(dataDir.path) — add --purge to remove your config and marks)") }
+        if !purge { print("  (keeping \(dataDir.path) — add --purge to remove your config and breaths)") }
         exit(0)
     }
     for (step, action) in plan {
@@ -248,7 +248,7 @@ func runUninstall(dryRun: Bool, purge: Bool) -> Never {
         action()
     }
     if !purge {
-        print("kept \(dataDir.path) — your config, marks, and breaths survive a reinstall")
+        print("kept \(dataDir.path) — your config and breaths survive a reinstall")
         print("(remove it later with: lodestar uninstall --purge, or rm -rf)")
     }
     print("✓ Lodestar uninstalled. The Accessibility entry can be removed in System Settings → Privacy & Security.")

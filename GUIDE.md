@@ -12,8 +12,6 @@ Lode is **right ⌘** (configurable in `~/.config/lodestar/lodestar.json`).
 | `lode 1…8`                    | Jump to window by position (left→right, top→bottom)                     |
 | `lode 9`                      | Always the last window                                                  |
 | `lode O`                      | Flip layout horizontal ↔ vertical                                       |
-| `` lode ` `` + letters        | Marks (vim's goto-mark key): letter(s) navigate to a bound window       |
-| `` lode ` `` + `⇧letter`      | Bind (or rebind) that path to the focused window                        |
 | `lode '` + letters            | Breaths: letter(s) restore a saved layout                               |
 | `lode '` + `⇧letter`          | Save the current layout at that path                                    |
 | `lode ' '`                    | Update the latest breath to the current layout                          |
@@ -29,9 +27,9 @@ Lode is **right ⌘** (configurable in `~/.config/lodestar/lodestar.json`).
 | `lode X` / `lode ⇧X`         | Back / forward — walk the attention timeline (previous destinations)    |
 | `lode ⇧1…9`                   | Slide the focused window to that position (insert-and-shift, 9 = last)  |
 | `lode 0`                      | Sweep: park every background window not in the layout (never dialogs)   |
-| `⌫` inside marks/breaths       | Arm delete — the next path typed is deleted, not visited                |
+| `⌫` inside breaths             | Arm delete — the next path typed is deleted, not visited                |
 | hold `lode` alone             | Peek: the graph guide + index badges over each layout window            |
-| `lode ?`                      | The cheat sheet — every gesture, your live graph/marks/breaths          |
+| `lode ?`                      | The cheat sheet — every gesture, your live graph and breaths          |
 | `esc`                          | Clear an active chain                                                   |
 
 ## Chains are sticky, on purpose
@@ -40,15 +38,13 @@ Once a traversal starts (`lode W`, `` lode ` ``, …) it waits **indefinitely** 
 
 ## Searcher ranking & teaching
 
-Results are ranked by fuzzy match quality **plus frecency** — every summon (graph, mark, searcher) counts toward the app's score, decayed by recency. An empty query shows the things you actually go to, most-used first. Rows carry teaching chips: an app with a graph address shows it (`E P` on Proton Mail), a running app with several windows shows `⇥ 3` (Tab expands it), and marked windows show their mark path (`◆ Q`) — every search is a flashcard for the faster gesture. The window chooser lists most-recently-focused first, with the window you're already in last; `esc` walks back to apps when you arrived via Tab. Row views are cached — typing repaints, never rebuilds. Guide columns adapt to your screen (a laptop gets two, a big display three or four), and flashes wear the icon of the app they acted on.
+Results are ranked by fuzzy match quality **plus frecency** — every summon (graph, searcher) counts toward the app's score, decayed by recency. An empty query shows the things you actually go to, most-used first. Rows carry teaching chips: an app with a graph address shows it (`E P` on Proton Mail), a running app with several windows shows `⇥ 3` (Tab expands it) — every search is a flashcard for the faster gesture. The window chooser lists most-recently-focused first, with the window you're already in last; `esc` walks back to apps when you arrived via Tab. Row views are cached — typing repaints, never rebuilds. Guide columns adapt to your screen (a laptop gets two, a big display three or four), and flashes wear the icon of the app they acted on.
 
-## Marks & breaths mechanics
+## Breath mechanics
 
 - Bound paths are prefix-free automatically (a path resolves the instant it matches, so nothing deeper can ever be created past it — and binding a prefix of an existing path is refused as shadowing).
-- `⇧letter` on an existing path **rebinds** it to the focused window (marks) or overwrites the snapshot (breaths).
-- A mark whose window was closed re-matches best-effort (same app, closest title) or relaunches the app and rebinds itself.
+- `⇧letter` on an existing path overwrites that snapshot.
 - Delete is verb-before-noun: `⌫` inside the chain arms deletion (the guide shows it), then the path you type is deleted instead of visited. `⌫` again disarms.
-- Marks summon plain (full-screen) — shift now means bind, so beside-summon for marks specifically is retired.
 
 ## Multiple monitors
 
@@ -107,7 +103,7 @@ and every writer — a hand edit, ⌘K in the searcher, `lodestar config set`
 }
 ```
 
-Nested letters are the trie; values are an app name or `<browser>:<registry key>` (`brave:work`, `chrome:work`). **Multi-letter keys are sugar**: `"eo": "Outlook"` binds the chain E → O without writing the nesting (any depth: `wgg` works); a multi-letter key whose prefix is already a destination is refused with a validation problem. **Double-taps** (the `double-tap` section) bind a modifier tapped twice alone — `"cmd": "scroll"` makes tap-tap-⌘ enter scroll mode — as additional triggers; every default gesture stays. **Disabling** (the `gestures` section) gives every gesture a named switch — `"scroll": false` frees its keys to pass through to the app, shift variants included. Reserved first letters: `O`, `Z`, `X`. Marks and breaths live on vim's two mark keys — `` ` `` for a saved window, `'` for a saved layout — so M is Messages and B is free to bind. Deleting a key restores its default; `lodestar config` prints the full effective picture. Menu bar → Reload Config applies edits and reports every validation problem.
+Nested letters are the trie; values are an app name or `<browser>:<registry key>` (`brave:work`, `chrome:work`). **Multi-letter keys are sugar**: `"eo": "Outlook"` binds the chain E → O without writing the nesting (any depth: `wgg` works); a multi-letter key whose prefix is already a destination is refused with a validation problem. **Double-taps** (the `double-tap` section) bind a modifier tapped twice alone — `"cmd": "scroll"` makes tap-tap-⌘ enter scroll mode — as additional triggers; every default gesture stays. **Disabling** (the `gestures` section) gives every gesture a named switch — `"scroll": false` frees its keys to pass through to the app, shift variants included. Reserved first letters: `O`, `Z`, `X`. Breaths live on `'`, vim's mark key for a saved position, so M is Messages and B is free to bind. Deleting a key restores its default; `lodestar config` prints the full effective picture. Menu bar → Reload Config applies edits and reports every validation problem.
 
 **Migrating from 0.9.9 and earlier**: the first boot of 0.9.10 converts
 `lodestar.yaml` to `lodestar.json` automatically — same settings, sparse
@@ -122,7 +118,7 @@ it. A yaml that fails to parse is never converted.
 - CLI: `lodestar check [--json]` validates the config (schema + referential + ground truth); `lodestar reload` applies it to the running instance; `lodestar config` prints the effective config, `config get <path>` one value, `config set <path> <value>` a validated write applied live, `config unset <path>` the way back to default; `lodestar diagnose` prints one paste-able report (version, instance, trust, displays, config, state, log tail); `lodestar schema` and `lodestar config-path` serve tools and agents — see AGENTS.md for the agent contract.
 - `scripts/install-app.sh` — build, sign, and install `~/Applications/lodestar.app` with a login LaunchAgent, so Lodestar survives reboots. **First install**: grant the app Accessibility when it prompts (System Settings → Privacy & Security → Accessibility) — Lodestar wakes up on its own within seconds of the grant. Signed with your Apple Development identity, so the grant survives rebuilds.
 - `scripts/dev-restart.sh` — rebuild + hot-swap (unloads the login agent so launchd doesn't fight the dev instance).
-- State: `~/.config/lodestar/state.json` (marks, breaths, parked frames, usage) — **versioned and self-defending**: every boot keeps a last-known-good `state.json.bak`; a corrupted file is quarantined with a timestamp, restored from backup, and announced in a flash — never silently reset. Old formats migrate on load. Log: `lodestar.log`. `kill -USR1 $(cat ~/.config/lodestar/lodestar.pid)` dumps diagnostics to the log.
+- State: `~/.config/lodestar/state.json` (breaths, parked frames, usage) — **versioned and self-defending**: every boot keeps a last-known-good `state.json.bak`; a corrupted file is quarantined with a timestamp, restored from backup, and announced in a flash — never silently reset. Old formats migrate on load. Log: `lodestar.log`. `kill -USR1 $(cat ~/.config/lodestar/lodestar.pid)` dumps diagnostics to the log.
 - Versions: the binary knows its version (`lodestar 0.9.0 starting` in the log, shown in the menu header), and both `state.json` and `lodestar.json` record the release that wrote them — schema changes migrate the file at boot, with the writing release always on record.
 
 ## Config DX

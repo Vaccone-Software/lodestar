@@ -323,7 +323,7 @@ func runWatch(_ args: inout [String]) {
     print("vanished, then BACK with the same id   : \(revealed)")
     if churnedWindows > 0 || !departed.isEmpty {
         print("VERDICT: truly closed windows come back with fresh CGWindowIDs (expected on macOS).")
-        print("A close is a hard identity break: marks/breaths survive one only by best-effort re-matching.")
+        print("A close is a hard identity break: breaths survive one only by best-effort re-matching.")
     }
     if revealed > 0 {
         print("NOTE: same-id returns are reveals, not reopens — the window was tab-backgrounded, still")

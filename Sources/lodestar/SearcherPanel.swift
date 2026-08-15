@@ -51,7 +51,6 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     /// lowercased app name -> graph chain (e.g. "proton mail" -> "E P")
     var graphAddress: (String) -> String? = { _ in nil }
     /// window id -> mark path, uppercased (e.g. "Q")
-    var markPath: (CGWindowID) -> String? = { _ in nil }
     /// lowercased app name -> every chain bound to it (lowercased letters)
     var graphChains: (String) -> [[String]] = { _ in [] }
     /// Why a pending chain can't be added, or nil when it's free.
@@ -278,7 +277,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
                 identity: row.identity,
                 icon: { NSRunningApplication(processIdentifier: window.pid)?.icon },
                 title: window.title.isEmpty ? window.appName : window.title,
-                chips: markPath(window.id).map { ["◆ \($0)"] } ?? [],
+                chips: [],
                 showDot: false
             )
         }

@@ -8,7 +8,7 @@ var arguments = Array(CommandLine.arguments.dropFirst())
 
 func usage() -> Never {
     print("""
-    probe — lodestar slice 0: is a CGWindowID a handle we can build marks and breaths on?
+    probe — lodestar slice 0: is a CGWindowID a handle we can build breaths on?
 
     usage:
       probe check [--prompt]           accessibility trust + window-server reach

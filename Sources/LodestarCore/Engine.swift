@@ -6,7 +6,7 @@ import CoreGraphics
 /// timers, which is what makes the grammar testable.
 
 public enum ChainKind: String, Equatable {
-    case graph, mark, breath
+    case graph, breath
 }
 
 /// The outcome of a mark/breath operation against the stores — the seam
@@ -66,9 +66,6 @@ public enum EngineEffect: Equatable {
 /// implementations; tests script them.
 public protocol EngineWorld: AnyObject {
     func resolveGraph(_ letters: [String]) -> GraphResolution
-    func markGo(_ letters: [String]) -> ChainStep
-    func markBind(_ letters: [String]) -> ChainStep
-    func markDelete(_ letters: [String]) -> ChainStep
     func breathGo(_ letters: [String]) -> ChainStep
     func breathBind(_ letters: [String]) -> ChainStep
     func breathDelete(_ letters: [String]) -> ChainStep
@@ -228,9 +225,6 @@ public struct EngineCore {
             effects.append(.moveDisplay(direction: -1, beside: shift))
         case "]":
             effects.append(.moveDisplay(direction: 1, beside: shift))
-        case "`":
-            state = .chain(kind: .mark, letters: [], deleting: false)
-            effects.append(.showGuide(kind: .mark, letters: [], deleting: false, note: nil))
         case "'":
             state = .chain(kind: .breath, letters: [], deleting: false)
             effects.append(.showGuide(kind: .breath, letters: [], deleting: false, note: nil))
@@ -258,7 +252,7 @@ public struct EngineCore {
             state = .idle
             effects.append(.hideGuide)
         case "delete":
-            if kind == .mark || kind == .breath {
+            if kind == .breath {
                 let armed = !deleting
                 state = .chain(kind: kind, letters: letters, deleting: armed)
                 effects.append(.showGuide(kind: kind, letters: letters, deleting: armed, note: nil))
@@ -272,17 +266,6 @@ public struct EngineCore {
             case .graph:
                 graphStep(letters: letters + [key], shift: shift, firstLetter: false,
                           world: world, into: &effects)
-            case .mark:
-                if deleting {
-                    reactDeleting(world.markDelete(letters + [key]), kind: kind,
-                                  letters: letters, key: key, into: &effects)
-                } else if shift {
-                    react(world.markBind(letters + [key]), kind: kind,
-                          letters: letters, deleting: false, into: &effects)
-                } else {
-                    react(world.markGo(letters + [key]), kind: kind,
-                          letters: letters + [key], deleting: false, into: &effects)
-                }
             case .breath:
                 if deleting {
                     reactDeleting(world.breathDelete(letters + [key]), kind: kind,

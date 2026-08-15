@@ -26,7 +26,6 @@ public enum Gestures {
         Verb(name: "scroll", keys: [","], about: "lode , , keyboard scrolling"),
         Verb(name: "hints", keys: [";"], about: "lode ; click hints, ⇧; sticky"),
         Verb(name: "claim", keys: ["="], about: "lode = claim the focused window, ⇧= beside"),
-        Verb(name: "marks", keys: ["`"], about: "lode `, window marks"),
         Verb(name: "breaths", keys: ["'"], about: "lode ', saved layouts"),
         Verb(name: "sweep", keys: ["0"], about: "lode 0, park background windows"),
         Verb(name: "index-jump", keys: (1...9).map(String.init), about: "lode 1…9 jump, ⇧1…9 slide"),

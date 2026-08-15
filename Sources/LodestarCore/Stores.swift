@@ -1,25 +1,6 @@
 import CoreGraphics
 import Foundation
 
-public struct MarkRecord: Codable {
-    public var path: String
-    public var windowID: UInt32
-    public var bundleID: String?
-    public var appName: String
-    public var title: String
-    public var frame: CGRect
-
-    public init(path: String, windowID: UInt32, bundleID: String?,
-                appName: String, title: String, frame: CGRect) {
-        self.path = path
-        self.windowID = windowID
-        self.bundleID = bundleID
-        self.appName = appName
-        self.title = title
-        self.frame = frame
-    }
-}
-
 public struct BreathMember: Codable {
     public var windowID: UInt32
     public var bundleID: String?
@@ -54,17 +35,18 @@ public struct UsageRecord: Codable {
     public var last: Date
 }
 
+/// A retired `marks` key from a pre-0.9.14 file decodes away silently:
+/// unknown keys are ignored, and the next save writes the file without it.
 public struct PersistedState: Codable {
     public var version: Int?
-    public var marks: [MarkRecord] = []
     public var breaths: [BreathRecord] = []
     public var latestBreath: String?
     public var parked: [UInt32: CGRect] = [:]
     public var usage: [String: UsageRecord]?
 }
 
-/// Marks, breaths, and parking bookkeeping — saved on every change so a
-/// crash or restart can still find and restore everything best-effort.
+/// Breaths and parking bookkeeping — saved on every change so a crash or
+/// restart can still find and restore everything best-effort.
 public final class StateStore {
     public static let defaultFile = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".config/lodestar/state.json")
@@ -77,8 +59,8 @@ public final class StateStore {
     private var reportedSaveFailure = false
 
     /// Set when load had to recover — the app surfaces it once the HUD
-    /// exists. Marks and breaths are the user's accumulated addresses;
-    /// losing them silently is not acceptable.
+    /// exists. Breaths are the user's accumulated addresses; losing them
+    /// silently is not acceptable.
     public private(set) var bootWarning: String?
 
     public init(file: URL = StateStore.defaultFile) {
@@ -93,7 +75,7 @@ public final class StateStore {
             // future corruption always has somewhere to fall back to.
             try? FileManager.default.removeItem(at: backupFile)
             try? FileManager.default.copyItem(at: file, to: backupFile)
-            Log.info("state: loaded \(state.marks.count) marks, \(state.breaths.count) breaths, \(state.parked.count) parked")
+            Log.info("state: loaded \(state.breaths.count) breaths, \(state.parked.count) parked")
             return
         }
         // Corruption. Quarantine the evidence, fall back to the backup,
@@ -104,8 +86,8 @@ public final class StateStore {
         Log.error("state: corrupt, quarantined", ["at": quarantine.lastPathComponent])
         if let recovered = decode(at: backupFile) {
             state = recovered
-            bootWarning = "state was corrupted — restored from backup (\(recovered.marks.count) marks, \(recovered.breaths.count) breaths)"
-            Log.error("state: restored from backup", ["marks": recovered.marks.count, "breaths": recovered.breaths.count])
+            bootWarning = "state was corrupted — restored from backup (\(recovered.breaths.count) breaths)"
+            Log.error("state: restored from backup", ["breaths": recovered.breaths.count])
             save()
         } else {
             bootWarning = "state was corrupted and no backup existed — starting fresh (kept \(quarantine.lastPathComponent))"
@@ -118,7 +100,7 @@ public final class StateStore {
         return try? JSONDecoder().decode(PersistedState.self, from: StateMigrations.lift(raw))
     }
 
-    /// Immediate write — explicit user data (marks, breaths) and shutdown.
+    /// Immediate write — explicit user data (breaths) and shutdown.
     public func save() {
         pendingSave?.cancel()
         pendingSave = nil
@@ -132,7 +114,7 @@ public final class StateStore {
         } catch {
             if !reportedSaveFailure {
                 reportedSaveFailure = true
-                Log.error("state: SAVE FAILING — marks/breaths are not persisting", ["error": error.localizedDescription])
+                Log.error("state: SAVE FAILING — breaths are not persisting", ["error": error.localizedDescription])
             }
         }
     }
@@ -149,40 +131,6 @@ public final class StateStore {
         }
         pendingSave = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
-    }
-
-    // MARK: - Marks
-
-    public func mark(at path: String) -> MarkRecord? {
-        state.marks.first { $0.path == path }
-    }
-
-    public func isMarkPrefix(_ prefix: String) -> Bool {
-        state.marks.contains { $0.path.hasPrefix(prefix) && $0.path != prefix }
-    }
-
-    public func markWouldShadow(_ path: String) -> String? {
-        state.marks.first { $0.path.hasPrefix(path) && $0.path != path }?.path
-    }
-
-    public func setMark(_ record: MarkRecord) {
-        state.marks.removeAll { $0.path == record.path }
-        state.marks.append(record)
-        save()
-    }
-
-    public func deleteMark(at path: String) -> Bool {
-        let before = state.marks.count
-        state.marks.removeAll { $0.path == path }
-        save()
-        return state.marks.count != before
-    }
-
-    public func rebindMark(path: String, to id: UInt32, title: String) {
-        guard var record = mark(at: path) else { return }
-        record.windowID = id
-        record.title = title
-        setMark(record)
     }
 
     // MARK: - Breaths

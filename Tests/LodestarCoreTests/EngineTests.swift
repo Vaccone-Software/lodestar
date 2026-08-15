@@ -31,9 +31,6 @@ final class WorldStub: EngineWorld {
         return outcomes[key] ?? .continuing(hint: nil)
     }
 
-    func markGo(_ letters: [String]) -> ChainStep { step("markGo", letters) }
-    func markBind(_ letters: [String]) -> ChainStep { step("markBind", letters) }
-    func markDelete(_ letters: [String]) -> ChainStep { step("markDelete", letters) }
     func breathGo(_ letters: [String]) -> ChainStep { step("breathGo", letters) }
     func breathBind(_ letters: [String]) -> ChainStep { step("breathBind", letters) }
     func breathDelete(_ letters: [String]) -> ChainStep { step("breathDelete", letters) }
@@ -212,13 +209,15 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(press("3", shift: true), [.reorder(3)])
     }
 
-    func testBacktickAndQuoteStartChains() {
-        XCTAssertEqual(press("`"), [.showGuide(kind: .mark, letters: [], deleting: false, note: nil)])
-        XCTAssertEqual(core.state, .chain(kind: .mark, letters: [], deleting: false))
-
-        core = EngineCore()
+    func testQuoteStartsTheBreathChain() {
         XCTAssertEqual(press("'"), [.showGuide(kind: .breath, letters: [], deleting: false, note: nil)])
         XCTAssertEqual(core.state, .chain(kind: .breath, letters: [], deleting: false))
+    }
+
+    /// Marks retired in 0.9.14 — backtick is unbound and reaches the app.
+    func testBacktickIsFree() {
+        XCTAssertEqual(press("`"), [.passThrough])
+        XCTAssertEqual(core.state, .idle)
     }
 
     // MARK: - Graph chains
@@ -270,57 +269,50 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(core.state, .chain(kind: .graph, letters: ["e"], deleting: false))
     }
 
-    // MARK: - Marks
+    // MARK: - Chain mechanics (breaths carry them now)
 
-    func testMarkGoContinuesThenLands() {
-        world.outcomes["markGo:q"] = .continuing(hint: nil)
-        world.outcomes["markGo:qa"] = .done(flash: nil)
-        _ = press("`")
-        XCTAssertEqual(press("q"), [.showGuide(kind: .mark, letters: ["q"], deleting: false, note: nil)])
+    func testBreathGoContinuesThenLands() {
+        world.outcomes["breathGo:q"] = .continuing(hint: nil)
+        world.outcomes["breathGo:qa"] = .done(flash: nil)
+        _ = press("'")
+        XCTAssertEqual(press("q"), [.showGuide(kind: .breath, letters: ["q"], deleting: false, note: nil)])
         XCTAssertEqual(press("a"), [.hideGuide])
         XCTAssertEqual(core.state, .idle)
-        XCTAssertEqual(world.calls, ["markGo:q", "markGo:qa"])
-    }
-
-    func testMarkBindOnShift() {
-        world.outcomes["markBind:q"] = .done(flash: "◆ Q bound")
-        _ = press("`")
-        XCTAssertEqual(press("q", shift: true), [.hideGuide, .flash("◆ Q bound")])
-        XCTAssertEqual(core.state, .idle)
+        XCTAssertEqual(world.calls, ["breathGo:q", "breathGo:qa"])
     }
 
     func testRefusedBindStaysInChainWithNote() {
-        world.outcomes["markBind:q"] = .failed(flash: "✕ Q would shadow QA")
-        _ = press("`")
+        world.outcomes["breathBind:q"] = .failed(flash: "✕ Q would shadow QA")
+        _ = press("'")
         XCTAssertEqual(press("q", shift: true),
-                       [.showGuide(kind: .mark, letters: [], deleting: false, note: "✕ Q would shadow QA")])
-        XCTAssertEqual(core.state, .chain(kind: .mark, letters: [], deleting: false),
+                       [.showGuide(kind: .breath, letters: [], deleting: false, note: "✕ Q would shadow QA")])
+        XCTAssertEqual(core.state, .chain(kind: .breath, letters: [], deleting: false),
                        "a refused bind is information, not an exit")
     }
 
     func testDeleteArmsThenDeletes() {
-        world.outcomes["markDelete:q"] = .done(flash: "◆ Q deleted")
-        _ = press("`")
-        XCTAssertEqual(press("delete"), [.showGuide(kind: .mark, letters: [], deleting: true, note: nil)])
-        XCTAssertEqual(core.state, .chain(kind: .mark, letters: [], deleting: true))
-        XCTAssertEqual(press("q"), [.hideGuide, .flash("◆ Q deleted")])
+        world.outcomes["breathDelete:q"] = .done(flash: "◎ Q deleted")
+        _ = press("'")
+        XCTAssertEqual(press("delete"), [.showGuide(kind: .breath, letters: [], deleting: true, note: nil)])
+        XCTAssertEqual(core.state, .chain(kind: .breath, letters: [], deleting: true))
+        XCTAssertEqual(press("q"), [.hideGuide, .flash("◎ Q deleted")])
         XCTAssertEqual(core.state, .idle)
     }
 
     func testDeleteDisarmsOnSecondPress() {
-        _ = press("`")
+        _ = press("'")
         _ = press("delete")
-        XCTAssertEqual(press("delete"), [.showGuide(kind: .mark, letters: [], deleting: false, note: nil)])
-        XCTAssertEqual(core.state, .chain(kind: .mark, letters: [], deleting: false))
+        XCTAssertEqual(press("delete"), [.showGuide(kind: .breath, letters: [], deleting: false, note: nil)])
+        XCTAssertEqual(core.state, .chain(kind: .breath, letters: [], deleting: false))
     }
 
     func testDeleteCollectsMultiLetterPaths() {
-        world.outcomes["markDelete:q"] = .continuing(hint: nil)
-        world.outcomes["markDelete:qa"] = .done(flash: nil)
-        _ = press("`")
+        world.outcomes["breathDelete:q"] = .continuing(hint: nil)
+        world.outcomes["breathDelete:qa"] = .done(flash: nil)
+        _ = press("'")
         _ = press("delete")
-        XCTAssertEqual(press("q"), [.showGuide(kind: .mark, letters: ["q"], deleting: true, note: nil)])
-        XCTAssertEqual(core.state, .chain(kind: .mark, letters: ["q"], deleting: true), "still armed")
+        XCTAssertEqual(press("q"), [.showGuide(kind: .breath, letters: ["q"], deleting: true, note: nil)])
+        XCTAssertEqual(core.state, .chain(kind: .breath, letters: ["q"], deleting: true), "still armed")
         XCTAssertEqual(press("a"), [.hideGuide])
     }
 

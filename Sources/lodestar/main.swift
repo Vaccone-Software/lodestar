@@ -96,9 +96,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         searcher = SearcherController(appIndex: appIndex, actions: actions, model: model)
         rebuildGraphAddresses()
         searcher.graphAddress = { [weak self] name in self?.graphAddressByApp[name] }
-        searcher.markPath = { [store] id in
-            store!.state.marks.first { $0.windowID == UInt32(id) }?.path.uppercased()
-        }
         searcher.graphChains = { [weak self] name in self?.graphChains(for: name) ?? [] }
         searcher.chainProblem = { [weak self] letters in self?.chainProblem(letters) }
         // No `self? … ??` here: these return nil on SUCCESS, and optional

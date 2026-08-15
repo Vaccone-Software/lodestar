@@ -331,34 +331,6 @@ final class Actions {
         hud.flash("↺ \(layout.orientation(on: active.id).rawValue)")
     }
 
-    // MARK: - Marks
-
-    func markChain(_ letters: [String]) -> ChainStep {
-        let path = letters.joined()
-        if let record = store.mark(at: path) {
-            summonMark(record, beside: false)
-            return .done(flash: nil)
-        }
-        return .continuing(hint: nil)
-    }
-
-    /// Rows for the persistent mark guide: reachable marks under this prefix.
-    func markGuide(prefix: String) -> [GuideRow] {
-        store.state.marks
-            .filter { $0.path.hasPrefix(prefix) && $0.path != prefix }
-            .sorted { $0.path < $1.path }
-            .map { record in
-                let remaining = record.path.dropFirst(prefix.count)
-                    .uppercased().map(String.init).joined(separator: " ")
-                let alive = model.window(CGWindowID(record.windowID))?.isAlive == true
-                let title = record.title.isEmpty ? record.appName : record.title
-                let clipped = title.count > 44 ? String(title.prefix(43)) + "…" : title
-                return GuideRow(key: remaining,
-                                label: "\(clipped)\(alive ? "" : "  (closed)")",
-                                icon: icon(forAppNamed: record.appName))
-            }
-    }
-
     /// Rows for the persistent breath guide: layouts saved under this prefix.
     func breathGuide(prefix: String) -> [GuideRow] {
         store.state.breaths
@@ -401,34 +373,8 @@ final class Actions {
         return (focused.pid, focused.appName)
     }
 
-    func bindMark(_ letters: [String]) -> ChainStep {
-        let path = letters.joined()
-        guard !path.isEmpty else { return .failed(flash: "✕ a mark needs letters") }
-        if let shadowed = store.markWouldShadow(path) {
-            return .failed(flash: "✕ \(path.uppercased()) would shadow mark \(shadowed.uppercased())")
-        }
-        guard let focused = model.focusedWindow, focused.isAlive else {
-            return .failed(flash: "✕ no focused window to mark")
-        }
-        store.setMark(MarkRecord(
-            path: path, windowID: UInt32(focused.id), bundleID: focused.bundleID,
-            appName: focused.appName, title: focused.title, frame: focused.frame
-        ))
-        return .done(flash: "◆ mark \(path.uppercased()) ← \(shortTitle(focused))")
-    }
-
     /// Delete-armed resolution: an exact path deletes; a prefix keeps
     /// collecting; a free path is a miss.
-    func deleteMarkStep(_ letters: [String]) -> ChainStep {
-        let path = letters.joined()
-        if store.mark(at: path) != nil {
-            _ = store.deleteMark(at: path)
-            return .done(flash: "◆ mark \(path.uppercased()) deleted")
-        }
-        if store.isMarkPrefix(path) { return .continuing(hint: nil) }
-        return .failed(flash: "✕ no mark at \(path.uppercased())")
-    }
-
     func deleteBreathStep(_ letters: [String]) -> ChainStep {
         let path = letters.joined()
         if store.breath(at: path) != nil {
@@ -437,35 +383,6 @@ final class Actions {
         }
         if store.isBreathPrefix(path) { return .continuing(hint: nil) }
         return .failed(flash: "✕ no breath at \(path.uppercased())")
-    }
-
-    private func summonMark(_ record: MarkRecord, beside: Bool) {
-        if let window = model.window(CGWindowID(record.windowID)), model.verify(window.id) {
-            place(window, beside: beside)
-            return
-        }
-        // Identity broke (the window was closed). Best-effort re-match.
-        let candidates = aliveCandidates(bundleID: record.bundleID, appName: record.appName)
-        if let best = bestTitleMatch(record.title, in: candidates) {
-            store.rebindMark(path: record.path, to: UInt32(best.id), title: best.title)
-            place(best, beside: beside)
-            return
-        }
-        guard let entry = appIndex.entry(named: record.appName) else {
-            hud.flash("✕ ◆\(record.path.uppercased()): \(record.appName) not found")
-            return
-        }
-        hud.flash("… ◆\(record.path.uppercased()): relaunching \(record.appName)",
-                  icon: icon(forAppNamed: record.appName))
-        let path = record.path
-        expect(seconds: 12, matches: { [bundleID = record.bundleID, appName = record.appName] window in
-            (bundleID != nil && window.bundleID == bundleID) || window.appName == appName
-        }, action: { [weak self] window in
-            self?.store.rebindMark(path: path, to: UInt32(window.id), title: window.title)
-            self?.place(window, beside: beside)
-        })
-        let configuration = NSWorkspace.OpenConfiguration()
-        NSWorkspace.shared.openApplication(at: entry.url, configuration: configuration)
     }
 
     // MARK: - Breaths

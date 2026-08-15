@@ -52,7 +52,7 @@ public final class WindowModel {
 
     public func start() {
         // The initial scan is discovery, not creation — onCreated stays
-        // quiet so window-adoption logic never fires on what already exists.
+        // quiet so nothing treats the existing world as newly arrived.
         seeding = true
         for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {
             attach(app)

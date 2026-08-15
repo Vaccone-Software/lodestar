@@ -91,7 +91,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         actions = Actions(model: model, parking: parking, layout: layout,
                           appIndex: appIndex, store: store, hud: hud)
         actions.attach()
-        actions.adoptNewWindows = config.adoptNewWindows
         model.onTrace = { Log.info("model: \($0)") }
         searcher = SearcherController(appIndex: appIndex, actions: actions, model: model)
         rebuildGraphAddresses()
@@ -393,7 +392,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         config = loaded
         Keys.apply(overrides: loaded.keyOverrides)
         ActivePolicy.mode = loaded.activeDisplayMode
-        actions.adoptNewWindows = loaded.adoptNewWindows
         engine.config = loaded
         webBar.config = loaded
         updater.enabled = loaded.autoUpdate

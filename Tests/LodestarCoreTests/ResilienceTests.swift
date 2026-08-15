@@ -1,54 +1,6 @@
 import XCTest
 @testable import LodestarCore
 
-final class AdoptionLedgerTests: XCTestCase {
-    func testSettleRestoresWhenLayoutStayedEmpty() {
-        var ledger = AdoptionLedger()
-        ledger.recordAdoption(of: 99, on: 1, displacing: [10, 20])
-        let settlement = ledger.settle(destroyed: 99,
-                                       layoutNowEmpty: { $0 == 1 },
-                                       isAlive: { _ in true })
-        XCTAssertEqual(settlement?.display, 1)
-        XCTAssertEqual(settlement?.restore, [10, 20])
-    }
-
-    func testSettleSkipsWhenWorldMovedOn() {
-        var ledger = AdoptionLedger()
-        ledger.recordAdoption(of: 99, on: 1, displacing: [10])
-        XCTAssertNil(ledger.settle(destroyed: 99,
-                                   layoutNowEmpty: { _ in false },
-                                   isAlive: { _ in true }))
-    }
-
-    func testSettleSkipsDeadMembersAndEmptyDisplacements() {
-        var ledger = AdoptionLedger()
-        ledger.recordAdoption(of: 99, on: 1, displacing: [10])
-        XCTAssertNil(ledger.settle(destroyed: 99,
-                                   layoutNowEmpty: { _ in true },
-                                   isAlive: { _ in false }))
-
-        ledger.recordAdoption(of: 98, on: 1, displacing: [])
-        XCTAssertNil(ledger.settle(destroyed: 98,
-                                   layoutNowEmpty: { _ in true },
-                                   isAlive: { _ in true }))
-    }
-
-    func testRecordsConsumeOnce() {
-        var ledger = AdoptionLedger()
-        ledger.recordAdoption(of: 99, on: 1, displacing: [10])
-        XCTAssertNotNil(ledger.settle(destroyed: 99, layoutNowEmpty: { _ in true }, isAlive: { _ in true }))
-        XCTAssertNil(ledger.settle(destroyed: 99, layoutNowEmpty: { _ in true }, isAlive: { _ in true }))
-    }
-
-    func testStackedAdoptionsUnwindIndependently() {
-        var ledger = AdoptionLedger()
-        ledger.recordAdoption(of: 98, on: 1, displacing: [10])
-        ledger.recordAdoption(of: 99, on: 1, displacing: [98])
-        XCTAssertEqual(ledger.settle(destroyed: 99, layoutNowEmpty: { _ in true }, isAlive: { _ in true })?.restore, [98])
-        XCTAssertEqual(ledger.settle(destroyed: 98, layoutNowEmpty: { _ in true }, isAlive: { _ in true })?.restore, [10])
-    }
-}
-
 final class IntentQueueTests: XCTestCase {
     private func window(_ id: CGWindowID, app: String) -> WindowModel.Window {
         WindowModel.Window(id: id, element: AXUIElementCreateApplication(1), pid: 1,

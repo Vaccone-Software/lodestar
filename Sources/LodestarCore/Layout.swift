@@ -150,7 +150,7 @@ public final class LayoutController {
         onChange?()
     }
 
-    /// Restore a breath: whole-world adoption, one group per display.
+    /// Restore a breath: the whole world at once, one group per display.
     public func adoptGroups(_ groups: [CGDirectDisplayID: [CGWindowID]], orientation: Orientation) {
         for (display, members) in groups {
             recordUndo(display)
@@ -174,7 +174,7 @@ public final class LayoutController {
     /// A departed display's members park and its arrangement is remembered
     /// by hardware UUID; the same monitor returning restores whatever the
     /// user hasn't re-placed since — the world-moved-on guard, same as
-    /// adoption restore.
+    /// the docking restore.
     public func reconcileDisplays() {
         let live = displays.ordered()
         let liveIDs = Set(live.map(\.id))

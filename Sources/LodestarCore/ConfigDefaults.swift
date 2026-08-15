@@ -33,7 +33,6 @@ public enum ConfigDefaults {
             "auto-update": .bool(true),
             "start-at-login": .bool(true),
             "show-menu-bar": .bool(true),
-            "adopt-new-windows": .bool(false),
             "active-display": .string("pointer"),
         ]),
         "profiles": .table([:]),

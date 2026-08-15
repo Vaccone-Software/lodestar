@@ -24,11 +24,6 @@ public struct Config {
     /// Show the status item permanently; false hides it (picking lodestar
     /// in the searcher reveals it for a minute).
     public var showMenuBar = true
-    /// Adopt windows born outside Lodestar, summoning them full screen on
-    /// the active display. Off by default: a window another tool opened
-    /// (a certificate prompt, a file reveal) floats untouched, and never
-    /// hides what you were reading.
-    public var adoptNewWindows = false
     /// How the active display is chosen: pointer | focus.
     public var activeDisplayMode = ActivePolicy.Mode.pointer
     /// Pixels per j/k/h/l press in scroll mode when smooth is off.
@@ -92,7 +87,6 @@ public struct Config {
             "auto-update": .boolean(description: "Keep Lodestar current: check daily, verify the download, apply quietly when idle (installed app only)."),
             "start-at-login": .boolean(description: "Keep the login LaunchAgent installed (installed app only)."),
             "show-menu-bar": .boolean(description: "Show the status item permanently; false hides it until lodestar is picked in the searcher."),
-            "adopt-new-windows": .boolean(description: "Adopt windows opened outside Lodestar, summoning them full screen; off by default so external windows float untouched."),
             "active-display": .string(allowed: ["pointer", "focus"], description: "How the active display is chosen."),
         ], description: "App behavior."),
         "gestures": .table(
@@ -217,9 +211,6 @@ public struct Config {
         }
         if let showMenuBar = effective.value(at: ["app", "show-menu-bar"])?.bool {
             config.showMenuBar = showMenuBar
-        }
-        if let adopt = effective.value(at: ["app", "adopt-new-windows"])?.bool {
-            config.adoptNewWindows = adopt
         }
         if let active = effective.value(at: ["app", "active-display"])?.string {
             if let mode = ActivePolicy.Mode(rawValue: active) {

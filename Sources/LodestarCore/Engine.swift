@@ -211,9 +211,9 @@ public struct EngineCore {
             if world.searcherVisible { break } // the searcher owns its tab
             effects.append(world.hasFocusedApp ? .openWindowChooser : .flash("✕ no focused window"))
         case "=":
-            // The deliberate half of adoption's bargain: floaters are left
-            // alone until the user says "this one" — then it gets the full
-            // summon treatment. ⇧ joins beside instead.
+            // A window Lodestar did not summon is left alone until the user
+            // says "this one" — then it gets the full summon treatment.
+            // ⇧ joins beside instead.
             effects.append(world.hasFocusedApp ? .claimFocused(beside: shift) : .flash("✕ no focused window to claim"))
         case "o":
             effects.append(.flipOrientation)

@@ -26,14 +26,13 @@ final class Actions {
 
     func attach() {
         model.onFocus = { [weak self] id in self?.history.recordFocus(id) }
-        model.onCreated = { [weak self] id in self?.windowAppeared(id, created: true) }
-        model.onTitleChanged = { [weak self] id in self?.windowAppeared(id, created: false) }
+        model.onCreated = { [weak self] id in self?.windowAppeared(id) }
+        model.onTitleChanged = { [weak self] id in self?.windowAppeared(id) }
         model.onDestroyed = { [weak self] id in
             guard let self else { return }
             self.layout.remove(id)
             self.parking.forget(id)
             self.store.setParked(self.parking.snapshot())
-            self.restoreDisplaced(byAdopted: id)
         }
         layout.onChange = { [weak self] in
             guard let self else { return }
@@ -526,55 +525,15 @@ final class Actions {
 
     // MARK: - Plumbing
 
-    /// Adopt windows born outside Lodestar (off by default): when on, a new
-    /// real window is a new destination and gets the summon treatment —
-    /// full screen on the active display, the rest parked.
-    var adoptNewWindows = false
-
-    private var adoptions = AdoptionLedger()
-
-    /// If the adopted window's display holds nothing else — the layout
-    /// never moved on — the displaced members return, retiled. Any layout
-    /// activity since (summons, moves, undo) leaves the world as the user
-    /// shaped it.
-    private func restoreDisplaced(byAdopted id: CGWindowID) {
-        guard let settlement = adoptions.settle(
-            destroyed: id,
-            layoutNowEmpty: { self.layout.members(on: $0).isEmpty },
-            isAlive: { self.model.window($0)?.isAlive == true }
-        ) else { return }
-        Log.info("adopt-restore", ["display": settlement.display, "windows": settlement.restore.count])
-        for member in settlement.restore {
-            parking.claim(member)
-            layout.add(member, on: settlement.display)
-        }
-        if let first = settlement.restore.first, let window = model.window(first) {
-            raise(window)
-        }
-    }
-
-    private func windowAppeared(_ id: CGWindowID, created: Bool) {
+    /// A window Lodestar did not summon is left exactly where its app put
+    /// it. The only claim on an arriving window is an intent: something
+    /// this process asked for and is still waiting on (a launch, a browser
+    /// profile opening). Everything else floats, macOS-style.
+    private func windowAppeared(_ id: CGWindowID) {
         guard let window = model.window(id), window.isAlive else { return }
         if let action = intents.claim(window) {
             action(window)
-            return
         }
-        guard created, adoptNewWindows else { return }
-        let subrole = AXWindow(element: window.element)?.subrole
-        guard Placement.shouldAdopt(subrole: subrole, size: window.frame.size) else { return }
-        let siblings = model.windows.values
-            .filter { $0.pid == window.pid && $0.id != id && $0.isAlive }
-            .map(\.frame)
-        if Placement.looksLikeTab(frame: window.frame, siblingFrames: siblings) {
-            Log.info("adopt-skip", ["window": id, "app": window.appName, "reason": "tab-like"])
-            return
-        }
-        Log.info("adopt", ["window": id, "app": window.appName, "subrole": subrole ?? "none"])
-        if let active = layout.activeDisplay() {
-            adoptions.recordAdoption(of: id, on: active.id,
-                                     displacing: layout.members(on: active.id).filter { $0 != id })
-        }
-        place(window, beside: false)
     }
 
     private func expect(seconds: TimeInterval,

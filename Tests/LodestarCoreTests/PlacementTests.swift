@@ -41,22 +41,6 @@ final class PlacementTests: XCTestCase {
         XCTAssertFalse(Placement.isPlace(subrole: "AXSystemDialog"))
     }
 
-    func testShouldAdoptFiltersDialogsAndTinyWindows() {
-        XCTAssertTrue(Placement.shouldAdopt(subrole: "AXStandardWindow", size: CGSize(width: 800, height: 600)))
-        XCTAssertTrue(Placement.shouldAdopt(subrole: nil, size: CGSize(width: 800, height: 600)))
-        XCTAssertFalse(Placement.shouldAdopt(subrole: "AXDialog", size: CGSize(width: 800, height: 600)))
-        XCTAssertFalse(Placement.shouldAdopt(subrole: "AXFloatingWindow", size: CGSize(width: 800, height: 600)))
-        XCTAssertFalse(Placement.shouldAdopt(subrole: "AXStandardWindow", size: CGSize(width: 300, height: 200)))
-    }
-
-    func testTabLikeWindowsDetectedByFrameCoincidence() {
-        let host = CGRect(x: 0, y: 25, width: 960, height: 1055)
-        let atop = CGRect(x: 0.5, y: 25, width: 959.5, height: 1055)
-        let cascaded = CGRect(x: 20, y: 45, width: 960, height: 1055)
-        XCTAssertTrue(Placement.looksLikeTab(frame: atop, siblingFrames: [host]))
-        XCTAssertFalse(Placement.looksLikeTab(frame: cascaded, siblingFrames: [host]))
-        XCTAssertFalse(Placement.looksLikeTab(frame: host, siblingFrames: []))
-    }
 
     func testHistoryRecordsAndBounces() {
         let history = FocusHistory()

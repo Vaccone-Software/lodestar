@@ -25,29 +25,11 @@ public enum Placement {
 
     /// Is this window a place — somewhere the user goes — as opposed to an
     /// event (dialog, palette, popover) that happens on top of one? Places
-    /// may be adopted and swept; events must never be moved, or a password
-    /// prompt ends up slivered off-screen. A missing subrole is treated as
-    /// standard — some apps never set one.
+    /// may be swept; events must never be moved, or a password prompt ends
+    /// up slivered off-screen. A missing subrole is treated as standard —
+    /// some apps never set one.
     public static func isPlace(subrole: String?) -> Bool {
         subrole == nil || subrole == "AXStandardWindow"
-    }
-
-    /// Should a window that appeared outside lodestar be adopted (summoned
-    /// full-screen)? Places only, and tiny windows are excluded by size.
-    public static func shouldAdopt(subrole: String?, size: CGSize) -> Bool {
-        guard isPlace(subrole: subrole) else { return false }
-        return size.width >= 400 && size.height >= 300
-    }
-
-    /// A window that materializes exactly atop a living sibling is a native
-    /// tab (created or revealed), not a new destination — adopting it would
-    /// collapse the arrangement its host lives in. Tolerance absorbs
-    /// half-pixel AX rounding.
-    public static func looksLikeTab(frame: CGRect, siblingFrames: [CGRect]) -> Bool {
-        siblingFrames.contains { sibling in
-            abs(sibling.minX - frame.minX) < 2 && abs(sibling.minY - frame.minY) < 2
-                && abs(sibling.width - frame.width) < 2 && abs(sibling.height - frame.height) < 2
-        }
     }
 
     /// Insert-and-shift reorder: the window slides into the digit's position

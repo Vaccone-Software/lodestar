@@ -27,7 +27,6 @@ final class ConfigBuildTests: XCTestCase {
         XCTAssertEqual(config.autoUpdate, bare.autoUpdate)
         XCTAssertEqual(config.startAtLogin, bare.startAtLogin)
         XCTAssertEqual(config.showMenuBar, bare.showMenuBar)
-        XCTAssertEqual(config.adoptNewWindows, bare.adoptNewWindows)
         XCTAssertEqual(config.activeDisplayMode, bare.activeDisplayMode)
         XCTAssertEqual(config.scrollStep, bare.scrollStep)
         XCTAssertEqual(config.scrollSmooth, bare.scrollSmooth)
@@ -38,11 +37,12 @@ final class ConfigBuildTests: XCTestCase {
         XCTAssertEqual(config.webSearchURL, bare.webSearchURL)
     }
 
-    func testAdoptionStaysOffUnlessAsked() throws {
-        // Reversed in 0.9.x after a certificate prompt and a file reveal both
-        // got adopted and hid what was being read. It must never drift back.
-        XCTAssertFalse(try build("{}").0.adoptNewWindows)
-        XCTAssertTrue(try build(#"{"app": {"adopt-new-windows": true}}"#).0.adoptNewWindows)
+    /// Adoption was removed in 0.9.15 — a window Lodestar did not summon is
+    /// always left alone. A config still carrying the key must be told it is
+    /// gone rather than silently ignored, or the user keeps believing it.
+    func testRetiredAdoptionKeyIsReportedNotSwallowed() throws {
+        let (_, problems) = try build(#"{"app": {"adopt-new-windows": true}}"#)
+        XCTAssertTrue(problems.contains { $0.contains("adopt-new-windows") }, "\(problems)")
     }
 
     // MARK: - Clamps

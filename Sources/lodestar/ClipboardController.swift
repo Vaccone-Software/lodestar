@@ -26,12 +26,25 @@ final class ClipboardController {
     /// and a byte ceiling alone does not bound how many text clips fit.
     private let maxItems = 10_000
     private let maxItemBytes = 20_000_000
+    /// Temp PNGs written for terminal pastes, oldest first.
+    private var handedOverFiles: [URL] = []
+    private static let handedOverLimit = 8
 
     init(store: ClipboardStore = ClipboardStore()) {
         self.store = store
+        store.onThumbnail = { [weak self] in self?.onCapture?() }
     }
 
     var history: ClipboardStore { store }
+
+    /// Follow the config. Turning the clipboard off has to stop the
+    /// recording, not just take ⇧⌘V away — a user who disables a clipboard
+    /// history and finds it still filing every copy has been told one thing
+    /// and given another.
+    func setEnabled(_ enabled: Bool) {
+        guard enabled != (poll != nil) else { return }
+        enabled ? start() : stop()
+    }
 
     func start() {
         // What is already on the pasteboard counts: a restart or a quiet
@@ -42,6 +55,11 @@ final class ClipboardController {
         poll = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { [weak self] _ in
             self?.capture()
         }
+    }
+
+    func stop() {
+        poll?.invalidate()
+        poll = nil
     }
 
     // MARK: - Capture
@@ -61,10 +79,23 @@ final class ClipboardController {
 
         let types = item.types.map(\.rawValue)
         let source = NSWorkspace.shared.frontmostApplication
+
+        // Before a single byte: a concealed clip, or one from an app the
+        // user excluded, is none of our business and must not be read at
+        // all — not merely left unwritten.
+        if let refusal = Clipboard.refusalBeforeReading(
+            types: types, sourceBundleID: source?.bundleIdentifier, excludedApps: excludedApps
+        ) {
+            Log.info("clipboard", ["refused": "\(refusal)"])
+            return
+        }
+
         let text = board.string(forType: .string)
-        let image = types.contains(NSPasteboard.PasteboardType.tiff.rawValue)
-            || types.contains(NSPasteboard.PasteboardType.png.rawValue)
-            ? NSImage(pasteboard: board) : nil
+
+        // Our own handover file, coming back around after a terminal paste.
+        if Clipboard.isOwnHandoverPath(
+            text, temporaryDirectory: FileManager.default.temporaryDirectory.path
+        ) { return }
 
         // Everything a clip weighs, judged before anything is written.
         var bytes = text?.utf8.count ?? 0
@@ -85,6 +116,15 @@ final class ClipboardController {
             return
         }
 
+        // The image's own bytes, never a decoded NSImage: the size for the
+        // preview comes out of the file header and the thumbnail is
+        // downsampled from the same source, so a 40MB screenshot is never
+        // fully decoded just to be filed.
+        let imageData = natives.first {
+            $0.type == NSPasteboard.PasteboardType.png.rawValue
+                || $0.type == NSPasteboard.PasteboardType.tiff.rawValue
+        }?.data
+
         let identityData = text.map { Data($0.utf8) }
             ?? natives.first?.data
             ?? Data()
@@ -92,10 +132,11 @@ final class ClipboardController {
         let id = ClipboardStore.identity(for: identityData)
 
         let preview = text.map { Clipboard.preview(of: $0) }
-            ?? image.map { "image \(Int($0.size.width))×\(Int($0.size.height))" }
+            ?? imageData.flatMap { ClipboardStore.pixelSize(of: $0) }
+                .map { "image \(Int($0.width))×\(Int($0.height))" }
             ?? "clip"
-        store.record(id: id, kind: image != nil ? .image : .text,
-                     plain: text.map { Data($0.utf8) }, natives: natives, image: image,
+        store.record(id: id, kind: imageData != nil ? .image : .text,
+                     plain: text.map { Data($0.utf8) }, natives: natives, imageData: imageData,
                      preview: preview,
                      sourceBundleID: source?.bundleIdentifier,
                      sourceAppName: source?.localizedName)
@@ -179,8 +220,13 @@ final class ClipboardController {
     private func imageFileForPasting(_ clip: Clipboard.Clip) -> URL? {
         guard let first = store.nativeData(clip).first else { return nil }
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lodestar-\(clip.id).\(Clipboard.pasteableImageExtension)")
-        if FileManager.default.fileExists(atPath: url.path) { return url }
+            .appendingPathComponent(
+                "\(Clipboard.handoverPrefix)\(clip.id).\(Clipboard.pasteableImageExtension)")
+        if FileManager.default.fileExists(atPath: url.path) {
+            handedOverFiles.removeAll { $0 == url }
+            handedOverFiles.append(url)
+            return url
+        }
 
         // The extension has to be honest: the reader checks it, then checks
         // the bytes behind it. A TIFF renamed .png fails both halves.
@@ -196,6 +242,12 @@ final class ClipboardController {
         } catch {
             Log.error("clipboard: could not write \(url.lastPathComponent) (\(error))")
             return nil
+        }
+        // Full-size copies of images, so they are bounded rather than left
+        // to accumulate for whenever the system next clears its temp.
+        handedOverFiles.append(url)
+        while handedOverFiles.count > Self.handedOverLimit {
+            try? FileManager.default.removeItem(at: handedOverFiles.removeFirst())
         }
         return url
     }

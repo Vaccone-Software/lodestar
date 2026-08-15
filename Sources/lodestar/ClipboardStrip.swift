@@ -38,7 +38,6 @@ final class ClipboardStrip {
 
     private let panel: NSPanel
     private let root = NSView()
-    private var cards: [String: NSView] = [:]
 
     private static let cardWidth: CGFloat = 186
     /// One card size for both zones. A pin needs less preview than a recent
@@ -84,7 +83,6 @@ final class ClipboardStrip {
         })
 
         root.subviews.forEach { $0.removeFromSuperview() }
-        cards.removeAll()
 
         // Searching holds the full width whatever the results do. Sized to
         // the matches, the field would resize on every keystroke and vanish
@@ -116,17 +114,17 @@ final class ClipboardStrip {
         // Recents are the bottom row, always — opening search must not
         // shift the cards you are looking at.
         let y: CGFloat = 0
-        // The band fills space the one-card-wide pin column already leaves
-        // empty, so nothing moves and nothing disappears whatever it holds.
-        let bandLeft = Self.cardWidth + Self.gap
-        let bandFrame = NSRect(x: bandLeft, y: Self.cardHeight + Self.gap,
-                               width: max(Self.cardWidth, stripWidth - bandLeft),
-                               height: Self.searchHeight)
         switch band {
         case .none:
             break
         case .search(let query):
-            addSearchField(query: query, frame: bandFrame)
+            // The band fills space the one-card-wide pin column already
+            // leaves empty, so nothing moves and nothing disappears.
+            let bandLeft = Self.cardWidth + Self.gap
+            addSearchField(query: query,
+                           frame: NSRect(x: bandLeft, y: Self.cardHeight + Self.gap,
+                                         width: max(Self.cardWidth, stripWidth - bandLeft),
+                                         height: Self.searchHeight))
         case .actions(let actions):
             let size = actionSize(actions)
             addActionCard(actions, frame: actionFrame(for: actingOn, size: size,
@@ -142,7 +140,6 @@ final class ClipboardStrip {
             card.frame = NSRect(x: CGFloat(offset) * (Self.cardWidth + Self.gap),
                                 y: y, width: Self.cardWidth, height: Self.cardHeight)
             root.addSubview(card)
-            cards[label] = card
         }
 
         // Nothing matched, and that is a fact about the whole region rather

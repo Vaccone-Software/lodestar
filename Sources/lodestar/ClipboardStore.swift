@@ -1,5 +1,7 @@
 import AppKit
 import CryptoKit
+import ImageIO
+import UniformTypeIdentifiers
 import LodestarCore
 
 /// Clipboard history on disk: a small index held in memory and rewritten on
@@ -19,8 +21,16 @@ final class ClipboardStore {
     private var index = Index()
     private var pendingSave: DispatchWorkItem?
     private let io = DispatchQueue(label: "lodestar.clipboard.io", qos: .utility)
-    /// Decoded thumbnails, so a strip of image cards costs no decoding.
+    /// Decoded thumbnails, so a strip of image cards costs no decoding —
+    /// bounded, because a decoded image is far larger than its file and a
+    /// menu-bar app runs for weeks. The strip shows at most fourteen at
+    /// once, so this only ever has to cover a little scrollback.
     private var thumbnails: [String: NSImage] = [:]
+    private var thumbnailOrder: [String] = []
+    private static let thumbnailLimit = 32
+    /// Fired on the main thread once a clip's thumbnail exists, since the
+    /// bytes land after the index does.
+    var onThumbnail: (() -> Void)?
 
     var clips: [Clipboard.Clip] { index.clips }
 
@@ -90,20 +100,31 @@ final class ClipboardStore {
     /// Write a clip's representations, then fold it into the index. The
     /// plain form is what a bare label pastes; the natives are what ⇧label
     /// pastes, stored richest first exactly as the source app offered them.
+    ///
+    /// The index is updated here and now, so the strip can draw the moment
+    /// a copy lands; the bytes go to disk on the io queue, because a large
+    /// screenshot is tens of megabytes and this is called from a timer on
+    /// the main thread.
     func record(id: String, kind: Clipboard.Kind, plain: Data?,
                 natives: [(type: String, data: Data)],
-                image: NSImage?, preview: String,
+                imageData: Data?, preview: String,
                 sourceBundleID: String?, sourceAppName: String?) {
         var bytes = plain?.count ?? 0
-        if let plain { try? plain.write(to: file(id, "plain")) }
-        for (offset, native) in natives.enumerated() {
-            bytes += native.data.count
-            try? native.data.write(to: file(id, typeExtension(offset)))
-        }
-        if let image, let thumbnail = thumbnail(from: image),
-           let png = thumbnail.pngData() {
-            try? png.write(to: thumbs.appendingPathComponent("\(id).png"))
-            thumbnails[id] = thumbnail
+        for native in natives { bytes += native.data.count }
+
+        let thumbFile = thumbs.appendingPathComponent("\(id).png")
+        io.async { [weak self] in
+            guard let self else { return }
+            if let plain { try? plain.write(to: self.file(id, "plain")) }
+            for (offset, native) in natives.enumerated() {
+                try? native.data.write(to: self.file(id, self.typeExtension(offset)))
+            }
+            guard let imageData, let thumbnail = Self.thumbnail(from: imageData) else { return }
+            try? thumbnail.write(to: thumbFile)
+            DispatchQueue.main.async {
+                if let image = NSImage(data: thumbnail) { self.cache(image, for: id) }
+                self.onThumbnail?()
+            }
         }
 
         let clip = Clipboard.Clip(
@@ -116,26 +137,59 @@ final class ClipboardStore {
         saveSoon()
     }
 
-    /// A 240pt thumbnail so a strip of image cards costs no full decodes.
-    private func thumbnail(from image: NSImage) -> NSImage? {
-        let side: CGFloat = 240
-        let size = image.size
-        guard size.width > 0, size.height > 0 else { return nil }
-        let scale = min(side / size.width, side / size.height, 1)
-        let target = NSSize(width: size.width * scale, height: size.height * scale)
-        let thumb = NSImage(size: target)
-        thumb.lockFocus()
-        image.draw(in: NSRect(origin: .zero, size: target))
-        thumb.unlockFocus()
-        return thumb
+    /// A clip's dimensions, read from the file header. ImageIO answers this
+    /// without decoding a pixel, which is the whole point — the alternative
+    /// is inflating a 40MB screenshot to ask how wide it is.
+    static func pixelSize(of data: Data) -> CGSize? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil)
+                as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? CGFloat,
+              let height = properties[kCGImagePropertyPixelHeight] as? CGFloat
+        else { return nil }
+        return CGSize(width: width, height: height)
+    }
+
+    /// A 240pt thumbnail as PNG bytes, so a strip of image cards costs no
+    /// full decodes. ImageIO downsamples straight out of the source rather
+    /// than decoding and redrawing, and unlike NSImage it is safe to do off
+    /// the main thread — which is where this runs.
+    static func thumbnail(from data: Data) -> Data? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: 480,
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
+              let out = CFDataCreateMutable(nil, 0),
+              let destination = CGImageDestinationCreateWithData(
+                out, "public.png" as CFString, 1, nil)
+        else { return nil }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return out as Data
     }
 
     func thumbnail(for id: String) -> NSImage? {
-        if let cached = thumbnails[id] { return cached }
+        if let cached = thumbnails[id] {
+            cache(cached, for: id)
+            return cached
+        }
         let url = thumbs.appendingPathComponent("\(id).png")
         guard let image = NSImage(contentsOf: url) else { return nil }
-        thumbnails[id] = image
+        cache(image, for: id)
         return image
+    }
+
+    /// Most recently used last; the front falls off the end.
+    private func cache(_ image: NSImage, for id: String) {
+        thumbnails[id] = image
+        thumbnailOrder.removeAll { $0 == id }
+        thumbnailOrder.append(id)
+        while thumbnailOrder.count > Self.thumbnailLimit {
+            thumbnails.removeValue(forKey: thumbnailOrder.removeFirst())
+        }
     }
 
     // MARK: - Reading back
@@ -171,6 +225,7 @@ final class ClipboardStore {
     func delete(_ id: String) {
         index.clips.removeAll { $0.id == id }
         thumbnails[id] = nil
+        thumbnailOrder.removeAll { $0 == id }
         io.async { [items, thumbs] in
             let fm = FileManager.default
             for url in (try? fm.contentsOfDirectory(at: items, includingPropertiesForKeys: nil)) ?? []
@@ -196,6 +251,7 @@ final class ClipboardStore {
     func clearAll() {
         index.clips.removeAll()
         thumbnails.removeAll()
+        thumbnailOrder.removeAll()
         io.async { [items, thumbs] in
             let fm = FileManager.default
             try? fm.removeItem(at: items)

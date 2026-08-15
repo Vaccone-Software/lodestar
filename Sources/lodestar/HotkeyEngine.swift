@@ -23,7 +23,6 @@ final class HotkeyEngine {
     private var tap: CFMachPort?
     private var peekWork: DispatchWorkItem?
     private var isPeeking = false
-    var isPaused = false
 
     /// The last moment the engine acted on the user's behalf; the update
     /// gate reads this to find a quiet stretch.
@@ -148,8 +147,7 @@ final class HotkeyEngine {
             return Unmanaged.passUnretained(event)
         }
         if type == .flagsChanged {
-            if !isPaused,
-               let verb = tapDetector.flagsChanged(event.flags, at: Date().timeIntervalSinceReferenceDate) {
+            if let verb = tapDetector.flagsChanged(event.flags, at: Date().timeIntervalSinceReferenceDate) {
                 cancelPeek(hideGuide: isPeeking)
                 lastActivityAt = Date()
                 let press = verb.keypress
@@ -170,7 +168,7 @@ final class HotkeyEngine {
             guard let key = Keys.name(for: keycode) else { return Unmanaged.passUnretained(event) }
             return apply(core.keyUp(key: key), event: event)
         }
-        guard type == .keyDown, !isPaused else { return Unmanaged.passUnretained(event) }
+        guard type == .keyDown else { return Unmanaged.passUnretained(event) }
 
         tapDetector.keyDown()
         cancelPeek(hideGuide: isPeeking)
@@ -343,7 +341,6 @@ final class HotkeyEngine {
     // MARK: - Peek (hold lode to see your world)
 
     private func handleFlagsChanged(_ event: CGEvent) {
-        guard !isPaused else { return }
         guard core.isIdle else { return }
         let (held, _) = classify(event.flags)
         if held {

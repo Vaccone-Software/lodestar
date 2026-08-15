@@ -71,6 +71,26 @@ public enum Clipboard {
         case empty
     }
 
+    /// The half of the verdict that can be reached from the pasteboard's
+    /// type list and its owner alone — no byte of content required.
+    ///
+    /// This exists so the caller can honour the promise below literally.
+    /// A password manager marks its clip concealed precisely so tools like
+    /// this look away, and "look away" has to mean before the read, not
+    /// before the write: content pulled into this process has already left
+    /// the boundary the mark was asking us to respect.
+    public static func refusalBeforeReading(types: [String],
+                                            sourceBundleID: String?,
+                                            excludedApps: Set<String>) -> Refusal? {
+        if let concealed = types.first(where: { refusedTypes.contains($0) }) {
+            return .concealed(concealed)
+        }
+        if let bundleID = sourceBundleID?.lowercased(), excludedApps.contains(bundleID) {
+            return .excludedApp(bundleID)
+        }
+        return nil
+    }
+
     /// Everything standing between the pasteboard and the disk. Order is
     /// deliberate: the cheapest and most sensitive checks first, so a
     /// concealed clip is refused before its content is ever examined.
@@ -81,11 +101,9 @@ public enum Clipboard {
                                excludedApps: Set<String>,
                                excludedPatterns: [String],
                                maxItemBytes: Int) -> Refusal? {
-        if let concealed = types.first(where: { refusedTypes.contains($0) }) {
-            return .concealed(concealed)
-        }
-        if let bundleID = sourceBundleID?.lowercased(), excludedApps.contains(bundleID) {
-            return .excludedApp(bundleID)
+        if let early = refusalBeforeReading(types: types, sourceBundleID: sourceBundleID,
+                                            excludedApps: excludedApps) {
+            return early
         }
         if let text, !excludedPatterns.isEmpty {
             let haystack = text.lowercased()
@@ -136,6 +154,23 @@ public enum Clipboard {
     /// if it is named like a picture — the reader checks the extension
     /// before it ever opens the file.
     public static let pasteableImageExtension = "png"
+
+    /// The name Lodestar gives the files it hands to terminals.
+    public static let handoverPrefix = "lodestar-"
+
+    /// Is this clip merely one of those paths coming back to us?
+    ///
+    /// After a terminal paste the pasteboard holds our own file path, so the
+    /// next launch — which reads whatever is already on the pasteboard —
+    /// would file it as a clip. It is worth nothing to the user, and worse
+    /// than nothing once the temp file behind it is pruned and the path
+    /// pastes dead.
+    public static func isOwnHandoverPath(_ text: String?, temporaryDirectory: String) -> Bool {
+        guard let text else { return false }
+        let path = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard path.hasPrefix(temporaryDirectory) else { return false }
+        return (path as NSString).lastPathComponent.hasPrefix(handoverPrefix)
+    }
 
     /// The card's line of text: collapsed whitespace, bounded, so a clip of
     /// a whole file does not become a giant index entry.

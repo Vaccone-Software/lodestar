@@ -115,7 +115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         clipboardController.excludedApps = config.clipboardExcludedApps
         clipboardController.excludedPatterns = config.clipboardExcludePatterns
         clipboardController.maxBytes = config.clipboardMaxBytes
-        clipboardController.start()
+        clipboardController.setEnabled(config.clipboardEnabled)
 
         webBar = WebBarController()
         webBar.config = config
@@ -422,6 +422,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         clipboardController.excludedApps = loaded.clipboardExcludedApps
         clipboardController.excludedPatterns = loaded.clipboardExcludePatterns
         clipboardController.maxBytes = loaded.clipboardMaxBytes
+        clipboardController.setEnabled(loaded.clipboardEnabled)
         rebuildGraphAddresses()
         ConfigDoctor.emitSchema()
         updateConfigWatcher()
@@ -650,7 +651,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let active = layout.activeDisplay()?.id == info.id ? "*" : ""
             Log.info("DUMP display\(active)=\(info.id) layout[\(layout.orientation(on: info.id).rawValue)]=[\(members.joined(separator: " | "))]")
         }
-        Log.info("DUMP v=\(Lodestar.version) focused=\(focused.map { "\($0.id):\($0.appName)" } ?? "none") parked=\(parking.snapshot().keys.sorted()) tracked=\(model.windows.values.filter(\.isAlive).count) paused=\(engine.isPaused) searcher=\(searcher.isVisible) webbar=\(webBar.isVisible) engine=\(engine.stateDescription)")
+        Log.info("DUMP v=\(Lodestar.version) focused=\(focused.map { "\($0.id):\($0.appName)" } ?? "none") parked=\(parking.snapshot().keys.sorted()) tracked=\(model.windows.values.filter(\.isAlive).count) searcher=\(searcher.isVisible) webbar=\(webBar.isVisible) engine=\(engine.stateDescription)")
         // menu search visibility is engine-owned; log via its trace lines
     }
 

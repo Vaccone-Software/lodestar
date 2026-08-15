@@ -490,3 +490,66 @@ final class PasteModeExitTests: XCTestCase {
         XCTAssertFalse(core.isIdle)
     }
 }
+
+/// The verdict reachable from the type list alone. The caller uses this to
+/// refuse a concealed clip without reading a byte of it.
+final class RefusalBeforeReadingTests: XCTestCase {
+    func testConcealedIsRefusedFromTypesAlone() {
+        XCTAssertEqual(
+            Clipboard.refusalBeforeReading(types: ["org.nspasteboard.ConcealedType", "public.utf8-plain-text"],
+                                           sourceBundleID: "com.1password.1password",
+                                           excludedApps: []),
+            .concealed("org.nspasteboard.ConcealedType"))
+    }
+
+    func testExcludedAppIsRefusedFromItsBundleAlone() {
+        XCTAssertEqual(
+            Clipboard.refusalBeforeReading(types: ["public.utf8-plain-text"],
+                                           sourceBundleID: "com.Example.App",
+                                           excludedApps: ["com.example.app"]),
+            .excludedApp("com.example.app"))
+    }
+
+    func testOrdinaryClipSurvivesTheEarlyGate() {
+        XCTAssertNil(
+            Clipboard.refusalBeforeReading(types: ["public.utf8-plain-text"],
+                                           sourceBundleID: "com.apple.Notes",
+                                           excludedApps: []))
+    }
+
+    /// The full check must agree with the early one, or a clip could pass
+    /// the gate and be refused later — after it had been read.
+    func testFullRefusalAgreesWithTheEarlyGate() {
+        let types = ["org.nspasteboard.ConcealedType"]
+        XCTAssertEqual(
+            Clipboard.refusalBeforeReading(types: types, sourceBundleID: nil, excludedApps: []),
+            Clipboard.refusal(types: types, sourceBundleID: nil, text: "secret", bytes: 6,
+                              excludedApps: [], excludedPatterns: [], maxItemBytes: 100))
+    }
+}
+
+/// Lodestar's own handover files must not come back as clips.
+final class HandoverPathTests: XCTestCase {
+    private let temp = "/var/folders/ab/xyz/T"
+
+    func testOurOwnPasteFileIsRecognised() {
+        XCTAssertTrue(Clipboard.isOwnHandoverPath(
+            "\(temp)/lodestar-deadbeef.png", temporaryDirectory: temp))
+    }
+
+    func testTrailingWhitespaceDoesNotHideIt() {
+        XCTAssertTrue(Clipboard.isOwnHandoverPath(
+            "\(temp)/lodestar-deadbeef.png\n", temporaryDirectory: temp))
+    }
+
+    func testSomeoneElsesTempFileIsAnOrdinaryClip() {
+        XCTAssertFalse(Clipboard.isOwnHandoverPath(
+            "\(temp)/screenshot.png", temporaryDirectory: temp))
+    }
+
+    func testAPathOutsideTempIsAnOrdinaryClip() {
+        XCTAssertFalse(Clipboard.isOwnHandoverPath(
+            "/Users/vac/lodestar-notes.png", temporaryDirectory: temp))
+        XCTAssertFalse(Clipboard.isOwnHandoverPath(nil, temporaryDirectory: temp))
+    }
+}

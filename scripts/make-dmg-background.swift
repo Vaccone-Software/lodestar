@@ -3,8 +3,13 @@ import AppKit
 // The DMG window background, drawn — not designed in an editor — so it is
 // versioned, reproducible, and in lockstep with the icon and the site: the
 // same near-black ground, the same compass mark, the same sparse northern
-// sky with international orange beacons. The one instruction a first
-// launch needs is a dotted transfer arc from the app to Applications.
+// sky with international orange beacons.
+//
+// The pane is a plotting sheet, not a poster. The two icons are stations on
+// a measured course: a hairline span between them, a plain tick where the
+// app starts, and the lodestar itself where it lands. Direction is carried
+// by that asymmetry — origin unlit, destination a star — so no arrow is
+// drawn, and the accent is spent once, on the thing you are steering to.
 //
 // Usage: swift scripts/make-dmg-background.swift <output-dir> <version>
 //   Writes background.png (660×400) and background@2x.png; make-dmg.sh
@@ -58,7 +63,7 @@ func brandFont(size: CGFloat) -> NSFont {
     return NSFont.monospacedSystemFont(ofSize: size, weight: .medium)
 }
 
-func drawCaps(_ text: String, center: CGPoint, size: CGFloat, alpha: CGFloat) {
+func capsString(_ text: String, size: CGFloat, alpha: CGFloat) -> (NSAttributedString, CGSize) {
     let attributes: [NSAttributedString.Key: Any] = [
         .font: brandFont(size: size),
         .kern: size * 0.38,
@@ -67,7 +72,22 @@ func drawCaps(_ text: String, center: CGPoint, size: CGFloat, alpha: CGFloat) {
     let string = NSAttributedString(string: text, attributes: attributes)
     var bounds = string.size()
     bounds.width -= size * 0.38  // trailing kern is not visible width
+    return (string, bounds)
+}
+
+func drawCaps(_ text: String, center: CGPoint, size: CGFloat, alpha: CGFloat) {
+    let (string, bounds) = capsString(text, size: size, alpha: alpha)
     string.draw(at: CGPoint(x: center.x - bounds.width / 2, y: center.y - bounds.height / 2))
+}
+
+func drawCaps(_ text: String, at left: CGPoint, size: CGFloat, alpha: CGFloat) {
+    let (string, bounds) = capsString(text, size: size, alpha: alpha)
+    string.draw(at: CGPoint(x: left.x, y: left.y - bounds.height / 2))
+}
+
+func drawCaps(_ text: String, rightAlignedAt right: CGPoint, size: CGFloat, alpha: CGFloat) {
+    let (string, bounds) = capsString(text, size: size, alpha: alpha)
+    string.draw(at: CGPoint(x: right.x - bounds.width, y: right.y - bounds.height / 2))
 }
 
 func draw() {
@@ -95,75 +115,91 @@ func draw() {
                                     width: size, height: size)).fill()
     }
 
-    // The mark, top center: hairline graticule ring, cardinal ticks, star.
-    let markCenter = CGPoint(x: width / 2, y: height - 78)
-    let ringRadius: CGFloat = 30
-    let ring = NSBezierPath(ovalIn: NSRect(x: markCenter.x - ringRadius, y: markCenter.y - ringRadius,
-                                           width: ringRadius * 2, height: ringRadius * 2))
-    ring.lineWidth = 1
-    NSColor.white.withAlphaComponent(0.16).setStroke()
-    ring.stroke()
+    // The header is set, not drawn. The compass mark belongs to the app
+    // icon standing right below it; repeating it here put two white stars
+    // in one composition, each weakening the other. Rules flanking the
+    // wordmark is the sheet-title convention, and it leaves the icon as the
+    // only mark on the pane.
+    let headerY = height - 104
+    let (wordmark, wordmarkSize) = capsString("LODESTAR", size: 15, alpha: 0.82)
+    wordmark.draw(at: CGPoint(x: width / 2 - wordmarkSize.width / 2,
+                              y: headerY - wordmarkSize.height / 2))
 
-    let ticks = NSBezierPath()
-    for i in 0..<16 {
-        let angle = CGFloat(i) * .pi / 8 + .pi / 2
-        let isCardinal = i % 4 == 0
-        let inner = ringRadius - (isCardinal ? 3.5 : 1.8)
-        let outer = ringRadius + (isCardinal ? 3.5 : 1.8)
-        ticks.move(to: CGPoint(x: markCenter.x + cos(angle) * inner, y: markCenter.y + sin(angle) * inner))
-        ticks.line(to: CGPoint(x: markCenter.x + cos(angle) * outer, y: markCenter.y + sin(angle) * outer))
+    let flank = NSBezierPath()
+    let flankGap = wordmarkSize.width / 2 + 22
+    let flankReach: CGFloat = 96
+    flank.move(to: CGPoint(x: width / 2 - flankGap, y: headerY))
+    flank.line(to: CGPoint(x: width / 2 - flankGap - flankReach, y: headerY))
+    flank.move(to: CGPoint(x: width / 2 + flankGap, y: headerY))
+    flank.line(to: CGPoint(x: width / 2 + flankGap + flankReach, y: headerY))
+    flank.lineWidth = 1
+    NSColor.white.withAlphaComponent(0.15).setStroke()
+    flank.stroke()
+
+    // The course: a hairline span across the gap between the two icons, at
+    // their centerline, held clear of both by a margin so it reads as
+    // measured distance rather than a rule under them.
+    let accent = NSColor(calibratedRed: 1.0, green: 0.31, blue: 0.0, alpha: 0.92)
+    let origin = CGPoint(x: appSlot.x + 64, y: appSlot.y)
+    let destination = CGPoint(x: folderSlot.x - 64, y: folderSlot.y)
+
+    // Dashed, in the chart convention where a broken line is the course not
+    // yet run. Solid, it read as a progress bar.
+    let span = NSBezierPath()
+    span.move(to: origin)
+    span.line(to: CGPoint(x: destination.x - 10, y: destination.y))
+    span.lineWidth = 1
+    span.setLineDash([5, 4], count: 2, phase: 0)
+    NSColor.white.withAlphaComponent(0.22).setStroke()
+    span.stroke()
+
+    // The origin tick: the plain end of a dimension line. Unlit, because
+    // the light is where you are going.
+    let tick = NSBezierPath()
+    tick.move(to: CGPoint(x: origin.x, y: origin.y - 4.5))
+    tick.line(to: CGPoint(x: origin.x, y: origin.y + 4.5))
+    tick.lineWidth = 1
+    NSColor.white.withAlphaComponent(0.30).setStroke()
+    tick.stroke()
+
+    // The destination: the mark itself, small and lit, standing where the
+    // arrowhead used to point. You are dragging toward the lodestar.
+    accent.setFill()
+    starPath(center: destination, cardinal: 7.5).fill()
+
+    drawCaps("DRAG TO INSTALL", center: CGPoint(x: width / 2, y: appSlot.y + 26), size: 8, alpha: 0.38)
+
+    // Registration marks: the corner ticks of a drawing sheet. They give
+    // the pane its edges without boxing it in, and they are the reason the
+    // lower half reads as deliberate space rather than leftover space.
+    let inset: CGFloat = 22
+    let arm: CGFloat = 13
+    let corners = NSBezierPath()
+    for (x, y, dx, dy) in [(inset, inset, 1.0, 1.0),
+                           (width - inset, inset, -1.0, 1.0),
+                           (inset, height - inset, 1.0, -1.0),
+                           (width - inset, height - inset, -1.0, -1.0)] {
+        corners.move(to: CGPoint(x: x + arm * CGFloat(dx), y: y))
+        corners.line(to: CGPoint(x: x, y: y))
+        corners.line(to: CGPoint(x: x, y: y + arm * CGFloat(dy)))
     }
-    ticks.lineWidth = 1
-    NSColor.white.withAlphaComponent(0.28).setStroke()
-    ticks.stroke()
+    corners.lineWidth = 1
+    NSColor.white.withAlphaComponent(0.13).setStroke()
+    corners.stroke()
 
-    NSColor(calibratedRed: 0.95, green: 0.953, blue: 0.96, alpha: 1).setFill()
-    starPath(center: markCenter, cardinal: ringRadius * (34.0 / 44.0)).fill()
-
-    // The transfer arc: one dotted trajectory from the app to its orbit in
-    // Applications, in the accent — the single instruction on the pane.
-    let accent = NSColor(calibratedRed: 1.0, green: 0.31, blue: 0.0, alpha: 0.9)
-    let start = CGPoint(x: appSlot.x + 72, y: appSlot.y + 14)
-    let end = CGPoint(x: folderSlot.x - 72, y: folderSlot.y + 14)
-    let arc = NSBezierPath()
-    arc.move(to: start)
-    arc.curve(to: end,
-              controlPoint1: CGPoint(x: width / 2 - 60, y: appSlot.y + 62),
-              controlPoint2: CGPoint(x: width / 2 + 60, y: appSlot.y + 62))
-    arc.lineWidth = 1.6
-    arc.lineCapStyle = .round
-    arc.setLineDash([0.1, 6.5], count: 2, phase: 0)
-    accent.setStroke()
-    arc.stroke()
-
-    // Arrowhead: an open chevron whose arms straddle the arc's end
-    // tangent, so the trajectory reads as arriving, not decorated.
-    let tangent = CGPoint(x: end.x - (width / 2 + 60), y: end.y - (appSlot.y + 62))
-    let heading = atan2(tangent.y, tangent.x)
-    let chevron = NSBezierPath()
-    for spread in [CGFloat(0.5), -0.5] {
-        let angle = heading + .pi + spread
-        let arm = CGPoint(x: end.x + cos(angle) * 7.5, y: end.y + sin(angle) * 7.5)
-        if spread > 0 { chevron.move(to: arm) } else { chevron.line(to: arm) }
-        if spread > 0 { chevron.line(to: end) }
-    }
-    chevron.lineWidth = 1.6
-    chevron.lineCapStyle = .round
-    chevron.lineJoinStyle = .round
-    accent.setStroke()
-    chevron.stroke()
-
-    drawCaps("DRAG TO INSTALL", center: CGPoint(x: width / 2, y: height - 132), size: 9.5, alpha: 0.5)
-
-    // The technical footer: one hairline, the release, the floor.
+    // The title block: rule, then the sheet's particulars. Set inside the
+    // registration marks, not flush with them — the margin is what makes
+    // the corner ticks read as marks rather than a border.
+    let margin = inset + 16
     let rule = NSBezierPath()
-    rule.move(to: CGPoint(x: 40, y: 38))
-    rule.line(to: CGPoint(x: width - 40, y: 38))
+    rule.move(to: CGPoint(x: margin, y: 52))
+    rule.line(to: CGPoint(x: width - margin, y: 52))
     rule.lineWidth = 1
-    NSColor.white.withAlphaComponent(0.10).setStroke()
+    NSColor.white.withAlphaComponent(0.09).setStroke()
     rule.stroke()
-    let footer = version.isEmpty ? "MACOS 13 OR LATER" : "V\(version) · MACOS 13 OR LATER"
-    drawCaps(footer, center: CGPoint(x: width / 2, y: 22), size: 8, alpha: 0.32)
+    drawCaps("KEYBOARD NAVIGATION FOR MACOS", at: CGPoint(x: margin, y: 34), size: 7.5, alpha: 0.30)
+    let particulars = version.isEmpty ? "MACOS 13 OR LATER" : "V\(version) · MACOS 13 OR LATER"
+    drawCaps(particulars, rightAlignedAt: CGPoint(x: width - margin, y: 34), size: 7.5, alpha: 0.30)
 }
 
 func write(scale: CGFloat, to path: String) {

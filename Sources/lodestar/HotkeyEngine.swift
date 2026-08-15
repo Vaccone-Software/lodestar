@@ -257,7 +257,6 @@ final class HotkeyEngine {
                 showClipPanel()
             case .pastePanelDismiss:
                 panelClip = nil
-                hud.hide()
                 if case .paste = core.state { renderStrip() }
             case .pastePanelAct(let panelAction):
                 performPanel(panelAction)
@@ -508,20 +507,35 @@ extension HotkeyEngine: EngineWorld {
         let all = clipboard.history.clips
         let recents = pasteQuery.map { Clipboard.search(all, query: $0) } ?? Clipboard.recents(all)
         pasteSelection = max(0, min(pasteSelection, max(0, recents.count - 1)))
+
+        // One band, whichever of its three jobs applies right now.
+        let band: ClipboardStrip.Band
+        if let clip = panelClip {
+            band = .actions(Self.panelActions(for: clip))
+        } else if let query = pasteQuery {
+            band = .search(query)
+        } else {
+            band = .hints
+        }
         strip.show(recents: recents, pins: Clipboard.pins(all),
                    thumbnail: { [clipboard] id in clipboard.history.thumbnail(for: id) },
-                   query: pasteQuery, selection: pasteSelection)
+                   band: band, selection: pasteSelection, actingOn: panelClip?.id)
     }
 
-    /// A short list, drawn where the guide already draws — this is the rare
-    /// half of a card's life and does not deserve a surface of its own.
+    /// The rare half of a card's life. It goes in the strip's own band
+    /// rather than a popup at the card: a floating panel would cover the
+    /// neighbouring cards, and lighting the card it acts on says "this one"
+    /// more plainly than sitting next to it would.
+    private static func panelActions(for clip: Clipboard.Clip) -> [(key: String, label: String)] {
+        var actions = [(key: "P", label: clip.isPinned ? "unpin" : "pin"),
+                       (key: "D", label: "delete")]
+        if clip.kind == .image { actions.append((key: "S", label: "save")) }
+        if clip.sourceAppName != nil { actions.append((key: "X", label: "never save from this app")) }
+        return actions
+    }
+
     private func showClipPanel() {
-        guard let clip = panelClip else { return }
-        var rows = [GuideRow(key: "P", label: clip.isPinned ? "unpin" : "pin"),
-                    GuideRow(key: "D", label: "delete this clip")]
-        if clip.kind == .image { rows.append(GuideRow(key: "S", label: "save to Downloads")) }
-        if let app = clip.sourceAppName { rows.append(GuideRow(key: "X", label: "never save from \(app)")) }
-        hud.showGuide(title: "⌂ clip", rows: rows, footer: "esc back to the strip")
+        renderStrip()
     }
 
     private func performPanel(_ action: PanelAction) {

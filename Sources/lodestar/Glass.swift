@@ -85,7 +85,7 @@ enum BarTheme {
     static let rowHeight: CGFloat = 48
     static let footerHeight: CGFloat = 24
     static let glassRadius: CGFloat = 18
-    static let rowRadius: CGFloat = 11
+    static let rowRadius: CGFloat = 18
     static let chipRadius: CGFloat = 5
 
     static let inputFont = NSFont.systemFont(ofSize: 23, weight: .regular)

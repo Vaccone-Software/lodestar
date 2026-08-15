@@ -18,7 +18,7 @@ final class CheatSheet {
         panel = Glass.makePanel(level: .statusBar)
         panel.ignoresMouseEvents = true
         panel.contentView = root
-        Glass.installBackdrop(in: root, cornerRadius: 20)
+        Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
     }
 
     var isVisible: Bool { panel.isVisible }

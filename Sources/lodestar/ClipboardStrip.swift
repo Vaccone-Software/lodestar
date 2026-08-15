@@ -14,6 +14,19 @@ import LodestarCore
 final class ClipboardStrip {
     static let labels = Clipboard.recentLabels
 
+    /// What the region beside the pins is carrying. That band is the only
+    /// spare space in the layout, and it is exactly one row tall — so it
+    /// holds whatever the strip currently has to say, and never more than
+    /// one thing at a time.
+    enum Band {
+        /// Nothing in flight: the strip explains its own keys, the way peek
+        /// and the scroll guide explain theirs.
+        case hints
+        case search(String)
+        /// A card's actions, with the card itself lit rather than pointed at.
+        case actions([(key: String, label: String)])
+    }
+
     private let panel: NSPanel
     private let root = NSView()
     private var cards: [String: NSView] = [:]
@@ -46,7 +59,9 @@ final class ClipboardStrip {
     /// thumbnails are already decoded.
     func show(recents: [Clipboard.Clip], pins: [Clipboard.Clip],
               thumbnail: (String) -> NSImage?,
-              query: String?, selection: Int) {
+              band: Band, selection: Int, actingOn: String? = nil) {
+        let query: String?
+        if case .search(let text) = band { query = text } else { query = nil }
         let screen = ActivePolicy.presentationFrame
 
         // As many cards as the display can hold at a readable size, never
@@ -92,22 +107,26 @@ final class ClipboardStrip {
         // Recents are the bottom row, always — opening search must not
         // shift the cards you are looking at.
         let y: CGFloat = 0
-        // The field lives beside the pins, in the band above the recents
-        // that the one-card-wide pin column leaves empty. Nothing moves and
-        // nothing disappears — it fills space that was already there.
-        if let query {
-            let left = Self.cardWidth + Self.gap
-            addSearchField(query: query,
-                           frame: NSRect(x: left, y: Self.cardHeight + Self.gap,
-                                         width: max(Self.cardWidth, stripWidth - left),
-                                         height: Self.searchHeight))
+        // The band fills space the one-card-wide pin column already leaves
+        // empty, so nothing moves and nothing disappears whatever it holds.
+        let bandLeft = Self.cardWidth + Self.gap
+        let bandFrame = NSRect(x: bandLeft, y: Self.cardHeight + Self.gap,
+                               width: max(Self.cardWidth, stripWidth - bandLeft),
+                               height: Self.searchHeight)
+        switch band {
+        case .search(let query): addSearchField(query: query, frame: bandFrame)
+        case .hints: addBandText(Self.hintLine, frame: bandFrame, dimmed: true)
+        case .actions(let actions):
+            addBandText(actions.map { "\($0.key)  \($0.label)" }.joined(separator: "     "),
+                        frame: bandFrame, dimmed: false)
         }
 
         for (offset, clip) in visibleRecents.enumerated() {
             let label = Self.labels[offset]
             let card = makeCard(clip: clip, label: label, height: Self.cardHeight,
                                 thumbnail: thumbnail(clip.id),
-                                highlighted: query != nil && offset == selection)
+                                highlighted: clip.id == actingOn
+                                    || (query != nil && offset == selection))
             card.frame = NSRect(x: CGFloat(offset) * (Self.cardWidth + Self.gap),
                                 y: y, width: Self.cardWidth, height: Self.cardHeight)
             root.addSubview(card)
@@ -139,7 +158,8 @@ final class ClipboardStrip {
             let card: NSView
             if let clip = shownPins[slot] {
                 card = makeCard(clip: clip, label: "\(slot)", height: Self.cardHeight,
-                                thumbnail: thumbnail(clip.id), highlighted: false)
+                                thumbnail: thumbnail(clip.id),
+                                highlighted: clip.id == actingOn)
             } else {
                 card = makeEmptyPin(slot: slot)
             }
@@ -181,6 +201,7 @@ final class ClipboardStrip {
             preview.font = .systemFont(ofSize: 13, weight: .regular)
             preview.textColor = .secondaryLabelColor
             preview.maximumNumberOfLines = 4
+            preview.lineBreakMode = .byTruncatingTail
             preview.frame = NSRect(x: 11, y: 9, width: Self.cardWidth - 22, height: height - 38)
             card.addSubview(preview)
         }
@@ -221,9 +242,23 @@ final class ClipboardStrip {
     /// directly under the cards it filters. A typed prefix read as a vim
     /// prompt; a glass field with a magnifier reads as the thing everyone
     /// already knows a search box to be.
+    private static let hintLine = "⇧ as copied     ⌘ actions     / search     esc close"
+
+    private func addBandText(_ text: String, frame: NSRect, dimmed: Bool) {
+        let plate = glassPlate(radius: BarTheme.rowRadius)
+        plate.frame = frame
+        let label = NSTextField(labelWithString: text)
+        label.font = .systemFont(ofSize: 12.5, weight: .regular)
+        label.textColor = dimmed ? .tertiaryLabelColor : .secondaryLabelColor
+        label.sizeToFit()
+        label.frame.origin = NSPoint(x: 18, y: (frame.height - label.frame.height) / 2)
+        plate.addSubview(label)
+        root.addSubview(plate)
+    }
+
     private func addSearchField(query: String, frame: NSRect) {
         let width = frame.width
-        let plate = glassPlate(radius: BarTheme.glassRadius)
+        let plate = glassPlate(radius: BarTheme.rowRadius)
         plate.frame = frame
 
         let symbol = NSImageView(image: NSImage(

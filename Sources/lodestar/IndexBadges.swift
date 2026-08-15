@@ -22,7 +22,7 @@ final class IndexBadges {
             panel.ignoresMouseEvents = true
             let root = NSView()
             panel.contentView = root
-            Glass.installBackdrop(in: root, cornerRadius: 14)
+            Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
 
             let label = NSTextField(labelWithString: "\(item.index)")
             let base = NSFont.systemFont(ofSize: 27, weight: .bold)

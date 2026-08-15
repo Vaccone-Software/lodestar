@@ -29,7 +29,7 @@ final class HUD {
         panel = Glass.makePanel(level: .statusBar)
         panel.ignoresMouseEvents = true
         panel.contentView = root
-        Glass.installBackdrop(in: root, cornerRadius: 16)
+        Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
     }
 
     // MARK: - Public surface

@@ -27,7 +27,7 @@ final class GraphMenu {
     init() {
         panel.ignoresMouseEvents = true
         panel.contentView = root
-        Glass.installBackdrop(in: root, cornerRadius: 14)
+        Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
     }
 
     /// Show `content` beside the searcher, top-aligned with the app's row

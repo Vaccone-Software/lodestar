@@ -569,7 +569,7 @@ public struct EngineCore {
                 // handled above, being about the search itself.
                 if command {
                     state = .idle
-                    return [.exitPaste, .passThrough]
+                    return [.exitPaste]
                 }
                 return [.pasteSearchType(shift ? key.uppercased() : key)]
             default:
@@ -577,13 +577,17 @@ public struct EngineCore {
             }
         }
 
-        // ⌘ addressing a card opens its actions; ⌘ anything else is a
-        // shortcut of the app underneath, and reaching for one says the
-        // strip is no longer what you are working in. Sitting invisibly on
-        // top of someone's ⌘S is worse than getting out of the way.
+        // ⌘ addressing a card opens its actions; ⌘ anything else says the
+        // strip is no longer what you are working in, so it goes away.
+        //
+        // The keystroke is swallowed rather than passed on. It was aimed at
+        // an app that had a clipboard strip over it, and the cost of being
+        // wrong is asymmetric: a swallowed ⌘W is a keystroke to repeat, a
+        // forwarded one closes a window the user was only trying to get
+        // back to.
         if command, !world.pasteCardExists(address: key) {
             state = .idle
-            return [.exitPaste, .passThrough]
+            return [.exitPaste]
         }
 
         switch key {

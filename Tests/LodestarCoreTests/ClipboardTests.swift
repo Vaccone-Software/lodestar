@@ -241,7 +241,7 @@ extension PasteModeTests {
             XCTAssertFalse(Clipboard.recentLabels.contains(key), "\(key) must not be a label")
             XCTAssertEqual(core.keyDown(key: key, held: false, shift: false,
                                         command: true, world: world),
-                           [.exitPaste, .passThrough])
+                           [.exitPaste], "swallowed, not forwarded")
             XCTAssertTrue(core.isIdle, "and the strip is gone")
         }
     }
@@ -255,8 +255,7 @@ extension PasteModeTests {
     func testDigitsBeyondThePinsLeaveTheModeWithCommand() {
         _ = core.openPaste(world: world)
         XCTAssertEqual(core.keyDown(key: "7", held: false, shift: false,
-                                    command: true, world: world),
-                       [.exitPaste, .passThrough])
+                                    command: true, world: world), [.exitPaste])
         XCTAssertTrue(core.isIdle)
     }
 
@@ -275,8 +274,7 @@ extension PasteModeTests {
         _ = core.openPaste(world: world)
         XCTAssertFalse(world.pasteCardExists(address: "l"))
         XCTAssertEqual(core.keyDown(key: "l", held: false, shift: false,
-                                    command: true, world: world),
-                       [.exitPaste, .passThrough])
+                                    command: true, world: world), [.exitPaste])
         XCTAssertTrue(core.isIdle)
     }
 
@@ -368,8 +366,7 @@ extension PasteModeTests {
         _ = core.openPaste(world: world)
         _ = core.keyDown(key: "/", held: false, shift: false, world: world)
         XCTAssertEqual(core.keyDown(key: "c", held: false, shift: false,
-                                    command: true, world: world),
-                       [.exitPaste, .passThrough])
+                                    command: true, world: world), [.exitPaste])
         XCTAssertTrue(core.isIdle)
     }
 
@@ -441,14 +438,14 @@ final class PasteModeExitTests: XCTestCase {
         XCTAssertTrue(core.isIdle)
     }
 
-    func testCommandWithNoCardBehindItLeavesAndPassesThrough() {
+    func testCommandWithNoCardBehindItLeavesAndSwallowsTheKey() {
         let world = WorldStub()
         var core = opened(world)
         // "w" addresses nothing on the strip: ⌘W belongs to the app.
         let effects = core.keyDown(key: "w", held: false, shift: false,
                                    command: true, option: false, world: world)
         XCTAssertTrue(core.isIdle)
-        XCTAssertEqual(effects, [.exitPaste, .passThrough])
+        XCTAssertEqual(effects, [.exitPaste], "⌘W must not reach the window")
     }
 
     func testCommandOnAnEmptyPinSlotLeavesToo() {
@@ -458,7 +455,7 @@ final class PasteModeExitTests: XCTestCase {
         let effects = core.keyDown(key: "4", held: false, shift: false,
                                    command: true, option: false, world: world)
         XCTAssertTrue(core.isIdle)
-        XCTAssertEqual(effects, [.exitPaste, .passThrough])
+        XCTAssertEqual(effects, [.exitPaste])
     }
 
     func testCommandOnALiveCardStillOpensItsActions() {
@@ -478,7 +475,7 @@ final class PasteModeExitTests: XCTestCase {
         let effects = core.keyDown(key: "c", held: false, shift: false,
                                    command: true, option: false, world: world)
         XCTAssertTrue(core.isIdle)
-        XCTAssertEqual(effects, [.exitPaste, .passThrough])
+        XCTAssertEqual(effects, [.exitPaste])
     }
 
     /// The editing shortcuts belong to the search field, not to the app.

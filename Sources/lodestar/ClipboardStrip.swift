@@ -40,12 +40,12 @@ final class ClipboardStrip {
     private let root = NSView()
     private var cards: [String: NSView] = [:]
 
-    private static let cardWidth: CGFloat = 176
+    private static let cardWidth: CGFloat = 186
     /// One card size for both zones. A pin needs less preview than a recent
     /// — you already know what slot 2 holds — but a column of stubby cards
     /// beside full ones reads as a mistake, and the strip is something you
     /// look at every day.
-    private static let cardHeight: CGFloat = 112
+    private static let cardHeight: CGFloat = 124
     private static let gap: CGFloat = 10
     private static let searchHeight: CGFloat = 54
     private static let margin: CGFloat = 22
@@ -210,10 +210,19 @@ final class ClipboardStrip {
             // Not BarTheme.secondaryFont: that size is for supporting text
             // under a title. Here the preview *is* the content, so it takes
             // a reading size rather than a captioning one.
-            preview.font = .systemFont(ofSize: 13, weight: .regular)
+            //
+            // A point below the menus' 13: a card is read at a glance to
+            // tell clips apart, and the extra line it buys is worth more
+            // than the point of size it costs.
+            preview.font = .systemFont(ofSize: 12, weight: .regular)
             preview.textColor = .secondaryLabelColor
-            preview.maximumNumberOfLines = 4
-            preview.lineBreakMode = .byTruncatingTail
+            // Wrap to the card, ellipsize only the last line. Assigning
+            // .byTruncatingTail here collapses the field to a single line
+            // whatever the line limit says — the ellipsis has to come from
+            // the cell instead, or a taller card buys nothing but air.
+            preview.lineBreakMode = .byWordWrapping
+            preview.maximumNumberOfLines = 5
+            preview.cell?.truncatesLastVisibleLine = true
             preview.frame = NSRect(x: 11, y: 9, width: Self.cardWidth - 22, height: height - 38)
             card.addSubview(preview)
         }

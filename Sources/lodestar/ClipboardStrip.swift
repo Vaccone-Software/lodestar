@@ -22,8 +22,12 @@ final class ClipboardStrip {
     private let root = NSView()
     private var cards: [String: NSView] = [:]
 
-    private static let cardWidth: CGFloat = 156
-    private static let cardHeight: CGFloat = 96
+    private static let cardWidth: CGFloat = 176
+    /// One card size for both zones. A pin needs less preview than a recent
+    /// — you already know what slot 2 holds — but a column of stubby cards
+    /// beside full ones reads as a mistake, and the strip is something you
+    /// look at every day.
+    private static let cardHeight: CGFloat = 112
     private static let gap: CGFloat = 10
     private static let margin: CGFloat = 22
 
@@ -48,7 +52,11 @@ final class ClipboardStrip {
               query: String?, selection: Int) {
         let screen = ActivePolicy.presentationFrame
 
-        let visibleRecents = Array(recents.prefix(Self.labels.count))
+        // As many cards as the display can hold at a readable size, never
+        // more than the alphabet — the guide panel already adapts this way.
+        let usable = screen.width - Self.margin * 2
+        let fit = max(1, Int((usable + Self.gap) / (Self.cardWidth + Self.gap)))
+        let visibleRecents = Array(recents.prefix(min(fit, Self.labels.count)))
         shownRecents = visibleRecents
         shownPins = Dictionary(uniqueKeysWithValues: pins.compactMap { clip in
             clip.pinnedSlot.map { ($0, clip) }
@@ -87,7 +95,7 @@ final class ClipboardStrip {
         // Recents: the bottom row, newest at the left where the pins are.
         for (offset, clip) in visibleRecents.enumerated() {
             let label = Self.labels[offset]
-            let card = makeCard(clip: clip, label: label,
+            let card = makeCard(clip: clip, label: label, height: Self.cardHeight,
                                 thumbnail: thumbnail(clip.id),
                                 highlighted: query != nil && offset == selection)
             card.frame = NSRect(x: CGFloat(offset) * (Self.cardWidth + Self.gap),
@@ -102,7 +110,7 @@ final class ClipboardStrip {
         for slot in 1...Clipboard.pinSlots {
             let card: NSView
             if let clip = shownPins[slot] {
-                card = makeCard(clip: clip, label: "\(slot)",
+                card = makeCard(clip: clip, label: "\(slot)", height: Self.cardHeight,
                                 thumbnail: thumbnail(clip.id), highlighted: false)
             } else {
                 card = makeEmptyPin(slot: slot)
@@ -121,7 +129,7 @@ final class ClipboardStrip {
 
     // MARK: - Cards
 
-    private func makeCard(clip: Clipboard.Clip, label: String,
+    private func makeCard(clip: Clipboard.Clip, label: String, height: CGFloat,
                           thumbnail: NSImage?, highlighted: Bool) -> NSView {
         let card = glassPlate(radius: BarTheme.rowRadius, highlighted: highlighted)
 
@@ -129,28 +137,28 @@ final class ClipboardStrip {
         chip.font = BarTheme.chipFont
         chip.textColor = .labelColor
         chip.sizeToFit()
-        chip.frame.origin = NSPoint(x: 10, y: Self.cardHeight - chip.frame.height - 8)
+        chip.frame.origin = NSPoint(x: 11, y: height - chip.frame.height - 9)
         card.addSubview(chip)
 
         if let thumbnail {
             let view = NSImageView(image: thumbnail)
             view.imageScaling = .scaleProportionallyUpOrDown
-            view.frame = NSRect(x: 10, y: 8, width: Self.cardWidth - 20, height: Self.cardHeight - 34)
+            view.frame = NSRect(x: 11, y: 9, width: Self.cardWidth - 22, height: height - 36)
             card.addSubview(view)
         } else {
-            let preview = NSTextField(wrappingLabelWithString: String(clip.preview.prefix(160)))
+            let preview = NSTextField(wrappingLabelWithString: String(clip.preview.prefix(220)))
             preview.font = BarTheme.secondaryFont
             preview.textColor = .secondaryLabelColor
-            preview.maximumNumberOfLines = 3
-            preview.frame = NSRect(x: 10, y: 20, width: Self.cardWidth - 20, height: Self.cardHeight - 46)
+            preview.maximumNumberOfLines = 4
+            preview.frame = NSRect(x: 11, y: 9, width: Self.cardWidth - 22, height: height - 38)
             card.addSubview(preview)
         }
 
         if let bundleID = clip.sourceBundleID,
            let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
             let icon = NSImageView(image: NSWorkspace.shared.icon(forFile: url.path))
-            icon.frame = NSRect(x: Self.cardWidth - 24, y: 8, width: 15, height: 15)
-            icon.alphaValue = 0.75
+            icon.frame = NSRect(x: Self.cardWidth - 26, y: height - 24, width: 15, height: 15)
+            icon.alphaValue = 0.7
             card.addSubview(icon)
         }
         return card
@@ -166,7 +174,7 @@ final class ClipboardStrip {
         chip.font = BarTheme.chipFont
         chip.textColor = .tertiaryLabelColor
         chip.sizeToFit()
-        chip.frame.origin = NSPoint(x: 10, y: Self.cardHeight - chip.frame.height - 8)
+        chip.frame.origin = NSPoint(x: 11, y: Self.cardHeight - chip.frame.height - 9)
         card.addSubview(chip)
         return card
     }

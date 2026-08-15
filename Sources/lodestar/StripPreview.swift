@@ -11,8 +11,9 @@ enum StripPreview {
         app.setActivationPolicy(.accessory)
 
         func clip(_ id: String, _ text: String, slot: Int? = nil,
-                  app bundle: String? = nil, minutes: Double = 3) -> Clipboard.Clip {
-            Clipboard.Clip(id: id, kind: .text,
+                  app bundle: String? = nil, minutes: Double = 3,
+                  kind: Clipboard.Kind = .text) -> Clipboard.Clip {
+            Clipboard.Clip(id: id, kind: kind,
                            created: Date().addingTimeInterval(-60 * minutes),
                            sourceBundleID: bundle,
                            sourceAppName: bundle == nil ? nil : "Ghostty",
@@ -23,7 +24,7 @@ enum StripPreview {
         let pins = [
             clip("p1", "https://lodestar.vaccone.software", slot: 1, app: "com.mitchellh.ghostty"),
             clip("p2", "rvaccone@example.com", slot: 2),
-            clip("p4", "SELECT * FROM windows WHERE space = 3;", slot: 4),
+            clip("p4", "image 1200×800", slot: 4, kind: .image),
         ]
         let recents = [
             clip("r0", "swift build -c release --arch arm64", app: "com.mitchellh.ghostty", minutes: 0.2),
@@ -41,10 +42,8 @@ enum StripPreview {
         case 3: target = recents[0]   // first recent — must dodge pin one
         default: target = recents[2]  // a recent carrying the long label
         }
-        var actions = [(key: "P", label: target.isPinned ? "unpin" : "pin"),
-                       (key: "D", label: "delete")]
-        if target.sourceAppName != nil { actions.append((key: "X", label: "never save from this app")) }
-        if variant == 2 { actions.append((key: "S", label: "save")) }
+        // The real menu, not a copy of it — the harness must not drift.
+        let actions = HotkeyEngine.panelActions(for: target)
 
         let strip = ClipboardStrip()
         strip.show(recents: recents, pins: pins, thumbnail: { _ in nil },

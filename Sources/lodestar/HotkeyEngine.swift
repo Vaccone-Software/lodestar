@@ -526,11 +526,25 @@ extension HotkeyEngine: EngineWorld {
     /// card they act on — a pin's to its right, a recent's above it — and
     /// lights that card at the same weight, so the menu and its subject
     /// read as one object rather than two.
-    private static func panelActions(for clip: Clipboard.Clip) -> [(key: String, label: String)] {
-        var actions = [(key: "P", label: clip.isPinned ? "unpin" : "pin"),
-                       (key: "D", label: "delete")]
-        if clip.kind == .image { actions.append((key: "S", label: "save")) }
-        if clip.sourceAppName != nil { actions.append((key: "X", label: "never save from this app")) }
+    /// Benign first, destructive after — the strip draws the rule between
+    /// them, so the order here is what puts an action on the right side of
+    /// it.
+    static func panelActions(for clip: Clipboard.Clip) -> [ClipboardStrip.Action] {
+        var actions = [ClipboardStrip.Action(
+            key: "P",
+            label: clip.isPinned ? "Unpin" : "Pin",
+            symbol: clip.isPinned ? "pin.slash" : "pin"
+        )]
+        if clip.kind == .image {
+            actions.append(.init(key: "S", label: "Save to Downloads",
+                                 symbol: "square.and.arrow.down"))
+        }
+        actions.append(.init(key: "D", label: "Delete", symbol: "trash",
+                             isDestructive: true))
+        if clip.sourceAppName != nil {
+            actions.append(.init(key: "X", label: "Never save from this app",
+                                 symbol: "hand.raised", isDestructive: true))
+        }
         return actions
     }
 

@@ -22,7 +22,18 @@ final class ClipboardStrip {
         case search(String)
         /// A card's actions, drawn as a card: a row of text where a card
         /// belongs reads as a caption, not as a menu.
-        case actions([(key: String, label: String)])
+        case actions([Action])
+    }
+
+    /// One line of the actions menu. The symbol and the destructive flag are
+    /// most of what makes it read as a menu rather than a legend: something
+    /// to recognise the row by without reading it, and a colour that says
+    /// this one does not undo.
+    struct Action {
+        let key: String
+        let label: String
+        let symbol: String
+        var isDestructive = false
     }
 
     private let panel: NSPanel
@@ -248,6 +259,11 @@ final class ClipboardStrip {
     private static let actionPadY: CGFloat = 12
     private static let actionInset: CGFloat = 14
     private static let actionChipGap: CGFloat = 9
+    /// Clear water between the longest label and the key column, so the two
+    /// never read as one run of text.
+    private static let actionKeyGap: CGFloat = 28
+    private static let actionIcon: CGFloat = 16
+    private static let actionSeparator: CGFloat = 11
     private static let actionChip = NSSize(width: 30, height: 20)
     private static let actionFont = NSFont.systemFont(ofSize: 13, weight: .regular)
 
@@ -262,15 +278,25 @@ final class ClipboardStrip {
         return ceil(field.frame.width)
     }
 
+    /// Where the rule falls: before the first destructive action, and only
+    /// when something benign precedes it. Grouping is derived rather than
+    /// declared, so a new action lands on the correct side of the line by
+    /// saying what it is.
+    private func separatorIndex(_ actions: [Action]) -> Int? {
+        guard let first = actions.firstIndex(where: \.isDestructive), first > 0 else { return nil }
+        return first
+    }
+
     /// Sized to its contents, not to the grid — bounded below by a card so
     /// it never looks like a scrap, and above so a long label wraps the
     /// menu rather than the strip.
-    private func actionSize(_ actions: [(key: String, label: String)]) -> NSSize {
+    private func actionSize(_ actions: [Action]) -> NSSize {
         let widest = actions.map { actionLabelWidth($0.label) }.max() ?? 0
-        let width = Self.actionInset * 2 + Self.actionChip.width
-            + Self.actionChipGap + widest
-        return NSSize(width: min(max(width, Self.cardWidth), 340),
-                      height: CGFloat(actions.count) * Self.actionRow + Self.actionPadY * 2)
+        let width = Self.actionInset * 2 + Self.actionIcon + Self.actionChipGap
+            + widest + Self.actionKeyGap + Self.actionChip.width
+        var height = CGFloat(actions.count) * Self.actionRow + Self.actionPadY * 2
+        if separatorIndex(actions) != nil { height += Self.actionSeparator }
+        return NSSize(width: min(max(width, Self.cardWidth), 340), height: height)
     }
 
     /// Where a card's actions belong, relative to the card they act on.
@@ -299,27 +325,64 @@ final class ClipboardStrip {
         return NSRect(origin: origin, size: size)
     }
 
-    private func addActionCard(_ actions: [(key: String, label: String)], frame: NSRect) {
+    private func addActionCard(_ actions: [Action], frame: NSRect) {
         // The weight the acted-on card wears, so the lit card and its menu
         // read as one object — and dense enough to stay legible over
         // whatever it floats above.
         let plate = glassPlate(radius: BarTheme.rowRadius, weight: .highlighted)
         plate.frame = frame
 
+        let rule = separatorIndex(actions)
+        var top = frame.height - Self.actionPadY
         for (offset, action) in actions.enumerated() {
-            let bottom = frame.height - Self.actionPadY - CGFloat(offset + 1) * Self.actionRow
+            if offset == rule {
+                let line = NSView(frame: NSRect(
+                    x: Self.actionInset, y: top - Self.actionSeparator / 2,
+                    width: frame.width - Self.actionInset * 2, height: 1))
+                line.wantsLayer = true
+                line.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.12).cgColor
+                plate.addSubview(line)
+                top -= Self.actionSeparator
+            }
+            let bottom = top - Self.actionRow
+            let tint: NSColor = action.isDestructive ? .systemRed : .labelColor
 
-            // The keycap every other surface draws: chip, not bare glyph.
+            // Icon, name, then key — the order a menu is read in. The cheat
+            // sheet leads with the key because it answers "what does this
+            // do"; a menu answers "what can I do", so the name leads.
+            let icon = NSImageView(image: NSImage(
+                systemSymbolName: action.symbol, accessibilityDescription: nil)?
+                .withSymbolConfiguration(.init(pointSize: 13, weight: .medium)) ?? NSImage())
+            icon.contentTintColor = tint
+            icon.frame = NSRect(x: Self.actionInset,
+                                y: bottom + (Self.actionRow - Self.actionIcon) / 2,
+                                width: Self.actionIcon, height: Self.actionIcon)
+            plate.addSubview(icon)
+
+            let label = NSTextField(labelWithString: action.label)
+            label.font = Self.actionFont
+            label.textColor = tint
+            label.lineBreakMode = .byTruncatingTail
+            label.sizeToFit()
+            let labelX = Self.actionInset + Self.actionIcon + Self.actionChipGap
+            let keyX = frame.width - Self.actionInset - Self.actionChip.width
+            label.frame = NSRect(x: labelX,
+                                 y: bottom + (Self.actionRow - label.frame.height) / 2,
+                                 width: max(0, keyX - Self.actionKeyGap - labelX),
+                                 height: label.frame.height)
+            plate.addSubview(label)
+
+            // Right-aligned and quiet, where a shortcut sits in every menu
+            // the user already knows.
             let chip = NSView(frame: NSRect(
-                x: Self.actionInset,
-                y: bottom + (Self.actionRow - Self.actionChip.height) / 2,
+                x: keyX, y: bottom + (Self.actionRow - Self.actionChip.height) / 2,
                 width: Self.actionChip.width, height: Self.actionChip.height))
             chip.wantsLayer = true
             chip.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.09).cgColor
             chip.layer?.cornerRadius = BarTheme.chipRadius
             let key = NSTextField(labelWithString: action.key.uppercased())
             key.font = BarTheme.chipFont
-            key.textColor = .labelColor
+            key.textColor = .secondaryLabelColor
             key.alignment = .center
             key.sizeToFit()
             key.frame = NSRect(x: 0, y: (Self.actionChip.height - key.frame.height) / 2,
@@ -327,18 +390,7 @@ final class ClipboardStrip {
             chip.addSubview(key)
             plate.addSubview(chip)
 
-            // Full strength: the label is the thing you are choosing, not a
-            // caption under something else.
-            let label = NSTextField(labelWithString: action.label)
-            label.font = Self.actionFont
-            label.textColor = .labelColor
-            label.lineBreakMode = .byTruncatingTail
-            label.sizeToFit()
-            let x = Self.actionInset + Self.actionChip.width + Self.actionChipGap
-            label.frame = NSRect(x: x, y: bottom + (Self.actionRow - label.frame.height) / 2,
-                                 width: frame.width - x - Self.actionInset,
-                                 height: label.frame.height)
-            plate.addSubview(label)
+            top = bottom
         }
         root.addSubview(plate)
     }

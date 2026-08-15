@@ -33,14 +33,6 @@ final class PlacementTests: XCTestCase {
         XCTAssertNil(Placement.reorder([10, 20, 30], move: 30, toDigit: 9), "already last")
     }
 
-    func testPlacesAreStandardOrUnmarked() {
-        XCTAssertTrue(Placement.isPlace(subrole: "AXStandardWindow"))
-        XCTAssertTrue(Placement.isPlace(subrole: nil))
-        XCTAssertFalse(Placement.isPlace(subrole: "AXDialog"))
-        XCTAssertFalse(Placement.isPlace(subrole: "AXFloatingWindow"))
-        XCTAssertFalse(Placement.isPlace(subrole: "AXSystemDialog"))
-    }
-
 
     func testHistoryRecordsAndBounces() {
         let history = FocusHistory()

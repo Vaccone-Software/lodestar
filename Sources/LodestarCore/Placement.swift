@@ -23,15 +23,6 @@ public enum Placement {
         return .replace
     }
 
-    /// Is this window a place — somewhere the user goes — as opposed to an
-    /// event (dialog, palette, popover) that happens on top of one? Places
-    /// may be swept; events must never be moved, or a password prompt ends
-    /// up slivered off-screen. A missing subrole is treated as standard —
-    /// some apps never set one.
-    public static func isPlace(subrole: String?) -> Bool {
-        subrole == nil || subrole == "AXStandardWindow"
-    }
-
     /// Insert-and-shift reorder: the window slides into the digit's position
     /// (9 = last), the others shift. nil when the move is meaningless —
     /// window absent, position out of range, or a no-op.

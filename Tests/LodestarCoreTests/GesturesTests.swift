@@ -23,8 +23,9 @@ final class GesturesTests: XCTestCase {
                 XCTAssertTrue(seen.insert(key).inserted, "key '\(key)' claimed twice")
             }
         }
-        // No "`": marks retired in 0.9.14 and the key is unbound.
-        let dispatched = Set(["space", "tab", "return", ".", ",", ";", "=",
+        // Unbound and deliberately held in reserve: "`" (marks, retired
+        // 0.9.14) and "=" / "-" (claim moved to 0 in 0.9.15).
+        let dispatched = Set(["space", "tab", "return", ".", ",", ";",
                               "'", "0", "o", "x", "z", "[", "]", "/"]
             + (1...9).map(String.init)
             + "abcdefghijklmnopqrstuvwxyz".map(String.init))

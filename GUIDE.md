@@ -21,12 +21,11 @@ Lode is **right ⌘** (configurable in `~/.config/lodestar/lodestar.json`).
 | `lode .`                      | Menu search: the frontmost app's menus, fuzzy, `↵` executes             |
 | `lode ,`                      | Scroll mode: `j/k` `h/l` · `d/u` half-page · `gg`/`⇧G` ends · `⇥` panes |
 | `lode ;` / `lode ⇧;`         | Click hints on the focused window — `⇧;` chains clicks (sticky)         |
-| `lode =` / `lode ⇧=`         | Claim the focused window: full screen, rest parked — `⇧=` joins beside  |
 | `lode [` / `lode ]`          | Move the focused window to the prev/next display (`⇧` = arrive beside)  |
 | `lode Z` / `lode ⇧Z`         | Undo / redo the layout (summons, besides, flips, breaths)               |
 | `lode X` / `lode ⇧X`         | Back / forward — walk the attention timeline (previous destinations)    |
 | `lode ⇧1…9`                   | Slide the focused window to that position (insert-and-shift, 9 = last)  |
-| `lode 0`                      | Sweep: park every background window not in the layout (never dialogs)   |
+| `lode 0` / `lode ⇧0`          | The focused window fills the display, rest parked — `⇧0` joins beside   |
 | `⌫` inside breaths             | Arm delete — the next path typed is deleted, not visited                |
 | hold `lode` alone             | Peek: the graph guide + index badges over each layout window            |
 | `lode ?`                      | The cheat sheet — every gesture, your live graph and breaths          |
@@ -48,7 +47,7 @@ Results are ranked by fuzzy match quality **plus frecency** — every summon (gr
 
 ## Multiple monitors
 
-**Every monitor owns its own layout** — members, orientation, digit indexes. Your verbs act on the _active_ display: **the one under the pointer** by default, so where your mouse rests is where summons land and panels appear (`app.active-display: focus` switches to the keyboard-focus display instead). Summons follow **visit-don't-pull**: a target already visible on _another_ monitor is focused where it lives (its arrangement untouched); anything hidden, parked, or freshly launched materializes on the screen you're using; on the _same_ monitor, a plain summon still goes full-screen as always. `lode [`/`]` throw the focused window to the neighboring display (physical order, wrapping) — plain arrives full-screen there, `⇧` arrives beside. Undo is one global timeline across displays; sweep parks everything not in _any_ monitor's layout; breaths capture the whole multi-display world and restore members to their original monitors (or the active one if that monitor is unplugged); peek badges index the active display.
+**Every monitor owns its own layout** — members, orientation, digit indexes. Your verbs act on the _active_ display: **the one under the pointer** by default, so where your mouse rests is where summons land and panels appear (`app.active-display: focus` switches to the keyboard-focus display instead). Summons follow **visit-don't-pull**: a target already visible on _another_ monitor is focused where it lives (its arrangement untouched); anything hidden, parked, or freshly launched materializes on the screen you're using; on the _same_ monitor, a plain summon still goes full-screen as always. `lode [`/`]` throw the focused window to the neighboring display (physical order, wrapping) — plain arrives full-screen there, `⇧` arrives beside. Undo is one global timeline across displays; breaths capture the whole multi-display world and restore members to their original monitors (or the active one if that monitor is unplugged); peek badges index the active display.
 
 **Docking just works.** Unplug a monitor and its members quietly park — the surviving display's arrangement is untouched — while the departed arrangement is remembered by the monitor's hardware identity (not its session ID, which macOS can reassign). Plug the same monitor back in and the arrangement returns exactly, minus anything you deliberately re-placed while undocked: your placement always wins, a world-moved-on guard. The memory is per-session on purpose — a Lodestar restart while undocked starts fresh, and breaths are how you bring back a world deliberately.
 
@@ -56,7 +55,7 @@ Results are ranked by fuzzy match quality **plus frecency** — every summon (gr
 
 **They are left alone.** A window born outside Lodestar — a launcher, the Dock, `⌘N`, a certificate prompt, a file reveal — floats untouched above your layout, exactly as macOS would have it, and never hides what you were reading. System and accessibility floaters (notch apps, Control Center, overlay slivers) belong to accessory processes the model never even tracks.
 
-**`lode =` claims the focused window** when you want it managed: the summon treatment on demand, full screen on the active display with the rest parked, `⇧=` to join beside instead. Undoable with `lode Z` like any other layout change. Claiming is the whole story — Lodestar never decides on its own that a new window is a destination.
+**`lode 0` makes the focused window fill the display** when you want it managed: the summon treatment on demand, everything already in the layout parked, `⇧0` to join beside instead. It also **enrols** the window, so from then on it answers to `lode 1…9`, breaths, orientation flips, and `lode Z` like anything Lodestar summoned. That is the only way an unmanaged window becomes managed — Lodestar never decides on its own that a new window is a destination, and nothing is ever parked except what a placement displaced.
 
 ## Scroll mode
 

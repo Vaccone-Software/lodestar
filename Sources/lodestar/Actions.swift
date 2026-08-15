@@ -153,16 +153,17 @@ final class Actions {
         }
     }
 
-    /// lode = — claim the focused window: the summon treatment for a
-    /// window that arrived by other means. Full screen on the active
-    /// display (⇧ joins beside), everything else parked, undoable like
-    /// any summon.
-    func claimFocused(beside: Bool) {
+    /// lode 0 — the focused window fills the display: the summon treatment
+    /// for a window that arrived by other means. Everything already in the
+    /// layout parks, and the window itself joins it, so from here it answers
+    /// to index jumps, breaths, and undo like anything Lodestar summoned.
+    /// ⇧ joins beside instead of taking over.
+    func maximizeFocused(beside: Bool) {
         guard let window = model.focusedWindow, model.verify(window.id) else {
-            hud.flash("✕ no focused window to claim")
+            hud.flash("✕ no focused window to maximize")
             return
         }
-        Log.info("claim", ["window": window.id, "app": window.appName, "beside": beside])
+        Log.info("maximize", ["window": window.id, "app": window.appName, "beside": beside])
         place(window, beside: beside)
     }
 
@@ -291,24 +292,6 @@ final class Actions {
         raise(window)
     }
 
-    /// lode 0: park every background window — the world collapses to
-    /// exactly what you summoned.
-    func sweep() {
-        model.sweepAgainstWindowServer()
-        let keep = layout.allMembers
-        var count = 0
-        for window in model.windows.values
-        where window.isAlive && !keep.contains(window.id) && !window.isMinimized {
-            // Sweep places, never events — a dialog or palette waiting for
-            // the user must stay exactly where its app put it.
-            guard Placement.isPlace(subrole: AXWindow(element: window.element)?.subrole) else { continue }
-            if !parking.isParked(window.id), parking.park(window) { count += 1 }
-        }
-        store.setParked(parking.snapshot())
-        hud.flash(count > 0
-            ? "⌂ parked \(count) background window\(count == 1 ? "" : "s")"
-            : "⌂ nothing to sweep")
-    }
 
     // MARK: - Index + orientation
 

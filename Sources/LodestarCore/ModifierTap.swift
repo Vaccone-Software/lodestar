@@ -27,7 +27,7 @@ public enum ModifierKey: String, CaseIterable, Equatable {
 public enum TapVerb: String, CaseIterable {
     case searcher, web, menu, scroll, hints
     case stickyHints = "sticky-hints"
-    case sweep, cheat
+    case cheat
 
     public var keypress: (key: String, shift: Bool) {
         switch self {
@@ -37,7 +37,6 @@ public enum TapVerb: String, CaseIterable {
         case .scroll: return (",", false)
         case .hints: return (";", false)
         case .stickyHints: return (";", true)
-        case .sweep: return ("0", false)
         case .cheat: return ("/", true)
         }
     }

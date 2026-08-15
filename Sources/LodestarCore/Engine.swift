@@ -35,7 +35,7 @@ public enum EngineEffect: Equatable {
     case showWebBar
     case showMenuSearch
     case openWindowChooser
-    case claimFocused(beside: Bool)
+    case maximizeFocused(beside: Bool)
     case enterScroll
     case scrollGuide
     case scrollExit
@@ -47,7 +47,6 @@ public enum EngineEffect: Equatable {
     case scrollCancelPendingG
     case scrollCyclePane
     case flipOrientation
-    case sweep
     case undoLayout
     case redoLayout
     case goBack
@@ -210,11 +209,6 @@ public struct EngineCore {
         case "tab":
             if world.searcherVisible { break } // the searcher owns its tab
             effects.append(world.hasFocusedApp ? .openWindowChooser : .flash("✕ no focused window"))
-        case "=":
-            // A window Lodestar did not summon is left alone until the user
-            // says "this one" — then it gets the full summon treatment.
-            // ⇧ joins beside instead.
-            effects.append(world.hasFocusedApp ? .claimFocused(beside: shift) : .flash("✕ no focused window to claim"))
         case "o":
             effects.append(.flipOrientation)
         case "z":
@@ -229,7 +223,14 @@ public struct EngineCore {
             state = .chain(kind: .breath, letters: [], deleting: false)
             effects.append(.showGuide(kind: .breath, letters: [], deleting: false, note: nil))
         case "0":
-            effects.append(.sweep)
+            // The number row reads as one sentence: 0 collapses to one
+            // window, 1…9 pick among many. A window Lodestar did not summon
+            // is left alone until this says "this one" — then it fills the
+            // display and becomes a member, addressable like any other.
+            // ⇧ joins beside instead of taking over.
+            effects.append(world.hasFocusedApp
+                ? .maximizeFocused(beside: shift)
+                : .flash("✕ no focused window to maximize"))
         case _ where Self.isDigit(key):
             if let digit = Int(key), digit >= 1 {
                 effects.append(shift ? .reorder(digit) : .indexJump(digit))

@@ -198,7 +198,8 @@ final class HotkeyEngine {
 
         let wasIdle = core.isIdle
         let effects = core.keyDown(key: key, held: held, shift: effectiveShift,
-                                   command: event.flags.contains(.maskCommand), world: self)
+                                   command: event.flags.contains(.maskCommand),
+                                   option: event.flags.contains(.maskAlternate), world: self)
         let verdict = apply(effects, event: event)
         if wasIdle != core.isIdle { onChainActive?(!core.isIdle) }
         return verdict
@@ -236,8 +237,13 @@ final class HotkeyEngine {
                 pasteQuery = (pasteQuery ?? "") + text
                 pasteSelection = 0
                 renderStrip()
-            case .pasteSearchBackspace:
-                if let query = pasteQuery, !query.isEmpty { pasteQuery = String(query.dropLast()) }
+            case .pasteSearchDelete(let scope):
+                let query = pasteQuery ?? ""
+                switch scope {
+                case .character: pasteQuery = String(query.dropLast())
+                case .word: pasteQuery = Clipboard.droppingLastWord(query)
+                case .all: pasteQuery = ""
+                }
                 pasteSelection = 0
                 renderStrip()
             case .pasteSearchMove(let delta):

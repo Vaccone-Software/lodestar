@@ -77,12 +77,17 @@ public enum EngineEffect: Equatable {
     case pasteSearchBegin
     case pasteSearchEnd
     case pasteSearchType(String)
-    case pasteSearchBackspace
+    case pasteSearchDelete(SearchDeletion)
     case pasteSearchMove(delta: Int)
     case pasteSearchCommit(action: PasteAction)
     case pastePanelShow
     case pastePanelDismiss
     case pastePanelAct(PanelAction)
+}
+
+/// How much of the query a backspace takes.
+public enum SearchDeletion: Equatable {
+    case character, word, all
 }
 
 /// The rare half of a card's life, kept off the hot path deliberately.
@@ -202,7 +207,8 @@ public struct EngineCore {
     /// `command` matters only inside paste mode, where ⌘label opens a
     /// card's actions; every other state ignores it.
     public mutating func keyDown(key: String, held: Bool, shift: Bool,
-                                 command: Bool = false, world: EngineWorld) -> [EngineEffect] {
+                                 command: Bool = false, option: Bool = false,
+                                 world: EngineWorld) -> [EngineEffect] {
         switch state {
         case .idle:
             // Escape closes a visible cheat sheet, lode or not — the
@@ -221,7 +227,7 @@ public struct EngineCore {
             return hintsPress(key: key, held: held, shift: shift, sticky: sticky, world: world)
         case .paste(let searching):
             return pastePress(key: key, held: held, shift: shift, command: command,
-                              searching: searching, world: world)
+                              option: option, searching: searching, world: world)
         case .pastePanel:
             return pastePanelPress(key: key, held: held, shift: shift, world: world)
         }
@@ -495,7 +501,8 @@ public struct EngineCore {
     /// Its own keys act; escape leaves; any lode verb exits and executes,
     /// the same bargain scroll and hints already make.
     private mutating func pastePress(key: String, held: Bool, shift: Bool, command: Bool,
-                                     searching: Bool, world: EngineWorld) -> [EngineEffect] {
+                                     option: Bool, searching: Bool,
+                                     world: EngineWorld) -> [EngineEffect] {
         if held {
             state = .idle
             var effects: [EngineEffect] = [.exitPaste]
@@ -518,7 +525,11 @@ public struct EngineCore {
                 state = .idle
                 return [.pasteSearchCommit(action: action), .exitPaste]
             case "delete":
-                return [.pasteSearchBackspace]
+                // The editing shortcuts every macOS field has: ⌘⌫ clears
+                // the line, ⌥⌫ takes the last word.
+                if command { return [.pasteSearchDelete(.all)] }
+                if option { return [.pasteSearchDelete(.word)] }
+                return [.pasteSearchDelete(.character)]
             case "left":
                 return [.pasteSearchMove(delta: -1)]
             case "right":

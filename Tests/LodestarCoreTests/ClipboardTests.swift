@@ -207,7 +207,7 @@ final class PasteModeTests: XCTestCase {
         open()
         _ = press("/")
         XCTAssertEqual(press("h"), [.pasteSearchType("h")])
-        XCTAssertEqual(press("delete"), [.pasteSearchBackspace])
+        XCTAssertEqual(press("delete"), [.pasteSearchDelete(.character)])
         XCTAssertEqual(press("right"), [.pasteSearchMove(delta: 1)])
         XCTAssertEqual(press("return"), [.pasteSearchCommit(action: .plain), .exitPaste])
         XCTAssertEqual(core.state, .idle)
@@ -292,5 +292,31 @@ extension ClipboardTests {
         XCTAssertEqual(Clipboard.age(of: clipAged(7200), now: base), "2h")
         XCTAssertEqual(Clipboard.age(of: clipAged(3 * 86_400), now: base), "3d")
         XCTAssertEqual(Clipboard.age(of: clipAged(-10), now: base), "now", "clock skew is not negative time")
+    }
+}
+
+extension ClipboardTests {
+    func testDroppingLastWordMatchesMacosBehaviour() {
+        XCTAssertEqual(Clipboard.droppingLastWord("a big cat"), "a big ")
+        XCTAssertEqual(Clipboard.droppingLastWord("a big cat  "), "a big ",
+                       "trailing space goes with the word it follows")
+        XCTAssertEqual(Clipboard.droppingLastWord("cat"), "")
+        XCTAssertEqual(Clipboard.droppingLastWord(""), "")
+        XCTAssertEqual(Clipboard.droppingLastWord("   "), "")
+    }
+}
+
+extension PasteModeTests {
+    func testSearchDeletionScopes() {
+        _ = core.openPaste(world: world)
+        _ = core.keyDown(key: "/", held: false, shift: false, world: world)
+        func delete(command: Bool = false, option: Bool = false) -> [EngineEffect] {
+            core.keyDown(key: "delete", held: false, shift: false,
+                         command: command, option: option, world: world)
+        }
+        XCTAssertEqual(delete(), [.pasteSearchDelete(.character)])
+        XCTAssertEqual(delete(option: true), [.pasteSearchDelete(.word)])
+        XCTAssertEqual(delete(command: true), [.pasteSearchDelete(.all)])
+        XCTAssertEqual(core.state, .paste(searching: true), "deleting never leaves search")
     }
 }

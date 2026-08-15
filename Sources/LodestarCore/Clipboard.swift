@@ -109,6 +109,16 @@ public enum Clipboard {
         return collapsed.count <= limit ? collapsed : String(collapsed.prefix(limit))
     }
 
+    /// ⌥⌫ — drop the last word, and any whitespace trailing it, the way
+    /// every macOS text field does: "a big cat " and "a big cat" both
+    /// become "a big ".
+    public static func droppingLastWord(_ query: String) -> String {
+        var remaining = Substring(query)
+        while let last = remaining.last, last.isWhitespace { remaining = remaining.dropLast() }
+        while let last = remaining.last, !last.isWhitespace { remaining = remaining.dropLast() }
+        return String(remaining)
+    }
+
     /// How long ago, in the shortest honest form. You reach for old clips
     /// temporally — "the one from this morning" — and a preview alone
     /// cannot say that.

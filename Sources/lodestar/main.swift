@@ -432,11 +432,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.store.markOnboarded(version: Lodestar.version)
         }
 
-        // Shown once per release, and never in the same breath as an update:
-        // the updater applies when you are idle, so a full screen panel on that
-        // boot would be waiting for you when you came back rather than opening
-        // because you asked for something.
-        guard store.onboardedVersion != Lodestar.version, !updater.justUpdated else { return }
+        // Once, on the first run that ever gets this far, and never again on its
+        // own. Keyed to the version it was a full screen modal every release:
+        // the updater applies while you are idle and suppresses the deck for
+        // that boot, so the next launch opened it over whatever you were doing,
+        // because a version number changed rather than because anybody asked.
+        // Anyone who wants it back has How Lodestar Works in the menu bar, and
+        // the walkthrough now owns the keyboard while it is up, which makes an
+        // unrequested takeover the wrong kind of surprise.
+        guard store.onboardedVersion == nil, !updater.justUpdated else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
             self?.showOnboarding()
         }

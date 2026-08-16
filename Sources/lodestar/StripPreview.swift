@@ -52,7 +52,7 @@ enum StripPreview {
             sheet.toggle(sections: {
                 [CheatSheet.Section(header: "verbs", rows: [
                     GuideRow(key: "␣", label: "searcher"),
-                    GuideRow(key: "⏎", label: "web bar — links · domains · search"),
+                    GuideRow(key: "⏎", label: "ask — links · domains · search"),
                     GuideRow(key: "1…9", label: "jump to window by position"),
                     GuideRow(key: "⇧⌘V", label: "clipboard — label pastes · ⌘ actions"),
                 ]),
@@ -99,11 +99,9 @@ enum StripPreview {
             app.run()
         }
 
-        // 20…26 walk the onboarding screens; 30…36 the same screens with their
-        // lesson already performed.
-        if (20...36).contains(variant) {
-            let held = OnboardingController.preview(variant >= 30 ? variant - 30 : variant - 20,
-                                                    performed: variant >= 30)
+        // 20…27 walk the onboarding screens; 30…37 the same, with no graph.
+        if (20...37).contains(variant) {
+            let held = OnboardingController.preview(variant % 10, empty: variant >= 30)
             _ = held
             app.run()
         }

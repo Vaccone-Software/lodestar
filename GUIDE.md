@@ -17,8 +17,8 @@ Lode is **right ⌘** (configurable in `~/.config/lodestar/lodestar.json`).
 | `lode ' '`                     | Update the latest breath to the current layout                               |
 | `lode Tab`                     | Window chooser for the focused app (filter by title, `↵` summon)             |
 | `Tab` on a searcher app row    | Expand a running app into its windows                                        |
-| `lode ⏎`                       | Web bar: links · domains · search, each routed to its profile                |
-| `⌘K` in the searcher / web bar | Add to graph · add a link · route a host or search — written into the config |
+| `lode ⏎`                       | Ask: links · domains · search, each routed to its profile                    |
+| `⌘K` in the searcher / Ask     | Add to graph · add a link · route a host or search — written into the config |
 | `lode .`                       | Menu search: the frontmost app's menus, fuzzy, `↵` executes                  |
 | `lode ,`                       | Scroll mode: `j/k` `h/l` · `d/u` half-page · `gg`/`⇧G` ends · `⇥` panes      |
 | `lode ;` / `lode ⇧;`           | Click hints on the focused window — `⇧;` chains clicks (sticky)              |
@@ -61,12 +61,12 @@ Results are ranked by fuzzy match quality **plus frecency** — every summon (gr
 
 ## The clipboard
 
-`⇧⌘V` opens the paste strip: **recents along the bottom** labelled by the home row, left to right, and **pins climbing the left edge** numbered 1 to 3. Both of the things you are most likely to want — a pin, or what you just copied — sit at the same corner, so there is one place to look.
+`⇧⌘V` opens the paste strip: **recents along the bottom** labelled by the home row, left to right, and **pins climbing the left edge** numbered 1 to 5. Both of the things you are most likely to want — a pin, or what you just copied — sit at the same corner, so there is one place to look.
 
 - **A letter pastes it as plain text.** Most pasting is unformatted and that is the good default.
 - **`⇧letter` pastes it as copied** — rich text, HTML, or whatever proprietary flavour the source app offered. An image has no plain form, so both paste the image.
 - **`⌘letter` opens that card's actions**: pin or unpin, delete, save an image to Downloads, or never save from that app again.
-- **`1` `2` `3` reach the pins.** Slots are permanent: a new pin takes the lowest free one, and unpinning leaves a hole rather than renumbering the others, so a pin you have learned never moves. Empty slots still draw, so the numbers are always visible.
+- **`1`…`5` reach the pins.** Slots are permanent: a new pin takes the lowest free one, and unpinning leaves a hole rather than renumbering the others, so a pin you have learned never moves. Empty slots still draw, so the numbers are always visible.
 - **`/` searches**, `↵` pastes the match, `esc` steps back to the strip. A second `esc` closes.
 - Any lode gesture exits and executes, the same as scroll and hints.
 
@@ -88,7 +88,7 @@ In a password field macOS blocks synthetic keystrokes outright, so Lodestar puts
 
 The harvest is asynchronous and bounded — a heavy Chromium page can never stall the overlay — and Electron apps get `AXManualAccessibility` woken automatically. Rows and table cells are deliberately unlabeled: they explode label counts and rarely beat scrolling.
 
-## The web bar
+## Ask
 
 `lode ⏎` — a second bar with its own grammar: everything typed here is a destination on the web. **Links** (`web.links`) are named sites, optionally pinned to a profile — type `yt`, hit `↵`, land in YouTube in your Google profile. **Bare domains** (anything with a dot) route by `web.routes` — case-insensitive substring patterns, longest match wins — so `app.acme.dev` opens in your Work profile without being listed anywhere. **Anything else is a web search** (`web.search-url`), and routes apply to queries too: searching "acme deploy" lands in the Work profile. Unrouted input opens in `web.fallback` — `most-recent` (the profile of your most recently focused browser window) or a pinned profile. Every row wears the profile it will open in as a chip; `⇧↵` opens beside. Chromium family (Brave, Chrome, Edge) for now.
 
@@ -134,7 +134,7 @@ Two measurements do most of the work, and neither needs to guess at what you wou
 The config is sparse JSON: it holds only what differs from the defaults,
 so the file reads as pure intent. Every option's documentation lives in
 the schema (editors surface it as you type; `lodestar schema` prints it),
-and every writer — a hand edit, ⌘K in the searcher or the web bar,
+and every writer — a hand edit, ⌘K in the searcher or in Ask,
 `lodestar config set` — converges on the same canonical bytes.
 
 ```json

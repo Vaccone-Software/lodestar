@@ -64,9 +64,9 @@ A breath is a **snapshot** of a specific-window layout. It is not a mode. You co
 
 Breaths pin specific windows, so they carry the window-identity risk in full.
 
-## The web bar (added after the four)
+## Ask (added after the four)
 
-`lode ⏎` opens a second bar with its own grammar, on the axis the four primitives do not address: a destination **inside** an app. The four are about which window you are looking at; the web bar is about which browser profile a URL lands in, which is the same question one level down.
+`lode ⏎` opens a second bar with its own grammar, on the axis the four primitives do not address: a destination **inside** an app. The four are about which window you are looking at; Ask is about which browser profile a URL lands in, which is the same question one level down.
 
 It stays a separate bar rather than rows in the searcher, and that separation is the design. The searcher answers "which app," and mixing web destinations into it would put two kinds of answer in one list, forcing a read-and-reject on every query. Two bars, two grammars, no ambiguity — the cost is one more gesture to learn, paid once.
 
@@ -96,7 +96,7 @@ _(This section describes what the code does; the framing is worth your eye.)_
 
 The bars share one editing gesture. `⌘K` acts on the selected row and offers only what that row can become: an app joins the graph, a domain becomes a named link or a route, a link can be routed or removed, a route can be removed from any row it sent somewhere. Every card shows what `↵` would commit before it commits it, and refuses with the reason rather than silently.
 
-This is how things graduate. The searcher is where an unaddressed app first appears; the web bar is where an unnamed destination first appears; `⌘K` is the one move that turns either into an address, and it writes straight into the config so the file and the UI are the same source of truth. Editing by hand and editing by card produce identical bytes.
+This is how things graduate. The searcher is where an unaddressed app first appears; Ask is where an unnamed destination first appears; `⌘K` is the one move that turns either into an address, and it writes straight into the config so the file and the UI are the same source of truth. Editing by hand and editing by card produce identical bytes.
 
 The decisions live in `WebMenu` (LodestarCore), tested without an app; the panels only draw and translate keystrokes. Any future card belongs there too — a state machine wearing an AppKit coat is still a state machine.
 

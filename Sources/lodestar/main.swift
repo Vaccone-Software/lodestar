@@ -421,12 +421,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         onboarding.acceptGraph = { [weak self] proposals in
             self?.acceptStarterGraph(proposals)
         }
-        onboarding.routeClickedLinks = { [weak self] in self?.becomeDefaultBrowser() }
-        onboarding.saveName = { [weak self] name in self?.saveYourName(name) }
-        // The walkthrough steps aside for the real panel and needs to know when
-        // that panel is gone. The engine already answers exactly that question.
-        onboarding.screenIsQuiet = { [weak self] in self?.engine.isQuiet ?? true }
-        onboarding.setRehearsal = { [weak self] on in self?.engine.rehearsal = on }
         onboarding.onFinished = { [weak self] in
             guard let self else { return }
             self.engine.interceptor = nil
@@ -446,24 +440,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func showOnboarding() {
         guard !onboarding.isVisible else { return }
         onboarding.config = config
-        engine.interceptor = { [weak self] key, held, shift in
-            self?.onboarding.handle(key: key, held: held, shift: shift) ?? false
+        engine.interceptor = { [weak self] key, held, shift, other in
+            self?.onboarding.handle(key: key, held: held, shift: shift, other: other) ?? false
         }
         onboarding.show()
     }
 
-    /// What to call somebody, written where the rest of their preferences live.
-    private func saveYourName(_ name: String) {
-        guard let text = try? String(contentsOf: Config.file, encoding: .utf8),
-              let tree = try? Json.parse(text) else { return }
-        let updated = name.isEmpty
-            ? Json.removing(tree, path: ["you", "name"])
-            : Json.setting(tree, path: ["you", "name"], to: .string(name))
-        guard let updated else { return }
-        try? Config.write(tree: updated)
-        config.yourName = name
-        Log.info("onboarding", ["name": name.isEmpty ? "cleared" : "set"])
-    }
 
     /// The drafted graph, accepted. Written one address at a time through the
     /// same editor ⌘K uses, so what onboarding produces is indistinguishable

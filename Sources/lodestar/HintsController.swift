@@ -7,8 +7,6 @@ import LodestarCore
 /// page must never stall the overlay), labels come from the user's own
 /// alphabet, and ⇧label right-clicks.
 final class HintsController {
-    /// Rehearsal: real labels on the real window, pressing nothing.
-    var rehearsal = false
     struct Target {
         let element: AXUIElement
         let frame: CGRect
@@ -112,13 +110,6 @@ final class HintsController {
     // MARK: - Acting
 
     private func fire(_ target: Target, rightClick: Bool) {
-        // A rehearsal labels and dismisses; it never presses, right clicks, or
-        // moves a caret. Nothing a walkthrough does should be undoable only by
-        // the person taking it.
-        guard !rehearsal else {
-            Log.info("hint", ["action": "rehearsed"])
-            return
-        }
         if rightClick {
             // The element's own context-menu action when it has one; a
             // synthetic right-click at its center otherwise.

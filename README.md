@@ -17,7 +17,7 @@ destination, and the system takes you there: full screen, instantly, silently.
 - **`lode ;`**: click hints. Every pressable element wears a label. Type the
   label to click it.
 - **`lode ,`** / **`lode .`** / **`lode ⏎`**: scroll mode, menu search,
-  and a web bar that routes each destination to the right browser profile.
+  and Ask, which routes each destination to the right browser profile.
 
 One grammar spans launching, windows, the inside of apps, and the web. Learn
 it once. Your hands know it everywhere. SIP stays on. Spaces stay untouched.

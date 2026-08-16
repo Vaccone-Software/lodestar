@@ -15,22 +15,13 @@ final class HotkeyEngine {
     /// Where observations land. Nil until the app wires one, so the engine
     /// works identically with nobody watching.
     var observations: ObservationStore?
-    /// While a modal walkthrough is up it owns the gestures it is teaching.
-    /// Returning true swallows the key, which is what stops practising
-    /// `lode space` from opening the real searcher behind the lesson — or
-    /// worse, letting ⌘space through to Spotlight. Anything it declines passes
-    /// to the system untouched, so ⌘Q still works.
-    var interceptor: ((_ key: String, _ held: Bool, _ shift: Bool) -> Bool)?
-    /// Rehearsal: a walkthrough lesson is showing a real panel, so the panel
-    /// must not act. One flag, set across every surface at once.
-    var rehearsal = false {
-        didSet {
-            searcher.rehearsal = rehearsal
-            webBar.rehearsal = rehearsal
-            menuSearch.rehearsal = rehearsal
-            hints.rehearsal = rehearsal
-        }
-    }
+    /// While a modal walkthrough is up it owns the keyboard. Returning true
+    /// swallows the key: a gesture that reached the engine from under the
+    /// walkthrough summoned a window behind it, and then escape closed that
+    /// panel instead of the card the reader was looking at. `other` says a
+    /// modifier that is not lode is down, which is how ⌘Q and ⌘Tab stay the
+    /// system's while every lode gesture stops being anybody's.
+    var interceptor: ((_ key: String, _ held: Bool, _ shift: Bool, _ other: Bool) -> Bool)?
 
     /// Chain timing, for the one measurement that says whether an address has
     /// compiled into muscle memory: the pauses inside it. The first stamp is
@@ -206,7 +197,12 @@ final class HotkeyEngine {
         }
         let (held, shift) = classify(event.flags)
 
-        if let interceptor, interceptor(key, held, shift) { return nil }
+        if let interceptor {
+            let other = event.flags.contains(.maskControl)
+                || event.flags.contains(.maskAlternate)
+                || (event.flags.contains(.maskCommand) && !held)
+            if interceptor(key, held, shift, other) { return nil }
+        }
 
         // ⇧⌘V opens the clipboard strip — but only while lode is *not* the
         // command being held. Right ⌘ is the lode trigger, so lode ⇧V has to
@@ -458,6 +454,9 @@ final class HotkeyEngine {
 
     private func handleFlagsChanged(_ event: CGEvent) {
         guard core.isIdle else { return }
+        // A walkthrough owns the keyboard, and that includes holding lode: the
+        // peek would lay the graph guide over the card being read.
+        guard interceptor == nil else { return }
         let (held, _) = classify(event.flags)
         if held {
             // The clock for a chain starts when lode goes down, not when the
@@ -553,7 +552,7 @@ final class HotkeyEngine {
     private func cheatSections() -> [CheatSheet.Section] {
         let verbs: [GuideRow] = [
             GuideRow(key: "␣", label: "searcher"),
-            GuideRow(key: "⏎", label: "web bar — links · domains · search"),
+            GuideRow(key: "⏎", label: "ask — links · domains · search"),
             GuideRow(key: ".", label: "menu search — the frontmost app's menus"),
             GuideRow(key: "⇥", label: "windows of the focused app"),
             GuideRow(key: "1…9", label: "jump to window by position"),
@@ -700,7 +699,6 @@ extension HotkeyEngine: EngineWorld {
         switch action {
         case .plain, .native:
             strip.hide()
-            guard !rehearsal else { return }
             clipboard.paste(clip, action: action)
         case .panel:
             panelClip = clip

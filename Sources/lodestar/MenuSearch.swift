@@ -5,6 +5,8 @@ import LodestarCore
 /// searchable, `↵` executes. Rows wear the item's native shortcut as a
 /// chip — every search teaches the app's own faster path.
 final class MenuSearchController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
+    /// Rehearsal: the real menu search, running nothing.
+    var rehearsal = false
     private let panel: KeyablePanel
     private let root = NSView()
     private let field = NSTextField()
@@ -214,6 +216,7 @@ final class MenuSearchController: NSObject, NSTextFieldDelegate, NSWindowDelegat
         guard rows.indices.contains(selected) else { return }
         let item = rows[selected]
         hide()
+        guard !rehearsal else { return }
         let ok = MenuItems.press(item)
         Log.info("menu-press", ["path": item.path.joined(separator: "›"), "ok": ok])
     }

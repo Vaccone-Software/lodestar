@@ -58,6 +58,8 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         "route editing is unavailable"
     }
     var removeRoute: (_ pattern: String) -> String? = { _ in "route editing is unavailable" }
+    /// Rehearsal: the real bar, opening nothing.
+    var rehearsal = false
 
     private var rows: [WebRow] = []
     private var selected = 0
@@ -319,6 +321,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         guard rows.indices.contains(selected) else { return }
         let row = rows[selected]
         hide()
+        guard !rehearsal else { return }
         perform(row.url, row.profile, beside)
     }
 

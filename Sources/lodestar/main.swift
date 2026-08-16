@@ -426,6 +426,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // The walkthrough steps aside for the real panel and needs to know when
         // that panel is gone. The engine already answers exactly that question.
         onboarding.screenIsQuiet = { [weak self] in self?.engine.isQuiet ?? true }
+        onboarding.setRehearsal = { [weak self] on in self?.engine.rehearsal = on }
         onboarding.onFinished = { [weak self] in
             guard let self else { return }
             self.engine.interceptor = nil

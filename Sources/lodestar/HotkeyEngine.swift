@@ -21,6 +21,16 @@ final class HotkeyEngine {
     /// worse, letting ⌘space through to Spotlight. Anything it declines passes
     /// to the system untouched, so ⌘Q still works.
     var interceptor: ((_ key: String, _ held: Bool, _ shift: Bool) -> Bool)?
+    /// Rehearsal: a walkthrough lesson is showing a real panel, so the panel
+    /// must not act. One flag, set across every surface at once.
+    var rehearsal = false {
+        didSet {
+            searcher.rehearsal = rehearsal
+            webBar.rehearsal = rehearsal
+            menuSearch.rehearsal = rehearsal
+            hints.rehearsal = rehearsal
+        }
+    }
 
     /// Chain timing, for the one measurement that says whether an address has
     /// compiled into muscle memory: the pauses inside it. The first stamp is
@@ -690,6 +700,7 @@ extension HotkeyEngine: EngineWorld {
         switch action {
         case .plain, .native:
             strip.hide()
+            guard !rehearsal else { return }
             clipboard.paste(clip, action: action)
         case .panel:
             panelClip = clip

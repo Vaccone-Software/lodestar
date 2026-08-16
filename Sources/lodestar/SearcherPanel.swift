@@ -57,6 +57,9 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     /// Write the edit into the config; an error string, or nil on success.
     var addToGraph: ([String], AppIndex.Entry) -> String? = { _, _ in "graph editing is unavailable" }
     var removeFromGraph: ([String]) -> String? = { _ in "graph editing is unavailable" }
+    /// Rehearsal: the walkthrough is showing the real panel, so picking a row
+    /// must not actually take anybody anywhere.
+    var rehearsal = false
 
     private var rows: [Row] = []
     private var rowViews: [SearcherRowView] = []
@@ -366,6 +369,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         guard rows.indices.contains(selected) else { return }
         let row = rows[selected]
         hide()
+        guard !rehearsal else { return }
         // What the search actually cost, measured rather than assumed.
         let typed = field.stringValue.trimmingCharacters(in: .whitespaces).count
         switch row {

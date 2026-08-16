@@ -28,6 +28,9 @@ final class OnboardingController: NSObject {
     /// True when no panel, chain or strip is up: how a card knows its lesson has
     /// finished without any panel having to report to it.
     var screenIsQuiet: () -> Bool = { true }
+    /// Put every surface into rehearsal, so a real panel opened by a lesson
+    /// shows itself and does nothing.
+    var setRehearsal: (Bool) -> Void = { _ in }
     var config = Config()
 
     enum Card: Int, CaseIterable {
@@ -56,6 +59,8 @@ final class OnboardingController: NSObject {
     private var backdrops: [NSWindow] = []
     private let panel = Glass.makePanel(level: .modalPanel)
     private let root = NSView()
+    private let detailPanel = Glass.makePanel(level: .modalPanel)
+    private let detailRoot = NSView()
     private var trustPoll: Timer?
 
     override init() {
@@ -63,6 +68,9 @@ final class OnboardingController: NSObject {
         panel.ignoresMouseEvents = true
         panel.contentView = root
         _ = Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+        detailPanel.ignoresMouseEvents = true
+        detailPanel.contentView = detailRoot
+        _ = Glass.installBackdrop(in: detailRoot, cornerRadius: BarTheme.glassRadius)
     }
 
     // MARK: - Presentation
@@ -77,7 +85,11 @@ final class OnboardingController: NSObject {
         for screen in NSScreen.screens {
             let window = NSWindow(contentRect: screen.frame, styleMask: [.borderless],
                                   backing: .buffered, defer: false)
-            window.level = .modalPanel
+            // Below the panels it will be showing, so a real searcher opens
+            // over the backdrop rather than the backdrop having to get out of
+            // the way. Ordering it out was what let macOS bring another app
+            // forward and take the reader with it.
+            window.level = .floating
             window.isOpaque = false
             window.backgroundColor = .clear
             window.ignoresMouseEvents = true
@@ -98,8 +110,10 @@ final class OnboardingController: NSObject {
         let wanted = wantsBrowserRole
         wantsBrowserRole = false
         steppedAside = false
+        setRehearsal(false)
         saveNameIfChanged()
         panel.orderOut(nil)
+        detailPanel.orderOut(nil)
         for window in backdrops { window.orderOut(nil) }
         backdrops = []
         onFinished?()
@@ -170,8 +184,12 @@ final class OnboardingController: NSObject {
     private func stepAside() {
         steppedAside = true
         performed.insert(card)
+        setRehearsal(true)
+        // Only the card goes; the backdrop stays and lifts so the window being
+        // demonstrated is visible behind the real panel.
         panel.orderOut(nil)
-        for window in backdrops { window.orderOut(nil) }
+        detailPanel.orderOut(nil)
+        for window in backdrops { window.alphaValue = 0.45 }
         watch?.invalidate()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
             guard let self, self.steppedAside else { return }
@@ -181,7 +199,8 @@ final class OnboardingController: NSObject {
                 timer.invalidate()
                 self.watch = nil
                 self.steppedAside = false
-                for window in self.backdrops { window.orderFrontRegardless() }
+                self.setRehearsal(false)
+                for window in self.backdrops { window.alphaValue = 1 }
                 self.render()
             }
         }
@@ -195,7 +214,12 @@ final class OnboardingController: NSObject {
     }
 
     private func advance() {
-        if card == .permission { saveNameIfChanged() }
+        // A name is asked for, so a name is required. Everywhere else return
+        // always moves on.
+        if card == .permission {
+            guard !nameDraft.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+            saveNameIfChanged()
+        }
         if card == .graph, !proposals.isEmpty {
             if let problem = acceptGraph(proposals) { Log.error("onboarding", ["graph": problem]) }
             proposals = []
@@ -240,27 +264,36 @@ final class OnboardingController: NSObject {
     // MARK: - Copy
 
     private struct Content {
+        /// The tool's name. Nothing else belongs in a title.
         var title: String
-        var body: String
+        /// What the thing **is**, in one sentence, before anything about how to
+        /// work it. A description that opens with what a tool is for leaves
+        /// somebody able to follow instructions and unable to decide when to
+        /// use them.
+        var definition: String
         var keys: [String] = []
-        var lines: [String] = []
+        /// The side card: everything that is not the definition. Kept off the
+        /// main card because secondary points crowded in beside a definition
+        /// stop reading as secondary.
+        var detail: [(String, String)] = []
         var state: String?
         var stateIsGood = false
         var footer: String
     }
 
-    /// Interim, and Rocco's to replace: the voice has to be his. The detail worth
-    /// keeping whatever else changes is why the name was already waiting.
-    private static let letter = """
-    Lodestar was the code name of a company I tried to build. The company did \
-    not happen; the name stayed in my notes until I gave it to the thing I \
-    could not stop working on, which was getting around my own computer without \
-    thinking about it.
+    /// Interim, drafted from what Rocco said he wanted it to say and his to
+    /// rewrite. Deliberately carries nothing about where the name came from.
+    private static let note = """
+    I think about navigation more than is reasonable. How a hand finds a \
+    window, how a name becomes an address, how much of a day is spent getting \
+    to the place where the work happens.
 
-    Most tools for this ask you to change how you work first and pay you back \
-    later. This one asks for nothing until you go through it.
+    Lodestar is that thinking, made into something I use every day. It is \
+    opinionated because I would rather decide once, carefully, than hand you a \
+    preference pane.
 
-    Every address you make is a decision you never make again.
+    I want to keep extending it, and I would like help doing that, for no \
+    better reason than that making something work better is worth doing.
     """
 
     private func content() -> Content {
@@ -270,90 +303,101 @@ final class OnboardingController: NSObject {
             let granted = Permissions.isTrusted
             return Content(
                 title: "Accessibility",
-                body: "Lodestar moves windows and reads their titles. macOS requires permission for that, and it is the only permission it asks for.",
-                lines: ["Lodestar uses your name sparingly, and never sends it anywhere."],
-                state: granted ? "Granted." : "Not granted yet.",
+                definition: "One permission, and the only one Lodestar asks for. It moves windows and reads their titles, which macOS keeps behind a switch.",
+                detail: [("space", "opens System Settings"),
+                         ("", "Your name stays on this machine")],
+                state: granted ? "Granted" : "Not granted yet",
                 stateIsGood: granted,
-                footer: granted ? "↵ continue" : "space opens System Settings    ↵ continue")
+                footer: nameDraft.trimmingCharacters(in: .whitespaces).isEmpty
+                    ? "type a name to continue"
+                    : "↵ continue")
         case .searcher:
             return Content(
                 title: "Searcher",
-                body: "Lodestar keeps one app in front of you, or the few you asked for. The searcher is how they open: lode space, type, ↵. ⇧↵ opens one beside what you already have.",
+                definition: "A list of your apps, summoned by name. Typing narrows it; the one you choose comes to the front, full screen.",
                 keys: ["lode", "space"],
-                state: did ? "Tried." : "Press it. The real searcher opens.",
+                detail: [("↵", "opens it full screen"),
+                         ("⇧↵", "opens it beside what you already have"),
+                         ("when", "you want an app and have no letter for it")],
+                state: did ? "Tried" : "Press it to see the real one",
                 stateIsGood: did,
                 footer: "↵ continue    ⌫ back")
         case .graph:
-            var lines: [String] = []
+            var detail: [(String, String)] = [
+                ("⌘K", "binds the row you are looking at"),
+                ("when", "you go somewhere often enough to remember a letter"),
+            ]
             if !proposals.isEmpty {
-                lines.append("Drafted from what you have open:")
-                lines.append(proposals.map { "\($0.letter.uppercased())   \($0.app)" }
-                    .joined(separator: "      "))
-            } else {
-                let bound = config.graph.leaves()
-                    .sorted { $0.chain.joined() < $1.chain.joined() }
-                    .prefix(6)
-                    .map { "\($0.chain.map { $0.uppercased() }.joined(separator: " "))   \($0.target.label)" }
-                if !bound.isEmpty {
-                    lines.append("Yours so far:")
-                    lines.append(bound.joined(separator: "      "))
-                }
+                detail.insert(("↵", "takes the draft below"), at: 0)
             }
             return Content(
                 title: "Graph",
-                body: "A destination you keep returning to earns a letter instead of a search. ⌘K on a searcher row binds one, and lode G goes straight there.",
-                lines: lines,
+                definition: "A tree of letters, each ending at an app. Holding lode and typing the letters goes straight there, with no list and no search.",
+                keys: ["lode", "letters"],
+                detail: detail,
                 footer: proposals.isEmpty
                     ? "↵ continue    ⌫ back"
-                    : "↵ take these    ⌫ drop the last one")
+                    : "↵ take the draft    ⌫ drop the last one")
         case .breaths:
             return Content(
                 title: "Breaths",
-                body: "A breath is a snapshot of the arrangement in front of you. lode ' saves one under a letter and returns to it later, which is also where an app you do not want in the graph can live.",
-                lines: ["lode 1 through 9 moves between the windows on screen, left to right."],
+                definition: "A saved snapshot of the windows in front of you, kept under a letter and restored whenever you ask for it.",
+                keys: ["lode", "'"],
+                detail: [("⇧letter", "saves the arrangement you are in"),
+                         ("letter", "puts it back"),
+                         ("when", "a set of windows belongs together, or an app is not worth a graph letter")],
                 footer: "↵ continue    ⌫ back")
         case .inside:
             return Content(
-                title: "Inside a window",
-                body: "lode ; labels every clickable element with a letter. Type one to press it. lode , scrolls with j and k, half pages with d and u.",
+                title: "Hints and scrolling",
+                definition: "Two ways to work the window you are already in without reaching for the mouse.",
                 keys: ["lode", ";"],
-                state: did ? "Tried." : "Press it. The labels land on your own window.",
+                detail: [("lode ;", "letters every clickable thing; type one to press it"),
+                         ("lode ,", "scrolls with j and k, half pages with d and u"),
+                         ("when", "what you want is in this window rather than another one")],
+                state: did ? "Tried" : "Press it to see the labels",
                 stateIsGood: did,
                 footer: "↵ continue    ⌫ back")
         case .actions:
             return Content(
                 title: "Action menu",
-                body: "lode . searches the menu bar of the app in front of you and runs what you choose. Every menu command, without opening a menu.",
+                definition: "A search across the menu bar of the app in front of you, over every command in it.",
                 keys: ["lode", "."],
-                state: did ? "Tried." : "Press it. This app's menus become searchable.",
+                detail: [("↵", "runs the item"),
+                         ("when", "you know a command exists and not which menu holds it")],
+                state: did ? "Tried" : "Press it to see the real one",
                 stateIsGood: did,
                 footer: "↵ continue    ⌫ back")
         case .clipboard:
             return Content(
                 title: "Clipboard",
-                body: "⇧⌘V shows what you have copied, each labelled by a home row letter. Pins climb the left edge and stay there.",
+                definition: "A history of what you have copied, each entry holding a letter of its own.",
                 keys: ["⇧⌘V"],
-                lines: ["The order changes only when you copy, so a letter keeps meaning the same clip."],
-                state: did ? "Tried." : "Press it. Your history appears.",
+                detail: [("letter", "pastes that entry"),
+                         ("pins", "hold an entry in a numbered slot for good"),
+                         ("when", "the thing you need was copied a while ago")],
+                state: did ? "Tried" : "Press it to see your history",
                 stateIsGood: did,
                 footer: "↵ continue    ⌫ back")
         case .web:
-            let profile = config.browserProfiles.keys.sorted().first
             return Content(
                 title: "Web bar",
-                body: "lode ⏎ is the same grammar for the web: a named link, a bare domain, or a search. Each opens in the browser profile your rules name\(profile.map { ", such as \($0)" } ?? "").",
+                definition: "The same grammar pointed at the web: a saved name, a bare domain, or a search, each opening in the browser profile your rules choose.",
                 keys: ["lode", "⏎"],
-                lines: [wantsBrowserRole
-                    ? "Clicked links: on. macOS will ask you to confirm once you finish here."
-                    : "Lodestar can take links clicked in other apps and route them the same way. Press b to set that up."],
-                state: did ? "Tried." : "Press it. The real bar opens.",
+                detail: [("⌘K", "saves a name or writes a rule"),
+                         ("b", wantsBrowserRole
+                            ? "set: clicked links will route here too"
+                            : "route links clicked in other apps here too"),
+                         ("when", "the destination is a page rather than an app")],
+                state: did ? "Tried" : "Press it to see the real one",
                 stateIsGood: did,
-                footer: "↵ continue    b route clicked links    ⌫ back")
+                footer: "↵ continue    b clicked links    ⌫ back")
         case .note:
             return Content(
                 title: "Why this exists",
-                body: Self.letter,
-                lines: ["lode ? holds every gesture, and this walkthrough is in the menu bar whenever you want it again."],
+                definition: Self.note,
+                detail: [("lode ?", "every gesture, whenever you want it"),
+                         ("", "This walkthrough stays in the menu bar")],
                 footer: "↵ done    ⌫ back")
         }
     }
@@ -362,7 +406,8 @@ final class OnboardingController: NSObject {
 
     private func render() {
         for view in root.subviews where view is NSStackView { view.removeFromSuperview() }
-        let stack = buildStack(content())
+        let content = content()
+        let stack = buildStack(content)
         root.addSubview(stack)
         NSLayoutConstraint.activate([
             // Centred, not pinned to the top: with a height floor the slack has
@@ -380,10 +425,17 @@ final class OnboardingController: NSObject {
         root.layoutSubtreeIfNeeded()
         let height = max(Self.minimumHeight, stack.fittingSize.height + 56)
         let visible = ActivePolicy.presentationFrame
-        panel.setFrame(NSRect(x: visible.midX - Self.cardWidth / 2,
-                              y: visible.midY - height / 2 + 30,
+        let detailWidth: CGFloat = content.detail.isEmpty ? 0 : 272
+        let gap: CGFloat = detailWidth > 0 ? 14 : 0
+        let total = Self.cardWidth + gap + detailWidth
+        let originX = visible.midX - total / 2
+        panel.setFrame(NSRect(x: originX, y: visible.midY - height / 2 + 30,
                               width: Self.cardWidth, height: height), display: true)
         panel.orderFrontRegardless()
+        renderDetail(content.detail,
+                     beside: NSRect(x: originX + Self.cardWidth + gap,
+                                    y: visible.midY - height / 2 + 30,
+                                    width: detailWidth, height: height))
     }
 
     private func buildStack(_ content: Content) -> NSStackView {
@@ -395,7 +447,7 @@ final class OnboardingController: NSObject {
 
         let title = label(content.title, size: 25, weight: .semibold, color: .labelColor)
         stack.addArrangedSubview(title)
-        let body = wrapped(content.body, size: 14.5, color: .secondaryLabelColor)
+        let body = wrapped(content.definition, size: 14.5, color: .secondaryLabelColor)
         stack.addArrangedSubview(body)
         stack.setCustomSpacing(5, after: title)
         stack.setCustomSpacing(17, after: body)
@@ -414,10 +466,6 @@ final class OnboardingController: NSObject {
                                            color: content.stateIsGood
                                                ? .controlAccentColor : .tertiaryLabelColor))
             stack.addArrangedSubview(nameField())
-        }
-
-        for line in content.lines {
-            stack.addArrangedSubview(wrapped(line, size: 12.5, color: .tertiaryLabelColor))
         }
 
         if let state = content.state, card != .permission {
@@ -450,14 +498,21 @@ final class OnboardingController: NSObject {
         box.translatesAutoresizingMaskIntoConstraints = false
 
         let caption = label("Name", size: 11.5, weight: .regular, color: .tertiaryLabelColor)
-        let value = label(nameDraft.isEmpty ? "" : nameDraft, size: 14,
-                          weight: .regular, color: .labelColor)
+        let value = label(nameDraft, size: 14, weight: .regular, color: .labelColor)
         let caret = NSView()
         caret.wantsLayer = true
         caret.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
         caret.translatesAutoresizingMaskIntoConstraints = false
 
-        let row = NSStackView(views: [caption, value, caret])
+        // The caret belongs against the last letter. An empty value label still
+        // claimed its share of the spacing, which left the caret sitting a
+        // space clear of the text and looking like a typo.
+        let typed = NSStackView(views: nameDraft.isEmpty ? [caret] : [value, caret])
+        typed.orientation = .horizontal
+        typed.spacing = 2
+        typed.alignment = .centerY
+
+        let row = NSStackView(views: [caption, typed])
         row.orientation = .horizontal
         row.spacing = 9
         row.alignment = .centerY
@@ -473,6 +528,51 @@ final class OnboardingController: NSObject {
             box.widthAnchor.constraint(equalToConstant: 250),
         ])
         return box
+    }
+
+    /// The side card: keys and their meaning, and the one line that says when
+    /// this tool is the right one to reach for. Top aligned with the main card
+    /// so the pair reads as one object.
+    private func renderDetail(_ rows: [(String, String)], beside frame: NSRect) {
+        guard !rows.isEmpty else {
+            detailPanel.orderOut(nil)
+            return
+        }
+        detailRoot.subviews.filter { $0 is NSStackView }.forEach { $0.removeFromSuperview() }
+
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 11
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        for (key, text) in rows {
+            let row = NSStackView()
+            row.orientation = .vertical
+            row.alignment = .leading
+            row.spacing = 3
+            if !key.isEmpty {
+                row.addArrangedSubview(key == "when"
+                    ? label("WHEN", size: 9.5, weight: .semibold, color: .tertiaryLabelColor)
+                    : keycap(key))
+            }
+            let caption = label(text, size: 12, weight: .regular, color: .secondaryLabelColor)
+            caption.preferredMaxLayoutWidth = 226
+            caption.lineBreakMode = .byWordWrapping
+            caption.cell?.wraps = true
+            row.addArrangedSubview(caption)
+            stack.addArrangedSubview(row)
+        }
+
+        detailRoot.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.centerYAnchor.constraint(equalTo: detailRoot.centerYAnchor),
+            stack.topAnchor.constraint(greaterThanOrEqualTo: detailRoot.topAnchor, constant: 22),
+            stack.leadingAnchor.constraint(equalTo: detailRoot.leadingAnchor, constant: 22),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: detailRoot.trailingAnchor, constant: -18),
+        ])
+        detailPanel.setFrame(frame, display: true)
+        detailPanel.orderFrontRegardless()
     }
 
     private func dots() -> NSView {

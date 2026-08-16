@@ -221,9 +221,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // A freshly installed bundle has its own TCC identity. Prompt,
             // then wake up on our own the moment the grant lands — no
             // relaunch dance.
-            Log.error("not trusted for Accessibility — prompting and waiting for the grant")
-            Permissions.requestIfNeeded()
-            hud.flash("Lodestar needs Accessibility. Grant it in System Settings and it wakes up on its own", seconds: 8)
+            Log.error("not trusted for Accessibility — waiting for the grant")
+            // The walkthrough's first card asks for this, with a button and a
+            // screen it clears for the settings pane. Prompting here too put
+            // the macOS dialog behind a full screen backdrop.
+            if !onboarding.isVisible {
+                Permissions.requestIfNeeded()
+                hud.flash("Lodestar needs Accessibility. Grant it in System Settings and it wakes up on its own", seconds: 8)
+            }
             trustPoll = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: true) { [weak self] _ in
                 guard let self, Permissions.isTrusted else { return }
                 self.trustPoll?.invalidate()

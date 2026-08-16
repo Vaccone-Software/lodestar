@@ -43,20 +43,62 @@ final class OnboardingController: NSObject {
     private static let detailWidth: CGFloat = 272
 
     private var backdrops: [NSWindow] = []
-    private let panel = Glass.makePanel(level: .modalPanel)
+    /// Keyable on purpose, and it is the whole reason this cannot lock a
+    /// keyboard again. Every key used to arrive through the engine's event tap,
+    /// and the tap needs the Accessibility grant the first card is asking for
+    /// — so on a fresh install nothing reached the card, escape included, and a
+    /// full screen panel sat there with no way out. AppKit is the floor: when
+    /// the tap is running it swallows the key first and this never sees it.
+    private let panel = KeyablePanel(
+        contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+        styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
     private let root = NSView()
     private let detailPanel = Glass.makePanel(level: .modalPanel)
     private let detailRoot = NSView()
     private var trustPoll: Timer?
+    /// Waiting for the grant, with every window of ours off the screen so the
+    /// System Settings pane is not behind a blurred sheet.
+    private var awaitingGrant = false
+    /// Whether the pane on screen is one this asking opened. Judged by whether
+    /// System Settings was already running when we asked, because the window
+    /// usually comes from the macOS prompt's own button rather than from us —
+    /// and a window somebody was already working in is not ours to close.
+    private var settingsIsOurs = false
+    private static let settingsBundleID = "com.apple.systempreferences"
+    private var sawSettings = false
+    private var waited: Double = 0
+
+    /// The one state that cannot be reached by looking: a machine that has not
+    /// granted Accessibility. Everything about the first card depends on it, so
+    /// debug builds can be told to believe it.
+    private var trusted: Bool {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["LODESTAR_UNTRUSTED"] != nil { return false }
+        #endif
+        return Permissions.isTrusted
+    }
 
     override init() {
         super.init()
-        panel.ignoresMouseEvents = true
+        panel.level = .modalPanel
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.isReleasedWhenClosed = false
+        panel.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
         panel.contentView = root
         _ = Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
         detailPanel.ignoresMouseEvents = true
         detailPanel.contentView = detailRoot
         _ = Glass.installBackdrop(in: detailRoot, cornerRadius: BarTheme.glassRadius)
+        panel.onKeyDown = { [weak self] event in
+            guard let self, let key = Keys.name(for: Int64(event.keyCode)) else { return false }
+            let flags = event.modifierFlags
+            let other = flags.contains(.control) || flags.contains(.option)
+                || flags.contains(.command)
+            return self.handle(key: key, held: false,
+                               shift: flags.contains(.shift), other: other)
+        }
     }
 
     // MARK: - Presentation
@@ -64,7 +106,12 @@ final class OnboardingController: NSObject {
     var isVisible: Bool { !backdrops.isEmpty }
 
     func show() {
-        guard backdrops.isEmpty else { return }
+        // Asked for again while a grant is pending: bring it back rather than
+        // decline, or the deck is unreachable until the grant lands.
+        if !backdrops.isEmpty {
+            if awaitingGrant { stopWaiting(granted: false) }
+            return
+        }
         card = .permission
         prompted = false
         for screen in NSScreen.screens {
@@ -82,11 +129,14 @@ final class OnboardingController: NSObject {
         }
         prepare()
         render()
+        panel.makeKeyAndOrderFront(nil)
         pollTrust()
     }
 
     func finish() {
         trustPoll?.invalidate(); trustPoll = nil
+        awaitingGrant = false
+        settingsIsOurs = false
         panel.orderOut(nil)
         detailPanel.orderOut(nil)
         for window in backdrops { window.orderOut(nil) }
@@ -101,7 +151,10 @@ final class OnboardingController: NSObject {
     /// gesture that reached the engine summoned a window behind the card, and
     /// escape then closed that window instead of the walkthrough.
     func handle(key: String, held: Bool, shift: Bool, other: Bool) -> Bool {
-        guard isVisible else { return false }
+        // Nothing is swallowed while the screen is somebody else's: the grant
+        // can land at any moment and start the tap, and a walkthrough that is
+        // not on the screen must never be eating keys.
+        guard isVisible, !awaitingGrant else { return false }
 
         if other {
             // ⇧⌘V is the one combination that is ours: it would lay the real
@@ -133,20 +186,59 @@ final class OnboardingController: NSObject {
         return true
     }
 
-    /// The system prompt first, because a permission you can grant from where
-    /// you are standing is the whole point of asking. macOS only ever shows it
-    /// once, so from the second press this opens the pane instead.
+    /// Get out of the way, then ask. macOS puts its prompt and its settings
+    /// pane wherever it likes, and behind a full screen blurred backdrop they
+    /// were unusable — which is how the first card became a dead end.
+    ///
+    /// The prompt comes first, because a permission you can grant from where
+    /// you are standing is the point of asking. macOS spends that prompt once
+    /// per app, so from the second press this opens the pane instead.
     private func grantAccess() {
-        if !prompted, !Permissions.isTrusted {
+        guard !trusted else { return }
+        setChromeVisible(false)
+        awaitingGrant = true
+        settingsIsOurs = NSRunningApplication.runningApplications(
+            withBundleIdentifier: Self.settingsBundleID).isEmpty
+        if !prompted {
             prompted = true
             _ = Permissions.requestIfNeeded()
-            render()
-            return
-        }
-        if let url = URL(string:
+        } else if let url = URL(string:
             "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
         }
+        pollTrust()
+    }
+
+    /// Back on screen, and the pane we opened closed behind us. Only the one we
+    /// opened: a System Settings window somebody was already using is theirs.
+    private func stopWaiting(granted: Bool) {
+        awaitingGrant = false
+        if granted, settingsIsOurs {
+            for app in NSRunningApplication.runningApplications(
+                withBundleIdentifier: Self.settingsBundleID) {
+                app.terminate()
+            }
+        }
+        settingsIsOurs = false
+        setChromeVisible(true)
+        render()
+        panel.makeKeyAndOrderFront(nil)
+        if granted { Log.info("onboarding", ["accessibility": "granted"]) }
+    }
+
+    @objc private func grantPressed() {
+        grantAccess()
+    }
+
+    private func setChromeVisible(_ visible: Bool) {
+        guard visible else {
+            panel.orderOut(nil)
+            detailPanel.orderOut(nil)
+            for window in backdrops { window.orderOut(nil) }
+            return
+        }
+        for window in backdrops { window.orderFrontRegardless() }
+        panel.orderFrontRegardless()
     }
 
     private func back() {
@@ -181,13 +273,41 @@ final class OnboardingController: NSObject {
             : []
     }
 
+    /// The one clock. The grant can arrive because we asked for it or because
+    /// they went and granted it themselves, and both endings are the same. It
+    /// also watches the asking itself: a card that has taken itself off the
+    /// screen has to come back on its own when the answer is no, or the only
+    /// way back to the walkthrough is the menu bar.
     private func pollTrust() {
-        guard !Permissions.isTrusted else { return }
+        guard !trusted else { return }
         trustPoll?.invalidate()
-        trustPoll = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
-            guard let self, Permissions.isTrusted else { return }
-            self.trustPoll?.invalidate(); self.trustPoll = nil
-            if self.card == .permission { self.render() }
+        sawSettings = false
+        waited = 0
+        trustPoll = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            if self.trusted {
+                self.trustPoll?.invalidate(); self.trustPoll = nil
+                if self.awaitingGrant {
+                    self.stopWaiting(granted: true)
+                } else if self.card == .permission {
+                    self.render()
+                }
+                return
+            }
+            guard self.awaitingGrant else { return }
+            self.waited += 0.8
+            let settingsRunning = !NSRunningApplication.runningApplications(
+                withBundleIdentifier: Self.settingsBundleID).isEmpty
+            if settingsRunning {
+                // They are in the pane. Stay off the screen however long that
+                // takes; coming back over it would be the original bug wearing
+                // the other hat.
+                self.sawSettings = true
+                return
+            }
+            // The pane was open and is gone, or the prompt was dismissed
+            // without ever opening it. Either way the answer is not yet.
+            if self.sawSettings || self.waited > 8 { self.stopWaiting(granted: false) }
         }
     }
 
@@ -221,6 +341,10 @@ final class OnboardingController: NSObject {
         /// What the thing **is**, before anything about how to work it.
         var definition: String
         var keys: [KeyLine] = []
+        /// A real button. The permission card has to be workable by mouse: the
+        /// keys it would otherwise rely on arrive through a tap that does not
+        /// exist until the permission it is asking for is granted.
+        var action: String?
         var illustration: Illustration?
         /// The side card: the keys that are not the way in.
         var detail: [Detail] = []
@@ -232,18 +356,16 @@ final class OnboardingController: NSObject {
     private func content() -> Content {
         switch card {
         case .permission:
-            let granted = Permissions.isTrusted
+            let granted = trusted
             return Content(
                 title: "Accessibility",
                 definition: "Lodestar needs one permission from macOS. Accessibility is what "
                     + "lets it see your windows, move them, and read the menus of the app you "
                     + "are in. It is the only permission it ever asks for.",
-                keys: granted ? [] : [KeyLine(caps: ["space"],
-                                              caption: prompted ? "open System Settings"
-                                                                : "grant access")],
+                action: granted ? nil : (prompted ? "Open System Settings" : "Grant Access"),
                 state: granted ? "Granted" : "Not granted yet",
                 stateIsGood: granted,
-                footer: "↵ continue")
+                footer: granted ? "↵ continue" : "space to grant    esc to leave")
         case .searcher:
             return Content(
                 title: "Searcher",
@@ -439,6 +561,16 @@ final class OnboardingController: NSObject {
         }
         if content.keys.count > 1, let view = stack.arrangedSubviews.last {
             stack.setCustomSpacing(16, after: view)
+        }
+
+        if let action = content.action {
+            let button = NSButton(title: action, target: self, action: #selector(grantPressed))
+            button.bezelStyle = .rounded
+            button.controlSize = .large
+            button.bezelColor = .controlAccentColor
+            button.translatesAutoresizingMaskIntoConstraints = false
+            stack.addArrangedSubview(button)
+            stack.setCustomSpacing(16, after: button)
         }
 
         if let illustration = content.illustration {

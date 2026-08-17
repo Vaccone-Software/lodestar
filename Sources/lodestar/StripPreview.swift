@@ -179,7 +179,6 @@ enum StripPreview {
         app.run()
     }
 }
-#endif
 
 /// The ground the panels are photographed against: the page's own near black,
 /// with a trace of light so the glass has an edge to catch. Anything more
@@ -195,3 +194,5 @@ private final class StageView: NSView {
         // own shadow and rim already.
     }
 }
+
+#endif

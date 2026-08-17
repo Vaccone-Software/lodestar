@@ -12,6 +12,10 @@ final class Actions {
     /// Set by the app. Reaches are recorded here beside the frecency the
     /// searcher already keeps, so the two cannot drift apart.
     var observations: ObservationStore?
+    /// A navigation just completed / a destination just opened — the
+    /// coach's boundary moments, fed from the same seams that record them.
+    var coachBoundary: ((String?) -> Void)?
+    var coachWebOpen: ((String?) -> Void)?
     private let hud: HUD
 
     private var intents = IntentQueue()
@@ -57,6 +61,7 @@ final class Actions {
 
     func summon(_ target: GraphTarget, beside: Bool) {
         observations?.reached(target.label, via: .graph)
+        coachBoundary?(target.label.lowercased())
         switch target {
         case .app(let name):
             summonApp(named: name, beside: beside)
@@ -75,9 +80,11 @@ final class Actions {
         // The observation layer keeps the host — the routing fact route
         // recommendations are made of — and never the path or query. A
         // search row records only that a search happened.
-        observations?.webOpened(host: row == "search" ? nil : WebRouting.host(of: url),
+        let host = row == "search" ? nil : WebRouting.host(of: url)
+        observations?.webOpened(host: host,
                                 profile: "\(profile.browser.rawValue):\(profile.display)",
                                 source: "typed", row: row)
+        coachWebOpen?(host)
         guard ChromiumProfiles.openURL(url, in: profile) else {
             hud.flash("✕ profile '\(profile.display)' not found in \(profile.browser.label)")
             return
@@ -110,6 +117,7 @@ final class Actions {
             return
         }
         observations?.reached(entry.name, via: .searcher, cost: cost)
+        coachBoundary?(entry.name.lowercased())
         if let window = bestAliveWindow(bundleID: entry.bundleID, appName: entry.name) {
             place(window, beside: beside)
             return

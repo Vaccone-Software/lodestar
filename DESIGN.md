@@ -156,7 +156,19 @@ Lodestar watches how you reach things — locally, deletably, off by one config 
 
 The analysis side holds itself to three disciplines. A pause is judged against what that chain's _shape_ costs this user's own hands (position and digraph regressed out), never against a constant. A recommendation must clear a decision-theoretic gate — probably worth more time than it costs, relearning priced from the user's own curves — and survive false-discovery control across everything tested at once; thin data self-suppresses through wide uncertainty rather than through magic thresholds. And every config edit is treated as a natural experiment (epoch-stamped, curves restarted), because a single-user, no-A/B design gets its causality nowhere else. Models run in shadow, scored on one-step-ahead prediction, and earn influence only by out-predicting the naive baseline — complexity lives here so the surfaced product can stay one sentence.
 
-Test it passes: the user never sees a model, only `lodestar observations` (the plain printout that makes the store consentable) and, eventually, one actionable line whose expected value has already paid for the interruption.
+Test it passes: the user never sees a model, only `lodestar observations` (the plain printout that makes the store consentable) and, occasionally, one actionable line whose expected value has already paid for the interruption.
+
+## The coach
+
+The coach is the observation layer's voice: one priced, evidence backed suggestion at a time, offered at a moment the user can verify the claim from their own immediate experience. It is named the way the launcher and the graph are named — a register, never a persona. No first person, no praise, no mascot: advice is legitimate coming from a coach, and every step past the label toward a character raises social expectations a tool can only disappoint.
+
+**The chip** rides the HUD's glass, never takes key focus, and captures nothing bare: its whole grammar lives on the lode key. Tap lode twice to accept — assent addressed to the instrument, structurally unable to collide with typing. Lode ⌫ answers "not this one". Ignoring it is the third answer: decay is "later", never a decline, so the chip carries no decision pressure. A missed offer parks in the menu as an inbox of at most one. Accepting writes exactly one config line through the same path ⌘K uses, so the file and the chip are the same source of truth — and anything that cannot be one config line stays in the report.
+
+**When it speaks:** at navigation boundaries, because a navigation is the user declaring a context switch — the one moment interruption is nearly free. Suggestions whose evidence is a felt cost prefer their cue (the bind offer lands seconds after the search it would remove), but a cue is a scheduling preference, never a permission: a suggestion with no cue, or whose cue does not come within days, goes out at any quiet boundary. Vetoes are absolute — a live camera, an open bar, a chain in flight all silence it.
+
+**The curriculum** is the object being optimized, not any single suggestion: one learning habit at a time, and the next releases when the current one's curve bends, not when a calendar says so. Pace is gated by demonstrated capacity — progressive overload — so the motivated compound quickly and a slow month is not nagged through. Declines are graded and none is forever: "later" retries at later moments then parks, "never" sleeps for a season, and both reopen when the evidence materially outgrows the answer, because the data kept moving. Every answer feeds the curriculum's own calibration; the coach's response to no is to get better, not louder.
+
+Test it passes: the gesture is fixed (tap lode twice, always assent, no offer means no-op), and each appearance is rare enough to mean something — silence remains the resting state.
 
 ## Open questions (resolve by prototype, not reasoning)
 
@@ -166,4 +178,4 @@ Test it passes: the user never sees a model, only `lodestar observations` (the p
 - **Index `0`**: what, if anything, it does.
 - **Naming the register**: "link" is the plain word, deliberately not Raycast's "quicklink". Whether a distinctive noun (beacon, waypoint) earns a config migration is unresolved; the plain word ships until it does.
 - **Noticing what you keep typing** — resolved in the observation layer's favor: hosts are counted, locally and bounded, and a host that always lands in one profile becomes a _route recommendation_ rather than a hint chip. The chip question (where such a nudge appears in the UI) stays open; the data question is settled.
-- **The coach's moment**: recommendations exist as data before they exist as UI. When one surfaces, it must arrive between tasks, never during one — camera in use, a bar open, a chain in flight all veto it — and one at a time, spaced so each new address's curve bends before the next asks for a hand. Delivery is unbuilt; this constraint is the spec it will be built to.
+- **The retrospective**: the coach's slow mirror — a quarterly, offered-not-shoved look back at what the hands learned and the minutes returned, Wrapped-shaped, in glass and the house voice. Waits on a quarter of ledger existing to speak from; the per-suggestion closure receipt was considered and rejected (transactional framing crowds out the quiet transformation the product is for).

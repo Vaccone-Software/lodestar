@@ -8,6 +8,18 @@ import Foundation
 /// control across everything else being tested. Thin data self-suppresses
 /// through wide uncertainty; there is no minimum-samples constant hiding
 /// the same decision less honestly.
+/// The one config line a recommendation would write. This is what makes a
+/// chip actionable: the coach's verb is exactly one line, and anything
+/// that cannot be one line stays in the report.
+public enum ConfigEdit: Codable, Equatable {
+    /// Bind an app at a chain (bind and shorten both land here).
+    case bindApp(chain: [String], app: String)
+    /// Remove a binding (retire).
+    case removeChain(chain: [String])
+    /// One route line: pattern → profile registry key.
+    case addRoute(pattern: String, profileKey: String)
+}
+
 public struct Recommendation: Codable, Equatable {
     public enum Kind: String, Codable {
         /// An app searched for often that has no address.
@@ -28,12 +40,26 @@ public struct Recommendation: Codable, Equatable {
 
     public var kind: Kind
     public var target: String
-    /// The one sentence a future surface would show.
+    /// The one sentence a surface would show.
     public var detail: String
     public var secondsPerWeek: Double
     /// Posterior probability the change saves net time over the horizon.
     public var probability: Double
     public var evidence: [String]
+    /// The write this recommendation proposes, when it is one config line.
+    /// Nil means report-only: the chip never offers what it cannot commit.
+    public var edit: ConfigEdit?
+
+    public init(kind: Kind, target: String, detail: String, secondsPerWeek: Double,
+                probability: Double, evidence: [String], edit: ConfigEdit? = nil) {
+        self.kind = kind
+        self.target = target
+        self.detail = detail
+        self.secondsPerWeek = secondsPerWeek
+        self.probability = probability
+        self.evidence = evidence
+        self.edit = edit
+    }
 }
 
 public enum Advisor {
@@ -44,15 +70,20 @@ public enum Advisor {
         public var leaves: [(chain: [String], label: String)]
         /// The web route table, so an already-covered host stays quiet.
         public var webRoutes: [String: String]
+        /// Observed profile identity ("brave:Work") → registry key ("work"),
+        /// so a route recommendation can name the key a config line needs.
+        public var profileKeys: [String: String]
         public var now: Date
 
         public init(observations: Observations, events: [ObservationEvent],
                     leaves: [(chain: [String], label: String)],
-                    webRoutes: [String: String] = [:], now: Date = Date()) {
+                    webRoutes: [String: String] = [:],
+                    profileKeys: [String: String] = [:], now: Date = Date()) {
             self.observations = observations
             self.events = events
             self.leaves = leaves
             self.webRoutes = webRoutes
+            self.profileKeys = profileKeys
             self.now = now
         }
     }
@@ -183,14 +214,14 @@ public enum Advisor {
             out.append((Recommendation(
                 kind: .bind, target: app,
                 detail: "\(app) is searched \(String(format: "%.1f", demand.perWeek))×/week"
-                    + " with no address — lode \(slot.uppercased()) would pay for itself",
+                    + " with no address · lode \(slot.uppercased()) would pay for itself",
                 secondsPerWeek: value.secondsPerWeek, probability: value.probability,
                 evidence: [
                     "\(record.searcher) launcher reaches across \(o.activeWeeks(app: app)) weeks",
                     String(format: "launcher costs %.2fs; lode %@ predicted %.2fs",
                            launcherSeconds, slot.uppercased(), chainSeconds),
                     String(format: "learning bill ≈ %.0fs, from your own curves", learningCost),
-                ]), 1 - value.probability))
+                ], edit: .bindApp(chain: [slot], app: app)), 1 - value.probability))
         }
         return out
     }
@@ -214,7 +245,7 @@ public enum Advisor {
                 / max(1, Double(o.activeWeeks(address: leaf.chain))) * 1.5
             out.append((Recommendation(
                 kind: .rebind, target: key,
-                detail: "at \(shown) your hand keeps pressing \(letter.uppercased()) — "
+                detail: "at \(shown) your hand keeps pressing \(letter.uppercased()) · "
                     + "the name in your head disagrees with the graph",
                 secondsPerWeek: weekly, probability: lower,
                 evidence: ["\(count) of \(record.wrongKeys) wrong keys were "
@@ -250,11 +281,12 @@ public enum Advisor {
             let shown = "lode " + leaf.chain.map { $0.uppercased() }.joined(separator: " ")
             out.append((Recommendation(
                 kind: .shorten, target: key,
-                detail: "\(shown) fires \(Int(weekly))×/week — it has earned "
+                detail: "\(shown) fires \(Int(weekly))×/week · it has earned "
                     + "lode \(slot.uppercased())",
                 secondsPerWeek: value.secondsPerWeek, probability: value.probability,
                 evidence: [String(format: "%.2fs now vs %.2fs shortened, %d completions",
-                                  current, proposed, record.completions)]),
+                                  current, proposed, record.completions)],
+                edit: .bindApp(chain: [slot], app: leaf.label)),
                 1 - value.probability))
         }
         return out
@@ -269,9 +301,10 @@ public enum Advisor {
             let shown = "lode " + chain.map { $0.uppercased() }.joined(separator: " ")
             return (Recommendation(
                 kind: .retire, target: Observations.key(chain),
-                detail: "\(shown) has never been typed — a letter spent on nothing",
+                detail: "\(shown) has never been typed · a letter spent on nothing",
                 secondsPerWeek: 0, probability: 0.95,
-                evidence: ["four weeks of observation, zero completions"]), 0.05)
+                evidence: ["four weeks of observation, zero completions"],
+                edit: .removeChain(chain: chain)), 0.05)
         }
     }
 
@@ -318,7 +351,7 @@ public enum Advisor {
             }
             out.append((Recommendation(
                 kind: .nudge, target: app,
-                detail: "\(app) has \(shown) and you search for it anyway — "
+                detail: "\(app) has \(shown) and you search for it anyway · "
                     + String(format: "each search pays %.1fs over the chain", saved),
                 secondsPerWeek: saved * weekly, probability: lower,
                 evidence: evidence), p))
@@ -339,7 +372,7 @@ public enum Advisor {
             out.append((Recommendation(
                 kind: .breath, target: "\(pair.from) + \(pair.to)",
                 detail: "\(pair.from) and \(pair.to) travel together "
-                    + String(format: "%.0f× at lift %.1f — a breath would pin them side by side",
+                    + String(format: "%.0f× at lift %.1f · a breath would pin them side by side",
                              pair.count, pair.lift),
                 secondsPerWeek: pair.count * 2,
                 probability: probability,
@@ -362,14 +395,19 @@ public enum Advisor {
             else { continue }
             // The null: no preferred profile for this host.
             let p = Maths.binomialTail(atLeast: hits, n: record.count, p: 0.5)
+            // The chip can only offer what a config line can say, and a
+            // route line needs the registry key behind the observed profile.
+            let edit = context.profileKeys[profile].map {
+                ConfigEdit.addRoute(pattern: host, profileKey: $0)
+            }
             out.append((Recommendation(
                 kind: .route, target: host,
-                detail: "\(host) has landed in \(profile) \(hits) of \(record.count) times — "
+                detail: "\(host) has landed in \(profile) \(hits) of \(record.count) times · "
                     + "one route line would make it a fact instead of a habit",
                 secondsPerWeek: Double(record.count)
                     / max(1, Double(record.weeks.count)) * 1.5,
                 probability: lower,
-                evidence: ["\(hits)/\(record.count) opens in \(profile)"]), p))
+                evidence: ["\(hits)/\(record.count) opens in \(profile)"], edit: edit), p))
         }
         return out
     }

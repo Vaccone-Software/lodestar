@@ -557,6 +557,23 @@ func runObservations(clear: Bool, engine: Bool) -> Never {
         print("")
     }
 
+    // The coach's ledger: everything it has said, and what became of it.
+    if !o.ledger.isEmpty {
+        print("coach")
+        for entry in o.ledger.sorted(by: { $0.lastOfferedWeek > $1.lastOfferedWeek })
+            .prefix(10) {
+            var line = pad("  \(entry.kind) \(entry.target)", 34) + pad(entry.status, 10)
+            line += pad("\(entry.offers) offer\(entry.offers == 1 ? "" : "s")", 10)
+            if entry.adoptedWeek != nil, entry.status != "accepted" {
+                line += "adopted by hand"
+            } else if entry.predictedSecondsPerWeek > 0 {
+                line += String(format: "≈%.0fs/week promised", entry.predictedSecondsPerWeek)
+            }
+            print(line)
+        }
+        print("")
+    }
+
     // The engine's verdicts: each survives a posterior-probability gate and
     // false-discovery control across everything tested, so a line here has
     // earned its place. Silence stays the honest answer until then.

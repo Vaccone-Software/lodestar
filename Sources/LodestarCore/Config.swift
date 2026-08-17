@@ -73,6 +73,7 @@ public struct Config {
     /// Watch how you reach things, locally, to make suggestions later. Off
     /// means nothing is recorded and no file is written.
     public var observationsEnabled = true
+    public var coachEnabled = true
     /// What to call you. Used sparingly, in the welcome and in a digest, never
     /// in a routine flash: a coach who says your name every time is not a
     /// coach. Empty means no salutation at all rather than "hey there".
@@ -164,6 +165,9 @@ public struct Config {
         "observations": .table([
             "enabled": .boolean(description: "Watch how you reach things, on this machine only, to suggest improvements later."),
         ], description: "Local observations. How you got places, never what you were doing there; nothing leaves the machine."),
+        "coach": .table([
+            "enabled": .boolean(description: "Let Lodestar offer one improvement at a time, in quiet moments, priced in seconds."),
+        ], description: "The coach: rare, evidence-backed suggestions drawn from the observations."),
         "hints": .table([
             "letters": .string(allowed: nil, description: "The label alphabet, home row by default; labels are built only from these letters."),
             "rescan-delay": .number(min: 0.1, max: 2.0, description: "Sticky hints: seconds between a click and the relabel."),
@@ -394,6 +398,9 @@ public struct Config {
         }
         if let enabled = effective.value(at: ["observations", "enabled"])?.bool {
             config.observationsEnabled = enabled
+        }
+        if let enabled = effective.value(at: ["coach", "enabled"])?.bool {
+            config.coachEnabled = enabled
         }
         if let enabled = effective.value(at: ["web", "clicks", "enabled"])?.bool {
             config.webHandleClicks = enabled

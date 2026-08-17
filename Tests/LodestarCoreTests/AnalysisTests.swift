@@ -297,6 +297,8 @@ final class AnalysisTests: XCTestCase {
         XCTAssertTrue(bind?.detail.contains("lode F") ?? false, "the mnemonic slot")
         XCTAssertGreaterThan(bind?.secondsPerWeek ?? 0, 0)
         XCTAssertGreaterThanOrEqual(bind?.probability ?? 0, 0.9, "gated, not guessed")
+        XCTAssertEqual(bind?.edit, .bindApp(chain: ["f"], app: "facetime"),
+                       "the one config line the chip would commit")
     }
 
     func testAdvisorStaysSilentOnThinData() {
@@ -324,10 +326,19 @@ final class AnalysisTests: XCTestCase {
             o.apply(event)
         }
         let context = Advisor.Context(observations: o, events: [], leaves: [],
-                                      webRoutes: [:], now: start)
+                                      webRoutes: [:],
+                                      profileKeys: ["brave:work": "work"], now: start)
         let route = Advisor.recommend(context).first { $0.kind == .route }
         XCTAssertNotNil(route, "twelve opens, one profile: a rule is waiting")
         XCTAssertEqual(route?.target, "github.com")
+        XCTAssertEqual(route?.edit, .addRoute(pattern: "github.com", profileKey: "work"),
+                       "the registry key resolved, so the chip can commit it")
+
+        // Without the registry mapping the finding stands but cannot be a
+        // chip: report only.
+        let unmapped = Advisor.Context(observations: o, events: [], leaves: [],
+                                       webRoutes: [:], now: start)
+        XCTAssertNil(Advisor.recommend(unmapped).first { $0.kind == .route }?.edit)
 
         // The same host already covered by a rule stays quiet.
         let covered = Advisor.Context(observations: o, events: [], leaves: [],

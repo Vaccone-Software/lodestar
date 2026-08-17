@@ -58,9 +58,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var searcher: SearcherController!
     private var webBar: WebBarController!
     private var engine: HotkeyEngine!
+    private var coach: CoachController!
     private var updater: UpdateController!
     private var clipboardController: ClipboardController!
     private var statusItem: NSStatusItem?
+    private var coachSuggestionItem: NSMenuItem?
     private var menuBarHideTimer: Timer?
     private var signalSource: DispatchSourceSignal?
     private var trustPoll: Timer?
@@ -183,6 +185,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         engine.observations = observationStore
 
+        // The coach: decisions in LodestarCore, this wiring is the coat.
+        coach = CoachController()
+        coach.observations = observationStore
+        coach.enabled = loaded.coachEnabled
+        coach.contextInputs = { [weak self] in
+            guard let self else { return nil }
+            let identityToKey = Dictionary(self.config.browserProfiles.map {
+                ("\($0.value.browser.rawValue):\($0.value.display)", $0.key)
+            }, uniquingKeysWith: { first, _ in first })
+            return (observations: self.observationStore.observations,
+                    leaves: self.config.graph.leaves().map {
+                        (chain: $0.chain, label: $0.target.label)
+                    },
+                    webRoutes: self.config.webRoutes,
+                    profileKeys: identityToKey,
+                    logFile: self.observationStore.log.file)
+        }
+        coach.applyEdit = { [weak self] edit in
+            guard let self else { return "lodestar is shutting down" }
+            switch edit {
+            case .bindApp(let chain, let app):
+                guard let entry = self.appIndex.entry(named: app) else {
+                    return "\(app) is not installed any more"
+                }
+                return self.addAppToGraph(chain, entry: entry)
+            case .removeChain(let chain):
+                return self.removeChainFromGraph(chain)
+            case .addRoute(let pattern, let profileKey):
+                return self.addWebRoute(pattern: pattern, profileKey: profileKey)
+            }
+        }
+        coach.engineQuiet = { [weak self] in self?.engine.isQuiet ?? false }
+        coach.showChip = { [weak self] chip in
+            // The keycap names the gesture the way the scroll guide's
+            // "G G" does: two lodes, tapped. A blank cap read as a row
+            // with no way in.
+            self?.hud.showGuide(title: "⌖ coach",
+                                rows: [GuideRow(key: "lode lode", label: chip.headline)],
+                                footer: "\(chip.evidence)   ·   \(chip.footer)")
+        }
+        coach.hideChip = { [weak self] in self?.hud.hide() }
+        coach.flash = { [weak self] text in self?.hud.flash(text) }
+        engine.onLodeDoubleTap = { [weak self] in self?.coach.lodeDoubleTapped() }
+        engine.coachDelete = { [weak self] in self?.coach.lodeDelete() ?? false }
+        engine.onSurfaceClaimed = { [weak self] in self?.coach.surfaceClaimed() }
+        actions.coachBoundary = { [weak self] app in self?.coach.noteBoundary(app: app) }
+        actions.coachWebOpen = { [weak self] host in self?.coach.noteWebOpen(host: host) }
+        // First pass once the boot dust settles; boundaries keep it fresh.
+        coach.scheduleRefresh(after: 120)
+        #if DEBUG
+        armCoachDemoIfRequested()
+        #endif
+
         model.start()
         layout.reconcileDisplays() // learn the connected monitors' identities
         NotificationCenter.default.addObserver(
@@ -286,6 +341,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         updater.check(force: true)
     }
 
+    /// The menu asked for the parked suggestion: the cue wait is over.
+    @objc private func presentCoachSuggestion() {
+        coach?.presentParked()
+    }
+
+    #if DEBUG
+    /// Debug builds only: `coach.demo-request` beside the observations
+    /// arms a rehearsal — a synthetic offer, so the chip, both gestures,
+    /// and the config write can be walked end to end before the first
+    /// real finding exists. Checked at boot and at every reload, so
+    /// re-arming is touch-the-flag and reload. The file-as-a-flag is the
+    /// clipboard's handshake, reused.
+    private func armCoachDemoIfRequested() {
+        let flag = Paths.data.appendingPathComponent("coach.demo-request")
+        guard FileManager.default.fileExists(atPath: flag.path) else { return }
+        try? FileManager.default.removeItem(at: flag)
+        let taken = Set(config.graph.leaves().compactMap { $0.chain.first })
+        let free = "abcdefghijklmnopqrstuvwxyz".map(String.init).filter { !taken.contains($0) }
+        for name in ["Calculator", "Preview", "Notes", "Music", "FaceTime"] {
+            guard let entry = appIndex.entry(named: name) else { continue }
+            let letters = name.lowercased().filter(\.isLetter).map(String.init)
+            guard let slot = letters.first(where: { !taken.contains($0) }) ?? free.first
+            else { continue }
+            let rec = Recommendation(
+                kind: .bind, target: entry.name.lowercased(),
+                detail: "a rehearsal · this is how a real finding will arrive",
+                secondsPerWeek: 42, probability: 0.97,
+                evidence: ["synthetic, for the dress rehearsal"],
+                edit: .bindApp(chain: [slot], app: entry.name))
+            coach.armDemo(rec)
+            Log.info("coach", ["demo": "armed", "slot": slot, "app": entry.name])
+            return
+        }
+        Log.error("coach: demo requested but no candidate app was installed")
+    }
+    #endif
+
     @objc private func reportIssue() {
         let os = ProcessInfo.processInfo.operatingSystemVersionString
         let body = """
@@ -329,6 +421,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let browserItem = makeItem("", #selector(toggleDefaultBrowser), key: "")
         defaultBrowserItem = browserItem
         menu.addItem(browserItem)
+        // The coach's inbox of at most one: a suggestion whose moment was
+        // missed parks here instead of being lost. Hidden when empty.
+        let coachItem = makeItem("", #selector(presentCoachSuggestion), key: "")
+        coachItem.isHidden = true
+        coachSuggestionItem = coachItem
+        menu.addItem(coachItem)
         menu.delegate = self
         menu.addItem(.separator())
         menu.addItem(makeItem("Edit Config…", #selector(editConfig), key: ""))
@@ -343,6 +441,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// The browser item reads the world each time the menu opens: it says what
     /// pressing it does, not what state you are in.
     func menuNeedsUpdate(_ menu: NSMenu) {
+        if let coachItem = coachSuggestionItem {
+            if let headline = coach?.parkedHeadline {
+                coachItem.isHidden = false
+                coachItem.title = "Coach: \(headline)"
+            } else {
+                coachItem.isHidden = true
+            }
+        }
         guard let item = defaultBrowserItem else { return }
         // Reality, not config: the role can be handed to us or taken away in
         // System Settings without going through this menu, and an item that
@@ -883,6 +989,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             observationStore?.clear()
             hud.flash("⌂ observations cleared")
         }
+        coach?.enabled = loaded.coachEnabled
+        // A config edit changes the world the advisor reasons about —
+        // including edits the coach itself just wrote.
+        coach?.scheduleRefresh(after: 2)
+        #if DEBUG
+        armCoachDemoIfRequested()
+        #endif
         rebuildGraphAddresses()
         ConfigDoctor.emitSchema()
         updateConfigWatcher()

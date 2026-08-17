@@ -144,13 +144,21 @@ public final class ObservationStore {
         record(event)
     }
 
-    /// A recommendation was surfaced; adoption is detected from epoch
-    /// events later. Unused until something surfaces, wired now so the
-    /// record starts on day one.
-    public func ledgerRecord(_ entry: Observations.LedgerEntry) {
-        guard enabled else { return }
-        observations.ledgerRecord(entry)
-        saveSoon()
+    /// The coach spoke or was answered. Events like everything else, so
+    /// the ledger the curriculum runs on is rebuildable like everything
+    /// else. `action` is offered | accepted | never.
+    public func coach(action: String, rec: Recommendation, at now: Date = Date()) {
+        var event = ObservationEvent(t: now, kind: .coach)
+        event.action = action
+        event.rec = rec.kind.rawValue
+        event.app = rec.target
+        event.seconds = rec.secondsPerWeek
+        if case .bindApp(let chain, _)? = rec.edit {
+            event.address = Observations.key(chain)
+        } else if case .removeChain(let chain)? = rec.edit {
+            event.address = Observations.key(chain)
+        }
+        record(event)
     }
 
     private func record(_ event: ObservationEvent) {

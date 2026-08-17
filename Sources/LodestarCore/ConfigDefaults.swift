@@ -74,6 +74,9 @@ public enum ConfigDefaults {
         "observations": .table([
             "enabled": .bool(true),
         ]),
+        "coach": .table([
+            "enabled": .bool(true),
+        ]),
         "hints": .table([
             "letters": .string("asdfghjkl"),
             "rescan-delay": .double(0.4),

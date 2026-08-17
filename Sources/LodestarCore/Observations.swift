@@ -222,27 +222,48 @@ public struct Observations: Codable, Equatable {
         public init() {}
     }
 
-    /// One recommendation's life: predicted, surfaced, adopted (or not),
-    /// scored. Nothing surfaces yet; the ledger exists so that when
-    /// something does, its record starts on day one.
+    /// One recommendation's life, as a view over coach events: offered,
+    /// then answered — accepted by the tap, declined outright, or adopted
+    /// by hand later. This record is what lets the coach remember "no",
+    /// pace itself, and eventually be scored against what it predicted.
     public struct LedgerEntry: Codable, Equatable {
+        /// kind:target — one entry per recommendation identity.
         public var id: String
         public var kind: String
         public var target: String
-        public var detail: String
+        /// The proposed chain key, when the recommendation names one.
+        public var chain: String?
         public var predictedSecondsPerWeek: Double
-        public var week: Int
+        public var firstOfferedWeek: Int
+        public var lastOfferedWeek: Int
+        /// Day-grain, because retry cooldowns are days and weeks are too
+        /// coarse to say "not twice in one afternoon".
+        public var lastOfferedAt = Date.distantPast
+        public var offers: Int
+        /// offered | accepted | never.
+        public var status: String
+        public var acceptedWeek: Int?
+        /// The user did it by hand: an epoch event matched this entry.
         public var adoptedWeek: Int?
+        public var neverWeek: Int?
 
-        public init(id: String, kind: String, target: String, detail: String,
-                    predictedSecondsPerWeek: Double, week: Int, adoptedWeek: Int? = nil) {
+        public init(id: String, kind: String, target: String, chain: String? = nil,
+                    predictedSecondsPerWeek: Double, firstOfferedWeek: Int,
+                    lastOfferedWeek: Int, offers: Int, status: String,
+                    acceptedWeek: Int? = nil, adoptedWeek: Int? = nil,
+                    neverWeek: Int? = nil) {
             self.id = id
             self.kind = kind
             self.target = target
-            self.detail = detail
+            self.chain = chain
             self.predictedSecondsPerWeek = predictedSecondsPerWeek
-            self.week = week
+            self.firstOfferedWeek = firstOfferedWeek
+            self.lastOfferedWeek = lastOfferedWeek
+            self.offers = offers
+            self.status = status
+            self.acceptedWeek = acceptedWeek
             self.adoptedWeek = adoptedWeek
+            self.neverWeek = neverWeek
         }
     }
 
@@ -445,8 +466,39 @@ public struct Observations: Codable, Equatable {
             record.peeked = 0
             addresses[address] = record
             if event.change == "added" || event.change == "retargeted" {
-                markAdopted(target: address, at: now)
+                markAdopted(address: address, at: now)
             }
+
+        case .coach:
+            touch(now)
+            guard let action = event.action, let kind = event.rec,
+                  let target = event.app else { return }
+            let id = "\(kind):\(target)"
+            let week = Self.week(now)
+            var entry = ledger.first { $0.id == id } ?? LedgerEntry(
+                id: id, kind: kind, target: target, chain: event.address,
+                predictedSecondsPerWeek: event.seconds ?? 0,
+                firstOfferedWeek: week, lastOfferedWeek: week, offers: 0,
+                status: "offered")
+            switch action {
+            case "offered":
+                entry.offers += 1
+                entry.lastOfferedWeek = week
+                entry.lastOfferedAt = now
+                if let seconds = event.seconds { entry.predictedSecondsPerWeek = seconds }
+                if let chain = event.address { entry.chain = chain }
+            case "accepted":
+                entry.status = "accepted"
+                entry.acceptedWeek = week
+            case "never":
+                entry.status = "never"
+                entry.neverWeek = week
+            default:
+                return
+            }
+            ledger.removeAll { $0.id == id }
+            ledger.append(entry)
+            if ledger.count > Self.ledgerCap { ledger.removeFirst(ledger.count - Self.ledgerCap) }
         }
     }
 
@@ -460,14 +512,13 @@ public struct Observations: Codable, Equatable {
 
     // MARK: - Ledger
 
-    public mutating func ledgerRecord(_ entry: LedgerEntry) {
-        ledger.append(entry)
-        if ledger.count > Self.ledgerCap { ledger.removeFirst(ledger.count - Self.ledgerCap) }
-    }
-
-    private mutating func markAdopted(target: String, at now: Date) {
+    /// An offered suggestion whose proposed binding just appeared in the
+    /// config by hand is adopted all the same — the flywheel closes
+    /// without the user filing anything.
+    private mutating func markAdopted(address: String, at now: Date) {
         for index in ledger.indices
-            where ledger[index].adoptedWeek == nil && ledger[index].target == target {
+            where ledger[index].adoptedWeek == nil && ledger[index].status == "offered"
+            && (ledger[index].chain == address || ledger[index].target == address) {
             ledger[index].adoptedWeek = Self.week(now)
         }
     }

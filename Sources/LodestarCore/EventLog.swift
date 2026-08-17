@@ -36,6 +36,11 @@ public struct ObservationEvent: Codable, Equatable {
         /// A graph binding changed at config reload: `address`, `change`
         /// (added | removed | retargeted), and the new global `epoch`.
         case epoch
+        /// The coach spoke or was answered: `action` (offered | accepted |
+        /// never), `rec` (the recommendation kind), `app` (its target),
+        /// `address` (the proposed chain, when there is one), `seconds`
+        /// (the predicted weekly saving at the time).
+        case coach
     }
 
     public var t: Date
@@ -61,6 +66,9 @@ public struct ObservationEvent: Codable, Equatable {
     public var address: String?
     public var change: String?
     public var epoch: Int?
+    public var action: String?
+    public var rec: String?
+    public var seconds: Double?
 
     public init(t: Date, kind: Kind) {
         self.t = t
@@ -139,7 +147,9 @@ public final class EventLog {
         return events
     }
 
-    static func read(file: URL) -> [ObservationEvent] {
+    /// Static and path-only on purpose: safe to call off the main thread,
+    /// which is where the coach's recommendation pass reads the ring.
+    public static func read(file: URL) -> [ObservationEvent] {
         guard let data = try? Data(contentsOf: file) else { return [] }
         let decoder = makeDecoder()
         return data.split(separator: 0x0A).compactMap {

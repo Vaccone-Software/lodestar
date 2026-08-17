@@ -129,6 +129,14 @@ Two measurements still do most of the work, and neither needs to guess at what y
 
 `lodestar observations` prints all of it, plainly, because a store you cannot read is one you cannot consent to; `lodestar observations clear` deletes it. What the report is willing to conclude is gated twice: a finding must be probably worth more time than it costs — relearning included, priced from your own learning curves — and it must survive false-discovery control across everything else being tested. Silence stays the honest answer until then, which is most of the first weeks. `lodestar observations engine` shows the fitted models behind the verdicts, for eyes that want the working shown.
 
+## The coach
+
+Once the observations have something worth saying, the coach says it: one suggestion at a time, in a small glass chip after a navigation, priced in your own numbers — "you searched for it 31 times this month · about 40 seconds a week". It never interrupts a meeting (a live camera silences it), never takes focus, and never captures a key your typing could want.
+
+Its whole grammar lives on the lode key. **Tap lode twice** to accept: the coach writes exactly one config line — a graph binding, a route, a retirement — through the same path ⌘K uses, and flashes the receipt. **Lode ⌫** means not this one; the suggestion sleeps for a season and returns only if the evidence keeps growing. **Ignoring it** is also an answer: the chip fades on its own, the offer parks in the menu bar as an inbox of at most one, and it may try again at a better moment, a couple of times, before parking quietly.
+
+The coach paces itself by what your hands demonstrate, not by a calendar: after you accept a new address it stays silent until that address has actually compiled into your fingers, then considers the next. Expect it to speak rarely — a suggestion or two a month at most — and to say nothing at all for the first weeks while the evidence accrues. `coach.enabled` set to false turns the whole voice off; the findings remain readable in `lodestar observations` either way.
+
 ## Config (`lodestar.json`)
 
 The config is sparse JSON: it holds only what differs from the defaults,

@@ -37,6 +37,16 @@ final class HotkeyEngine {
     /// delegate writes it to the config so the choice survives a restart.
     var onExcludeApp: ((String) -> Void)?
 
+    /// The coach's two gestures. Double-tap lode = assent to the standing
+    /// offer; lode ⌫ answers "not this one" only while a chip is up (the
+    /// closure returns whether it acted, and only then is the key
+    /// swallowed). And whenever the engine claims a surface — a chain
+    /// guide, a bar, the peek — the chip yields first.
+    var onLodeDoubleTap: (() -> Void)?
+    var coachDelete: (() -> Bool)?
+    var onSurfaceClaimed: (() -> Void)?
+    private var coachTaps = LodeTapDetector()
+
     /// The grammar lives in LodestarCore, pure and tested; this class is
     /// the AppKit shell that feeds it keys and executes its effects.
     private var core = EngineCore()
@@ -168,6 +178,14 @@ final class HotkeyEngine {
             return Unmanaged.passUnretained(event)
         }
         if type == .flagsChanged {
+            // The coach's assent gesture watches the classified lode state
+            // and consumes nothing — fed first, so no other path can
+            // starve it.
+            let (lodeHeld, _) = classify(event.flags)
+            if coachTaps.lodeChanged(held: lodeHeld,
+                                     at: Date().timeIntervalSinceReferenceDate) {
+                onLodeDoubleTap?()
+            }
             if let verb = tapDetector.flagsChanged(event.flags, at: Date().timeIntervalSinceReferenceDate) {
                 cancelPeek(hideGuide: isPeeking)
                 lastActivityAt = Date()
@@ -192,6 +210,7 @@ final class HotkeyEngine {
         guard type == .keyDown else { return Unmanaged.passUnretained(event) }
 
         tapDetector.keyDown()
+        coachTaps.keyDown()
         if isPeeking { chainSawPeek = true }
         cancelPeek(hideGuide: isPeeking)
 
@@ -207,6 +226,14 @@ final class HotkeyEngine {
                 || event.flags.contains(.maskAlternate)
                 || (event.flags.contains(.maskCommand) && !held)
             if interceptor(key, held, shift, other) { return nil }
+        }
+
+        // lode ⌫ while a coach chip is up answers "not this one". The
+        // closure acts only when a chip is visible, and the key is
+        // swallowed only when it acted — idle lode ⌫ everywhere else stays
+        // exactly the nothing it always was.
+        if held, key == "delete", core.isIdle, coachDelete?() == true {
+            return nil
         }
 
         // ⇧⌘V opens the clipboard strip — but only while lode is *not* the
@@ -324,11 +351,24 @@ final class HotkeyEngine {
         }
     }
 
+    /// Effects that put something on screen the coach chip would sit
+    /// under; the chip yields to every one of them.
+    private static func claimsSurface(_ effect: EngineEffect) -> Bool {
+        switch effect {
+        case .showSearcher, .showWebBar, .showMenuSearch, .openWindowChooser,
+             .enterPaste, .toggleCheat, .showGuide, .scrollGuide:
+            return true
+        default:
+            return false
+        }
+    }
+
     /// Execute the core's decisions, in order. The one routing effect:
     /// .passThrough hands the event back to the system.
     private func apply(_ effects: [EngineEffect], event: CGEvent?) -> Unmanaged<CGEvent>? {
         var pass = false
         for effect in effects {
+            if Self.claimsSurface(effect) { onSurfaceClaimed?() }
             switch effect {
             case .passThrough:
                 pass = true
@@ -476,6 +516,7 @@ final class HotkeyEngine {
                 guard let self, self.core.isIdle, !self.anyBarVisible else { return }
                 self.isPeeking = true
                 self.lastActivityAt = Date()
+                self.onSurfaceClaimed?()
                 self.hud.showGuide(
                     title: "⌖ graph",
                     rows: self.actions.graphGuideRows(self.config.graph),

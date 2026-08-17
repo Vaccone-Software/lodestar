@@ -189,9 +189,17 @@ final class ObservationsTests: XCTestCase {
 
     func testAdoptionIsDetectedFromEpochEvents() {
         var o = Observations()
-        o.ledgerRecord(Observations.LedgerEntry(
-            id: "1", kind: "bind", target: "f", detail: "bind facetime",
-            predictedSecondsPerWeek: 20, week: Observations.week(start)))
+        var offered = ObservationEvent(t: start, kind: .coach)
+        offered.action = "offered"
+        offered.rec = "bind"
+        offered.app = "facetime"
+        offered.address = "f"
+        offered.seconds = 20
+        o.apply(offered)
+        XCTAssertEqual(o.ledger.first?.offers, 1)
+        XCTAssertEqual(o.ledger.first?.status, "offered")
+        // The user writes lode F by hand instead of tapping — adopted all
+        // the same.
         var event = ObservationEvent(t: later(1), kind: .epoch)
         event.address = "f"
         event.change = "added"
@@ -199,6 +207,35 @@ final class ObservationsTests: XCTestCase {
         o.apply(event)
         XCTAssertEqual(o.ledger.first?.adoptedWeek, Observations.week(later(1)),
                        "the flywheel closes without the user filing anything")
+    }
+
+    func testCoachEventsBuildTheLedger() {
+        var o = Observations()
+        var offered = ObservationEvent(t: start, kind: .coach)
+        offered.action = "offered"
+        offered.rec = "route"
+        offered.app = "github.com"
+        offered.seconds = 12
+        o.apply(offered)
+        o.apply(offered)
+        var accepted = offered
+        accepted.action = "accepted"
+        accepted.t = later(0, 3600)
+        o.apply(accepted)
+        let entry = o.ledger.first
+        XCTAssertEqual(o.ledger.count, 1, "one identity, one entry")
+        XCTAssertEqual(entry?.offers, 2)
+        XCTAssertEqual(entry?.status, "accepted")
+        XCTAssertEqual(entry?.acceptedWeek, Observations.week(start))
+
+        var never = ObservationEvent(t: start, kind: .coach)
+        never.action = "never"
+        never.rec = "bind"
+        never.app = "music"
+        never.seconds = 8
+        o.apply(never)
+        XCTAssertEqual(o.ledger.first { $0.target == "music" }?.status, "never",
+                       "a no is remembered, which is what makes it safe to give")
     }
 
     // MARK: - The view is a view

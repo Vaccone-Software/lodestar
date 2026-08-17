@@ -839,7 +839,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func chainProblem(_ letters: [String]) -> String? {
         guard let first = letters.first else { return nil }
         if Config.reservedTopLevel.contains(first) {
-            return "\(first.uppercased()) is reserved — O X Z are fixed verbs"
+            return "\(first.uppercased()) is reserved — X and Z are fixed verbs"
         }
         for depth in 1...letters.count {
             let prefix = Array(letters[0..<depth])

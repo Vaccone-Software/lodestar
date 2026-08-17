@@ -142,7 +142,7 @@ final class EngineTests: XCTestCase {
 
     func testAnyVerbDismissesVisibleCheatFirst() {
         world.cheatVisible = true
-        XCTAssertEqual(press("o"), [.dismissCheat, .flipOrientation])
+        XCTAssertEqual(press("\\"), [.dismissCheat, .flipOrientation])
         world.cheatVisible = true
         XCTAssertEqual(press("/", shift: true), [.toggleCheat],
                        "? itself toggles rather than dismiss-then-reopen")
@@ -214,7 +214,7 @@ final class EngineTests: XCTestCase {
     }
 
     func testLayoutVerbs() {
-        XCTAssertEqual(press("o"), [.flipOrientation])
+        XCTAssertEqual(press("\\"), [.flipOrientation])
         XCTAssertEqual(press("z"), [.undoLayout])
         XCTAssertEqual(press("z", shift: true), [.redoLayout])
         XCTAssertEqual(press("x"), [.goBack])

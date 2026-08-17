@@ -31,13 +31,15 @@ final class StarterGraphTests: XCTestCase {
     }
 
     func testReservedVerbsAreOffLimits() {
-        // O X Z are fixed verbs; an address there would be shadowed forever.
+        // X and Z are fixed verbs; an address there would be shadowed
+        // forever. O rejoined the graph when orientation moved to \ —
+        // Zoom now routes to its second letter instead of its fourth.
         let proposals = StarterGraph.propose(running: ["Xcode", "Zoom", "Obsidian"],
                                             existing: GraphNode(),
                                             reserved: Config.reservedTopLevel)
         XCTAssertEqual(proposals, [
             .init(letter: "c", app: "Xcode"),
-            .init(letter: "m", app: "Zoom"),
+            .init(letter: "o", app: "Zoom"),
             .init(letter: "b", app: "Obsidian"),
         ])
     }

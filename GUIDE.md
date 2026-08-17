@@ -11,7 +11,7 @@ Lode is **right ⌘** (configurable in `~/.config/lodestar/lodestar.json`).
 | `⇧` on a graph/launcher summon | Beside me (equal split) instead of maximized                                 |
 | `lode 1…8`                     | Jump to window by position (left→right, top→bottom)                          |
 | `lode 9`                       | Always the last window                                                       |
-| `lode O`                       | Flip layout horizontal ↔ vertical                                            |
+| `lode \`                       | Flip layout horizontal ↔ vertical                                            |
 | `lode '` + letters             | Breaths: letter(s) restore a saved layout                                    |
 | `lode '` + `⇧letter`           | Save the current layout at that path                                         |
 | `lode ' '`                     | Update the latest breath to the current layout                               |

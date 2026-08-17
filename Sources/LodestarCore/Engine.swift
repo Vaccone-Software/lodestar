@@ -298,7 +298,9 @@ public struct EngineCore {
         case "tab":
             if world.searcherVisible { break } // the searcher owns its tab
             effects.append(world.hasFocusedApp ? .openWindowChooser : .flash("✕ no focused window"))
-        case "o":
+        case "\\":
+            // The key wearing the vertical bar flips the layout — moved
+            // off O so the letter can go back to being an address.
             effects.append(.flipOrientation)
         case "z":
             effects.append(shift ? .redoLayout : .undoLayout)

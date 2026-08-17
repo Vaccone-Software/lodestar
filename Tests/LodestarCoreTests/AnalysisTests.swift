@@ -378,10 +378,11 @@ final class AnalysisTests: XCTestCase {
         let context = Advisor.Context(observations: Observations(), events: [],
                                       leaves: [], webRoutes: [:], now: start)
         let free = Advisor.freeLetters(context)
-        for reserved in ["o", "x", "z"] {
+        for reserved in ["x", "z"] {
             XCTAssertFalse(free.contains(reserved),
                            "\(reserved) is a verb — a graph slot there would be shadowed")
         }
+        XCTAssertTrue(free.contains("o"), "o rejoined the graph when the flip moved to \\")
         XCTAssertTrue(free.contains("q"), "ordinary letters stay on offer")
     }
 

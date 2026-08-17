@@ -606,7 +606,7 @@ final class HotkeyEngine {
             GuideRow(key: "⇥", label: "windows of the focused app"),
             GuideRow(key: "1…9", label: "jump to window by position"),
             GuideRow(key: "0", label: "the focused window fills the display — ⇧0 beside"),
-            GuideRow(key: "O", label: "flip layout orientation"),
+            GuideRow(key: "\\", label: "flip layout orientation"),
             GuideRow(key: ",", label: "scroll mode — j/k · h/l · d/u · gg/G"),
             GuideRow(key: ";", label: "click hints — ⇧; chains · ⇧label right-clicks"),
             GuideRow(key: "Z", label: "undo layout · ⇧Z redo"),

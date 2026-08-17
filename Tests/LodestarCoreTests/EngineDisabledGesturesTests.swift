@@ -21,7 +21,7 @@ final class EngineDisabledGesturesTests: XCTestCase {
         core.disabledGestures = ["space", "0"]
         XCTAssertEqual(press("space"), [.passThrough])
         XCTAssertEqual(press("0"), [.passThrough])
-        XCTAssertEqual(press("o"), [.flipOrientation], "undisabled verbs are untouched")
+        XCTAssertEqual(press("\\"), [.flipOrientation], "undisabled verbs are untouched")
         XCTAssertEqual(press("1"), [.indexJump(1)])
     }
 
@@ -33,9 +33,9 @@ final class EngineDisabledGesturesTests: XCTestCase {
     }
 
     func testDisabledKeyStillDismissesTheCheat() {
-        core.disabledGestures = ["o"]
+        core.disabledGestures = ["\\"]
         world.cheatVisible = true
-        XCTAssertEqual(press("o"), [.dismissCheat, .passThrough],
+        XCTAssertEqual(press("\\"), [.dismissCheat, .passThrough],
                        "help closes; the key still passes to the app")
     }
 
@@ -51,8 +51,8 @@ final class EngineDisabledGesturesTests: XCTestCase {
     func testDisabledKeyOnHintsExitPassesThrough() {
         _ = press(";")
         XCTAssertEqual(core.state, .hints(sticky: false))
-        core.disabledGestures = ["o"]
-        XCTAssertEqual(press("o"), [.exitHints, .passThrough])
+        core.disabledGestures = ["\\"]
+        XCTAssertEqual(press("\\"), [.exitHints, .passThrough])
         XCTAssertEqual(core.state, .idle)
     }
 

@@ -98,7 +98,9 @@ public struct Config {
     public static let yamlFile = directory.appendingPathComponent("lodestar.yaml")
 
     /// Top-level chain letters the primitives own; the graph may not use them.
-    public static let reservedTopLevel: Set<String> = ["o", "z", "x"]
+    /// First letters the grammar keeps for verbs: Z undo, X timeline.
+    /// O rejoined the graph in 0.14.2 when orientation moved to \.
+    public static let reservedTopLevel: Set<String> = ["z", "x"]
 
     /// The schema: one table driving reload validation and the JSON Schema
     /// editors read. Keep in lockstep with `parse` below.

@@ -138,11 +138,13 @@ public enum Advisor {
 
     // MARK: - Shared
 
-    /// Letters the grammar itself owns: O flips orientation, X walks the
-    /// timeline, Z undoes. A graph slot here would be shadowed by the
-    /// verb, and the coach must never offer what the grammar reserves —
-    /// found the hard way when Zoom's mnemonic Z nearly cleared the gates.
-    static let reservedLetters: Set<String> = ["o", "x", "z"]
+    /// Letters the grammar itself owns: X walks the timeline, Z undoes.
+    /// (O flipped orientation until 0.14.2, when the verb moved to \ and
+    /// the letter went back to being an address.) A graph slot here would
+    /// be shadowed by the verb, and the coach must never offer what the
+    /// grammar reserves — found the hard way when Zoom's mnemonic Z
+    /// nearly cleared the gates.
+    static let reservedLetters: Set<String> = ["x", "z"]
 
     static func freeLetters(_ context: Context) -> Set<String> {
         let taken = Set(context.leaves.compactMap { $0.chain.first })

@@ -14,10 +14,19 @@ public enum ConfigDefaults {
     /// Parse-time adapter: pre-0.9.11 configs named the lode key "hyper".
     /// The old name reads as the new; the next write emits "lode".
     public static func normalized(_ root: [String: ConfigValue]) -> [String: ConfigValue] {
-        guard root["lode"] == nil, let legacy = root["hyper"] else { return root }
         var out = root
-        out.removeValue(forKey: "hyper")
-        out["lode"] = legacy
+        // hyper became lode, and the searcher became the launcher. Both are the
+        // same switch under a new word, so a file written before the rename
+        // keeps working rather than reporting an unknown key.
+        if out["lode"] == nil, let legacy = out["hyper"] {
+            out.removeValue(forKey: "hyper")
+            out["lode"] = legacy
+        }
+        if case .table(var gestures)? = out["gestures"],
+           let searcher = gestures.removeValue(forKey: "searcher") {
+            if gestures["launcher"] == nil { gestures["launcher"] = searcher }
+            out["gestures"] = .table(gestures)
+        }
         return out
     }
 

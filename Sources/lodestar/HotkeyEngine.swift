@@ -236,7 +236,7 @@ final class HotkeyEngine {
     /// report and the config speak the same words.
     private static func verb(for effect: EngineEffect) -> String? {
         switch effect {
-        case .showSearcher, .openWindowChooser: return "searcher"
+        case .showSearcher, .openWindowChooser: return "launcher"
         case .showWebBar: return "web"
         case .showMenuSearch: return "menu"
         case .enterPaste: return "clipboard"
@@ -471,7 +471,7 @@ final class HotkeyEngine {
                 self.hud.showGuide(
                     title: "⌖ graph",
                     rows: self.actions.graphGuideRows(self.config.graph),
-                    footer: "letter to go · space searcher · ⏎ web · ; hints · ' breaths · ? everything · release to dismiss"
+                    footer: "letter to go · space launcher · ⏎ ask · ; hints · ' breaths · ? everything · release to dismiss"
                 )
                 self.badges.show(self.actions.indexBadgeItems())
             }
@@ -551,7 +551,7 @@ final class HotkeyEngine {
     /// Everything on one sheet, from live config and state.
     private func cheatSections() -> [CheatSheet.Section] {
         let verbs: [GuideRow] = [
-            GuideRow(key: "␣", label: "searcher"),
+            GuideRow(key: "␣", label: "launcher"),
             GuideRow(key: "⏎", label: "ask — links · domains · search"),
             GuideRow(key: ".", label: "menu search — the frontmost app's menus"),
             GuideRow(key: "⇥", label: "windows of the focused app"),

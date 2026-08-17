@@ -13,21 +13,21 @@ Test for any feature: does it become a fixed gesture the hand owns, or does it f
 
 Every primitive addresses one of two things, and this distinction is forced by the nature of each:
 
-- **Apps** are stable, launchable, singular. A key can always resolve to an app, and can always relaunch it. Addressed by: **searcher** and **graph**.
+- **Apps** are stable, launchable, singular. A key can always resolve to an app, and can always relaunch it. Addressed by: **launcher** and **graph**.
 - **Specific windows** are instance-bound. The whole point is to pin _this_ Ghostty window out of ten. A window is not durable, cannot be freely recreated, and its identity can churn across close/reopen. Addressed by: **breaths**.
 
-Consequence: app-scoped primitives (searcher, graph) are the safe bedrock. Window-scoped primitives (breaths) carry the real technical risk and depend on window-identity stability. Build the bedrock first.
+Consequence: app-scoped primitives (launcher, graph) are the safe bedrock. Window-scoped primitives (breaths) carry the real technical risk and depend on window-identity stability. Build the bedrock first.
 
 ## The four primitives
 
-### 1. Searcher (the entry point)
+### 1. Launcher (the entry point)
 
-A simple fuzzy-match app searcher. This is how an unaddressed app first enters the system; the other primitives are what you graduate things into from here. It also subsumes any "menu of all apps," so no such menu is needed.
+A simple fuzzy-match app launcher. This is how an unaddressed app first enters the system; the other primitives are what you graduate things into from here. It also subsumes any "menu of all apps," so no such menu is needed.
 
-- Plain `enter`: focus-or-launch the app, full-screen.
+- Plain `enter`: focus-or-launch the app, maximized.
 - `shift + enter`: open the app beside the current layout.
 
-(v2 refinement, deferred: searcher may surface individual windows, not just apps: show the app when there is one instance, show windows when there are several. Decide this by using it, not by reasoning now.)
+(v2 refinement, deferred: launcher may surface individual windows, not just apps: show the app when there is one instance, show windows when there are several. Decide this by using it, not by reasoning now.)
 
 ### 2. Graph (permanent apps)
 
@@ -36,7 +36,7 @@ A simple fuzzy-match app searcher. This is how an unaddressed app first enters t
 - Single app: `lode S` -> Slack.
 - Subdivided app: `lode B P` / `lode B G` / `lode B X` -> Brave profiles (personal / Google / work).
 
-Focus-or-launch: if it exists, focus it; if not, create it. Always full-screen. The extra letters compile into muscle memory and stay deterministic. Cycle detection on the graph. App-scoped.
+Focus-or-launch: if it exists, focus it; if not, create it. Always maximized. The extra letters compile into muscle memory and stay deterministic. Cycle detection on the graph. App-scoped.
 
 ### 3. Marks (retired in 0.9.14)
 
@@ -68,7 +68,7 @@ Breaths pin specific windows, so they carry the window-identity risk in full.
 
 `lode ⏎` opens a second bar with its own grammar, on the axis the four primitives do not address: a destination **inside** an app. The four are about which window you are looking at; Ask is about which browser profile a URL lands in, which is the same question one level down.
 
-It stays a separate bar rather than rows in the searcher, and that separation is the design. The searcher answers "which app," and mixing web destinations into it would put two kinds of answer in one list, forcing a read-and-reject on every query. Two bars, two grammars, no ambiguity — the cost is one more gesture to learn, paid once.
+It stays a separate bar rather than rows in the launcher, and that separation is the design. The launcher answers "which app," and mixing web destinations into it would put two kinds of answer in one list, forcing a read-and-reject on every query. Two bars, two grammars, no ambiguity — the cost is one more gesture to learn, paid once.
 
 Three kinds of row, and the third is why it works: **links** (a name you typed for a site), **domains** (anything that looks like a destination), **searches** (everything else). Every row wears the profile it will open in. Profiles resolve by precedence — a link's pin, then a `web.routes` pattern, then `web.fallback`, then the browser you were in last — and every surface that shows a profile also shows _which_ of those decided it, because an inferred answer can change tomorrow and a chosen one cannot.
 
@@ -96,19 +96,19 @@ _(This section describes what the code does; the framing is worth your eye.)_
 
 The bars share one editing gesture. `⌘K` acts on the selected row and offers only what that row can become: an app joins the graph, a domain becomes a named link or a route, a link can be routed or removed, a route can be removed from any row it sent somewhere. Every card shows what `↵` would commit before it commits it, and refuses with the reason rather than silently.
 
-This is how things graduate. The searcher is where an unaddressed app first appears; Ask is where an unnamed destination first appears; `⌘K` is the one move that turns either into an address, and it writes straight into the config so the file and the UI are the same source of truth. Editing by hand and editing by card produce identical bytes.
+This is how things graduate. The launcher is where an unaddressed app first appears; Ask is where an unnamed destination first appears; `⌘K` is the one move that turns either into an address, and it writes straight into the config so the file and the UI are the same source of truth. Editing by hand and editing by card produce identical bytes.
 
 The decisions live in `WebMenu` (LodestarCore), tested without an app; the panels only draw and translate keystrokes. Any future card belongs there too — a state machine wearing an AppKit coat is still a state machine.
 
 ## Shift: the universal "beside me" modifier
 
-One rule, applied everywhere. Plain invocation of any app-opener (searcher, graph) means "take me there, full-screen." The same invocation with `shift` means "bring it beside my current window." The new window opens to the right or below the active one depending on orientation.
+One rule, applied everywhere. Plain invocation of any app-opener (launcher, graph) means "take me there, maximized." The same invocation with `shift` means "bring it beside my current window." The new window opens to the right or below the active one depending on orientation.
 
 This is the only mechanism that composes multiplicity, and it does so in the moment, with the intent declared in the gesture and gone immediately after. There is no compose mode to forget you are in. Shift-open repeatedly to build three or more windows.
 
 ## Layout and index navigation
 
-- **Resting posture**: one app, full-screen. Multiplicity is always something you explicitly invoked (shift, or returning to a breath). You can never be confused about what you are looking at.
+- **Resting posture**: one app, maximized. Multiplicity is always something you explicitly invoked (shift, or returning to a breath). You can never be confused about what you are looking at.
 - **Equal sizing**: windows in a multi-window layout are equal-sized.
 - **Index navigation**: `lode` + a number jumps to a window by index, left-to-right then top-to-bottom.
   - `lode 1` = leftmost / topmost. `lode 9` = rightmost / bottommost (Chrome-style: always the last, even if fewer than nine).
@@ -140,7 +140,7 @@ Own everything else.
 
 **Slice 0, the probe (throwaway):** Before any UX, validate window-identity viability. Enumerate windows, get their `CGWindowID`s via the private call, park one off-screen and pull it back, and confirm the ID survives a close-and-reopen for the actual target apps (Brave, Ghostty, ProtonMail). Green light = IDs stable and reposition works, so window-scoped addressing is viable. Red = it demotes to session-only. This one result could reshape everything above it, so it is the first code written.
 
-**Slice 1:** Searcher + focus-or-launch, full-screen. This alone is a usable app switcher, and it is the resolver every other primitive sits on.
+**Slice 1:** Launcher + focus-or-launch, maximized. This alone is a usable app switcher, and it is the resolver every other primitive sits on.
 
 **Slice 2:** Graph, on the same resolver.
 
@@ -154,7 +154,7 @@ Own everything else.
 
 - **Window-identity stability** across close/reopen for the specific apps in use. The probe answers this.
 - **Namespace reservation**: `M`, `B`, and the digits are reserved as first characters (marks, breaths, index — marks and breaths since moved off letters entirely). Apps whose natural first letter is one of these need another path in the graph. Note in particular that Brave (`lode B ...`) currently collides with the breath prefix; one of them moves.
-- **Searcher windows vs apps**: whether the searcher surfaces individual windows (v2).
+- **Launcher windows vs apps**: whether the launcher surfaces individual windows (v2).
 - **Index `0`**: what, if anything, it does.
 - **Naming the register**: "link" is the plain word, deliberately not Raycast's "quicklink". Whether a distinctive noun (beacon, waypoint) earns a config migration is unresolved; the plain word ships until it does.
-- **Noticing what you keep typing**: whether a domain visited repeatedly should wear a hint chip suggesting `⌘K`, the way searcher rows teach the graph address. It would mean persisting a count per host — a browsing record on disk — which is exactly the tradeoff the log rule rejects. Not automatically disqualified, but a decision rather than a side effect.
+- **Noticing what you keep typing**: whether a domain visited repeatedly should wear a hint chip suggesting `⌘K`, the way launcher rows teach the graph address. It would mean persisting a count per host — a browsing record on disk — which is exactly the tradeoff the log rule rejects. Not automatically disqualified, but a decision rather than a side effect.

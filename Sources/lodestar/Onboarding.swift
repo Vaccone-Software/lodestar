@@ -368,11 +368,11 @@ final class OnboardingController: NSObject {
                 footer: granted ? "↵ continue" : "space to grant    esc to leave")
         case .searcher:
             return Content(
-                title: "Searcher",
-                definition: "Your apps, found by name. Type a few letters and press return. "
-                    + "The app comes to the front, launching first if it was not running.",
+                title: "Launcher",
+                definition: "A list of your applications. Type a few letters and press return. "
+                    + "The app arrives maximized, launching first if it was not running.",
                 keys: [KeyLine(caps: ["lode", "space"])],
-                detail: [.row(["↵"], "opens it full screen"),
+                detail: [.row(["↵"], "opens it maximized"),
                          .row(["⇧↵"], "opens it beside the window you are in"),
                          .row(["⌘K"], "options for the highlighted row")],
                 footer: "↵ continue    ⌫ back")
@@ -383,9 +383,9 @@ final class OnboardingController: NSObject {
                     + "are there. No list, no searching. One letter is usually enough. Where "
                     + "several apps want the same letter it branches, and the next letter chooses.",
                 illustration: .graph(graphLines()),
-                detail: [.row(["letter"], "goes there, full screen"),
+                detail: [.row(["letter"], "goes there, maximized"),
                          .row(["⇧letter"], "opens it beside the window you are in"),
-                         .row(["⌘K"], "in the searcher, gives that app a letter")],
+                         .row(["⌘K"], "in the launcher, gives that app a letter")],
                 state: proposals.isEmpty ? nil : "Drafted from the apps you have open",
                 footer: proposals.isEmpty
                     ? "↵ continue    ⌫ back"

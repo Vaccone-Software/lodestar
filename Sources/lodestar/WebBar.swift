@@ -560,3 +560,22 @@ private final class WebRowView: NSView {
             : NSColor.labelColor.withAlphaComponent(0.08).cgColor
     }
 }
+
+#if DEBUG
+/// Visual harness: the real bar, with a query already typed. In this file
+/// because `field` and `requery` are private to it, and the harness must use
+/// the real input path rather than a second one that can drift.
+extension WebBarController {
+    static func preview(query: String, config: Config) -> WebBarController {
+        let bar = WebBarController()
+        bar.config = config
+        bar.show()
+        bar.field.stringValue = query
+        // Setting the value selects it, and a highlighted query reads as
+        // something the user is about to replace rather than something typed.
+        bar.field.currentEditor()?.selectedRange = NSRange(location: query.count, length: 0)
+        bar.requery()
+        return bar
+    }
+}
+#endif

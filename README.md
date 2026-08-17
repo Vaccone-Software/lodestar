@@ -2,16 +2,21 @@
 
 **Keyboard navigation for macOS. Destination over process.**
 
-Most window tools ask you to manage windows: arrange them, resize them, cycle
-through them. Lodestar starts from a different premise. You never wanted to
-manage windows. You wanted to be somewhere. So every gesture names a
-destination, and the system takes you there: full screen, instantly, silently.
+Lodestar navigates to the application you want without distraction. Anything
+you open or focus through it arrives maximized and hides the others, and
+everything else about your windows keeps working the way you are used to.
+Applications you use constantly can be assigned a letter, or a short set of
+letters, and opened directly without a list.
+
+Its commands are designed to become muscle memory. Navigation that begins as a
+deliberate sequence turns into a single practised gesture, until you are
+choosing a destination rather than the steps that lead to it.
 
 <!-- TODO: demo GIF. Thirty seconds of hands owning a machine. -->
 
-- **`lode S`**: you are in Slack. Not launching, not arranging. There.
-- **`lode space`**: a searcher that ranks by what you actually use and
-  teaches the faster gesture for everything you pick.
+- **`lode S`**: you are in Slack, maximized. Not launching, not arranging.
+- **`lode space`**: the launcher, a list of your applications ordered by what
+  you actually use, teaching the faster gesture for everything you pick.
 - **`lode ' W`**: breaths. Saved layouts that restore whole worlds, even
   relaunching apps that are not running.
 - **`lode ;`**: click hints. Every pressable element wears a label. Type the
@@ -19,8 +24,8 @@ destination, and the system takes you there: full screen, instantly, silently.
 - **`lode ,`** / **`lode .`** / **`lode ⏎`**: scroll mode, menu search,
   and Ask, which routes each destination to the right browser profile.
 
-One grammar spans launching, windows, the inside of apps, and the web. Learn
-it once. Your hands know it everywhere. SIP stays on. Spaces stay untouched.
+One grammar spans applications, the inside of a window, the web, and what you
+have copied. Learn it once. Your hands know it everywhere. SIP stays on. Spaces stay untouched.
 One private API call, [documented](FINDINGS.md).
 
 ## Install
@@ -45,8 +50,8 @@ brew install --cask vaccone-software/tap/lodestar
 ## Learn it
 
 - Hold **lode** alone: the system teaches its own map.
-- **`lode ?`**: the cheat sheet. Every gesture, your live graph, breaths, and
-  breaths, generated from your actual config.
+- **`lode ?`**: the cheat sheet. Every gesture, your live graph and breaths,
+  generated from your actual config.
 - [GUIDE.md](GUIDE.md): the complete reference.
 - [DESIGN.md](DESIGN.md): the philosophy. Every feature must become a fixed
   gesture the hand owns, or it is cut.

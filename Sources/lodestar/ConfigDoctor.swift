@@ -491,7 +491,7 @@ func runObservations(clear: Bool) -> Never {
         print("apps")
         for (name, record) in apps {
             var line = pad("  " + name, 26)
-            line += pad("graph \(record.graph)", 12) + pad("searcher \(record.searcher)", 14)
+            line += pad("graph \(record.graph)", 12) + pad("launcher \(record.searcher)", 14)
             if let share = o.routeShare(name) {
                 line += pad("\(Int(share * 100))% searched", 15)
             }

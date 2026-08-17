@@ -6,9 +6,9 @@ Lode is **right ⌘** (configurable in `~/.config/lodestar/lodestar.json`).
 
 | Gesture                        | Meaning                                                                      |
 | ------------------------------ | ---------------------------------------------------------------------------- |
-| `lode space`                   | Searcher — type, `↵` focus-or-launch full-screen, `⇧↵` beside                |
+| `lode space`                   | Launcher — type, `↵` focus-or-launch maximized, `⇧↵` beside                |
 | `lode` + letter chain          | Graph: walk to an app (`S`=Slack … `E O`=Outlook, `W W`=Brave·Work)          |
-| `⇧` on a graph/searcher summon | Beside me (equal split) instead of full-screen                               |
+| `⇧` on a graph/launcher summon | Beside me (equal split) instead of maximized                               |
 | `lode 1…8`                     | Jump to window by position (left→right, top→bottom)                          |
 | `lode 9`                       | Always the last window                                                       |
 | `lode O`                       | Flip layout horizontal ↔ vertical                                            |
@@ -16,9 +16,9 @@ Lode is **right ⌘** (configurable in `~/.config/lodestar/lodestar.json`).
 | `lode '` + `⇧letter`           | Save the current layout at that path                                         |
 | `lode ' '`                     | Update the latest breath to the current layout                               |
 | `lode Tab`                     | Window chooser for the focused app (filter by title, `↵` summon)             |
-| `Tab` on a searcher app row    | Expand a running app into its windows                                        |
+| `Tab` on a launcher app row    | Expand a running app into its windows                                        |
 | `lode ⏎`                       | Ask: links · domains · search, each routed to its profile                    |
-| `⌘K` in the searcher / Ask     | Add to graph · add a link · route a host or search — written into the config |
+| `⌘K` in the launcher / Ask     | Add to graph · add a link · route a host or search — written into the config |
 | `lode .`                       | Menu search: the frontmost app's menus, fuzzy, `↵` executes                  |
 | `lode ,`                       | Scroll mode: `j/k` `h/l` · `d/u` half-page · `gg`/`⇧G` ends · `⇥` panes      |
 | `lode ;` / `lode ⇧;`           | Click hints on the focused window — `⇧;` chains clicks (sticky)              |
@@ -37,9 +37,9 @@ Lode is **right ⌘** (configurable in `~/.config/lodestar/lodestar.json`).
 
 Once a traversal starts (`lode W`, `` lode ` ``, …) it waits **indefinitely** — the gesture is identical whether you finish it in 80ms or after a phone call. The glass guide panel stays on screen the whole time showing your prefix and every legal continuation (with app icons); a wrong letter keeps you in place with a note rather than ejecting you. Only a completion or `esc` ends the chain. While a chain is active, stray keystrokes are swallowed (they never leak into the focused app). And holding lode by itself for half a second peeks the top-level guide — the system teaches its own map.
 
-## Searcher ranking & teaching
+## Launcher ranking & teaching
 
-Results are ranked by fuzzy match quality **plus frecency** — every summon (graph, searcher) counts toward the app's score, decayed by recency. An empty query shows the things you actually go to, most-used first. Rows carry teaching chips: an app with a graph address shows it (`E P` on Proton Mail), a running app with several windows shows `⇥ 3` (Tab expands it) — every search is a flashcard for the faster gesture. The window chooser lists most-recently-focused first, with the window you're already in last; `esc` walks back to apps when you arrived via Tab. Row views are cached — typing repaints, never rebuilds. Guide columns adapt to your screen (a laptop gets two, a big display three or four), and flashes wear the icon of the app they acted on.
+Results are ranked by fuzzy match quality **plus frecency** — every summon (graph, launcher) counts toward the app's score, decayed by recency. An empty query shows the things you actually go to, most-used first. Rows carry teaching chips: an app with a graph address shows it (`E P` on Proton Mail), a running app with several windows shows `⇥ 3` (Tab expands it) — every search is a flashcard for the faster gesture. The window chooser lists most-recently-focused first, with the window you're already in last; `esc` walks back to apps when you arrived via Tab. Row views are cached — typing repaints, never rebuilds. Guide columns adapt to your screen (a laptop gets two, a big display three or four), and flashes wear the icon of the app they acted on.
 
 ## Breath mechanics
 
@@ -49,7 +49,7 @@ Results are ranked by fuzzy match quality **plus frecency** — every summon (gr
 
 ## Multiple monitors
 
-**Every monitor owns its own layout** — members, orientation, digit indexes. Your verbs act on the _active_ display: **the one under the pointer** by default, so where your mouse rests is where summons land and panels appear (`app.active-display: focus` switches to the keyboard-focus display instead). Summons follow **visit-don't-pull**: a target already visible on _another_ monitor is focused where it lives (its arrangement untouched); anything hidden, parked, or freshly launched materializes on the screen you're using; on the _same_ monitor, a plain summon still goes full-screen as always. `lode [`/`]` throw the focused window to the neighboring display (physical order, wrapping) — plain arrives full-screen there, `⇧` arrives beside. Undo is one global timeline across displays; breaths capture the whole multi-display world and restore members to their original monitors (or the active one if that monitor is unplugged); peek badges index the active display.
+**Every monitor owns its own layout** — members, orientation, digit indexes. Your verbs act on the _active_ display: **the one under the pointer** by default, so where your mouse rests is where summons land and panels appear (`app.active-display: focus` switches to the keyboard-focus display instead). Summons follow **visit-don't-pull**: a target already visible on _another_ monitor is focused where it lives (its arrangement untouched); anything hidden, parked, or freshly launched materializes on the screen you're using; on the _same_ monitor, a plain summon still goes maximized as always. `lode [`/`]` throw the focused window to the neighboring display (physical order, wrapping) — plain arrives maximized there, `⇧` arrives beside. Undo is one global timeline across displays; breaths capture the whole multi-display world and restore members to their original monitors (or the active one if that monitor is unplugged); peek badges index the active display.
 
 **Docking just works.** Unplug a monitor and its members quietly park — the surviving display's arrangement is untouched — while the departed arrangement is remembered by the monitor's hardware identity (not its session ID, which macOS can reassign). Plug the same monitor back in and the arrangement returns exactly, minus anything you deliberately re-placed while undocked: your placement always wins, a world-moved-on guard. The memory is per-session on purpose — a Lodestar restart while undocked starts fresh, and breaths are how you bring back a world deliberately.
 
@@ -92,7 +92,7 @@ The harvest is asynchronous and bounded — a heavy Chromium page can never stal
 
 `lode ⏎` — a second bar with its own grammar: everything typed here is a destination on the web. **Links** (`web.links`) are named sites, optionally pinned to a profile — type `yt`, hit `↵`, land in YouTube in your Google profile. **Bare domains** (anything with a dot) route by `web.routes` — case-insensitive substring patterns, longest match wins — so `app.acme.dev` opens in your Work profile without being listed anywhere. **Anything else is a web search** (`web.search-url`), and routes apply to queries too: searching "acme deploy" lands in the Work profile. Unrouted input opens in `web.fallback` — `most-recent` (the profile of your most recently focused browser window) or a pinned profile. Every row wears the profile it will open in as a chip; `⇧↵` opens beside. Chromium family (Brave, Chrome, Edge) for now.
 
-**`⌘K` promotes the row you are looking at**, the way the searcher's `⌘K` promotes an app into the graph. The row decides what is on offer, and the two promotions answer different questions — _this site, by this name_ and _every link like this one, from anywhere_:
+**`⌘K` promotes the row you are looking at**, the way the launcher's `⌘K` promotes an app into the graph. The row decides what is on offer, and the two promotions answer different questions — _this site, by this name_ and _every link like this one, from anywhere_:
 
 - **`a` Add link** (bare-domain rows) — the card opens with a name prefilled from the host (`youtube.com` → `youtube`); type to replace it, `↵` writes it into `web.links`.
 - **`r` Route this host** (domain and link rows) — the pattern is prefilled with the whole host and the profile is seeded with wherever that destination already goes. `↵` writes it into `web.routes`, and from then on anything matching that pattern lands in that profile: paste a friend's `x.com` link and it opens in Personal, not Work.
@@ -123,7 +123,7 @@ Profiles live in a registry (`profiles.brave`, `profiles.chrome`, `profiles.edge
 
 Lodestar watches how you reach things, on this machine only, so it can eventually tell you something useful about it. `observations.enabled` turns it off, and off means nothing is recorded and no file is written.
 
-The rule is **counts, never content**. It records that an address was typed, the pauses inside it, whether a chain was abandoned, and which route reached an app. It never records a window title, a URL, a host, a clipboard, or what you typed into the searcher. The number of characters is enough to know what a search cost you; the characters are yours. The file lives in `~/.local/share/lodestar/observations.json`, deliberately not in `~/.config`, which is what people commit to dotfiles repositories, and nothing ever leaves the machine.
+The rule is **counts, never content**. It records that an address was typed, the pauses inside it, whether a chain was abandoned, and which route reached an app. It never records a window title, a URL, a host, a clipboard, or what you typed into the launcher. The number of characters is enough to know what a search cost you; the characters are yours. The file lives in `~/.local/share/lodestar/observations.json`, deliberately not in `~/.config`, which is what people commit to dotfiles repositories, and nothing ever leaves the machine.
 
 Two measurements do most of the work, and neither needs to guess at what you would have done otherwise. **Pauses**: an address you own is typed at motor speed, one you are reconstructing has a gap in it, which is as close to "has this become muscle memory" as you can get without asking. **Abandons**: a chain you started and escaped out of is unambiguous in a way a slow chain is not, because a slow chain might be a phone call. Anything over two seconds is discarded rather than averaged, since chains wait indefinitely by design and one interruption would otherwise poison every number here.
 
@@ -134,7 +134,7 @@ Two measurements do most of the work, and neither needs to guess at what you wou
 The config is sparse JSON: it holds only what differs from the defaults,
 so the file reads as pure intent. Every option's documentation lives in
 the schema (editors surface it as you type; `lodestar schema` prints it),
-and every writer — a hand edit, ⌘K in the searcher or in Ask,
+and every writer — a hand edit, ⌘K in the launcher or in Ask,
 `lodestar config set` — converges on the same canonical bytes.
 
 ```json
@@ -167,7 +167,7 @@ it. A yaml that fails to parse is never converted.
 
 ## Controls & state
 
-- Menu bar star: Check for Updates… · Report an Issue… · Edit Config… · Reveal Config in Finder · Reload Config · Open Log · Quit (quitting restores everything parked). Hide it with `app.show-menu-bar: false` — then picking **Lodestar** in the searcher reveals it for 60 seconds with the menu popped open, ready to use. (Hidden mode forgoes the chain-active star; the guide panel still shows every pending chain.) `kill -USR2 $(cat ~/.config/lodestar/lodestar.pid)` reloads the config from scripts.
+- Menu bar star: Check for Updates… · Report an Issue… · Edit Config… · Reveal Config in Finder · Reload Config · Open Log · Quit (quitting restores everything parked). Hide it with `app.show-menu-bar: false` — then picking **Lodestar** in the launcher reveals it for 60 seconds with the menu popped open, ready to use. (Hidden mode forgoes the chain-active star; the guide panel still shows every pending chain.) `kill -USR2 $(cat ~/.config/lodestar/lodestar.pid)` reloads the config from scripts.
 - CLI: `lodestar check [--json]` validates the config (schema + referential + ground truth); `lodestar reload` applies it to the running instance; `lodestar config` prints the effective config, `config get <path>` one value, `config set <path> <value>` a validated write applied live, `config unset <path>` the way back to default; `lodestar diagnose` prints one paste-able report (version, instance, trust, displays, config, state, log tail); `lodestar schema` and `lodestar config-path` serve tools and agents — see AGENTS.md for the agent contract.
 - `scripts/install-app.sh` — build, sign, and install `~/Applications/lodestar.app` with a login LaunchAgent, so Lodestar survives reboots. **First install**: grant the app Accessibility when it prompts (System Settings → Privacy & Security → Accessibility) — Lodestar wakes up on its own within seconds of the grant. Signed with your Apple Development identity, so the grant survives rebuilds.
 - `scripts/dev-restart.sh` — rebuild + hot-swap (unloads the login agent so launchd doesn't fight the dev instance).

@@ -6,9 +6,41 @@ import LodestarCore
 /// against fixed sample clips so the layout can be looked at, not just
 /// reasoned about. Debug-only — `swift build -c release` drops it.
 enum StripPreview {
+    /// A full screen ground to photograph the panels against. Glass composites
+    /// whatever is behind it, so a capture taken over a terminal has that
+    /// terminal's text inside the panel — and whatever else was on screen.
+    /// This is the one background that is repeatable and cannot leak anything.
+    /// Held, or ARC frees them the moment the loop ends and the ground never
+    /// appears.
+    private static var stageWindows: [NSWindow] = []
+
+    private static func stage() {
+        for screen in NSScreen.screens {
+            let window = NSWindow(contentRect: screen.frame, styleMask: [.borderless],
+                                  backing: .buffered, defer: false)
+            // Above another app's windows, below every panel it is a ground
+            // for: .normal sits inside our own inactive app's layer and never
+            // covers the terminal it was launched from.
+            window.level = .floating
+            window.isOpaque = true
+            window.backgroundColor = .black
+            window.collectionBehavior = [.canJoinAllSpaces, .stationary]
+            window.contentView = StageView(frame: NSRect(origin: .zero, size: screen.frame.size))
+            window.setFrame(screen.frame, display: true)
+            window.orderFrontRegardless()
+            stageWindows.append(window)
+        }
+    }
+
     static func run(_ variant: Int) {
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
+        if ProcessInfo.processInfo.environment["LODESTAR_STAGE"] != nil {
+            // After the run loop is up: windows made before the app finishes
+            // launching never reach the window server, and take the panel with
+            // them.
+            DispatchQueue.main.async { stage() }
+        }
 
         func clip(_ id: String, _ text: String, slot: Int? = nil,
                   app bundle: String? = nil, minutes: Double = 3,
@@ -51,7 +83,7 @@ enum StripPreview {
             let sheet = CheatSheet()
             sheet.toggle(sections: {
                 [CheatSheet.Section(header: "verbs", rows: [
-                    GuideRow(key: "␣", label: "searcher"),
+                    GuideRow(key: "␣", label: "launcher"),
                     GuideRow(key: "⏎", label: "ask — links · domains · search"),
                     GuideRow(key: "1…9", label: "jump to window by position"),
                     GuideRow(key: "⇧⌘V", label: "clipboard — label pastes · ⌘ actions"),
@@ -93,6 +125,29 @@ enum StripPreview {
             app.run()
         }
 
+        // 18: the Ask bar, over a synthetic config. Synthetic on purpose — the
+        // real one would put the user's own profile names on a public page.
+        if variant == 18 {
+            let json = """
+            {
+              "web": {
+                "links": {
+                  "docs": "developer.apple.com/documentation",
+                  "hn": "news.ycombinator.com"
+                },
+                "routes": { "github.com": "default" },
+                "fallback": "default"
+              }
+            }
+            """
+            var problems: [String] = []
+            let tree = (try? Json.parse(json)) ?? [:]
+            let config = Config.build(from: tree, problems: &problems)
+            let held = WebBarController.preview(query: "github.com/vaccone-software", config: config)
+            _ = held
+            app.run()
+        }
+
         if variant == 8 {
             let held = SearcherRowPreview.show()
             _ = held
@@ -125,3 +180,18 @@ enum StripPreview {
     }
 }
 #endif
+
+/// The ground the panels are photographed against: the page's own near black,
+/// with a trace of light so the glass has an edge to catch. Anything more
+/// colourful competes with the one accent the page is allowed.
+private final class StageView: NSView {
+    override func draw(_ dirtyRect: NSRect) {
+        // srgbRed, not calibratedRed: Generic RGB converts lighter, and the
+        // whole point is a ground the page cannot be told apart from.
+        NSColor(srgbRed: 10 / 255, green: 10 / 255, blue: 11 / 255, alpha: 1).setFill()
+        bounds.fill()
+        // Flat, deliberately. Any light in the ground shows up as a visible
+        // rectangle where the shot meets the page, and the panel carries its
+        // own shadow and rim already.
+    }
+}

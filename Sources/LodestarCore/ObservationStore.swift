@@ -33,6 +33,12 @@ public final class ObservationStore {
             return
         }
         observations = decoded
+        // The launcher was called the searcher until 0.12.0. The counts are the
+        // same behaviour under a new word, so they move rather than reset.
+        if let old = observations.verbs.removeValue(forKey: "searcher") {
+            observations.verbs["launcher", default: 0] += old
+            saveSoon()
+        }
     }
 
     /// Mutate and persist. The closure keeps every call site down to the one

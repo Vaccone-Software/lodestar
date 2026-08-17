@@ -112,7 +112,7 @@ public struct Config {
             "auto-reload": .boolean(description: "Reload automatically when the config file is saved."),
             "auto-update": .boolean(description: "Keep Lodestar current: check daily, verify the download, apply quietly when idle (installed app only)."),
             "start-at-login": .boolean(description: "Keep the login LaunchAgent installed (installed app only)."),
-            "show-menu-bar": .boolean(description: "Show the status item permanently; false hides it until lodestar is picked in the searcher."),
+            "show-menu-bar": .boolean(description: "Show the status item permanently; false hides it until lodestar is picked in the launcher."),
             "active-display": .string(allowed: ["pointer", "focus"], description: "How the active display is chosen."),
         ], description: "App behavior."),
         "gestures": .table(

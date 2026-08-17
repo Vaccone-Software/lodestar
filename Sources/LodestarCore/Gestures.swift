@@ -18,7 +18,7 @@ public enum Gestures {
 
     /// Ordered as the config template lists them.
     public static let roster: [Verb] = [
-        Verb(name: "searcher", keys: ["space"], about: "lode space, the app searcher"),
+        Verb(name: "launcher", keys: ["space"], about: "lode space, the app launcher"),
         Verb(name: "graph", keys: graphLetters, about: "lode letter chains to your apps"),
         Verb(name: "window-chooser", keys: ["tab"], about: "lode tab, the focused app's windows"),
         Verb(name: "web-bar", keys: ["return"], about: "lode ⏎, links and search"),

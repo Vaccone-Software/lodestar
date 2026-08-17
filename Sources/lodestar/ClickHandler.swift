@@ -34,6 +34,9 @@ final class ClickHandler {
     /// through the menu — this adopts it before the link is routed, so even
     /// the first one lands where your rules say.
     var adoptIfUnconfigured: () -> Void = {}
+    /// The host and where it landed, for the observation layer. In-memory
+    /// append only, so the never-block rule of this path holds.
+    var observe: (_ host: String?, _ profile: String?) -> Void = { _, _ in }
 
     /// Every macOS install has Safari, so the chain always ends somewhere.
     /// A link must never simply vanish.
@@ -55,9 +58,12 @@ final class ClickHandler {
         switch ClickRouter.route(url.absoluteString, in: live) {
         case .passThrough:
             traceIfAsked(url, profile: nil, pattern: nil)
+            observe(url.host()?.lowercased(), nil)
             handOff(url)
         case .profile(let profile, let pattern):
             traceIfAsked(url, profile: profile, pattern: pattern)
+            observe(url.host()?.lowercased(),
+                    "\(profile.browser.rawValue):\(profile.display)")
             // The proven path, unchanged: the same mechanism the web bar has
             // always used. It costs a process launch that Chromium forwards
             // and exits, which is the price of naming a profile at all.

@@ -428,9 +428,12 @@ func runReload() -> Never {
 
 /// `lodestar observations` — what Lodestar has noticed about how you reach
 /// things, printed plainly, because a store you cannot read is a store you
-/// cannot consent to. Counts and pauses only: there is nothing in here about
-/// what you were doing, only how you got there.
-func runObservations(clear: Bool) -> Never {
+/// cannot consent to. It records how you got places — timings, counts, app
+/// names, and the hosts you opened — never a window title, a URL path, a
+/// clipboard, or a typed query beyond its first two characters.
+/// `engine` dumps the fitted models behind the findings, for eyes that
+/// want the working shown.
+func runObservations(clear: Bool, engine: Bool) -> Never {
     Log.stdoutEnabled = false
     let store = ObservationStore()
     if clear {
@@ -443,6 +446,7 @@ func runObservations(clear: Bool) -> Never {
     }
     store.load()
     let o = store.observations
+    let events = store.log.readAll()
     let (config, _) = Config.load()
 
     guard o.updated != .distantPast else {
@@ -451,11 +455,22 @@ func runObservations(clear: Bool) -> Never {
         exit(0)
     }
 
+    let bound = config.graph.leaves()
+    let context = Advisor.Context(
+        observations: o, events: events,
+        leaves: bound.map { (chain: $0.chain, label: $0.target.label) },
+        webRoutes: config.webRoutes
+    )
+
+    if engine {
+        runObservationsEngine(context)
+    }
+
     let days = max(1, Int(Date().timeIntervalSince(o.since) / 86400))
-    print("observations · \(days) day\(days == 1 ? "" : "s") · nothing here leaves this machine")
+    print("observations · \(days) day\(days == 1 ? "" : "s") · \(events.count) events"
+        + " · nothing here leaves this machine")
     print("")
 
-    let bound = config.graph.leaves()
     func pad(_ text: String, _ width: Int) -> String {
         text.count >= width ? text : text + String(repeating: " ", count: width - text.count)
     }
@@ -468,19 +483,26 @@ func runObservations(clear: Bool) -> Never {
             let record = o.addresses[Observations.key(leaf.chain)]
             var columns = [pad(shown, 16), pad(leaf.target.label, 18)]
             columns.append(pad("\(record?.completions ?? 0) uses", 10))
-            if let fluency = o.fluency(leaf.chain) {
+            if let fluency = o.fluency(leaf.chain, pos: 0) {
                 columns.append(pad(seconds(fluency.median), 8))
             } else {
                 columns.append(pad("", 8))
             }
-            if let trend = o.learningTrend(leaf.chain) {
-                columns.append(pad(trend < -0.02 ? "learning" : "settled", 10))
+            if let blind = o.blindRate(leaf.chain) {
+                columns.append(pad("\(Int(blind * 100))% blind", 10))
             } else {
                 columns.append(pad("", 10))
             }
             var notes: [String] = []
             if let record, record.abandons > 0 { notes.append("\(record.abandons) abandoned") }
-            if let record, record.wrongLetters > 0 { notes.append("\(record.wrongLetters) wrong keys") }
+            if let record, record.wrongKeys > 0 {
+                var note = "\(record.wrongKeys) wrong keys"
+                if let (letter, count) = record.confusion.max(by: { $0.value < $1.value }),
+                   count > 1 {
+                    note += " (mostly \(letter.uppercased()))"
+                }
+                notes.append(note)
+            }
             print("  " + columns.joined() + notes.joined(separator: " · "))
         }
         print("")
@@ -495,8 +517,35 @@ func runObservations(clear: Bool) -> Never {
             if let share = o.routeShare(name) {
                 line += pad("\(Int(share * 100))% searched", 15)
             }
-            if let typed = o.medianTyped(name) { line += "\(typed) chars" }
+            if let launcher = o.launcherSeconds(name) {
+                line += pad(seconds(launcher) + " a search", 16)
+            } else if let typed = o.medianTyped(name) {
+                line += pad("\(typed) chars", 10)
+            }
             print(line)
+        }
+        print("")
+    }
+
+    let hosts = o.hosts.sorted { $0.value.count > $1.value.count }.prefix(8)
+    if !hosts.isEmpty {
+        print("hosts")
+        for (host, record) in hosts {
+            var line = pad("  " + host, 30) + pad("\(record.count) opens", 10)
+            if let (profile, hits) = record.profiles.max(by: { $0.value < $1.value }) {
+                line += "\(profile) \(hits)/\(record.count)"
+            }
+            print(line)
+        }
+        print("")
+    }
+
+    let pairs = Transitions.strongPairs(o.transitions).prefix(5)
+    if !pairs.isEmpty {
+        print("moves")
+        for pair in pairs {
+            print("  " + pad("\(pair.from) → \(pair.to)", 34)
+                + String(format: "%.0f× · lift %.1f", pair.count, pair.lift))
         }
         print("")
     }
@@ -508,49 +557,139 @@ func runObservations(clear: Bool) -> Never {
         print("")
     }
 
-    // The four situations, stated only where there is enough to say them.
-    var findings: [String] = []
-    // An address you have not used says nothing on the first day: of course you
-    // have not opened Music yet. A finding built on absence needs the window to
-    // have been open long enough for the absence to mean something, where one
-    // built on presence only needs its counts.
-    let longEnoughForAbsence = days >= 7
-    if longEnoughForAbsence {
-        for chain in o.unused(among: bound.map(\.chain)) where !chain.isEmpty {
-            let shown = "lode " + chain.map { $0.uppercased() }.joined(separator: " ")
-            findings.append("\(shown) has never been typed")
-        }
-    }
-    for leaf in bound {
-        let shown = "lode " + leaf.chain.map { $0.uppercased() }.joined(separator: " ")
-        if let rate = o.abandonRate(leaf.chain), rate > 0.2 {
-            findings.append("\(shown) is abandoned \(Int(rate * 100))% of the time")
-        }
-        if let trend = o.learningTrend(leaf.chain), trend > -0.01,
-           let fluency = o.fluency(leaf.chain), let typical = o.typicalPause(),
-           fluency.median > typical * 1.5 {
-            findings.append("\(shown) is slower than your usual and is not speeding up")
-        }
-        if let share = o.routeShare(leaf.target.label), share > 0.5 {
-            findings.append("\(leaf.target.label) is reached by search \(Int(share * 100))% of the time despite \(shown)")
-        }
-    }
-    let addressed = Set(bound.map { $0.target.label.lowercased() })
-    for (name, record) in apps where !addressed.contains(name) && record.searcher >= 5 {
-        if o.activeWeeks(app: name) >= 2 {
-            findings.append("\(name) is searched for often and has no address")
-        }
-    }
-    if findings.isEmpty {
-        print("nothing worth saying yet. Silence is the honest answer until the counts are there.")
-        if !longEnoughForAbsence {
-            print("(unused addresses stay unmentioned until a week has passed.)")
-        }
+    // The engine's verdicts: each survives a posterior-probability gate and
+    // false-discovery control across everything tested, so a line here has
+    // earned its place. Silence stays the honest answer until then.
+    let recommendations = Advisor.recommend(context)
+    if recommendations.isEmpty {
+        print("nothing worth saying yet. Silence is the honest answer until the numbers are in.")
     } else {
         print("worth looking at")
-        for finding in findings.prefix(12) { print("  " + finding) }
+        for rec in recommendations.prefix(12) {
+            var line = "  " + rec.detail
+            if rec.secondsPerWeek > 0 {
+                line += String(format: "  (≈%.0fs/week, p %.2f)", rec.secondsPerWeek,
+                               rec.probability)
+            }
+            print(line)
+        }
     }
     print("")
     print(ObservationStore.defaultFile.path)
+    exit(0)
+}
+
+/// `lodestar observations engine` — the fitted models, shown working. A
+/// development surface: the product never shows this, the way a watch never
+/// shows its escapement.
+func runObservationsEngine(_ context: Advisor.Context) -> Never {
+    let o = context.observations
+    print("engine · \(context.events.count) events in the ring")
+    print("")
+
+    func pad(_ text: String, _ width: Int) -> String {
+        text.count >= width ? text : text + String(repeating: " ", count: width - text.count)
+    }
+
+    if let latency = LatencyModel.fit(samples: LatencyModel.samples(from: context.events)) {
+        print("latency model (log-seconds)")
+        let names = ["intercept", "trigger", "same hand", "same finger", "row distance"]
+        for (name, beta) in zip(names, latency.coefficients) {
+            print("  " + pad(name, 14) + String(format: "%+.3f", beta))
+        }
+        print(String(format: "  residual sd    %.3f on %d samples", latency.residualSD,
+                     latency.samples))
+        print("  fluency residuals (shrunk; + is slower than the chain explains)")
+        for (address, entry) in latency.fluency.sorted(by: { $0.value.residual > $1.value.residual }) {
+            print("    " + pad(address, 10)
+                + String(format: "%+.3f  (n=%d)", entry.residual, entry.n))
+        }
+        print("")
+    } else {
+        print("latency model: not enough samples yet")
+        print("")
+    }
+
+    if let curve = LearningCurve.fit(observations: o) {
+        print(String(format: "learning curves · pooled α %.2f · typical bill %.0fs",
+                     curve.alpha, curve.typicalLearningCost()))
+        for (address, fit) in curve.fits.sorted(by: { $0.key < $1.key }) {
+            print("  " + pad(address, 10)
+                + String(format: "asymptote %.2fs · remaining %.0fs · n=%d",
+                         exp(fit.asymptote), fit.remainingSeconds(alpha: curve.alpha), fit.n))
+        }
+        print("")
+    }
+
+    if let mixture = RecallMixture.fit(observations: o) {
+        print(String(format: "recall mixture · fast %.2fs±%.2f · slow %.2fs±%.2f · %d%% recall",
+                     exp(mixture.fastMean), mixture.fastSD, exp(mixture.slowMean),
+                     mixture.slowSD, Int(mixture.weight * 100)))
+        for (address, pi) in mixture.ownership.sorted(by: { $0.value > $1.value }) {
+            print("  " + pad(address, 10) + "owned \(Int(pi * 100))%")
+        }
+        print("")
+    }
+
+    let now = Date()
+    let demands = o.apps.keys.compactMap { app -> (String, Demand)? in
+        let counts = Demand.weeklyCounts(app: app, events: context.events, now: now)
+        guard let demand = Demand.fit(weeklyCounts: counts) else { return nil }
+        return (app, demand)
+    }.sorted { $0.1.perWeek > $1.1.perWeek }
+    if !demands.isEmpty {
+        print("demand (reaches/week, fano > 2 is a project not a habit)")
+        for (app, demand) in demands.prefix(12) {
+            print("  " + pad(app, 24)
+                + String(format: "%.1f ± %.1f · fano %.1f · %d weeks",
+                         demand.perWeek, demand.se, demand.fano, demand.weeks))
+        }
+        print("")
+    }
+
+    let stationary = Transitions.stationary(o.transitions)
+        .sorted { $0.value > $1.value }.prefix(8)
+    if !stationary.isEmpty {
+        print("attention at equilibrium")
+        for (app, share) in stationary {
+            print("  " + pad(app, 24) + "\(Int(share * 100))%")
+        }
+        print("")
+    }
+    let clusters = Transitions.clusters(o.transitions)
+    if !clusters.isEmpty {
+        print("working sets")
+        for cluster in clusters.prefix(4) {
+            print(String(format: "  %@  (weight %.0f)",
+                         cluster.apps.joined(separator: " + "), cluster.weight))
+        }
+        print("")
+    }
+
+    let scores = Shadow.evaluate(events: context.events)
+    if !scores.isEmpty {
+        print("shadow scores (mean log-density, one step ahead; higher is better)")
+        for score in scores {
+            print("  " + pad(score.model, 10)
+                + String(format: "%+.3f over %d predictions", score.meanLogScore,
+                         score.predictions))
+        }
+        let earned = Shadow.geometryEarnedInfluence(scores)
+        print("  geometry model \(earned ? "has earned" : "has not yet earned") influence")
+        print("")
+    }
+
+    let recommendations = Advisor.recommend(context)
+    print("recommendations (post-gate: P(net benefit) ≥ 0.9, BH q=0.1)")
+    if recommendations.isEmpty {
+        print("  none survive the gates yet")
+    }
+    for rec in recommendations {
+        print(String(format: "  [%@] %@", rec.kind.rawValue, rec.detail))
+        print(String(format: "        ≈%.0fs/week · p %.2f", rec.secondsPerWeek,
+                     rec.probability))
+        for line in rec.evidence { print("        · " + line) }
+    }
+    print("")
     exit(0)
 }

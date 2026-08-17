@@ -82,7 +82,7 @@ Because the app updates itself daily, the update watchdog gained a functional ga
 
 Test it passes: the gesture is fixed (`lode ⏎`, type, `↵`), and the profile decision is removed from the moment of use rather than added to it.
 
-**Nothing is logged.** Not a URL, not a host, not a typed query — the log is paste-able (`lodestar diagnose` tails it), and a list of everywhere you went is not diagnostics. Where something opened is what a bug report needs; what you opened is yours. Config edits log the _name_ you chose, never the destination.
+**The diagnostics log carries none of it.** Not a URL, not a host, not a typed query — the log is paste-able (`lodestar diagnose` tails it), and a list of everywhere you went is not diagnostics. Where something opened is what a bug report needs. The observation layer is the one place a destination's _host_ is kept — local, bounded, and only because a host that always lands in the same profile is one route recommendation away from being config (see "What the app learns" below); the path and query stay nobody's. Config edits log the _name_ you chose, never the destination.
 
 ## The clipboard (added after the four)
 
@@ -150,6 +150,14 @@ Own everything else.
 
 **Later:** Layout undo/redo (a nicety with no downside). Counts and dot-repeat on close/resize verbs.
 
+## What the app learns (the observation layer)
+
+Lodestar watches how you reach things — locally, deletably, off by one config line — so that one day it can coach: not dashboards, one earned sentence at a time. The architecture is decided by one lesson: **aggregate at read time, never at write time**. v1 stored a median per chain and the median turned out to confound chain length with fluency; the mistake was frozen into the data. So the source of truth is now an append-only event log (`events.jsonl`, ninety rolling days), and everything else — the summary file, every fitted model — is a view over it, rebuildable when the models improve. What is kept: pauses tagged by position and whether the map was up, abandons with their hover, the wrong key actually pressed, each road's measured price in seconds, app→app transitions, hosts and the profile they landed in. What is never kept: window titles, URL paths and queries, clipboards, launcher queries beyond two characters.
+
+The analysis side holds itself to three disciplines. A pause is judged against what that chain's _shape_ costs this user's own hands (position and digraph regressed out), never against a constant. A recommendation must clear a decision-theoretic gate — probably worth more time than it costs, relearning priced from the user's own curves — and survive false-discovery control across everything tested at once; thin data self-suppresses through wide uncertainty rather than through magic thresholds. And every config edit is treated as a natural experiment (epoch-stamped, curves restarted), because a single-user, no-A/B design gets its causality nowhere else. Models run in shadow, scored on one-step-ahead prediction, and earn influence only by out-predicting the naive baseline — complexity lives here so the surfaced product can stay one sentence.
+
+Test it passes: the user never sees a model, only `lodestar observations` (the plain printout that makes the store consentable) and, eventually, one actionable line whose expected value has already paid for the interruption.
+
 ## Open questions (resolve by prototype, not reasoning)
 
 - **Window-identity stability** across close/reopen for the specific apps in use. The probe answers this.
@@ -157,4 +165,5 @@ Own everything else.
 - **Launcher windows vs apps**: whether the launcher surfaces individual windows (v2).
 - **Index `0`**: what, if anything, it does.
 - **Naming the register**: "link" is the plain word, deliberately not Raycast's "quicklink". Whether a distinctive noun (beacon, waypoint) earns a config migration is unresolved; the plain word ships until it does.
-- **Noticing what you keep typing**: whether a domain visited repeatedly should wear a hint chip suggesting `⌘K`, the way launcher rows teach the graph address. It would mean persisting a count per host — a browsing record on disk — which is exactly the tradeoff the log rule rejects. Not automatically disqualified, but a decision rather than a side effect.
+- **Noticing what you keep typing** — resolved in the observation layer's favor: hosts are counted, locally and bounded, and a host that always lands in one profile becomes a _route recommendation_ rather than a hint chip. The chip question (where such a nudge appears in the UI) stays open; the data question is settled.
+- **The coach's moment**: recommendations exist as data before they exist as UI. When one surfaces, it must arrive between tasks, never during one — camera in use, a bar open, a chain in flight all veto it — and one at a time, spaced so each new address's curve bends before the next asks for a hand. Delivery is unbuilt; this constraint is the spec it will be built to.

@@ -130,6 +130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         actions.observations = observationStore
         model.onTrace = { Log.info("model: \($0)") }
         searcher = SearcherController(appIndex: appIndex, actions: actions, model: model)
+        searcher.observations = observationStore
         rebuildGraphAddresses()
         searcher.graphAddress = { [weak self] name in self?.graphAddressByApp[name] }
         searcher.graphChains = { [weak self] name in self?.graphChains(for: name) ?? [] }
@@ -154,8 +155,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         webBar = WebBarController()
         webBar.config = config
         webBar.mostRecentProfile = { [weak self] in self?.mostRecentBrowserProfile() }
-        webBar.perform = { [weak self] url, profile, beside in
-            self?.actions.openWeb(url: url, profile: profile, beside: beside)
+        webBar.perform = { [weak self] url, profile, beside, row in
+            self?.actions.openWeb(url: url, profile: profile, beside: beside, row: row)
         }
         // Returns nil on SUCCESS, so no optional chaining here either.
         webBar.addLink = { [weak self] name, url, profileKey in
@@ -485,6 +486,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // waiting for one; failures flash if there is anything to flash with.
         handler.flash = { [weak self] text in self?.hud?.flash(text, seconds: 5) }
         handler.adoptIfUnconfigured = { [weak self] in self?.adoptBrowserRoleIfNeeded() }
+        // The store does not exist yet at install time; the closure looks
+        // it up per link, so early clicks simply go unobserved.
+        handler.observe = { [weak self] host, profile in
+            self?.observationStore?.webOpened(host: host, profile: profile ?? "pass",
+                                              source: "clicked")
+        }
         clickHandler = handler
         if !pendingClicks.isEmpty {
             let queued = pendingClicks
@@ -860,6 +867,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let problems = loadProblems
             + ConfigDoctor.groundTruthProblems(loaded)
             + ConfigDoctor.semanticWarnings(loaded, appIndex: appIndex)
+        recordGraphEpochs(old: config, new: loaded)
         config = loaded
         Keys.apply(overrides: loaded.keyOverrides)
         ActivePolicy.mode = loaded.activeDisplayMode
@@ -898,6 +906,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             "problems": problems.count, "auto-reload": loaded.autoReload,
             "start-at-login": loaded.startAtLogin,
         ])
+    }
+
+    /// Every graph edit is a natural experiment — the only causal data a
+    /// single-user, no-A/B design will ever have. The epoch stamp is what
+    /// makes it readable as one: learning curves restart at the stamp,
+    /// interference on neighbors is measured against it, and a pending
+    /// recommendation whose target appears here is marked adopted.
+    private func recordGraphEpochs(old: Config, new: Config) {
+        guard let store = observationStore else { return }
+        let oldLeaves = Dictionary(old.graph.leaves().map {
+            (Observations.key($0.chain), $0.target.label)
+        }, uniquingKeysWith: { first, _ in first })
+        let newLeaves = Dictionary(new.graph.leaves().map {
+            (Observations.key($0.chain), $0.target.label)
+        }, uniquingKeysWith: { first, _ in first })
+        for (key, label) in newLeaves {
+            let chain = key.split(separator: " ").map(String.init)
+            if oldLeaves[key] == nil {
+                store.epochBumped(address: chain, change: "added")
+            } else if oldLeaves[key] != label {
+                store.epochBumped(address: chain, change: "retargeted")
+            }
+        }
+        for (key, _) in oldLeaves where newLeaves[key] == nil {
+            store.epochBumped(address: key.split(separator: " ").map(String.init),
+                              change: "removed")
+        }
     }
 
     // MARK: - Auto-reload watcher
@@ -1130,6 +1165,9 @@ func printUsage() {
       uninstall        remove lodestar (--dry-run to preview, --purge for data)
       schema           print the config JSON Schema
       clipboard clear  erase the clipboard history
+      observations         what Lodestar has noticed about how you reach things
+      observations engine  the fitted models behind it, working shown
+      observations clear   delete everything noticed so far
       config-path      print the config file path
       apps             list every app name the graph can bind
 
@@ -1176,7 +1214,8 @@ if cliArguments.contains("schema") {
     exit(0)
 }
 if cliArguments.contains("observations") {
-    runObservations(clear: cliArguments.contains("clear"))
+    runObservations(clear: cliArguments.contains("clear"),
+                    engine: cliArguments.contains("engine"))
 }
 if cliArguments.contains("clipboard") {
     if cliArguments.contains("clear") {

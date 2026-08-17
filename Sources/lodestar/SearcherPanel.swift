@@ -57,6 +57,12 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     /// Write the edit into the config; an error string, or nil on success.
     var addToGraph: ([String], AppIndex.Entry) -> String? = { _, _ in "graph editing is unavailable" }
     var removeFromGraph: ([String]) -> String? = { _ in "graph editing is unavailable" }
+    /// Where the launcher's own price is recorded: bar-open → first key →
+    /// commit, the rank picked, the list length. Measured here because
+    /// this is the only place the clock and the rows exist together.
+    var observations: ObservationStore?
+    private var openedAt: Date?
+    private var firstKeyAt: Date?
     private var rows: [Row] = []
     private var rowViews: [SearcherRowView] = []
     private var viewCache: [String: SearcherRowView] = [:]
@@ -163,6 +169,8 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         mode = .apps
         field.placeholderString = "Where to?"
         field.stringValue = ""
+        openedAt = Date()
+        firstKeyAt = nil
         requery()
         present()
     }
@@ -305,6 +313,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     // MARK: - Keyboard
 
     func controlTextDidChange(_ notification: Notification) {
+        if firstKeyAt == nil, !field.stringValue.isEmpty { firstKeyAt = Date() }
         requery()
     }
 
@@ -327,6 +336,14 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
                 field.stringValue = ""
                 requery()
             } else {
+                // An escape after typing is a search that failed to find —
+                // a cost paid for nothing, which the demand model should
+                // know about.
+                if case .apps = mode, !field.stringValue.isEmpty {
+                    observations?.launcherAbandoned(typed: field.stringValue.count)
+                }
+                openedAt = nil
+                firstKeyAt = nil
                 hide()
             }
             return true
@@ -364,15 +381,31 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     private func pick(beside: Bool) {
         guard rows.indices.contains(selected) else { return }
         let row = rows[selected]
+        let now = Date()
         hide()
-        // What the search actually cost, measured rather than assumed.
-        let typed = field.stringValue.trimmingCharacters(in: .whitespaces).count
+        // What the search actually cost, measured rather than assumed:
+        // the characters, the ranks, and the seconds — everything the
+        // launcher-vs-graph comparison needs to be priced in one currency.
+        let query = field.stringValue.trimmingCharacters(in: .whitespaces)
         switch row {
         case .app(let entry):
-            actions.pick(entry, beside: beside, charactersTyped: typed)
+            let cost = Observations.LauncherCost(
+                typed: query.count,
+                prefix: String(query.lowercased().prefix(2)),
+                rank: selected,
+                listLength: rows.count,
+                openToFirstKey: firstKeyAt.flatMap { first in
+                    openedAt.map { first.timeIntervalSince($0) }
+                },
+                openToCommit: openedAt.map { now.timeIntervalSince($0) }
+            )
+            actions.pick(entry, beside: beside, cost: cost)
         case .window(let window):
+            observations?.reached(window.appName, via: .chooser, at: now)
             actions.summonWindow(window.id, beside: beside)
         }
+        openedAt = nil
+        firstKeyAt = nil
     }
 
     // MARK: - The graph card (⌘K)

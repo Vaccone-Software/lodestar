@@ -163,7 +163,7 @@ public struct Config {
         ], description: "About the person, rather than the program."),
         "observations": .table([
             "enabled": .boolean(description: "Watch how you reach things, on this machine only, to suggest improvements later."),
-        ], description: "Local observations. Counts, never content; nothing leaves the machine."),
+        ], description: "Local observations. How you got places, never what you were doing there; nothing leaves the machine."),
         "hints": .table([
             "letters": .string(allowed: nil, description: "The label alphabet, home row by default; labels are built only from these letters."),
             "rescan-delay": .number(min: 0.1, max: 2.0, description: "Sticky hints: seconds between a click and the relabel."),

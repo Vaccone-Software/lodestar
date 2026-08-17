@@ -6,9 +6,9 @@ Lode is **right ⌘** (configurable in `~/.config/lodestar/lodestar.json`).
 
 | Gesture                        | Meaning                                                                      |
 | ------------------------------ | ---------------------------------------------------------------------------- |
-| `lode space`                   | Launcher — type, `↵` focus-or-launch maximized, `⇧↵` beside                |
+| `lode space`                   | Launcher — type, `↵` focus-or-launch maximized, `⇧↵` beside                  |
 | `lode` + letter chain          | Graph: walk to an app (`S`=Slack … `E O`=Outlook, `W W`=Brave·Work)          |
-| `⇧` on a graph/launcher summon | Beside me (equal split) instead of maximized                               |
+| `⇧` on a graph/launcher summon | Beside me (equal split) instead of maximized                                 |
 | `lode 1…8`                     | Jump to window by position (left→right, top→bottom)                          |
 | `lode 9`                       | Always the last window                                                       |
 | `lode O`                       | Flip layout horizontal ↔ vertical                                            |
@@ -121,13 +121,13 @@ Profiles live in a registry (`profiles.brave`, `profiles.chrome`, `profiles.edge
 
 ## What Lodestar notices
 
-Lodestar watches how you reach things, on this machine only, so it can eventually tell you something useful about it. `observations.enabled` turns it off, and off means nothing is recorded and no file is written.
+Lodestar watches how you reach things, on this machine only, so it can tell you something useful about it. `observations.enabled` turns it off, and off means nothing is recorded and no file is written.
 
-The rule is **counts, never content**. It records that an address was typed, the pauses inside it, whether a chain was abandoned, and which route reached an app. It never records a window title, a URL, a host, a clipboard, or what you typed into the launcher. The number of characters is enough to know what a search cost you; the characters are yours. The file lives in `~/.local/share/lodestar/observations.json`, deliberately not in `~/.config`, which is what people commit to dotfiles repositories, and nothing ever leaves the machine.
+The rule is **how you got places, never what you were doing there**. It records the pauses inside an address, whether the map was consulted, chains abandoned and the key the hand pressed instead, which road reached an app and what that road cost in seconds, which app tends to follow which, and the host a destination opened at — the routing fact, so a repeated habit can become one config line. It never records a window title, a URL's path or query, a clipboard, or what you typed into the launcher beyond its first two characters. Everything lives in `~/.local/share/lodestar/` — `events.jsonl`, a rolling ninety days of raw material, and `observations.json`, the running summary that outlives it — deliberately not in `~/.config`, which is what people commit to dotfiles repositories. Nothing ever leaves the machine.
 
-Two measurements do most of the work, and neither needs to guess at what you would have done otherwise. **Pauses**: an address you own is typed at motor speed, one you are reconstructing has a gap in it, which is as close to "has this become muscle memory" as you can get without asking. **Abandons**: a chain you started and escaped out of is unambiguous in a way a slow chain is not, because a slow chain might be a phone call. Anything over two seconds is discarded rather than averaged, since chains wait indefinitely by design and one interruption would otherwise poison every number here.
+Two measurements still do most of the work, and neither needs to guess at what you would have done otherwise. **Pauses**: an address you own is typed at motor speed, one you are reconstructing has a gap in it, which is as close to "has this become muscle memory" as you can get without asking. **Abandons**: a chain you started and escaped out of is unambiguous in a way a slow chain is not, because a slow chain might be a phone call. Anything over ten seconds is discarded rather than averaged, since chains wait indefinitely by design and one interruption would otherwise poison every number here.
 
-`lodestar observations` prints all of it, plainly, because a store you cannot read is one you cannot consent to; `lodestar observations clear` deletes it. The report stays silent where the counts are too thin to mean anything, which is most of the first week. Recommendations come later, and only for the situations the data can actually establish: an address that is never typed, one that is abandoned often, one that never gets faster, and an app you keep searching for that has no address at all.
+`lodestar observations` prints all of it, plainly, because a store you cannot read is one you cannot consent to; `lodestar observations clear` deletes it. What the report is willing to conclude is gated twice: a finding must be probably worth more time than it costs — relearning included, priced from your own learning curves — and it must survive false-discovery control across everything else being tested. Silence stays the honest answer until then, which is most of the first weeks. `lodestar observations engine` shows the fitted models behind the verdicts, for eyes that want the working shown.
 
 ## Config (`lodestar.json`)
 

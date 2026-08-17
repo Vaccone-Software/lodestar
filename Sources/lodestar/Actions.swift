@@ -28,7 +28,16 @@ final class Actions {
     }
 
     func attach() {
-        model.onFocus = { [weak self] id in self?.history.recordFocus(id) }
+        model.onFocus = { [weak self] id in
+            guard let self else { return }
+            self.history.recordFocus(id)
+            // The transition structure: which app follows which, by any
+            // road — Lodestar's or the system's. App names only; the
+            // observation layer decays and caps the matrix.
+            if let window = self.model.windows[id] {
+                self.observations?.focused(app: window.appName)
+            }
+        }
         model.onCreated = { [weak self] id in self?.windowAppeared(id) }
         model.onTitleChanged = { [weak self] id in self?.windowAppeared(id) }
         model.onDestroyed = { [weak self] id in
@@ -47,7 +56,7 @@ final class Actions {
     // MARK: - Summoning
 
     func summon(_ target: GraphTarget, beside: Bool) {
-        observations?.record { $0.reached(target.label, via: .graph) }
+        observations?.reached(target.label, via: .graph)
         switch target {
         case .app(let name):
             summonApp(named: name, beside: beside)
@@ -57,13 +66,18 @@ final class Actions {
     }
 
     /// The web bar's verb: open a URL in a profile, then go there.
-    func openWeb(url: String, profile: BrowserProfile, beside: Bool) {
-        // Never the URL. The log is paste-able (`lodestar diagnose` tails it),
-        // and a list of everywhere you went is not diagnostics — it is a
-        // browsing history in a file. Where it opened is what a bug report
-        // needs; what you opened is yours.
+    func openWeb(url: String, profile: BrowserProfile, beside: Bool,
+                 row: String? = nil) {
+        // Never the URL in the log. The log is paste-able (`lodestar diagnose`
+        // tails it), and a list of everywhere you went is not diagnostics.
         Log.info("open-web", ["browser": profile.browser.rawValue,
                               "profile": profile.display, "beside": beside])
+        // The observation layer keeps the host — the routing fact route
+        // recommendations are made of — and never the path or query. A
+        // search row records only that a search happened.
+        observations?.webOpened(host: row == "search" ? nil : WebRouting.host(of: url),
+                                profile: "\(profile.browser.rawValue):\(profile.display)",
+                                source: "typed", row: row)
         guard ChromiumProfiles.openURL(url, in: profile) else {
             hud.flash("✕ profile '\(profile.display)' not found in \(profile.browser.label)")
             return
@@ -88,15 +102,14 @@ final class Actions {
     // Successful navigation is silent — the screen changing IS the
     // feedback. Flashes are reserved for what you cannot see: pending
     // launches, invisible state changes (binds, deletes), and failures.
-    func pick(_ entry: AppIndex.Entry, beside: Bool, charactersTyped: Int? = nil) {
+    func pick(_ entry: AppIndex.Entry, beside: Bool,
+              cost: Observations.LauncherCost? = nil) {
         if entry.bundleID == Bundle.main.bundleIdentifier
             || entry.name.lowercased() == "lodestar" {
             revealLodestar?()
             return
         }
-        observations?.record {
-            $0.reached(entry.name, via: .searcher, charactersTyped: charactersTyped)
-        }
+        observations?.reached(entry.name, via: .searcher, cost: cost)
         if let window = bestAliveWindow(bundleID: entry.bundleID, appName: entry.name) {
             place(window, beside: beside)
             return

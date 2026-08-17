@@ -29,6 +29,10 @@ final class HotkeyEngine {
     /// is the recall, and single letter addresses have no other gap to offer.
     private var chainStamps: [Date] = []
     private var chainLetters: [String] = []
+    /// The map was up when a letter landed: a labeled "reconstruction, not
+    /// recall" that the mixture model builds on. Captured before the peek
+    /// tears down, because by observation time it is already gone.
+    private var chainSawPeek = false
     /// An app excluded from the clipboard from inside the panel; the app
     /// delegate writes it to the config so the choice survives a restart.
     var onExcludeApp: ((String) -> Void)?
@@ -188,6 +192,7 @@ final class HotkeyEngine {
         guard type == .keyDown else { return Unmanaged.passUnretained(event) }
 
         tapDetector.keyDown()
+        if isPeeking { chainSawPeek = true }
         cancelPeek(hideGuide: isPeeking)
 
         let keycode = event.getIntegerValueField(.keyboardEventKeycode)
@@ -226,7 +231,7 @@ final class HotkeyEngine {
                                    option: event.flags.contains(.maskAlternate), world: self)
         let arrived = Date()
         let verdict = apply(effects, event: event)
-        observeChain(effects, at: arrived)
+        observeChain(effects, key: key, at: arrived)
         if wasIdle != core.isIdle { onChainActive?(!core.isIdle) }
         return verdict
     }
@@ -254,10 +259,11 @@ final class HotkeyEngine {
     }
 
     /// What the grammar's own decisions say about how well an address is
-    /// known. A completion carries its pauses, a wrong letter is a collision
-    /// with the name in your head, and an escape is the clearest signal of all
-    /// that the address was in the way rather than merely slow.
-    private func observeChain(_ effects: [EngineEffect], at now: Date) {
+    /// known. A completion carries its pauses and whether the map was
+    /// consulted, a wrong letter carries the key the hand believed in, and
+    /// an escape carries how long the hand hovered first — the difference
+    /// between "wrong tool" and "couldn't recall".
+    private func observeChain(_ effects: [EngineEffect], key: String, at now: Date) {
         guard let observations else { return }
         // Decided before the walk, not during it. A completing chain emits
         // hideGuide *before* summonGraph, so a flag set as the loop went along
@@ -270,7 +276,7 @@ final class HotkeyEngine {
         }
         for effect in effects {
             if let verb = Self.verb(for: effect) {
-                observations.record { $0.verbUsed(verb, at: now) }
+                observations.verbUsed(verb, at: now)
             }
             switch effect {
             case .summonGraph(let letters, _):
@@ -281,36 +287,37 @@ final class HotkeyEngine {
                 // "the map was open" describes almost every deliberate gesture,
                 // and discarding them threw away exactly the slow addresses
                 // worth finding. A chain that needed the map is a chain that
-                // was not fluent, and the pause already says so.
+                // was not fluent — so the pause counts, and the consultation
+                // itself rides along as a label.
                 var gaps: [TimeInterval] = []
                 for (index, stamp) in chainStamps.enumerated() where index > 0 {
                     gaps.append(stamp.timeIntervalSince(chainStamps[index - 1]))
                 }
                 // A canary, kept: a completion with nothing to time means the
                 // trigger stamp went missing, which is how this feature was
-                // silently blind twice. Counts only, so it says nothing about
-                // where you went.
+                // silently blind twice.
                 if chainStamps.count < 2 {
                     Log.info("observations", ["untimed-chain-keys": letters.count,
                                               "stamps": chainStamps.count])
                 }
-                observations.record { $0.chainCompleted(letters, gaps: gaps, at: now) }
+                observations.chainCompleted(letters, gaps: gaps, peeked: chainSawPeek, at: now)
                 chainStamps = []
                 chainLetters = []
+                chainSawPeek = false
             case .showGuide(let kind, let letters, _, let note):
                 guard kind == .graph else { continue }
                 if note != nil {
-                    observations.record { $0.wrongLetter(after: chainLetters, at: now) }
+                    observations.wrongKey(after: chainLetters, pressed: key, at: now)
                 } else if letters.count > chainLetters.count {
                     chainStamps.append(now)
                 }
                 chainLetters = letters
             case .hideGuide:
                 if !completed, !chainLetters.isEmpty {
-                    let abandoned = chainLetters
-                    observations.record { $0.chainAbandoned(abandoned, at: now) }
+                    let hover = chainStamps.last.map { now.timeIntervalSince($0) } ?? 0
+                    observations.chainAbandoned(chainLetters, hover: hover, at: now)
                 }
-                if !completed { chainStamps = []; chainLetters = [] }
+                if !completed { chainStamps = []; chainLetters = []; chainSawPeek = false }
             default:
                 continue
             }
@@ -463,6 +470,7 @@ final class HotkeyEngine {
             // first letter arrives.
             chainStamps = [Date()]
             chainLetters = []
+            chainSawPeek = false
             guard peekWork == nil, !isPeeking, !anyBarVisible else { return }
             let work = DispatchWorkItem { [weak self] in
                 guard let self, self.core.isIdle, !self.anyBarVisible else { return }

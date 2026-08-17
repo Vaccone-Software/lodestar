@@ -48,7 +48,8 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     var config = Config()
     /// The profile of the most recently focused browser window, if any.
     var mostRecentProfile: () -> BrowserProfile? = { nil }
-    var perform: (_ url: String, _ profile: BrowserProfile, _ beside: Bool) -> Void = { _, _, _ in }
+    var perform: (_ url: String, _ profile: BrowserProfile, _ beside: Bool,
+                  _ row: String) -> Void = { _, _, _, _ in }
     /// The ⌘K writes. Each returns an error string, or nil on success.
     var addLink: (_ name: String, _ url: String, _ profileKey: String?) -> String? = { _, _, _ in
         "link editing is unavailable"
@@ -319,7 +320,13 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         guard rows.indices.contains(selected) else { return }
         let row = rows[selected]
         hide()
-        perform(row.url, row.profile, beside)
+        let kind: String
+        switch row.kind {
+        case .link: kind = "link"
+        case .domain: kind = "domain"
+        case .search: kind = "search"
+        }
+        perform(row.url, row.profile, beside, kind)
     }
 
     // MARK: - The ⌘K card

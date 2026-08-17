@@ -1,0 +1,184 @@
+import Foundation
+
+/// One observed event, flat on purpose: every field the analysis layer will
+/// ever ask about is a column here, and a JSONL line is the whole record.
+///
+/// The log is the **source of truth**; `Observations` is a materialized view
+/// over it. The lesson of v1 is baked into this split: v1 aggregated at write
+/// time (a median of a chain's gaps), and when the aggregation turned out to
+/// confound chain length with fluency, the raw signal was gone. Events keep
+/// the raw signal, so the views — and every model over them — can be
+/// rewritten and replayed against history instead of starting blind.
+public struct ObservationEvent: Codable, Equatable {
+    public enum Kind: String, Codable {
+        /// A chain resolved: `chain` letters, `gaps` between its keys (index
+        /// 0 is trigger→first letter), `peeked` if the map was up first.
+        case chain
+        /// A chain escaped out of: `chain` is the prefix at escape, `hover`
+        /// the seconds since the last key.
+        case abandon
+        /// An illegal key mid-chain: `chain` is the prefix, `pressed` the key
+        /// the hand believed in.
+        case wrongKey
+        /// An app reached: `app`, `route`, and — for the launcher — what the
+        /// search cost (`typed`, `queryPrefix`, `rank`, `listLength`,
+        /// `openToFirstKey`, `openToCommit`).
+        case reach
+        /// The launcher opened and was escaped without a pick.
+        case launcherAbandon
+        /// A verb fired, so a dead feature can say so.
+        case verb
+        /// A destination opened in a browser profile: `host`, `profile`,
+        /// `source` (typed | clicked), `row` (link | domain | search).
+        case web
+        /// Focus moved to an app, by any road — the transition structure.
+        case focus
+        /// A graph binding changed at config reload: `address`, `change`
+        /// (added | removed | retargeted), and the new global `epoch`.
+        case epoch
+    }
+
+    public var t: Date
+    public var kind: Kind
+    public var chain: [String]?
+    public var gaps: [Double]?
+    public var peeked: Bool?
+    public var hover: Double?
+    public var pressed: String?
+    public var app: String?
+    public var route: String?
+    public var typed: Int?
+    public var queryPrefix: String?
+    public var rank: Int?
+    public var listLength: Int?
+    public var openToFirstKey: Double?
+    public var openToCommit: Double?
+    public var verb: String?
+    public var host: String?
+    public var profile: String?
+    public var source: String?
+    public var row: String?
+    public var address: String?
+    public var change: String?
+    public var epoch: Int?
+
+    public init(t: Date, kind: Kind) {
+        self.t = t
+        self.kind = kind
+    }
+}
+
+/// The append-only event file: `events.jsonl`, one event per line, beside the
+/// aggregate view. Appends are buffered and coalesced because this is fed
+/// from the event tap and a keystroke must never wait on a disk. The ring is
+/// bounded by age: events older than `retention` fall off at compaction, by
+/// which time their contribution lives on in the aggregates' running
+/// statistics — the raw sample is dropped only once its summary is kept.
+public final class EventLog {
+    public static let defaultFile = Paths.data.appendingPathComponent("events.jsonl")
+    /// Ninety days of raw material. Old enough for every curve to keep its
+    /// beginning within an epoch, small enough that the file stays a working
+    /// set rather than an archive.
+    public static let retention: TimeInterval = 90 * 86_400
+
+    public let file: URL
+    private var pending: [ObservationEvent] = []
+    private var flushWork: DispatchWorkItem?
+
+    private static func makeEncoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .secondsSince1970
+        encoder.outputFormatting = [.sortedKeys]
+        return encoder
+    }
+
+    private static func makeDecoder() -> JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .secondsSince1970
+        return decoder
+    }
+
+    public init(file: URL = EventLog.defaultFile) {
+        self.file = file
+    }
+
+    public func append(_ event: ObservationEvent) {
+        pending.append(event)
+        scheduleFlush()
+    }
+
+    public func flush() {
+        flushWork?.cancel()
+        flushWork = nil
+        guard !pending.isEmpty else { return }
+        let encoder = Self.makeEncoder()
+        var lines = Data()
+        for event in pending {
+            guard let data = try? encoder.encode(event) else { continue }
+            lines.append(data)
+            lines.append(0x0A)
+        }
+        pending = []
+        guard !lines.isEmpty else { return }
+        let fm = FileManager.default
+        try? fm.createDirectory(at: file.deletingLastPathComponent(),
+                                withIntermediateDirectories: true)
+        if let handle = try? FileHandle(forWritingTo: file) {
+            defer { try? handle.close() }
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: lines)
+        } else {
+            try? lines.write(to: file, options: .atomic)
+        }
+    }
+
+    /// Every event still in the ring, oldest first, pending included.
+    public func readAll() -> [ObservationEvent] {
+        var events = Self.read(file: file)
+        events.append(contentsOf: pending)
+        return events
+    }
+
+    static func read(file: URL) -> [ObservationEvent] {
+        guard let data = try? Data(contentsOf: file) else { return [] }
+        let decoder = makeDecoder()
+        return data.split(separator: 0x0A).compactMap {
+            try? decoder.decode(ObservationEvent.self, from: Data($0))
+        }
+    }
+
+    /// Drop what has aged out of the ring, rewriting the file. Run at boot,
+    /// not on the hot path.
+    public func compact(now: Date = Date()) {
+        let cutoff = now.addingTimeInterval(-Self.retention)
+        let events = Self.read(file: file)
+        let kept = events.filter { $0.t >= cutoff }
+        guard kept.count < events.count else { return }
+        let encoder = Self.makeEncoder()
+        var lines = Data()
+        for event in kept {
+            guard let data = try? encoder.encode(event) else { continue }
+            lines.append(data)
+            lines.append(0x0A)
+        }
+        try? lines.write(to: file, options: .atomic)
+    }
+
+    public func clear() {
+        pending = []
+        flushWork?.cancel()
+        flushWork = nil
+        try? FileManager.default.removeItem(at: file)
+    }
+
+    private func scheduleFlush() {
+        guard flushWork == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.flushWork = nil
+            self.flush()
+        }
+        flushWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: work)
+    }
+}

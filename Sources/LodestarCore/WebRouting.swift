@@ -42,6 +42,22 @@ public enum WebRouting {
         return lowered.hasPrefix("http://") || lowered.hasPrefix("https://")
     }
 
+    /// The host of whatever was typed or clicked, for the observation
+    /// layer: the routing fact alone. The path and query are the content
+    /// and never leave the URL.
+    public static func host(of input: String) -> String? {
+        let normalized = normalize(input)
+        if let url = URL(string: normalized), let host = url.host?.lowercased(), !host.isEmpty {
+            return host
+        }
+        var stripped = input.trimmingCharacters(in: .whitespaces)
+        for scheme in ["https://", "http://"] where stripped.lowercased().hasPrefix(scheme) {
+            stripped = String(stripped.dropFirst(scheme.count))
+        }
+        let bare = bareHost(of: stripped)
+        return bare.isEmpty ? nil : bare
+    }
+
     /// The host alone: no path, no port, lowercased.
     private static func bareHost(of input: String) -> String {
         let head = String(input.split(separator: "/").first ?? "")

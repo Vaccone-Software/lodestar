@@ -55,14 +55,14 @@ enum StripPreview {
 
         let pins = [
             clip("p1", "https://lodestar.vaccone.software", slot: 1, app: "com.mitchellh.ghostty"),
-            clip("p2", "rvaccone@example.com", slot: 2),
+            clip("p2", "hello@example.com", slot: 2),
             clip("p4", "image 1200×800", slot: 4, kind: .image),
         ]
         let recents = [
             clip("r0", "swift build -c release --arch arm64", app: "com.mitchellh.ghostty", minutes: 0.2),
             clip("r1", "The quick brown fox jumps over the lazy dog and keeps going well past the edge of the card.", minutes: 8),
             clip("r2", "git commit -m \"Actions open where the card is\"", app: "com.mitchellh.ghostty", minutes: 40),
-            clip("r3", "2PZMN57974", minutes: 300),
+            clip("r3", "AB12CD34EF", minutes: 300),
             clip("r4", "func actionFrame(for id: String?) -> NSRect", minutes: 1500),
         ]
 

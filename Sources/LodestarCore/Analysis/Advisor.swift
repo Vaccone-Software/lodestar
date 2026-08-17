@@ -138,10 +138,16 @@ public enum Advisor {
 
     // MARK: - Shared
 
+    /// Letters the grammar itself owns: O flips orientation, X walks the
+    /// timeline, Z undoes. A graph slot here would be shadowed by the
+    /// verb, and the coach must never offer what the grammar reserves —
+    /// found the hard way when Zoom's mnemonic Z nearly cleared the gates.
+    static let reservedLetters: Set<String> = ["o", "x", "z"]
+
     static func freeLetters(_ context: Context) -> Set<String> {
         let taken = Set(context.leaves.compactMap { $0.chain.first })
         let alphabet = "abcdefghijklmnopqrstuvwxyz".map(String.init)
-        return Set(alphabet).subtracting(taken)
+        return Set(alphabet).subtracting(taken).subtracting(reservedLetters)
     }
 
     /// The letters a name could plausibly live under: word initials first,
@@ -226,12 +232,17 @@ public enum Advisor {
         return out
     }
 
+    /// Wrong keys attach to the *prefix* where the hand stumbled — often
+    /// an internal node, never a leaf. The first cut iterated leaves and
+    /// was structurally blind to its own best evidence (a real user's
+    /// strongest confusion lived entirely at two prefixes); this walks
+    /// every record that accumulated wrong keys, wherever it sits in the
+    /// trie.
     static func rebindCandidates(_ context: Context) -> [(Recommendation, Double)] {
         let o = context.observations
         var out: [(Recommendation, Double)] = []
-        for leaf in context.leaves {
-            let key = Observations.key(leaf.chain)
-            guard let record = o.addresses[key], record.wrongKeys >= 5,
+        for (key, record) in o.addresses {
+            guard record.wrongKeys >= 5,
                   let (letter, count) = record.confusion.max(by: { $0.value < $1.value })
             else { continue }
             let share = Double(count) / Double(record.wrongKeys)
@@ -240,11 +251,14 @@ public enum Advisor {
             // The null: wrong letters scatter across a few plausible keys.
             // One letter absorbing them all is what needs explaining.
             let p = Maths.binomialTail(atLeast: count, n: record.wrongKeys, p: 0.25)
-            let shown = "lode " + leaf.chain.map { $0.uppercased() }.joined(separator: " ")
-            let weekly = Double(record.wrongKeys)
-                / max(1, Double(o.activeWeeks(address: leaf.chain))) * 1.5
+            let shown = key.isEmpty
+                ? "lode"
+                : "lode " + key.split(separator: " ")
+                    .map { $0.uppercased() }.joined(separator: " ")
+            let weeks = max(1, record.weeks.values.filter { $0 > 0 }.count)
+            let weekly = Double(record.wrongKeys) / Double(weeks) * 1.5
             out.append((Recommendation(
-                kind: .rebind, target: key,
+                kind: .rebind, target: key.isEmpty ? "lode" : key,
                 detail: "at \(shown) your hand keeps pressing \(letter.uppercased()) · "
                     + "the name in your head disagrees with the graph",
                 secondsPerWeek: weekly, probability: lower,
@@ -359,10 +373,21 @@ public enum Advisor {
         return out
     }
 
+    /// A lift-3 gate reads well until a real user arrives with 78% of
+    /// their attention in three apps — there, expected co-occurrence is
+    /// already so high that lift is bounded below 2 and the user's most
+    /// obvious pattern can never fire. The z-score against independence
+    /// carries the evidence at any concentration; lift keeps only a
+    /// sanity floor.
     static func breathCandidates(_ context: Context) -> [(Recommendation, Double)] {
         let pairs = Transitions.strongPairs(context.observations.transitions)
         var out: [(Recommendation, Double)] = []
-        for pair in pairs.prefix(3) where pair.lift >= 3 && pair.count >= 8 {
+        // Directional pairs, undirected suggestion: A→B and B→A are one
+        // finding, kept at the stronger direction's evidence.
+        var seen = Set<Set<String>>()
+        for pair in pairs where pair.lift >= 1.3 && pair.count >= 20 {
+            guard out.count < 3 else { break }
+            guard seen.insert(Set([pair.from, pair.to])).inserted else { continue }
             // The null: the pair co-occurs at the rate independence
             // predicts. Normal approximation to the Poisson tail above it.
             let expected = pair.count / pair.lift
@@ -385,16 +410,22 @@ public enum Advisor {
         let o = context.observations
         var out: [(Recommendation, Double)] = []
         for (host, record) in o.hosts {
-            guard record.count >= 8,
-                  let (profile, hits) = record.profiles.max(by: { $0.value < $1.value })
+            // "pass" is a clicked link that matched no rule — the user
+            // chose nothing, so it is evidence of nothing. Concentration
+            // is judged over deliberate profile choices only; a host that
+            // is all pass-through has no preference to make a rule of.
+            let chosen = record.profiles.filter { $0.key != "pass" }
+            let total = chosen.values.reduce(0, +)
+            guard total >= 8,
+                  let (profile, hits) = chosen.max(by: { $0.value < $1.value })
             else { continue }
-            let lower = Maths.wilsonLower(successes: hits, trials: record.count)
-            guard Double(hits) / Double(record.count) >= 0.9, lower > 0.6 else { continue }
+            let lower = Maths.wilsonLower(successes: hits, trials: total)
+            guard Double(hits) / Double(total) >= 0.9, lower > 0.6 else { continue }
             // Already covered by a rule? Then the decision is made and quiet.
             guard WebRouting.routePattern("https://\(host)", routes: context.webRoutes) == nil
             else { continue }
             // The null: no preferred profile for this host.
-            let p = Maths.binomialTail(atLeast: hits, n: record.count, p: 0.5)
+            let p = Maths.binomialTail(atLeast: hits, n: total, p: 0.5)
             // The chip can only offer what a config line can say, and a
             // route line needs the registry key behind the observed profile.
             let edit = context.profileKeys[profile].map {
@@ -402,12 +433,12 @@ public enum Advisor {
             }
             out.append((Recommendation(
                 kind: .route, target: host,
-                detail: "\(host) has landed in \(profile) \(hits) of \(record.count) times · "
+                detail: "\(host) has landed in \(profile) \(hits) of \(total) times · "
                     + "one route line would make it a fact instead of a habit",
-                secondsPerWeek: Double(record.count)
+                secondsPerWeek: Double(total)
                     / max(1, Double(record.weeks.count)) * 1.5,
                 probability: lower,
-                evidence: ["\(hits)/\(record.count) opens in \(profile)"], edit: edit), p))
+                evidence: ["\(hits)/\(total) chosen opens in \(profile)"], edit: edit), p))
         }
         return out
     }

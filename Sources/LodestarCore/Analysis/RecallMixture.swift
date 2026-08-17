@@ -89,6 +89,14 @@ public struct RecallMixture: Equatable {
             }
         }
 
+        // No separation, no mixture: on a fluent user's day the two
+        // components collapse onto one unimodal cloud and the ownership
+        // numbers become fiction ("owned 43%" against a 95% blind rate).
+        // Under a 2× gap between the modes, the honest answer is that no
+        // reconstruction mode was detected — the blind rate is the
+        // fluency measure, and this model stays silent.
+        guard muSlow - muFast >= 0.7 else { return nil }
+
         var owned: [String: (fast: Double, n: Int)] = [:]
         for (point, responsibility) in zip(points, responsibilities) {
             var entry = owned[point.address] ?? (0, 0)

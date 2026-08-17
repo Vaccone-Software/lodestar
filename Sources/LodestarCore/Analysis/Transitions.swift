@@ -85,18 +85,28 @@ public enum Transitions {
         return Dictionary(uniqueKeysWithValues: zip(apps, p))
     }
 
-    /// Greedy agglomerative clustering on the symmetrized graph: merge the
-    /// two clusters with the strongest normalized connection until nothing
-    /// connects strongly enough. Small-n honest, no library required.
+    /// Greedy agglomerative clustering on the symmetrized graph, with the
+    /// configuration model as the null: two clusters merge only when the
+    /// weight between them beats what their sheer sizes predict, by a
+    /// margin. An absolute threshold saturated at real event volume and
+    /// produced one cluster of everything — on an attention graph every
+    /// app touches the busy core, so "connected at all" is no structure.
+    /// "Connected half again past expectation" is.
     public static func clusters(_ matrix: [String: [String: Double]],
-                                minimumWeight: Double = 6) -> [Cluster] {
+                                minimumWeight: Double = 6,
+                                liftFloor: Double = 1.5) -> [Cluster] {
         var weight: [String: [String: Double]] = [:]
+        var degree: [String: Double] = [:]
         for (from, row) in matrix {
             for (to, count) in row where from != to {
                 weight[from, default: [:]][to, default: 0] += count
                 weight[to, default: [:]][from, default: 0] += count
+                degree[from, default: 0] += count
+                degree[to, default: 0] += count
             }
         }
+        let twoM = degree.values.reduce(0, +)
+        guard twoM > 0 else { return [] }
         var clusters: [[String]] = Array(Set(matrix.keys).union(matrix.values.flatMap(\.keys)))
             .sorted().map { [$0] }
 
@@ -105,16 +115,22 @@ public enum Transitions {
                 sum + b.reduce(0) { $0 + (weight[app]?[$1] ?? 0) }
             }
         }
+        func clusterDegree(_ members: [String]) -> Double {
+            members.reduce(0) { $0 + (degree[$1] ?? 0) }
+        }
 
         while clusters.count > 1 {
-            var best: (i: Int, j: Int, score: Double)?
+            var best: (i: Int, j: Int, ratio: Double)?
             for i in 0..<clusters.count {
                 for j in (i + 1)..<clusters.count {
                     let cross = between(clusters[i], clusters[j])
-                    let size = Double(clusters[i].count * clusters[j].count)
-                    let score = cross / size
-                    if cross >= minimumWeight, score > (best?.score ?? 0) {
-                        best = (i, j, score)
+                    guard cross >= minimumWeight else { continue }
+                    let expected = clusterDegree(clusters[i]) * clusterDegree(clusters[j])
+                        / twoM
+                    guard expected > 0 else { continue }
+                    let ratio = cross / expected
+                    if ratio >= liftFloor, ratio > (best?.ratio ?? 0) {
+                        best = (i, j, ratio)
                     }
                 }
             }

@@ -348,23 +348,102 @@ final class AnalysisTests: XCTestCase {
     }
 
     func testAdvisorFlagsTheLetterTheHandBelievesIn() {
+        // The real-data shape: wrong keys attach to the PREFIX "v", which
+        // is an internal node — no leaf carries them. The advisor must
+        // read the trie, not just its leaves (found live: a user's
+        // strongest confusion was invisible to the leaf-only version).
         var o = Observations()
         for _ in 0..<8 {
             var event = ObservationEvent(t: start, kind: .wrongKey)
-            event.chain = ["b"]
-            event.pressed = "w"
+            event.chain = ["v"]
+            event.pressed = "x"
             o.apply(event)
         }
         var completion = ObservationEvent(t: start, kind: .chain)
-        completion.chain = ["b"]
-        completion.gaps = [0.3]
+        completion.chain = ["v", "z"]
+        completion.gaps = [0.3, 0.2]
         o.apply(completion)
         let context = Advisor.Context(observations: o, events: [],
-                                      leaves: [(chain: ["b"], label: "Brave")],
+                                      leaves: [(chain: ["v", "z"], label: "Zoom")],
                                       webRoutes: [:], now: start)
         let rebind = Advisor.recommend(context).first { $0.kind == .rebind }
-        XCTAssertNotNil(rebind)
-        XCTAssertTrue(rebind?.detail.contains("W") ?? false,
+        XCTAssertNotNil(rebind, "prefix evidence must reach the advisor")
+        XCTAssertEqual(rebind?.target, "v")
+        XCTAssertTrue(rebind?.detail.contains("lode V") ?? false)
+        XCTAssertTrue(rebind?.detail.contains("X") ?? false,
                       "the evidence names the letter")
+    }
+
+    func testFreeLettersNeverOfferWhatTheGrammarReserves() {
+        let context = Advisor.Context(observations: Observations(), events: [],
+                                      leaves: [], webRoutes: [:], now: start)
+        let free = Advisor.freeLetters(context)
+        for reserved in ["o", "x", "z"] {
+            XCTAssertFalse(free.contains(reserved),
+                           "\(reserved) is a verb — a graph slot there would be shadowed")
+        }
+        XCTAssertTrue(free.contains("q"), "ordinary letters stay on offer")
+    }
+
+    func testPassThroughOpensAreEvidenceOfNothing() {
+        // A host that is all clicked pass-through has no preference to
+        // make a rule of; and pass opens must not dilute a real one.
+        var o = Observations()
+        for _ in 0..<12 {
+            var event = ObservationEvent(t: start, kind: .web)
+            event.host = "tailscale.com"
+            event.profile = "pass"
+            event.source = "clicked"
+            o.apply(event)
+        }
+        for i in 0..<10 {
+            var event = ObservationEvent(t: start, kind: .web)
+            event.host = "github.com"
+            event.profile = i < 9 ? "brave:work" : "pass"
+            event.source = i < 9 ? "typed" : "clicked"
+            o.apply(event)
+        }
+        let context = Advisor.Context(observations: o, events: [], leaves: [],
+                                      webRoutes: [:],
+                                      profileKeys: ["brave:work": "work"], now: start)
+        let routes = Advisor.recommend(context).filter { $0.kind == .route }
+        XCTAssertNil(routes.first { $0.target == "tailscale.com" },
+                     "all pass-through: the user chose nothing")
+        let github = routes.first { $0.target == "github.com" }
+        XCTAssertNotNil(github, "nine deliberate opens in one profile is a preference")
+        XCTAssertTrue(github?.detail.contains("9 of 9") ?? false,
+                      "concentration judged over chosen opens only")
+    }
+
+    func testBreathFiresOnCountEvidenceAtRealisticLift() {
+        // 78% of attention in three apps bounds lift below 2 forever; the
+        // z-score against independence carries the evidence anyway.
+        var o = Observations()
+        o.transitions = [
+            "ghostty": ["brave": 100, "slack": 35],
+            "brave": ["ghostty": 90, "slack": 20],
+            "slack": ["ghostty": 40, "brave": 15],
+        ]
+        let context = Advisor.Context(observations: o, events: [], leaves: [],
+                                      webRoutes: [:], now: start)
+        let breath = Advisor.recommend(context).first { $0.kind == .breath }
+        XCTAssertNotNil(breath, "the user's most obvious pattern must be sayable")
+        XCTAssertTrue(breath?.target.contains("ghostty") ?? false)
+    }
+
+    func testMixtureStaysSilentOnUnimodalData() {
+        // A fluent user's day has no reconstruction mode; splitting one
+        // cloud into center and tails would fabricate ownership numbers.
+        var o = Observations()
+        var noise = Noise(seed: 41)
+        for i in 0..<80 {
+            var event = ObservationEvent(t: start.addingTimeInterval(Double(i)),
+                                         kind: .chain)
+            event.chain = ["g"]
+            event.gaps = [exp(log(0.09) + noise.normal(sd: 0.25))]
+            o.apply(event)
+        }
+        XCTAssertNil(RecallMixture.fit(observations: o),
+                     "no separation, no mixture — the blind rate is the measure")
     }
 }

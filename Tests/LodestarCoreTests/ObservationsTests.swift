@@ -238,6 +238,40 @@ final class ObservationsTests: XCTestCase {
                        "a no is remembered, which is what makes it safe to give")
     }
 
+    func testSelectEventsAggregatePerApp() {
+        var o = Observations()
+        var event = ObservationEvent(t: start, kind: .select)
+        event.app = "Ghostty"
+        event.action = "completed"
+        event.source = "ocr"
+        event.row = "held"
+        event.typed = 6
+        event.seconds = 4.2
+        event.listLength = 3
+        o.apply(event)
+        var abandoned = ObservationEvent(t: start, kind: .select)
+        abandoned.app = "ghostty"
+        abandoned.action = "abandoned"
+        abandoned.source = "ax"
+        abandoned.typed = 2
+        abandoned.seconds = 1.0
+        o.apply(abandoned)
+        let record = o.selects["ghostty"]
+        XCTAssertEqual(record?.completed, 1)
+        XCTAssertEqual(record?.abandoned, 1)
+        XCTAssertEqual(record?.ocr, 1)
+        XCTAssertEqual(record?.ax, 1)
+        XCTAssertEqual(record?.held, 1)
+        XCTAssertEqual(record?.typed.mean ?? 0, 4, accuracy: 0.001)
+        // Recommendation-engine grade: the same shapes every other record
+        // carries, so the engine can gate on habit, weight by recency,
+        // and price by cost.
+        XCTAssertEqual(record?.weeks.values.reduce(0, +), 2, "weeks histogram")
+        XCTAssertGreaterThan(record?.usage.values.first ?? 0, 0, "multi-scale usage")
+        XCTAssertEqual(record?.lastUsed, start)
+        XCTAssertEqual(record?.matches.n, 1, "screen ambiguity sampled")
+    }
+
     // MARK: - The view is a view
 
     func testRebuildFromEventsEqualsIncrementalApplication() {

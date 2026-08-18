@@ -19,6 +19,19 @@ final class WorldStub: EngineWorld {
     var scrollEnterSucceeds = true
     var hintsEnterSucceeds = true
     var hintOutcomes: [String: HintStep] = [:]
+    var selectEnterSucceeds = true
+    var selectOutcomes: [String: SelectStep] = [:]
+
+    func enterSelect() -> Bool {
+        calls.append("enterSelect")
+        return selectEnterSucceeds
+    }
+
+    func selectKey(_ key: String, shift: Bool) -> SelectStep {
+        let name = "selectKey:\(shift ? "S" : "")\(key)"
+        calls.append(name)
+        return selectOutcomes[name] ?? .pending
+    }
 
     func resolveGraph(_ letters: [String]) -> GraphResolution {
         calls.append("resolve:\(letters.joined())")
@@ -133,7 +146,9 @@ final class EngineTests: XCTestCase {
 
     func testUnboundPunctuationPassesThrough() {
         XCTAssertEqual(press("-"), [.passThrough])
-        XCTAssertEqual(press("/"), [.passThrough], "plain / is reserved, not bound")
+        // Plain / spent its reservation in 0.15.0: it enters select now.
+        _ = press("/")
+        XCTAssertEqual(core.state, .select)
     }
 
     func testQuestionMarkTogglesCheat() {

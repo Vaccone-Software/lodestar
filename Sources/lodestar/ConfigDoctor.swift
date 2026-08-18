@@ -557,6 +557,23 @@ func runObservations(clear: Bool, engine: Bool) -> Never {
         print("")
     }
 
+    if !o.selects.isEmpty {
+        print("select")
+        for (name, record) in o.selects.sorted(by: { $0.value.completed + $0.value.abandoned
+            > $1.value.completed + $1.value.abandoned }).prefix(10) {
+            var line = pad("  " + name, 26)
+            line += pad("\(record.completed) selected", 14)
+            if record.abandoned > 0 { line += pad("\(record.abandoned) abandoned", 14) }
+            let total = max(1, record.ocr + record.ax)
+            line += pad("\(Int(Double(record.ocr) / Double(total) * 100))% pixels", 12)
+            if let seconds = record.seconds.mean {
+                line += String(format: "%.1fs a span", seconds)
+            }
+            print(line)
+        }
+        print("")
+    }
+
     // The coach's ledger: everything it has said, and what became of it.
     if !o.ledger.isEmpty {
         print("coach")

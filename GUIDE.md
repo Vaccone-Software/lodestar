@@ -22,6 +22,7 @@ Lode is **right ⌘** (configurable in `~/.config/lodestar/lodestar.json`).
 | `lode .`                       | Menu search: the frontmost app's menus, fuzzy, `↵` executes                  |
 | `lode ,`                       | Scroll mode: `j/k` `h/l` · `d/u` half-page · `gg`/`⇧G` ends · `⇥` panes      |
 | `lode ;` / `lode ⇧;`           | Click hints on the focused window — `⇧;` chains clicks (sticky)              |
+| `lode /`                       | Select text by typing it — lowercase searches, `⇧letter` anchors             |
 | `lode [` / `lode ]`            | Move the focused window to the prev/next display (`⇧` = arrive beside)       |
 | `lode Z` / `lode ⇧Z`           | Undo / redo the layout (summons, besides, flips, breaths)                    |
 | `lode X` / `lode ⇧X`           | Back / forward — walk the attention timeline (previous destinations)         |
@@ -87,6 +88,16 @@ In a password field macOS blocks synthetic keystrokes outright, so Lodestar puts
 `lode ⇧;` is the **chain-click lens**: every pick clicks and then the window is re-scanned and relabeled after a beat (`hints.rescan-delay`), so a click that changed the app — opened a panel, revealed a menu — gets fresh labels. Filling a form or clicking through a wizard never leaves the mode. Same exit rules as scroll: `esc` (or `lode ;` again) closes, any other lode verb exits and executes.
 
 The harvest is asynchronous and bounded — a heavy Chromium page can never stall the overlay — and Electron apps get `AXManualAccessibility` woken automatically. Rows and table cells are deliberately unlabeled: they explode label counts and rarely beat scrolling.
+
+## Select (`lode /`)
+
+Text is the mouse's last stronghold: you can reach any window without it, and then you drag to select three words. `lode /` ends that. Text needs no assigned address, because it is made of the characters your keyboard already produces — **you type a few characters of what you can see**, every match on screen highlights and wears a capital chip, and **`⇧letter` picks one as the start of your selection**. Then the same again for the far end: type, pick, done — the selection spans from one anchor to the other, whichever order you placed them, and the mode is gone.
+
+Lowercase always searches; capitals always pick — and shift is the door, not a hold: on a two letter chip, only the first letter needs it, since once a label is underway every further letter can only be finishing it. A single character query matches only standalone words, so `i` finds the word "I" rather than every letter i on screen. There is no timeout and no ambiguity: `$`, digits, spaces, and shifted symbols are all search characters (labels are letters only), so `$100` or a two word phrase types exactly as seen, and matching is case-insensitive so you never reach for a real capital. The span snaps to word boundaries — two typed characters name a word, they do not dissect it, so `fo` means through "fox" and a URL or identifier comes out whole. `⌫` walks back — the label, then the query, then the start anchor itself. `esc` clears, as everywhere.
+
+Select reads the screen itself: a capture of the focused window, recognized by the system's Vision framework, so it behaves identically in a terminal, a browser, a chat history, or anything else with visible text. The first `lode /` asks for the Screen Recording permission (grant it in System Settings, then quit and reopen Lodestar); until then, and for anyone who declines, an accessibility-based fallback covers what it can.
+
+The mode always ends the same way: **the span is highlighted, and the next verb is yours.** When the span lives in the text field you are editing, it becomes a real selection — the app's own highlight, so copy, replace, and delete all work from muscle memory. Everywhere else, Lodestar holds the highlight itself: it stays on screen after the mode ends, **`⌘C` copies it** (into the clipboard history like any copy), and any other key, click, or `esc` dismisses it. Copied text is checked against what accessibility could read of the same region, so a recognized `1` that was really an `l` comes out corrected — what you paste is what was there, not what the pixels resembled.
 
 ## Ask
 

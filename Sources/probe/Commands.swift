@@ -380,7 +380,9 @@ func runSelection(_ args: inout [String]) {
 
     var visited = 0
     func walk(_ element: AXUIElement, app: String, depth: Int, budget: inout Int) {
-        guard depth <= 6, budget > 0 else { return }
+        // Web content nests far deeper than native chrome; six levels
+        // never reaches a Chromium text node.
+        guard depth <= 24, budget > 0 else { return }
         budget -= 1
         visited += 1
         let role = AX.string(element, kAXRoleAttribute as String) ?? "?"
@@ -408,9 +410,14 @@ func runSelection(_ args: inout [String]) {
     where running.activationPolicy == .regular {
         let app = AXUIElementCreateApplication(running.processIdentifier)
         AXUIElementSetMessagingTimeout(app, 1.0)
+        // Chromium and Electron build no AX tree until an assistive client
+        // announces itself — the same flag the hints harvest flips, plus a
+        // beat for the tree to materialize.
+        AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+        usleep(300_000)
         guard let windows = AX.elements(app, kAXWindowsAttribute as String), !windows.isEmpty
         else { continue }
-        var budget = 1200
+        var budget = 2500
         for window in windows.prefix(2) {
             walk(window, app: running.localizedName ?? "?", depth: 0, budget: &budget)
         }
@@ -434,4 +441,385 @@ func runSelection(_ args: inout [String]) {
     print("\(front.localizedName ?? "?") \(role): set 0..<5 -> AXError \(error.rawValue), "
           + "selection now \(selected.map { "\"\($0)\"" } ?? "nil")")
     if let box = bounds(focused, 0, 5) { print("bounds of 0..<5: \(box)") }
+}
+
+// MARK: - Harvest diagnostics
+
+/// Why does the select harvest starve in a browser? This instruments the
+/// exact walk the controller does — same roles, same pruning — against a
+/// named app's first window, and reports where the time and the budget
+/// actually went: nodes per second, prune hits, leaves by depth, and the
+/// cost of each AX round trip, single-attribute versus batched.
+func runHarvest(_ args: inout [String]) {
+    requireTrust()
+    let appName = args.first ?? "Brave Browser"
+    let textRoles: Set<String> = ["AXTextArea", "AXTextField", "AXStaticText",
+                                  "AXWebArea", "AXComboBox", "AXSearchField"]
+
+    guard let running = NSWorkspace.shared.runningApplications.first(where: {
+        ($0.localizedName ?? "").localizedCaseInsensitiveContains(appName)
+    }) else {
+        print("no running app matching '\(appName)'")
+        return
+    }
+    let app = AXUIElementCreateApplication(running.processIdentifier)
+    AXUIElementSetMessagingTimeout(app, 1.0)
+    AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+    if has("--enhanced", in: &args) {
+        AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
+        print("AXEnhancedUserInterface set")
+    }
+    let settle = value(of: "--settle", in: &args).flatMap(Double.init) ?? 0.4
+    let dump = has("--dump", in: &args)
+    usleep(UInt32(settle * 1_000_000))
+    let windowIndex = value(of: "--window", in: &args).flatMap(Int.init) ?? 0
+    guard let windows = AX.elements(app, kAXWindowsAttribute as String),
+          windows.indices.contains(windowIndex) else {
+        print("no window at index \(windowIndex)")
+        return
+    }
+    let window = windows[windowIndex]
+    if let title = AX.string(window, kAXTitleAttribute as String) { print("window: \(title.prefix(60))") }
+    guard let position = AX.point(window, kAXPositionAttribute as String),
+          let size = AX.size(window, kAXSizeAttribute as String) else {
+        print("window has no frame")
+        return
+    }
+    let windowFrame = CGRect(origin: position, size: size)
+    print("\(running.localizedName ?? "?") window \(Int(size.width))×\(Int(size.height))")
+
+    // Measure raw AX round-trip cost first: 200 single-attribute reads vs
+    // 200 batched (role+position+size+children in one call).
+    var probeElement = window
+    if let children = AX.elements(window, kAXChildrenAttribute as String),
+       let first = children.first { probeElement = first }
+    var t0 = Date()
+    for _ in 0..<200 { _ = AX.string(probeElement, kAXRoleAttribute as String) }
+    let singleMs = Date().timeIntervalSince(t0) * 1000 / 200
+    let batchAttributes = [kAXRoleAttribute, kAXPositionAttribute, kAXSizeAttribute,
+                           kAXChildrenAttribute] as CFArray
+    t0 = Date()
+    for _ in 0..<200 {
+        var values: CFArray?
+        _ = AXUIElementCopyMultipleAttributeValues(probeElement, batchAttributes,
+                                                   AXCopyMultipleAttributeOptions(rawValue: 0),
+                                                   &values)
+    }
+    let batchMs = Date().timeIntervalSince(t0) * 1000 / 200
+    print(String(format: "AX cost: %.3fms per single read · %.3fms per 4-attribute batch",
+                 singleMs, batchMs))
+
+    var visited = 0
+    var pruned = 0
+    var leaves = 0
+    var leafChars = 0
+    var byDepth: [Int: Int] = [:]
+    var maxDepthSeen = 0
+    var deadlineHit = false
+    var budgetHit = false
+    let deadline = Date().addingTimeInterval(6.0)
+    let began = Date()
+
+    func walk(_ element: AXUIElement, depth: Int) {
+        if Date() >= deadline { deadlineHit = true; return }
+        if visited >= 60_000 { budgetHit = true; return }
+        visited += 1
+        maxDepthSeen = max(maxDepthSeen, depth)
+
+        var values: CFArray?
+        guard AXUIElementCopyMultipleAttributeValues(
+            element, batchAttributes, AXCopyMultipleAttributeOptions(rawValue: 0),
+            &values) == .success, let array = values as? [CFTypeRef], array.count == 4
+        else { return }
+
+        let role = array[0] as? String
+        var frame: CGRect?
+        if CFGetTypeID(array[1]) == AXValueGetTypeID(),
+           CFGetTypeID(array[2]) == AXValueGetTypeID() {
+            var point = CGPoint.zero
+            var sz = CGSize.zero
+            if AXValueGetValue(array[1] as! AXValue, .cgPoint, &point),
+               AXValueGetValue(array[2] as! AXValue, .cgSize, &sz) {
+                frame = CGRect(origin: point, size: sz)
+            }
+        }
+        if let frame, frame.width > 1, frame.height > 1,
+           !frame.intersects(windowFrame.insetBy(dx: -8, dy: -8)) {
+            pruned += 1
+            return
+        }
+        if role == "AXWebArea" {
+            let count = AX.elements(element, kAXChildrenAttribute as String)?.count ?? -1
+            print("  AXWebArea at depth \(depth): \(count) children")
+        }
+        if let role, textRoles.contains(role), role != "AXWebArea",
+           let frame, frame.width >= 4, frame.height >= 4,
+           frame.intersects(windowFrame),
+           let text = AX.string(element, kAXValueAttribute as String),
+           !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            leaves += 1
+            leafChars += (text as NSString).length
+            byDepth[depth, default: 0] += 1
+            if dump && leaves <= 25 {
+                var range = CFRange(location: 0, length: min(2, (text as NSString).length))
+                var boundsOK = false
+                var rect = CGRect.zero
+                if let parameter = AXValueCreate(.cfRange, &range) {
+                    var out: CFTypeRef?
+                    if AXUIElementCopyParameterizedAttributeValue(
+                        element, kAXBoundsForRangeParameterizedAttribute as CFString,
+                        parameter, &out) == .success,
+                        let raw = out, CFGetTypeID(raw) == AXValueGetTypeID(),
+                        AXValueGetValue(raw as! AXValue, .cgRect, &rect),
+                        rect.width > 0 { boundsOK = true }
+                }
+                if leaves == 1 {
+                    var names: CFArray?
+                    _ = AXUIElementCopyParameterizedAttributeNames(element, &names)
+                    print("  first leaf param attrs: \((names as? [String] ?? []).joined(separator: " "))")
+                }
+                print("  leaf d\(depth) \(role) bounds=\(boundsOK ? "OK \(Int(rect.width))x\(Int(rect.height))" : "FAIL") '\(text.prefix(40))'")
+            }
+        }
+        guard CFGetTypeID(array[3]) == CFArrayGetTypeID(),
+              let children = array[3] as? [AXUIElement] else { return }
+        for child in children {
+            walk(child, depth: depth + 1)
+        }
+    }
+
+    walk(window, depth: 0)
+    let elapsed = Date().timeIntervalSince(began)
+    print(String(format: "visited %d nodes in %.2fs (%.0f nodes/s) · pruned %d subtrees",
+                 visited, elapsed, Double(visited) / max(elapsed, 0.001), pruned))
+    print("text leaves \(leaves) · \(leafChars) chars · max depth \(maxDepthSeen)"
+          + (deadlineHit ? " · DEADLINE HIT" : "") + (budgetHit ? " · BUDGET HIT" : ""))
+    if !byDepth.isEmpty {
+        let spread = byDepth.sorted { $0.key < $1.key }
+            .map { "d\($0.key):\($0.value)" }.joined(separator: " ")
+        print("leaves by depth: \(spread)")
+    }
+}
+
+// MARK: - Terminal text shape
+
+/// Is a terminal's AXTextArea the visible grid or the whole scrollback?
+/// Decides whether line-count arithmetic can place highlights honestly.
+func runTermtext(_ args: inout [String]) {
+    requireTrust()
+    let appName = args.first ?? "Ghostty"
+    guard let running = NSWorkspace.shared.runningApplications.first(where: {
+        ($0.localizedName ?? "").localizedCaseInsensitiveContains(appName)
+    }) else { print("no app"); return }
+    let app = AXUIElementCreateApplication(running.processIdentifier)
+    AXUIElementSetMessagingTimeout(app, 1.0)
+    guard let windows = AX.elements(app, kAXWindowsAttribute as String) else { return }
+    for window in windows.prefix(2) {
+        var stack: [AXUIElement] = [window]
+        while let element = stack.popLast() {
+            if AX.string(element, kAXRoleAttribute as String) == "AXTextArea" {
+                let raw = AX.copy(element, kAXValueAttribute as String)
+                print("AXTextArea found · AXValue type: \(raw.map { String(describing: CFGetTypeID($0)) } ?? "nil") (string=\(CFStringGetTypeID()))")
+                let chars = AX.int(element, kAXNumberOfCharactersAttribute as String) ?? -1
+                print("  NumberOfCharacters: \(chars)")
+                var out: CFTypeRef?
+                var okStr = "n/a"
+                var srange = CFRange(location: 0, length: min(200, max(0, chars)))
+                if let parameter = AXValueCreate(.cfRange, &srange) {
+                    let err = AXUIElementCopyParameterizedAttributeValue(element, "AXStringForRange" as CFString, parameter, &out)
+                    okStr = err == .success ? "'\(String(describing: out).prefix(80))'" : "err \(err.rawValue)"
+                }
+                print("  AXStringForRange(0..200): \(okStr)")
+                guard let text = raw as? String else { continue }
+                let lines = text.components(separatedBy: "\n")
+                let position = AX.point(element, kAXPositionAttribute as String)
+                let size = AX.size(element, kAXSizeAttribute as String)
+                print("AXTextArea: \(lines.count) lines, \((text as NSString).length) chars, frame \(size.map { "\(Int($0.width))x\(Int($0.height))" } ?? "?") at \(position.map { "(\(Int($0.x)),\(Int($0.y)))" } ?? "?")")
+                if let size {
+                    print("  implied cell height: \(String(format: "%.2f", size.height / CGFloat(max(1, lines.count))))px")
+                }
+                let visible = AX.copy(element, "AXVisibleCharacterRange")
+                print("  AXVisibleCharacterRange: \(visible.map { String(describing: $0) } ?? "absent")")
+                print("  longest line: \(lines.map { ($0 as NSString).length }.max() ?? 0) chars")
+                print("  first line: '\(lines.first.map { String($0.prefix(60)) } ?? "")'")
+                print("  last nonempty: '\(lines.last(where: { !$0.isEmpty }).map { String($0.prefix(60)) } ?? "")'")
+                return
+            }
+            if let children = AX.elements(element, kAXChildrenAttribute as String) {
+                stack.append(contentsOf: children)
+            }
+        }
+    }
+    print("no AXTextArea found")
+}
+
+// MARK: - Select pipeline stress
+
+/// The whole select pipeline against a live app, headless: harvest text
+/// leaves the way the controller does, stitch them with `SelectRuns`,
+/// seed `SelectCore` with queries drawn from the harvested text itself,
+/// and verify that matches are found, labels assigned, spans normalized,
+/// and geometry answers. Prints a verdict per query and a summary —
+/// the robustness matrix, one app at a time.
+func runSelectPipe(_ args: inout [String]) {
+    requireTrust()
+    let appName = args.first ?? "Slack"
+    let windowIndex = value(of: "--window", in: &args).flatMap(Int.init) ?? 0
+    let textRoles: Set<String> = ["AXTextArea", "AXTextField", "AXStaticText",
+                                  "AXComboBox", "AXSearchField"]
+    guard let running = NSWorkspace.shared.runningApplications.first(where: {
+        ($0.localizedName ?? "").localizedCaseInsensitiveContains(appName)
+    }) else { print("\(appName): app not running"); return }
+    let app = AXUIElementCreateApplication(running.processIdentifier)
+    AXUIElementSetMessagingTimeout(app, 1.0)
+    AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+    usleep(300_000)
+    guard let windows = AX.elements(app, kAXWindowsAttribute as String),
+          windows.indices.contains(windowIndex) else {
+        print("\(appName): no window \(windowIndex)")
+        return
+    }
+    let window = windows[windowIndex]
+    guard let position = AX.point(window, kAXPositionAttribute as String),
+          let size = AX.size(window, kAXSizeAttribute as String) else {
+        print("\(appName): no frame")
+        return
+    }
+    let windowFrame = CGRect(origin: position, size: size)
+
+    struct Leaf { let element: AXUIElement; let frame: CGRect; let text: String; let settable: Bool }
+    var found: [Leaf] = []
+    var visited = 0
+    let deadline = Date().addingTimeInterval(4)
+    let batch = [kAXRoleAttribute, kAXPositionAttribute, kAXSizeAttribute,
+                 kAXChildrenAttribute] as CFArray
+
+    func walk(_ element: AXUIElement, depth: Int) {
+        guard depth < 50, visited < 40_000, Date() < deadline else { return }
+        visited += 1
+        var values: CFArray?
+        guard AXUIElementCopyMultipleAttributeValues(
+            element, batch, AXCopyMultipleAttributeOptions(rawValue: 0),
+            &values) == .success, let array = values as? [CFTypeRef], array.count == 4
+        else { return }
+        let role = array[0] as? String
+        var frame: CGRect?
+        if CFGetTypeID(array[1]) == AXValueGetTypeID(), CFGetTypeID(array[2]) == AXValueGetTypeID() {
+            var point = CGPoint.zero; var sz = CGSize.zero
+            if AXValueGetValue(array[1] as! AXValue, .cgPoint, &point),
+               AXValueGetValue(array[2] as! AXValue, .cgSize, &sz) {
+                frame = CGRect(origin: point, size: sz)
+            }
+        }
+        if let frame, frame.width > 1, frame.height > 1,
+           !frame.intersects(windowFrame.insetBy(dx: -8, dy: -8)) { return }
+        if let role, textRoles.contains(role), let frame,
+           frame.width >= 4, frame.height >= 4, frame.intersects(windowFrame),
+           let text = AX.string(element, kAXValueAttribute as String),
+           !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            var flag: DarwinBoolean = false
+            _ = AXUIElementIsAttributeSettable(element, kAXSelectedTextRangeAttribute as CFString, &flag)
+            found.append(Leaf(element: element, frame: frame, text: text, settable: flag.boolValue))
+        }
+        guard CFGetTypeID(array[3]) == CFArrayGetTypeID(),
+              let children = array[3] as? [AXUIElement] else { return }
+        for child in children { walk(child, depth: depth + 1) }
+    }
+    let began = Date()
+    walk(window, depth: 0)
+    var leaves = found
+    leaves.sort { a, b in
+        let dy = a.frame.minY - b.frame.minY
+        if abs(dy) > SelectRuns.lineTolerance { return dy < 0 }
+        return a.frame.minX < b.frame.minX
+    }
+    let readOnly = leaves.enumerated().filter { !$0.element.settable }
+    let runs = SelectRuns.merge(readOnly.map {
+        SelectRuns.Leaf(id: $0.offset, text: $0.element.text, frame: $0.element.frame)
+    })
+    let handles = Dictionary(uniqueKeysWithValues: readOnly.map { ($0.offset, $0.element.element) })
+    let harvestMs = Int(Date().timeIntervalSince(began) * 1000)
+    print("\(running.localizedName ?? appName): \(leaves.count) leaves → \(runs.count) runs"
+          + " + \(leaves.count - readOnly.count) editable · \(visited) nodes · \(harvestMs)ms")
+
+    // Queries drawn from the text itself: for sampled words, seed the core
+    // with a prefix and verify the word's own run reports a match with
+    // geometry behind it.
+    var elements = runs.enumerated().map { SelectCore.Element(id: $0.offset, text: $0.element.text) }
+    for (extra, leaf) in leaves.enumerated() where leaf.settable {
+        elements.append(SelectCore.Element(id: runs.count + extra, text: leaf.text))
+    }
+    var sampled = 0, matched = 0, withGeometry = 0, boundsCalls = 0, boundsOK = 0
+    var geometryMisses: [String] = []
+    for (runIndex, run) in runs.enumerated() {
+        let words = run.text.split(whereSeparator: { $0.isWhitespace })
+            .filter { $0.count >= 4 && $0.allSatisfy { $0.isLetter || $0.isNumber } }
+        guard let word = words.max(by: { $0.count < $1.count }), sampled < 25 else { continue }
+        sampled += 1
+        var core = SelectCore(elements: elements, alphabet: "asdfghjkl")
+        core.seed(query: String(word.prefix(4)).lowercased())
+        let hits = core.matches.filter { $0.element == runIndex }
+        if hits.isEmpty { continue }
+        matched += 1
+        var anyGeometry = false
+        for hit in hits.prefix(2) {
+            for slice in runs[runIndex].slices(of: hit.range) {
+                guard let element = handles[slice.leaf] else { continue }
+                boundsCalls += 1
+                var cfRange = CFRange(location: slice.localRange.location,
+                                      length: slice.localRange.length)
+                guard let parameter = AXValueCreate(.cfRange, &cfRange) else { continue }
+                var out: CFTypeRef?
+                if AXUIElementCopyParameterizedAttributeValue(
+                    element, kAXBoundsForRangeParameterizedAttribute as CFString,
+                    parameter, &out) == .success,
+                   let raw = out, CFGetTypeID(raw) == AXValueGetTypeID() {
+                    var rect = CGRect.zero
+                    if AXValueGetValue(raw as! AXValue, .cgRect, &rect), rect.width > 0 {
+                        boundsOK += 1
+                        anyGeometry = true
+                    }
+                }
+            }
+        }
+        if anyGeometry { withGeometry += 1 } else {
+            geometryMisses.append(String(word.prefix(18)))
+        }
+    }
+    print("  queries: \(sampled) sampled · \(matched) matched · \(withGeometry) with geometry"
+          + " · bounds \(boundsOK)/\(boundsCalls)")
+    if !geometryMisses.isEmpty {
+        print("  geometry misses: \(geometryMisses.prefix(6).joined(separator: " · "))")
+    }
+}
+
+// MARK: - Live OCR
+
+/// Capture + recognize a live window, preflight-gated: never prompts.
+func runOCRLive(_ args: inout [String]) {
+    requireTrust()
+    guard CGPreflightScreenCaptureAccess() else {
+        print("no Screen Recording permission for this shell — skipping (no prompt)")
+        return
+    }
+    let appName = args.first ?? "Slack"
+    guard let running = NSWorkspace.shared.runningApplications.first(where: {
+        ($0.localizedName ?? "").localizedCaseInsensitiveContains(appName)
+    }) else { print("app not running"); return }
+    let cg = CGWindows.list(onScreenOnly: true).first { $0.pid == running.processIdentifier && $0.layer == 0 }
+    guard let cg else { print("no on-screen window"); return }
+    let began = Date()
+    guard let image = CGWindowListCreateImage(.null, .optionIncludingWindow, cg.id,
+                                              [.boundsIgnoreFraming, .bestResolution]) else {
+        print("capture failed")
+        return
+    }
+    let captureMs = Int(Date().timeIntervalSince(began) * 1000)
+    let ocrStart = Date()
+    let lines = OCRSense.recognize(image: image, windowFrame: cg.bounds)
+    let ocrMs = Int(Date().timeIntervalSince(ocrStart) * 1000)
+    print("\(running.localizedName ?? "?"): \(lines.count) lines · capture \(captureMs)ms · ocr \(ocrMs)ms · image \(image.width)×\(image.height)")
+    for line in lines.prefix(12) {
+        print("  [\(Int(line.frame.minX)),\(Int(line.frame.minY))] '\(line.text.prefix(60))'")
+    }
 }

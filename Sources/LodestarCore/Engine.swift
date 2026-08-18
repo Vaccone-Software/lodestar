@@ -40,6 +40,8 @@ public enum EngineEffect: Equatable {
     case exitHints
     case hintBackspace
     case hintRescan
+    case exitSelect
+    case selectBackspace
     case dismissCheat
     case toggleCheat
     case hideBars
@@ -116,6 +118,10 @@ public protocol EngineWorld: AnyObject {
     func pasteCardExists(address: String) -> Bool
     /// A plain letter while hints are up — the overlay narrows or fires.
     func hintType(_ letter: String, shift: Bool) -> HintStep
+    /// Enter select on the focused window; false when there is none.
+    func enterSelect() -> Bool
+    /// A key while select is up — search, label, anchor, or finish.
+    func selectKey(_ key: String, shift: Bool) -> SelectStep
     var searcherVisible: Bool { get }
     var webBarVisible: Bool { get }
     var menuSearchVisible: Bool { get }
@@ -129,6 +135,7 @@ public struct EngineCore {
         case chain(kind: ChainKind, letters: [String], deleting: Bool)
         case scroll
         case hints(sticky: Bool)
+        case select
         case paste(searching: Bool)
         /// A card's actions are open; the shell remembers which card. The
         /// flag carries where to return — closing a panel opened mid-search
@@ -244,6 +251,8 @@ public struct EngineCore {
             return scrollPress(key: key, held: held, shift: shift, world: world)
         case .hints(let sticky):
             return hintsPress(key: key, held: held, shift: shift, sticky: sticky, world: world)
+        case .select:
+            return selectPress(key: key, held: held, shift: shift, world: world)
         case .paste(let searching):
             return pastePress(key: key, held: held, shift: shift, command: command,
                               option: option, searching: searching, world: world)
@@ -266,8 +275,15 @@ public struct EngineCore {
         }
         switch key {
         case "/" where shift:
-            // ? exactly — plain / is reserved for a future verb.
+            // ? exactly — plain / toggles nothing; it enters select below.
             effects.append(.toggleCheat)
+        case "/":
+            effects.append(.hideBars)
+            if world.enterSelect() {
+                state = .select
+            } else {
+                effects.append(.flash("✕ no focused window to select in"))
+            }
         case "space":
             let wasVisible = world.searcherVisible
             effects.append(.hideBars)
@@ -513,6 +529,37 @@ public struct EngineCore {
             }
         default:
             return [] // swallowed — mode discipline
+        }
+    }
+
+    /// Select is a lens like hints: every key is its own — typed text must
+    /// never reach the app underneath — Escape closes it, any other lode
+    /// verb exits and executes. Lowercase searches, capitals pick; the
+    /// controller reports when a selection landed and the mode ends.
+    private mutating func selectPress(key: String, held: Bool, shift: Bool,
+                                      world: EngineWorld) -> [EngineEffect] {
+        if held {
+            state = .idle
+            var effects: [EngineEffect] = [.exitSelect]
+            if key != "/" && key != "escape" {
+                effects.append(contentsOf: idlePress(key: key, shift: shift, world: world))
+            }
+            return effects
+        }
+        switch key {
+        case "escape":
+            state = .idle
+            return [.exitSelect]
+        case "delete":
+            return [.selectBackspace]
+        default:
+            switch world.selectKey(key, shift: shift) {
+            case .done:
+                state = .idle
+                return [.exitSelect]
+            case .pending:
+                return []
+            }
         }
     }
 

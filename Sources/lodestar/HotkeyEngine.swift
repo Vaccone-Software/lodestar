@@ -75,6 +75,7 @@ final class HotkeyEngine {
     private let menuSearch: MenuSearchController
     private let scroller: ScrollController
     private let hints: HintsController
+    private let select: SelectController
     private let clipboard: ClipboardController
     private let strip = ClipboardStrip()
     private var pasteQuery: String?
@@ -91,7 +92,7 @@ final class HotkeyEngine {
     init(config: Config, actions: Actions, hud: HUD, searcher: SearcherController,
          webBar: WebBarController, menuSearch: MenuSearchController,
          scroller: ScrollController, hints: HintsController,
-         clipboard: ClipboardController) {
+         select: SelectController, clipboard: ClipboardController) {
         self.config = config
         self.actions = actions
         self.hud = hud
@@ -100,6 +101,7 @@ final class HotkeyEngine {
         self.menuSearch = menuSearch
         self.scroller = scroller
         self.hints = hints
+        self.select = select
         self.clipboard = clipboard
         clipboard.onCapture = { [weak self] in self?.refreshStripIfOpen() }
         applyGrammarConfig()
@@ -236,6 +238,13 @@ final class HotkeyEngine {
             return nil
         }
 
+        // A held select highlight answers ⌘C and dissolves on anything
+        // else. First line inside is a nil-check — this costs nothing on
+        // the 99.99% of keystrokes with no highlight standing.
+        if select.ghostHandleKey(key: key, held: held, flags: event.flags) {
+            return nil
+        }
+
         // ⇧⌘V opens the clipboard strip — but only while lode is *not* the
         // command being held. Right ⌘ is the lode trigger, so lode ⇧V has to
         // stay a beside-summon of the graph's V; the device bit is what
@@ -356,7 +365,7 @@ final class HotkeyEngine {
     private static func claimsSurface(_ effect: EngineEffect) -> Bool {
         switch effect {
         case .showSearcher, .showWebBar, .showMenuSearch, .openWindowChooser,
-             .enterPaste, .toggleCheat, .showGuide, .scrollGuide:
+             .enterPaste, .toggleCheat, .showGuide, .scrollGuide, .hideBars:
             return true
         default:
             return false
@@ -423,6 +432,10 @@ final class HotkeyEngine {
                 performPanel(panelAction)
             case .exitHints:
                 hints.exit()
+            case .exitSelect:
+                select.exit()
+            case .selectBackspace:
+                select.backspace()
             case .hintBackspace:
                 hints.backspace()
             case .hintRescan:
@@ -609,6 +622,7 @@ final class HotkeyEngine {
             GuideRow(key: "\\", label: "flip layout orientation"),
             GuideRow(key: ",", label: "scroll mode — j/k · h/l · d/u · gg/G"),
             GuideRow(key: ";", label: "click hints — ⇧; chains · ⇧label right-clicks"),
+            GuideRow(key: "/", label: "select text — type what you see · ⇧letter anchors"),
             GuideRow(key: "Z", label: "undo layout · ⇧Z redo"),
             GuideRow(key: "X", label: "back · ⇧X forward — the attention timeline"),
             GuideRow(key: "⇧1…9", label: "slide the focused window to that position"),
@@ -636,6 +650,8 @@ final class HotkeyEngine {
             return "scroll"
         case .hints(let sticky):
             return "hints\(sticky ? "(sticky)" : "")"
+        case .select:
+            return "select"
         case .paste(let searching):
             return "paste\(searching ? "(searching)" : "")"
         case .pastePanel:
@@ -804,6 +820,15 @@ extension HotkeyEngine: EngineWorld {
 
     func hintType(_ letter: String, shift: Bool) -> HintStep {
         hints.type(letter, shift: shift)
+    }
+
+    func enterSelect() -> Bool {
+        select.letters = config.hintLetters
+        return select.enter()
+    }
+
+    func selectKey(_ key: String, shift: Bool) -> SelectStep {
+        select.key(key, shift: shift)
     }
 
     func enterScroll() -> Bool {

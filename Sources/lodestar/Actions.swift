@@ -40,6 +40,9 @@ final class Actions {
             // observation layer decays and caps the matrix.
             if let window = self.model.windows[id] {
                 self.observations?.focused(app: window.appName)
+                // Wake the app's accessibility tree the moment it first
+                // matters — hints and select both harvest warmer for it.
+                AXWarmer.warm(window.pid)
             }
         }
         model.onCreated = { [weak self] id in self?.windowAppeared(id) }

@@ -108,6 +108,21 @@ public final class ObservationStore {
         record(event)
     }
 
+    /// A select mode ended — counts and timings, never the text.
+    public func selected(app: String, action: String, source: String,
+                         outcome: String?, typed: Int, seconds: TimeInterval,
+                         matches: Int? = nil, at now: Date = Date()) {
+        var event = ObservationEvent(t: now, kind: .select)
+        event.app = app.lowercased()
+        event.action = action
+        event.source = source
+        event.row = outcome
+        event.typed = typed
+        event.seconds = seconds
+        event.listLength = matches
+        record(event)
+    }
+
     public func verbUsed(_ verb: String, at now: Date = Date()) {
         guard !verb.isEmpty else { return }
         var event = ObservationEvent(t: now, kind: .verb)

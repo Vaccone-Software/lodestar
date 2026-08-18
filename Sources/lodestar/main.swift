@@ -177,10 +177,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self else { return "lodestar is shutting down" }
             return self.removeWebRoute(pattern: pattern)
         }
+        let selectController = SelectController(model: model)
+        selectController.flash = { [weak self] text in self?.hud.flash(text) }
+        selectController.observations = observationStore
         engine = HotkeyEngine(config: config, actions: actions, hud: hud, searcher: searcher,
                               webBar: webBar, menuSearch: MenuSearchController(),
                               scroller: ScrollController(model: model),
                               hints: HintsController(model: model),
+                              select: selectController,
                               clipboard: clipboardController)
 
         engine.observations = observationStore

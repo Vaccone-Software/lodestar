@@ -92,6 +92,22 @@ The strip is **never key**: it reads its keys from the event tap, so the window 
 
 _(This section describes what the code does; the framing is worth your eye.)_
 
+## Select (added after the four)
+
+`lode /` addresses the one thing on screen that never needed an assigned address: text is made of the characters the keyboard already produces, so its address is itself. Type a few characters of what you can see; matches highlight and wear capital chips; a capital anchors the start, a second search and capital anchor the end, and the span between them — in document order, whichever way it was placed, so no concept of direction exists — becomes the selection.
+
+The split that makes it clockless: lowercase and symbols always extend the search, capitals always pick a chip. Labels are letters only, so `⇧4` is `$` and can never be a pick; matching is case-insensitive, so a real capital is never needed. This composes the two instruments the product already owns — incremental search and prefix-free hint chips — and inverts the arithmetic that kills pure hints on prose: a screenful of words outnumbers any label alphabet, but two typed characters collapse it to a handful.
+
+The mode always ends the same way — **the span highlighted, the next verb the user's** — because a gesture that did different things on different text would put a read-the-situation step inside a fixed gesture, which is the one thing the design forbids. The first cut auto-copied read-only spans with a flash — one keystroke saved, at the price of the mode becoming the arbiter of intent; real use rejected it within a day.
+
+**The sensor is the screen itself.** The first architecture harvested accessibility trees, and real use taught its lesson in one evening: trees build lazily, un-build after idle, answer geometry per app per element per mood, and draw element boundaries a span cannot cross. Pixels have none of those properties — the Vision framework reads a capture of the focused window and places any character range to the pixel, identically in a terminal, a browser, and a chat history. Consistency is the whole point of the mode, so pixels are primary; the Screen Recording permission is requested lazily on first use, and the accessibility harvest remains the permission-free fallback.
+
+Accessibility's demotion is to the two jobs it is actually good at. **Grounding**: recognition of clean screen text fails only by single glyphs (`1`↔`l` — reproduced in our own tests), harmless in prose and catastrophic in an identifier, so a pixel-sensed copy is repaired against the accessibility-read truth when the two align. **Committing**: a sensed span that lives verbatim in the focused editable element becomes a true `AXSelectedTextRange` — the app's own highlight, every editor verb. Everything else ends as the held highlight, ⌘C serving the grounded text.
+
+Fragmented text is stitched before matching (`SelectRuns`) — recognized lines merge exactly as accessibility leaves did: same line joins with the gap the layout drew, lines of one column join with newlines, and a span across fragments highlights as one honest rectangle per piece.
+
+Test it passes: the gesture is fixed (`lode /`, type what you see, two capitals), and the decision the mouse used to make with a drag is made by reading, which the eyes were already doing.
+
 ## Promotion: ⌘K on the thing in front of you
 
 The bars share one editing gesture. `⌘K` acts on the selected row and offers only what that row can become: an app joins the graph, a domain becomes a named link or a route, a link can be routed or removed, a route can be removed from any row it sent somewhere. Every card shows what `↵` would commit before it commits it, and refuses with the reason rather than silently.

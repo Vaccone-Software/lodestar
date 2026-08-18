@@ -207,6 +207,66 @@ final class HintsController {
     }
 }
 
+
+/// The one chip design, shared by every overlay that labels the screen —
+/// hints and select draw literally the same object, so the styles cannot
+/// drift. Clear liquid glass over a quiet scrim, 12pt bold mono caps with
+/// an opposite-color halo, lifted by a soft shadow. (See the readability
+/// saga in the project memory before changing any of this.)
+enum GlassChip {
+    static let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .bold)
+    static let height: CGFloat = 18
+
+    static func make(_ text: String) -> (chip: NSView, label: NSTextField) {
+        let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let label = NSTextField(labelWithString: text.uppercased())
+        label.font = font
+        label.textColor = .labelColor
+        label.alignment = .center
+        let halo = NSShadow()
+        halo.shadowColor = dark
+            ? NSColor.black.withAlphaComponent(0.7)
+            : NSColor.white.withAlphaComponent(0.85)
+        halo.shadowBlurRadius = 2
+        halo.shadowOffset = .zero
+        label.shadow = halo
+        label.sizeToFit()
+
+        let chip: NSView
+        if #available(macOS 26.0, *) {
+            let glass = NSGlassEffectView()
+            glass.cornerRadius = 4.5
+            glass.style = .clear
+            let scrim = NSView()
+            scrim.wantsLayer = true
+            scrim.layer?.backgroundColor = (dark
+                ? NSColor.black.withAlphaComponent(0.45)
+                : NSColor.white.withAlphaComponent(0.55)).cgColor
+            scrim.layer?.cornerRadius = 4.5
+            scrim.autoresizingMask = [.width, .height]
+            scrim.addSubview(label)
+            glass.contentView = scrim
+            chip = glass
+        } else {
+            let fallback = NSView()
+            Glass.installBackdrop(in: fallback, cornerRadius: 4.5)
+            fallback.addSubview(label)
+            chip = fallback
+        }
+        lift(chip)
+        return (chip, label)
+    }
+
+    static func lift(_ view: NSView) {
+        view.wantsLayer = true
+        view.layer?.masksToBounds = false
+        view.layer?.shadowColor = NSColor.black.withAlphaComponent(0.4).cgColor
+        view.layer?.shadowOpacity = 1
+        view.layer?.shadowRadius = 3.5
+        view.layer?.shadowOffset = CGSize(width: 0, height: -1)
+    }
+}
+
 /// One transparent panel over the focused window, chips at every target.
 /// High-contrast solid chips — glass would vanish on busy pages.
 final class HintOverlay {
@@ -304,50 +364,7 @@ final class HintOverlay {
         let primaryHeight = primary.frame.maxY
 
         for (text, frame) in labels {
-            let label = NSTextField(labelWithString: text.uppercased())
-            label.font = Self.chipFont
-            label.textColor = .labelColor
-            label.alignment = .center
-            // The readability rim: a tight halo in the text's opposite —
-            // dark behind white text, light behind dark text. Text-level,
-            // so the glass is untouched and nothing can animate.
-            let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            let halo = NSShadow()
-            halo.shadowColor = dark
-                ? NSColor.black.withAlphaComponent(0.7)
-                : NSColor.white.withAlphaComponent(0.85)
-            halo.shadowBlurRadius = 2
-            halo.shadowOffset = .zero
-            label.shadow = halo
-            label.sizeToFit()
-
-            let chip: NSView
-            if #available(macOS 26.0, *) {
-                // Clear liquid glass, with a quiet scrim between content and
-                // text — over busy content (a terminal full of glyphs) the
-                // label would otherwise fight glyph-shaped noise bleeding
-                // through. Our own layer, so nothing can animate in.
-                let glass = NSGlassEffectView()
-                glass.cornerRadius = 4.5
-                glass.style = .clear
-                let scrim = NSView()
-                scrim.wantsLayer = true
-                let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                scrim.layer?.backgroundColor = (dark
-                    ? NSColor.black.withAlphaComponent(0.45)
-                    : NSColor.white.withAlphaComponent(0.55)).cgColor
-                scrim.layer?.cornerRadius = 4.5
-                scrim.autoresizingMask = [.width, .height]
-                scrim.addSubview(label)
-                glass.contentView = scrim
-                chip = glass
-            } else {
-                let fallback = NSView()
-                Glass.installBackdrop(in: fallback, cornerRadius: 4.5)
-                fallback.addSubview(label)
-                chip = fallback
-            }
-            Self.lift(chip)
+            let (chip, label) = GlassChip.make(text)
 
             let width = label.frame.width + 7
             let height = Self.chipHeight

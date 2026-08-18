@@ -41,6 +41,10 @@ public struct ObservationEvent: Codable, Equatable {
         /// `address` (the proposed chain, when there is one), `seconds`
         /// (the predicted weekly saving at the time).
         case coach
+        /// A select mode ended: `action` (completed | abandoned), `app`,
+        /// `source` (ocr | ax), `row` (native | grounded | held for
+        /// completions), `typed` (query characters), `seconds` in mode.
+        case select
     }
 
     public var t: Date

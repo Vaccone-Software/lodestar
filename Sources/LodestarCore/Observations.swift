@@ -210,6 +210,33 @@ public struct Observations: Codable, Equatable {
         public var reaches: Int { graph + searcher + breath + chooser + other }
     }
 
+    /// How select behaves per app: where it succeeds, where it gets
+    /// abandoned, which sensor served it, how ambiguous its screens are.
+    /// Deliberately as deep as AppRecord — weeks for the habit gates,
+    /// multi-scale usage for recency, running moments for costs — because
+    /// the recommendation engine prices everything else from exactly these
+    /// shapes and select must not be the register it cannot reason about.
+    public struct SelectRecord: Codable, Equatable {
+        public var completed = 0
+        public var abandoned = 0
+        public var ocr = 0
+        public var ax = 0
+        public var native = 0
+        public var held = 0
+        /// Query characters per session — the road's price in keys.
+        public var typed = Moments()
+        /// Seconds per session — the road's price in time.
+        public var seconds = Moments()
+        /// Matches on screen at the end — how ambiguous this app's
+        /// screens are for typed anchors.
+        public var matches = Moments()
+        public var weeks: [Int: Int] = [:]
+        public var usage = MultiScale()
+        public var lastUsed = Date.distantPast
+
+        public init() {}
+    }
+
     public struct HostRecord: Codable, Equatable {
         public var count = 0
         /// Profile key → times it landed there.
@@ -278,6 +305,8 @@ public struct Observations: Codable, Equatable {
     public var verbs: [String: Int] = [:]
     /// Host → where it went. What makes route recommendations possible.
     public var hosts: [String: HostRecord] = [:]
+    /// App → how select fares there.
+    public var selects: [String: SelectRecord] = [:]
     /// App → app decayed transition counts: the co-use structure breaths
     /// are recommended from. Halved weekly so it stays present-tense.
     public var transitions: [String: [String: Double]] = [:]
@@ -468,6 +497,28 @@ public struct Observations: Codable, Equatable {
             if event.change == "added" || event.change == "retargeted" {
                 markAdopted(address: address, at: now)
             }
+
+        case .select:
+            guard let name = event.app?.lowercased(), !name.isEmpty,
+                  let action = event.action else { return }
+            touch(now)
+            var record = selects[name] ?? SelectRecord()
+            if action == "completed" { record.completed += 1 } else { record.abandoned += 1 }
+            if event.source == "ocr" { record.ocr += 1 } else { record.ax += 1 }
+            if event.row == "native" || event.row == "grounded" { record.native += 1 }
+            if event.row == "held" { record.held += 1 }
+            if let typed = event.typed, typed >= 0 { record.typed.add(Double(typed)) }
+            if let seconds = event.seconds, seconds > 0, seconds < 120 {
+                record.seconds.add(seconds)
+            }
+            if let matches = event.listLength, matches >= 0 {
+                record.matches.add(Double(matches))
+            }
+            record.weeks[Self.week(now), default: 0] += 1
+            Self.prune(&record.weeks)
+            record.usage.bump(at: now)
+            record.lastUsed = now
+            selects[name] = record
 
         case .coach:
             touch(now)

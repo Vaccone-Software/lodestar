@@ -561,7 +561,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard !onboarding.isVisible else { return }
         onboarding.config = config
         engine.interceptor = { [weak self] key, held, shift, other in
-            self?.onboarding.handle(key: key, held: held, shift: shift, other: other) ?? false
+            // Dead-man: if the deck is gone by any road that skipped
+            // onFinished, the interceptor removes itself instead of
+            // holding the keyboard hostage forever.
+            guard let self, self.onboarding.isVisible else {
+                self?.engine.interceptor = nil
+                return false
+            }
+            return self.onboarding.handle(key: key, held: held, shift: shift, other: other)
         }
         onboarding.show()
     }

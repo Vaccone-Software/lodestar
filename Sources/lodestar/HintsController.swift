@@ -218,10 +218,14 @@ enum GlassChip {
     static let height: CGFloat = 18
 
     static func make(_ text: String) -> (chip: NSView, label: NSTextField) {
-        let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let dark = Tone.systemDark
         let label = NSTextField(labelWithString: text.uppercased())
         label.font = font
-        label.textColor = .labelColor
+        // Explicit, not labelColor: the label sits inside the material's
+        // contentView, where the glass stamps its backdrop-adapted
+        // appearance — labelColor there can resolve against the system's
+        // tone, which is the invisible-text bug in one line.
+        label.textColor = dark ? .white : NSColor(white: 0.12, alpha: 1)
         label.alignment = .center
         let halo = NSShadow()
         halo.shadowColor = dark
@@ -237,11 +241,10 @@ enum GlassChip {
             let glass = NSGlassEffectView()
             glass.cornerRadius = 4.5
             glass.style = .clear
-            let scrim = NSView()
+            let scrim = EqualizerScrim()
+            scrim.darkBase = 0.45
+            scrim.lightBase = 0.55
             scrim.wantsLayer = true
-            scrim.layer?.backgroundColor = (dark
-                ? NSColor.black.withAlphaComponent(0.45)
-                : NSColor.white.withAlphaComponent(0.55)).cgColor
             scrim.layer?.cornerRadius = 4.5
             scrim.autoresizingMask = [.width, .height]
             scrim.addSubview(label)

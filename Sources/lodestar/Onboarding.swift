@@ -155,6 +155,13 @@ final class OnboardingController: NSObject {
         // can land at any moment and start the tap, and a walkthrough that is
         // not on the screen must never be eating keys.
         guard isVisible, !awaitingGrant else { return false }
+        // And nothing is swallowed while the *keyboard* is somebody else's.
+        // The deck can be visible without being where the user is — they
+        // followed the grant into System Settings, or clicked their browser
+        // to look something up — and an interceptor that keeps eating keys
+        // then is a locked keyboard in whatever app they are actually using.
+        // Found by the first user who was not us, on his first run.
+        guard panel.isKeyWindow || detailPanel.isKeyWindow else { return false }
 
         if other {
             // ⇧⌘V is the one combination that is ours: it would lay the real
@@ -845,8 +852,17 @@ private final class Backdrop: NSView {
 }
 
 private final class Sky: NSView {
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.black.withAlphaComponent(0.64).setFill()
+        // Night sky in dark mode; in light mode the same field reads as a
+        // star chart — paper ground, ink stars. The ground must follow the
+        // system tone because every label on the deck does.
+        let dark = Tone.systemDark
+        (dark ? NSColor.black : NSColor.white).withAlphaComponent(0.64).setFill()
         bounds.fill()
 
         // The one place colour belongs: a wash in the user's own accent behind
@@ -873,11 +889,11 @@ private final class Sky: NSView {
             if hypot(x - center.x, y - center.y) < 400, roll > 0.2 { continue }
             let size = roll > 0.95 ? 2.4 : (roll > 0.74 ? 1.7 : 1.1)
             let alpha = roll > 0.95 ? 0.32 : (roll > 0.74 ? 0.19 : 0.10)
-            NSColor.white.withAlphaComponent(alpha).setFill()
+            (dark ? NSColor.white : NSColor.black).withAlphaComponent(alpha).setFill()
             NSBezierPath(ovalIn: NSRect(x: x, y: y, width: size, height: size)).fill()
             if index.isMultiple(of: 41) {
                 let reach = 6.0 + roll * 5
-                NSColor.white.withAlphaComponent(0.13).setStroke()
+                (dark ? NSColor.white : NSColor.black).withAlphaComponent(0.13).setStroke()
                 let spikes = NSBezierPath()
                 spikes.lineWidth = 0.7
                 spikes.move(to: NSPoint(x: x - reach, y: y))

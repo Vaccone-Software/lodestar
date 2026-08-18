@@ -142,6 +142,7 @@ This is the only mechanism that composes multiplicity, and it does so in the mom
   - `cmd H` app-hide is a clean nice-to-have for the app-scoped case (removes an app's windows entirely), but it is per-application, so useless for hiding one window among several.
   - Minimize-to-Dock is a rare fallback only: it animates, is slower, and restores less reliably.
 - **SIP stays ON.** The single private call does not require disabling it. Native Spaces manipulation does, so do not touch Spaces at all.
+- **Tone**: every surface follows the system appearance — one dark look, one light look, chosen by the user's own setting and never by the pixels behind a panel. Liquid Glass wants to adapt its tone per panel to the backdrop; that is how two panels a foot apart once resolved to opposite tones, and how text and ground once landed on the same color. We keep the frost and take away the material's vote: an equalizer scrim senses the material's choice and drags it to the system's tone (`Glass.swift`). A surface summoned for a second must cost zero reorientation, which means it must look the same every time — the gesture test, applied to the eye.
 
 ## Dependencies
 

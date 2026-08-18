@@ -1,5 +1,6 @@
 // E2E key driver for lodestar. Posts synthetic keystrokes.
 // Tokens: "s" = lode+s · "+s" = lode+shift+s · ".s" = plain s (no lode)
+//         "^s" = plain ⌘s (left command, no lode bit — for in-panel chords)
 // Example: keypost w x        -> lode+W, lode+X (chain)
 //          keypost space .m .u .s .return   -> searcher, type "mus", enter
 import CoreGraphics
@@ -12,6 +13,7 @@ let codes: [String: CGKeyCode] = [
     "8": 28, "0": 29, "o": 31, "u": 32, "i": 34, "p": 35, "l": 37, "j": 38,
     "k": 40, "n": 45, "m": 46,
     "return": 36, "tab": 48, "space": 49, "delete": 51, "escape": 53, "/": 44,
+    ";": 41,
 ]
 
 let rightCmdBit: UInt64 = 0x0010
@@ -22,12 +24,31 @@ for token in CommandLine.arguments.dropFirst() {
         delayMs = UInt32(token.dropFirst(6)) ?? delayMs
         continue
     }
+    // "hold": a bare lode press sustained 1.6s — long enough to cross the
+    // peek threshold. Run in the background and capture mid-hold.
+    if token == "hold" {
+        let source = CGEventSource(stateID: .hidSystemState)
+        if let down = CGEvent(keyboardEventSource: source, virtualKey: 54, keyDown: true) {
+            down.type = .flagsChanged
+            down.flags = CGEventFlags(rawValue: CGEventFlags.maskCommand.rawValue | rightCmdBit)
+            down.post(tap: .cgSessionEventTap)
+        }
+        usleep(1_600_000)
+        if let up = CGEvent(keyboardEventSource: source, virtualKey: 54, keyDown: false) {
+            up.type = .flagsChanged
+            up.flags = []
+            up.post(tap: .cgSessionEventTap)
+        }
+        continue
+    }
     var name = token
     var shift = false
     var plain = false
-    while name.hasPrefix("+") || name.hasPrefix(".") {
+    var command = false
+    while name.hasPrefix("+") || name.hasPrefix(".") || name.hasPrefix("^") {
         if name.hasPrefix("+") { shift = true }
         if name.hasPrefix(".") { plain = true }
+        if name.hasPrefix("^") { command = true; plain = true }
         name.removeFirst()
     }
     guard let code = codes[name] else {
@@ -39,6 +60,7 @@ for token in CommandLine.arguments.dropFirst() {
         flags.insert(.maskCommand)
         flags = CGEventFlags(rawValue: flags.rawValue | rightCmdBit)
     }
+    if command { flags.insert(.maskCommand) }
     if shift { flags.insert(.maskShift) }
 
     let source = CGEventSource(stateID: .hidSystemState)

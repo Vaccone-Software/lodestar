@@ -457,31 +457,37 @@ final class ClipboardStrip {
     /// a tint — tinting flashes, because the glass animates it internally
     /// beyond a transaction's reach.
     private func glassPlate(radius: CGFloat, weight: Weight = .normal) -> NSView {
-        let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        let base: CGFloat
+        let scrim = EqualizerScrim()
         switch weight {
-        case .normal: base = dark ? 0.45 : 0.55
-        case .highlighted: base = dark ? 0.62 : 0.72
-        case .empty: base = dark ? 0.28 : 0.34
+        case .normal: (scrim.darkBase, scrim.lightBase) = (0.45, 0.55)
+        case .highlighted: (scrim.darkBase, scrim.lightBase) = (0.62, 0.72)
+        case .empty: (scrim.darkBase, scrim.lightBase) = (0.28, 0.34)
         }
-        let scrim = NSView()
         scrim.wantsLayer = true
-        scrim.layer?.backgroundColor = (dark
-            ? NSColor.black.withAlphaComponent(base)
-            : NSColor.white.withAlphaComponent(base)).cgColor
         scrim.layer?.cornerRadius = radius
         scrim.autoresizingMask = [.width, .height]
 
+        // The card's content rides on a plain wrapper ABOVE the material,
+        // never inside it: the glass stamps its backdrop-adapted appearance
+        // onto its own subtree, and a labelColor caught in there can
+        // resolve against the system tone the scrim equalizes toward.
+        let plate = NSView()
+        let backdrop: NSView
         if #available(macOS 26.0, *) {
             let glass = NSGlassEffectView()
             glass.cornerRadius = radius
             glass.style = .clear
             glass.contentView = scrim
-            return glass
+            backdrop = glass
+        } else {
+            let fallback = NSView()
+            Glass.installBackdrop(in: fallback, cornerRadius: radius)
+            fallback.addSubview(scrim)
+            backdrop = fallback
         }
-        let fallback = NSView()
-        Glass.installBackdrop(in: fallback, cornerRadius: radius)
-        fallback.addSubview(scrim)
-        return fallback
+        backdrop.frame = plate.bounds
+        backdrop.autoresizingMask = [.width, .height]
+        plate.addSubview(backdrop)
+        return plate
     }
 }

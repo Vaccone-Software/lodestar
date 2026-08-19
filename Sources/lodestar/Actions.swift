@@ -19,7 +19,6 @@ final class Actions {
     private let hud: HUD
 
     private var intents = IntentQueue()
-    private let history = FocusHistory()
 
     init(model: WindowModel, parking: ParkingLot, layout: LayoutController,
          appIndex: AppIndex, store: StateStore, hud: HUD) {
@@ -34,7 +33,6 @@ final class Actions {
     func attach() {
         model.onFocus = { [weak self] id in
             guard let self else { return }
-            self.history.recordFocus(id)
             // The transition structure: which app follows which, by any
             // road — Lodestar's or the system's. App names only; the
             // observation layer decays and caps the matrix.
@@ -282,28 +280,6 @@ final class Actions {
             layout.replace(with: focused.id, on: destination.id)
         }
         raise(focused)
-    }
-
-    /// lode X / ⇧X: walk the attention timeline. A back-jump is a summon
-    /// of the previous destination using the standard placement rules.
-    func goBack() {
-        guard let id = history.stepBack(isAlive: { self.model.verify($0) }),
-              let window = model.window(id) else {
-            hud.flash("✕ nothing further back")
-            return
-        }
-        Log.info("back", ["to": id, "app": window.appName])
-        place(window, beside: false)
-    }
-
-    func goForward() {
-        guard let id = history.stepForward(isAlive: { self.model.verify($0) }),
-              let window = model.window(id) else {
-            hud.flash("✕ nothing forward")
-            return
-        }
-        Log.info("forward", ["to": id, "app": window.appName])
-        place(window, beside: false)
     }
 
     /// lode ⇧digit: slide the focused window into that position on its

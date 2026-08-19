@@ -288,7 +288,6 @@ final class HotkeyEngine {
         case .maximizeFocused: return "maximize"
         case .flipOrientation: return "orientation"
         case .undoLayout, .redoLayout: return "undo"
-        case .goBack, .goForward: return "timeline"
         case .moveDisplay: return "displays"
         default: return nil
         }
@@ -485,10 +484,6 @@ final class HotkeyEngine {
                 actions.undoLayout()
             case .redoLayout:
                 actions.redoLayout()
-            case .goBack:
-                actions.goBack()
-            case .goForward:
-                actions.goForward()
             case .indexJump(let digit):
                 actions.indexJump(digit)
             case .reorder(let digit):
@@ -623,8 +618,7 @@ final class HotkeyEngine {
             GuideRow(key: ",", label: "scroll mode — j/k · h/l · d/u · gg/G"),
             GuideRow(key: ";", label: "click hints — ⇧; chains · ⇧label right-clicks"),
             GuideRow(key: "/", label: "select text — type what you see · ⇧letter anchors"),
-            GuideRow(key: "Z", label: "undo layout · ⇧Z redo"),
-            GuideRow(key: "X", label: "back · ⇧X forward — the attention timeline"),
+            GuideRow(key: "← →", label: "undo · redo the layout"),
             GuideRow(key: "⇧1…9", label: "slide the focused window to that position"),
             GuideRow(key: "[ ]", label: "move window to prev/next display — ⇧ beside"),
             GuideRow(key: "'", label: "breaths — ' ' updates latest"),

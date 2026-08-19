@@ -16,7 +16,7 @@ final class CoachTests: XCTestCase {
         Recommendation(kind: .bind, target: app,
                        detail: "\(app) is searched often", secondsPerWeek: seconds,
                        probability: probability, evidence: [],
-                       edit: .bindApp(chain: [slot], app: app))
+                       edit: .bindTarget(chain: [slot], target: app))
     }
 
     private func routeRec(seconds: Double = 12) -> Recommendation {
@@ -33,7 +33,7 @@ final class CoachTests: XCTestCase {
         event.rec = rec.kind.rawValue
         event.app = rec.target
         event.seconds = rec.secondsPerWeek
-        if case .bindApp(let chain, _)? = rec.edit {
+        if case .bindTarget(let chain, _)? = rec.edit {
             event.address = Observations.key(chain)
         }
         return event

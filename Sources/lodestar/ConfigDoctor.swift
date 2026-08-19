@@ -458,7 +458,8 @@ func runObservations(clear: Bool, engine: Bool) -> Never {
     let bound = config.graph.leaves()
     let context = Advisor.Context(
         observations: o, events: events,
-        leaves: bound.map { (chain: $0.chain, label: $0.target.label) },
+        leaves: bound.map { Advisor.Leaf(chain: $0.chain, label: $0.target.label,
+                                         value: $0.target.configValue) },
         webRoutes: config.webRoutes
     )
 

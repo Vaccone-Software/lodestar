@@ -230,10 +230,8 @@ final class EngineTests: XCTestCase {
 
     func testLayoutVerbs() {
         XCTAssertEqual(press("\\"), [.flipOrientation])
-        XCTAssertEqual(press("z"), [.undoLayout])
-        XCTAssertEqual(press("z", shift: true), [.redoLayout])
-        XCTAssertEqual(press("x"), [.goBack])
-        XCTAssertEqual(press("x", shift: true), [.goForward])
+        XCTAssertEqual(press("left"), [.undoLayout])
+        XCTAssertEqual(press("right"), [.redoLayout])
     }
 
     func testDisplayMoves() {
@@ -251,7 +249,17 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(core.state, .chain(kind: .breath, letters: [], deleting: false))
     }
 
-    /// Marks retired in 0.9.14 — backtick is unbound and reaches the app.
+    /// Undo moved to the arrows in 0.17 and the attention timeline was
+    /// retired, so every letter is an ordinary chain starter again.
+    func testEveryLetterWalksTheGraph() {
+        for letter in ["x", "z", "o"] {
+            XCTAssertEqual(press(letter),
+                           [.hideGuide, .flash("✕ \(letter.uppercased()) is not on the graph")])
+            XCTAssertEqual(core.state, .idle)
+        }
+    }
+
+    /// Backtick was freed again when the timeline was retired.
     func testBacktickIsFree() {
         XCTAssertEqual(press("`"), [.passThrough])
         XCTAssertEqual(core.state, .idle)

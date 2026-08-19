@@ -160,8 +160,8 @@ final class DisabledGestureTests: XCTestCase {
         XCTAssertEqual(core.keyDown(key: "o", held: true, shift: false, world: world), [.passThrough])
         XCTAssertEqual(core.keyDown(key: "[", held: true, shift: true, world: world), [.passThrough],
                        "shift variants ride along")
-        XCTAssertEqual(core.keyDown(key: "z", held: true, shift: false, world: world), [.undoLayout],
-                       "everything else untouched")
+        XCTAssertEqual(core.keyDown(key: "left", held: true, shift: false, world: world),
+                       [.undoLayout], "everything else untouched")
         XCTAssertEqual(core.state, .idle)
     }
 

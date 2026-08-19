@@ -137,11 +137,20 @@ final class ConfigBuildTests: XCTestCase {
 
     // MARK: - Graph
 
-    func testGraphBuildsAndReservedLettersAreRefused() throws {
-        let (config, problems) = try build(#"{"graph": {"s": "Slack", "z": "Zed"}}"#)
+    /// Nothing is reserved as of 0.17 — every verb sits on a key the graph
+    /// cannot want, so the whole alphabet builds. The refusal path in
+    /// `Config.parse` is kept as a guard in case a verb ever moves back onto
+    /// a letter; with an empty reserved set it simply has nothing to refuse.
+    func testGraphAcceptsEveryLetterNowThatNoneAreReserved() throws {
+        let (config, problems) = try build(#"{"graph": {"s": "Slack", "z": "Zed", "x": "Xcode"}}"#)
         guard case .leaf = config.graph.resolve(["s"]) else { return XCTFail("s should resolve") }
-        XCTAssertNil(config.graph.children["z"], "z belongs to layout undo")
-        XCTAssertTrue(problems.contains { $0.contains("reserved") }, "\(problems)")
+        for letter in ["z", "x"] {
+            guard case .leaf = config.graph.resolve([letter]) else {
+                return XCTFail("\(letter) should resolve")
+            }
+        }
+        XCTAssertFalse(problems.contains { $0.contains("reserved") }, "\(problems)")
+        XCTAssertTrue(Config.reservedTopLevel.isEmpty)
     }
 
     // MARK: - Key overrides

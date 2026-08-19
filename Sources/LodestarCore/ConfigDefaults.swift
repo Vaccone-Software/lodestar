@@ -27,6 +27,13 @@ public enum ConfigDefaults {
             if gestures["launcher"] == nil { gestures["launcher"] = searcher }
             out["gestures"] = .table(gestures)
         }
+        // The attention timeline was retired in 0.17. Every config written
+        // before then carries its switch, and a verb that no longer exists
+        // must not make an otherwise-valid file report an unknown key.
+        if case .table(var gestures)? = out["gestures"],
+           gestures.removeValue(forKey: "back-forward") != nil {
+            out["gestures"] = .table(gestures)
+        }
         return out
     }
 

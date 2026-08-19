@@ -284,7 +284,7 @@ final class AnalysisTests: XCTestCase {
         }
         return Advisor.Context(
             observations: o, events: events,
-            leaves: [(chain: ["g"], label: "Ghostty")],
+            leaves: [.init(chain: ["g"], label: "Ghostty", value: "Ghostty")],
             webRoutes: [:],
             now: start.addingTimeInterval(4 * 604_800))
     }
@@ -297,8 +297,53 @@ final class AnalysisTests: XCTestCase {
         XCTAssertTrue(bind?.detail.contains("lode F") ?? false, "the mnemonic slot")
         XCTAssertGreaterThan(bind?.secondsPerWeek ?? 0, 0)
         XCTAssertGreaterThanOrEqual(bind?.probability ?? 0, 0.9, "gated, not guessed")
-        XCTAssertEqual(bind?.edit, .bindApp(chain: ["f"], app: "facetime"),
+        XCTAssertEqual(bind?.edit, .bindTarget(chain: ["f"], target: "facetime"),
                        "the one config line the chip would commit")
+    }
+
+    /// A browser-profile leaf must commit the value a config line writes,
+    /// not the label a person reads. `GraphTarget.label` renders
+    /// "Brave (Xonar)", which nobody has installed: committing that sends
+    /// the coach into `AppIndex.entry(named:)`, past the exact match, into
+    /// `Fuzzy.rank`, and binds plain Brave with the profile dropped in
+    /// silence. Unreachable until `mnemonicLetters` learned to read
+    /// parenthesised words, which is exactly what makes it worth pinning.
+    func testShorteningAProfileCommitsTheProfileNotItsLabel() {
+        var o = Observations()
+        var events: [ObservationEvent] = []
+        var noise = Noise(seed: 11)
+        // A fast single key, so the model knows one letter is cheap.
+        for i in 0..<50 {
+            var event = ObservationEvent(t: start.addingTimeInterval(Double(i) * 600),
+                                         kind: .chain)
+            event.chain = ["g"]
+            event.gaps = [exp(log(0.15) + noise.normal(sd: 0.1))]
+            events.append(event)
+            o.apply(event)
+        }
+        // A deep chain to a browser profile, typed often and slowly.
+        for i in 0..<40 {
+            var event = ObservationEvent(t: start.addingTimeInterval(Double(i) * 900),
+                                         kind: .chain)
+            event.chain = ["b", "x"]
+            event.gaps = [exp(log(0.30) + noise.normal(sd: 0.1)),
+                          exp(log(0.60) + noise.normal(sd: 0.1))]
+            events.append(event)
+            o.apply(event)
+        }
+        let context = Advisor.Context(
+            observations: o, events: events,
+            leaves: [.init(chain: ["g"], label: "Ghostty", value: "Ghostty"),
+                     .init(chain: ["b", "x"], label: "Brave (Xonar)",
+                           value: "brave:xonar")],
+            webRoutes: [:],
+            now: start.addingTimeInterval(3 * 86_400))
+        let shorten = Advisor.recommend(context).first { $0.kind == .shorten }
+        XCTAssertNotNil(shorten, "a deep chain typed 40 times has earned a letter")
+        XCTAssertEqual(shorten?.edit, .bindTarget(chain: ["x"], target: "brave:xonar"),
+                       "the edit writes the profile reference, never the rendered label")
+        XCTAssertEqual(shorten?.display, "Brave (Xonar)",
+                       "the chip still shows the name a person would recognise")
     }
 
     func testAdvisorStaysSilentOnThinData() {
@@ -364,7 +409,8 @@ final class AnalysisTests: XCTestCase {
         completion.gaps = [0.3, 0.2]
         o.apply(completion)
         let context = Advisor.Context(observations: o, events: [],
-                                      leaves: [(chain: ["v", "z"], label: "Zoom")],
+                                      leaves: [.init(chain: ["v", "z"], label: "Zoom",
+                                                     value: "Zoom")],
                                       webRoutes: [:], now: start)
         let rebind = Advisor.recommend(context).first { $0.kind == .rebind }
         XCTAssertNotNil(rebind, "prefix evidence must reach the advisor")
@@ -378,11 +424,10 @@ final class AnalysisTests: XCTestCase {
         let context = Advisor.Context(observations: Observations(), events: [],
                                       leaves: [], webRoutes: [:], now: start)
         let free = Advisor.freeLetters(context)
-        for reserved in ["x", "z"] {
-            XCTAssertFalse(free.contains(reserved),
-                           "\(reserved) is a verb — a graph slot there would be shadowed")
+        for returned in ["o", "x", "z"] {
+            XCTAssertTrue(free.contains(returned),
+                          "\(returned) rejoined the graph when its verb moved off it")
         }
-        XCTAssertTrue(free.contains("o"), "o rejoined the graph when the flip moved to \\")
         XCTAssertTrue(free.contains("q"), "ordinary letters stay on offer")
     }
 

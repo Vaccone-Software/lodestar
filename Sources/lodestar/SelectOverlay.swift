@@ -207,7 +207,7 @@ final class SelectOverlay {
         if state.query.isEmpty {
             quiet(state.stage == .start
                 ? "type what you see"
-                : "now the far end · ⌫ re-opens the start")
+                : "now the far end · ⌘C copies the anchor · ⌫ re-opens the start")
         } else {
             loud(state.query)
             if !state.typedLabel.isEmpty {

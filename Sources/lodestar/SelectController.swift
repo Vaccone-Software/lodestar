@@ -3,8 +3,8 @@ import LodestarCore
 
 /// Select (`lode /`): text addressed by its own content. Type a few
 /// characters of what you can see; matches highlight and wear capital
-/// chips; a capital anchors the start, a second search and capital anchor
-/// the end.
+/// chips; a capital anchors the start — lit as a whole word, which ⌘C
+/// alone will take — and a second search and capital anchor the end.
 ///
 /// The mode always ends the same way: **the span is highlighted, and the
 /// next verb is yours.** Text whose selection is settable gets a real
@@ -18,7 +18,10 @@ import LodestarCore
 /// leaves, which is how web and Electron views render prose — is stitched
 /// into runs (`SelectRuns`) before matching, so phrases match across
 /// styling boundaries and a span may cross fragments; its highlight is
-/// then several honest rectangles.
+/// then several honest rectangles. A span may also cross whole runs, in
+/// reading order, which is what lets it run down a page whose every line
+/// is its own run: the pieces it covers are gathered into one copy and one
+/// highlight, so what lights up is exactly what ⌘C serves.
 final class SelectController {
     /// One searchable unit: an editable element standing alone, or a run
     /// of stitched read-only fragments.
@@ -48,6 +51,18 @@ final class SelectController {
         /// Settable single element, when this unit is one editable field.
         let editable: AXUIElement?
         let geometry: Geometry
+        /// Everything this unit covers on screen, which is how the units
+        /// are put in reading order — and reading order is what a span
+        /// across them means by "everything in between".
+        let frame: CGRect
+    }
+
+    /// Top to bottom, then left to right: the order the eye reads in, and
+    /// the order a span crossing units walks.
+    private static func readingOrder(_ a: Unit, _ b: Unit) -> Bool {
+        let dy = a.frame.minY - b.frame.minY
+        if abs(dy) > SelectRuns.lineTolerance { return dy < 0 }
+        return a.frame.minX < b.frame.minX
     }
 
     private let model: WindowModel
@@ -69,9 +84,11 @@ final class SelectController {
     /// The one polite ask per session, when the permission is absent.
     private var screenAccessPrompted = false
     private var focusedPid: pid_t = 0
-    /// Accessibility-read texts from the parallel walk: the ground truth
-    /// pixel-sensed copies are repaired against.
-    private var groundingTexts: [String] = []
+    /// The accessibility walk's reading, prepared: the ground truth
+    /// pixel-sensed copies are repaired against. Built by the harvest, on
+    /// the harvest's thread, so committing costs a search and not a
+    /// normalization of everything on screen.
+    private var grounding = OCRSense.Grounding([])
     /// The mode's own observation: when it began, what it cost, how it
     /// ended. Counts and timings — the text is never anyone's.
     private var modeEnteredAt = Date.distantPast
@@ -177,8 +194,8 @@ final class SelectController {
         if !shift, case .updated = effect { typedInMode += 1 }
         lastMatchCount = core!.totalMatches
         switch effect {
-        case .selected(let unitIndex, let range):
-            commit(unitIndex: unitIndex, range: range)
+        case .selected(let pieces):
+            commit(pieces: pieces)
             return .done
         case .anchored, .updated:
             render()
@@ -241,14 +258,41 @@ final class SelectController {
 
     // MARK: - Committing
 
-    private func commit(unitIndex: Int, range: NSRange) {
-        guard units.indices.contains(unitIndex) else { return }
-        let unit = units[unitIndex]
+    /// What a span reads as and where it lies: one piece per unit it
+    /// covers, gathered in the order the core placed them. Pieces join
+    /// with newlines — the same joiner stitching already puts between the
+    /// lines of one run — so a copy taken across four runs pastes as the
+    /// four lines it looked like.
+    private func gather(_ pieces: [SelectCore.Match]) -> (text: String, rects: [CGRect]) {
+        var parts: [String] = []
+        var rects: [CGRect] = []
+        for piece in pieces {
+            guard units.indices.contains(piece.element) else { continue }
+            let unit = units[piece.element]
+            var text = (unit.run.text as NSString).substring(with: piece.range)
+            // Pixel-sensed text is repaired against the accessibility walk
+            // piece by piece: recognition's rare single-glyph confusions
+            // must never reach a pasteboard when the truth was readable.
+            if case .ocr = unit.geometry, let repaired = grounding.repair(text) {
+                text = repaired
+            }
+            parts.append(text)
+            rects.append(contentsOf: boundsRects(unit: unit, range: piece.range))
+        }
+        return (parts.joined(separator: "\n"), rects)
+    }
+
+    private func commit(pieces: [SelectCore.Match]) {
+        guard pieces.count == 1, let only = pieces.first,
+              units.indices.contains(only.element) else {
+            return commitAcross(pieces)
+        }
+        let unit = units[only.element]
         if let editable = unit.editable {
             // A real selection: the app's own highlight, and every verb
             // the app knows — copy, replace, delete — from muscle memory.
             AX.set(editable, kAXFocusedAttribute, to: true)
-            var cfRange = CFRange(location: range.location, length: range.length)
+            var cfRange = CFRange(location: only.range.location, length: only.range.length)
             if let value = AXValueCreate(.cfRange, &cfRange) {
                 let error = AXUIElementSetAttributeValue(
                     editable, kAXSelectedTextRangeAttribute as CFString, value)
@@ -256,7 +300,7 @@ final class SelectController {
                     flash("✕ the app refused the selection")
                 }
             }
-            Log.info("select", ["outcome": "selected", "chars": range.length])
+            Log.info("select", ["outcome": "selected", "chars": only.range.length])
             committedOutcome = "native"
             return
         }
@@ -264,28 +308,57 @@ final class SelectController {
         // focused element is editable and holds this exact text, the span
         // becomes a real native selection — the pixel sensor found it, the
         // accessibility truth commits it, and every editor verb works.
-        let text = (unit.run.text as NSString).substring(with: range)
-        if case .ocr = unit.geometry, commitToFocusedEditable(text) {
-            Log.info("select", ["outcome": "grounded-selected", "chars": range.length])
+        let span = gather(pieces)
+        if case .ocr = unit.geometry, commitToFocusedEditable(span.text) {
+            Log.info("select", ["outcome": "grounded-selected", "chars": only.range.length])
             committedOutcome = "grounded"
             return
         }
-        // Otherwise the same ending as ever: Lodestar holds the highlight.
-        // Pixel-sensed spans are grounded against the accessibility walk
-        // first: recognition's rare single-glyph confusions must never
-        // reach a pasteboard when the truth was readable.
-        var held = text
-        if case .ocr = unit.geometry, let grounded = OCRSense.ground(text, in: groundingTexts) {
-            held = grounded
-        }
-        let rects = boundsRects(unit: unit, range: range)
-        guard !rects.isEmpty else {
+        hold(span, pieces: 1)
+    }
+
+    /// A span that crosses units. No app can be asked to select across its
+    /// own element boundaries, so this ending is always the held
+    /// highlight — one rectangle per piece, one copy behind them all.
+    private func commitAcross(_ pieces: [SelectCore.Match]) {
+        guard !pieces.isEmpty else { return }
+        hold(gather(pieces), pieces: pieces.count)
+    }
+
+    private func hold(_ span: (text: String, rects: [CGRect]), pieces: Int) {
+        guard !span.rects.isEmpty else {
             flash("✕ that text lost its place on screen")
             return
         }
-        Log.info("select", ["outcome": "held", "chars": range.length])
+        Log.info("select", ["outcome": "held",
+                            "chars": (span.text as NSString).length, "pieces": pieces])
         committedOutcome = "held"
-        holdGhost(text: held, rects: rects)
+        holdGhost(text: span.text, rects: span.rects)
+    }
+
+    /// ⌘C with a start anchored and no far end yet: take that word and end
+    /// the mode the way any span ends — copied, still highlighted, the
+    /// next verb yours. The second anchor is what a span needs, not what a
+    /// word needs, and most of what anyone reaches for is one word.
+    func copySelection() -> SelectStep {
+        guard let anchor = core?.anchor, units.indices.contains(anchor.element) else {
+            flash("⌖ ⇧letter first — then ⌘C takes that word")
+            return .pending
+        }
+        let span = gather([anchor])
+        guard !span.text.isEmpty else {
+            flash("✕ that text lost its place on screen")
+            return .pending
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(span.text, forType: .string)
+        // The same ending as a finished span, so the highlight standing
+        // there is the same statement it always was — and the ending it
+        // records is the one it actually reached, native or held.
+        commit(pieces: [anchor])
+        Log.info("select", ["outcome": "anchor-copied",
+                            "chars": (span.text as NSString).length])
+        return .done
     }
 
     /// A pixel-sensed span that lives, verbatim and uniquely, inside the
@@ -360,10 +433,15 @@ final class SelectController {
         var units: [Unit] = []
         for run in SelectRuns.merge(leaves) {
             let used = Set(run.fragments.map(\.leaf))
-            units.append(Unit(run: run, leaves: [:],
-                              ocrLines: byID.filter { used.contains($0.key) },
-                              editable: nil, geometry: .ocr))
+            let lines = byID.filter { used.contains($0.key) }
+            units.append(Unit(run: run, leaves: [:], ocrLines: lines,
+                              editable: nil, geometry: .ocr,
+                              frame: lines.values.reduce(.null) { $0.union($1.frame) }))
         }
+        // Index order is document order — a span across units takes
+        // everything between them, so the array had better read the way
+        // the page does.
+        units.sort(by: Self.readingOrder)
         let query = core?.query ?? ""
         self.units = units
         var rebuilt = SelectCore(
@@ -513,10 +591,11 @@ final class SelectController {
                 return a.frame.minX < b.frame.minX
             }
             let elapsed = Int(Date().timeIntervalSince(began) * 1000)
+            let grounding = OCRSense.Grounding(found.map(\.text))
 
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.generation == expected else { return }
-                self.groundingTexts = found.map(\.text)
+                self.grounding = grounding
 
                 // Present what this pass found — unless the pixel sensor
                 // already answered (accessibility then serves only as
@@ -570,7 +649,8 @@ final class SelectController {
                 leaves: [0: item.element],
                 ocrLines: [:],
                 editable: editable ? item.element : nil,
-                geometry: geometry)
+                geometry: geometry,
+                frame: item.frame)
         }
         var units: [Unit] = []
         for item in found where item.settable {
@@ -587,12 +667,21 @@ final class SelectController {
         let handles = Dictionary(uniqueKeysWithValues: readOnly.map {
             ($0.offset, $0.element.element)
         })
+        let frames = Dictionary(uniqueKeysWithValues: readOnly.map {
+            ($0.offset, $0.element.frame)
+        })
         for run in SelectRuns.merge(leaves) {
             let used = Set(run.fragments.map(\.leaf))
             units.append(Unit(run: run,
                               leaves: handles.filter { used.contains($0.key) },
-                              ocrLines: [:], editable: nil, geometry: .ax))
+                              ocrLines: [:], editable: nil, geometry: .ax,
+                              frame: used.compactMap { frames[$0] }
+                                  .reduce(.null) { $0.union($1) }))
         }
+        // Editables were hoisted to the front to build; reading order is
+        // what a span crossing units walks, so the array is put back into
+        // it before anything indexes into it.
+        units.sort(by: Self.readingOrder)
 
         let query = core?.query ?? ""
         self.units = units

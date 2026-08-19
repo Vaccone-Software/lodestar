@@ -120,6 +120,10 @@ public protocol EngineWorld: AnyObject {
     func enterSelect() -> Bool
     /// A key while select is up — search, label, anchor, or finish.
     func selectKey(_ key: String, shift: Bool) -> SelectStep
+    /// ⌘C while select is up: take what is anchored so far. `.done` when
+    /// something was copied and the mode is over, `.pending` when there
+    /// was nothing anchored yet to take.
+    func selectCopy() -> SelectStep
     var searcherVisible: Bool { get }
     var webBarVisible: Bool { get }
     var menuSearchVisible: Bool { get }
@@ -228,8 +232,9 @@ public struct EngineCore {
         return [.passThrough]
     }
 
-    /// `command` matters only inside paste mode, where ⌘label opens a
-    /// card's actions; every other state ignores it.
+    /// `command` matters inside paste mode, where ⌘label opens a card's
+    /// actions, and inside select, where ⌘C takes the anchored word;
+    /// every other state ignores it.
     public mutating func keyDown(key: String, held: Bool, shift: Bool,
                                  command: Bool = false, option: Bool = false,
                                  world: EngineWorld) -> [EngineEffect] {
@@ -250,7 +255,8 @@ public struct EngineCore {
         case .hints(let sticky):
             return hintsPress(key: key, held: held, shift: shift, sticky: sticky, world: world)
         case .select:
-            return selectPress(key: key, held: held, shift: shift, world: world)
+            return selectPress(key: key, held: held, shift: shift, command: command,
+                               option: option, world: world)
         case .paste(let searching):
             return pastePress(key: key, held: held, shift: shift, command: command,
                               option: option, searching: searching, world: world)
@@ -534,7 +540,13 @@ public struct EngineCore {
     /// never reach the app underneath — Escape closes it, any other lode
     /// verb exits and executes. Lowercase searches, capitals pick; the
     /// controller reports when a selection landed and the mode ends.
+    ///
+    /// Plain ⌘C is the one modifier the mode answers to: it takes the word
+    /// already anchored, so a single word costs one pick instead of two.
+    /// Lode is a command key itself, so the gesture is only ever the other
+    /// one — `held` has already claimed the lode half above.
     private mutating func selectPress(key: String, held: Bool, shift: Bool,
+                                      command: Bool, option: Bool,
                                       world: EngineWorld) -> [EngineEffect] {
         if held {
             state = .idle
@@ -550,6 +562,14 @@ public struct EngineCore {
             return [.exitSelect]
         case "delete":
             return [.selectBackspace]
+        case "c" where command && !shift && !option:
+            switch world.selectCopy() {
+            case .done:
+                state = .idle
+                return [.exitSelect]
+            case .pending:
+                return []
+            }
         default:
             switch world.selectKey(key, shift: shift) {
             case .done:

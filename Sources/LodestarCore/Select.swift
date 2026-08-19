@@ -49,10 +49,13 @@ public struct SelectCore {
     public enum Effect: Equatable {
         /// Query or labels changed — redraw.
         case updated
-        /// The start anchor landed; the query reset for the far end.
+        /// The start anchor landed on a whole word; the query reset for
+        /// the far end.
         case anchored
-        /// Both anchors placed: the normalized span, ready to act on.
-        case selected(element: Int, range: NSRange)
+        /// Both anchors placed: the span in document order, as one piece
+        /// per element it covers — the two ends clipped to the words that
+        /// were named, everything between taken whole.
+        case selected(pieces: [Match])
         /// The key meant nothing here.
         case none
     }
@@ -74,10 +77,15 @@ public struct SelectCore {
 
     let elements: [Element]
     let alphabet: String
+    /// Element id → its place in reading order, so a match can be put
+    /// before or after another without scanning.
+    private let order: [Int: Int]
 
     public init(elements: [Element], alphabet: String) {
         self.elements = elements
         self.alphabet = alphabet
+        order = Dictionary(uniqueKeysWithValues:
+            elements.enumerated().map { ($0.element.id, $0.offset) })
     }
 
     /// Shifted punctuation and digits are search characters — labels are
@@ -153,22 +161,13 @@ public struct SelectCore {
             let match = matches[index]
             typedLabel = ""
             if let anchor {
-                let start = min(anchor.range.location, match.range.location)
-                let end = max(anchor.range.location + anchor.range.length,
-                              match.range.location + match.range.length)
-                // Word snap: two typed characters name a word, they do not
-                // dissect it. The span runs from the start of the word the
-                // first anchor touches to the end of the word the second
-                // touches — "fo" means through "fox", "uick" means from
-                // "quick". Whitespace-delimited, so a URL or an identifier
-                // counts as one word and comes out whole.
-                guard let text = elements.first(where: { $0.id == match.element })?.text
-                else { return .none }
-                let snapped = Self.wordSnapped(
-                    NSRange(location: start, length: end - start), in: text as NSString)
-                return .selected(element: match.element, range: snapped)
+                return .selected(pieces: span(from: anchor, to: match))
             }
-            anchor = match
+            // The anchor is the whole word from the moment it lands, not
+            // the two characters that named it — so the highlight shows a
+            // word, and a start that never gets a far end is still a
+            // selection someone can take.
+            anchor = snapped(match)
             query = ""
             recompute()
             return .anchored
@@ -178,6 +177,66 @@ public struct SelectCore {
         case .none:
             return .none
         }
+    }
+
+    /// A match grown to the word it sits inside.
+    private func snapped(_ match: Match) -> Match {
+        guard let text = elements.first(where: { $0.id == match.element })?.text
+        else { return match }
+        return Match(element: match.element,
+                     range: Self.wordSnapped(match.range, in: text as NSString))
+    }
+
+    /// The span two anchors make, piece by piece.
+    ///
+    /// Word snap first: two typed characters name a word, they do not
+    /// dissect it — "fo" means through "fox", "uick" means from "quick",
+    /// whitespace-delimited so a URL or an identifier comes out whole.
+    ///
+    /// Inside one element the span is simply the stretch between the two,
+    /// snapped out at both ends. Across elements it is the tail of the
+    /// first, every element between taken whole, and the head of the last
+    /// — what a drag down the page would have taken. Crossing is the
+    /// normal case, not the exotic one: prose arrives shattered into
+    /// per-line runs (a diff, a chat log, half of any web page), and a
+    /// span that stopped at the line it started on stopped at an edge
+    /// nobody could see. Document order is the element order the caller
+    /// supplied, so there is still no direction to get wrong.
+    func span(from a: Match, to b: Match) -> [Match] {
+        guard let indexA = elements.firstIndex(where: { $0.id == a.element }),
+              let indexB = elements.firstIndex(where: { $0.id == b.element })
+        else { return [] }
+        let forward = indexA < indexB
+            || (indexA == indexB && a.range.location <= b.range.location)
+        let firstIndex = forward ? indexA : indexB
+        let lastIndex = forward ? indexB : indexA
+        let first = forward ? a : b
+        let last = forward ? b : a
+        let firstText = elements[firstIndex].text as NSString
+        let lastText = elements[lastIndex].text as NSString
+
+        if firstIndex == lastIndex {
+            let start = min(first.range.location, last.range.location)
+            let end = max(NSMaxRange(first.range), NSMaxRange(last.range))
+            let snapped = Self.wordSnapped(
+                NSRange(location: start, length: end - start), in: firstText)
+            return [Match(element: elements[firstIndex].id, range: snapped)]
+        }
+
+        let head = Self.wordSnapped(first.range, in: firstText).location
+        let tail = NSMaxRange(Self.wordSnapped(last.range, in: lastText))
+        var pieces = [Match(element: elements[firstIndex].id,
+                            range: NSRange(location: head,
+                                           length: firstText.length - head))]
+        for element in elements[(firstIndex + 1)..<lastIndex] {
+            let length = (element.text as NSString).length
+            guard length > 0 else { continue }
+            pieces.append(Match(element: element.id,
+                                range: NSRange(location: 0, length: length)))
+        }
+        pieces.append(Match(element: elements[lastIndex].id,
+                            range: NSRange(location: 0, length: tail)))
+        return pieces
     }
 
     /// Expand a range outward to whitespace boundaries. Scans UTF-16
@@ -206,17 +265,18 @@ public struct SelectCore {
             labels = []
             return
         }
-        // Stage two confines itself to the anchor's element: a span cannot
-        // cross elements, so matches elsewhere would be promises the
-        // selection cannot keep.
-        let searchable = anchor.map { a in elements.filter { $0.id == a.element } }
-            ?? elements
+        // Both stages search everything on screen. Stage two used to
+        // confine itself to the anchor's element, back when a span could
+        // not cross one; a span crosses now (`span(from:to:)`), so every
+        // chip below the anchor is a promise the highlight can keep.
+        //
         // A single character is below the substring threshold — "i" as a
         // substring is confetti — but "I" and "a" are real words that
         // deserve addresses. So a one-character query matches only exact
         // standalone words: whole and whitespace-bounded, case folded.
         let wordExact = (query as NSString).length < 2
-        for element in searchable {
+        var hits: [Match] = []
+        for element in elements {
             let text = element.text as NSString
             var cursor = NSRange(location: 0, length: text.length)
             while totalMatches < Self.countCap {
@@ -226,9 +286,7 @@ public struct SelectCore {
                     || Self.wordSnapped(found, in: text) == found
                 if standalone {
                     totalMatches += 1
-                    if matches.count < Self.displayCap {
-                        matches.append(Match(element: element.id, range: found))
-                    }
+                    hits.append(Match(element: element.id, range: found))
                 }
                 let next = found.location + found.length
                 guard next < text.length else { break }
@@ -236,6 +294,29 @@ public struct SelectCore {
             }
             if totalMatches >= Self.countCap { break }
         }
+        matches = capped(hits)
         labels = HintLabels.labels(count: matches.count, alphabet: alphabet)
+    }
+
+    /// Which of the hits wear chips when there are more than chips should
+    /// ever be. Reading order decides, from the top — except in stage two,
+    /// where the window slides to sit around the anchor. Screen-wide
+    /// search is what lets a span run down the page; without this, thirty
+    /// chips at the top of a dense page would be the answer to a far end
+    /// chosen at the bottom of it, and the only remedy would be typing
+    /// more of a word already on screen.
+    private func capped(_ hits: [Match]) -> [Match] {
+        guard hits.count > Self.displayCap else { return hits }
+        guard let anchor else { return Array(hits.prefix(Self.displayCap)) }
+        let pivot = hits.firstIndex { !precedes($0, anchor) } ?? hits.count
+        let start = min(max(0, pivot - Self.displayCap / 2), hits.count - Self.displayCap)
+        return Array(hits[start..<(start + Self.displayCap)])
+    }
+
+    /// Document order between two matches: element first, offset second.
+    private func precedes(_ a: Match, _ b: Match) -> Bool {
+        guard let left = order[a.element], let right = order[b.element] else { return false }
+        if left != right { return left < right }
+        return a.range.location < b.range.location
     }
 }

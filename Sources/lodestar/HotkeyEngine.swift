@@ -617,7 +617,7 @@ final class HotkeyEngine {
             GuideRow(key: "\\", label: "flip layout orientation"),
             GuideRow(key: ",", label: "scroll mode — j/k · h/l · d/u · gg/G"),
             GuideRow(key: ";", label: "click hints — ⇧; chains · ⇧label right-clicks"),
-            GuideRow(key: "/", label: "select text — type what you see · ⇧letter anchors"),
+            GuideRow(key: "/", label: "select text — ⇧letter anchors · ⌘C takes that word"),
             GuideRow(key: "← →", label: "undo · redo the layout"),
             GuideRow(key: "⇧1…9", label: "slide the focused window to that position"),
             GuideRow(key: "[ ]", label: "move window to prev/next display — ⇧ beside"),
@@ -819,6 +819,10 @@ extension HotkeyEngine: EngineWorld {
     func enterSelect() -> Bool {
         select.letters = config.hintLetters
         return select.enter()
+    }
+
+    func selectCopy() -> SelectStep {
+        select.copySelection()
     }
 
     func selectKey(_ key: String, shift: Bool) -> SelectStep {

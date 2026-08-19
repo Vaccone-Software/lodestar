@@ -609,28 +609,24 @@ final class Actions {
         return model.aliveWindows(appNamed: appName)
     }
 
-    /// Title similarity for re-matching a dead breath member: exact,
-    /// containment, then longest common prefix.
+    /// The live window that best answers a dead breath member's title.
+    ///
+    /// Every tie goes through `mostCurrent`, and that is the point.
+    /// `aliveWindows` hands back `windows.values`, whose order Swift does not
+    /// specify and reseeds per process, so picking with `first(where:)` chose
+    /// between equally good candidates by chance — and `rebindBreathMember`
+    /// then wrote the coin flip to disk. Restoring a breath with several of
+    /// an app's windows open could put a different one in your layout each
+    /// time. The ranking itself is `Fuzzy.titleAffinity`, which is total and
+    /// tested; all that is left here is asking it and breaking the ties the
+    /// way every other destination lookup breaks them.
     private func bestTitleMatch(_ target: String, in candidates: [WindowModel.Window]) -> WindowModel.Window? {
         guard !candidates.isEmpty else { return nil }
-        if let exact = candidates.first(where: { $0.title == target }) { return exact }
-        let t = target.lowercased()
-        if !t.isEmpty {
-            if let contains = candidates.first(where: {
-                let c = $0.title.lowercased()
-                return !c.isEmpty && (c.contains(t) || t.contains(c))
-            }) {
-                return contains
-            }
-            let scored = candidates.map { ($0, commonPrefixLength(t, $0.title.lowercased())) }
-                .sorted { $0.1 > $1.1 }
-            if let best = scored.first, best.1 >= 4 { return best.0 }
+        let scored = candidates.map { ($0, Fuzzy.titleAffinity(of: $0.title, against: target)) }
+        guard let best = scored.map(\.1).max(), best > 0 else {
+            return WindowModel.mostCurrent(candidates)
         }
-        return candidates.first
-    }
-
-    private func commonPrefixLength(_ a: String, _ b: String) -> Int {
-        zip(a, b).prefix { $0 == $1 }.count
+        return WindowModel.mostCurrent(scored.filter { $0.1 == best }.map(\.0))
     }
 
     private func shortTitle(_ window: WindowModel.Window) -> String {

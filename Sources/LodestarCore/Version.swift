@@ -83,16 +83,32 @@ public enum StateMigrations {
     /// unchanged when it is already current or unreadable (the caller's
     /// decode will surface unreadability).
     public static func lift(_ data: Data) -> Data {
+        lift(data, through: steps, to: Lodestar.stateVersion)
+    }
+
+    /// The chain itself, with both of its inputs handed in.
+    ///
+    /// The table and the target used to be read straight off the globals,
+    /// which made the promise above — "pure Data transforms, testable without
+    /// a filesystem" — one this could not keep. With `steps` empty and
+    /// `stateVersion` at 1 there was no way to exercise a real step, so the
+    /// code that will one day carry every saved layout on every machine
+    /// forward had only ever been run as a no-op. Passing them in costs
+    /// nothing at the call site and lets the chain be tested at any length,
+    /// which is the point: the first time this does real work, it will do it
+    /// to everybody at once.
+    static func lift(_ data: Data, through steps: [Int: (inout [String: Any]) -> Void],
+                     to target: Int) -> Data {
         guard var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
             return data
         }
         var version = object["version"] as? Int ?? 0
-        guard version < Lodestar.stateVersion else { return data }
-        while version < Lodestar.stateVersion {
+        guard version < target else { return data }
+        while version < target {
             steps[version]?(&object)
             version += 1
         }
-        object["version"] = Lodestar.stateVersion
+        object["version"] = target
         return (try? JSONSerialization.data(withJSONObject: object)) ?? data
     }
 }

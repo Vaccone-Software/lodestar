@@ -55,4 +55,37 @@ public enum Fuzzy {
             .sorted { $0.1 > $1.1 }
             .map { $0.0 }
     }
+
+    /// How strongly a live window's title answers the title we are looking
+    /// for. Zero is no answer; higher is better, and the order is total, so
+    /// nothing is left to be settled by chance.
+    ///
+    /// This is re-matching, not searching. A breath remembers the title a
+    /// window had, that window dies, and one of the app's live windows has to
+    /// take its place. `score` is the wrong instrument for it: a subsequence
+    /// match tuned for typing three letters at an app name will match almost
+    /// any full title against almost any other.
+    ///
+    /// The floor is what makes it honest. Containment was unconditional and
+    /// symmetric, so a window titled "a" contained-matched every target with
+    /// an "a" in it and could take a saved layout's place from the window
+    /// that belonged there. A side shorter than `floor` characters carries no
+    /// evidence, so it earns nothing.
+    /// The tiers sit `band` apart and each bonus is capped below it, so the
+    /// ordering between tiers is arithmetic rather than a hope about how long
+    /// a window title can get.
+    public static func titleAffinity(of candidate: String, against target: String) -> Int {
+        let floor = 4
+        let band = 1_000
+        let c = candidate.lowercased()
+        let t = target.lowercased()
+        guard !c.isEmpty, !t.isEmpty else { return 0 }
+        if c == t { return 3 * band }
+        let overlap = min(c.count, t.count)
+        if overlap >= floor, c.contains(t) || t.contains(c) {
+            return 2 * band + min(overlap, band - 1)
+        }
+        let shared = zip(c, t).prefix { $0 == $1 }.count
+        return shared >= floor ? band + min(shared, band - 1) : 0
+    }
 }

@@ -11,11 +11,19 @@ import Foundation
 /// been standing for as long as the app has been in use. Harmless on
 /// apps that never needed it.
 enum AXWarmer {
+    /// One warming per app per this long.
+    private static let interval: TimeInterval = 30
     private static var warmedAt: [pid_t: Date] = [:]
 
     static func warm(_ pid: pid_t) {
         let now = Date()
-        if let last = warmedAt[pid], now.timeIntervalSince(last) < 30 { return }
+        // Pruned on the way in rather than grown for the life of the process.
+        // An entry older than the interval can only ever answer "warm it
+        // again", so keeping it bought nothing and cost a slot for every pid
+        // this machine has ever focused — unbounded, in an app that runs for
+        // weeks. What survives the filter is exactly what the throttle needs.
+        warmedAt = warmedAt.filter { now.timeIntervalSince($0.value) < interval }
+        guard warmedAt[pid] == nil else { return }
         warmedAt[pid] = now
         let app = AXUIElementCreateApplication(pid)
         AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString,

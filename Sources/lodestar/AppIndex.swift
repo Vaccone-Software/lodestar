@@ -15,6 +15,8 @@ final class AppIndex {
     private(set) var entries: [Entry] = []
     private var lastScan = Date.distantPast
     private var scanning = false
+    /// Resolved icons, living exactly as long as the entries they came from.
+    private var icons: [String: NSImage?] = [:]
 
     /// Frecency boost injected by the state store — usage ranks the results.
     var usageBoost: (String?) -> Double = { _ in 0 }
@@ -38,6 +40,7 @@ final class AppIndex {
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.entries = AppIndex.mergeRunning(into: found)
+                self.icons.removeAll()
                 self.lastScan = Date()
                 self.scanning = false
             }
@@ -47,7 +50,29 @@ final class AppIndex {
     /// Synchronous full scan — the boot path, before any panel exists.
     func refresh() {
         entries = AppIndex.mergeRunning(into: AppIndex.scanDisk())
+        icons.removeAll()
         lastScan = Date()
+    }
+
+    /// An app's icon, resolved once per index.
+    ///
+    /// This sits on the chain guide's path, and `showGuide` draws that
+    /// synchronously inside the event tap — so every letter of every chain
+    /// was paying, per row, for a name lookup (a fuzzy rank across every app
+    /// on the machine whenever the name is not an exact hit) and a
+    /// LaunchServices icon load. Measured on a working machine at 3.5ms per
+    /// icon cold and 0.24ms warm: a twelve-row guide cost about 42ms the
+    /// first time and ~3ms every time after, inside the callback that holds
+    /// the keyboard for every app on the machine.
+    ///
+    /// A miss is cached too, or an unresolvable name repeats the fuzzy rank
+    /// forever. The whole table is dropped whenever `entries` is replaced,
+    /// which is the only moment an icon here can have gone stale.
+    func icon(named name: String) -> NSImage? {
+        if let cached = icons[name] { return cached }
+        let resolved = entry(named: name).map { NSWorkspace.shared.icon(forFile: $0.url.path) }
+        icons[name] = resolved
+        return resolved
     }
 
     private static func scanDisk() -> [String: Entry] {

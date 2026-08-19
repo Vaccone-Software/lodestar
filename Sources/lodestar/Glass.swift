@@ -128,6 +128,19 @@ enum Glass {
         panel.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
         return panel
     }
+
+    /// How far a panel's bottom edge sits below the usable part of the
+    /// screen it covers — the Dock's strip, for an overlay handed a whole
+    /// display. Furniture pinned to the panel's bottom adds this so it
+    /// stands above the Dock instead of on top of it.
+    static func bottomInset(for frame: NSRect) -> CGFloat {
+        func overlap(_ screen: NSScreen) -> CGFloat {
+            let shared = screen.frame.intersection(frame)
+            return shared.isNull || shared.isEmpty ? 0 : shared.width * shared.height
+        }
+        guard let screen = NSScreen.screens.max(by: { overlap($0) < overlap($1) }) else { return 0 }
+        return max(0, screen.visibleFrame.minY - frame.minY)
+    }
 }
 
 /// A borderless glass panel whose shadow survives reframing. The window
@@ -137,6 +150,17 @@ enum Glass {
 /// wallpaper and its rim reads as a drawn rectangle instead of an edge.
 /// Re-deriving after every reframe and every ordering keeps it lifted.
 class GlassPanel: NSPanel {
+    /// A titled window is screen-constrained: AppKit slides it down until
+    /// its title bar clears the menu bar, and never gives the height back.
+    /// Select and hints hand their panel a whole display on purpose — the
+    /// constraint pushed the overlay a menu bar's worth below the screen
+    /// and took the query band off the bottom edge with it. Every panel
+    /// here already places itself inside `visibleFrame`, so the constraint
+    /// only ever had wrong answers to give.
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        frameRect
+    }
+
     override func setFrame(_ frameRect: NSRect, display flag: Bool) {
         super.setFrame(frameRect, display: flag)
         invalidateShadow()

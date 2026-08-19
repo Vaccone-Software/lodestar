@@ -52,6 +52,114 @@ public enum Coach {
         public let footer: String
     }
 
+    // MARK: - The moment
+
+    /// How long a chip stands before fading to "later".
+    public static let chipSeconds: TimeInterval = 30
+    /// How long it must stand unclaimed before the offer is spent. A chip
+    /// the engine takes off the glass in its first seconds was never read,
+    /// and the curriculum must not charge for what nobody saw.
+    public static let seenSeconds: TimeInterval = 3
+    /// A showing that never counted may try again — but not at once. A chip
+    /// that flickers at every boundary is noise, not an offer.
+    public static let reshowSeconds: TimeInterval = 60
+    /// How stale the last hardware key may be before the chair counts as
+    /// empty. Generous, because on the path that matters this is never near
+    /// the limit: a navigation boundary is itself keyboard-driven, so the
+    /// stamp is milliseconds old. The ceiling only bites where no key was
+    /// involved at all — a URL some other app opened.
+    public static let presenceCeiling: TimeInterval = 120
+
+    /// `kCGEventSourceStateHIDSystemState`, named here so this layer need
+    /// not import CoreGraphics for one integer.
+    public static let hidSystemStateID: Int64 = 1
+
+    /// Did hardware make this event, or did something post it?
+    ///
+    /// Measured, all four cases. Real hardware reports source id 1 and
+    /// posting pid 0. Ordinary automation reports a private source id and
+    /// its own pid. Automation that forges the source id to 1 defeats a
+    /// source-only check — but cannot forge the pid: the system stamps it,
+    /// and an explicit `setIntegerValueField(.eventSourceUnixProcessID, 0)`
+    /// is overwritten. The pid is the load-bearing half; the source id is
+    /// kept because it costs 2ns and catches the lazy case a step earlier.
+    ///
+    /// The ceiling this cannot pass: it answers "was this injected by a
+    /// userspace process", never "was a finger involved". Anything injecting
+    /// at the driver level reads as hardware, and must — that is how a
+    /// remapper delivers real keystrokes.
+    public static func isHumanOrigin(sourceStateID: Int64, postingPID: Int64) -> Bool {
+        postingPID == 0 && sourceStateID == hidSystemStateID
+    }
+
+    /// Is a person at the machine?
+    ///
+    /// `humanIdle` must come from a clock stamped only by hardware-origin
+    /// events. The system's own idle clock cannot do this job: posted events
+    /// reset `CGEventSource.secondsSinceLastEventType` — through either tap,
+    /// under both source states — so a machine being driven by an agent
+    /// holds it at zero all day, and it reports a present user most
+    /// confidently in exactly the case where nobody is there.
+    public static func isPresent(humanIdle: TimeInterval, screenLocked: Bool,
+                                 displayAsleep: Bool, onConsole: Bool) -> Bool {
+        humanIdle < presenceCeiling && !screenLocked && !displayAsleep && onConsole
+    }
+
+    /// Everything a decision to speak rests on, gathered by the coat.
+    public struct Moment {
+        public var enabled: Bool
+        public var chipVisible: Bool
+        /// The standing suggestion has already spent a showing.
+        public var offerSpent: Bool
+        public var sinceLastShown: TimeInterval
+        public var engineQuiet: Bool
+        public var cameraRunning: Bool
+        public var present: Bool
+        public var inputWasHuman: Bool
+
+        public init(enabled: Bool = true, chipVisible: Bool = false,
+                    offerSpent: Bool = false, sinceLastShown: TimeInterval = 3600,
+                    engineQuiet: Bool = true, cameraRunning: Bool = false,
+                    present: Bool = true, inputWasHuman: Bool = true) {
+            self.enabled = enabled
+            self.chipVisible = chipVisible
+            self.offerSpent = offerSpent
+            self.sinceLastShown = sinceLastShown
+            self.engineQuiet = engineQuiet
+            self.cameraRunning = cameraRunning
+            self.present = present
+            self.inputWasHuman = inputWasHuman
+        }
+    }
+
+    /// Speak, or the reason for the silence. Naming every hold is what lets
+    /// the one veto that could be miscalibrated say so in the log.
+    public enum Hold: Equatable {
+        case speak
+        case disabled
+        case chipUp
+        case offerSpent
+        case tooSoon
+        case engineBusy
+        case camera
+        case absent
+        case notHuman
+    }
+
+    /// Ordered cheapest and most certain first; every one of them is
+    /// absolute, and silence remains the resting state.
+    public static func hold(_ moment: Moment) -> Hold {
+        if !moment.enabled { return .disabled }
+        if moment.chipVisible { return .chipUp }
+        if moment.offerSpent { return .offerSpent }
+        if moment.sinceLastShown < reshowSeconds { return .tooSoon }
+        if !moment.engineQuiet { return .engineBusy }
+        if moment.cameraRunning { return .camera }
+        if !moment.present { return .absent }
+        if !moment.inputWasHuman { return .notHuman }
+        return .speak
+    }
+
     // MARK: - The offer
 
     /// The one suggestion worth standing behind right now, or nil — and

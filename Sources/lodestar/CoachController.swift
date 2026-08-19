@@ -1,4 +1,5 @@
 import AppKit
+import CoreGraphics
 import CoreMediaIO
 import LodestarCore
 
@@ -48,6 +49,40 @@ enum CameraProbe {
     }
 }
 
+/// Is anyone there to read it? A navigation boundary proves a machine is
+/// being used; it does not prove a person is watching.
+///
+/// The system's own idle clock cannot answer this, and the measurement is
+/// worth recording because it is the whole reason this exists: events
+/// posted with `CGEventPost` reset `secondsSinceLastEventType` to zero,
+/// through either tap, under both `.hidSystemState` and
+/// `.combinedSessionState`. An agent driving the machine therefore holds
+/// the system idle clock at zero all day — it reports a present user most
+/// confidently in precisely the case where nobody is there.
+///
+/// So the clock is kept here instead. The tap stamps `lastHumanInputAt`
+/// only for hardware-origin events, and that stamp is what this reads. The
+/// rest are the ordinary ways a screen stops being watched. Uncached on
+/// purpose, and reached only when an offer is actually standing.
+enum PresenceProbe {
+    /// Reads the machine; `Coach.isPresent` decides. No session dictionary
+    /// is an API failing rather than an absent user, so those two facts
+    /// default to their harmless readings — the coach stays possible instead
+    /// of silently switching itself off.
+    static func userIsPresent(humanIdle: TimeInterval) -> Bool {
+        var locked = false
+        var onConsole = true
+        if let session = CGSessionCopyCurrentDictionary() as? [String: Any] {
+            // The lock key is absent entirely while the screen is unlocked.
+            locked = (session["CGSSessionScreenIsLocked"] as? Int ?? 0) != 0
+            onConsole = (session["kCGSSessionOnConsoleKey"] as? Int ?? 1) != 0
+        }
+        return Coach.isPresent(humanIdle: humanIdle, screenLocked: locked,
+                               displayAsleep: CGDisplayIsAsleep(CGMainDisplayID()) != 0,
+                               onConsole: onConsole)
+    }
+}
+
 /// The coach's coat: clocks, cameras, glass, and the two gestures. Every
 /// decision — which suggestion, whether now, what the chip says, how "no"
 /// is remembered — lives in `Coach` (LodestarCore), pure and tested; this
@@ -70,14 +105,18 @@ final class CoachController {
     var applyEdit: (ConfigEdit) -> String? = { _ in "coach is not wired" }
     /// The engine's stillness — no chain, no bars, no peek.
     var engineQuiet: () -> Bool = { false }
+    /// Did a person type the navigation that reached this boundary? Yes by
+    /// default: an unwired coach must not silence itself.
+    var inputWasHuman: () -> Bool = { true }
+    /// How long since hardware input last reached the tap. Zero by default,
+    /// for the same reason.
+    var humanIdle: () -> TimeInterval = { 0 }
     var showChip: (Coach.Chip) -> Void = { _ in }
     var hideChip: () -> Void = {}
     var flash: (String) -> Void = { _ in }
     /// The parked offer changed; the menu item re-reads it.
     var onParkedChange: () -> Void = {}
 
-    /// How long a chip stays up before fading to "later".
-    static let chipSeconds: TimeInterval = 12
     /// How long a cue-having suggestion waits for its cue before going out
     /// at any quiet boundary instead.
     static let cueWaitDays = 4.0
@@ -88,6 +127,13 @@ final class CoachController {
     private var standingSince = Date.distantPast
     private var chipVisible = false
     private var chipHide: DispatchWorkItem?
+    private var chipSeen: DispatchWorkItem?
+    private var lastShownAt = Date.distantPast
+    /// One line per standing suggestion, not per boundary.
+    private var loggedNonHuman = false
+    /// The suggestion in the slot has already spent a showing. Cleared when
+    /// a pass puts a different suggestion there.
+    private var offerCounted = false
     private var refreshedAt = Date.distantPast
     private var refreshing = false
 
@@ -115,6 +161,7 @@ final class CoachController {
     func armDemo(_ rec: Recommendation) {
         standing = rec
         standingSince = .distantPast
+        offerCounted = false
         demo = true
         onParkedChange()
     }
@@ -200,8 +247,33 @@ final class CoachController {
     // MARK: - Deciding
 
     private func considerShowing(cueApp: String?, cueHost: String?) {
-        guard enabled, !chipVisible, let rec = standing else { return }
-        guard engineQuiet(), !CameraProbe.anyCameraRunning() else { return }
+        // Nothing standing is the common answer, and the only one worth
+        // short-circuiting: the probes below are reached a handful of times
+        // a week, not a handful of times a minute.
+        guard let rec = standing else { return }
+        let moment = Coach.Moment(
+            enabled: enabled, chipVisible: chipVisible, offerSpent: offerCounted,
+            sinceLastShown: Date().timeIntervalSince(lastShownAt),
+            engineQuiet: engineQuiet(), cameraRunning: CameraProbe.anyCameraRunning(),
+            present: PresenceProbe.userIsPresent(humanIdle: humanIdle()),
+            inputWasHuman: inputWasHuman())
+        switch Coach.hold(moment) {
+        case .speak:
+            break
+        case .notHuman:
+            // The one veto that could be miscalibrated: a keyboard remapper
+            // reposts events too, and a coach silenced by a wrong reading
+            // must at least say so. Once per standing suggestion, so a
+            // machine driven all afternoon does not fill the log.
+            if !loggedNonHuman {
+                loggedNonHuman = true
+                Log.info("coach", ["held": "input not hardware-origin",
+                                   "target": rec.target])
+            }
+            return
+        default:
+            return
+        }
         // A cue-having suggestion holds out for its cue for a few days;
         // after that, or for suggestions with no cue, any quiet boundary
         // will do. Proactive either way — nothing waits forever.
@@ -219,23 +291,54 @@ final class CoachController {
         guard let observations else { return }
         let chip = Coach.chip(for: rec, observations: observations.observations)
         chipVisible = true
-        if !isDemo { observations.coach(action: "offered", rec: rec) }
+        lastShownAt = Date()
         showChip(chip)
         onParkedChange()
+        // An offer is spent by being read, not by being drawn.
+        let seen = DispatchWorkItem { [weak self] in self?.countOffer(rec) }
+        chipSeen?.cancel()
+        chipSeen = seen
+        DispatchQueue.main.asyncAfter(deadline: .now() + Coach.seenSeconds, execute: seen)
         let work = DispatchWorkItem { [weak self] in self?.dismissChip(record: true) }
         chipHide?.cancel()
         chipHide = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.chipSeconds, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + Coach.chipSeconds, execute: work)
+    }
+
+    /// The chip stood long enough to be read: the ledger learns of the
+    /// offer now. The slot then holds still until the next pass, so one
+    /// standing suggestion cannot spend three offers in a single stretch of
+    /// navigation — `maxOffers` governs what is issued, and this is what
+    /// keeps showings from outrunning it.
+    private func countOffer(_ rec: Recommendation) {
+        guard chipVisible, !offerCounted else { return }
+        // The screen locked, the display slept, or the chair emptied while it
+        // stood: nothing was read, so nothing is spent — and it comes down
+        // rather than waiting behind a lock screen for a gesture.
+        guard PresenceProbe.userIsPresent(humanIdle: humanIdle()) else {
+            dismissChip(record: false)
+            return
+        }
+        if !isDemo { observations?.coach(action: "offered", rec: rec) }
+        // Only mark the slot spent if it still holds what was shown; a pass
+        // that swapped it mid-chip has already cleared the flag itself.
+        if rec.kind == standing?.kind, rec.target == standing?.target {
+            offerCounted = true
+        }
     }
 
     private func dismissChip(record: Bool) {
         chipHide?.cancel()
         chipHide = nil
+        chipSeen?.cancel()
+        chipSeen = nil
         guard chipVisible else { return }
         chipVisible = false
         hideChip()
         onParkedChange()
-        _ = record // decay IS "later" — the offered event already counted.
+        // Decay IS "later"; whether this showing counted at all was
+        // settled at the seen checkpoint, or never happened.
+        _ = record
     }
 
     // MARK: - Recommendations
@@ -278,6 +381,8 @@ final class CoachController {
                 if changed {
                     self.standing = offer
                     self.standingSince = Date()
+                    self.offerCounted = false
+                    self.loggedNonHuman = false
                     self.onParkedChange()
                 }
             }

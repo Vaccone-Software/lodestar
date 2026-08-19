@@ -227,6 +227,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                 footer: "\(chip.evidence)   ·   \(chip.footer)")
         }
         coach.hideChip = { [weak self] in self?.hud.hide() }
+        coach.inputWasHuman = { [weak self] in self?.engine.actingInputWasHuman ?? true }
+        coach.humanIdle = { [weak self] in
+            guard let engine = self?.engine else { return 0 }
+            return Date().timeIntervalSince(engine.lastHumanInputAt)
+        }
+        // A flash steals the glass without going through the engine's
+        // surface claim; the chip must not outlive its own pixels.
+        hud.onTakeover = { [weak self] in self?.coach.surfaceClaimed() }
         coach.flash = { [weak self] text in self?.hud.flash(text) }
         engine.onLodeDoubleTap = { [weak self] in self?.coach.lodeDoubleTapped() }
         engine.coachDelete = { [weak self] in self?.coach.lodeDelete() ?? false }

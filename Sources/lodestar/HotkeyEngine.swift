@@ -61,6 +61,39 @@ final class HotkeyEngine {
     /// The last moment the engine acted on the user's behalf; the update
     /// gate reads this to find a quiet stretch.
     private(set) var lastActivityAt = Date.distantPast
+    /// The last moment hardware input came through the tap — the only
+    /// honest answer to "is a person here". Stamped by every real key
+    /// anywhere on the machine and never by a posted one, which is exactly
+    /// what the system's own idle clock cannot promise. A timestamp only:
+    /// no keycode, no content.
+    private(set) var lastHumanInputAt = Date.distantPast
+    /// The provenance of the last event through the tap, as the system
+    /// reported it. What these two mean, and which of them is load-bearing,
+    /// is written down once in `Coach.isHumanOrigin` — read it there rather
+    /// than keeping a second account here that can drift out of step.
+    private var lastEventSourceStateID =
+        Int64(CGEventSourceStateID.hidSystemState.rawValue)
+    private var lastEventPostingPID: Int64 = 0
+
+    /// The rule and its measurements live in `Coach.isHumanOrigin`.
+    private var lastInputWasHuman: Bool {
+        Coach.isHumanOrigin(sourceStateID: lastEventSourceStateID,
+                            postingPID: lastEventPostingPID)
+    }
+
+    /// Whose keystroke the effect now running is acting on. The coach asks
+    /// before spending an offer: a navigation an agent drove is a boundary
+    /// with nobody in the chair.
+    ///
+    /// Deliberately not "the last event seen". Window-moving effects run a
+    /// main-queue turn after the tap has returned, and in that gap another
+    /// process's key can arrive — so an agent's navigation would borrow the
+    /// presence of whoever happened to type next, which is the one reading
+    /// that must never be wrong. `dispatch` freezes the value with the key
+    /// that caused the effect and restores it immediately before the effect
+    /// lands; the tap runs on the main run loop, so nothing can interleave
+    /// between the two.
+    private(set) var actingInputWasHuman = true
 
     /// Nothing in flight: no chain, no scroll, no hints, no panel, no
     /// peek, no cheat sheet — a restart right now would be invisible.
@@ -271,13 +304,24 @@ final class HotkeyEngine {
             Log.info("hotkeys: tap re-enabled", ["alive": CGEvent.tapIsEnabled(tap: tap)])
             return Unmanaged.passUnretained(event)
         }
+        // Past the disable notices, everything here is input. Who made it is
+        // recorded before it is acted on, so the coach can ask later.
+        lastEventSourceStateID = event.getIntegerValueField(.eventSourceStateID)
+        lastEventPostingPID = event.getIntegerValueField(.eventSourceUnixProcessID)
+        actingInputWasHuman = lastInputWasHuman
+        if actingInputWasHuman { lastHumanInputAt = Date() }
         if type == .flagsChanged {
             // The coach's assent gesture watches the classified lode state
             // and consumes nothing — fed first, so no other path can
             // starve it.
             let (lodeHeld, _) = classify(event.flags)
+            // Assent writes a config line, so it is the one gesture that
+            // must be a hand's. The detector is still fed every transition —
+            // it is a state machine, and starving it would desync the
+            // gesture — but a posted double-tap agrees to nothing.
             if coachTaps.lodeChanged(held: lodeHeld,
-                                     at: Date().timeIntervalSinceReferenceDate) {
+                                     at: Date().timeIntervalSinceReferenceDate),
+               actingInputWasHuman {
                 onLodeDoubleTap?()
             }
             if let verb = tapDetector.flagsChanged(event.flags, at: Date().timeIntervalSinceReferenceDate) {
@@ -326,7 +370,8 @@ final class HotkeyEngine {
         // closure acts only when a chip is visible, and the key is
         // swallowed only when it acted — idle lode ⌫ everywhere else stays
         // exactly the nothing it always was.
-        if held, key == "delete", core.isIdle, coachDelete?() == true {
+        if held, key == "delete", core.isIdle, actingInputWasHuman,
+           coachDelete?() == true {
             return nil
         }
 
@@ -501,7 +546,11 @@ final class HotkeyEngine {
         guard !deferred.isEmpty else { return apply(effects, event: event) }
         let immediate = effects.filter { !Self.mutatesWindows($0) }
         let verdict = apply(immediate, event: event)
+        let human = lastInputWasHuman
         DispatchQueue.main.async { [weak self] in
+            // Restored right before the effects land, so a keystroke that
+            // arrived during the hop cannot lend them its provenance.
+            self?.actingInputWasHuman = human
             _ = self?.apply(deferred, event: nil)
         }
         return verdict

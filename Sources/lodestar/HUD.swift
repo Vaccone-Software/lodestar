@@ -20,6 +20,11 @@ struct GuideRow {
 /// columns sized by the screen — a laptop gets two, a big display three or
 /// four.
 final class HUD {
+    /// Something else is taking the panel. The coach's chip is the only
+    /// thing that lives here long enough to be stolen from, and a chip that
+    /// has left the screen must not still answer to lode lode.
+    var onTakeover: (() -> Void)?
+
     private let panel: NSPanel
     private let root = NSView()
     private var content: NSStackView?
@@ -44,6 +49,7 @@ final class HUD {
 
     /// A transient message, optionally wearing the app it acted on.
     func flash(_ text: String, icon: NSImage? = nil, seconds: TimeInterval = 1.4) {
+        onTakeover?()
         build(title: text, titleIcon: icon, rows: [], footer: nil)
         present()
         hideTimer?.invalidate()

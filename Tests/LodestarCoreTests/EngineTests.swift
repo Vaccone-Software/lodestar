@@ -33,6 +33,12 @@ final class WorldStub: EngineWorld {
         return selectOutcomes[name] ?? .pending
     }
 
+    var selectCopyStep = SelectStep.done
+    func selectCopy() -> SelectStep {
+        calls.append("selectCopy")
+        return selectCopyStep
+    }
+
     func resolveGraph(_ letters: [String]) -> GraphResolution {
         calls.append("resolve:\(letters.joined())")
         return graph[letters.joined()] ?? .miss

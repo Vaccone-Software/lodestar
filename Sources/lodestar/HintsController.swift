@@ -279,11 +279,16 @@ final class HintOverlay {
     private var chips: [(view: NSView, label: NSTextField, text: String)] = []
     private let status = NSTextField(labelWithString: "")
     private let statusChip = NSView()
+    /// Held, because the band's clearance depends on which display the
+    /// overlay landed on and whether the Dock is along its bottom.
+    private var statusBottom: NSLayoutConstraint!
 
     private static let chipFont = NSFont.monospacedSystemFont(ofSize: 12, weight: .bold)
     /// Grown with the label: at 16 a 12pt chip hugs its text hard enough to
     /// read as clipped.
     private static let chipHeight: CGFloat = 18
+    /// Clear water between the band and the bottom of the usable screen.
+    private static let bandGap: CGFloat = 10
 
     init() {
         panel = Glass.makePanel(level: .statusBar)
@@ -324,13 +329,15 @@ final class HintOverlay {
         status.translatesAutoresizingMaskIntoConstraints = false
         statusChip.addSubview(status)
         root.addSubview(statusChip)
+        statusBottom = statusChip.bottomAnchor.constraint(equalTo: root.bottomAnchor,
+                                                          constant: -Self.bandGap)
         NSLayoutConstraint.activate([
             status.leadingAnchor.constraint(equalTo: statusChip.leadingAnchor, constant: 9),
             status.trailingAnchor.constraint(equalTo: statusChip.trailingAnchor, constant: -9),
             status.topAnchor.constraint(equalTo: statusChip.topAnchor, constant: 4),
             status.bottomAnchor.constraint(equalTo: statusChip.bottomAnchor, constant: -4),
             statusChip.centerXAnchor.constraint(equalTo: root.centerXAnchor),
-            statusChip.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -10),
+            statusBottom,
         ])
     }
 
@@ -432,5 +439,8 @@ final class HintOverlay {
                             width: windowFrame.width, height: windowFrame.height)
         panel.setFrame(appKit, display: true)
         panel.orderFrontRegardless()
+        // A window that runs to the bottom of its display puts the band
+        // over the Dock; step up by exactly what the Dock takes.
+        statusBottom.constant = -(Self.bandGap + Glass.bottomInset(for: appKit))
     }
 }

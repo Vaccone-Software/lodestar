@@ -33,9 +33,14 @@ final class SelectOverlay {
     private var decorations: [NSView] = []
     private let status = NSTextField(labelWithString: "")
     private let statusChip = NSView()
+    /// Held, because the band's clearance depends on which display the
+    /// overlay landed on and whether the Dock is along its bottom.
+    private var statusBottom: NSLayoutConstraint!
 
     private static let chipFont = NSFont.monospacedSystemFont(ofSize: 12, weight: .bold)
     private static let chipHeight: CGFloat = 18
+    /// Clear water between the band and the bottom of the usable screen.
+    private static let bandGap: CGFloat = 10
 
     init() {
         panel = Glass.makePanel(level: .statusBar)
@@ -63,13 +68,15 @@ final class SelectOverlay {
         status.translatesAutoresizingMaskIntoConstraints = false
         statusChip.addSubview(status)
         root.addSubview(statusChip)
+        statusBottom = statusChip.bottomAnchor.constraint(equalTo: root.bottomAnchor,
+                                                          constant: -Self.bandGap)
         NSLayoutConstraint.activate([
             status.leadingAnchor.constraint(equalTo: statusChip.leadingAnchor, constant: 9),
             status.trailingAnchor.constraint(equalTo: statusChip.trailingAnchor, constant: -9),
             status.topAnchor.constraint(equalTo: statusChip.topAnchor, constant: 4),
             status.bottomAnchor.constraint(equalTo: statusChip.bottomAnchor, constant: -4),
             statusChip.centerXAnchor.constraint(equalTo: root.centerXAnchor),
-            statusChip.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -10),
+            statusBottom,
         ])
     }
 
@@ -207,7 +214,7 @@ final class SelectOverlay {
         if state.query.isEmpty {
             quiet(state.stage == .start
                 ? "type what you see"
-                : "now the far end · ⌫ re-opens the start")
+                : "now the far end · ⌘C copies the anchor · ⌫ re-opens the start")
         } else {
             loud(state.query)
             if !state.typedLabel.isEmpty {
@@ -240,5 +247,8 @@ final class SelectOverlay {
                             width: windowFrame.width, height: windowFrame.height)
         panel.setFrame(appKit, display: true)
         panel.orderFrontRegardless()
+        // The scope is the whole display, Dock strip included; the band
+        // steps up over it rather than hiding underneath.
+        statusBottom.constant = -(Self.bandGap + Glass.bottomInset(for: appKit))
     }
 }

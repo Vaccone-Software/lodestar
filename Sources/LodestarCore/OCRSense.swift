@@ -86,52 +86,73 @@ public enum OCRSense {
         text.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
     }
 
-    /// Ground a recognized span against accessibility-read truth.
+    /// The accessibility-read truth, normalized once and kept.
     ///
     /// Recognition of clean screen text is nearly perfect — nearly. The
     /// residue is single-glyph confusion (`1`↔`l`, `0`↔`O`), which is
     /// harmless in prose and catastrophic in an identifier: a copied
     /// token that is one silent character wrong burns a user worse than
     /// no copy at all. So when AX could read the same region, its text is
-    /// the truth: an exact match confirms the span; failing that, the
-    /// span is aligned by its longest word and repaired when the AX
-    /// window agrees at the same length with only a few substituted
-    /// characters. Anything less similar is left alone — a grounding
-    /// that guessed would be the worse corruption.
-    public static func ground(_ span: String, in candidates: [String]) -> String? {
-        let target = normalized(span)
-        guard target.count >= 4 else { return nil }
-        for candidate in candidates where normalized(candidate).contains(target) {
-            return span
+    /// the truth.
+    ///
+    /// Prepared rather than free-standing because normalizing the
+    /// candidates is the expensive half, and a span crossing runs asks
+    /// for a repair once per piece — the preparation belongs to the
+    /// harvest that produced the texts, off the main thread, not to the
+    /// keystroke that commits.
+    public struct Grounding {
+        let haystacks: [String]
+
+        public init(_ candidates: [String]) {
+            haystacks = candidates.map(OCRSense.normalized)
         }
-        // Any word can anchor the alignment — tried longest first, because
-        // longer anchors misalign less. Crucially not ONLY the longest:
-        // the longest word is usually the identifier, and the identifier
-        // is usually the thing that was misread, so the anchor that works
-        // is a clean ordinary word beside it.
-        let anchors = target.split(separator: " ")
-            .filter { $0.count >= 5 }
-            .sorted { $0.count > $1.count }
-        for anchor in anchors {
-            guard let targetAnchor = target.range(of: String(anchor)) else { continue }
-            let lead = target.distance(from: target.startIndex, to: targetAnchor.lowerBound)
-            for candidate in candidates {
-                let haystack = normalized(candidate)
-                guard let anchorRange = haystack.range(of: String(anchor)),
-                      let start = haystack.index(anchorRange.lowerBound, offsetBy: -lead,
-                                                 limitedBy: haystack.startIndex),
-                      let end = haystack.index(start, offsetBy: target.count,
-                                               limitedBy: haystack.endIndex)
-                else { continue }
-                let window = String(haystack[start..<end])
-                guard window.count == target.count else { continue }
-                let mismatches = zip(window, target).filter { $0.0 != $0.1 }.count
-                if mismatches == 0 { return span }
-                if Double(mismatches) / Double(target.count) <= 0.15 {
-                    return window
+
+        /// The truth behind a recognized span, or nil to keep the pixels.
+        /// An exact match confirms the span; failing that, the span is
+        /// aligned by a long word and repaired when the accessibility
+        /// window agrees at the same length with only a few substituted
+        /// characters. Anything less similar is left alone — a grounding
+        /// that guessed would be the worse corruption.
+        public func repair(_ span: String) -> String? {
+            let target = normalized(span)
+            guard target.count >= 4 else { return nil }
+            for haystack in haystacks where haystack.contains(target) {
+                return span
+            }
+            // Any word can anchor the alignment — tried longest first,
+            // because longer anchors misalign less. Crucially not ONLY
+            // the longest: the longest word is usually the identifier,
+            // and the identifier is usually the thing that was misread,
+            // so the anchor that works is a clean ordinary word beside it.
+            let anchors = target.split(separator: " ")
+                .filter { $0.count >= 5 }
+                .sorted { $0.count > $1.count }
+            for anchor in anchors {
+                guard let targetAnchor = target.range(of: String(anchor)) else { continue }
+                let lead = target.distance(from: target.startIndex,
+                                           to: targetAnchor.lowerBound)
+                for haystack in haystacks {
+                    guard let anchorRange = haystack.range(of: String(anchor)),
+                          let start = haystack.index(anchorRange.lowerBound, offsetBy: -lead,
+                                                     limitedBy: haystack.startIndex),
+                          let end = haystack.index(start, offsetBy: target.count,
+                                                   limitedBy: haystack.endIndex)
+                    else { continue }
+                    let window = String(haystack[start..<end])
+                    guard window.count == target.count else { continue }
+                    let mismatches = zip(window, target).filter { $0.0 != $0.1 }.count
+                    if mismatches == 0 { return span }
+                    if Double(mismatches) / Double(target.count) <= 0.15 {
+                        return window
+                    }
                 }
             }
+            return nil
         }
-        return nil
+    }
+
+    /// Ground one span against candidates prepared on the spot.
+    public static func ground(_ span: String, in candidates: [String]) -> String? {
+        Grounding(candidates).repair(span)
     }
 }

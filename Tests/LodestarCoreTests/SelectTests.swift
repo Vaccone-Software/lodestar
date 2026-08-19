@@ -12,6 +12,12 @@ final class SelectCoreTests: XCTestCase {
         }, alphabet: alphabet)
     }
 
+    /// The pieces a landed span covers, or nil if the effect was not one.
+    private func pieces(_ effect: SelectCore.Effect) -> [SelectCore.Match]? {
+        guard case .selected(let pieces) = effect else { return nil }
+        return pieces
+    }
+
     // MARK: - Searching
 
     func testLowercaseSearchesCaseInsensitively() {
@@ -54,6 +60,27 @@ final class SelectCoreTests: XCTestCase {
         XCTAssertEqual(c.totalMatches, 80, "but the band can still say how many")
     }
 
+    func testTheChipWindowSlidesToTheAnchor() {
+        // Forty matches and an anchor past all of them: chips belong where
+        // the work is, not at the top of the page.
+        let text = Array(repeating: "xy", count: 40).joined(separator: " ") + " target"
+        var c = core([text])
+        for ch in "target" { _ = c.key(String(ch), shift: false) }
+        XCTAssertEqual(c.key("a", shift: true), .anchored)
+        for ch in "xy" { _ = c.key(String(ch), shift: false) }
+        XCTAssertEqual(c.matches.count, SelectCore.displayCap)
+        XCTAssertEqual(c.totalMatches, 40, "and the band still counts them all")
+        XCTAssertEqual(c.matches.first?.range.location, 30, "the eleventh xy, not the first")
+        XCTAssertEqual(c.matches.last?.range.location, 117, "through the fortieth")
+    }
+
+    func testWithNoAnchorTheChipsStartAtTheTop() {
+        let text = Array(repeating: "xy", count: 40).joined(separator: " ")
+        var c = core([text])
+        for ch in "xy" { _ = c.key(String(ch), shift: false) }
+        XCTAssertEqual(c.matches.first?.range.location, 0, "stage one reads from the top")
+    }
+
     func testUnknownKeysMeanNothing() {
         var c = core(["text"])
         XCTAssertEqual(c.key("tab", shift: false), .none)
@@ -69,12 +96,12 @@ final class SelectCoreTests: XCTestCase {
         XCTAssertEqual(c.key("a", shift: true), .anchored, "first capital = start")
         XCTAssertEqual(c.query, "", "the query resets for the far end")
         for ch in "fox" { _ = c.key(String(ch), shift: false) }
-        guard case .selected(let element, let range) = c.key("a", shift: true) else {
+        guard let span = pieces(c.key("a", shift: true)), span.count == 1 else {
             return XCTFail("second capital must select")
         }
-        XCTAssertEqual(element, 0)
+        XCTAssertEqual(span[0].element, 0)
         // start of "quick" (4) through end of "fox" (19).
-        XCTAssertEqual(range, NSRange(location: 4, length: 15))
+        XCTAssertEqual(span[0].range, NSRange(location: 4, length: 15))
     }
 
     func testBackwardAnchorsNormalizeBecauseDirectionDoesNotExist() {
@@ -82,20 +109,69 @@ final class SelectCoreTests: XCTestCase {
         for ch in "fox" { _ = c.key(String(ch), shift: false) }
         _ = c.key("a", shift: true)
         for ch in "quick" { _ = c.key(String(ch), shift: false) }
-        guard case .selected(_, let range) = c.key("a", shift: true) else {
+        guard let span = pieces(c.key("a", shift: true)), span.count == 1 else {
             return XCTFail()
         }
-        XCTAssertEqual(range, NSRange(location: 4, length: 15),
+        XCTAssertEqual(span[0].range, NSRange(location: 4, length: 15),
                        "two anchors make a span; order of placement is nobody's business")
     }
 
-    func testStageTwoConfinesItselfToTheAnchorsElement() {
+    func testStageTwoStillSearchesEverything() {
+        // The far end lives wherever the eye finds it. Text arrives cut
+        // into per-line runs constantly — a diff, a chat log, most of any
+        // web page — and confining stage two to the anchor's own run made
+        // "the line you started on" an invisible wall.
         var c = core(["alpha beta", "beta gamma"])
         for ch in "gamma" { _ = c.key(String(ch), shift: false) }
         _ = c.key("a", shift: true) // anchored in element 1
         for ch in "beta" { _ = c.key(String(ch), shift: false) }
-        XCTAssertEqual(c.matches.map(\.element), [1],
-                       "a span cannot cross elements, so element 0 makes no promises")
+        XCTAssertEqual(c.matches.map(\.element), [0, 1],
+                       "both elements answer; a span may cross them")
+    }
+
+    func testASpanAcrossElementsTakesTailWholesAndHead() {
+        var c = core(["first line here", "middle line", "last line there"])
+        for ch in "here" { _ = c.key(String(ch), shift: false) }
+        _ = c.key("a", shift: true) // anchor at "here", end of element 0
+        for ch in "last" { _ = c.key(String(ch), shift: false) }
+        guard let span = pieces(c.key("a", shift: true)) else { return XCTFail() }
+        XCTAssertEqual(span.map(\.element), [0, 1, 2],
+                       "everything between, in document order")
+        let texts = span.map { piece -> String in
+            let text = ["first line here", "middle line", "last line there"][piece.element]
+            return (text as NSString).substring(with: piece.range)
+        }
+        XCTAssertEqual(texts, ["here", "middle line", "last"],
+                       "tail of the first, the middle whole, head of the last")
+    }
+
+    func testACrossElementSpanNormalizesLikeAnyOther() {
+        var c = core(["first line here", "last line there"])
+        for ch in "there" { _ = c.key(String(ch), shift: false) }
+        _ = c.key("a", shift: true) // anchored in the LAST element
+        for ch in "first" { _ = c.key(String(ch), shift: false) }
+        guard let span = pieces(c.key("a", shift: true)) else { return XCTFail() }
+        XCTAssertEqual(span.map(\.element), [0, 1], "document order, not typing order")
+        XCTAssertEqual(span[0].range, NSRange(location: 0, length: 15))
+        XCTAssertEqual(span[1].range, NSRange(location: 0, length: 15))
+    }
+
+    func testEmptyElementsBetweenAreNotPieces() {
+        var c = core(["alpha here", "", "omega there"])
+        for ch in "here" { _ = c.key(String(ch), shift: false) }
+        _ = c.key("a", shift: true)
+        for ch in "omega" { _ = c.key(String(ch), shift: false) }
+        guard let span = pieces(c.key("a", shift: true)) else { return XCTFail() }
+        XCTAssertEqual(span.map(\.element), [0, 2], "nothing has no rectangle to draw")
+    }
+
+    func testTheAnchorIsTheWholeWordFromTheMomentItLands() {
+        // What the highlight shows is what ⌘C would take — so the anchor
+        // is a word, not the two characters that named it.
+        var c = core(["the quick brown fox jumps"])
+        for ch in "ui" { _ = c.key(String(ch), shift: false) }
+        XCTAssertEqual(c.key("a", shift: true), .anchored)
+        XCTAssertEqual(c.anchor?.range, NSRange(location: 4, length: 5), "'quick', whole")
     }
 
     func testTwoLetterLabelsPickInTwoCapitals() {
@@ -160,10 +236,10 @@ final class SelectCoreTests: XCTestCase {
         for ch in "uick" { _ = c.key(String(ch), shift: false) }
         _ = c.key("a", shift: true)
         for ch in "fo" { _ = c.key(String(ch), shift: false) }
-        guard case .selected(_, let range) = c.key("a", shift: true) else {
+        guard let span = pieces(c.key("a", shift: true)), span.count == 1 else {
             return XCTFail()
         }
-        XCTAssertEqual(range, NSRange(location: 4, length: 15),
+        XCTAssertEqual(span[0].range, NSRange(location: 4, length: 15),
                        "'uick' means from quick; 'fo' means through fox")
     }
 
@@ -173,11 +249,11 @@ final class SelectCoreTests: XCTestCase {
         for ch in "hub" { _ = c.key(String(ch), shift: false) }
         _ = c.key("a", shift: true)
         for ch in "hub" { _ = c.key(String(ch), shift: false) }
-        guard case .selected(_, let range) = c.key("a", shift: true) else {
+        guard let span = pieces(c.key("a", shift: true)), span.count == 1 else {
             return XCTFail()
         }
         let text = "see github.com/lodestar for more" as NSString
-        XCTAssertEqual(text.substring(with: range), "github.com/lodestar")
+        XCTAssertEqual(text.substring(with: span[0].range), "github.com/lodestar")
     }
 
     // MARK: - Backspace
@@ -238,6 +314,31 @@ final class SelectEngineTests: XCTestCase {
         XCTAssertEqual(press("delete"), [.selectBackspace])
         XCTAssertEqual(press("escape"), [.exitSelect])
         XCTAssertEqual(core.state, .idle)
+    }
+
+    func testCommandCTakesTheAnchoredWordAndEndsTheMode() {
+        _ = press("/", held: true)
+        let effects = core.keyDown(key: "c", held: false, shift: false, command: true,
+                                   world: world)
+        XCTAssertTrue(world.calls.contains("selectCopy"))
+        XCTAssertEqual(effects, [.exitSelect], "one word costs one pick and a ⌘C")
+        XCTAssertEqual(core.state, .idle)
+    }
+
+    func testCommandCWithNothingAnchoredLeavesTheModeStanding() {
+        world.selectCopyStep = .pending
+        _ = press("/", held: true)
+        XCTAssertEqual(core.keyDown(key: "c", held: false, shift: false, command: true,
+                                    world: world), [],
+                       "swallowed like every other key here")
+        XCTAssertEqual(core.state, .select, "nothing to take, nothing to end")
+    }
+
+    func testPlainCIsStillTyping() {
+        _ = press("/", held: true)
+        XCTAssertEqual(press("c"), [])
+        XCTAssertTrue(world.calls.contains("selectKey:c"))
+        XCTAssertFalse(world.calls.contains("selectCopy"), "the modifier is the whole gesture")
     }
 
     func testAnotherLodeVerbExitsAndExecutes() {

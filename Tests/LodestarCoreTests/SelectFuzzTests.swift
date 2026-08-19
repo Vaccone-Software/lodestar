@@ -57,17 +57,26 @@ final class SelectFuzzTests: XCTestCase {
                                              text.length, "seed \(seed)")
                 }
 
-                // Invariant: a landed selection is extractable text whose
-                // snap contains what was matched.
-                if case .selected(let elementIndex, let range) = effect {
-                    guard let element = elements.first(where: { $0.id == elementIndex })
-                    else { return XCTFail("seed \(seed)") }
-                    let text = element.text as NSString
-                    XCTAssertGreaterThanOrEqual(range.location, 0)
-                    XCTAssertLessThanOrEqual(range.location + range.length, text.length,
-                                             "seed \(seed): span escapes its element")
-                    XCTAssertGreaterThan(range.length, 0)
-                    _ = text.substring(with: range) // must not trap
+                // Invariant: a landed selection is extractable text in
+                // every piece it covers, the pieces walk document order,
+                // and no piece is empty or escapes its element.
+                if case .selected(let pieces) = effect {
+                    XCTAssertFalse(pieces.isEmpty, "seed \(seed)")
+                    var previous = -1
+                    for piece in pieces {
+                        guard let element = elements.first(where: { $0.id == piece.element })
+                        else { return XCTFail("seed \(seed)") }
+                        XCTAssertGreaterThan(piece.element, previous,
+                                             "seed \(seed): pieces run in document order")
+                        previous = piece.element
+                        let text = element.text as NSString
+                        XCTAssertGreaterThanOrEqual(piece.range.location, 0)
+                        XCTAssertLessThanOrEqual(piece.range.location + piece.range.length,
+                                                 text.length,
+                                                 "seed \(seed): span escapes its element")
+                        XCTAssertGreaterThan(piece.range.length, 0)
+                        _ = text.substring(with: piece.range) // must not trap
+                    }
                 }
             }
         }

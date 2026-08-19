@@ -11,10 +11,22 @@ public enum Gestures {
         public let about: String
     }
 
+    /// The top-level letters the grammar keeps for its own verbs: a graph
+    /// address here would be shadowed forever. **This is the one place that
+    /// decides**; `Config.reservedTopLevel` and the advisor both read it,
+    /// because each of the last three key moves left a copy behind.
+    ///
+    /// Empty as of 0.17, and meant to stay that way — the whole alphabet
+    /// belongs to the graph. O rejoined it in 0.14.2 when orientation moved
+    /// to `\`, X when the attention timeline was retired, and Z when undo
+    /// moved to the arrows. Every verb now lives on a key the graph cannot
+    /// want.
+    public static let reservedLetters: Set<String> = []
+
     /// All letters a graph chain can start on: the alphabet minus the
-    /// reserved verbs o, x, and z.
+    /// letters the verbs own.
     public static let graphLetters: [String] =
-        "abcdefghijklmnopqrstuvwxyz".map(String.init).filter { !["o", "x", "z"].contains($0) }
+        "abcdefghijklmnopqrstuvwxyz".map(String.init).filter { !reservedLetters.contains($0) }
 
     /// Ordered as the config template lists them.
     public static let roster: [Verb] = [
@@ -28,9 +40,8 @@ public enum Gestures {
         Verb(name: "breaths", keys: ["'"], about: "lode ', saved layouts"),
         Verb(name: "maximize", keys: ["0"], about: "lode 0 fill the display with the focused window, ⇧0 beside"),
         Verb(name: "index-jump", keys: (1...9).map(String.init), about: "lode 1…9 jump, ⇧1…9 slide"),
-        Verb(name: "flip-orientation", keys: ["o"], about: "lode O, flip the layout axis"),
-        Verb(name: "layout-undo", keys: ["z"], about: "lode Z undo, ⇧Z redo"),
-        Verb(name: "back-forward", keys: ["x"], about: "lode X back, ⇧X forward"),
+        Verb(name: "flip-orientation", keys: ["\\"], about: "lode \\, flip the layout axis"),
+        Verb(name: "layout-undo", keys: ["left", "right"], about: "lode ← undo, lode → redo"),
         Verb(name: "display-move", keys: ["[", "]"], about: "lode [ and ], move across displays"),
         Verb(name: "cheat-sheet", keys: ["/"], about: "lode ?, the gesture reference"),
     ]

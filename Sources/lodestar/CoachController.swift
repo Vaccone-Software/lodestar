@@ -62,7 +62,7 @@ final class CoachController {
     // Wired by the app delegate.
     /// Everything a recommendation pass needs, gathered on the main thread.
     var contextInputs: () -> (observations: Observations,
-                              leaves: [(chain: [String], label: String)],
+                              leaves: [Advisor.Leaf],
                               webRoutes: [String: String],
                               profileKeys: [String: String],
                               logFile: URL)? = { nil }

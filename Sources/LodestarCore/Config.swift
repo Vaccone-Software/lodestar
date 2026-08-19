@@ -97,10 +97,10 @@ public struct Config {
     /// rolls back still finds its config. Retired at 1.0.
     public static let yamlFile = directory.appendingPathComponent("lodestar.yaml")
 
-    /// Top-level chain letters the primitives own; the graph may not use them.
-    /// First letters the grammar keeps for verbs: Z undo, X timeline.
-    /// O rejoined the graph in 0.14.2 when orientation moved to \.
-    public static let reservedTopLevel: Set<String> = ["z", "x"]
+    /// Top-level chain letters the primitives own; the graph may not use
+    /// them. Defined once in `Gestures` so a key move cannot leave a stale
+    /// copy here — which is exactly what happened twice.
+    public static let reservedTopLevel: Set<String> = Gestures.reservedLetters
 
     /// The schema: one table driving reload validation and the JSON Schema
     /// editors read. Keep in lockstep with `parse` below.

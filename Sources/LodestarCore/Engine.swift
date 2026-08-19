@@ -63,8 +63,6 @@ public enum EngineEffect: Equatable {
     case flipOrientation
     case undoLayout
     case redoLayout
-    case goBack
-    case goForward
     case indexJump(Int)
     case reorder(Int)
     case moveDisplay(direction: Int, beside: Bool)
@@ -318,10 +316,10 @@ public struct EngineCore {
             // The key wearing the vertical bar flips the layout — moved
             // off O so the letter can go back to being an address.
             effects.append(.flipOrientation)
-        case "z":
-            effects.append(shift ? .redoLayout : .undoLayout)
-        case "x":
-            effects.append(shift ? .goForward : .goBack)
+        case "left":
+            effects.append(.undoLayout)
+        case "right":
+            effects.append(.redoLayout)
         case "[":
             effects.append(.moveDisplay(direction: -1, beside: shift))
         case "]":

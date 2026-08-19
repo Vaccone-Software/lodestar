@@ -130,7 +130,9 @@ public enum Coach {
         switch rec.kind {
         case .bind, .nudge: return .app(rec.target)
         case .shorten:
-            if case .bindApp(_, let app)? = rec.edit { return .app(app.lowercased()) }
+            if case .bindTarget(_, let target)? = rec.edit {
+                return .app((rec.display ?? target).lowercased())
+            }
             return nil
         case .route: return .host(rec.target)
         case .rebind, .retire, .breath: return nil
@@ -145,9 +147,12 @@ public enum Coach {
         var evidence = rec.detail
         switch rec.kind {
         case .bind, .shorten:
-            if case .bindApp(let chain, let app)? = rec.edit {
+            if case .bindTarget(let chain, let target)? = rec.edit {
                 let shown = chain.map { $0.uppercased() }.joined(separator: " ")
-                headline = "lode \(shown) → \(app)"
+                // The label, never the config value: a chip saying
+                // "lode X → brave:xonar" quotes the machinery at someone
+                // who only ever asked for their browser.
+                headline = "lode \(shown) → \(rec.display ?? target)"
             } else {
                 headline = rec.target
             }

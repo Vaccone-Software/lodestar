@@ -12,6 +12,21 @@ public enum GraphTarget: Equatable {
             return "\(profile.browser.label) (\(profile.display))"
         }
     }
+
+    /// What a config line writes to bind this target: a plain app name, or
+    /// `brave:xonar` for a browser profile.
+    ///
+    /// Deliberately distinct from `label`. "Brave (Xonar)" is nothing anyone
+    /// has installed, so anything that commits the label instead lands in
+    /// `AppIndex.entry(named:)`, misses on the exact match, and fuzzy-ranks
+    /// its way to plain Brave — binding the wrong thing without a word.
+    public var configValue: String {
+        switch self {
+        case .app(let name): return name
+        case .browserProfile(let key, let profile):
+            return "\(profile.browser.rawValue):\(key)"
+        }
+    }
 }
 
 /// The chain trie. Built from config, so it is acyclic by construction; the

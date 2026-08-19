@@ -12,8 +12,10 @@ import Foundation
 /// chip actionable: the coach's verb is exactly one line, and anything
 /// that cannot be one line stays in the report.
 public enum ConfigEdit: Codable, Equatable {
-    /// Bind an app at a chain (bind and shorten both land here).
-    case bindApp(chain: [String], app: String)
+    /// Bind a graph target at a chain (bind and shorten both land here).
+    /// `target` is what the config line writes — an app name, or
+    /// `brave:xonar` for a browser profile. Never a display label.
+    case bindTarget(chain: [String], target: String)
     /// Remove a binding (retire).
     case removeChain(chain: [String])
     /// One route line: pattern → profile registry key.
@@ -46,28 +48,53 @@ public struct Recommendation: Codable, Equatable {
     /// Posterior probability the change saves net time over the horizon.
     public var probability: Double
     public var evidence: [String]
+    /// What to call the target on screen, when that differs from what the
+    /// edit writes: a browser profile shows as "Brave (Xonar)" and commits
+    /// "brave:xonar". Nil means the edit's own target already reads as a
+    /// name a person would recognise.
+    public var display: String?
     /// The write this recommendation proposes, when it is one config line.
     /// Nil means report-only: the chip never offers what it cannot commit.
     public var edit: ConfigEdit?
 
     public init(kind: Kind, target: String, detail: String, secondsPerWeek: Double,
-                probability: Double, evidence: [String], edit: ConfigEdit? = nil) {
+                probability: Double, evidence: [String], display: String? = nil,
+                edit: ConfigEdit? = nil) {
         self.kind = kind
         self.target = target
         self.detail = detail
         self.secondsPerWeek = secondsPerWeek
         self.probability = probability
         self.evidence = evidence
+        self.display = display
         self.edit = edit
     }
 }
 
 public enum Advisor {
+    /// One bound address, as the advisor needs to see it.
+    public struct Leaf {
+        public let chain: [String]
+        /// What a person calls it — mnemonic letters and chip text come
+        /// from here.
+        public let label: String
+        /// What a config line writes to bind the same target. For a browser
+        /// profile the two differ ("Brave (Xonar)" against "brave:xonar"),
+        /// and an edit that commits the label silently binds plain Brave.
+        public let value: String
+
+        public init(chain: [String], label: String, value: String) {
+            self.chain = chain
+            self.label = label
+            self.value = value
+        }
+    }
+
     public struct Context {
         public var observations: Observations
         public var events: [ObservationEvent]
-        /// Bound chains and their target labels, from the live graph.
-        public var leaves: [(chain: [String], label: String)]
+        /// Bound chains and their targets, from the live graph.
+        public var leaves: [Leaf]
         /// The web route table, so an already-covered host stays quiet.
         public var webRoutes: [String: String]
         /// Observed profile identity ("brave:Work") → registry key ("work"),
@@ -76,7 +103,7 @@ public enum Advisor {
         public var now: Date
 
         public init(observations: Observations, events: [ObservationEvent],
-                    leaves: [(chain: [String], label: String)],
+                    leaves: [Leaf],
                     webRoutes: [String: String] = [:],
                     profileKeys: [String: String] = [:], now: Date = Date()) {
             self.observations = observations
@@ -95,6 +122,21 @@ public enum Advisor {
     static let horizonWeeks = 26
     static let horizonHalfLife = 12.0
     static let probabilityGate = 0.9
+
+    /// A stable seed for the Monte Carlo. `hashValue` cannot do this job:
+    /// Swift randomises it per process, so seeding from it made every run
+    /// draw a different sample — the precise opposite of what `Random`
+    /// promises below, and enough to make a candidate sitting near the
+    /// gate appear and vanish between runs. FNV-1a over the bytes is
+    /// stable, and total (`abs()` on `Int.min` would have trapped).
+    static func seed(_ text: String) -> UInt64 {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in text.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x0000_0100_0000_01B3
+        }
+        return hash
+    }
 
     /// Deterministic LCG so the Monte Carlo is replayable in tests.
     struct Random {
@@ -138,13 +180,11 @@ public enum Advisor {
 
     // MARK: - Shared
 
-    /// Letters the grammar itself owns: X walks the timeline, Z undoes.
-    /// (O flipped orientation until 0.14.2, when the verb moved to \ and
-    /// the letter went back to being an address.) A graph slot here would
-    /// be shadowed by the verb, and the coach must never offer what the
-    /// grammar reserves — found the hard way when Zoom's mnemonic Z
-    /// nearly cleared the gates.
-    static let reservedLetters: Set<String> = ["x", "z"]
+    /// Letters the grammar itself owns — the coach must never offer what
+    /// the grammar reserves, found the hard way when Zoom's mnemonic Z
+    /// nearly cleared the gates. Read from `Gestures`, never copied: this
+    /// constant drifted out of date behind two separate key moves.
+    static let reservedLetters: Set<String> = Gestures.reservedLetters
 
     static func freeLetters(_ context: Context) -> Set<String> {
         let taken = Set(context.leaves.compactMap { $0.chain.first })
@@ -156,12 +196,21 @@ public enum Advisor {
     /// then what the user actually types into the launcher to find it.
     static func mnemonicLetters(app: String, record: Observations.AppRecord?) -> [String] {
         var letters: [String] = []
-        for word in app.lowercased().split(separator: " ") {
-            if let first = word.first, first.isLetter { letters.append(String(first)) }
+        // Split on anything that is not a letter or digit, and take each
+        // word's first *letter* rather than its first character. Splitting
+        // on spaces alone dropped every parenthesised word — and Lodestar
+        // writes those itself (`Graph.Target.label` renders a browser
+        // profile as "Brave (Xonar)"), so the distinguishing half of every
+        // profile name was invisible here. The same slip hid "1Password"
+        // behind its digit.
+        for word in app.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }) {
+            if let first = word.first(where: { $0.isLetter }) { letters.append(String(first)) }
         }
         if let prefixes = record?.prefixes {
             for (prefix, _) in prefixes.sorted(by: { $0.value > $1.value }) {
-                if let first = prefix.first, first.isLetter { letters.append(String(first)) }
+                if let first = prefix.first(where: { $0.isLetter }) {
+                    letters.append(String(first))
+                }
             }
         }
         var seen = Set<String>()
@@ -217,7 +266,7 @@ public enum Advisor {
                                    perUseSavedSD: max(0.1, launcherSD),
                                    usesPerWeek: demand.perWeek, usesPerWeekSE: demand.se,
                                    oneOffCost: learningCost,
-                                   seed: UInt64(abs(app.hashValue)))
+                                   seed: seed(app))
             guard value.probability >= probabilityGate else { continue }
             out.append((Recommendation(
                 kind: .bind, target: app,
@@ -229,7 +278,7 @@ public enum Advisor {
                     String(format: "launcher costs %.2fs; lode %@ predicted %.2fs",
                            launcherSeconds, slot.uppercased(), chainSeconds),
                     String(format: "learning bill ≈ %.0fs, from your own curves", learningCost),
-                ], edit: .bindApp(chain: [slot], app: app)), 1 - value.probability))
+                ], edit: .bindTarget(chain: [slot], target: app)), 1 - value.probability))
         }
         return out
     }
@@ -289,10 +338,29 @@ public enum Advisor {
             let proposed = latency.chainSeconds([slot])
             let saved = current - proposed
             guard saved > 0.05 else { continue }
-            let value = netBenefit(perUseSavedMean: saved, perUseSavedSD: latency.residualSD * saved,
+            // The saving is a difference of two *means*, so what matters is
+            // how well each mean is known — not how much a single keystroke
+            // varies. Pricing it as `residualSD * saved` made
+            // P(saves time) = Φ(1 / residualSD) for every candidate alike:
+            // a constant, unmoved by the size of the saving or by the
+            // evidence behind it, and at this user's spread it sat at 0.85
+            // against a 0.9 gate, so no shorten could ever be offered.
+            // The chain being replaced has been completed this many times,
+            // so its mean tightens as √n; the proposed chain has never been
+            // typed at all, so it keeps the full population spread.
+            //
+            // Count *completions*, not `latency.fluency[key]?.n`: that is one
+            // sample per keystroke gap, so a two-letter chain would claim √2
+            // more evidence than it has — and the gaps inside one completion
+            // are correlated anyway, so they are not independent draws.
+            let currentSD = current * latency.residualSD
+                / Double(max(1, record.completions)).squareRoot()
+            let proposedSD = proposed * latency.residualSD
+            let savedSD = (currentSD * currentSD + proposedSD * proposedSD).squareRoot()
+            let value = netBenefit(perUseSavedMean: saved, perUseSavedSD: savedSD,
                                    usesPerWeek: weekly, usesPerWeekSE: weekly.squareRoot(),
                                    oneOffCost: learningCost,
-                                   seed: UInt64(abs(key.hashValue)))
+                                   seed: seed(key))
             guard value.probability >= probabilityGate else { continue }
             let shown = "lode " + leaf.chain.map { $0.uppercased() }.joined(separator: " ")
             out.append((Recommendation(
@@ -302,7 +370,8 @@ public enum Advisor {
                 secondsPerWeek: value.secondsPerWeek, probability: value.probability,
                 evidence: [String(format: "%.2fs now vs %.2fs shortened, %d completions",
                                   current, proposed, record.completions)],
-                edit: .bindApp(chain: [slot], app: leaf.label)),
+                display: leaf.label,
+                edit: .bindTarget(chain: [slot], target: leaf.value)),
                 1 - value.probability))
         }
         return out

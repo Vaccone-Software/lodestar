@@ -24,8 +24,7 @@ Lode is **right ⌘** (configurable in `~/.config/lodestar/lodestar.json`).
 | `lode ;` / `lode ⇧;`           | Click hints on the focused window — `⇧;` chains clicks (sticky)              |
 | `lode /`                       | Select text by typing it — lowercase searches, `⇧letter` anchors             |
 | `lode [` / `lode ]`            | Move the focused window to the prev/next display (`⇧` = arrive beside)       |
-| `lode Z` / `lode ⇧Z`           | Undo / redo the layout (summons, besides, flips, breaths)                    |
-| `lode X` / `lode ⇧X`           | Back / forward — walk the attention timeline (previous destinations)         |
+| `lode ←` / `lode →`            | Undo / redo the layout (summons, besides, flips, breaths)                    |
 | `lode ⇧1…9`                    | Slide the focused window to that position (insert-and-shift, 9 = last)       |
 | `lode 0` / `lode ⇧0`           | The focused window fills the display, rest parked — `⇧0` joins beside        |
 | `⌫` inside breaths             | Arm delete — the next path typed is deleted, not visited                     |
@@ -36,7 +35,7 @@ Lode is **right ⌘** (configurable in `~/.config/lodestar/lodestar.json`).
 
 ## Chains are sticky, on purpose
 
-Once a traversal starts (`lode W`, `` lode ` ``, …) it waits **indefinitely** — the gesture is identical whether you finish it in 80ms or after a phone call. The glass guide panel stays on screen the whole time showing your prefix and every legal continuation (with app icons); a wrong letter keeps you in place with a note rather than ejecting you. Only a completion or `esc` ends the chain. While a chain is active, stray keystrokes are swallowed (they never leak into the focused app). And holding lode by itself for half a second peeks the top-level guide — the system teaches its own map.
+Once a traversal starts (`lode W`, `lode '`, …) it waits **indefinitely** — the gesture is identical whether you finish it in 80ms or after a phone call. The glass guide panel stays on screen the whole time showing your prefix and every legal continuation (with app icons); a wrong letter keeps you in place with a note rather than ejecting you. Only a completion or `esc` ends the chain. While a chain is active, stray keystrokes are swallowed (they never leak into the focused app). And holding lode by itself for half a second peeks the top-level guide — the system teaches its own map.
 
 ## Launcher ranking & teaching
 
@@ -58,7 +57,7 @@ Results are ranked by fuzzy match quality **plus frecency** — every summon (gr
 
 **They are left alone.** A window born outside Lodestar — a launcher, the Dock, `⌘N`, a certificate prompt, a file reveal — floats untouched above your layout, exactly as macOS would have it, and never hides what you were reading. System and accessibility floaters (notch apps, Control Center, overlay slivers) belong to accessory processes the model never even tracks.
 
-**`lode 0` makes the focused window fill the display** when you want it managed: the summon treatment on demand, everything already in the layout parked, `⇧0` to join beside instead. It also **enrols** the window, so from then on it answers to `lode 1…9`, breaths, orientation flips, and `lode Z` like anything Lodestar summoned. That is the only way an unmanaged window becomes managed — Lodestar never decides on its own that a new window is a destination, and nothing is ever parked except what a placement displaced.
+**`lode 0` makes the focused window fill the display** when you want it managed: the summon treatment on demand, everything already in the layout parked, `⇧0` to join beside instead. It also **enrols** the window, so from then on it answers to `lode 1…9`, breaths, orientation flips, and `lode ←` like anything Lodestar summoned. That is the only way an unmanaged window becomes managed — Lodestar never decides on its own that a new window is a destination, and nothing is ever parked except what a placement displaced.
 
 ## The clipboard
 
@@ -203,6 +202,6 @@ it. A yaml that fails to parse is never converted.
 - **`lodestar --check`** — full validation from the CLI, exit code included: `~/Applications/lodestar.app/Contents/MacOS/lodestar --check`.
 - **`keys:`** overlays the built-in ANSI keycode table for non-ANSI layouts (`keycode: name`).
 - **Crash self-healing**: the LaunchAgent restarts Lodestar after a crash (10s throttle) but never after a clean Quit.
-- **Back (`lode X`)** pairs with undo: Z rewinds arrangements, X rewinds attention. History records every focus change (however it happened), back-jumps summon with the standard placement rules, a fresh navigation truncates the forward branch, and dead windows are skipped.
+- **Every letter belongs to the graph.** As of 0.17 no letter is reserved: orientation moved to `\` in 0.14.2, the attention timeline was retired, and layout undo moved to `lode ←` / `lode →`, where walking a history is what the arrows already mean. A verb that sits on a letter costs an address forever, and an address is the scarcer thing.
 - Menu harvesting and scroll-pane discovery run off the main thread — a hung app can no longer freeze Lodestar's UI; the panel opens instantly and rows arrive when ready.
 - **Logs are logfmt** (`15:04 INFO summon target=Slack candidates=[8688]`) — greppable and machine-parseable — rotating at 5MB with two predecessors kept (`.1`, `.2`), bounded ~15MB, history preserved.

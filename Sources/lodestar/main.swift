@@ -200,7 +200,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }, uniquingKeysWith: { first, _ in first })
             return (observations: self.observationStore.observations,
                     leaves: self.config.graph.leaves().map {
-                        (chain: $0.chain, label: $0.target.label)
+                        Advisor.Leaf(chain: $0.chain, label: $0.target.label,
+                                     value: $0.target.configValue)
                     },
                     webRoutes: self.config.webRoutes,
                     profileKeys: identityToKey,
@@ -209,11 +210,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         coach.applyEdit = { [weak self] edit in
             guard let self else { return "lodestar is shutting down" }
             switch edit {
-            case .bindApp(let chain, let app):
-                guard let entry = self.appIndex.entry(named: app) else {
-                    return "\(app) is not installed any more"
-                }
-                return self.addAppToGraph(chain, entry: entry)
+            case .bindTarget(let chain, let target):
+                return self.addTargetToGraph(chain, target: target)
             case .removeChain(let chain):
                 return self.removeChainFromGraph(chain)
             case .addRoute(let pattern, let profileKey):
@@ -373,7 +371,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 detail: "a rehearsal · this is how a real finding will arrive",
                 secondsPerWeek: 42, probability: 0.97,
                 evidence: ["synthetic, for the dress rehearsal"],
-                edit: .bindApp(chain: [slot], app: entry.name))
+                edit: .bindTarget(chain: [slot], target: entry.name))
             coach.armDemo(rec)
             Log.info("coach", ["demo": "armed", "slot": slot, "app": entry.name])
             return
@@ -849,8 +847,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// the live trie, so sugar keys and merged branches are all visible.
     private func chainProblem(_ letters: [String]) -> String? {
         guard let first = letters.first else { return nil }
+        // Empty as of 0.17, so this never fires today. It stays as a guard
+        // in case a verb ever moves back onto a letter — which is exactly
+        // why the message no longer names particular letters.
         if Config.reservedTopLevel.contains(first) {
-            return "\(first.uppercased()) is reserved — X and Z are fixed verbs"
+            return "\(first.uppercased()) is reserved for a fixed verb"
         }
         for depth in 1...letters.count {
             let prefix = Array(letters[0..<depth])
@@ -877,6 +878,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         root = updated
         try? Config.write(tree: root)
         Log.info("clipboard", ["excluded-app": bundleID])
+    }
+
+    /// Bind whatever a config line would write. A browser-profile reference
+    /// ("brave:xonar") names an entry in the profiles registry rather than an
+    /// installed app, so it binds exactly as written; a plain app name is
+    /// checked against what is actually installed first. Sending a profile
+    /// through the app index instead would miss the exact match, fuzzy-rank
+    /// its way to the plain browser, and bind the wrong thing in silence.
+    private func addTargetToGraph(_ letters: [String], target: String) -> String? {
+        let lowered = target.lowercased()
+        guard let browser = ChromiumBrowser.allCases.first(where: {
+            lowered.hasPrefix("\($0.rawValue):")
+        }) else {
+            guard let entry = appIndex.entry(named: target) else {
+                return "\(target) is not installed any more"
+            }
+            return addAppToGraph(letters, entry: entry)
+        }
+        let key = String(lowered.dropFirst(browser.rawValue.count + 1))
+            .trimmingCharacters(in: .whitespaces)
+        guard let profile = config.browserProfiles[key], profile.browser == browser else {
+            return "\(target) is not a profile you have declared"
+        }
+        if let problem = chainProblem(letters) { return problem }
+        let shown = letters.map { $0.uppercased() }.joined(separator: " ")
+        let name = GraphTarget.browserProfile(key: key, profile: profile).label
+        return rewriteConfig(flash: "✓ lode \(shown) → \(name)") {
+            try GraphJsonEditor.addingPath(letters, target: "\(browser.rawValue):\(key)", in: $0)
+        }
     }
 
     private func addAppToGraph(_ letters: [String], entry: AppIndex.Entry) -> String? {

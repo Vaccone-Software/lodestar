@@ -168,7 +168,7 @@ public final class ObservationStore {
         event.rec = rec.kind.rawValue
         event.app = rec.target
         event.seconds = rec.secondsPerWeek
-        if case .bindApp(let chain, _)? = rec.edit {
+        if case .bindTarget(let chain, _)? = rec.edit {
             event.address = Observations.key(chain)
         } else if case .removeChain(let chain)? = rec.edit {
             event.address = Observations.key(chain)

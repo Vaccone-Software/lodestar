@@ -134,8 +134,9 @@ final class PipelineTests: XCTestCase {
         // And the advisor reads the world correctly: FaceTime deserves F.
         let context = Advisor.Context(
             observations: o, events: events,
-            leaves: [(chain: ["g"], label: "Ghostty"),
-                     (chain: ["b", "d"], label: "Brave (default)")],
+            leaves: [.init(chain: ["g"], label: "Ghostty", value: "Ghostty"),
+                     .init(chain: ["b", "d"], label: "Brave (default)",
+                           value: "brave:default")],
             webRoutes: [:],
             now: start.addingTimeInterval(4 * 604_800))
         let recommendations = Advisor.recommend(context)

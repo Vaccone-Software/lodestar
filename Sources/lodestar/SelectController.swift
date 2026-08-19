@@ -122,11 +122,6 @@ final class SelectController {
         dissolveGhost()
         core = nil
         units = []
-        // The OCR fast pass adopts in ~100ms while the AX harvest has a
-        // 2.5s deadline, so a commit can land while this still holds the
-        // last window's strings — and grounding would then hand ⌘C text
-        // harvested from a different app.
-        groundingTexts = []
         windowFrame = window.frame
         appName = window.appName
         generation += 1
@@ -177,12 +172,10 @@ final class SelectController {
         // just painted. The overlay is the ghost's canvas: it stays up
         // exactly as long as the ghost stands.
         if ghost == nil { overlay.hide() }
-        // A harvest is up to 600 units of OCR-backed lines and 200k
-        // characters of grounding text; none of it means anything once the
-        // mode is over, and holding it is pure resident-set for a
-        // menu-bar app that lives for weeks.
+        // A harvest is up to 600 units, each carrying its OCR-recognized
+        // lines; none of it means anything once the mode is over, and
+        // holding it is pure resident-set for an app that lives for weeks.
         units = []
-        groundingTexts = []
         if modeEnteredAt != .distantPast {
             observations?.selected(
                 app: appName, action: committedOutcome == nil ? "abandoned" : "completed",

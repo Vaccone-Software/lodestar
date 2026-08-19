@@ -318,13 +318,16 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        // ⌃J/⌃K walk the list beside the arrows, and ⌃N/⌃P arrive here as
+        // the arrows themselves — one policy, three panels.
+        if let delta = ListKeys.delta(for: commandSelector,
+                                      letter: NSApp.currentEvent?.charactersIgnoringModifiers,
+                                      control: NSApp.currentEvent?.modifierFlags
+                                          .contains(.control) ?? false) {
+            moveSelection(delta)
+            return true
+        }
         switch commandSelector {
-        case #selector(NSResponder.moveDown(_:)):
-            moveSelection(1)
-            return true
-        case #selector(NSResponder.moveUp(_:)):
-            moveSelection(-1)
-            return true
         case #selector(NSResponder.insertNewline(_:)):
             let shift = NSApp.currentEvent?.modifierFlags.contains(.shift) ?? false
             pick(beside: shift)

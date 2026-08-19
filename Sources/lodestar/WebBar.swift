@@ -290,11 +290,20 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        // ⌃J/⌃K walk the list beside the arrows, and ⌃N/⌃P arrive here as
+        // the arrows themselves — one policy, three panels.
+        if let delta = ListKeys.delta(for: commandSelector,
+                                      letter: NSApp.currentEvent?.charactersIgnoringModifiers,
+                                      control: NSApp.currentEvent?.modifierFlags
+                                          .contains(.control) ?? false) {
+            moveSelection(delta)
+            return true
+        }
         switch commandSelector {
-        case #selector(NSResponder.moveDown(_:)), #selector(NSResponder.insertTab(_:)):
+        case #selector(NSResponder.insertTab(_:)):
             moveSelection(1)
             return true
-        case #selector(NSResponder.moveUp(_:)), #selector(NSResponder.insertBacktab(_:)):
+        case #selector(NSResponder.insertBacktab(_:)):
             moveSelection(-1)
             return true
         case #selector(NSResponder.insertNewline(_:)):

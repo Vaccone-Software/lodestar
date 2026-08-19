@@ -112,7 +112,7 @@ final class Actions {
     // launches, invisible state changes (binds, deletes), and failures.
     func pick(_ entry: AppIndex.Entry, beside: Bool,
               cost: Observations.LauncherCost? = nil) {
-        if entry.bundleID == Bundle.main.bundleIdentifier
+        if entry.bundleID == Lodestar.bundleID
             || entry.name.lowercased() == "lodestar" {
             revealLodestar?()
             return
@@ -133,7 +133,7 @@ final class Actions {
             "candidates": aliveCandidates(bundleID: entry?.bundleID, appName: entry?.name ?? name).map(\.id),
         ])
         // Lodestar has no window to summon — going there reveals the menu bar.
-        if name.lowercased() == "lodestar" || entry?.bundleID == Bundle.main.bundleIdentifier {
+        if name.lowercased() == "lodestar" || entry?.bundleID == Lodestar.bundleID {
             revealLodestar?()
             return
         }

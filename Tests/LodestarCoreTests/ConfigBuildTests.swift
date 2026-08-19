@@ -172,4 +172,48 @@ final class ConfigBuildTests: XCTestCase {
         let (_, problems) = try build(#"{"scroll": {"speeed": 1800}}"#)
         XCTAssertTrue(problems.contains { $0.contains("speeed") }, "\(problems)")
     }
+
+    // MARK: - The browser must never be us
+
+    /// The bug this guards: `web.clicks.browser` naming Lodestar makes every
+    /// clicked link a closed circuit — macOS hands it to us because we hold
+    /// the http role, and we hand it back to ourselves, activating the app on
+    /// every lap until it is quit. Load drops the value to "nothing
+    /// recorded", which the click path survives, and says so out loud.
+    func testAConfigNamingLodestarAsTheBrowserIsDroppedAndReported() throws {
+        let (config, problems) = try build(
+            #"{"web": {"clicks": {"enabled": true, "browser": "\#(Lodestar.bundleID)"}}}"#
+        )
+        XCTAssertEqual(config.webClickBrowser, "")
+        XCTAssertTrue(config.webHandleClicks, "the switch is untouched; only the target is refused")
+        XCTAssertTrue(problems.contains { $0.contains("names Lodestar itself") }, "\(problems)")
+    }
+
+    /// Standing down is not an escape hatch: a transparent Lodestar still
+    /// receives the link and still passes it through, so the loop is
+    /// identical. Reported whether clicks are on or off.
+    func testTheSelfReferenceIsReportedEvenWithClicksOff() throws {
+        let (config, problems) = try build(
+            #"{"web": {"clicks": {"enabled": false, "browser": "\#(Lodestar.bundleID)"}}}"#
+        )
+        XCTAssertEqual(config.webClickBrowser, "")
+        XCTAssertTrue(problems.contains { $0.contains("names Lodestar itself") }, "\(problems)")
+    }
+
+    /// The pre-existing complaint still has to fire on its own terms, and
+    /// only one of the two is ever raised for a single fault.
+    func testEnabledWithNoBrowserStillReportsTheOriginalProblem() throws {
+        let (_, problems) = try build(#"{"web": {"clicks": {"enabled": true}}}"#)
+        XCTAssertEqual(problems.filter { $0.contains("web.clicks") }.count, 1, "\(problems)")
+        XCTAssertTrue(problems.contains { $0.contains("nowhere to go") }, "\(problems)")
+    }
+
+    /// A real browser is left exactly as written.
+    func testARealBrowserSurvivesUntouched() throws {
+        let (config, problems) = try build(
+            #"{"web": {"clicks": {"enabled": true, "browser": "com.brave.Browser"}}}"#
+        )
+        XCTAssertEqual(config.webClickBrowser, "com.brave.Browser")
+        XCTAssertEqual(problems, [])
+    }
 }

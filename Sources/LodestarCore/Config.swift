@@ -459,10 +459,21 @@ public struct Config {
         if let trace = effective.value(at: ["web", "clicks", "trace"])?.bool {
             config.webTraceClicks = trace
         }
-        // Standing as the handler with nowhere to hand a link back to would
-        // strand every link that matches no rule. Say so at reload rather
-        // than at the moment a link vanishes.
-        if config.webHandleClicks, config.webClickBrowser.isEmpty {
+        // Naming ourselves is the one answer that cannot be obeyed: macOS
+        // hands us the link because we hold the http role, so handing it back
+        // to ourselves is a closed circuit that re-activates Lodestar every
+        // lap until the process is quit. Dropped to "nothing recorded" — a
+        // state the click path already survives by discovery, then Safari —
+        // and reported, so the file gets fixed by you rather than silently
+        // rewritten by us. Reported whether or not clicks are enabled: a
+        // Lodestar standing down still receives the link.
+        if config.webClickBrowser == Lodestar.bundleID {
+            config.webClickBrowser = ""
+            problems.append("web.clicks.browser names Lodestar itself — a clicked link would be handed straight back to us, forever; set it to your browser")
+        } else if config.webHandleClicks, config.webClickBrowser.isEmpty {
+            // Standing as the handler with nowhere to hand a link back to
+            // would strand every link that matches no rule. Say so at reload
+            // rather than at the moment a link vanishes.
             problems.append("web.clicks.enabled is on but web.clicks.browser is empty — unrouted links have nowhere to go")
         }
 

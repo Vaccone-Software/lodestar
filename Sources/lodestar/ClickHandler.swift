@@ -13,9 +13,14 @@ import LodestarCore
 ///
 /// Three rules hold this path together, and each of them is load-bearing:
 ///
-/// - **Never `NSWorkspace.open(url)` without naming the app.** That goes back
-///   through LaunchServices, which would hand the URL straight back to us,
-///   forever. Every open here names its target.
+/// - **Never open a link without naming the app, and never name ourselves.**
+///   An unnamed open goes back through LaunchServices, which hands the URL
+///   straight back to us, forever. Naming ourselves is the same circuit with
+///   an extra step, and it is the one that actually happened: a bad value in
+///   `web.clicks.browser` had every clicked link handed to Lodestar, which
+///   handed it to Lodestar, at eighty-seven laps a second, each lap stealing
+///   the machine's focus, until the app was quit. `browserURL` refuses our
+///   own id, and `ClickLoopGuard` catches whatever a future mistake invents.
 /// - **Never touch the window model.** AX calls block on the target app's
 ///   event loop, so consulting the model would let one wedged app delay
 ///   somebody's link by seconds. Config and LaunchServices only.
@@ -41,6 +46,11 @@ final class ClickHandler {
     /// Every macOS install has Safari, so the chain always ends somewhere.
     /// A link must never simply vanish.
     private static let lastResort = "com.apple.Safari"
+
+    /// Symptom-side backstop for a hand-off that comes back to us.
+    private var loopGuard = ClickLoopGuard()
+    /// The app the last link went to, so a change is worth one log line.
+    private var lastTarget: URL?
 
     func open(_ urls: [URL]) {
         for url in urls { open(url) }
@@ -85,6 +95,16 @@ final class ClickHandler {
             Log.error("click", ["handoff": "no browser"])
             return
         }
+        // Asked after the target is known, so a browser that is merely slow
+        // to come forward is never the one blamed.
+        guard loopGuard.admit(url.absoluteString,
+                              at: Date().timeIntervalSinceReferenceDate) else {
+            flash("✕ that link keeps coming back — check web.clicks.browser")
+            Log.error("click", ["handoff": "refused, the same link kept returning",
+                                "target": application.lastPathComponent])
+            return
+        }
+        noteTarget(application)
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = true
         NSWorkspace.shared.open([url], withApplicationAt: application,
@@ -96,16 +116,31 @@ final class ClickHandler {
     }
 
     private func browserURL() -> URL? {
-        let saved = savedBrowser()
-        if !saved.isEmpty,
+        if let saved = ClickRouter.handoffBrowser(savedBrowser()),
            let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: saved) {
             return url
         }
-        // Nothing recorded: somebody picked Lodestar in System Settings rather
-        // than through the menu, so the step that saves your browser never
-        // ran. Ask the system what else could have handled this.
+        // Nothing usable recorded. Either nobody ever saved a browser —
+        // somebody picked Lodestar in System Settings rather than through the
+        // menu, so the step that saves yours never ran — or what was saved
+        // was us, which `handoffBrowser` declines to return. Ask the system
+        // what else could have handled this.
         if let discovered = Self.discoverBrowser() { return discovered }
         return NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.lastResort)
+    }
+
+    /// Where links are actually going, said once and again on every change.
+    ///
+    /// The trace switch is off by default and stayed off through a loop that
+    /// ran for minutes at a time, so nothing in the log ever named the app we
+    /// were handing to — the single fact that would have ended the hunt in a
+    /// sentence. The bundle is only read when the answer changes, which keeps
+    /// it off the per-link path.
+    private func noteTarget(_ application: URL) {
+        guard application != lastTarget else { return }
+        lastTarget = application
+        Log.info("click", ["handoff-to": application.lastPathComponent,
+                           "bundle": Bundle(url: application)?.bundleIdentifier ?? "?"])
     }
 
     /// The app that would have opened a link if Lodestar were not here:
@@ -116,7 +151,7 @@ final class ClickHandler {
     /// you to wonder where they went.
     static func discoverBrowser() -> URL? {
         guard let probe = URL(string: "https://example.com") else { return nil }
-        let ours = Bundle.main.bundleIdentifier
+        let ours = Lodestar.bundleID
         return NSWorkspace.shared.urlsForApplications(toOpen: probe).first {
             Bundle(url: $0)?.bundleIdentifier != ours
         }

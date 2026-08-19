@@ -269,9 +269,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         updater.flash = { [weak self] text, seconds in self?.hud.flash(text, seconds: seconds) }
         updater.requiresRouting = { [weak self] in self?.config.webHandleClicks ?? false }
         updater.start()
-        rememberDefaultBrowser()
-        adoptBrowserRoleIfNeeded()
-        confirmClickRoutingHealthy()
+        // Browser-role bookkeeping belongs to the bundle that can actually
+        // hold the role. A `swift build` binary is not registered with
+        // LaunchServices and will never be handed a link, but it still asks
+        // "who answers for https?" and gets the *installed* app back — so it
+        // sees a stranger holding the role, faithfully writes that stranger
+        // down as your browser, and the stranger is us. That one dev-run
+        // write is what put a loop in a real config. `reconcileLoginItem`
+        // already refuses to touch the LaunchAgent for the same reason.
+        if isInstalledBundle {
+            rememberDefaultBrowser()
+            adoptBrowserRoleIfNeeded()
+            confirmClickRoutingHealthy()
+        } else {
+            Log.info("click", ["browser-role": "skipped — not running from the app bundle"])
+        }
         installOnboarding()
 
         guard Permissions.isTrusted else {
@@ -621,24 +633,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     /// Prove the click path works, or say nothing and let the watchdog put the
-    /// last build back. Two things have to hold: the router answers correctly,
-    /// and there is a real browser to hand an unrouted link to. Either one
-    /// failing means links would break, which is not a thing to discover from
-    /// a bug report.
+    /// last build back.
+    ///
+    /// Two questions, deliberately no longer asked as one. "Can this build
+    /// route?" is about the code, and a build that cannot is exactly what the
+    /// watchdog exists to roll back. "Is there a browser on file?" is about
+    /// your config, and answering it with a rollback would be a trap: the
+    /// config comes forward untouched into the replacement, so every release
+    /// from then on would install, fail its handover, and be rolled back —
+    /// once a day, forever. That is precisely the loop 0.18.0 fixed on the
+    /// tombstone path, and it must not be reintroduced here.
+    ///
+    /// Nothing is stranded by the softer answer, either: a browser that is
+    /// missing, uninstalled, or refused for naming us falls through to
+    /// discovery and then Safari, so the link still opens. It is a warning,
+    /// and it is raised *after* the marker is written so a rollback can never
+    /// hinge on it.
     private func confirmClickRoutingHealthy() {
         guard config.webHandleClicks else { return }
-        let hasBrowser = !config.webClickBrowser.isEmpty
-            && NSWorkspace.shared.urlForApplication(
-                withBundleIdentifier: config.webClickBrowser) != nil
-        guard ClickRouter.selfCheck(), hasBrowser else {
-            Log.error("click", ["self-check": "failed",
-                                "router": ClickRouter.selfCheck(),
-                                "browser": hasBrowser])
-            hud.flash("⚠ Lodestar is your browser but cannot route links — check web.clicks", seconds: 8)
+        guard ClickRouter.selfCheck() else {
+            Log.error("click", ["self-check": "failed", "router": false])
+            hud.flash("⚠ Lodestar is your browser but cannot route links", seconds: 8)
             return
         }
         updater.confirmRoutingHealthy()
         Log.info("click", ["self-check": "ok"])
+
+        let onFile = !config.webClickBrowser.isEmpty
+            && NSWorkspace.shared.urlForApplication(
+                withBundleIdentifier: config.webClickBrowser) != nil
+        if !onFile {
+            Log.error("click", ["browser": config.webClickBrowser.isEmpty
+                                    ? "none on file — falling back to discovery"
+                                    : "not installed: \(config.webClickBrowser)"])
+            hud.flash("⚠ Lodestar is your browser but no browser is set — see web.clicks.browser",
+                      seconds: 8)
+        }
+    }
+
+    /// Whether this process is the app bundle macOS can hand links to.
+    /// False for a `swift build` binary, whose `Bundle.main` has no
+    /// identifier at all — see `Lodestar.bundleID` for what that cost.
+    private var isInstalledBundle: Bool {
+        Bundle.main.bundleIdentifier == Lodestar.bundleID
     }
 
     /// The bundle id of whatever answers for https right now, us included.
@@ -654,14 +691,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// remembered: the role can change in System Settings without telling us,
     /// and a menu that reports config instead of reality lies.
     private func holdsBrowserRole() -> Bool {
-        httpsHandler() == Bundle.main.bundleIdentifier
+        httpsHandler() == Lodestar.bundleID
     }
 
     /// The browser to give the role back to — the question you can only ask
     /// *before* taking it, because afterwards the answer is us.
     private func currentDefaultBrowser() -> String? {
         guard let handler = httpsHandler(),
-              handler != Bundle.main.bundleIdentifier else { return nil }
+              handler != Lodestar.bundleID else { return nil }
         return handler
     }
 
@@ -677,15 +714,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// matters. Remembering costs one query at boot and is never wrong.
     private func rememberDefaultBrowser() {
         guard let handler = httpsHandler(),
-              handler != Bundle.main.bundleIdentifier,
+              handler != Lodestar.bundleID,
               handler != config.webClickBrowser else { return }
         Log.info("click", ["remembered-browser": handler])
         persistClickBrowser(handler)
     }
 
+    /// A browser Lodestar is willing to write down.
+    ///
+    /// Guarded at the write rather than at each caller, because the callers
+    /// are exactly where this went wrong: `rememberDefaultBrowser` weighed
+    /// its candidate against `Bundle.main.bundleIdentifier`, nil outside a
+    /// .app, and let our own id straight through. There is no reading of
+    /// "hand unrouted links to Lodestar" that is not a loop, so this is the
+    /// last place to stop one before the file remembers it and every boot
+    /// after inherits it. Nil is written as "nothing recorded", which the
+    /// click path already survives — discovery, then Safari.
+    private func writableClickBrowser(_ bundleID: String) -> String? {
+        guard bundleID != Lodestar.bundleID else {
+            Log.error("click", ["refused-browser": bundleID,
+                                "why": "that is Lodestar — clicked links would loop back to us"])
+            return nil
+        }
+        return bundleID
+    }
+
     /// A one-key write: no reload, no flash. Observing which browser you use is
     /// not an event worth announcing.
     private func persistClickBrowser(_ bundleID: String) {
+        guard let bundleID = writableClickBrowser(bundleID) else { return }
         config.webClickBrowser = bundleID
         do {
             try Config.edit { tree in
@@ -830,6 +887,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func recordClickSettings(enabled: Bool, browser: String) {
+        // The switch is still worth recording even when the browser is not:
+        // standing down with no browser on file is a real, handled state,
+        // and standing down while recording ourselves is not.
+        let browser = writableClickBrowser(browser) ?? ""
         do {
             try Config.edit { tree in
                 guard let withFlag = Json.setting(tree, path: ["web", "clicks", "enabled"],

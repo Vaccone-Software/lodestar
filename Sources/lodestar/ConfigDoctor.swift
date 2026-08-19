@@ -217,9 +217,15 @@ func runUninstall(dryRun: Bool, purge: Bool) -> Never {
     // Removing the app that answers for http and leaving macOS to guess is
     // how someone ends up with links that open nothing.
     let (uninstallConfig, _) = Config.load()
-    if uninstallConfig.webHandleClicks, !uninstallConfig.webClickBrowser.isEmpty,
-       let browser = NSWorkspace.shared.urlForApplication(
-           withBundleIdentifier: uninstallConfig.webClickBrowser) {
+    // The recorded browser, or the system's best other answer. The fallback
+    // is not politeness: a config that recorded *us* is dropped to empty at
+    // load, and skipping the restore on empty is how somebody ends up with
+    // the http handler deleted and every link on the machine opening
+    // nothing. `discoverBrowser` never returns Lodestar.
+    let restoreTo: URL? = ClickRouter.handoffBrowser(uninstallConfig.webClickBrowser)
+        .flatMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }
+        ?? ClickHandler.discoverBrowser()
+    if uninstallConfig.webHandleClicks, let browser = restoreTo {
         let name = browser.deletingPathExtension().lastPathComponent
         plan.append(("restore \(name) as your default browser", {
             let done = DispatchSemaphore(value: 0)

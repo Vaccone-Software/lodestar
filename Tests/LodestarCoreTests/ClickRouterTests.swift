@@ -135,4 +135,104 @@ final class ClickRouterTests: XCTestCase {
         print("click routing over 20 rules: "
             + "\(String(format: "%.1f", each * 1_000_000))µs per decision")
     }
+
+    // MARK: - The hand-off target
+
+    /// The whole bug in one assertion. A `web.clicks.browser` naming us was
+    /// obeyed literally: macOS handed the link to Lodestar because Lodestar
+    /// held the http role, `handOff` handed it back to Lodestar, and each lap
+    /// arrived with `activates: true`. Nil is the answer that sends the click
+    /// path on to discovery and then Safari.
+    func testTheHandOffRefusesLodestarItself() {
+        XCTAssertNil(ClickRouter.handoffBrowser(Lodestar.bundleID))
+    }
+
+    func testTheHandOffRefusesNothingRecorded() {
+        XCTAssertNil(ClickRouter.handoffBrowser(""))
+    }
+
+    func testTheHandOffKeepsARealBrowser() {
+        XCTAssertEqual(ClickRouter.handoffBrowser("com.brave.Browser"), "com.brave.Browser")
+        XCTAssertEqual(ClickRouter.handoffBrowser("com.apple.Safari"), "com.apple.Safari")
+    }
+
+    /// The boot check gates a self-update rollback, so the refusal has to be
+    /// part of what a build proves about itself before it is blessed.
+    func testTheSelfCheckCoversTheRefusal() {
+        XCTAssertTrue(ClickRouter.selfCheck())
+    }
+}
+
+/// The backstop that does not depend on knowing the cause: whatever puts a
+/// link back in front of us, it may only happen a few times before the
+/// circuit is cut.
+final class ClickLoopGuardTests: XCTestCase {
+    private let link = "https://claude.ai/chat"
+
+    func testOrdinaryClickingIsNeverRefused() {
+        var guard1 = ClickLoopGuard()
+        // Different links, and the same link revisited across the day.
+        for second in stride(from: 0.0, to: 600.0, by: 30.0) {
+            XCTAssertTrue(guard1.admit(link, at: second), "at \(second)s")
+            XCTAssertTrue(guard1.admit("https://example.com/\(second)", at: second))
+        }
+    }
+
+    /// A double click, and an impatient run of them, all still open. Twenty
+    /// deliberate opens of one URL at human speed is already implausible;
+    /// this asserts the ceiling is above it and not at it.
+    func testAHumanBeingImpatientIsNeverRefused() {
+        var loop = ClickLoopGuard()
+        for lap in 0..<ClickLoopGuard.limit {
+            XCTAssertTrue(loop.admit(link, at: Double(lap) * 0.25), "lap \(lap)")
+        }
+    }
+
+    /// The measured shape of the real failure: the same URL, back in eight
+    /// milliseconds, for as long as the process lives. The budget is spent
+    /// once and never restored, because the laps never stop arriving — which
+    /// is the whole point of ageing on quiet rather than on elapsed time.
+    func testACircuitIsCutOnceAndStaysCut() {
+        var loop = ClickLoopGuard()
+        var admitted = 0
+        // Forty seconds of circuit — four times the window, which the
+        // first draft of this guard let through as four fresh budgets.
+        for lap in 0..<5_000 where loop.admit(link, at: Double(lap) * 0.008) {
+            admitted += 1
+        }
+        XCTAssertEqual(admitted, ClickLoopGuard.limit)
+    }
+
+    /// A refusal is a fuse, not a ban. Once the laps stop — and they stop
+    /// because refusing is what stops them — the entry ages out, and the
+    /// user who clicks that link again later gets their browser.
+    func testTheRefusalAgesOut() {
+        var loop = ClickLoopGuard()
+        var last = 0.0
+        for lap in 0...ClickLoopGuard.limit {
+            last = Double(lap) * 0.008
+            _ = loop.admit(link, at: last)
+        }
+        XCTAssertFalse(loop.admit(link, at: last + 0.008))
+        XCTAssertFalse(loop.admit(link, at: last + ClickLoopGuard.window - 0.5))
+        XCTAssertTrue(loop.admit(link, at: last + ClickLoopGuard.window * 2))
+    }
+
+    /// One link looping must not close the door on every other link.
+    func testOneLoopingLinkDoesNotBlockTheRest() {
+        var loop = ClickLoopGuard()
+        for lap in 0...(ClickLoopGuard.limit * 3) { _ = loop.admit(link, at: Double(lap) * 0.008) }
+        XCTAssertFalse(loop.admit(link, at: 0.5))
+        XCTAssertTrue(loop.admit("https://insight.xonar.com", at: 0.5))
+    }
+
+    /// The table is pruned by the same quiet rule it judges by, so a long
+    /// session of ordinary browsing does not accumulate.
+    func testTheTableDoesNotGrowWithOrdinaryBrowsing() {
+        var loop = ClickLoopGuard()
+        for lap in 0..<2_000 {
+            XCTAssertTrue(loop.admit("https://example.com/\(lap)", at: Double(lap) * 30))
+        }
+        XCTAssertEqual(loop.tracked, 1)
+    }
 }

@@ -67,6 +67,75 @@ public enum ClickRouter {
         guard route("https://elsewhere.invalid", in: live) == .passThrough else { return false }
         let standingDown = WebContext(routes: ["selfcheck.invalid": "probe"],
                                       profiles: ["probe": profile], handlesClicks: false)
-        return route("https://selfcheck.invalid/x", in: standingDown) == .passThrough
+        guard route("https://selfcheck.invalid/x", in: standingDown) == .passThrough else {
+            return false
+        }
+        // A build that would hand a link back to itself is a build that can
+        // take the machine's focus hostage; it does not get to ship either.
+        return handoffBrowser(Lodestar.bundleID) == nil
     }
+
+    /// The browser an unrouted link may be handed to, or nil when the
+    /// recorded answer is unusable.
+    ///
+    /// Naming ourselves is not hypothetical. The value is written by an
+    /// automatic observation of your default browser, and one bad write is
+    /// permanent, because the same write is what stops it happening twice.
+    /// What follows is a closed circuit: macOS hands us the link because we
+    /// hold the http role, `handOff` hands it straight back to us, and every
+    /// lap arrives with `activates: true`. Measured on a real machine, that
+    /// ran at eighty-seven laps a second and ended only when Lodestar was
+    /// quit. Standing down does not save it either — a transparent Lodestar
+    /// still receives the link and still passes it through.
+    ///
+    /// Nil means "nothing recorded", which is a state the click path already
+    /// knows how to survive: discovery, then Safari.
+    public static func handoffBrowser(_ saved: String) -> String? {
+        guard !saved.isEmpty, saved != Lodestar.bundleID else { return nil }
+        return saved
+    }
+}
+
+/// A ceiling on how often one link may be handed off.
+///
+/// Every other guard here stops the loop at a cause — a nil-prone
+/// comparison, a config value, a write. This one stops it at the symptom,
+/// which is the only guard that survives a cause nobody predicted.
+///
+/// The budget expires on *quiet*, not on elapsed time. Measured from first
+/// sighting instead, a self-feeding circuit simply waits out each window and
+/// re-arms: the first draft of this throttled the real failure from eighty-
+/// seven laps a second to a steady two a second, forever, which is the same
+/// complaint at a lower volume. Measured from the last sighting, the circuit
+/// keeps its own entry alive, spends the budget once, and dies — and because
+/// the feed *is* our own hand-off, refusing it is what makes the next lap
+/// never arrive. Nothing then touches the entry, so it ages out on its own.
+///
+/// The ceiling is set where no person can reach it: twenty opens of one
+/// identical URL with never a ten-second pause. A circuit reaches it in
+/// under a fifth of a second.
+///
+/// Pure and time-injected, so the behaviour is testable without waiting.
+public struct ClickLoopGuard {
+    /// How quiet a link must go before its budget is restored, and how many
+    /// hand-offs that budget is worth.
+    public static let window: TimeInterval = 10
+    public static let limit = 20
+
+    private var spent: [String: (count: Int, last: TimeInterval)] = [:]
+
+    public init() {}
+
+    /// True while this link may still be handed off. A refusal is a fuse and
+    /// not a ban: once the laps stop arriving the entry ages out, and the
+    /// same link clicked again later opens normally.
+    public mutating func admit(_ url: String, at now: TimeInterval) -> Bool {
+        spent = spent.filter { now - $0.value.last < Self.window }
+        let count = (spent[url]?.count ?? 0) + 1
+        spent[url] = (count, now)
+        return count <= Self.limit
+    }
+
+    /// How many links are being remembered — the pruning rule's own witness.
+    public var tracked: Int { spent.count }
 }

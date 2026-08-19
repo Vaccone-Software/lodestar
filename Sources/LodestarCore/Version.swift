@@ -16,6 +16,23 @@ public enum Lodestar {
     /// refuses any download whose signature chains to anyone else.
     public static let teamID = "2PZMN57974"
 
+    /// Who we are, as a constant rather than a question.
+    ///
+    /// `Bundle.main.bundleIdentifier` is the obvious way to ask and it is
+    /// `nil` for a binary run outside a .app — which is how this project is
+    /// developed. Every self-check spelled `handler != Bundle.main
+    /// .bundleIdentifier` therefore *passed* under a `swift build` binary,
+    /// because Swift promotes the comparison to Optional and
+    /// `"com.vaccone.lodestar" != nil` is true. One of those guards stood in
+    /// front of the write that records your default browser, so a dev run
+    /// wrote Lodestar down as the browser to hand links to, and from then on
+    /// every clicked link came back to us and re-activated us, thousands of
+    /// times a minute, until the app was quit. A constant cannot be nil, and
+    /// the compiler now types these comparisons `String` to `String`.
+    ///
+    /// packaging/Info.plist carries the same string; this is its other half.
+    public static let bundleID = "com.vaccone.lodestar"
+
     /// Bump when PersistedState's shape changes; StateMigrations carries
     /// old files forward on load.
     public static let stateVersion = 1

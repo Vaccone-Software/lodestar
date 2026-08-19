@@ -32,6 +32,39 @@ final class EventLogTests: XCTestCase {
         return event
     }
 
+    /// A flush that cannot open the file must not replace the ring with
+    /// the batch it was holding.
+    ///
+    /// The fallback branch was written for "the file does not exist yet"
+    /// but fired on any open failure — a descriptor limit, a permission
+    /// change — and atomically wrote the last few seconds of events over
+    /// ninety days of them. The batch was also cleared before the write,
+    /// so a failure silently dropped it as well.
+    func testFlushDoesNotTruncateAnExistingRingItCannotOpen() throws {
+        let log = makeLog()
+        let old = Date(timeIntervalSince1970: 1_700_000_000)
+        for offset in 0..<5 { log.append(chainEvent(at: old.addingTimeInterval(Double(offset)))) }
+        log.flush()
+        XCTAssertEqual(EventLog(file: log.file).readAll().count, 5)
+
+        // Make the file unopenable for writing, then try to add to it.
+        try FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: log.file.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644],
+                                                       ofItemAtPath: log.file.path) }
+        log.append(chainEvent(at: old.addingTimeInterval(100)))
+        log.flush()
+
+        XCTAssertEqual(EventLog(file: log.file).readAll().count, 5,
+                       "the existing ring must survive a failed write")
+
+        // The batch was held, not dropped, so it lands once writing works.
+        try FileManager.default.setAttributes([.posixPermissions: 0o644],
+                                              ofItemAtPath: log.file.path)
+        log.flush()
+        XCTAssertEqual(EventLog(file: log.file).readAll().count, 6,
+                       "the held batch should append once the file opens again")
+    }
+
     func testAppendFlushAndReadRoundTrip() {
         let log = makeLog()
         let date = Date(timeIntervalSince1970: 1_700_000_000)

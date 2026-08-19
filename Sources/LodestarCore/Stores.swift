@@ -42,6 +42,14 @@ public struct PersistedState: Codable {
     public var breaths: [BreathRecord] = []
     public var latestBreath: String?
     public var parked: [UInt32: CGRect] = [:]
+    /// Which boot the parked window ids belong to.
+    ///
+    /// A `CGWindowID` is only meaningful within a login session (FINDINGS
+    /// §4), so after an unclean shutdown a recycled id could make an
+    /// unrelated window look parked — and the next quit would yank it to a
+    /// frame it never had. Parking is restored only when this matches the
+    /// running session.
+    public var parkedSession: String?
     public var usage: [String: UsageRecord]?
     /// The release whose walkthrough has been seen. Machine owned, so it lives
     /// here rather than in the config: nobody should have to edit a file to
@@ -212,10 +220,18 @@ public final class StateStore {
 
     public func setParked(_ spots: [CGWindowID: CGRect]) {
         state.parked = Dictionary(uniqueKeysWithValues: spots.map { (UInt32($0.key), $0.value) })
+        state.parkedSession = Lodestar.bootSession
         saveSoon()
     }
 
+    /// Parked windows, but only the ones this boot could have parked.
     public var parkedSpots: [CGWindowID: CGRect] {
-        Dictionary(uniqueKeysWithValues: state.parked.map { (CGWindowID($0.key), $0.value) })
+        guard Lodestar.isCurrentBootSession(state.parkedSession) else {
+            if !state.parked.isEmpty {
+                Log.info("state: dropping \(state.parked.count) parked spots from an earlier session")
+            }
+            return [:]
+        }
+        return Dictionary(uniqueKeysWithValues: state.parked.map { (CGWindowID($0.key), $0.value) })
     }
 }

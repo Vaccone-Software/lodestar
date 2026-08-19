@@ -201,9 +201,16 @@ public enum WebJsonEditor {
         // An emptied table is pruned: the file is sparse on purpose, and the
         // next canonical write would drop it anyway.
         let path = ["web", key]
-        let updated = table.isEmpty
-            ? (Json.removing(root, path: path) ?? root)
-            : Json.setting(root, path: path, to: .table(table))
+        let updated: [String: ConfigValue]?
+        if table.isEmpty {
+            switch Json.removing(root, path: path) {
+            case .removed(let pruned): updated = pruned
+            case .absent: updated = root
+            case .blocked: updated = nil
+            }
+        } else {
+            updated = Json.setting(root, path: path, to: .table(table))
+        }
         guard let updated else { throw EditError.blocked("web") }
         return updated
     }

@@ -173,8 +173,7 @@ func runResetConfig() -> Never {
     let fm = FileManager.default
     try? fm.createDirectory(at: Config.directory, withIntermediateDirectories: true)
     let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-    // Both generations get a backup — whichever exists is user data.
-    for source in [Config.file, Config.yamlFile] where fm.fileExists(atPath: source.path) {
+    for source in [Config.file] where fm.fileExists(atPath: source.path) {
         let backup = Config.directory.appendingPathComponent("\(source.lastPathComponent).backup-\(stamp)")
         do {
             try fm.copyItem(at: source, to: backup)
@@ -186,9 +185,6 @@ func runResetConfig() -> Never {
     }
     do {
         try Config.write(tree: [:])
-        // A reset supersedes the old yaml; backed up above, it would only
-        // shadow the fresh file for a rolled-back binary.
-        try? fm.removeItem(at: Config.yamlFile)
     } catch {
         print("✕ could not write the default config: \(error.localizedDescription)")
         exit(1)
@@ -284,14 +280,15 @@ func runUninstall(dryRun: Bool, purge: Bool) -> Never {
 /// writes are validated before a byte moves, land sparse and canonical,
 /// and reach the running instance through the ordinary reload.
 func runConfigVerb(_ arguments: [String]) -> Never {
+    /// nil means "there is a file and it did not read" — every caller
+    /// refuses to write on nil, which is the point: an unreadable file
+    /// must never be silently treated as an empty one, or the next write
+    /// replaces the user's whole config with the single key it is setting.
+    /// Only a genuinely absent file yields an empty tree.
     func userTree() -> [String: ConfigValue]? {
-        if let text = try? String(contentsOf: Config.file, encoding: .utf8) {
-            return try? Json.parse(text)
-        }
-        if let text = try? String(contentsOf: Config.yamlFile, encoding: .utf8) {
-            return try? Yaml.parse(text)
-        }
-        return [:]
+        guard FileManager.default.fileExists(atPath: Config.file.path) else { return [:] }
+        guard let text = try? String(contentsOf: Config.file, encoding: .utf8) else { return nil }
+        return try? Json.parse(text)
     }
     func options(_ tree: [String: ConfigValue]) -> [String: ConfigValue] {
         var out = tree
@@ -324,7 +321,7 @@ func runConfigVerb(_ arguments: [String]) -> Never {
             print("usage: lodestar config get <dotted.path>")
             exit(64)
         }
-        let path = arguments[1].split(separator: ".").map(String.init)
+        let path = ConfigSchema.path(for: arguments[1], in: Config.schema)
         let effective = Json.merged(defaults: ConfigDefaults.tree, overlay: options(tree))
         guard let value = effective.value(at: path) else {
             print("✕ nothing at \(arguments[1])")
@@ -334,8 +331,6 @@ func runConfigVerb(_ arguments: [String]) -> Never {
         exit(0)
 
     case "set", "unset":
-        // Writes happen in the new format; convert first if needed.
-        Config.migrateIfNeeded()
         guard let current = userTree() else {
             print("✕ the config does not parse — fix it (lodestar check) before writing")
             exit(1)
@@ -346,7 +341,7 @@ func runConfigVerb(_ arguments: [String]) -> Never {
                 print("usage: lodestar config set <dotted.path> <value>")
                 exit(64)
             }
-            let path = arguments[1].split(separator: ".").map(String.init)
+            let path = ConfigSchema.path(for: arguments[1], in: Config.schema)
             guard let next = Json.setting(current, path: path, to: Json.parseFragment(arguments[2])) else {
                 print("✕ a value already sits on that path — unset it first")
                 exit(1)
@@ -357,12 +352,20 @@ func runConfigVerb(_ arguments: [String]) -> Never {
                 print("usage: lodestar config unset <dotted.path>")
                 exit(64)
             }
-            let path = arguments[1].split(separator: ".").map(String.init)
-            guard let next = Json.removing(current, path: path) else {
+            let path = ConfigSchema.path(for: arguments[1], in: Config.schema)
+            switch Json.removing(current, path: path) {
+            case .removed(let next):
+                updated = next
+            case .absent:
                 print("✓ \(arguments[1]) is already the default")
                 exit(0)
+            case .blocked(let prefix):
+                // Not the same answer as "already the default": the key is
+                // still in the file, and saying otherwise sent scripted
+                // callers away with an exit code that meant success.
+                print("✕ \(arguments[1]) is not reachable — a value sits at \(prefix)")
+                exit(1)
             }
-            updated = next
         }
         // Refuse any write that introduces a problem the file didn't
         // already have; pre-existing complaints stay the user's business.
@@ -375,9 +378,9 @@ func runConfigVerb(_ arguments: [String]) -> Never {
             exit(1)
         }
         do {
-            try Config.write(tree: updated)
+            try Config.edit { _ in updated }
         } catch {
-            print("✕ could not write the config: \(error.localizedDescription)")
+            print("✕ could not write the config: \(error)")
             exit(1)
         }
         if arguments.first == "set" {
@@ -444,7 +447,7 @@ func runObservations(clear: Bool, engine: Bool) -> Never {
         print("✓ observations cleared (\(ObservationStore.defaultFile.path))")
         exit(0)
     }
-    store.load()
+    store.load(compacting: false)
     let o = store.observations
     let events = store.log.readAll()
     let (config, _) = Config.load()

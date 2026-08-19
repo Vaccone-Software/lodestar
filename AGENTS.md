@@ -58,7 +58,7 @@ lodestar diagnose           # one paste-able report: version, instance,
 - Graph keys support multi-letter sugar: `"eo": "Outlook"` binds the
   chain E → O. A multi-letter key is refused (with a problem you'll see
   in `check`) if any prefix of it is already a destination.
-- A `lodestar.yaml` may sit beside the JSON on machines that migrated
-  from 0.9.9 or earlier. It is inert — never edit it; the JSON is the
-  config.
+- A `lodestar.yaml` may still sit beside the JSON on machines that
+  migrated from 0.9.9 or earlier. Nothing reads it any more — the JSON is
+  the config, and the stale file is safe to delete.
 - State (`state.json`) is machine-owned — never edit it.

@@ -17,6 +17,19 @@ public enum Log {
         return f
     }()
 
+    /// Everything that touches `handle` or `bytesWritten` runs here.
+    ///
+    /// Most of the app logs on main, but the updater does not: its worker
+    /// queue and the URLSession completion queue both call straight into
+    /// `write`. Unsynchronized, two threads could open two handles for the
+    /// same file, lose bytes off the non-atomic counter (so the 15MB bound
+    /// stopped holding), or — with one thread inside `rotate` — write to a
+    /// handle the other had just closed, which raises
+    /// `NSFileHandleOperationException` and takes the process with it.
+    ///
+    /// Synchronous, not async: a log line must still be on disk when a
+    /// crash follows it, which is exactly when the log matters most.
+    private static let io = DispatchQueue(label: "lodestar.log")
     private static var handle: FileHandle?
     private static var bytesWritten: UInt64 = 0
 
@@ -45,10 +58,17 @@ public enum Log {
         }
         line += "\n"
         if stdoutEnabled { print(line, terminator: "") }
-        guard fileEnabled else { return }
-        ensureHandle()
-        if let data = line.data(using: .utf8) {
-            handle?.write(data)
+        guard fileEnabled, let data = line.data(using: .utf8) else { return }
+        io.sync {
+            ensureHandle()
+            // `write(contentsOf:)` throws where the old `write(_:)` raised
+            // an Objective-C exception Swift cannot catch — a full disk or
+            // a closed descriptor used to abort the process outright.
+            do {
+                try handle?.write(contentsOf: data)
+            } catch {
+                return
+            }
             bytesWritten += UInt64(data.count)
             if bytesWritten > maxBytes {
                 rotate()
@@ -70,7 +90,9 @@ public enum Log {
         return text.isEmpty ? "\"\"" : text
     }
 
+    /// Callers must already be on `io`.
     private static func ensureHandle() {
+        dispatchPrecondition(condition: .onQueue(io))
         guard handle == nil else { return }
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         if !FileManager.default.fileExists(atPath: file.path) {
@@ -82,8 +104,11 @@ public enum Log {
         bytesWritten = size ?? 0
     }
 
-    /// lodestar.log -> .1 -> .2, oldest dropped.
+    /// lodestar.log -> .1 -> .2, oldest dropped. Callers must already be
+    /// on `io` — closing the handle while another thread is mid-write is
+    /// precisely the race this queue exists to prevent.
     private static func rotate() {
+        dispatchPrecondition(condition: .onQueue(io))
         try? handle?.close()
         handle = nil
         let fm = FileManager.default

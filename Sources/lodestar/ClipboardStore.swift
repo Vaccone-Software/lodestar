@@ -20,6 +20,12 @@ final class ClipboardStore {
     private let root: URL
     private var index = Index()
     private var pendingSave: DispatchWorkItem?
+    /// The index file exists but could not be read at all. Saving over it
+    /// would trade a recoverable problem for an unrecoverable one, so
+    /// while this is set the store stays read-only.
+    private var loadFailed = false
+    /// Surfaced once at boot, the way a corrupt state file is.
+    private(set) var bootWarning: String?
     private let io = DispatchQueue(label: "lodestar.clipboard.io", qos: .utility)
     /// Decoded thumbnails, so a strip of image cards costs no decoding —
     /// bounded, because a decoded image is far larger than its file and a
@@ -51,9 +57,31 @@ final class ClipboardStore {
     private var items: URL { root.appendingPathComponent("items", isDirectory: true) }
     private var thumbs: URL { root.appendingPathComponent("thumbs", isDirectory: true) }
 
+    /// Read the index, quarantining one that will not decode.
+    ///
+    /// Returning empty and carrying on meant the next copy wrote an empty
+    /// index straight over the file, and every blob under `items/` was
+    /// orphaned with nothing left pointing at it. Power loss is not the
+    /// realistic trigger — the write is atomic — a schema change to `Clip`
+    /// or `Index` is, and that would have zeroed every user's history on
+    /// upgrade. The state store already handles this properly; so does
+    /// this one now.
     private func load() {
-        guard let data = try? Data(contentsOf: indexFile),
-              let decoded = try? JSONDecoder().decode(Index.self, from: data) else { return }
+        guard FileManager.default.fileExists(atPath: indexFile.path) else { return }
+        guard let data = try? Data(contentsOf: indexFile) else {
+            Log.error("clipboard: index unreadable — starting empty, nothing deleted")
+            loadFailed = true
+            return
+        }
+        guard let decoded = try? JSONDecoder().decode(Index.self, from: data) else {
+            let stamp = ISO8601DateFormatter().string(from: Date())
+                .replacingOccurrences(of: ":", with: "-")
+            let quarantine = root.appendingPathComponent("index.json.corrupt-\(stamp)")
+            try? FileManager.default.moveItem(at: indexFile, to: quarantine)
+            Log.error("clipboard: index did not decode — quarantined at \(quarantine.lastPathComponent)")
+            bootWarning = "clipboard history could not be read — the old index is kept beside it"
+            return
+        }
         index = decoded
         Log.info("clipboard: loaded \(decoded.clips.count) clips")
     }
@@ -74,6 +102,8 @@ final class ClipboardStore {
     func saveNow() {
         pendingSave?.cancel()
         pendingSave = nil
+        // An index we could not read is not an index we may overwrite.
+        guard !loadFailed else { return }
         let snapshot = index
         io.async { [indexFile] in
             let encoder = JSONEncoder()

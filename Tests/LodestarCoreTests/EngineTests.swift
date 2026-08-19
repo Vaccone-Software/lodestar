@@ -306,6 +306,29 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(core.state, .idle)
     }
 
+    /// A tap macOS disabled dropped the letters that would have finished
+    /// the chain, and a sticky chain waits forever — swallowing every key
+    /// after it. Reset is what the engine does when it stops being sure it
+    /// heard everything.
+    func testResetAbandonsWhateverIsInFlight() {
+        XCTAssertEqual(core.reset(), [], "idle resets to nothing at all")
+
+        world.graph = ["e": .deeper]
+        _ = press("e")
+        XCTAssertEqual(core.reset(), [.hideGuide])
+        XCTAssertEqual(core.state, .idle)
+
+        _ = press(",")
+        XCTAssertEqual(core.state, .scroll)
+        XCTAssertEqual(core.reset(), [.scrollExit, .hideGuide])
+        XCTAssertEqual(core.state, .idle)
+
+        _ = press(";")
+        XCTAssertEqual(core.state, .hints(sticky: false))
+        XCTAssertEqual(core.reset(), [.exitHints])
+        XCTAssertEqual(core.state, .idle)
+    }
+
     func testChainSwallowsStrayKeys() {
         world.graph = ["e": .deeper]
         _ = press("e")

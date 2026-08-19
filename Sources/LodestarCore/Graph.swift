@@ -110,7 +110,22 @@ public final class GraphNode {
                 cursor.children[last] = child
             }
         }
+        // Sugar splices its intermediate letters in before the target is
+        // resolved, so a target that turns out to be bogus left the
+        // letters behind — an "E →" row in the chain panel leading
+        // nowhere, waiting for a letter that could never complete it.
+        node.prune()
         return node
+    }
+
+    /// Drop branches that lead to nothing: no target, no children.
+    func prune() {
+        for (letter, child) in children {
+            child.prune()
+            if child.target == nil, child.children.isEmpty {
+                children.removeValue(forKey: letter)
+            }
+        }
     }
 
     private static func parseTarget(_ raw: String, at path: String,

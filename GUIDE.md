@@ -176,10 +176,12 @@ and every writer — a hand edit, ⌘K in the launcher or in Ask,
 
 Nested letters are the trie; values are an app name or `<browser>:<registry key>` (`brave:work`, `chrome:work`). **Multi-letter keys are sugar**: `"eo": "Outlook"` binds the chain E → O without writing the nesting (any depth: `wgg` works); a multi-letter key whose prefix is already a destination is refused with a validation problem. **Double-taps** (the `double-tap` section) bind a modifier tapped twice alone — `"cmd": "scroll"` makes tap-tap-⌘ enter scroll mode — as additional triggers; every default gesture stays. **Disabling** (the `gestures` section) gives every gesture a named switch — `"scroll": false` frees its keys to pass through to the app, shift variants included. Reserved first letters: `O`, `Z`, `X`. Breaths live on `'`, vim's mark key for a saved position, so M is Messages and B is free to bind. Deleting a key restores its default; `lodestar config` prints the full effective picture. Menu bar → Reload Config applies edits and reports every validation problem.
 
-**Migrating from 0.9.9 and earlier**: the first boot of 0.9.10 converts
-`lodestar.yaml` to `lodestar.json` automatically — same settings, sparse
-form — and leaves the yaml in place, inert, until a later release retires
-it. A yaml that fails to parse is never converted.
+**Migrating from 0.9.9 and earlier**: the automatic `lodestar.yaml` →
+`lodestar.json` conversion ran from 0.9.10 and is now retired. If a
+`lodestar.yaml` is still sitting in `~/.config/lodestar`, nothing reads
+it — the JSON beside it is the config, and the stale file is safe to
+delete. Upgrading from 0.9.9 or earlier now starts from defaults, so copy
+the settings across by hand (or install 0.17.0 first and let it convert).
 
 **Shift always means something** (beside, bind). If a hyper key shim rewrites right ⌘, configure it to exclude shift from its output — Lodestar accepts both the raw right-⌘ device bit and the shim's `⌘⌃⌥` form.
 

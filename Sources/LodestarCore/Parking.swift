@@ -28,8 +28,18 @@ public final class ParkingLot {
         guard spots[window.id] == nil else { return true }
         guard window.isAlive else { return false }
         let allBounds = bounds()
-        let display = allBounds.first { $0.intersects(window.frame) }
-            ?? allBounds.reduce(.null) { $0.union($1) }
+        // A real display, or nowhere. The union used to be the fallback,
+        // and with no displays attached — which happens, briefly, around
+        // sleep and display changes — it is CGRect.null, so the park
+        // position came out (inf, inf). AX accepts that, and `spots` then
+        // recorded a park that had not happened. FINDINGS §2 also warns
+        // that a union corner can land on no display at all in an L-shaped
+        // arrangement, which would peek the sliver onto a second monitor.
+        guard let display = allBounds.first(where: { $0.intersects(window.frame) })
+                ?? allBounds.first else {
+            Log.error("park: no display to park onto", ["window": window.id])
+            return false
+        }
         // Through the mover, never AX directly — its wrapped setters
         // suppress the enhanced-UI move animation (a park must snap, not
         // glide into the corner).
@@ -49,9 +59,39 @@ public final class ParkingLot {
             spots.removeValue(forKey: window.id)
             return false
         }
-        let ok = mover.setFrame(window, original)
+        let ok = mover.setFrame(window, restorable(original))
         spots.removeValue(forKey: window.id)
         return ok
+    }
+
+    /// The remembered frame, made reachable on the displays that exist now.
+    ///
+    /// A frame recorded on a monitor that has since been unplugged names a
+    /// coordinate space nobody has any more; replaying it verbatim let
+    /// AppKit clamp the window to a screen edge, which is where the user
+    /// then had to go find it with the mouse. A degenerate frame — one
+    /// saved while the window was already a sliver — is no better.
+    private func restorable(_ frame: CGRect) -> CGRect {
+        let allBounds = bounds()
+        let live = allBounds.first { $0.intersects(frame) }
+        // A parked sliver is 1pt wide by construction, so anything this
+        // thin was never a window the user arranged.
+        let degenerate = frame.width < 8 || frame.height < 8
+
+        // A frame that still reaches a live display is the user's own
+        // arrangement and comes back exactly as it was — including a
+        // window deliberately straddling two monitors, which clamping
+        // would have yanked wholly onto one of them.
+        if live != nil, !degenerate { return frame }
+
+        guard let home = live ?? allBounds.first else { return frame }
+        var out = frame
+        if degenerate { out.size = CGSize(width: 320, height: 240) }
+        out.size.width = min(out.width, home.width)
+        out.size.height = min(out.height, home.height)
+        out.origin.x = min(max(out.minX, home.minX), home.maxX - out.width)
+        out.origin.y = min(max(out.minY, home.minY), home.maxY - out.height)
+        return out
     }
 
     /// Drop bookkeeping for a window without moving it (e.g. it was summoned

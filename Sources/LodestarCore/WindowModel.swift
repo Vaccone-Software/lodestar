@@ -186,19 +186,32 @@ public final class WindowModel {
     // MARK: - Attach / detach
 
     private func attach(_ app: NSRunningApplication) {
+        _ = observer(for: app)
+        scanWindows(of: app)
+    }
+
+    /// The app's observer, made on first need.
+    ///
+    /// Attachment used to happen only from the launch and seed paths, both
+    /// of which skip `.accessory` apps and the second of which waits 0.6s
+    /// after launch. A window tracked before that — an accessory app with
+    /// a real window, or any app that activates inside the delay — found
+    /// no observer, so its six per-window notifications were never
+    /// registered and its frame was captured once and never refreshed
+    /// again. Hints then sized themselves to a stale rect, and parking
+    /// remembered the wrong frame to restore.
+    @discardableResult
+    private func observer(for app: NSRunningApplication) -> AppObserver? {
         let pid = app.processIdentifier
-        if observers[pid] != nil {
-            scanWindows(of: app)
-            return
-        }
+        if let existing = observers[pid] { return existing }
         guard let observer = AppObserver(pid: pid, handler: { [weak self] notification, element in
             self?.handle(notification, element: element, pid: pid)
-        }) else { return }
+        }) else { return nil }
         observers[pid] = observer
         let axApp = AXApplication(app)
         observer.watch(kAXWindowCreatedNotification, on: axApp.element)
         observer.watch(kAXFocusedWindowChangedNotification, on: axApp.element)
-        scanWindows(of: app)
+        return observer
     }
 
     private func detach(_ pid: pid_t) {
@@ -249,13 +262,15 @@ public final class WindowModel {
         windows[id] = window
         idByElement[ElementKey(element: element)] = id
         onTrace?("track id=\(id) \(window.appName) '\(window.title.prefix(30))' bundle=\(window.bundleID ?? "nil")")
-        if let observer = observers[app.processIdentifier] {
+        if let observer = observer(for: app) {
             observer.watch(kAXUIElementDestroyedNotification, on: element)
             observer.watch(kAXTitleChangedNotification, on: element)
             observer.watch(kAXMovedNotification, on: element)
             observer.watch(kAXResizedNotification, on: element)
             observer.watch(kAXWindowMiniaturizedNotification, on: element)
             observer.watch(kAXWindowDeminiaturizedNotification, on: element)
+        } else {
+            onTrace?("track id=\(id) has no observer — frame will not refresh")
         }
         if !seeding { onCreated?(id) }
         return id

@@ -54,6 +54,9 @@ final class HotkeyEngine {
     private var tap: CFMachPort?
     private var peekWork: DispatchWorkItem?
     private var isPeeking = false
+    private var tapWatchdog: Timer?
+    /// Latched so a tap we cannot revive is reported once, not every tick.
+    private var tapWasDead = false
 
     /// The last moment the engine acted on the user's behalf; the update
     /// gate reads this to find a quiet stretch.
@@ -130,6 +133,10 @@ final class HotkeyEngine {
             let engine = Unmanaged<HotkeyEngine>.fromOpaque(refcon).takeUnretainedValue()
             return engine.handle(type: type, event: event)
         }
+        // Armed before the attempt, not after it: a tap that could not be
+        // created at launch is exactly the case that needs to keep
+        // trying, because the grant it is waiting on arrives later.
+        startTapWatchdog()
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
@@ -151,6 +158,85 @@ final class HotkeyEngine {
         }
         Log.info("hotkeys: tap active (trigger: \(config.trigger.rawValue), sticky chains, peek)")
         return true
+    }
+
+    /// Is the tap still listening?
+    ///
+    /// macOS announces the disablements it knows about, and those are
+    /// handled in `handle`. It does not announce a tap killed out from
+    /// under us — revoking and re-granting Accessibility does exactly
+    /// that, and it is routine after a self-update swaps the bundle.
+    /// Nothing checked afterwards, so Lodestar sat in the menu bar looking
+    /// alive and completely inert until the user thought to relaunch it.
+    private func startTapWatchdog() {
+        tapWatchdog?.invalidate()
+        let timer = Timer(timeInterval: 5, repeats: true) { [weak self] _ in
+            self?.checkTapAlive()
+        }
+        // The tap is what makes the app an app; keep checking through a
+        // menu tracking loop or a resize, not only when the run loop idles.
+        timer.tolerance = 1
+        RunLoop.main.add(timer, forMode: .common)
+        tapWatchdog = timer
+    }
+
+    private func checkTapAlive() {
+        if let tap {
+            if CGEvent.tapIsEnabled(tap: tap) {
+                tapWasDead = false
+                return
+            }
+            CGEvent.tapEnable(tap: tap, enable: true)
+            if CGEvent.tapIsEnabled(tap: tap) {
+                Log.error("hotkeys: tap had stopped — re-enabled")
+                // Keys were dropped while it was off, so anything in
+                // flight is waiting on a letter that never arrived — the
+                // same reason the tapDisabled branch resets.
+                resetToIdle(reason: "tap revived")
+                tapWasDead = false
+                return
+            }
+            // Re-enabling did not take: the port is gone. Drop it and
+            // fall through to the rebuild.
+            Log.error("hotkeys: tap would not re-enable — rebuilding")
+            CFMachPortInvalidate(tap)
+            self.tap = nil
+        }
+        // No tap at all. Keep trying on every tick rather than latching:
+        // the thing that takes a tap away is an accessibility revoke, and
+        // the user can undo that at any moment without relaunching us —
+        // which is exactly the case this watchdog exists for. Only the
+        // announcement is rate-limited, never the retry.
+        guard Permissions.isTrusted else {
+            announceDeadTap()
+            return
+        }
+        guard start() else {
+            announceDeadTap()
+            return
+        }
+        tapWasDead = false
+        resetToIdle(reason: "tap rebuilt")
+        Log.error("hotkeys: tap rebuilt after being lost")
+        hud.flash("⌖ gestures restored", seconds: 3)
+    }
+
+    /// Said once per outage, not once every five seconds.
+    private func announceDeadTap() {
+        guard !tapWasDead else { return }
+        tapWasDead = true
+        Log.error("hotkeys: no event tap — gestures are inert until accessibility is granted")
+        hud.flash("⚠ Lodestar lost its keyboard access — re-grant it in Privacy & Security", seconds: 10)
+    }
+
+    /// Drop any chain, peek, or mode in flight and go quiet.
+    private func resetToIdle(reason: String) {
+        guard !core.isIdle || isPeeking else { return }
+        Log.info("hotkeys: engine reset", ["reason": reason])
+        cancelPeek(hideGuide: true)
+        _ = apply(core.reset(), event: nil)
+        hud.hide()
+        onChainActive?(false)
     }
 
     // MARK: - Trigger classification
@@ -175,8 +261,14 @@ final class HotkeyEngine {
             Log.info("tap: type=\(type.rawValue) key=\(keycode) flags=\(String(event.flags.rawValue, radix: 16))")
         }
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
-            Log.info("hotkeys: tap re-enabled")
+            // The tap dropped events while it was off, so a chain in
+            // flight is now missing letters it will wait for forever.
+            // Clearing is the honest recovery: the gesture is stateless by
+            // design, and a stranded chain swallows every key that follows.
+            resetToIdle(reason: type == .tapDisabledByTimeout ? "tap timed out" : "tap interrupted")
+            guard let tap else { return Unmanaged.passUnretained(event) }
+            CGEvent.tapEnable(tap: tap, enable: true)
+            Log.info("hotkeys: tap re-enabled", ["alive": CGEvent.tapIsEnabled(tap: tap)])
             return Unmanaged.passUnretained(event)
         }
         if type == .flagsChanged {
@@ -193,7 +285,7 @@ final class HotkeyEngine {
                 lastActivityAt = Date()
                 let press = verb.keypress
                 let wasIdle = core.isIdle
-                _ = apply(core.keyDown(key: press.key, held: true, shift: press.shift, world: self),
+                _ = dispatch(core.keyDown(key: press.key, held: true, shift: press.shift, world: self),
                           event: event)
                 if wasIdle != core.isIdle { onChainActive?(!core.isIdle) }
                 return Unmanaged.passUnretained(event)
@@ -207,7 +299,7 @@ final class HotkeyEngine {
             // key-downs we swallowed; everything else passes untouched.
             let keycode = event.getIntegerValueField(.keyboardEventKeycode)
             guard let key = Keys.name(for: keycode) else { return Unmanaged.passUnretained(event) }
-            return apply(core.keyUp(key: key), event: event)
+            return dispatch(core.keyUp(key: key), event: event)
         }
         guard type == .keyDown else { return Unmanaged.passUnretained(event) }
 
@@ -252,7 +344,7 @@ final class HotkeyEngine {
         if !held, key == "v", config.clipboardEnabled,
            event.flags.contains(.maskShift), event.flags.contains(.maskCommand) {
             lastActivityAt = Date()
-            return apply(core.openPaste(world: self), event: event)
+            return dispatch(core.openPaste(world: self), event: event)
         }
         // Mid-chain and mid-scroll, lode may or may not still be down —
         // shift keeps its meaning either way.
@@ -266,7 +358,7 @@ final class HotkeyEngine {
                                    command: event.flags.contains(.maskCommand),
                                    option: event.flags.contains(.maskAlternate), world: self)
         let arrived = Date()
-        let verdict = apply(effects, event: event)
+        let verdict = dispatch(effects, event: event)
         observeChain(effects, key: key, at: arrived)
         if wasIdle != core.isIdle { onChainActive?(!core.isIdle) }
         return verdict
@@ -369,6 +461,57 @@ final class HotkeyEngine {
         default:
             return false
         }
+    }
+
+    /// Whether an effect moves windows through the Accessibility API.
+    ///
+    /// These are the only effects whose cost is unbounded: each one walks
+    /// out to `Layout.retile` → `AXMover.setFrame`, roughly ten AX round
+    /// trips per layout member, and an AX call against an app that is not
+    /// answering blocks for the full messaging timeout. The tap callback
+    /// runs on the main run loop as a `.defaultTap`, so blocking inside it
+    /// stalls keyboard delivery for *every* app until the window server
+    /// gives up on us — the user's chain letters then land as literal text
+    /// in whatever is in front.
+    ///
+    /// Everything else stays synchronous on purpose. The clipboard verbs
+    /// synthesize a ⌘V through `CGEvent.post`, and ordering between a
+    /// run-loop source callback and a dispatched block is not guaranteed,
+    /// so deferring those could land a paste after the next keystroke.
+    private static func mutatesWindows(_ effect: EngineEffect) -> Bool {
+        switch effect {
+        case .summonGraph, .maximizeFocused, .indexJump, .reorder,
+             .moveDisplay, .flipOrientation, .undoLayout, .redoLayout:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Whether the core asked for the event to reach the app. Derived from
+    /// the effect list alone, so the verdict the tap must return never
+    /// waits on the work the effects do.
+    private static func passesThrough(_ effects: [EngineEffect]) -> Bool {
+        effects.contains { if case .passThrough = $0 { return true } else { return false } }
+    }
+
+    /// Decide the event's fate now, do the slow part after.
+    ///
+    /// The verdict is the only thing the tap owes the window server, and
+    /// it is knowable from the effect list without running anything. So
+    /// the window-moving effects go out on the next main-queue turn and
+    /// the callback returns immediately. Relative order is preserved:
+    /// `core` has already advanced synchronously, so the state machine
+    /// stays exact, and only the AX work lags.
+    private func dispatch(_ effects: [EngineEffect], event: CGEvent?) -> Unmanaged<CGEvent>? {
+        let deferred = effects.filter(Self.mutatesWindows)
+        guard !deferred.isEmpty else { return apply(effects, event: event) }
+        let immediate = effects.filter { !Self.mutatesWindows($0) }
+        let verdict = apply(immediate, event: event)
+        DispatchQueue.main.async { [weak self] in
+            _ = self?.apply(deferred, event: nil)
+        }
+        return verdict
     }
 
     /// Execute the core's decisions, in order. The one routing effect:

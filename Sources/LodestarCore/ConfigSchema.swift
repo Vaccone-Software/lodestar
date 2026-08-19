@@ -112,6 +112,81 @@ public enum ConfigSchema {
         return previous[b.count]
     }
 
+    // MARK: - Dotted addresses
+
+    /// Split a dotted address into path components, letting a user-chosen
+    /// key keep its dots.
+    ///
+    /// Splitting on every dot is wrong wherever the schema says the keys
+    /// are the user's: `web.routes` keys are hostnames and
+    /// `clipboard.exclude-apps` keys are bundle ids, so
+    /// `web.routes.github.com` has to mean the key `github.com`, not a
+    /// section `github` holding `com`. Getting that wrong made every such
+    /// key unwritable through `config set`, and made `config unset` print
+    /// a check mark for a key it never found.
+    ///
+    /// The schema already knows where a free-form key begins, so it
+    /// decides. Inside a free table the shortest key that leaves a
+    /// resolvable remainder wins, which addresses both
+    /// `web.routes.github.com` (the whole remainder is the key) and
+    /// `web.links.my.site.url` (the key is `my.site`, `url` is a field).
+    public static func path(for address: String, in schema: SchemaNode) -> [String] {
+        let segments = address.split(separator: ".").map(String.init)
+        guard !segments.isEmpty else { return [] }
+        var out: [String] = []
+        var node = schema
+        var index = 0
+        while index < segments.count {
+            switch node {
+            case .table(let children, _):
+                let key = segments[index]
+                out.append(key)
+                index += 1
+                guard let next = children[key] else {
+                    // An unknown section: the rest is addressed literally
+                    // and the schema walk reports it.
+                    out.append(contentsOf: segments[index...])
+                    return out
+                }
+                node = next
+            case .freeTable(let value, _):
+                let remaining = Array(segments[index...])
+                let width = (1...remaining.count).first { width in
+                    resolves(value, Array(remaining[width...]))
+                } ?? remaining.count
+                out.append(remaining[..<width].joined(separator: "."))
+                index += width
+                node = value
+            case .graph:
+                // Graph keys are letters; a dot never belongs to one.
+                out.append(segments[index])
+                index += 1
+            case .string, .boolean, .number:
+                out.append(contentsOf: segments[index...])
+                return out
+            }
+        }
+        return out
+    }
+
+    /// Whether `segments` addresses something inside `node`.
+    private static func resolves(_ node: SchemaNode, _ segments: [String]) -> Bool {
+        guard let head = segments.first else { return true }
+        switch node {
+        case .table(let children, _):
+            guard let next = children[head] else { return false }
+            return resolves(next, Array(segments.dropFirst()))
+        case .freeTable(let value, _):
+            return (1...segments.count).contains { width in
+                resolves(value, Array(segments[width...]))
+            }
+        case .graph:
+            return true
+        case .string, .boolean, .number:
+            return false
+        }
+    }
+
     // MARK: - JSON Schema emission
 
     /// Emit a JSON Schema document for editors (yaml-language-server).

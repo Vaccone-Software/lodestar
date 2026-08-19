@@ -24,12 +24,30 @@ public enum Keys {
     /// Overlay config overrides (reload-safe: always rebuilds from ANSI).
     public static func apply(overrides: [Int64: String]) {
         names = ansi.merging(overrides) { _, override in override }
-        codes = reverse(names)
+        var reversed = reverse(names)
+        // An override that renames a keycode onto a name the built-in
+        // table already owns is a deliberate act, and it has to win the
+        // reverse lookup too — otherwise the lowest-keycode rule below
+        // hands the name straight back to the ANSI entry and the override
+        // does nothing. Descending, so the lowest keycode is written last
+        // and wins among overrides, matching `reverse`.
+        for (code, name) in overrides.sorted(by: { $0.key > $1.key }) where names[code] == name {
+            reversed[name] = code
+        }
+        codes = reversed
     }
 
+    /// Two keycodes can carry one name once a config override renames a
+    /// key onto a name the ANSI table already owns. Iterating the
+    /// dictionary let whichever entry came last win, and Swift's ordering
+    /// is not stable across launches — so ⌘V synthesis and the scroll
+    /// guard could address a different keycode on the next boot. Lowest
+    /// keycode wins, every time.
     private static func reverse(_ table: [Int64: String]) -> [String: Int64] {
         var reversed: [String: Int64] = [:]
-        for (code, name) in table { reversed[name] = code }
+        for (code, name) in table.sorted(by: { $0.key < $1.key }) {
+            if reversed[name] == nil { reversed[name] = code }
+        }
         return reversed
     }
 

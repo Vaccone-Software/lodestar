@@ -242,6 +242,30 @@ final class LayoutControllerTests: XCTestCase {
         XCTAssertTrue(parking.isParked(20))
     }
 
+    /// Undo must not reach back onto a display that has gone.
+    ///
+    /// The snapshot outlived the layout, so undo restored it, claimed each
+    /// window's parking spot — deleting the only record of where they were
+    /// — and then moved nothing, because retile returns early for a
+    /// display that is not connected. The windows stayed in the 1px
+    /// parking sliver, unreachable, and focus followed them there.
+    func testUndoCannotReachADepartedDisplay() {
+        model.addWindow(10)
+        model.addWindow(20)
+        layout.replace(with: 10, on: 2)
+        layout.add(20, on: 2)
+
+        displays.infos.removeAll { $0.id == 2 }
+        layout.reconcileDisplays()
+        XCTAssertTrue(parking.isParked(10))
+        XCTAssertTrue(parking.isParked(20))
+
+        XCTAssertNil(layout.undo(), "the departed display's history went with it")
+        XCTAssertTrue(parking.isParked(10), "the parking record must survive")
+        XCTAssertTrue(parking.isParked(20))
+        XCTAssertEqual(layout.members(on: 2), [])
+    }
+
     func testReturnRestoresTheArrangement() {
         model.addWindow(10)
         model.addWindow(20)
@@ -303,11 +327,39 @@ final class LayoutControllerTests: XCTestCase {
         XCTAssertEqual(layout.members(on: 9), [])
     }
 
-    func testResolutionChangeIsANoop() {
+    /// Reconciling an unchanged world must not disturb anything.
+    func testUnchangedDisplaysAreLeftAlone() {
         model.addWindow(10)
         layout.replace(with: 10, on: 1)
-        layout.reconcileDisplays() // same displays, nothing to do
+        mover.frameSets.removeAll()
+        layout.reconcileDisplays()
         XCTAssertEqual(layout.members(on: 1), [10])
         XCTAssertFalse(parking.isParked(10))
+        XCTAssertTrue(mover.frameSets.isEmpty, "nothing changed, so nothing should move")
+    }
+
+    /// A display that stays but changes shape has to be re-cut. The old
+    /// reconciliation branched on display identity alone, so a resolution
+    /// switch, an arrangement drag, or the Dock appearing left the windows
+    /// tiled to a rectangle that no longer existed — and this test used to
+    /// pass while asserting nothing about it.
+    func testReshapedDisplayIsRetiled() {
+        model.addWindow(10)
+        model.addWindow(20)
+        layout.replace(with: 10, on: 1)
+        layout.add(20, on: 1)
+        mover.frameSets.removeAll()
+
+        displays.infos = [Displays.DisplayInfo(id: 1, bounds: CGRect(x: 0, y: 0, width: 800, height: 600)),
+                          Displays.DisplayInfo(id: 2, bounds: external)]
+        layout.reconcileDisplays()
+
+        XCTAssertEqual(layout.members(on: 1), [10, 20], "membership survives a reshape")
+        XCTAssertFalse(parking.isParked(10))
+        XCTAssertFalse(mover.frameSets.isEmpty, "the smaller display must be re-cut")
+        for set in mover.frameSets {
+            XCTAssertTrue(CGRect(x: 0, y: 0, width: 800, height: 600).contains(set.frame),
+                          "window \(set.id) landed outside the new bounds: \(set.frame)")
+        }
     }
 }

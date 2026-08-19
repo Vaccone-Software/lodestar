@@ -30,8 +30,15 @@ public final class ObservationStore {
         enabled = on
     }
 
-    public func load() {
-        log.compact()
+    /// Read the store.
+    ///
+    /// `compacting` is false for read-only callers — the `observations`
+    /// CLI, for one. Compaction atomically rewrites `events.jsonl`, and a
+    /// short-lived reporting process doing that underneath the running app
+    /// discards whatever the app had buffered since it last flushed.
+    /// Rotation is the running instance's job.
+    public func load(compacting: Bool = true) {
+        if compacting { log.compact() }
         guard let data = try? Data(contentsOf: file),
               let decoded = try? JSONDecoder().decode(Observations.self, from: data),
               decoded.version == Observations.currentVersion else {

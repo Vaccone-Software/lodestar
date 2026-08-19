@@ -130,18 +130,43 @@ public final class EventLog {
             lines.append(data)
             lines.append(0x0A)
         }
-        pending = []
-        guard !lines.isEmpty else { return }
+        guard !lines.isEmpty else { pending = []; return }
         let fm = FileManager.default
         try? fm.createDirectory(at: file.deletingLastPathComponent(),
                                 withIntermediateDirectories: true)
+        var appended = false
         if let handle = try? FileHandle(forWritingTo: file) {
             defer { try? handle.close() }
-            _ = try? handle.seekToEnd()
-            try? handle.write(contentsOf: lines)
+            let start = (try? handle.seekToEnd()) ?? 0
+            do {
+                try handle.write(contentsOf: lines)
+                appended = true
+            } catch {
+                // A write can fail part-way (a full disk takes what it
+                // can). Rewinding the file to where the batch started
+                // keeps the retained batch the only copy of those events,
+                // instead of duplicating them and leaving a torn line at
+                // the seam for the reader to trip over.
+                try? handle.truncate(atOffset: start)
+                Log.error("events: append failed (\(error)) — rewound, batch kept for the next flush")
+            }
+        } else if !fm.fileExists(atPath: file.path) {
+            // Only ever a first write. The open can also fail on a file
+            // that does exist — too many descriptors, a permission change
+            // — and this branch used to replace ninety days of events with
+            // the last few seconds of them.
+            do {
+                try lines.write(to: file, options: .atomic)
+                appended = true
+            } catch {
+                Log.error("events: could not create \(file.lastPathComponent) (\(error))")
+            }
         } else {
-            try? lines.write(to: file, options: .atomic)
+            Log.error("events: \(file.lastPathComponent) exists but could not be opened — batch kept")
         }
+        // Clearing before the write meant a failed write silently dropped
+        // the batch; holding it costs a little memory and loses nothing.
+        if appended { pending = [] }
     }
 
     /// Every event still in the ring, oldest first, pending included.

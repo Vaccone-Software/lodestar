@@ -10,6 +10,11 @@ import LodestarCore
 /// main thread; everything sensitive is refused before it is ever read.
 final class ClipboardController {
     private let store: ClipboardStore
+
+    /// A clipboard index that had to be quarantined at boot. Surfaced
+    /// beside the state store's warning — history vanishing without a
+    /// word is exactly the kind of silence that makes a tool untrustworthy.
+    var bootWarning: String? { store.bootWarning }
     private var poll: Timer?
     private var lastChangeCount = NSPasteboard.general.changeCount
     /// Our own writes must not read back as new copies, or pasting would

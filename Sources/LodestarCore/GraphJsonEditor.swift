@@ -72,31 +72,70 @@ public enum GraphJsonEditor {
         return out
     }
 
+    /// The chain can be written two ways and both have to be removable.
+    ///
+    /// `"eo": "Outlook"` is sugar for the nesting `e → o`, and the trie the
+    /// ⌘K card builds its rows from expands it — so the card offered
+    /// "remove lode E O" for a binding this walk then could not find,
+    /// answering "lode E O is not in the config" about a line plainly in
+    /// it. The Advisor's remove-chain suggestion failed the same way.
+    ///
+    /// The nested spelling is tried first: when a config somehow carries
+    /// both, the builder honours the nesting and drops the sugar as a
+    /// collision, so that is the binding actually in force.
     private static func deleting(_ letters: [String],
                                  in table: [String: ConfigValue],
                                  walked: [String]) throws -> [String: ConfigValue]? {
         let letter = letters[0].lowercased()
         let path = walked + [letter]
-        guard let existing = table.first(where: { $0.key.lowercased() == letter }) else { return nil }
-        var out = table
-        if letters.count == 1 {
-            guard existing.value.table == nil else {
-                // A branch is not a leaf; deleting it would take children
-                // the caller never named.
-                throw EditError.missing(describe(path))
+        // A `.missing` raised part-way down the nested spelling must not
+        // end the search: `GraphNode.build` prunes branches that lead
+        // nowhere, so a config holding both a dead nesting and live sugar
+        // ({"e": {"o": {}}, "eo": "X"}) resolves the chain through the
+        // sugar — and that is the binding removal has to find.
+        var nestedFailure: Error?
+        if let existing = table.first(where: { $0.key.lowercased() == letter }) {
+            var out = table
+            if letters.count == 1 {
+                guard existing.value.table == nil else {
+                    // A branch is not a leaf; deleting it would take
+                    // children the caller never named.
+                    throw EditError.missing(describe(path))
+                }
+                out.removeValue(forKey: existing.key)
+                return out
             }
-            out.removeValue(forKey: existing.key)
-            return out
+            if let branch = existing.value.table {
+                do {
+                    if let updated = try deleting(Array(letters.dropFirst()), in: branch, walked: path) {
+                        if updated.isEmpty {
+                            out.removeValue(forKey: existing.key)
+                        } else {
+                            out[existing.key] = .table(updated)
+                        }
+                        return out
+                    }
+                } catch {
+                    nestedFailure = error
+                }
+            }
         }
-        guard let branch = existing.value.table,
-              let updated = try deleting(Array(letters.dropFirst()), in: branch, walked: path) else {
+        // Sugar: the rest of the chain written as one key. Also reached
+        // part-way down, so `{"w": {"gg": "…"}}` gives up its W G G.
+        guard letters.count > 1 else {
+            if let nestedFailure { throw nestedFailure }
             return nil
         }
-        if updated.isEmpty {
-            out.removeValue(forKey: existing.key)
-        } else {
-            out[existing.key] = .table(updated)
+        let sugar = letters.joined().lowercased()
+        guard let existing = table.first(where: { $0.key.lowercased() == sugar }) else {
+            if let nestedFailure { throw nestedFailure }
+            return nil
         }
+        guard existing.value.table == nil else {
+            throw EditError.missing(describe(walked + letters))
+        }
+        var out = table
+        out.removeValue(forKey: existing.key)
         return out
     }
 

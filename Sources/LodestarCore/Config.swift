@@ -92,10 +92,6 @@ public struct Config {
     /// defaults, documentation living in the schema, every writer
     /// producing the same bytes.
     public static let file = directory.appendingPathComponent("lodestar.json")
-    /// The pre-0.9.10 format, read-only: the migration source, kept on
-    /// disk through the rollback window so an auto-updated install that
-    /// rolls back still finds its config. Retired at 1.0.
-    public static let yamlFile = directory.appendingPathComponent("lodestar.yaml")
 
     /// Top-level chain letters the primitives own; the graph may not use
     /// them. Defined once in `Gestures` so a key move cannot leave a stale
@@ -182,62 +178,93 @@ public struct Config {
     /// Every config write funnels here: the tree is pruned sparse against
     /// the defaults, stamped with the schema pointer and the writing
     /// release, and emitted canonically — every writer, the same bytes.
-    public static func write(tree: [String: ConfigValue]) throws {
+    /// `to:` exists so tests can exercise the write path without touching
+    /// the config of whoever is running them; every caller uses the default.
+    public static func write(tree: [String: ConfigValue], to target: URL = Config.file) throws {
         var clean = ConfigDefaults.normalized(tree)
         clean.removeValue(forKey: "$schema")
         clean.removeValue(forKey: "version")
         var out = Json.pruned(clean, defaults: ConfigDefaults.tree)
         out["$schema"] = .string("lodestar-schema.json")
         out["version"] = .string(Lodestar.version)
-        try Json.emit(out).write(to: file, atomically: true, encoding: .utf8)
+        try Json.emit(out).write(to: target, atomically: true, encoding: .utf8)
     }
 
-    /// The one-way move at app boot: lodestar.yaml → sparse lodestar.json.
-    /// The yaml stays on disk untouched — a watchdog-restored 0.9.9 must
-    /// still find its config — and a later release retires it. A yaml
-    /// that fails to parse is never converted: nothing is written, load()
-    /// surfaces the problem, and the human keeps their file.
-    @discardableResult
-    public static func migrateIfNeeded() -> Bool {
-        let fm = FileManager.default
-        guard !fm.fileExists(atPath: file.path), fm.fileExists(atPath: yamlFile.path) else { return false }
-        guard let text = try? String(contentsOf: yamlFile, encoding: .utf8),
-              let root = try? Yaml.parse(text) else {
-            Log.error("config: lodestar.yaml is unreadable — migration skipped, nothing written")
-            return false
-        }
-        do {
-            try write(tree: root)
-            Log.info("config: migrated lodestar.yaml → lodestar.json (yaml kept through the rollback window)")
-            return true
-        } catch {
-            Log.error("config: migration write failed (\(error)) — still reading lodestar.yaml")
-            return false
-        }
-    }
+    /// Why an edit could not happen. Both cases mean the same thing to a
+    /// caller: the file on disk is the user's and must not be replaced.
+    public enum EditError: Error, CustomStringConvertible {
+        case unreadable(String)
+        case unparsed(String)
 
-    /// Load the config: JSON when it exists, the legacy YAML read-only
-    /// otherwise (so `check` before migration sees the same truth the
-    /// migration will write), a fresh minimal file when neither does.
-    public static func load() -> (Config, [String]) {
-        var problems: [String] = []
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        var root: [String: ConfigValue] = [:]
-        if let text = try? String(contentsOf: file, encoding: .utf8) {
-            do {
-                root = try Json.parse(text)
-            } catch {
-                problems.append("config parse failed (\(error)); using defaults")
+        public var description: String {
+            switch self {
+            case .unreadable(let name): return "could not read \(name)"
+            case .unparsed(let detail): return "the config does not parse — \(detail)"
             }
-        } else if let text = try? String(contentsOf: yamlFile, encoding: .utf8) {
+        }
+    }
+
+    /// The one read-modify-write over the config file.
+    ///
+    /// Every writer used to open with its own read, and they disagreed:
+    /// two of the four collapsed a parse failure to an empty tree, so one
+    /// hand-edit typo plus one menu-bar toggle replaced the whole config —
+    /// graph, profiles, links, routes, key overrides — with the single key
+    /// being set. Nothing was backed up and nothing was said. The rule is
+    /// simple enough to have exactly one implementation: a file that
+    /// exists and does not parse is never written over.
+    ///
+    /// An absent file is not a failure — that is a genuine first write,
+    /// and it starts from an empty tree.
+    @discardableResult
+    public static func edit(
+        in target: URL = Config.file,
+        _ transform: ([String: ConfigValue]) throws -> [String: ConfigValue]
+    ) throws -> [String: ConfigValue] {
+        var tree: [String: ConfigValue] = [:]
+        if FileManager.default.fileExists(atPath: target.path) {
+            guard let text = try? String(contentsOf: target, encoding: .utf8) else {
+                throw EditError.unreadable(target.lastPathComponent)
+            }
             do {
-                root = try Yaml.parse(text)
+                tree = try Json.parse(text)
             } catch {
-                problems.append("config parse failed (\(error)); using defaults")
+                throw EditError.unparsed("\(error)")
+            }
+        }
+        let updated = try transform(tree)
+        try write(tree: updated, to: target)
+        return updated
+    }
+
+    /// Load the config, or a fresh minimal file on a genuine first run.
+    ///
+    /// The branch is on the file *existing*, never on it reading cleanly.
+    /// `String(contentsOf:encoding:)` returns nil both for "no such file"
+    /// and for "exists but is not valid UTF-8", and treating those alike
+    /// once meant an undecodable byte cost the user their whole config:
+    /// the default write landed on top of it, and `check` and `diagnose`
+    /// reached the same path, so the diagnostic destroyed the evidence.
+    /// A file that exists is never written over here — it becomes a
+    /// problem the human can see, and defaults are used in memory only.
+    public static func load(from source: URL = Config.file) -> (Config, [String]) {
+        var problems: [String] = []
+        try? FileManager.default.createDirectory(at: source.deletingLastPathComponent(),
+                                                 withIntermediateDirectories: true)
+        var root: [String: ConfigValue] = [:]
+        if FileManager.default.fileExists(atPath: source.path) {
+            do {
+                guard let text = try? String(contentsOf: source, encoding: .utf8) else {
+                    throw Json.ParseError(message: "\(source.lastPathComponent) is not valid UTF-8")
+                }
+                root = try Json.parse(text, problems: &problems)
+            } catch {
+                problems.append("config parse failed (\(error)); using defaults — "
+                                + "\(source.lastPathComponent) left untouched")
             }
         } else {
-            try? write(tree: [:])
-            Log.info("config: wrote default \(file.path)")
+            try? write(tree: [:], to: source)
+            Log.info("config: wrote default \(source.path)")
         }
         return (build(from: root, problems: &problems), problems)
     }
@@ -321,6 +348,25 @@ public struct Config {
                 if let enabled = value.bool { toggles[name] = enabled }
             }
             config.disabledGestures = Gestures.disabledKeys(from: toggles)
+        }
+
+        // Double-taps. This section had a schema, a default, docs, a
+        // consumer and a tested detector — and no parser, so every
+        // binding validated, wrote, printed back, and did nothing.
+        if let taps = effective.value(at: ["double-tap"])?.table {
+            for (name, value) in taps.sorted(by: { $0.key < $1.key }) {
+                guard let modifier = ModifierKey(rawValue: name.lowercased()) else {
+                    problems.append("double-tap.\(name) is not a modifier — one of "
+                                    + ModifierKey.allCases.map(\.rawValue).sorted().joined(separator: ", "))
+                    continue
+                }
+                guard let raw = value.string, let verb = TapVerb(rawValue: raw) else {
+                    problems.append("double-tap.\(name) must be one of "
+                                    + TapVerb.allCases.map(\.rawValue).sorted().joined(separator: ", "))
+                    continue
+                }
+                config.doubleTaps[modifier] = verb
+            }
         }
 
         // Profiles first — the graph and web sections reference them.

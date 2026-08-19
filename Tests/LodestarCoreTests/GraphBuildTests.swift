@@ -5,9 +5,9 @@ import XCTest
 /// problems each malformation reports. The graph section is the config's
 /// most-edited surface; its failure modes must stay stable.
 final class GraphBuildTests: XCTestCase {
-    private func build(_ yaml: String, registry: [String: BrowserProfile] = [:]) throws -> (GraphNode, [String]) {
+    private func build(_ json: String, registry: [String: BrowserProfile] = [:]) throws -> (GraphNode, [String]) {
         var problems: [String] = []
-        let root = try Yaml.parse(yaml)
+        let root = try Json.parse(json)
         let node = GraphNode.build(from: root.value(at: ["graph"])!.table!,
                                    path: "", registry: registry, problems: &problems)
         return (node, problems)
@@ -24,10 +24,10 @@ final class GraphBuildTests: XCTestCase {
 
     func testLeavesBranchesAndResolution() throws {
         let (node, problems) = try build("""
-        graph:
-          s: Slack
-          e:
-            o: Outlook
+        {"graph": {
+          "s": "Slack",
+          "e": {"o": "Outlook"}
+        }}
         """)
         XCTAssertTrue(problems.isEmpty)
         assertLeaf(node, ["s"], app: "Slack")
@@ -38,20 +38,20 @@ final class GraphBuildTests: XCTestCase {
     }
 
     func testUppercaseKeysAreLowered() throws {
-        let (node, problems) = try build("graph:\n  S: Slack")
+        let (node, problems) = try build(#"{"graph": {"S": "Slack"}}"#)
         XCTAssertTrue(problems.isEmpty)
         assertLeaf(node, ["s"], app: "Slack")
     }
 
     func testAppPrefixIsStripped() throws {
-        let (node, _) = try build("graph:\n  s: \"app: Slack\"")
+        let (node, _) = try build(#"{"graph": {"s": "app: Slack"}}"#)
         assertLeaf(node, ["s"], app: "Slack")
     }
 
     // MARK: - Sugar
 
     func testSugarBindsAChain() throws {
-        let (node, problems) = try build("graph:\n  eo: Outlook")
+        let (node, problems) = try build(#"{"graph": {"eo": "Outlook"}}"#)
         XCTAssertTrue(problems.isEmpty)
         assertLeaf(node, ["e", "o"], app: "Outlook")
         guard case .deeper = node.resolve(["e"]) else { return XCTFail("e became a branch") }
@@ -59,10 +59,10 @@ final class GraphBuildTests: XCTestCase {
 
     func testSugarMergesIntoExistingBranch() throws {
         let (node, problems) = try build("""
-        graph:
-          e:
-            l: Lodestar
-          ep: Slack
+        {"graph": {
+          "e": {"l": "Lodestar"},
+          "ep": "Slack"
+        }}
         """)
         XCTAssertTrue(problems.isEmpty)
         assertLeaf(node, ["e", "l"], app: "Lodestar")
@@ -71,9 +71,10 @@ final class GraphBuildTests: XCTestCase {
 
     func testSugarShadowedByLeafIsDropped() throws {
         let (node, problems) = try build("""
-        graph:
-          e: Mail
-          ep: Slack
+        {"graph": {
+          "e": "Mail",
+          "ep": "Slack"
+        }}
         """)
         assertLeaf(node, ["e"], app: "Mail")
         XCTAssertEqual(problems.count, 1)
@@ -82,51 +83,80 @@ final class GraphBuildTests: XCTestCase {
 
     func testSugarCollidingWithExistingPathIsDropped() throws {
         let (node, problems) = try build("""
-        graph:
-          e:
-            p: First
-          ep: Second
+        {"graph": {
+          "e": {"p": "First"},
+          "ep": "Second"
+        }}
         """)
         assertLeaf(node, ["e", "p"], app: "First")
         XCTAssertEqual(problems.count, 1)
         XCTAssertTrue(problems[0].contains("collides"), "\(problems)")
     }
 
+    /// Sugar splices its intermediate letters in before the target is
+    /// resolved, so a target that does not resolve used to leave the
+    /// letters behind — the chain panel showed an "E →" row leading
+    /// nowhere, waiting for a letter that could never complete it.
+    func testSugarWithAnUnresolvableTargetLeavesNoOrphanBranch() throws {
+        let (node, problems) = try build(#"{"graph": {"eo": "brave: nope"}}"#)
+        XCTAssertFalse(problems.isEmpty)
+        guard case .miss = node.resolve(["e"]) else {
+            return XCTFail("E survived as a phantom branch")
+        }
+        XCTAssertEqual(node.guideRows().count, 0)
+        XCTAssertEqual(node.leaves().count, 0)
+    }
+
+    /// A deeper sugar chain prunes all the way back up.
+    func testDeepSugarPrunesEveryIntermediateWhenTheTargetFails() throws {
+        let (node, _) = try build(#"{"graph": {"abc": "", "s": "Slack"}}"#)
+        guard case .miss = node.resolve(["a"]) else { return XCTFail("A survived") }
+        XCTAssertEqual(node.leaves().map { $0.chain.joined() }, ["s"])
+    }
+
+    /// An empty section is not a destination either.
+    func testEmptyBranchIsPruned() throws {
+        let (node, _) = try build(#"{"graph": {"e": {}, "s": "Slack"}}"#)
+        guard case .miss = node.resolve(["e"]) else { return XCTFail("E survived empty") }
+        XCTAssertEqual(node.leaves().map { $0.chain.joined() }, ["s"])
+    }
+
     func testSugarWithTableValueIsRejected() throws {
-        let (_, problems) = try build("graph:\n  ep:\n    x: Slack")
+        let (_, problems) = try build(#"{"graph": {"ep": {"x": "Slack"}}}"#)
         XCTAssertTrue(problems.contains { $0.contains("take a target, not a table") }, "\(problems)")
     }
 
     // MARK: - Malformations
 
     func testDoubleBindingIsDeterministic() throws {
-        // Yaml itself rejects duplicate keys; a duplicate can only arrive
-        // via case folding ("s" and "S" are the same letter). The builder
-        // processes keys in sorted order, not file order — uppercase sorts
-        // first, so its binding wins, deterministically.
+        // A duplicate can only arrive via case folding ("s" and "S" are the
+        // same letter; JSON keeps the first of two literally identical
+        // keys). The builder processes keys in sorted order, not file order
+        // — uppercase sorts first, so its binding wins, deterministically.
         let (node, problems) = try build("""
-        graph:
-          s: First
-          S: Second
+        {"graph": {
+          "s": "First",
+          "S": "Second"
+        }}
         """)
         assertLeaf(node, ["s"], app: "Second")
         XCTAssertTrue(problems.contains { $0.contains("bound twice") }, "\(problems)")
     }
 
     func testNonLetterKeyIsRejected() throws {
-        let (node, problems) = try build("graph:\n  3: Slack\n  e2: Mail")
+        let (node, problems) = try build(#"{"graph": {"3": "Slack", "e2": "Mail"}}"#)
         guard case .miss = node.resolve(["3"]) else { return XCTFail() }
         XCTAssertEqual(problems.filter { $0.contains("must be letters") }.count, 2, "\(problems)")
     }
 
     func testEmptyTargetIsRejected() throws {
-        let (node, problems) = try build("graph:\n  s: \"\"")
+        let (node, problems) = try build(#"{"graph": {"s": ""}}"#)
         guard case .miss = node.resolve(["s"]) else { return XCTFail() }
         XCTAssertTrue(problems.contains { $0.contains("empty target") }, "\(problems)")
     }
 
     func testEmptyAppPrefixTargetIsReportedNotSwallowed() throws {
-        let (node, problems) = try build("graph:\n  s: \"app:\"")
+        let (node, problems) = try build(#"{"graph": {"s": "app:"}}"#)
         guard case .miss = node.resolve(["s"]) else { return XCTFail() }
         XCTAssertTrue(problems.contains { $0.contains("empty target") }, "\(problems)")
     }
@@ -135,7 +165,7 @@ final class GraphBuildTests: XCTestCase {
 
     func testBrowserProfileResolvesThroughRegistry() throws {
         let personal = BrowserProfile(browser: .brave, display: "Personal")
-        let (node, problems) = try build("graph:\n  p: \"brave: personal\"",
+        let (node, problems) = try build(#"{"graph": {"p": "brave: personal"}}"#,
                                          registry: ["personal": personal])
         XCTAssertTrue(problems.isEmpty, "\(problems)")
         guard case .leaf(let target) = node.resolve(["p"]),
@@ -151,9 +181,10 @@ final class GraphBuildTests: XCTestCase {
             "school": BrowserProfile(browser: .edge, display: "School"),
         ]
         let (node, problems) = try build("""
-        graph:
-          w: "chrome: work"
-          s: "edge: school"
+        {"graph": {
+          "w": "chrome: work",
+          "s": "edge: school"
+        }}
         """, registry: registry)
         XCTAssertTrue(problems.isEmpty, "\(problems)")
         guard case .leaf(let chrome) = node.resolve(["w"]) else { return XCTFail() }
@@ -163,7 +194,7 @@ final class GraphBuildTests: XCTestCase {
     }
 
     func testUnknownProfileIsDroppedWithGuidance() throws {
-        let (node, problems) = try build("graph:\n  p: \"brave: nope\"")
+        let (node, problems) = try build(#"{"graph": {"p": "brave: nope"}}"#)
         guard case .miss = node.resolve(["p"]) else { return XCTFail() }
         XCTAssertTrue(problems.contains { $0.contains("unknown profile") && $0.contains("profiles.brave") },
                       "\(problems)")
@@ -171,7 +202,7 @@ final class GraphBuildTests: XCTestCase {
 
     func testWrongBrowserReferenceIsDroppedWithGuidance() throws {
         let registry = ["work": BrowserProfile(browser: .chrome, display: "Work")]
-        let (node, problems) = try build("graph:\n  p: \"brave: work\"", registry: registry)
+        let (node, problems) = try build(#"{"graph": {"p": "brave: work"}}"#, registry: registry)
         guard case .miss = node.resolve(["p"]) else { return XCTFail() }
         XCTAssertTrue(problems.contains { $0.contains("declared under profiles.chrome") }, "\(problems)")
     }
@@ -180,11 +211,10 @@ final class GraphBuildTests: XCTestCase {
 
     func testGuideRowsNameLeavesAndBranchLetters() throws {
         let (node, _) = try build("""
-        graph:
-          s: Slack
-          e:
-            o: Outlook
-            p: Proton Mail
+        {"graph": {
+          "s": "Slack",
+          "e": {"o": "Outlook", "p": "Proton Mail"}
+        }}
         """)
         let rows = node.guideRows().map { "\($0.0)=\($0.1)" }
         XCTAssertEqual(rows, ["E=→ O P", "S=Slack"])
@@ -194,14 +224,11 @@ final class GraphBuildTests: XCTestCase {
 
     func testLeavesWalkEveryDestinationDepthFirstAndSorted() throws {
         let (node, _) = try build("""
-        graph:
-          s: Slack
-          e:
-            o: Outlook
-            p: Proton Mail
-          a:
-            b:
-              c: Deep App
+        {"graph": {
+          "s": "Slack",
+          "e": {"o": "Outlook", "p": "Proton Mail"},
+          "a": {"b": {"c": "Deep App"}}
+        }}
         """)
         let walked = node.leaves().map { "\($0.chain.joined())=\($0.target.label)" }
         XCTAssertEqual(walked, ["abc=Deep App", "eo=Outlook", "ep=Proton Mail", "s=Slack"])
@@ -212,11 +239,10 @@ final class GraphBuildTests: XCTestCase {
     /// could change between launches.
     func testLeafOrderIsStableAcrossWalks() throws {
         let (node, _) = try build("""
-        graph:
-          a:
-            q: Slack
-          b:
-            q: Slack
+        {"graph": {
+          "a": {"q": "Slack"},
+          "b": {"q": "Slack"}
+        }}
         """)
         let first = node.leaves().map(\.chain)
         for _ in 0..<20 { XCTAssertEqual(node.leaves().map(\.chain), first) }
@@ -225,11 +251,11 @@ final class GraphBuildTests: XCTestCase {
 
     func testChainsToAppNamedFindsEveryBindingShortestFirst() throws {
         let (node, _) = try build("""
-        graph:
-          s: Slack
-          w:
-            k: Slack
-          o: Outlook
+        {"graph": {
+          "s": "Slack",
+          "w": {"k": "Slack"},
+          "o": "Outlook"
+        }}
         """)
         XCTAssertEqual(node.chains(toAppNamed: "slack"), [["s"], ["w", "k"]])
         XCTAssertEqual(node.chains(toAppNamed: "SLACK"), [["s"], ["w", "k"]], "case-insensitive")
@@ -239,11 +265,7 @@ final class GraphBuildTests: XCTestCase {
     func testLeavesSkipBranchNodesThatAlsoCarryTargets() throws {
         // A letter that is both a leaf and a branch resolves in favor of the
         // subdivision, so the walk must report the children, not the letter.
-        let (node, _) = try build("""
-        graph:
-          e:
-            o: Outlook
-        """)
+        let (node, _) = try build(#"{"graph": {"e": {"o": "Outlook"}}}"#)
         XCTAssertEqual(node.leaves().map(\.chain), [["e", "o"]])
     }
 }

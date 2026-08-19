@@ -96,7 +96,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         // Before anything opens a file: settle where files live.
         Paths.migrateIfNeeded()
-        Config.migrateIfNeeded()
         let (loaded, problems) = Config.load()
         config = loaded
         Keys.apply(overrides: loaded.keyOverrides)
@@ -307,7 +306,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else {
             hud.flash("✕ Lodestar could not install its event tap", seconds: 6)
         }
-        if let warning = store.bootWarning {
+        for warning in [store.bootWarning, clipboardController?.bootWarning].compactMap({ $0 }) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [hud] in
                 hud?.flash("⚠ \(warning)", seconds: 8)
             }
@@ -324,10 +323,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // State first, unparking second. Restoring is unbounded AX work —
+        // a second per unresponsive app — and a successor process that
+        // starts reading while we are still in the middle of it must find
+        // a state file that is already complete. The second save records
+        // the emptied parking map when the restore does finish.
+        store?.save()
+        observationStore?.flush()
         Log.info("terminating: restoring parked windows")
         actions?.restoreAllParked()
         store?.save() // flush any coalesced write before the process dies
-        observationStore?.flush()
         // Only clear the pid file while it is still ours — in a takeover
         // (manual reinstall or self-update) the successor has already
         // written its own pid, and deleting it would blind the update
@@ -682,11 +687,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// not an event worth announcing.
     private func persistClickBrowser(_ bundleID: String) {
         config.webClickBrowser = bundleID
-        guard let text = try? String(contentsOf: Config.file, encoding: .utf8),
-              let tree = try? Json.parse(text),
-              let updated = Json.setting(tree, path: ["web", "clicks", "browser"],
-                                         to: .string(bundleID)) else { return }
-        try? Config.write(tree: updated)
+        do {
+            try Config.edit { tree in
+                guard let updated = Json.setting(tree, path: ["web", "clicks", "browser"],
+                                                 to: .string(bundleID)) else {
+                    throw Config.EditError.unparsed("web.clicks is not a section")
+                }
+                return updated
+            }
+        } catch {
+            Log.error("default-browser", ["persist-failed": "\(error)"])
+        }
     }
 
     /// We hold the role but routing is off and no browser is recorded: Lodestar
@@ -819,18 +830,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func recordClickSettings(enabled: Bool, browser: String) {
-        var root = (try? Json.parse((try? String(contentsOf: Config.file, encoding: .utf8)) ?? "{}")) ?? [:]
-        guard let withFlag = Json.setting(root, path: ["web", "clicks", "enabled"], to: .bool(enabled)),
-              let withBrowser = Json.setting(withFlag, path: ["web", "clicks", "browser"],
-                                             to: .string(browser)) else {
-            Log.error("default-browser", ["write": "web.clicks is not a section"])
-            return
-        }
-        root = withBrowser
         do {
-            try Config.write(tree: root)
+            try Config.edit { tree in
+                guard let withFlag = Json.setting(tree, path: ["web", "clicks", "enabled"],
+                                                  to: .bool(enabled)),
+                      let withBrowser = Json.setting(withFlag, path: ["web", "clicks", "browser"],
+                                                     to: .string(browser)) else {
+                    throw Config.EditError.unparsed("web.clicks is not a section")
+                }
+                return withBrowser
+            }
         } catch {
-            Log.error("default-browser", ["write-failed": error.localizedDescription])
+            Log.error("default-browser", ["write-failed": "\(error)"])
             return
         }
         applyConfigReload(successFlash: "✓ config reloaded")
@@ -872,11 +883,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// the config so the choice survives a restart, the same as any other
     /// deliberate setting.
     private func excludeAppFromClipboard(_ bundleID: String) {
-        var root = (try? Json.parse((try? String(contentsOf: Config.file, encoding: .utf8)) ?? "{}")) ?? [:]
-        guard let updated = Json.setting(root, path: ["clipboard", "exclude-apps", bundleID.lowercased()],
-                                         to: .bool(true)) else { return }
-        root = updated
-        try? Config.write(tree: root)
+        do {
+            try Config.edit { tree in
+                guard let updated = Json.setting(tree,
+                                                 path: ["clipboard", "exclude-apps", bundleID.lowercased()],
+                                                 to: .bool(true)) else {
+                    throw Config.EditError.unparsed("clipboard.exclude-apps is not a section")
+                }
+                return updated
+            }
+        } catch {
+            Log.error("clipboard", ["exclude-failed": "\(error)"])
+            hud.flash("⚠ could not save that — \(error)", seconds: 5)
+            return
+        }
         Log.info("clipboard", ["excluded-app": bundleID])
     }
 
@@ -980,23 +1000,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// and something quieter when the flash names a destination.
     private func rewriteConfig(flash: String, logged: String? = nil,
                                edit: ([String: ConfigValue]) throws -> [String: ConfigValue]) -> String? {
-        Config.migrateIfNeeded() // an edit is a write; writes happen in the new format
-        guard let text = try? String(contentsOf: Config.file, encoding: .utf8),
-              let tree = try? Json.parse(text) else {
-            return "could not read \(Config.file.lastPathComponent)"
-        }
-        let updated: [String: ConfigValue]
         do {
-            updated = try edit(tree)
+            try Config.edit(edit)
         } catch let error as GraphJsonEditor.EditError {
             return error.description
         } catch let error as WebJsonEditor.EditError {
             return error.description
-        } catch {
-            return "\(error)"
-        }
-        do {
-            try Config.write(tree: updated)
+        } catch let error as Config.EditError {
+            return error.description
         } catch {
             return "could not write the config: \(error.localizedDescription)"
         }
@@ -1150,33 +1161,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             .appendingPathComponent("Library/LaunchAgents/com.vaccone.lodestar.plist")
         let exists = FileManager.default.fileExists(atPath: agent.path)
         if config.startAtLogin {
-            let plist = """
-            <?xml version="1.0" encoding="UTF-8"?>
-            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-            <plist version="1.0">
-            <dict>
-            \t<key>Label</key>
-            \t<string>com.vaccone.lodestar</string>
-            \t<key>ProgramArguments</key>
-            \t<array>
-            \t\t<string>\(bundlePath)/Contents/MacOS/lodestar</string>
-            \t</array>
-            \t<key>RunAtLoad</key>
-            \t<true/>
-            \t<key>KeepAlive</key>
-            \t<dict>
-            \t\t<key>SuccessfulExit</key>
-            \t\t<false/>
-            \t</dict>
-            \t<key>ThrottleInterval</key>
-            \t<integer>10</integer>
-            </dict>
-            </plist>
-            """
-            let current = try? String(contentsOf: agent, encoding: .utf8)
-            if current != plist {
-                try? plist.write(to: agent, atomically: true, encoding: .utf8)
-                Log.info("login-item", ["action": exists ? "updated" : "installed"])
+            // Serialized, not interpolated. The path comes from wherever
+            // the app was installed, and an `&` or `<` anywhere in it made
+            // the XML malformed — launchd then refused the job, so start
+            // at login quietly stopped working while the log said
+            // "installed".
+            let job: [String: Any] = [
+                "Label": "com.vaccone.lodestar",
+                "ProgramArguments": ["\(bundlePath)/Contents/MacOS/lodestar"],
+                "RunAtLoad": true,
+                "KeepAlive": ["SuccessfulExit": false],
+                "ThrottleInterval": 10,
+            ]
+            guard let plist = try? PropertyListSerialization.data(
+                fromPropertyList: job, format: .xml, options: 0
+            ) else {
+                Log.error("login-item", ["error": "could not build the job description"])
+                return
+            }
+            if (try? Data(contentsOf: agent)) != plist {
+                do {
+                    try plist.write(to: agent, options: .atomic)
+                    Log.info("login-item", ["action": exists ? "updated" : "installed"])
+                } catch {
+                    Log.error("login-item", ["write-failed": "\(error)"])
+                }
             }
         } else if !config.startAtLogin && exists {
             // Delete the plist without unloading: the running session
@@ -1243,7 +1252,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
            kill(oldPid, 0) == 0 {
             Log.info("replacing running lodestar (pid \(oldPid))")
             kill(oldPid, SIGTERM)
-            usleep(600_000)
+            // Wait for it to actually go, rather than for a number that
+            // was never long enough: the outgoing process restores parked
+            // windows on its way out, which is unbounded AX work, so a
+            // fixed 600ms routinely left two instances holding state.json,
+            // observations.json and events.jsonl at once — last writer
+            // wins, and a coalesced write is simply lost.
+            let deadline = Date().addingTimeInterval(5)
+            while kill(oldPid, 0) == 0, Date() < deadline {
+                usleep(25_000)
+            }
+            if kill(oldPid, 0) == 0 {
+                Log.error("previous lodestar (pid \(oldPid)) did not exit in 5s — continuing anyway")
+            } else {
+                Log.info("previous lodestar exited; taking over")
+            }
         }
         try? "\(ProcessInfo.processInfo.processIdentifier)".write(
             to: Self.pidFile, atomically: true, encoding: .utf8

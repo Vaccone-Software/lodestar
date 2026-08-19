@@ -184,6 +184,28 @@ public struct EngineCore {
 
     public var isIdle: Bool { state == .idle }
 
+    /// Abandon whatever is in flight and return to idle, naming the
+    /// surfaces that have to come down with it.
+    ///
+    /// Chains are sticky on purpose — they wait for a letter for as long
+    /// as it takes — which is right while the engine is hearing every key,
+    /// and wrong the moment it stops. A tap that macOS disabled dropped
+    /// the letters that would have completed the chain, so without this
+    /// the engine waits forever and swallows everything after it.
+    public mutating func reset() -> [EngineEffect] {
+        var effects: [EngineEffect] = []
+        switch state {
+        case .idle: return []
+        case .chain: effects = [.hideGuide]
+        case .scroll: effects = [.scrollExit, .hideGuide]
+        case .hints: effects = [.exitHints]
+        case .select: effects = [.exitSelect]
+        case .paste, .pastePanel: effects = [.exitPaste]
+        }
+        state = .idle
+        return effects
+    }
+
     // MARK: - Trigger classification (pure)
 
     public enum Trigger {

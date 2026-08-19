@@ -139,52 +139,108 @@ final class JsonTests: XCTestCase {
 
     func testRemovingPrunesEmptyBranches() {
         let tree: [String: ConfigValue] = ["web": .table(["links": .table(["yt": .table(["url": .string("youtube.com")])])])]
-        let removed = Json.removing(tree, path: ["web", "links", "yt"])
-        XCTAssertEqual(removed, [:])
-        XCTAssertNil(Json.removing(tree, path: ["web", "routes"]))
+        XCTAssertEqual(Json.removing(tree, path: ["web", "links", "yt"]), .removed([:]))
+        XCTAssertEqual(Json.removing(tree, path: ["web", "routes"]), .absent)
     }
 
-    // MARK: - The migration shape
+    /// "Nothing there" and "something is in the way" are different answers.
+    /// `unset` reported both as success, so a key that stayed in the file
+    /// sent a scripted caller away with exit 0.
+    func testRemovingDistinguishesAbsentFromBlocked() {
+        let tree: [String: ConfigValue] = ["web": .table(["fallback": .string("most-recent")])]
+        XCTAssertEqual(Json.removing(tree, path: ["web", "fallback", "deeper"]),
+                       .blocked("web.fallback"))
+        XCTAssertEqual(Json.removing(tree, path: ["web", "missing"]), .absent)
+        XCTAssertEqual(Json.removing(tree, path: ["nope", "at", "all"]), .absent)
+    }
 
-    /// A YAML config of the real shape converts to sparse JSON holding
-    /// exactly the user's intent — defaults gone, customizations intact.
-    func testYamlMigratesToSparseIntent() throws {
-        let yaml = """
-        # yaml-language-server: $schema=lodestar-schema.json
-        version: "0.9.7"
-        hyper:
-          trigger: right-command
-        gestures:
-          searcher: true
-          scroll: true
-        app:
-          auto-reload: false
-          auto-update: true
-        profiles:
-          brave:
-            default: Default
-            work: Work
-        graph:
-          b:
-            x: brave:work
-          g: Ghostty
-        web:
-          fallback: most-recent
-          search-url: https://search.brave.com/search?q=%s
-          links:
-          routes:
-        scroll:
-          smooth: true
-          speed: 2200
-          step: 60
+    // MARK: - The sparse shape
+
+    /// A config of the real shape prunes to exactly the user's intent —
+    /// defaults gone, customizations intact. This is what every write
+    /// funnels through, so the shape it lands in is the file's contract.
+    func testFullConfigPrunesToSparseIntent() throws {
+        let text = """
+        {
+          "$schema": "lodestar-schema.json",
+          "version": "0.9.7",
+          "hyper": {"trigger": "right-command"},
+          "gestures": {"searcher": true, "scroll": true},
+          "app": {"auto-reload": false, "auto-update": true},
+          "profiles": {"brave": {"default": "Default", "work": "Work"}},
+          "graph": {"b": {"x": "brave:work"}, "g": "Ghostty"},
+          "web": {
+            "fallback": "most-recent",
+            "search-url": "https://search.brave.com/search?q=%s",
+            "links": null,
+            "routes": null
+          },
+          "scroll": {"smooth": true, "speed": 2200, "step": 60}
+        }
         """
-        var root = try Yaml.parse(yaml)
+        var root = try Json.parse(text)
         root.removeValue(forKey: "version")
+        root.removeValue(forKey: "$schema")
         let sparse = Json.pruned(ConfigDefaults.normalized(root), defaults: ConfigDefaults.tree)
         XCTAssertEqual(Set(sparse.keys), ["profiles", "graph", "scroll"])
         XCTAssertEqual(sparse["scroll"], .table(["speed": .int(2200)]))
         XCTAssertEqual(sparse["graph"]?.table?["g"], .string("Ghostty"))
         XCTAssertEqual(sparse["profiles"]?.table?["brave"]?.table?["work"], .string("Work"))
+    }
+
+    // MARK: - Values this config cannot hold
+
+    /// `-1e400` is accepted by JSONSerialization (only positive overflow
+    /// is rejected) and arrives as -infinity. Carrying it meant the next
+    /// write emitted the bare token `-inf`, which is not JSON: the config
+    /// stopped parsing and the file was lost on the write after that.
+    func testNonFiniteNumberIsRefusedAndReported() throws {
+        var problems: [String] = []
+        let root = try Json.parse(#"{"scroll": {"speed": -1e400}}"#, problems: &problems)
+        XCTAssertNil(root.value(at: ["scroll", "speed"]))
+        XCTAssertTrue(problems.contains { $0.contains("scroll.speed") && $0.contains("finite") },
+                      "\(problems)")
+    }
+
+    /// Whatever `emit` writes, `parse` must read. This is the invariant the
+    /// non-finite case broke.
+    func testEmitAlwaysProducesParseableJson() throws {
+        let hostile: [String: ConfigValue] = [
+            "a": .double(.infinity),
+            "b": .double(-.infinity),
+            "c": .double(.nan),
+            "d": .double(0.1),
+            "e": .int(2200),
+            "f": .string("quote\" back\\slash \u{1F600}\ttab"),
+            "g": .table(["nested": .double(-.infinity)]),
+        ]
+        let text = Json.emit(hostile)
+        XCTAssertNoThrow(try Json.parse(text), "emit produced JSON that parse rejects:\n\(text)")
+        // A non-finite lands as null, which reads back as absent — the key
+        // returns to its default rather than poisoning the file.
+        let round = try Json.parse(text)
+        XCTAssertNil(round["a"])
+        XCTAssertEqual(round["e"], .int(2200))
+        XCTAssertEqual(round["f"], hostile["f"])
+    }
+
+    /// A list is not a shape this config has. Dropping it silently meant
+    /// `check` reported no problems for a line that did nothing, and the
+    /// next write deleted it from disk.
+    func testListIsDroppedWithAProblem() throws {
+        var problems: [String] = []
+        let root = try Json.parse(#"{"graph": {"s": ["Slack"]}}"#, problems: &problems)
+        XCTAssertNil(root.value(at: ["graph", "s"]))
+        XCTAssertTrue(problems.contains { $0.contains("graph.s") && $0.contains("list") }, "\(problems)")
+    }
+
+    /// A section with no keys spells "all defaults here" and must stay
+    /// silent — the emitted JSON Schema admits null for exactly this.
+    func testNullSectionIsDroppedWithoutComplaint() throws {
+        var problems: [String] = []
+        let root = try Json.parse(#"{"web": {"links": null}}"#, problems: &problems)
+        XCTAssertNil(root.value(at: ["web", "links"]))
+        XCTAssertEqual(problems, [])
     }
 
     /// Pre-0.9.11 files named the lode key "hyper" — the old section reads

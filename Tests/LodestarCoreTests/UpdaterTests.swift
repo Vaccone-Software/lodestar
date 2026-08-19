@@ -146,6 +146,23 @@ final class UpdaterTests: XCTestCase {
                        "a build that never took the pid file must not be re-applied on a loop")
     }
 
+    /// The watchdog writes `CFBundleShortVersionString`, which has no `v`,
+    /// while the tag it is compared against does. A string compare never
+    /// matched, so the gate above passed every time and the same broken
+    /// build was re-downloaded, re-applied and rolled back once a day.
+    /// This is the form the app actually produces.
+    func testTombstoneWrittenByTheWatchdogMatchesTheTag() {
+        let release = Updater.Release(tag: "v0.18.0", version: [0, 18, 0],
+                                      zipName: "lodestar-0.18.0.zip", zipURL: "https://example/z.zip")
+        XCTAssertFalse(Updater.shouldOffer(release, refusedTag: "0.18.0"),
+                       "the bare version is what lands in the refused file")
+        XCTAssertFalse(Updater.shouldOffer(release, refusedTag: "0.18"),
+                       "missing places read as zero, here as everywhere else")
+        XCTAssertTrue(Updater.shouldOffer(release, refusedTag: "0.17.9"))
+        XCTAssertTrue(Updater.shouldOffer(release, refusedTag: "not-a-version"),
+                       "an unreadable tombstone must not wedge updates shut")
+    }
+
     func testANewerReleaseClearsTheRefusal() {
         let next = Updater.Release(tag: "v0.9.13", version: [0, 9, 13],
                                    zipName: "lodestar-0.9.13.zip", zipURL: "https://example/z.zip")

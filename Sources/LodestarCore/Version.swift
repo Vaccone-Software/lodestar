@@ -19,6 +19,40 @@ public enum Lodestar {
     /// Bump when PersistedState's shape changes; StateMigrations carries
     /// old files forward on load.
     public static let stateVersion = 1
+
+    /// Identifies this boot, for state whose meaning does not outlive one.
+    ///
+    /// Window ids are the case: the window server reissues them from a
+    /// fresh sequence each session, so a parked id read back after a
+    /// restart can name a completely different window. Boot time is the
+    /// cheapest honest answer and, unlike a generated UUID, it is the same
+    /// for a successor process taking over from a self-update — which must
+    /// inherit the parking map, not discard it.
+    public static let bootSession: String = {
+        var boot = timeval()
+        var size = MemoryLayout<timeval>.size
+        guard sysctlbyname("kern.boottime", &boot, &size, nil, 0) == 0 else {
+            return "unknown"
+        }
+        // Seconds only. The microseconds are noise, and the kernel nudges
+        // boottime whenever the wall clock is stepped (NTP), which would
+        // make an exact match fail inside a single session.
+        return "\(boot.tv_sec)"
+    }()
+
+    /// Whether a recorded session marker names the boot we are in now.
+    ///
+    /// Compared with slack, for the same reason: a clock correction moves
+    /// boottime by seconds, while an actual reboot moves it by at least
+    /// the previous session's uptime. Getting this wrong in the lenient
+    /// direction costs nothing worse than what the marker already guards.
+    public static func isCurrentBootSession(_ recorded: String?) -> Bool {
+        guard let recorded, recorded != "unknown", bootSession != "unknown" else { return false }
+        guard let then = Double(recorded), let now = Double(bootSession) else {
+            return recorded == bootSession
+        }
+        return abs(now - then) < 120
+    }
 }
 
 /// The state-file migration chain. Each step lifts raw JSON one version;

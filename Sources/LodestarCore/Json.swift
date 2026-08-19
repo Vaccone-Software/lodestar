@@ -16,6 +16,23 @@ public enum Json {
     /// an object. Comments are a parse error on purpose: anything a
     /// canonical rewrite would destroy is refused up front.
     public static func parse(_ text: String) throws -> [String: ConfigValue] {
+        var ignored: [String] = []
+        return try parse(text, problems: &ignored)
+    }
+
+    /// The same parse, reporting what it had to drop.
+    ///
+    /// A value this config cannot hold — an array, a number that is not
+    /// finite — used to vanish between the file and the tree, so the
+    /// schema walk that runs next saw nothing to complain about and
+    /// `check` reported a clean config for a line that does nothing. Worse,
+    /// the next canonical write removed the line from disk. Dropping is
+    /// still the behaviour; being quiet about it is not.
+    ///
+    /// `null` is the exception, and stays silent: a section written with
+    /// no keys is how the config spells "all defaults here", and the
+    /// emitted JSON Schema explicitly admits it.
+    public static func parse(_ text: String, problems: inout [String]) throws -> [String: ConfigValue] {
         let object: Any
         do {
             object = try JSONSerialization.jsonObject(with: Data(text.utf8))
@@ -27,7 +44,7 @@ public enum Json {
         guard let table = object as? [String: Any] else {
             throw ParseError(message: "the top level must be an object")
         }
-        return convertTable(table)
+        return convertTable(table, at: [], problems: &problems)
     }
 
     /// A single JSON value ("true", "1800", "\"pointer\"") for the config
@@ -35,32 +52,52 @@ public enum Json {
     /// `config set lode.trigger raw-hyper` works unquoted.
     public static func parseFragment(_ text: String) -> ConfigValue {
         let data = Data(text.utf8)
+        var ignored: [String] = []
         if let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]),
-           let value = convert(object) {
+           let value = convert(object, at: [], problems: &ignored) {
             return value
         }
         return .string(text)
     }
 
-    private static func convertTable(_ table: [String: Any]) -> [String: ConfigValue] {
+    private static func convertTable(_ table: [String: Any], at path: [String],
+                                     problems: inout [String]) -> [String: ConfigValue] {
         var out: [String: ConfigValue] = [:]
         for (key, value) in table {
-            if let converted = convert(value) { out[key] = converted }
+            if let converted = convert(value, at: path + [key], problems: &problems) {
+                out[key] = converted
+            }
         }
         return out
     }
 
-    private static func convert(_ value: Any) -> ConfigValue? {
+    private static func convert(_ value: Any, at path: [String],
+                                problems: inout [String]) -> ConfigValue? {
+        let address = path.isEmpty ? "the value" : path.joined(separator: ".")
         if let number = value as? NSNumber {
             // Booleans are NSNumbers too; CFBoolean is the honest test.
             if CFGetTypeID(number) == CFBooleanGetTypeID() { return .bool(number.boolValue) }
             let double = number.doubleValue
+            // JSONSerialization accepts a negative overflow (-1e400) and
+            // hands back -infinity. Carrying that into the tree meant the
+            // next canonical write emitted the bare token `-inf`, which is
+            // not JSON — the file stopped parsing, and the config was gone.
+            guard double.isFinite else {
+                problems.append("\(address) is not a finite number — ignored")
+                return nil
+            }
             if double.rounded() == double, abs(double) < 1e15 { return .int(Int(double)) }
             return .double(double)
         }
         if let string = value as? String { return .string(string) }
-        if let table = value as? [String: Any] { return .table(convertTable(table)) }
-        return nil // arrays and nulls have no place in this config
+        if let table = value as? [String: Any] {
+            return .table(convertTable(table, at: path, problems: &problems))
+        }
+        if value is [Any] {
+            problems.append("\(address) is a list — this config has no lists, so it was ignored")
+            return nil
+        }
+        return nil // null: an empty section, meaning all-defaults
     }
 
     // MARK: - Canonical emission
@@ -106,6 +143,15 @@ public enum Json {
         case .int(let int):
             return ["\(pad)\(label)\(int)\(comma)"]
         case .double(let double):
+            // The parser refuses non-finite values, so reaching here means
+            // one was computed. `inf`/`nan` are not JSON tokens and would
+            // make the file we just wrote unreadable, taking the config
+            // with it — emit null instead, which is valid, reads back as
+            // "key absent" (so the default returns), and says so in the log.
+            guard double.isFinite else {
+                Log.error("json: refusing to emit a non-finite number", ["key": key ?? "?"])
+                return ["\(pad)\(label)null\(comma)"]
+            }
             // Whole doubles canonicalize to integer form — 1800.0 and 1800
             // are the same setting and must be the same bytes.
             if double.rounded() == double, abs(double) < 1e15 {
@@ -125,6 +171,7 @@ public enum Json {
         case .bool(let bool): return "\(bool)"
         case .int(let int): return "\(int)"
         case .double(let double):
+            guard double.isFinite else { return "null" }
             if double.rounded() == double, abs(double) < 1e15 { return "\(Int(double))" }
             return "\(double)"
         }
@@ -227,21 +274,45 @@ public enum Json {
 
     /// The tree without `path`; branches left childless are pruned. Nil
     /// when the path does not exist.
-    public static func removing(_ root: [String: ConfigValue],
-                                path: [String]) -> [String: ConfigValue]? {
-        guard let head = path.first, let existing = root[head] else { return nil }
+    /// What a removal found. `unset` used to read nil as "already the
+    /// default" and exit 0, which it also printed for a path it could not
+    /// reach — so a key that stayed in the file reported success.
+    public enum Removal: Equatable {
+        /// The key was there; here is the tree without it.
+        case removed([String: ConfigValue])
+        /// Nothing at that path — it is already the default.
+        case absent
+        /// A value sits where the path expected a section, naming the
+        /// prefix that blocked the walk.
+        case blocked(String)
+    }
+
+    public static func removing(_ root: [String: ConfigValue], path: [String]) -> Removal {
+        removing(root, path: path, walked: [])
+    }
+
+    private static func removing(_ root: [String: ConfigValue], path: [String],
+                                 walked: [String]) -> Removal {
+        guard let head = path.first else { return .absent }
+        guard let existing = root[head] else { return .absent }
         var out = root
         if path.count == 1 {
             out.removeValue(forKey: head)
-            return out
+            return .removed(out)
         }
-        guard case .table(let table) = existing,
-              let updated = removing(table, path: Array(path.dropFirst())) else { return nil }
-        if updated.isEmpty {
-            out.removeValue(forKey: head)
-        } else {
-            out[head] = .table(updated)
+        guard case .table(let table) = existing else {
+            return .blocked((walked + [head]).joined(separator: "."))
         }
-        return out
+        switch removing(table, path: Array(path.dropFirst()), walked: walked + [head]) {
+        case .removed(let updated):
+            if updated.isEmpty {
+                out.removeValue(forKey: head)
+            } else {
+                out[head] = .table(updated)
+            }
+            return .removed(out)
+        case .absent: return .absent
+        case .blocked(let where_): return .blocked(where_)
+        }
     }
 }

@@ -33,6 +33,13 @@ public final class LayoutController {
     private var retileGenerations: [CGDirectDisplayID: Int] = [:]
     private var dormant: [String: DormantLayout] = [:]
     private var knownUUIDs: [CGDirectDisplayID: String] = [:]
+    /// The usable area each laid-out display had when it was last tiled.
+    /// Reconciliation used to branch on display *identity* alone, so a
+    /// display that stayed put but changed shape — a resolution switch, an
+    /// arrangement drag, the Dock appearing — kept a tiling cut for the
+    /// old rectangle: overlaps, gaps, or a strip hidden under the Dock,
+    /// until some other layout verb happened to re-cut it.
+    private var tiledFrames: [CGDirectDisplayID: CGRect] = [:]
 
     private let model: WindowQuerying
     private let parking: ParkingLot
@@ -188,6 +195,15 @@ public final class LayoutController {
             layouts.removeValue(forKey: display)
             retileGenerations.removeValue(forKey: display)
             knownUUIDs.removeValue(forKey: display)
+            // The layout is gone, so its history has to go with it.
+            // Undoing onto a departed display restored the snapshot,
+            // claimed each window's parking spot — erasing the record that
+            // it was parked — and then moved nothing, because retile
+            // returns early for a display that is not there. The windows
+            // stayed in the 1px sliver with nothing left that knew where
+            // they had come from.
+            undoStack.removeAll { $0.display == display }
+            redoStack.removeAll { $0.display == display }
             Log.info("display-departed", ["display": display, "parked": layout.members.count])
             onChange?()
         }
@@ -214,6 +230,18 @@ public final class LayoutController {
             Log.info("display-returned", ["display": info.id, "restored": restorable.count])
             onChange?()
         }
+
+        // A display that stayed but changed shape gets its cut redone.
+        for info in live {
+            guard let layout = layouts[info.id], !layout.members.isEmpty else { continue }
+            let bounds = displays.visibleFrame(info.bounds)
+            guard let tiled = tiledFrames[info.id], tiled != bounds else { continue }
+            Log.info("display-reshaped", ["display": info.id, "members": layout.members.count])
+            retile(on: info.id)
+            onChange?()
+        }
+        // Nothing laid out on a display any more: forget its shape too.
+        tiledFrames = tiledFrames.filter { liveIDs.contains($0.key) }
     }
 
     // MARK: - Undo / redo (one global timeline)
@@ -296,6 +324,7 @@ public final class LayoutController {
 
         guard let displayBounds = displays.ordered().first(where: { $0.id == display })?.bounds else { return }
         let bounds = displays.visibleFrame(displayBounds)
+        tiledFrames[display] = bounds
         let frames = Tiling.frames(count: layout.members.count, in: bounds, orientation: layout.orientation)
 
         for (id, frame) in zip(layout.members, frames) {

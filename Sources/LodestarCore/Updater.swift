@@ -127,8 +127,21 @@ public enum Updater {
     /// different one ships. Without this, a build that crashes before
     /// taking the pid file is rolled back, found "newer" on the next check,
     /// and applied again — a loop that restarts the engine every cycle.
+    ///
+    /// Compared as versions, never as strings. The tombstone is written by
+    /// the watchdog from `CFBundleShortVersionString` (`0.18.0`) while a
+    /// release tag carries the `v` the release script publishes
+    /// (`v0.18.0`), so a string compare never matched and this gate — the
+    /// one thing standing between a bad build and a daily reinstall loop —
+    /// silently did nothing.
     public static func shouldOffer(_ release: Release, refusedTag: String?) -> Bool {
-        guard let refusedTag else { return true }
-        return release.tag != refusedTag
+        guard let refusedTag, let refused = parseVersion(refusedTag) else { return true }
+        return !sameVersion(release.version, refused)
+    }
+
+    /// Place-by-place equality, missing places reading as zero — the same
+    /// rule `isNewer` uses, so `0.18` and `0.18.0` are one version.
+    public static func sameVersion(_ a: [Int], _ b: [Int]) -> Bool {
+        !isNewer(a, than: b) && !isNewer(b, than: a)
     }
 }

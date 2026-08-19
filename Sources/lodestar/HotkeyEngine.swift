@@ -488,13 +488,6 @@ final class HotkeyEngine {
         }
     }
 
-    /// Whether the core asked for the event to reach the app. Derived from
-    /// the effect list alone, so the verdict the tap must return never
-    /// waits on the work the effects do.
-    private static func passesThrough(_ effects: [EngineEffect]) -> Bool {
-        effects.contains { if case .passThrough = $0 { return true } else { return false } }
-    }
-
     /// Decide the event's fate now, do the slow part after.
     ///
     /// The verdict is the only thing the tap owes the window server, and
@@ -877,13 +870,24 @@ extension HotkeyEngine: EngineWorld {
     private func performPanel(_ action: PanelAction) {
         guard let clip = panelClip else { return }
         switch action {
+        // Pin and delete stay here on purpose: both are in-memory edits with
+        // a debounced save behind them, and delete already unlinks its files
+        // off the main thread.
         case .pin: clipboard.togglePin(clip)
         case .delete: clipboard.history.delete(clip.id)
-        case .saveImage: clipboard.saveImage(clip)
+        case .saveImage:
+            // Reads the stored clip back off disk, decodes it, re-encodes a
+            // PNG and writes that — for an image near the 20MB ceiling it is
+            // hundreds of milliseconds, and every one of them would come
+            // before the tap returned its verdict.
+            OffTap.run { [clipboard] in clipboard.saveImage(clip) }
         case .excludeApp:
             if let bundleID = clipboard.excludeApp(of: clip) {
-                onExcludeApp?(bundleID)
+                // The set decides the very next capture, so it is written
+                // now; only the config edit — read, parse, atomic replace —
+                // waits for the tap to be done with the keyboard.
                 clipboard.excludedApps.insert(bundleID)
+                OffTap.run { [weak self] in self?.onExcludeApp?(bundleID) }
             }
         }
         panelClip = nil

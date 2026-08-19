@@ -381,7 +381,15 @@ final class Actions {
     func breathChain(_ letters: [String]) -> ChainStep {
         let path = letters.joined()
         if let record = store.breath(at: path) {
-            restoreBreath(record)
+            // The lookup is the decision and it is a dictionary read. The
+            // restore is dozens of accessibility round trips — a verify and
+            // a raise for every member, a whole retile between them — and it
+            // arrives here through a world callback, which runs inside the
+            // event tap. Summon was taken off that path in 0.18.0; breaths
+            // reach the same work by the other door and were left on it, so
+            // a three-window breath could hold the machine's keyboard for as
+            // long as its slowest member took to answer.
+            OffTap.run { [weak self] in self?.restoreBreath(record) }
             return .done(flash: nil)
         }
         return .continuing(hint: nil)

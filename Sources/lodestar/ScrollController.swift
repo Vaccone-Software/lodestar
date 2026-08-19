@@ -175,23 +175,34 @@ final class ScrollController {
     }
 
     func toEnd(bottom: Bool) {
+        // Cancelling stays here: it is a local array and stopping a glide the
+        // instant the key lands is the whole point of the key.
         cancelGlide()
-        // First choice: set the scrollbar's value directly — deterministic,
-        // instant, immune to the wheel pipeline entirely. Synthetic wheel
-        // deltas pass through acceleration curves, drop-heuristics, and
-        // coalescing that make large jumps land unpredictably (measured:
-        // -500 scrolled, -2000 was dropped, -8000 page-jumped).
-        if panes.indices.contains(areaIndex),
-           ScrollAreas.jumpToEnd(panes[areaIndex].element, bottom: bottom) {
-            return
-        }
-        // Fallback for panes without a settable scrollbar: a glide of small
-        // deltas — safely inside the small-delta regime — spread over time.
-        let chunk: Int32 = bottom ? 800 : -800
-        for i in 0..<150 {
-            let work = DispatchWorkItem { [weak self] in self?.postVertical(chunk) }
-            glideWork.append(work)
-            DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.012, execute: work)
+        // Setting a scrollbar is an accessibility write into the focused app,
+        // and this verb arrives through the event tap — a wedged app would
+        // hold every key on the machine for the messaging timeout. The
+        // generation is the scroll session's own token: `exit` bumps it, so
+        // leaving the mode before this runs cancels it.
+        let expected = discoveryGeneration
+        OffTap.run { [weak self] in
+            guard let self, self.discoveryGeneration == expected else { return }
+            // First choice: set the scrollbar's value directly — deterministic,
+            // instant, immune to the wheel pipeline entirely. Synthetic wheel
+            // deltas pass through acceleration curves, drop-heuristics, and
+            // coalescing that make large jumps land unpredictably (measured:
+            // -500 scrolled, -2000 was dropped, -8000 page-jumped).
+            if self.panes.indices.contains(self.areaIndex),
+               ScrollAreas.jumpToEnd(self.panes[self.areaIndex].element, bottom: bottom) {
+                return
+            }
+            // Fallback for panes without a settable scrollbar: a glide of small
+            // deltas — safely inside the small-delta regime — spread over time.
+            let chunk: Int32 = bottom ? 800 : -800
+            for i in 0..<150 {
+                let work = DispatchWorkItem { [weak self] in self?.postVertical(chunk) }
+                self.glideWork.append(work)
+                DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.012, execute: work)
+            }
         }
     }
 

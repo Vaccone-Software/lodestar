@@ -95,7 +95,26 @@ final class HintsController {
         let candidate = typed + letter
         switch HintLabels.match(typed: candidate, labels: labels) {
         case .exact(let index):
-            fire(targets[index], rightClick: shift)
+            // The match above is pure, so the verdict is already settled;
+            // pressing is a call into another app from inside the event tap,
+            // and a wedged one would hold every key on the machine for the
+            // full accessibility timeout.
+            //
+            // What follows a fire is `exitHints` or a delayed `hintRescan`,
+            // and both only take down an overlay that already ignores mouse
+            // events, so a press or a right-click lands the same either way.
+            // The one case carrying an ordering question is a text input,
+            // where firing means focusing and what you type next belongs in
+            // it: against an app slow enough for this to matter, a character
+            // typed blind could reach the old focus first. That is one
+            // interaction with an app that is already wedged, weighed
+            // against stalling the keyboard for every app on the machine —
+            // so it goes off the tap. Bounding these calls with a
+            // per-element messaging timeout is the answer that would give us
+            // both, and it wants measurement first: Electron trees are
+            // legitimately slow, and a guessed ceiling would break them.
+            let target = targets[index]
+            OffTap.run { [weak self] in self?.fire(target, rightClick: shift) }
             typed = ""
             return .fired
         case .partial:

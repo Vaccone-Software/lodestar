@@ -132,33 +132,49 @@ final class SelectController {
         typedInMode = 0
         committedOutcome = nil
         observations?.verbUsed("select")
-        AXWarmer.warm(window.pid)
-        // The scope is the whole active display: pixels do not care which
-        // window has focus, and neither do the eyes — a reference window
-        // beside the one being typed in is equally selectable. The
-        // display's composited image also contains only what is visible,
-        // so a chip can never label text hidden behind another window.
-        let display = Displays.display(containing: window.frame)?.bounds ?? window.frame
-        // Pixels are the primary sensor — identical in every kind of
-        // window — with the accessibility walk running alongside for
-        // grounding and as the no-permission fallback. The capture happens
-        // before any overlay exists: our own scanning band, captured,
-        // would become matchable text.
-        var captured: CGImage?
-        if CGPreflightScreenCaptureAccess() {
-            captured = CGWindowListCreateImage(display, .optionOnScreenOnly,
-                                               kCGNullWindowID, [.bestResolution])
-        } else if !screenAccessPrompted {
-            screenAccessPrompted = true
-            DispatchQueue.global(qos: .utility).async { CGRequestScreenCaptureAccess() }
-            flash("⌖ grant Screen Recording to select in every window · using accessibility for now")
+
+        // Everything above is bookkeeping in memory and stays here, because
+        // the keys that follow read it: `key` refuses to act while `core` is
+        // nil, and that has to be true the instant the mode is entered.
+        //
+        // Everything below talks to the focused app and to the window
+        // server, and this runs inside the event tap. Warming is an
+        // accessibility write into an app that may be wedged; the capture is
+        // a full-display composite bounded only by the compositor. Until
+        // they return, every key on the machine is waiting — and the mode's
+        // answer does not depend on either of them, because there is a
+        // focused window and that is the whole question.
+        let expected = generation
+        OffTap.run { [weak self] in
+            guard let self, self.generation == expected else { return }
+            AXWarmer.warm(window.pid)
+            // The scope is the whole active display: pixels do not care which
+            // window has focus, and neither do the eyes — a reference window
+            // beside the one being typed in is equally selectable. The
+            // display's composited image also contains only what is visible,
+            // so a chip can never label text hidden behind another window.
+            let display = Displays.display(containing: window.frame)?.bounds ?? window.frame
+            // Pixels are the primary sensor — identical in every kind of
+            // window — with the accessibility walk running alongside for
+            // grounding and as the no-permission fallback. The capture happens
+            // before any overlay exists: our own scanning band, captured,
+            // would become matchable text.
+            var captured: CGImage?
+            if CGPreflightScreenCaptureAccess() {
+                captured = CGWindowListCreateImage(display, .optionOnScreenOnly,
+                                                   kCGNullWindowID, [.bestResolution])
+            } else if !self.screenAccessPrompted {
+                self.screenAccessPrompted = true
+                DispatchQueue.global(qos: .utility).async { CGRequestScreenCaptureAccess() }
+                self.flash("⌖ grant Screen Recording to select in every window · using accessibility for now")
+            }
+            if captured != nil { self.windowFrame = display }
+            self.overlay.showScanning(over: self.windowFrame, appName: window.appName)
+            if let captured {
+                self.senseOCR(image: captured, frame: display, generation: expected)
+            }
+            self.harvest(window: window, generation: expected, attempt: 1)
         }
-        if captured != nil { windowFrame = display }
-        overlay.showScanning(over: windowFrame, appName: window.appName)
-        if let captured {
-            senseOCR(image: captured, frame: display, generation: generation)
-        }
-        harvest(window: window, generation: generation, attempt: 1)
         return true
     }
 

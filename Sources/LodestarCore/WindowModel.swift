@@ -292,6 +292,23 @@ public final class WindowModel {
     private func syncFocus(of app: NSRunningApplication) {
         pruneDead()
         sweepAgainstWindowServer()
+        // No `.regular` filter here, unlike every other attach path, and
+        // that is deliberate: Raycast, Tailscale and the system's own auth
+        // panels are `.accessory` apps with real windows, and this is the
+        // only road by which any of them enters the model.
+        //
+        // The one app that must never come in by it is this one. Lodestar
+        // turns `.regular` and activates itself for the length of a
+        // default-browser handover, so its own panel could answer as the
+        // focused window, become `focusedWindow`, and from there a layout
+        // member — something `lode 0` would tile. Never observed, because a
+        // non-activating panel does not answer the application-level focused
+        // window query; that is a reason it has not happened, not a reason it
+        // cannot. Asked by pid rather than by bundle id on purpose: a
+        // `swift build` binary has no bundle identifier at all, and an
+        // identity check that answers nil for half the runs we make is the
+        // shape of bug that put a loop in the click path.
+        guard app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
         let ax = AXApplication(app)
         guard let focused = ax.focusedWindow(),
               let id = track(element: focused.element, app: app) else { return }

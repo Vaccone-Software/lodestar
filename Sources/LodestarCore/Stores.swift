@@ -51,10 +51,14 @@ public struct PersistedState: Codable {
     /// running session.
     public var parkedSession: String?
     public var usage: [String: UsageRecord]?
-    /// The release whose walkthrough has been seen. Machine owned, so it lives
-    /// here rather than in the config: nobody should have to edit a file to
-    /// stop being shown a tour.
-    public var onboardedVersion: String?
+    /// The walk's progress. Machine owned, so it lives here rather than in
+    /// the config: nobody should have to edit a file to stop being shown a
+    /// tour. The step survives a restart because the walk resumes, never
+    /// restarts; the completed version is what stops the auto-show. The old
+    /// deck's `onboardedVersion` is deliberately not read: everyone sees
+    /// the walk once, because what the deck taught was not this.
+    public var walkStep: Int?
+    public var walkCompletedVersion: String?
 }
 
 /// Breaths and parking bookkeeping — saved on every change so a crash or
@@ -186,12 +190,18 @@ public final class StateStore {
         save()
     }
 
-    // MARK: - Onboarding
+    // MARK: - The walk
 
-    public var onboardedVersion: String? { state.onboardedVersion }
+    public var walkStep: Int? { state.walkStep }
+    public var walkCompletedVersion: String? { state.walkCompletedVersion }
 
-    public func markOnboarded(version: String) {
-        state.onboardedVersion = version
+    public func setWalkStep(_ step: Int) {
+        state.walkStep = step
+        saveSoon()
+    }
+
+    public func markWalkCompleted(version: String) {
+        state.walkCompletedVersion = version
         save()
     }
 

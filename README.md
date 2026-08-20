@@ -21,7 +21,7 @@ choosing a destination rather than the steps that lead to it.
   relaunching apps that are not running.
 - **`lode ;`**: click hints. Every pressable element wears a label. Type the
   label to click it.
-- **`lode ,`** / **`lode .`** / **`lode ⏎`**: scroll mode, menu search,
+- **``lode ` ``** / **`lode .`** / **`lode ⏎`**: scroll mode, menu search,
   and Ask, which routes each destination to the right browser profile.
 
 One grammar spans applications, the inside of a window, the web, and what you

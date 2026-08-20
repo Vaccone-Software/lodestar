@@ -83,7 +83,7 @@ final class ModifierTapTests: XCTestCase {
     }
 
     func testVerbKeypressTable() {
-        XCTAssertEqual(TapVerb.scroll.keypress.key, ",")
+        XCTAssertEqual(TapVerb.scroll.keypress.key, "`")
         XCTAssertEqual(TapVerb.stickyHints.keypress.key, ";")
         XCTAssertTrue(TapVerb.stickyHints.keypress.shift)
         XCTAssertEqual(TapVerb.cheat.keypress.key, "/")

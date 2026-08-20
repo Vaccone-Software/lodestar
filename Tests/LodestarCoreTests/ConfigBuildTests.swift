@@ -95,7 +95,7 @@ final class ConfigBuildTests: XCTestCase {
 
     func testDisablingAGestureFreesExactlyItsKeys() throws {
         let (config, _) = try build(#"{"gestures": {"scroll": false}}"#)
-        XCTAssertEqual(config.disabledGestures, [","])
+        XCTAssertEqual(config.disabledGestures, ["`"])
         XCTAssertTrue(try build("{}").0.disabledGestures.isEmpty)
     }
 

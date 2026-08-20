@@ -15,13 +15,12 @@ final class HotkeyEngine {
     /// Where observations land. Nil until the app wires one, so the engine
     /// works identically with nobody watching.
     var observations: ObservationStore?
-    /// While a modal walkthrough is up it owns the keyboard. Returning true
-    /// swallows the key: a gesture that reached the engine from under the
-    /// walkthrough summoned a window behind it, and then escape closed that
-    /// panel instead of the card the reader was looking at. `other` says a
-    /// modifier that is not lode is down, which is how ⌘Q and ⌘Tab stay the
-    /// system's while every lode gesture stops being anybody's.
-    var interceptor: ((_ key: String, _ held: Bool, _ shift: Bool, _ other: Bool) -> Bool)?
+    /// The walk listens here for the real gestures its steps wait on. One
+    /// closure, fed at the same seams observations are — the walk's card is
+    /// never key and swallows nothing, so this is its only sense. (The old
+    /// deck's keyboard interceptor is gone with the deck: a surface that
+    /// owns no keys needs no machinery for owning them safely.)
+    var walkSignal: ((Walk.Signal) -> Void)?
 
     /// Chain timing, for the one measurement that says whether an address has
     /// compiled into muscle memory: the pauses inside it. The first stamp is
@@ -359,13 +358,6 @@ final class HotkeyEngine {
         }
         let (held, shift) = classify(event.flags)
 
-        if let interceptor {
-            let other = event.flags.contains(.maskControl)
-                || event.flags.contains(.maskAlternate)
-                || (event.flags.contains(.maskCommand) && !held)
-            if interceptor(key, held, shift, other) { return nil }
-        }
-
         // lode ⌫ while a coach chip is up answers "not this one". The
         // closure acts only when a chip is visible, and the key is
         // swallowed only when it acted — idle lode ⌫ everywhere else stays
@@ -628,6 +620,7 @@ final class HotkeyEngine {
                 cheat.hide()
             case .toggleCheat:
                 cheat.toggle(sections: cheatSections)
+                walkSignal?(.cheatOpened)
             case .hideBars:
                 hideBars()
             case .showSearcher:
@@ -678,6 +671,7 @@ final class HotkeyEngine {
             case .summonGraph(let letters, let beside):
                 if case .leaf(let target) = config.graph.resolve(letters) {
                     actions.summon(target, beside: beside)
+                    walkSignal?(.graphSummon)
                 }
             case .flash(let text):
                 hud.flash(text)
@@ -694,9 +688,6 @@ final class HotkeyEngine {
 
     private func handleFlagsChanged(_ event: CGEvent) {
         guard core.isIdle else { return }
-        // A walkthrough owns the keyboard, and that includes holding lode: the
-        // peek would lay the graph guide over the card being read.
-        guard interceptor == nil else { return }
         let (held, _) = classify(event.flags)
         if held {
             // The clock for a chain starts when lode goes down, not when the
@@ -710,6 +701,7 @@ final class HotkeyEngine {
                 self.isPeeking = true
                 self.lastActivityAt = Date()
                 self.onSurfaceClaimed?()
+                self.walkSignal?(.peeked)
                 self.hud.showGuide(
                     title: "⌖ graph",
                     rows: self.actions.graphGuideRows(self.config.graph),
@@ -800,7 +792,7 @@ final class HotkeyEngine {
             GuideRow(key: "1…9", label: "jump to window by position"),
             GuideRow(key: "0", label: "the focused window fills the display — ⇧0 beside"),
             GuideRow(key: "\\", label: "flip layout orientation"),
-            GuideRow(key: ",", label: "scroll mode — j/k · h/l · d/u · gg/G"),
+            GuideRow(key: "`", label: "scroll mode — j/k · h/l · d/u · gg/G"),
             GuideRow(key: ";", label: "click hints — ⇧; chains · ⇧label right-clicks"),
             GuideRow(key: "/", label: "select text — ⇧letter anchors · ⌘C takes that word"),
             GuideRow(key: "← →", label: "undo · redo the layout"),

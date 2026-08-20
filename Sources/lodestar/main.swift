@@ -73,7 +73,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// is what stops that link from being the one that vanishes.
     private var pendingClicks: [URL] = []
     private var defaultBrowserItem: NSMenuItem?
-    private let onboarding = OnboardingController()
+    private let walk = WalkController()
 
     /// Links clicked in other apps land here. Deliberately the shortest path
     /// in the app: it needs the config and nothing else — not the window
@@ -236,8 +236,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // surface claim; the chip must not outlive its own pixels.
         hud.onTakeover = { [weak self] in self?.coach.surfaceClaimed() }
         coach.flash = { [weak self] text in self?.hud.flash(text) }
-        engine.onLodeDoubleTap = { [weak self] in self?.coach.lodeDoubleTapped() }
-        engine.coachDelete = { [weak self] in self?.coach.lodeDelete() ?? false }
+        // Both teachers share the lode-lode grammar; while the walk is up
+        // it holds the floor, so an assent can only ever mean one thing.
+        engine.onLodeDoubleTap = { [weak self] in
+            guard let self else { return }
+            if self.walk.cardVisible { self.walk.assent() } else { self.coach.lodeDoubleTapped() }
+        }
+        engine.coachDelete = { [weak self] in
+            guard let self else { return false }
+            if self.walk.pass() { return true }
+            return self.coach.lodeDelete()
+        }
+        coach.suppressed = { [weak self] in self?.walk.isUp ?? false }
+        engine.walkSignal = { [weak self] signal in self?.walk.notice(signal) }
+        actions.walkPick = { [weak self] in self?.walk.notice(.launcherPick) }
         engine.onSurfaceClaimed = { [weak self] in self?.coach.surfaceClaimed() }
         actions.coachBoundary = { [weak self] app in self?.coach.noteBoundary(app: app) }
         actions.coachWebOpen = { [weak self] host in self?.coach.noteWebOpen(host: host) }
@@ -292,17 +304,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else {
             Log.info("click", ["browser-role": "skipped — not running from the app bundle"])
         }
-        installOnboarding()
+        installWalk()
 
         guard Permissions.isTrusted else {
             // A freshly installed bundle has its own TCC identity. Prompt,
             // then wake up on our own the moment the grant lands — no
             // relaunch dance.
             Log.error("not trusted for Accessibility — waiting for the grant")
-            // The walkthrough's first card asks for this, with a button and a
-            // screen it clears for the settings pane. Prompting here too put
-            // the macOS dialog behind a full screen backdrop.
-            if !onboarding.isVisible {
+            // The walk's door asks for this, with a button and instructions
+            // that stay on screen beside the settings pane. Prompting here
+            // too would race it, so the bare prompt is only for the boot
+            // the walk is not coming to: a finished walk on a machine whose
+            // grant was later revoked.
+            if walk.isUp == false, store.walkCompletedVersion != nil {
                 Permissions.requestIfNeeded()
                 hud.flash("Lodestar needs Accessibility. Grant it in System Settings and it wakes up on its own", seconds: 8)
             }
@@ -439,7 +453,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         header.isEnabled = false
         menu.addItem(header)
         menu.addItem(.separator())
-        menu.addItem(makeItem("How Lodestar Works…", #selector(showOnboarding), key: ""))
+        menu.addItem(makeItem("How Lodestar Works…", #selector(showWalk), key: ""))
         menu.addItem(makeItem("Check for Updates…", #selector(checkForUpdates), key: ""))
         menu.addItem(makeItem("Report an Issue…", #selector(reportIssue), key: ""))
         menu.addItem(.separator())
@@ -553,47 +567,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         graphAddressByApp = map
     }
 
-    // MARK: - Onboarding
+    // MARK: - The walk
 
-    private func installOnboarding() {
-        onboarding.config = config
-        onboarding.acceptGraph = { [weak self] proposals in
+    private func installWalk() {
+        walk.config = config
+        walk.acceptGraph = { [weak self] proposals in
             self?.acceptStarterGraph(proposals)
         }
-        onboarding.onFinished = { [weak self] in
-            guard let self else { return }
-            self.engine.interceptor = nil
-            self.store.markOnboarded(version: Lodestar.version)
+        walk.persistStep = { [weak self] step in self?.store.setWalkStep(step) }
+        walk.markCompleted = { [weak self] in
+            self?.store.markWalkCompleted(version: Lodestar.version)
         }
 
-        // Once, on the first run that ever gets this far, and never again on its
-        // own. Keyed to the version it was a full screen modal every release:
-        // the updater applies while you are idle and suppresses the deck for
-        // that boot, so the next launch opened it over whatever you were doing,
-        // because a version number changed rather than because anybody asked.
-        // Anyone who wants it back has How Lodestar Works in the menu bar, and
-        // the walkthrough now owns the keyboard while it is up, which makes an
-        // unrequested takeover the wrong kind of surprise.
-        guard store.onboardedVersion == nil, !updater.justUpdated else { return }
+        // Once, until it is finished: an unfinished walk resumes on the
+        // next boot rather than restarting, and a completed one never comes
+        // back on its own — only through the menu. Deliberately not keyed
+        // to the old deck's flag: everyone sees the walk once, because what
+        // the deck taught was not this. Suppressed for the boot right after
+        // an update, which arrives while you are idle: a launch that opens
+        // a tutorial over whatever you were doing, because a version number
+        // changed rather than because anybody asked, is the wrong surprise.
+        guard store.walkCompletedVersion == nil, !updater.justUpdated else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
-            self?.showOnboarding()
+            self?.showWalk()
         }
     }
 
-    @objc private func showOnboarding() {
-        guard !onboarding.isVisible else { return }
-        onboarding.config = config
-        engine.interceptor = { [weak self] key, held, shift, other in
-            // Dead-man: if the deck is gone by any road that skipped
-            // onFinished, the interceptor removes itself instead of
-            // holding the keyboard hostage forever.
-            guard let self, self.onboarding.isVisible else {
-                self?.engine.interceptor = nil
-                return false
-            }
-            return self.onboarding.handle(key: key, held: held, shift: shift, other: other)
-        }
-        onboarding.show()
+    @objc private func showWalk() {
+        walk.config = config
+        let resume = store.walkCompletedVersion == nil ? store.walkStep : nil
+        walk.show(resumeAt: resume)
     }
 
 

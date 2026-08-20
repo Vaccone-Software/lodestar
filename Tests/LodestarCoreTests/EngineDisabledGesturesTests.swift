@@ -40,7 +40,7 @@ final class EngineDisabledGesturesTests: XCTestCase {
     }
 
     func testDisabledKeyOnScrollExitPassesThrough() {
-        _ = press(",")
+        _ = press("`")
         XCTAssertEqual(core.state, .scroll)
         core.disabledGestures = ["s"]
         XCTAssertEqual(press("s"), [.scrollExit, .hideGuide, .passThrough],
@@ -67,7 +67,7 @@ final class EngineDisabledGesturesTests: XCTestCase {
     }
 
     func testScrollLensKeysIgnoreTheToggles() {
-        _ = press(",")
+        _ = press("`")
         core.disabledGestures = ["j"]
         XCTAssertEqual(press("j", held: false), [.scrollCancelPendingG, .scrollDirectionDown("j")],
                        "inside the lens, j is scroll grammar, not a verb")

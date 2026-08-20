@@ -16,6 +16,9 @@ final class Actions {
     /// coach's boundary moments, fed from the same seams that record them.
     var coachBoundary: ((String?) -> Void)?
     var coachWebOpen: ((String?) -> Void)?
+    /// The walk's launcher step completes on a real pick, reported from the
+    /// same seam that records one.
+    var walkPick: (() -> Void)?
     private let hud: HUD
 
     private var intents = IntentQueue()
@@ -119,6 +122,7 @@ final class Actions {
         }
         observations?.reached(entry.name, via: .searcher, cost: cost)
         coachBoundary?(entry.name.lowercased())
+        walkPick?()
         if let window = bestAliveWindow(bundleID: entry.bundleID, appName: entry.name) {
             place(window, beside: beside)
             return

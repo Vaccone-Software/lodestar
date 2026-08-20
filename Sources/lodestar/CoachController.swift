@@ -105,6 +105,11 @@ final class CoachController {
     var applyEdit: (ConfigEdit) -> String? = { _ in "coach is not wired" }
     /// The engine's stillness — no chain, no bars, no peek.
     var engineQuiet: () -> Bool = { false }
+
+    /// The walk holds the floor while it is up: two teachers speaking at
+    /// once is worse than either, and both share the lode-lode grammar, so
+    /// an assent meant for one must never be readable by the other.
+    var suppressed: () -> Bool = { false }
     /// Did a person type the navigation that reached this boundary? Yes by
     /// default: an unwired coach must not silence itself.
     var inputWasHuman: () -> Bool = { true }
@@ -250,7 +255,7 @@ final class CoachController {
         // Nothing standing is the common answer, and the only one worth
         // short-circuiting: the probes below are reached a handful of times
         // a week, not a handful of times a minute.
-        guard let rec = standing else { return }
+        guard let rec = standing, !suppressed() else { return }
         let moment = Coach.Moment(
             enabled: enabled, chipVisible: chipVisible, offerSpent: offerCounted,
             sinceLastShown: Date().timeIntervalSince(lastShownAt),

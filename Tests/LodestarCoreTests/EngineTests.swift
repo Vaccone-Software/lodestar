@@ -196,14 +196,14 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(press("."), [.hideBars])
     }
 
-    func testCommaEntersScroll() {
-        XCTAssertEqual(press(","), [.hideBars, .enterScroll, .scrollGuide])
+    func testBacktickEntersScroll() {
+        XCTAssertEqual(press("`"), [.hideBars, .enterScroll, .scrollGuide])
         XCTAssertEqual(core.state, .scroll)
     }
 
-    func testCommaWithNothingToScrollStaysIdle() {
+    func testBacktickWithNothingToScrollStaysIdle() {
         world.scrollEnterSucceeds = false
-        XCTAssertEqual(press(","), [.hideBars, .flash("✕ no focused window to scroll")])
+        XCTAssertEqual(press("`"), [.hideBars, .flash("✕ no focused window to scroll")])
         XCTAssertEqual(core.state, .idle)
     }
 
@@ -265,12 +265,6 @@ final class EngineTests: XCTestCase {
         }
     }
 
-    /// Backtick was freed again when the timeline was retired.
-    func testBacktickIsFree() {
-        XCTAssertEqual(press("`"), [.passThrough])
-        XCTAssertEqual(core.state, .idle)
-    }
-
     // MARK: - Graph chains
 
     func testGraphLeafSummonsImmediately() {
@@ -324,7 +318,7 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(core.reset(), [.hideGuide])
         XCTAssertEqual(core.state, .idle)
 
-        _ = press(",")
+        _ = press("`")
         XCTAssertEqual(core.state, .scroll)
         XCTAssertEqual(core.reset(), [.scrollExit, .hideGuide])
         XCTAssertEqual(core.state, .idle)
@@ -436,7 +430,7 @@ final class EngineTests: XCTestCase {
     // MARK: - Scroll mode
 
     private func enterScrollMode() {
-        _ = press(",")
+        _ = press("`")
         XCTAssertEqual(core.state, .scroll)
         world.calls = []
     }
@@ -509,10 +503,10 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(core.state, .idle)
     }
 
-    func testScrollCommaTogglesBackIn() {
+    func testScrollBacktickTogglesBackIn() {
         enterScrollMode()
-        let effects = press(",")
+        let effects = press("`")
         XCTAssertEqual(effects, [.scrollExit, .hideGuide, .hideBars, .enterScroll, .scrollGuide])
-        XCTAssertEqual(core.state, .scroll, "comma exits and immediately re-enters — a toggle")
+        XCTAssertEqual(core.state, .scroll, "backtick exits and immediately re-enters — a toggle")
     }
 }

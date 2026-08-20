@@ -34,7 +34,7 @@ public enum TapVerb: String, CaseIterable {
         case .searcher: return ("space", false)
         case .web: return ("return", false)
         case .menu: return (".", false)
-        case .scroll: return (",", false)
+        case .scroll: return ("`", false)
         case .hints: return (";", false)
         case .stickyHints: return (";", true)
         case .cheat: return ("/", true)

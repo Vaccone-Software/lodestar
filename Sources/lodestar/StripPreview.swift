@@ -154,9 +154,10 @@ enum StripPreview {
             app.run()
         }
 
-        // 20…27 walk the onboarding screens; 30…37 the same, with no graph.
-        if (20...37).contains(variant) {
-            let held = OnboardingController.preview(variant % 10, empty: variant >= 30)
+        // 20…28 stage the walk: the door's three states, the companion's
+        // five steps, the closing card. 30…38 the same, with no graph.
+        if (20...38).contains(variant) {
+            let held = WalkController.preview(variant % 10, empty: variant >= 30)
             _ = held
             app.run()
         }

@@ -329,7 +329,10 @@ public struct EngineCore {
             } else {
                 effects.append(.flash("✕ no focused window to hint"))
             }
-        case ",":
+        case "`":
+            // Scroll's door moved off , in 0.20: the corner key is found
+            // blind by the idle left hand while the right thumb holds lode,
+            // and the comma is freed to one day mean settings, as ⌘, does.
             effects.append(.hideBars)
             if world.enterScroll() {
                 state = .scroll

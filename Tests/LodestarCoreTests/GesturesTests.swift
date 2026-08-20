@@ -45,7 +45,7 @@ final class GesturesTests: XCTestCase {
     func testDisabledKeysMapsFalseTogglesOnly() {
         let keys = Gestures.disabledKeys(from: ["scroll": false, "hints": true,
                                                 "display-move": false, "unknown": false])
-        XCTAssertEqual(keys, [",", "[", "]"])
+        XCTAssertEqual(keys, ["`", "[", "]"])
     }
 
     func testDisablingGraphFreesChainStarters() {

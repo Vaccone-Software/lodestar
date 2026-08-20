@@ -35,7 +35,7 @@ public enum Gestures {
         Verb(name: "window-chooser", keys: ["tab"], about: "lode tab, the focused app's windows"),
         Verb(name: "web-bar", keys: ["return"], about: "lode ⏎, links and search"),
         Verb(name: "menu-search", keys: ["."], about: "lode . , the focused app's menus"),
-        Verb(name: "scroll", keys: [","], about: "lode , , keyboard scrolling"),
+        Verb(name: "scroll", keys: ["`"], about: "lode ` , keyboard scrolling"),
         Verb(name: "hints", keys: [";"], about: "lode ; click hints, ⇧; sticky"),
         Verb(name: "breaths", keys: ["'"], about: "lode ', saved layouts"),
         Verb(name: "maximize", keys: ["0"], about: "lode 0 fill the display with the focused window, ⇧0 beside"),

@@ -51,6 +51,14 @@ final class MeetingController: NSObject {
     private var primeShownThisBoot = false
     /// A denied grant is reported once, not every reconcile.
     private var reportedDenied = false
+    /// One fetch in flight at a time; a storm of change notifications
+    /// coalesces into the trailing edge of a one-second debounce.
+    private var refreshing = false
+    private var pendingRefresh: DispatchWorkItem?
+    /// While enabled and unauthorized, watches for the grant to land in
+    /// System Settings — the same no-relaunch-dance promise Accessibility
+    /// keeps, kept here too.
+    private var grantPoll: Timer?
     var flash: ((String) -> Void)?
 
     private(set) var current: Meetings.Candidate?
@@ -139,14 +147,18 @@ final class MeetingController: NSObject {
         }
         switch authorization {
         case _ where authorized:
+            reportedDenied = false
+            grantPoll?.invalidate(); grantPoll = nil
             prime.orderOut(nil)
             start()
         case .notDetermined:
+            pollForGrant()
             guard !primeShownThisBoot else { return }
             primeShownThisBoot = true
             showPrime()
         default:
             stop()
+            pollForGrant()
             if !reportedDenied {
                 reportedDenied = true
                 Log.error("meetings: enabled but calendar access is denied")
@@ -156,11 +168,34 @@ final class MeetingController: NSObject {
         }
     }
 
+    /// The grant can arrive because we asked or because they went to
+    /// System Settings themselves, and both endings must be the same:
+    /// meetings wake up on their own the moment access lands.
+    private func pollForGrant() {
+        guard grantPoll == nil else { return }
+        grantPoll = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            guard self.config.meetingsEnabled else {
+                self.grantPoll?.invalidate(); self.grantPoll = nil
+                return
+            }
+            if self.authorized {
+                self.grantPoll?.invalidate(); self.grantPoll = nil
+                Log.info("meetings", ["calendar-access": "granted"])
+                self.reconcile()
+            }
+        }
+    }
+
     private func start() {
         guard storeObserver == nil else { return }
         storeObserver = NotificationCenter.default.addObserver(
             forName: .EKEventStoreChanged, object: store, queue: .main) { [weak self] _ in
-            self?.refresh()
+            guard let self else { return }
+            self.pendingRefresh?.cancel()
+            let work = DispatchWorkItem { [weak self] in self?.refresh() }
+            self.pendingRefresh = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: work)
         }
         tick = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             self?.refresh()
@@ -172,6 +207,8 @@ final class MeetingController: NSObject {
         if let storeObserver { NotificationCenter.default.removeObserver(storeObserver) }
         storeObserver = nil
         tick?.invalidate(); tick = nil
+        pendingRefresh?.cancel(); pendingRefresh = nil
+        grantPoll?.invalidate(); grantPoll = nil
         occurrences = []
         current = nil
         panel.orderOut(nil)
@@ -185,27 +222,46 @@ final class MeetingController: NSObject {
     /// never become occurrences; neither does anything without a
     /// recognizable meeting link.
     private func refresh() {
+        // Off the main thread, always: the event tap shares the main run
+        // loop, and a calendar database is exactly the kind of neighbor
+        // that answers slowly on the wrong morning. The EKEvent objects
+        // are reduced to value types on the fetch queue and never cross it.
+        guard !refreshing else { return }
+        refreshing = true
+        let store = store
         let now = Date()
-        let predicate = store.predicateForEvents(withStart: now.addingTimeInterval(-12 * 3600),
-                                                 end: now.addingTimeInterval(24 * 3600),
-                                                 calendars: nil)
-        occurrences = store.events(matching: predicate).compactMap { event in
-            guard !event.isAllDay else { return nil }
-            if let me = event.attendees?.first(where: { $0.isCurrentUser }),
-               me.participantStatus == .declined { return nil }
-            guard let link = Meetings.sniff(url: event.url?.absoluteString,
-                                            location: event.location,
-                                            notes: event.notes) else { return nil }
-            return Meetings.Occurrence(
-                eventID: event.eventIdentifier ?? event.calendarItemIdentifier,
-                title: event.title ?? "meeting",
-                start: event.startDate, end: event.endDate,
-                link: link,
-                calendar: event.calendar?.title,
-                account: event.calendar?.source?.title)
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let predicate = store.predicateForEvents(
+                withStart: now.addingTimeInterval(-12 * 3600),
+                end: now.addingTimeInterval(24 * 3600), calendars: nil)
+            let fetched: [Meetings.Occurrence] = store.events(matching: predicate)
+                .compactMap { event in
+                    guard !event.isAllDay else { return nil }
+                    if let me = event.attendees?.first(where: { $0.isCurrentUser }),
+                       me.participantStatus == .declined { return nil }
+                    guard let link = Meetings.sniff(url: event.url?.absoluteString,
+                                                    location: event.location,
+                                                    notes: event.notes) else { return nil }
+                    return Meetings.Occurrence(
+                        eventID: event.eventIdentifier ?? event.calendarItemIdentifier,
+                        title: event.title ?? "meeting",
+                        start: event.startDate, end: event.endDate,
+                        link: link,
+                        calendar: event.calendar?.title,
+                        account: event.calendar?.source?.title)
+                }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.refreshing = false
+                self.occurrences = fetched
+                self.saveSpent(Meetings.prune(spent: self.loadSpent(), keeping: fetched))
+                // The offered set answers "was this chip's observation
+                // recorded"; keys whose occurrences are gone are done
+                // answering.
+                self.offered.formIntersection(fetched.map(\.key))
+                self.evaluate()
+            }
         }
-        saveSpent(Meetings.prune(spent: loadSpent(), keeping: occurrences))
-        evaluate()
     }
 
     private func evaluate() {
@@ -269,8 +325,9 @@ final class MeetingController: NSObject {
         // Never the title and never the URL in the log. Where something
         // opened is what a bug report needs.
         if let native = Meetings.nativeJoin(for: occurrence.link),
-           let appURL = NSWorkspace.shared.urlForApplication(
-               withBundleIdentifier: native.bundleID),
+           let appURL = native.bundleIDs.lazy.compactMap({
+               NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0)
+           }).first,
            let url = URL(string: native.url) {
             Log.info("meeting", ["join": occurrence.link.provider.rawValue, "via": "app"])
             NSWorkspace.shared.open([url], withApplicationAt: appURL,

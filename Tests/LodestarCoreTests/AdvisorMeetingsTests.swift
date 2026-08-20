@@ -116,6 +116,25 @@ final class AdvisorMeetingsTests: XCTestCase {
         XCTAssertTrue(Meetings.meetingApps.contains("zoom.us"))
     }
 
+    func testOfferSurvivesTheFullPipeline() {
+        // Through recommend() itself: the FDR gate, the sort, the lot.
+        let recommendations = Advisor.recommend(context(events: steadyHabit))
+        let meetings = recommendations.filter { $0.kind == .meetings }
+        XCTAssertEqual(meetings.count, 1)
+        XCTAssertEqual(meetings.first?.edit, .enableMeetings)
+    }
+
+    func testStandingOfferCanPickMeetings() {
+        let rec = Recommendation(kind: .meetings, target: "meetings",
+                                 detail: "about 4 meetings a week joined by hand",
+                                 secondsPerWeek: 80, probability: 0.95, evidence: [],
+                                 edit: .enableMeetings)
+        let offer = Coach.standingOffer(observations: Observations(),
+                                        recommendations: [rec], now: base)
+        XCTAssertEqual(offer?.kind, .meetings,
+                       "an edit-bearing offer above the debut floor stands")
+    }
+
     func testChipCopyForTheMeetingsOffer() {
         let rec = Recommendation(kind: .meetings, target: "meetings",
                                  detail: "about 4 meetings a week joined by hand",

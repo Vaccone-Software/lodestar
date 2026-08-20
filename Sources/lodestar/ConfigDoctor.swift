@@ -1,4 +1,5 @@
 import AppKit
+import EventKit
 import Foundation
 import LodestarCore
 
@@ -11,6 +12,20 @@ enum ConfigDoctor {
     /// nothing — absence of ground truth is not a verdict.
     static func groundTruthProblems(_ config: Config) -> [String] {
         var problems: [String] = []
+        // Intent lives in the config, authorization in the machine, and a
+        // feature that looks enabled but can never work is exactly what
+        // this check exists to say out loud. Found the hard way: 0.21.0
+        // asked without the entitlement and macOS declined silently.
+        if config.meetingsEnabled {
+            let status = EKEventStore.authorizationStatus(for: .event)
+            let granted: Bool
+            if #available(macOS 14.0, *) { granted = status == .fullAccess }
+            else { granted = status == .authorized }
+            if !granted, status != .notDetermined {
+                problems.append("meetings.enabled is true but calendar access is denied "
+                    + "— allow Lodestar under Privacy & Security → Calendars")
+            }
+        }
         let byBrowser = Dictionary(grouping: config.browserProfiles, by: \.value.browser)
         for (browser, entries) in byBrowser.sorted(by: { $0.key.rawValue < $1.key.rawValue }) {
             let known = ChromiumProfiles.knownDisplayNames(for: browser)

@@ -24,9 +24,9 @@ public enum Meetings {
         var patterns: [String] {
             switch self {
             case .zoom:
-                return [#"https://(?:[\w-]+\.)?zoom\.us/(?:j|s|w|my)/[\w?=&.\-]+"#]
+                return [#"https://(?:[\w-]+\.)?(?:zoom\.us|zoomgov\.com)/(?:j|s|w|my)/[\w?=&.\-]+"#]
             case .meet:
-                return [#"https://meet\.google\.com/[a-z]{3}-[a-z]{4}-[a-z]{3}[\w?=&.\-]*"#]
+                return [#"https://meet\.google\.com/(?:lookup/[\w\-]+|[a-z]{3}-[a-z]{4}-[a-z]{3})[\w?=&.\-]*"#]
             case .teams:
                 return [#"https://teams\.(?:microsoft|live)\.com/l/meetup-join/[\w?=&.%\-/]+"#]
             case .webex:
@@ -42,8 +42,8 @@ public enum Meetings {
     /// Webex live on per-tenant subdomains; app names are what the focus
     /// events record (Zoom's app really is named "zoom.us").
     public static let meetingHostSuffixes = [
-        "meet.google.com", "zoom.us", "teams.microsoft.com", "teams.live.com",
-        "webex.com", "facetime.apple.com",
+        "meet.google.com", "zoom.us", "zoomgov.com", "teams.microsoft.com",
+        "teams.live.com", "webex.com", "facetime.apple.com",
     ]
 
     public static func isMeetingHost(_ host: String) -> Bool {
@@ -70,16 +70,26 @@ public enum Meetings {
     /// notes. Location often carries Zoom; Google Calendar's Meet button
     /// stores its link in conference data EventKit never surfaces, so it
     /// arrives in the notes — the reason no single field is enough.
+    ///
+    /// Within a field, position wins over provider: notes reading "moved
+    /// off Zoom, join here: <meet link>" often keep the old link too, and
+    /// the one the organizer put first is the one they mean. Provider
+    /// declaration order must never decide a meeting.
     public static func sniff(url: String?, location: String?, notes: String?) -> Link? {
         for field in [url, location, notes] {
             guard let field, !field.isEmpty else { continue }
+            var earliest: (at: String.Index, link: Link)?
             for provider in Provider.allCases {
                 for pattern in provider.patterns {
-                    if let range = field.range(of: pattern, options: .regularExpression) {
-                        return Link(provider: provider, url: String(field[range]))
+                    guard let range = field.range(of: pattern, options: .regularExpression)
+                    else { continue }
+                    if earliest == nil || range.lowerBound < earliest!.at {
+                        earliest = (range.lowerBound,
+                                    Link(provider: provider, url: String(field[range])))
                     }
                 }
             }
+            if let earliest { return earliest.link }
         }
         return nil
     }
@@ -93,7 +103,10 @@ public enum Meetings {
     /// app falls through to the browser path untouched.
     public struct NativeJoin: Equatable {
         public let url: String
-        public let bundleID: String
+        /// Installed-app candidates, preferred first: Teams ships as two
+        /// bundle identities (the new client and classic), and a machine
+        /// with either should join natively.
+        public let bundleIDs: [String]
     }
 
     public static func nativeJoin(for link: Link) -> NativeJoin? {
@@ -102,18 +115,25 @@ public enum Meetings {
             // https://sub.zoom.us/j/123?pwd=X → zoommtg://sub.zoom.us/join?confno=123&pwd=X
             guard let components = URLComponents(string: link.url),
                   let host = components.host else { return nil }
+            // Zoom for Government is a different client; its links join in
+            // the browser rather than misfire in the consumer app.
+            guard host == "zoom.us" || host.hasSuffix(".zoom.us") else { return nil }
             let parts = components.path.split(separator: "/").map(String.init)
             guard parts.count >= 2, ["j", "w", "s"].contains(parts[0]) else { return nil }
             var query = "confno=\(parts[1])"
-            if let pwd = components.queryItems?.first(where: { $0.name == "pwd" })?.value {
+            // The percent-encoded value, verbatim: queryItems decodes, and
+            // re-embedding a decoded password corrupts any encoded byte.
+            if let pwd = components.percentEncodedQueryItems?
+                .first(where: { $0.name == "pwd" })?.value {
                 query += "&pwd=\(pwd)"
             }
-            return NativeJoin(url: "zoommtg://\(host)/join?\(query)", bundleID: "us.zoom.xos")
+            return NativeJoin(url: "zoommtg://\(host)/join?\(query)",
+                              bundleIDs: ["us.zoom.xos"])
         case .teams:
             // Teams accepts its own https link behind the msteams scheme.
             let stripped = link.url.replacingOccurrences(of: "https://", with: "")
             return NativeJoin(url: "msteams://\(stripped)",
-                              bundleID: "com.microsoft.teams2")
+                              bundleIDs: ["com.microsoft.teams2", "com.microsoft.teams"])
         case .meet, .webex, .facetime:
             return nil
         }

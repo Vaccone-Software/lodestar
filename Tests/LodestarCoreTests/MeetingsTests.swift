@@ -55,7 +55,7 @@ final class MeetingsTests: XCTestCase {
         let native = Meetings.nativeJoin(for: link)
         XCTAssertEqual(native, Meetings.NativeJoin(
             url: "zoommtg://acme.zoom.us/join?confno=91234567890&pwd=abC123",
-            bundleID: "us.zoom.xos"))
+            bundleIDs: ["us.zoom.xos"]))
     }
 
     func testZoomPersonalRoomDoesNotTransform() {
@@ -70,6 +70,42 @@ final class MeetingsTests: XCTestCase {
                                  url: "https://teams.microsoft.com/l/meetup-join/19%3ax/0")
         XCTAssertEqual(Meetings.nativeJoin(for: link)?.url,
                        "msteams://teams.microsoft.com/l/meetup-join/19%3ax/0")
+    }
+
+    func testEarliestLinkWinsWhenNotesCarryTwo() {
+        // "Moved off Zoom" notes keep the old link; the one the organizer
+        // put first is the one they mean, whatever the provider order is.
+        let notes = "Join: https://meet.google.com/abc-defg-hij\n"
+            + "(old link: https://acme.zoom.us/j/111)"
+        XCTAssertEqual(Meetings.sniff(url: nil, location: nil, notes: notes)?.provider, .meet)
+        let reversed = "https://acme.zoom.us/j/111 moved to https://meet.google.com/abc-defg-hij"
+        XCTAssertEqual(Meetings.sniff(url: nil, location: nil, notes: reversed)?.provider, .zoom)
+    }
+
+    func testMeetLookupAndZoomGovAreMeetings() {
+        XCTAssertEqual(Meetings.sniff(url: "https://meet.google.com/lookup/team-standup",
+                                      location: nil, notes: nil)?.provider, .meet)
+        let gov = Meetings.sniff(url: "https://agency.zoomgov.com/j/1600000000",
+                                 location: nil, notes: nil)
+        XCTAssertEqual(gov?.provider, .zoom)
+        XCTAssertNil(Meetings.nativeJoin(for: gov!),
+                     "the government client is not the consumer client")
+        XCTAssertTrue(Meetings.isMeetingHost("agency.zoomgov.com"))
+    }
+
+    func testEncodedPasswordSurvivesTheTransform() {
+        let link = Meetings.Link(provider: .zoom,
+                                 url: "https://zoom.us/j/123?pwd=a%2Bb%3D")
+        XCTAssertEqual(Meetings.nativeJoin(for: link)?.url,
+                       "zoommtg://zoom.us/join?confno=123&pwd=a%2Bb%3D",
+                       "queryItems decodes and re-embedding corrupts encoded bytes")
+    }
+
+    func testTeamsOffersBothClients() {
+        let link = Meetings.Link(provider: .teams,
+                                 url: "https://teams.microsoft.com/l/meetup-join/19%3ax/0")
+        XCTAssertEqual(Meetings.nativeJoin(for: link)?.bundleIDs,
+                       ["com.microsoft.teams2", "com.microsoft.teams"])
     }
 
     func testBrowserProvidersHaveNoNativeJoin() {
@@ -164,6 +200,22 @@ final class MeetingsTests: XCTestCase {
             link: today.link, calendar: "Work", account: "Google")
         XCTAssertNotEqual(today.key, tomorrow.key,
                           "recurrence shares an event id; the key must not")
+    }
+
+    func testAllSpentMeansNoChip() {
+        let soon = occurrence("a", startsIn: 3)
+        XCTAssertNil(Meetings.candidate(occurrences: [soon], now: now,
+                                        leadMinutes: 5, spent: [soon.key]))
+    }
+
+    func testZeroLeadShowsAtTheDoorOnly() {
+        let soon = occurrence("a", startsIn: 3)
+        XCTAssertNil(Meetings.candidate(occurrences: [soon], now: now,
+                                        leadMinutes: 0, spent: []),
+                     "lead zero means the chip waits for the start")
+        let started = occurrence("b", startsIn: -1)
+        XCTAssertNotNil(Meetings.candidate(occurrences: [started], now: now,
+                                           leadMinutes: 0, spent: []))
     }
 
     func testPruneDropsThePast() {

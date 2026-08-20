@@ -14,7 +14,7 @@ final class WalkTests: XCTestCase {
     func testFreshWalkRunsTheFullSequence() {
         var walk = Walk(proposals: drafted, existing: [])
         XCTAssertEqual(walk.step, .lodeKey)
-        XCTAssertEqual(walk.progress.total, 7)
+        XCTAssertEqual(walk.progress.total, 8)
         XCTAssertEqual(walk.progress.position, 1)
 
         XCTAssertEqual(walk.handle(.peeked), [.stepChanged])
@@ -35,8 +35,11 @@ final class WalkTests: XCTestCase {
         XCTAssertEqual(walk.step, .web)
 
         XCTAssertEqual(walk.handle(.webBarOpened), [.stepChanged])
+        XCTAssertEqual(walk.step, .clipboard)
+
+        XCTAssertEqual(walk.handle(.clipboardOpened), [.stepChanged])
         XCTAssertEqual(walk.step, .sheet)
-        XCTAssertEqual(walk.progress.position, 7)
+        XCTAssertEqual(walk.progress.position, 8)
 
         XCTAssertEqual(walk.handle(.cheatOpened), [.stepChanged, .completed])
         XCTAssertEqual(walk.step, .done)
@@ -47,7 +50,7 @@ final class WalkTests: XCTestCase {
 
     func testExistingGraphSkipsTheOfferAndUsesTheirLetter() {
         var walk = Walk(proposals: [], existing: ownGraph)
-        XCTAssertEqual(walk.progress.total, 6,
+        XCTAssertEqual(walk.progress.total, 7,
                        "no offer step, and the counter must not promise one")
         _ = walk.handle(.peeked)
         XCTAssertEqual(walk.handle(.launcherPick), [.stepChanged])
@@ -58,7 +61,7 @@ final class WalkTests: XCTestCase {
 
     func testNoProposalsAndNoGraphFallsToInside() {
         var walk = Walk(proposals: [], existing: [])
-        XCTAssertEqual(walk.progress.total, 5)
+        XCTAssertEqual(walk.progress.total, 6)
         _ = walk.handle(.peeked)
         _ = walk.handle(.launcherPick)
         XCTAssertEqual(walk.step, .inside,
@@ -67,7 +70,7 @@ final class WalkTests: XCTestCase {
 
     func testExistingUsersStillGetOffersForUnboundApps() {
         var walk = Walk(proposals: drafted, existing: ownGraph)
-        XCTAssertEqual(walk.progress.total, 7)
+        XCTAssertEqual(walk.progress.total, 8)
         _ = walk.handle(.peeked)
         _ = walk.handle(.launcherPick)
         XCTAssertEqual(walk.step, .graphOffer(drafted),
@@ -109,11 +112,11 @@ final class WalkTests: XCTestCase {
     }
 
     func testDoneIgnoresEverything() {
-        var walk = Walk(proposals: [], existing: [], resumeAt: 7)
+        var walk = Walk(proposals: [], existing: [], resumeAt: 8)
         XCTAssertTrue(walk.isDone)
         for signal: Walk.Signal in [.peeked, .launcherPick, .assent, .pass,
                                     .graphSummon, .hintsEnded, .webBarOpened,
-                                    .cheatOpened] {
+                                    .clipboardOpened, .cheatOpened] {
             XCTAssertEqual(walk.handle(signal), [])
         }
     }

@@ -1,7 +1,7 @@
 import Foundation
 
 /// The walk: the tutorial's spine, as a state machine the shell can only
-/// draw. Seven steps at most, each completed by the real gesture happening
+/// draw. Eight steps at most, each completed by the real gesture happening
 /// in the real world. The engine reports what the hands did, and the walk
 /// moves. Nothing here owns a window or a keyboard. The card that renders
 /// `step` is never key, which is what makes the walk structurally unable
@@ -41,6 +41,9 @@ public struct Walk: Equatable {
         case inside
         /// Ask, shown by opening it once.
         case web
+        /// The clipboard history, shown by opening it once. The one gesture
+        /// living outside lode, which is exactly why nobody would find it.
+        case clipboard
         /// Open the cheat sheet once, so it becomes a place they have been.
         case sheet
         /// The closing card. It stays until the user closes it.
@@ -58,6 +61,7 @@ public struct Walk: Equatable {
         case graphSummon
         case hintsEnded
         case webBarOpened
+        case clipboardOpened
         case cheatOpened
     }
 
@@ -85,8 +89,9 @@ public struct Walk: Equatable {
         case .graphGo: return 3
         case .inside: return 4
         case .web: return 5
-        case .sheet: return 6
-        case .done: return 7
+        case .clipboard: return 6
+        case .sheet: return 7
+        case .done: return 8
         }
     }
 
@@ -96,7 +101,7 @@ public struct Walk: Equatable {
         var indices = [0, 1]
         if !proposals.isEmpty { indices.append(2) }
         if !existing.isEmpty || !proposals.isEmpty { indices.append(3) }
-        indices.append(contentsOf: [4, 5, 6])
+        indices.append(contentsOf: [4, 5, 6, 7])
         let position = indices.filter { $0 < stepIndex }.count + 1
         return (min(position, indices.count), indices.count)
     }
@@ -125,7 +130,8 @@ public struct Walk: Equatable {
             return options.isEmpty ? .inside : .graphGo(options: options)
         case 4: return .inside
         case 5: return .web
-        case 6: return .sheet
+        case 6: return .clipboard
+        case 7: return .sheet
         default: return .done
         }
     }
@@ -152,6 +158,8 @@ public struct Walk: Equatable {
             return advance()
         case (.web, .webBarOpened):
             return advance()
+        case (.clipboard, .clipboardOpened):
+            return advance()
         case (.sheet, .cheatOpened):
             return advance()
         default:
@@ -176,6 +184,8 @@ public struct Walk: Equatable {
         case .inside:
             step = .web
         case .web:
+            step = .clipboard
+        case .clipboard:
             step = .sheet
         case .sheet:
             step = .done

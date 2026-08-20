@@ -169,18 +169,22 @@ final class WalkController: NSObject {
 
     private func beginWalk(at index: Int) {
         door.orderOut(nil)
-        // Drafted for anyone with unbound running apps, not only an empty
-        // graph: an address the offer proposes is skipped wherever the app
-        // or the letter is already spoken for.
+        // The offer appears while the graph is still thin, fewer than four
+        // bound apps, and proposes only from unbound running apps. A built
+        // graph is a person who knows how to add letters, and the offer
+        // would be noise on top of knowledge.
+        let leaves = config.graph.leaves()
         let running = NSWorkspace.shared.runningApplications
             .filter { $0.activationPolicy == .regular }
             .compactMap(\.localizedName)
-        let proposals = StarterGraph.propose(running: running, existing: config.graph,
-                                             reserved: Config.reservedTopLevel)
+        let proposals = leaves.count < 4
+            ? StarterGraph.propose(running: running, existing: config.graph,
+                                   reserved: Config.reservedTopLevel)
+            : []
         // A few of their own addresses for the graph card, shortest first.
         // The card offers and never prescribes: "press A" once told
         // somebody to open an app they had no wish to open.
-        let existing = config.graph.leaves()
+        let existing = leaves
             .sorted { ($0.chain.count, $0.target.label) < ($1.chain.count, $1.target.label) }
             .prefix(4)
             .map { Walk.GraphChoice(path: $0.chain.joined(separator: " "),
@@ -340,7 +344,7 @@ final class WalkController: NSObject {
         stack.addArrangedSubview(star)
         stack.addArrangedSubview(label("Lodestar", size: 26, weight: .semibold, color: .labelColor))
         stack.addArrangedSubview(wrapped(
-            "Every app you use gets a permanent key.\nPress it and you're there.",
+            "Every app you use gets a permanent key.\nPress it and you are there.",
             size: 15, color: .labelColor, alignment: .center, width: Self.doorText))
         stack.setCustomSpacing(20, after: stack.arrangedSubviews.last!)
 
@@ -465,21 +469,32 @@ final class WalkController: NSObject {
                     + "default browser. Links clicked in any app then "
                     + "follow the same rules.",
                 illustration: capsRow([("lode", false), ("⏎", true)]))
+        case .clipboard:
+            return CardContent(
+                title: "The clipboard",
+                body: "Lodestar keeps a history of what you copy. Press "
+                    + "⇧⌘V and the history appears along the bottom of the "
+                    + "screen, the newest clip under A. A letter pastes it "
+                    + "as plain text. Open it now.\n\nThis is the one "
+                    + "gesture outside lode, because pasting happens in the "
+                    + "middle of typing.",
+                illustration: capsRow([("⇧⌘V", true)]))
         case .sheet:
             return CardContent(
                 title: "Everything else",
-                body: "Around twenty more gestures exist. Saved layouts, a "
-                    + "clipboard history, text selection by eye. You do not "
-                    + "need them today.\n\nHold lode and press ? once. The "
-                    + "sheet holds everything, whenever you are curious.",
+                body: "More gestures exist. Saved window layouts, moving "
+                    + "windows between displays, text selection by eye. You "
+                    + "do not need them today.\n\nHold lode and press ? "
+                    + "once. The sheet holds everything, whenever you need "
+                    + "it.",
                 illustration: capsRow([("lode", false), ("?", true)]))
         case .done:
             return CardContent(
-                title: "That is the spine",
+                title: "You are ready",
                 body: "The launcher when you need to search. Letters when "
                     + "you do not. Lodestar offers the rest one suggestion "
-                    + "at a time, as it learns how you work.\n\nlode ? "
-                    + "whenever you forget. Go use your Mac.",
+                    + "at a time, as it learns how you work.\n\nPress "
+                    + "lode ? whenever you need a reminder.",
                 keys: [("lode ⌫", "close this card")])
         }
     }
@@ -707,8 +722,8 @@ final class WalkController: NSObject {
     #if DEBUG
     /// `lodestar __strip-preview N` puts every walk surface on screen
     /// without a fresh install: 20 the door asking, 21 waiting at the edge,
-    /// 22 granted, 23…29 the companion's seven steps, 30 the closing card,
-    /// 40…50 the same with no graph.
+    /// 22 granted, 23…30 the companion's eight steps, 31 the closing card,
+    /// 40…51 the same with no graph.
     static func preview(_ index: Int, empty: Bool = false) -> WalkController {
         let controller = WalkController()
         var (config, _) = Config.load()

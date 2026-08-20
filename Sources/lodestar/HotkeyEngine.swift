@@ -559,6 +559,7 @@ final class HotkeyEngine {
                 pass = true
             case .enterPaste:
                 renderStrip()
+                walkSignal?(.clipboardOpened)
             case .exitPaste:
                 pasteQuery = nil
                 panelClip = nil

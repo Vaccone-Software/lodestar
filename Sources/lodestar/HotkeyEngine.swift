@@ -628,6 +628,7 @@ final class HotkeyEngine {
             case .showWebBar:
                 webBar.config = config
                 webBar.show()
+                walkSignal?(.webBarOpened)
             case .showMenuSearch:
                 menuSearch.show()
             case .openWindowChooser:
@@ -997,7 +998,9 @@ extension HotkeyEngine: EngineWorld {
     func enterHints(sticky: Bool) -> Bool {
         hints.letters = config.hintLetters
         hints.rescanDelay = config.hintRescanDelay
-        return hints.enter(sticky: sticky)
+        let entered = hints.enter(sticky: sticky)
+        if entered { walkSignal?(.hintsEntered) }
+        return entered
     }
 
     func hintType(_ letter: String, shift: Bool) -> HintStep {

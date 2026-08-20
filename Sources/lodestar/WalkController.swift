@@ -62,7 +62,6 @@ final class WalkController: NSObject {
     private var sawSettings = false
     private var waited: Double = 0
     private var trustPoll: Timer?
-    private var doneClose: DispatchWorkItem?
 
     #if DEBUG
     /// The door's untrusted copy, on a machine that granted long ago — the
@@ -137,7 +136,6 @@ final class WalkController: NSObject {
         trustPoll?.invalidate(); trustPoll = nil
         awaitingGrant = false
         settingsIsOurs = false
-        doneClose?.cancel(); doneClose = nil
         door.orderOut(nil)
         card.orderOut(nil)
     }
@@ -157,15 +155,11 @@ final class WalkController: NSObject {
             case .stepChanged:
                 persistStep?(walk!.stepIndex)
             case .completed:
+                // The closing card is not on a clock. It stays until the
+                // user closes it, and a restart clears it, because the
+                // walk is complete and never auto shows again.
                 markCompleted?()
                 Log.info("walk", ["completed": Lodestar.version])
-                // The closing card says its piece and leaves on its own.
-                let close = DispatchWorkItem { [weak self] in
-                    self?.hideAll()
-                    self?.walk = nil
-                }
-                doneClose = close
-                DispatchQueue.main.asyncAfter(deadline: .now() + 12, execute: close)
             }
         }
         renderCard()
@@ -193,12 +187,23 @@ final class WalkController: NSObject {
     }
 
     /// Lode ⌫, routed here by the app while the walk is up: the coach's
-    /// "not this one", meaning skip the current step. Never a dismissal —
-    /// the card persists until the walk is done, by decision.
+    /// "not this one", meaning skip the current step. Never a dismissal.
+    /// The card persists until the walk is done, by decision. On the
+    /// finished card the same gesture is the close.
     func pass() -> Bool {
-        guard cardVisible, walk?.isDone == false else { return false }
+        guard cardVisible, let walk else { return false }
+        if walk.isDone {
+            hideAll()
+            self.walk = nil
+            return true
+        }
         notice(.pass)
         return true
+    }
+
+    @objc private func donePressed() {
+        hideAll()
+        walk = nil
     }
 
     /// Lode-lode, routed here while the walk is up. Only the offer answers.
@@ -341,15 +346,15 @@ final class WalkController: NSObject {
                 + "switch Lodestar on.",
                 size: 13, color: .secondaryLabelColor, alignment: .center, width: Self.doorText))
             stack.addArrangedSubview(wrapped(
-                "This card waits with you — it notices the moment the grant lands.",
+                "This card waits with you. It notices the moment the grant lands.",
                 size: 12, color: .tertiaryLabelColor, alignment: .center, width: Self.doorText))
             stack.setCustomSpacing(16, after: stack.arrangedSubviews.last!)
             stack.addArrangedSubview(smallLink("cancel", action: #selector(notNowPressed)))
         } else if trusted {
             stack.addArrangedSubview(wrapped(
-                "Accessibility is granted. The walk takes about a minute, on "
-                + "your own apps — five small steps, each one a gesture your "
-                + "hand keeps.",
+                "Accessibility is granted. The walk takes about a minute, "
+                + "on your own apps. A few small steps, each one a gesture "
+                + "your hand keeps.",
                 size: 13, color: .secondaryLabelColor, alignment: .center, width: Self.doorText))
             stack.setCustomSpacing(16, after: stack.arrangedSubviews.last!)
             stack.addArrangedSubview(bigButton("Begin", action: #selector(beginPressed)))
@@ -358,9 +363,9 @@ final class WalkController: NSObject {
             stack.addArrangedSubview(wrapped(
                 "To see your windows and move them, macOS needs you to allow "
                 + "Accessibility. Nothing leaves your Mac.\n\nOne more "
-                + "permission exists — Screen Recording, for selecting text "
-                + "you can see. Lodestar asks the first time you use that, "
-                + "never before.",
+                + "permission exists. Screen Recording, for selecting text "
+                + "you can see. Lodestar asks the first time you use that "
+                + "feature, never before.",
                 size: 13, color: .secondaryLabelColor, alignment: .center, width: Self.doorText))
             stack.setCustomSpacing(16, after: stack.arrangedSubviews.last!)
             stack.addArrangedSubview(bigButton(prompted ? "Open System Settings" : "Grant Access",
@@ -394,7 +399,6 @@ final class WalkController: NSObject {
     // MARK: - Companion copy
 
     private struct CardContent {
-        var counter: String
         var title: String
         var body: String
         var illustration: NSView?
@@ -406,60 +410,74 @@ final class WalkController: NSObject {
         switch step {
         case .lodeKey:
             return CardContent(
-                counter: "1 of 5",
                 title: "The lode key",
-                body: "Lodestar lives on one key: your right command key. "
-                    + "Hold it, and the whole keyboard is Lodestar's; let go "
-                    + "and it's yours again.\n\nHold it down now, until the "
-                    + "map appears.",
+                body: "Lodestar lives on one key, your right command key. "
+                    + "Hold it and the keyboard speaks to Lodestar. Release "
+                    + "it and the keyboard is yours again.\n\nHold it now, "
+                    + "until the map appears.",
                 illustration: keyboardRow())
         case .launcher:
             return CardContent(
-                counter: "2 of 5",
                 title: "The launcher",
-                body: "That map is your graph — more on it in a moment.\n\n"
+                body: "That map was your graph. More on it in a moment.\n\n"
                     + "Hold lode and tap space. Type a few letters of any "
-                    + "app, then return. It arrives maximized, launching "
-                    + "first if it wasn't running.",
+                    + "app, then return. The app arrives maximized, "
+                    + "launching first if needed.",
                 illustration: capsRow([("lode", false), ("space", true)]))
         case .graphOffer(let proposals):
             return CardContent(
-                counter: "3 of 5",
                 title: "Your letters",
-                body: "Searching works. Letters are faster: an address your "
-                    + "hand keeps. These are drafted from the apps you have "
-                    + "open right now.",
+                body: "Search works. Letters are faster. Each is a permanent "
+                    + "address your hand learns. These were drafted from the "
+                    + "apps you have open.",
                 illustration: proposalList(proposals),
-                keys: [("lode lode", "two quick taps — take these letters"),
+                keys: [("lode lode", "tap lode twice to take these letters"),
                        ("lode ⌫", "pass")])
         case .graphGo(let letter):
             let caps = letter.split(separator: " ").map { (String($0).uppercased(), true) }
             return CardContent(
-                counter: "4 of 5",
                 title: "The graph",
                 body: "Hold lode and press "
                     + letter.uppercased().replacingOccurrences(of: " ", with: " then ")
-                    + ". No list, no searching — you are just there.\n\n"
-                    + "This is the whole idea. The letters compile into your "
-                    + "hand and stop being navigation.",
+                    + ". No list, no search. You are simply there.\n\nThis "
+                    + "is the core of Lodestar. The letters become muscle "
+                    + "memory, and navigation disappears.",
                 illustration: capsRow([("lode", false)] + caps))
+        case .inside:
+            return CardContent(
+                title: "Inside the app",
+                body: "Lodestar also works inside the window. Hold lode and "
+                    + "press ; and every button and link wears a letter. "
+                    + "Type the letter to click it. Try it now.",
+                illustration: capsRow([("lode", false), (";", true)]),
+                keys: [("lode .", "search the menus of the app you are in"),
+                       ("lode `", "scroll from the keyboard")])
+        case .web:
+            return CardContent(
+                title: "The web",
+                body: "Hold lode and press return to open Ask. Type a name, "
+                    + "a domain, or a question. Destinations open in the "
+                    + "right browser profile. Everything else searches. "
+                    + "Open it now.\n\nLodestar can also stand as your "
+                    + "default browser. Links clicked in any app then "
+                    + "follow the same rules.",
+                illustration: capsRow([("lode", false), ("⏎", true)]))
         case .sheet:
             return CardContent(
-                counter: "5 of 5",
                 title: "Everything else",
-                body: "About twenty more gestures exist — saved layouts, a "
-                    + "clipboard history, clicking without a mouse. You don't "
-                    + "need them today.\n\nHold lode and press ? once. That "
-                    + "sheet is always there, whenever you're curious.",
+                body: "Around twenty more gestures exist. Saved layouts, a "
+                    + "clipboard history, text selection by eye. You do not "
+                    + "need them today.\n\nHold lode and press ? once. The "
+                    + "sheet holds everything, whenever you are curious.",
                 illustration: capsRow([("lode", false), ("?", true)]))
         case .done:
             return CardContent(
-                counter: "",
-                title: "That's the spine",
-                body: "The launcher when you need to search; letters when you "
-                    + "don't. Lodestar offers the rest one suggestion at a "
-                    + "time, as it learns how you work.\n\nlode ? whenever "
-                    + "you forget. Go use your Mac.")
+                title: "That is the spine",
+                body: "The launcher when you need to search. Letters when "
+                    + "you do not. Lodestar offers the rest one suggestion "
+                    + "at a time, as it learns how you work.\n\nlode ? "
+                    + "whenever you forget. Go use your Mac.",
+                keys: [("lode ⌫", "close this card")])
         }
     }
 
@@ -476,9 +494,11 @@ final class WalkController: NSObject {
         stack.spacing = 8
         stack.translatesAutoresizingMaskIntoConstraints = false
 
-        if !content.counter.isEmpty {
-            stack.addArrangedSubview(label("⌖ the walk · \(content.counter)", size: 11,
-                                           weight: .medium, color: .tertiaryLabelColor))
+        if walk.step != .done {
+            let progress = walk.progress
+            stack.addArrangedSubview(label(
+                "⌖ the walk · \(progress.position) of \(progress.total)", size: 11,
+                weight: .medium, color: .tertiaryLabelColor))
         }
         stack.addArrangedSubview(label(content.title, size: 17, weight: .semibold,
                                        color: .labelColor))
@@ -494,14 +514,15 @@ final class WalkController: NSObject {
             stack.addArrangedSubview(keyMeaningRow(cap: row.cap, meaning: row.meaning))
         }
 
-        // The footer: skipping is per-step and the walk cannot be dismissed.
-        // The click target exists because lode ⌫ requires the very key the
-        // first card is still teaching.
-        if walk.step != .done {
-            stack.setCustomSpacing(12, after: stack.arrangedSubviews.last!)
-            let skip = smallLink("skip this step", action: #selector(skipPressed))
-            stack.addArrangedSubview(skip)
-        }
+        // The footer: skipping is per step and the walk cannot be
+        // dismissed. The click target exists because lode ⌫ requires the
+        // very key the first card is still teaching. The finished card
+        // trades it for a close, and is never on a clock.
+        stack.setCustomSpacing(12, after: stack.arrangedSubviews.last!)
+        let link = walk.step == .done
+            ? smallLink("done", action: #selector(donePressed))
+            : smallLink("skip this step", action: #selector(skipPressed))
+        stack.addArrangedSubview(link)
 
         cardRoot.addSubview(stack)
         NSLayoutConstraint.activate([
@@ -624,7 +645,7 @@ final class WalkController: NSObject {
         row.addArrangedSubview(keycap("⌘", lit: true))
         row.addArrangedSubview(keycap("⌥"))
         column.addArrangedSubview(row)
-        column.addArrangedSubview(label("the right ⌘ — that one is lode", size: 11,
+        column.addArrangedSubview(label("the right ⌘ is lode", size: 11,
                                         weight: .regular, color: .tertiaryLabelColor))
         return column
     }
@@ -663,8 +684,8 @@ final class WalkController: NSObject {
     #if DEBUG
     /// `lodestar __strip-preview N` puts every walk surface on screen
     /// without a fresh install: 20 the door asking, 21 waiting at the edge,
-    /// 22 granted; 23…27 the companion's five steps; 28 the closing card.
-    /// 30…38 the same, with no graph.
+    /// 22 granted, 23…29 the companion's seven steps, 30 the closing card,
+    /// 40…50 the same with no graph.
     static func preview(_ index: Int, empty: Bool = false) -> WalkController {
         let controller = WalkController()
         var (config, _) = Config.load()

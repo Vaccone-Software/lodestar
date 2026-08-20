@@ -520,6 +520,12 @@ public struct Observations: Codable, Equatable {
             record.lastUsed = now
             selects[name] = record
 
+        case .meeting:
+            // Kept in the log for the retrospective and for lead-time
+            // calibration, both of which read events directly. The live
+            // view needs nothing from it yet — aggregate at read time.
+            touch(now)
+
         case .coach:
             touch(now)
             guard let action = event.action, let kind = event.rec,

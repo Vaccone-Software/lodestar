@@ -162,6 +162,13 @@ enum StripPreview {
             app.run()
         }
 
+        // 60 the meeting chip, 61 the calendar prime card.
+        if variant == 60 || variant == 61 {
+            let held = MeetingController.preview(variant - 60)
+            _ = held
+            app.run()
+        }
+
         if (9...14).contains(variant) {
             let held = OptionsCard.preview(variant - 8)
             _ = held

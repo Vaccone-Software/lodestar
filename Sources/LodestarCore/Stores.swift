@@ -59,6 +59,9 @@ public struct PersistedState: Codable {
     /// the walk once, because what the deck taught was not this.
     public var walkStep: Int?
     public var walkCompletedVersion: String?
+    /// Meeting occurrences already joined or dismissed — the chip never
+    /// resurrects one. Pruned to live occurrences on every write.
+    public var meetingSpent: [String]?
 }
 
 /// Breaths and parking bookkeeping — saved on every change so a crash or
@@ -203,6 +206,15 @@ public final class StateStore {
     public func markWalkCompleted(version: String) {
         state.walkCompletedVersion = version
         save()
+    }
+
+    // MARK: - Meetings
+
+    public var meetingSpent: Set<String> { Set(state.meetingSpent ?? []) }
+
+    public func setMeetingSpent(_ spent: Set<String>) {
+        state.meetingSpent = spent.sorted()
+        saveSoon()
     }
 
     // MARK: - Usage (searcher frecency)

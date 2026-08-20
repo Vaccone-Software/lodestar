@@ -100,6 +100,7 @@ final class CoachController {
                               leaves: [Advisor.Leaf],
                               webRoutes: [String: String],
                               profileKeys: [String: String],
+                              meetingsEnabled: Bool,
                               logFile: URL)? = { nil }
     /// Perform the one config line. Returns an error string, or nil.
     var applyEdit: (ConfigEdit) -> String? = { _ in "coach is not wired" }
@@ -287,6 +288,12 @@ final class CoachController {
             switch cue {
             case .app(let name): guard cueApp == name.lowercased() else { return }
             case .host(let host): guard cueHost == host.lowercased() else { return }
+            case .meeting:
+                // Seconds after a manual join — the one moment the claim
+                // is verifiable from what the hands just did.
+                let appHit = cueApp.map { Meetings.meetingApps.contains($0) } ?? false
+                let hostHit = cueHost.map { Meetings.isMeetingHost($0) } ?? false
+                guard appHit || hostHit else { return }
             }
         }
         show(rec)
@@ -373,7 +380,8 @@ final class CoachController {
             let context = Advisor.Context(
                 observations: inputs.observations, events: events,
                 leaves: inputs.leaves, webRoutes: inputs.webRoutes,
-                profileKeys: inputs.profileKeys)
+                profileKeys: inputs.profileKeys,
+                meetingsEnabled: inputs.meetingsEnabled)
             let recommendations = Advisor.recommend(context)
             let offer = Coach.standingOffer(observations: inputs.observations,
                                             recommendations: recommendations,

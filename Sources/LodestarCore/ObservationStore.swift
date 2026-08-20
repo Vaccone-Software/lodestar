@@ -156,6 +156,18 @@ public final class ObservationStore {
         record(event)
     }
 
+    /// The meeting chip's life. Provider and decider only — a meeting's
+    /// title and link are the content, and the content is nobody's.
+    public func meetingChip(action: String, provider: String, decider: String?,
+                            lead: Double? = nil, at now: Date = Date()) {
+        var event = ObservationEvent(t: now, kind: .meeting)
+        event.action = action
+        event.app = provider
+        event.row = decider
+        event.lead = lead
+        record(event)
+    }
+
     /// A graph binding changed at config reload. Every edit is a natural
     /// experiment; the epoch stamp is what makes it readable as one.
     public func epochBumped(address letters: [String], change: String, at now: Date = Date()) {

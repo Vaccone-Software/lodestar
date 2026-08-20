@@ -36,6 +36,11 @@ public struct ObservationEvent: Codable, Equatable {
         /// A graph binding changed at config reload: `address`, `change`
         /// (added | removed | retargeted), and the new global `epoch`.
         case epoch
+        /// The meeting chip's life: `action` (offered | joined | dismissed),
+        /// `app` the provider, `row` the deciding rule, `lead` the join's
+        /// distance from the start in seconds (negative is early). Titles
+        /// and URLs are never kept.
+        case meeting
         /// The coach spoke or was answered: `action` (offered | accepted |
         /// never), `rec` (the recommendation kind), `app` (its target),
         /// `address` (the proposed chain, when there is one), `seconds`
@@ -72,6 +77,7 @@ public struct ObservationEvent: Codable, Equatable {
     public var epoch: Int?
     public var action: String?
     public var rec: String?
+    public var lead: Double?
     public var seconds: Double?
 
     public init(t: Date, kind: Kind) {

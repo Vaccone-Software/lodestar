@@ -43,6 +43,16 @@ public struct Config {
     /// Profile registry: lodestar key → (browser, display name). Keys are
     /// global across browsers so web links and routes reference them bare.
     public var browserProfiles: [String: BrowserProfile] = [:]
+
+    /// Meetings at the door. Off until asked for: the calendar permission
+    /// has no gesture to hang a lazy prompt on, so intent is a config line
+    /// and the subsystem reconciles.
+    public var meetingsEnabled = false
+    public var meetingsLeadMinutes = 5
+    /// Calendar or account name → browser profile key. Outranks the
+    /// domain route for meeting joins: the calendar is the only signal
+    /// that can tell two meetings on the same host apart.
+    public var meetingsCalendars: [String: String] = [:]
     /// Where an unrouted site opens: "most-recent" or a registry key.
     public var webFallback = "most-recent"
     /// Search template; %s is replaced with the encoded query (appended if absent).
@@ -146,6 +156,14 @@ public struct Config {
             "speed": .number(min: 200, max: 4000, description: "Smooth velocity, pixels per second."),
             "step": .number(min: 10, max: 400, description: "Pixels per press when smooth is off."),
         ], description: "Scroll mode."),
+        "meetings": .table([
+            "enabled": .boolean(description: "Offer the calendar's next meeting as a chip."),
+            "lead-minutes": .number(min: 0, max: 120,
+                                    description: "Minutes before the start the chip appears."),
+            "calendars": .freeTable(value: .string(allowed: nil,
+                                                   description: "Browser profile key this calendar's meetings join in."),
+                                    description: "Calendar or account name → profile key. Outranks web.routes for meetings."),
+        ], description: "Meetings at the door."),
         "double-tap": .freeTable(value: .string(allowed: TapVerb.allCases.map(\.rawValue),
                                                 description: "The verb this double-tap fires."),
                                  description: "Double-tap a modifier alone to fire a verb — additional triggers; defaults untouched. Keys: cmd, shift, option, control, or sided forms like right-cmd."),
@@ -428,6 +446,23 @@ public struct Config {
                     continue
                 }
                 config.keyOverrides[keycode] = name
+            }
+        }
+        if let enabled = effective.value(at: ["meetings", "enabled"])?.bool {
+            config.meetingsEnabled = enabled
+        }
+        if let lead = effective.value(at: ["meetings", "lead-minutes"])?.double {
+            config.meetingsLeadMinutes = Int(max(0, min(120, lead)))
+        }
+        if let calendars = effective.value(at: ["meetings", "calendars"])?.table {
+            for (name, value) in calendars {
+                guard let profile = value.string else { continue }
+                let lowered = profile.lowercased()
+                if config.browserProfiles[lowered] != nil {
+                    config.meetingsCalendars[name] = lowered
+                } else {
+                    problems.append("meetings.calendars.\(name) references unknown profile '\(profile)'")
+                }
             }
         }
         if let routes = effective.value(at: ["web", "routes"])?.table {

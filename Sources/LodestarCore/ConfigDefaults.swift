@@ -81,6 +81,11 @@ public enum ConfigDefaults {
         "observations": .table([
             "enabled": .bool(true),
         ]),
+        "meetings": .table([
+            "enabled": .bool(false),
+            "lead-minutes": .int(5),
+            "calendars": .table([:]),
+        ]),
         "coach": .table([
             "enabled": .bool(true),
         ]),

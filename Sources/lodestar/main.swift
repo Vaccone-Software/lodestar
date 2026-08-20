@@ -74,6 +74,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var pendingClicks: [URL] = []
     private var defaultBrowserItem: NSMenuItem?
     private let walk = WalkController()
+    private let meetings = MeetingController()
+    private var meetingsItem: NSMenuItem?
 
     /// Links clicked in other apps land here. Deliberately the shortest path
     /// in the app: it needs the config and nothing else — not the window
@@ -204,6 +206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     },
                     webRoutes: self.config.webRoutes,
                     profileKeys: identityToKey,
+                    meetingsEnabled: self.config.meetingsEnabled,
                     logFile: self.observationStore.log.file)
         }
         coach.applyEdit = { [weak self] edit in
@@ -215,6 +218,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 return self.removeChainFromGraph(chain)
             case .addRoute(let pattern, let profileKey):
                 return self.addWebRoute(pattern: pattern, profileKey: profileKey)
+            case .enableMeetings:
+                // Exactly one config line, honoring the coach's contract.
+                // The meetings controller notices enabled-but-unauthorized
+                // on the reload and runs its own prime-then-prompt.
+                return self.setMeetingsEnabled(true)
             }
         }
         coach.engineQuiet = { [weak self] in self?.engine.isQuiet ?? false }
@@ -236,18 +244,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // surface claim; the chip must not outlive its own pixels.
         hud.onTakeover = { [weak self] in self?.coach.surfaceClaimed() }
         coach.flash = { [weak self] text in self?.hud.flash(text) }
-        // Both teachers share the lode-lode grammar; while the walk is up
-        // it holds the floor, so an assent can only ever mean one thing.
+        // Every voice here shares the lode-lode grammar, so the floor has
+        // one owner at a time: walk, then meeting, then coach. An assent
+        // can only ever mean one thing.
         engine.onLodeDoubleTap = { [weak self] in
             guard let self else { return }
-            if self.walk.cardVisible { self.walk.assent() } else { self.coach.lodeDoubleTapped() }
+            if self.walk.cardVisible {
+                self.walk.assent()
+            } else if self.meetings.join() {
+                return
+            } else {
+                self.coach.lodeDoubleTapped()
+            }
         }
         engine.coachDelete = { [weak self] in
             guard let self else { return false }
             if self.walk.pass() { return true }
+            if self.meetings.dismiss() { return true }
             return self.coach.lodeDelete()
         }
-        coach.suppressed = { [weak self] in self?.walk.isUp ?? false }
+        coach.suppressed = { [weak self] in
+            guard let self else { return false }
+            return self.walk.isUp || self.meetings.chipVisible
+        }
+        meetings.suppressed = { [weak self] in self?.walk.isUp ?? false }
         engine.walkSignal = { [weak self] signal in self?.walk.notice(signal) }
         actions.walkPick = { [weak self] in self?.walk.notice(.launcherPick) }
         engine.onSurfaceClaimed = { [weak self] in self?.coach.surfaceClaimed() }
@@ -305,6 +325,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Log.info("click", ["browser-role": "skipped — not running from the app bundle"])
         }
         installWalk()
+        installMeetings()
 
         guard Permissions.isTrusted else {
             // A freshly installed bundle has its own TCC identity. Prompt,
@@ -464,6 +485,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(browserItem)
         // The coach's inbox of at most one: a suggestion whose moment was
         // missed parks here instead of being lost. Hidden when empty.
+        let meetingsMenuItem = makeItem("", #selector(toggleMeetings), key: "")
+        meetingsItem = meetingsMenuItem
+        menu.addItem(meetingsMenuItem)
         let coachItem = makeItem("", #selector(presentCoachSuggestion), key: "")
         coachItem.isHidden = true
         coachSuggestionItem = coachItem
@@ -482,6 +506,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// The browser item reads the world each time the menu opens: it says what
     /// pressing it does, not what state you are in.
     func menuNeedsUpdate(_ menu: NSMenu) {
+        meetingsItem?.title = meetings.menuTitle
         if let coachItem = coachSuggestionItem {
             if let headline = coach?.parkedHeadline {
                 coachItem.isHidden = false
@@ -591,6 +616,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
             self?.showWalk()
         }
+    }
+
+    private func installMeetings() {
+        meetings.observations = observationStore
+        meetings.flash = { [weak self] text in self?.hud.flash(text, seconds: 8) }
+        meetings.openWeb = { [weak self] url, profile in
+            self?.actions.openWeb(url: url, profile: profile, beside: false)
+        }
+        meetings.resolveWeb = { [weak self] url in
+            guard let self else { return nil }
+            let context = WebContext(config: self.config,
+                                     mostRecent: self.mostRecentBrowserProfile())
+            let resolution = context.resolve(pinned: nil, routedOn: url)
+            return (resolution.profile, resolution.source.label)
+        }
+        meetings.setEnabled = { [weak self] enabled in self?.setMeetingsEnabled(enabled) }
+        meetings.loadSpent = { [weak self] in self?.store.meetingSpent ?? [] }
+        meetings.saveSpent = { [weak self] spent in self?.store.setMeetingSpent(spent) }
+        meetings.config = config
+    }
+
+    /// The one config line both doors write. The controller reconciles
+    /// intent with authorization on the reload this triggers.
+    private func setMeetingsEnabled(_ enabled: Bool) -> String? {
+        rewriteConfig(flash: enabled ? "✓ meetings on" : "✓ meetings off",
+                      logged: "meetings.enabled \(enabled)") { tree in
+            guard let updated = Json.setting(tree, path: ["meetings", "enabled"],
+                                             to: .bool(enabled)) else {
+                throw Config.EditError.unparsed("meetings.enabled")
+            }
+            return updated
+        }
+    }
+
+    @objc private func toggleMeetings() {
+        meetings.menuAction()
     }
 
     @objc private func showWalk() {
@@ -1114,6 +1175,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             hud.flash("⌂ observations cleared")
         }
         coach?.enabled = loaded.coachEnabled
+        meetings.config = loaded
         // A config edit changes the world the advisor reasons about —
         // including edits the coach itself just wrote.
         coach?.scheduleRefresh(after: 2)

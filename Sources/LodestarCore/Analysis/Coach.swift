@@ -41,6 +41,9 @@ public enum Coach {
     public enum Cue: Equatable {
         case app(String)
         case host(String)
+        /// Any meeting activity: a meeting host opened, or focus landing
+        /// on a native meeting app — the seconds after a manual join.
+        case meeting
     }
 
     /// The chip's three lines. Everything here obeys the voice rules: the
@@ -243,6 +246,7 @@ public enum Coach {
             }
             return nil
         case .route: return .host(rec.target)
+        case .meetings: return .meeting
         case .rebind, .retire, .breath: return nil
         }
     }
@@ -295,6 +299,10 @@ public enum Coach {
                     + secondsClause(rec.secondsPerWeek)
             }
             accept = "tap lode twice to add the route"
+        case .meetings:
+            headline = "meetings at the door"
+            evidence = rec.detail + secondsClause(rec.secondsPerWeek)
+            accept = "tap lode twice to turn it on"
         case .rebind, .nudge, .breath:
             headline = rec.target
             accept = "see lodestar observations"

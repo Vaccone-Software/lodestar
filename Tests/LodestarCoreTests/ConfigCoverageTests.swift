@@ -92,6 +92,12 @@ final class ConfigCoverageTests: XCTestCase {
         Probe(path: ["web", "routes", "example.com"], value: .string("work"), context: braveWork) {
             $0.webRoutes["example.com"] == "work"
         },
+
+        Probe(path: ["meetings", "enabled"], value: .bool(true)) { $0.meetingsEnabled },
+        Probe(path: ["meetings", "lead-minutes"], value: .int(10)) { $0.meetingsLeadMinutes == 10 },
+        Probe(path: ["meetings", "calendars", "Work"], value: .string("work"), context: braveWork) {
+            $0.meetingsCalendars["Work"] == "work"
+        },
         Probe(path: ["web", "links", "gh", "url"], value: .string("https://github.com")) {
             $0.webLinks.contains { $0.name == "gh" && $0.url == "https://github.com" }
         },

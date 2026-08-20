@@ -20,7 +20,7 @@ Lode is **right ⌘** (configurable in `~/.config/lodestar/lodestar.json`).
 | `lode ⏎`                       | Ask: links · domains · search, each routed to its profile                    |
 | `⌘K` in the launcher / Ask     | Add to graph · add a link · route a host or search — written into the config |
 | `lode .`                       | Menu search: the frontmost app's menus, fuzzy, `↵` executes                  |
-| ``lode ` ``                    | Scroll mode: `j/k` `h/l` · `d/u` half-page · `gg`/`⇧G` ends · `⇥` panes      |
+| `` lode `  ``                  | Scroll mode: `j/k` `h/l` · `d/u` half-page · `gg`/`⇧G` ends · `⇥` panes      |
 | `lode ;` / `lode ⇧;`           | Click hints on the focused window — `⇧;` chains clicks (sticky)              |
 | `lode /`                       | Select text by typing it — `⇧letter` anchors, `⌘C` takes the anchored word   |
 | `lode [` / `lode ]`            | Move the focused window to the prev/next display (`⇧` = arrive beside)       |
@@ -78,7 +78,7 @@ In a password field macOS blocks synthetic keystrokes outright, so Lodestar puts
 
 ## Scroll mode
 
-``lode ` `` toggles it (Escape closes too). Entry always warps the pointer to the focused window's primary scroll pane — the same gesture scrolls the same thing every time — and `⇥` cycles between discovered panes (sidebar ↔ content), warping to each. **Holding `j/k/h/l` scrolls at constant velocity and stops the instant you release** (`scroll.smooth`, with `scroll.speed` px/s; turn smooth off for classic one-step-per-repeat with `scroll.step`). `gg`/`⇧G` jump by setting the pane's scrollbar value directly — instant and app-independent — with `gg` a true two-tap, no timeout. Polarity follows your system natural-scrolling preference automatically. Scroll mode is a lens, not a transaction: **any other lode verb exits and executes immediately** (`lode S` mid-scroll just takes you to Slack); plain typing is swallowed while the mode is on.
+`` lode `  `` toggles it (Escape closes too). Entry always warps the pointer to the focused window's primary scroll pane — the same gesture scrolls the same thing every time — and `⇥` cycles between discovered panes (sidebar ↔ content), warping to each. **Holding `j/k/h/l` scrolls at constant velocity and stops the instant you release** (`scroll.smooth`, with `scroll.speed` px/s; turn smooth off for classic one-step-per-repeat with `scroll.step`). `gg`/`⇧G` jump by setting the pane's scrollbar value directly — instant and app-independent — with `gg` a true two-tap, no timeout. Polarity follows your system natural-scrolling preference automatically. Scroll mode is a lens, not a transaction: **any other lode verb exits and executes immediately** (`lode S` mid-scroll just takes you to Slack); plain typing is swallowed while the mode is on.
 
 ## Click hints
 
@@ -130,6 +130,14 @@ Routes only help where Lodestar is asked, which is the half of the problem that 
 `web.clicks.trace: true` logs the host and chosen profile while you chase something. Off by default, host never URL: the log is paste-able, and where you go is not diagnostics.
 
 Profiles live in a registry (`profiles.brave`, `profiles.chrome`, `profiles.edge`): Lodestar name → the browser's profile name, with keys global across browsers and referenced everywhere else (`brave:work` or `chrome:work` in the graph, `profile: work` in links). References are validated at Reload Config, and the registry itself is checked against each browser's real profile list — a renamed browser profile surfaces as one flagged line, not a mystery failure later.
+
+## Meetings
+
+The calendar's next join, offered at the door. Off by default: enable it from the menu bar (_Offer Meetings…_), which shows one card and then macOS's calendar-access prompt — the permission is asked when you reach for the feature, never at install. Once on, a small chip appears `meetings.lead-minutes` before a meeting starts (default 5) and lives the meeting out, so joining late is one gesture too. **Tap lode twice to join. `lode ⌫` dismisses this occurrence** — a recurring meeting returns tomorrow; a chip you joined or dismissed never resurrects, even across a restart. Declined and all-day events never get a chip, overlapping meetings queue soonest-first, and a join through the chip spends it.
+
+The link is sniffed from the event's URL, location, and notes (Google Calendar's Meet links live in the notes; EventKit never sees the conference field). Zoom and Teams join natively when the app is installed — the URL is transformed and handed to the app by name, never a bare LaunchServices open. Everything else joins in a browser profile, resolved by precedence: **`meetings.calendars` first** (calendar name, then account name → profile key — the calendar is the only signal that can tell two meetings on the same host apart), then `web.routes`, then the ordinary fallback chain. The chip wears the profile and which rule chose it.
+
+The coach learns to offer this feature itself: manual joins (meeting hosts opened, focus landing on Zoom or Teams) are already in the observation ledger, and when the habit is steady the offer appears seconds after a join — accept writes exactly the one line `meetings.enabled: true`. The observation layer keeps the provider and the deciding rule per chip, never a title, attendee, or URL.
 
 ## What Lodestar notices
 

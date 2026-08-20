@@ -29,6 +29,12 @@
 	     (main.swift builds one), so this states what was already true. -->
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<!-- Meetings at the door. Read access only, asked for the first time
+	     the feature is enabled, never at install. -->
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Lodestar reads your calendar to offer the next meeting a few minutes before it starts. Nothing about your events leaves your Mac.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Lodestar reads your calendar to offer the next meeting a few minutes before it starts. Nothing about your events leaves your Mac.</string>
 
 	<!-- Standing as the http handler, so a clicked link lands in the profile
 	     your rules name. Declaring this only makes Lodestar *eligible*:

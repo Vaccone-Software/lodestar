@@ -20,6 +20,10 @@ public enum ConfigEdit: Codable, Equatable {
     case removeChain(chain: [String])
     /// One route line: pattern → profile registry key.
     case addRoute(pattern: String, profileKey: String)
+    /// The one line `meetings.enabled: true`. The permission ask is not
+    /// here: the subsystem, finding itself enabled but unauthorized, runs
+    /// its own prime-then-prompt — so this edit stays exactly one line.
+    case enableMeetings
 }
 
 public struct Recommendation: Codable, Equatable {
@@ -38,6 +42,8 @@ public struct Recommendation: Codable, Equatable {
         case breath
         /// A host that always lands in the same profile, one rule away.
         case route
+        /// Meetings joined by hand that the chip could hand over.
+        case meetings
     }
 
     public var kind: Kind
@@ -100,17 +106,21 @@ public enum Advisor {
         /// Observed profile identity ("brave:Work") → registry key ("work"),
         /// so a route recommendation can name the key a config line needs.
         public var profileKeys: [String: String]
+        /// The meetings offer retires the moment the feature is on.
+        public var meetingsEnabled: Bool
         public var now: Date
 
         public init(observations: Observations, events: [ObservationEvent],
                     leaves: [Leaf],
                     webRoutes: [String: String] = [:],
-                    profileKeys: [String: String] = [:], now: Date = Date()) {
+                    profileKeys: [String: String] = [:],
+                    meetingsEnabled: Bool = false, now: Date = Date()) {
             self.observations = observations
             self.events = events
             self.leaves = leaves
             self.webRoutes = webRoutes
             self.profileKeys = profileKeys
+            self.meetingsEnabled = meetingsEnabled
             self.now = now
         }
     }
@@ -168,6 +178,7 @@ public enum Advisor {
         candidates += nudgeCandidates(context, latency: latency)
         candidates += breathCandidates(context)
         candidates += routeCandidates(context)
+        candidates += meetingsCandidates(context)
 
         // One gate across everything tested at once: the report's
         // credibility is a budget, spent by every claim it makes.
@@ -239,6 +250,70 @@ public enum Advisor {
     }
 
     // MARK: - Candidates
+
+    /// Meetings joined by hand: web opens on meeting hosts, plus focus
+    /// arrivals on native meeting apps. One join can produce both — a
+    /// clicked Zoom link routes through us and lands on the Zoom app — so
+    /// all stamps sessionize together: within thirty minutes is one
+    /// meeting, however many signals it threw.
+    ///
+    /// The per-join saving is a conservative prior, not a measurement:
+    /// digging the link out of a calendar event and riding its redirect
+    /// page is work the ledger cannot time directly. The one-off cost is
+    /// the permission flow. Both are stated in the evidence, because a
+    /// priced claim the user cannot audit is not this product's voice.
+    static func meetingsCandidates(_ context: Context) -> [(Recommendation, Double)] {
+        guard !context.meetingsEnabled else { return [] }
+        var stamps: [Date] = []
+        for event in context.events {
+            switch event.kind {
+            case .web:
+                if let host = event.host, Meetings.isMeetingHost(host) {
+                    stamps.append(event.t)
+                }
+            case .focus:
+                if let app = event.app, Meetings.meetingApps.contains(app) {
+                    stamps.append(event.t)
+                }
+            default:
+                continue
+            }
+        }
+        // Sorted first, then sessionized once, globally: a re-focus
+        // mid-call, the web-plus-app echo of one clicked link, and two
+        // providers in one call all collapse the same way, and the answer
+        // cannot depend on the order events arrived in.
+        var joins: [Date] = []
+        for stamp in stamps.sorted() {
+            if let last = joins.last, stamp.timeIntervalSince(last) < 1800 { continue }
+            joins.append(stamp)
+        }
+        var byWeek: [Int: Int] = [:]
+        for join in joins { byWeek[Observations.week(join), default: 0] += 1 }
+        guard let first = byWeek.keys.min() else { return [] }
+        let current = Observations.week(context.now)
+        guard current >= first else { return [] }
+        let counts = (first...current).map { byWeek[$0] ?? 0 }
+        guard let demand = Demand.fit(weeklyCounts: counts),
+              demand.perWeek >= 1, demand.weeks >= 2 else { return [] }
+        let value = netBenefit(perUseSavedMean: 20, perUseSavedSD: 8,
+                               usesPerWeek: demand.perWeek, usesPerWeekSE: demand.se,
+                               oneOffCost: 120, seed: seed("meetings"))
+        guard value.probability >= probabilityGate else { return [] }
+        let weekly = Int(demand.perWeek.rounded())
+        return [(Recommendation(
+            kind: .meetings, target: "meetings",
+            detail: "about \(weekly) meeting\(weekly == 1 ? "" : "s") a week joined by hand",
+            secondsPerWeek: value.secondsPerWeek,
+            probability: value.probability,
+            evidence: [
+                "\(joins.count) manual joins across \(demand.weeks) week\(demand.weeks == 1 ? "" : "s")",
+                "per-join saving is a prior (20s), not a measurement",
+                "one-off cost priced as the permission flow (120s)",
+            ],
+            display: "meetings at the door",
+            edit: .enableMeetings), 1 - value.probability)]
+    }
 
     static func bindCandidates(_ context: Context, latency: LatencyModel?,
                                learningCost: Double) -> [(Recommendation, Double)] {

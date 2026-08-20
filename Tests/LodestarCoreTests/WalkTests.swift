@@ -4,11 +4,15 @@ import XCTest
 final class WalkTests: XCTestCase {
     private let drafted = [StarterGraph.Proposal(letter: "b", app: "Brave"),
                            StarterGraph.Proposal(letter: "s", app: "Slack")]
+    private let draftedChoices = [Walk.GraphChoice(path: "b", label: "Brave"),
+                                  Walk.GraphChoice(path: "s", label: "Slack")]
+    private let ownGraph = [Walk.GraphChoice(path: "g", label: "Ghostty"),
+                            Walk.GraphChoice(path: "b p", label: "Brave Personal")]
 
     // MARK: - The happy path, fresh install
 
     func testFreshWalkRunsTheFullSequence() {
-        var walk = Walk(proposals: drafted, existingLetter: nil)
+        var walk = Walk(proposals: drafted, existing: [])
         XCTAssertEqual(walk.step, .lodeKey)
         XCTAssertEqual(walk.progress.total, 7)
         XCTAssertEqual(walk.progress.position, 1)
@@ -21,12 +25,13 @@ final class WalkTests: XCTestCase {
         XCTAssertEqual(walk.progress.position, 3)
 
         XCTAssertEqual(walk.handle(.assent), [.acceptProposals(drafted), .stepChanged])
-        XCTAssertEqual(walk.step, .graphGo(letter: "b"))
+        XCTAssertEqual(walk.step, .graphGo(options: draftedChoices),
+                       "the freshly accepted letters are the ones to prove")
 
         XCTAssertEqual(walk.handle(.graphSummon), [.stepChanged])
         XCTAssertEqual(walk.step, .inside)
 
-        XCTAssertEqual(walk.handle(.hintsEntered), [.stepChanged])
+        XCTAssertEqual(walk.handle(.hintsEnded), [.stepChanged])
         XCTAssertEqual(walk.step, .web)
 
         XCTAssertEqual(walk.handle(.webBarOpened), [.stepChanged])
@@ -41,18 +46,18 @@ final class WalkTests: XCTestCase {
     // MARK: - Existing users
 
     func testExistingGraphSkipsTheOfferAndUsesTheirLetter() {
-        var walk = Walk(proposals: [], existingLetter: "g")
+        var walk = Walk(proposals: [], existing: ownGraph)
         XCTAssertEqual(walk.progress.total, 6,
                        "no offer step, and the counter must not promise one")
         _ = walk.handle(.peeked)
         XCTAssertEqual(walk.handle(.launcherPick), [.stepChanged])
-        XCTAssertEqual(walk.step, .graphGo(letter: "g"),
+        XCTAssertEqual(walk.step, .graphGo(options: ownGraph),
                        "nothing to offer, so the walk teaches on their own graph")
         XCTAssertEqual(walk.progress.position, 3)
     }
 
     func testNoProposalsAndNoGraphFallsToInside() {
-        var walk = Walk(proposals: [], existingLetter: nil)
+        var walk = Walk(proposals: [], existing: [])
         XCTAssertEqual(walk.progress.total, 5)
         _ = walk.handle(.peeked)
         _ = walk.handle(.launcherPick)
@@ -60,21 +65,30 @@ final class WalkTests: XCTestCase {
                        "a graph step nobody can perform is not offered")
     }
 
+    func testExistingUsersStillGetOffersForUnboundApps() {
+        var walk = Walk(proposals: drafted, existing: ownGraph)
+        XCTAssertEqual(walk.progress.total, 7)
+        _ = walk.handle(.peeked)
+        _ = walk.handle(.launcherPick)
+        XCTAssertEqual(walk.step, .graphOffer(drafted),
+                       "an existing graph no longer hides the offer")
+    }
+
     // MARK: - Declining the offer
 
     func testPassOnTheOfferDeclinesWithoutWriting() {
-        var walk = Walk(proposals: drafted, existingLetter: "g")
+        var walk = Walk(proposals: drafted, existing: ownGraph)
         _ = walk.handle(.peeked)
         _ = walk.handle(.launcherPick)
         let effects = walk.handle(.pass)
         XCTAssertFalse(effects.contains(.acceptProposals(drafted)),
                        "declined letters are never written")
-        XCTAssertEqual(walk.step, .graphGo(letter: "g"),
-                       "declined, the graph step falls back to a letter they own")
+        XCTAssertEqual(walk.step, .graphGo(options: ownGraph),
+                       "declined, the graph step falls back to addresses they own")
     }
 
     func testPassOnTheOfferWithNoGraphSkipsTheGraphStep() {
-        var walk = Walk(proposals: drafted, existingLetter: nil)
+        var walk = Walk(proposals: drafted, existing: [])
         _ = walk.handle(.peeked)
         _ = walk.handle(.launcherPick)
         _ = walk.handle(.pass)
@@ -85,7 +99,7 @@ final class WalkTests: XCTestCase {
     // MARK: - Skipping
 
     func testEveryStepCanBePassed() {
-        var walk = Walk(proposals: drafted, existingLetter: nil)
+        var walk = Walk(proposals: drafted, existing: [])
         var effects: [Walk.Effect] = []
         for _ in 0..<12 where !walk.isDone {
             effects = walk.handle(.pass)
@@ -95,10 +109,10 @@ final class WalkTests: XCTestCase {
     }
 
     func testDoneIgnoresEverything() {
-        var walk = Walk(proposals: [], existingLetter: nil, resumeAt: 7)
+        var walk = Walk(proposals: [], existing: [], resumeAt: 7)
         XCTAssertTrue(walk.isDone)
         for signal: Walk.Signal in [.peeked, .launcherPick, .assent, .pass,
-                                    .graphSummon, .hintsEntered, .webBarOpened,
+                                    .graphSummon, .hintsEnded, .webBarOpened,
                                     .cheatOpened] {
             XCTAssertEqual(walk.handle(signal), [])
         }
@@ -107,9 +121,9 @@ final class WalkTests: XCTestCase {
     // MARK: - Signals the step is not waiting for
 
     func testUnexpectedSignalsAreIgnored() {
-        var walk = Walk(proposals: drafted, existingLetter: nil)
+        var walk = Walk(proposals: drafted, existing: [])
         XCTAssertEqual(walk.handle(.graphSummon), [])
-        XCTAssertEqual(walk.handle(.hintsEntered), [])
+        XCTAssertEqual(walk.handle(.hintsEnded), [])
         XCTAssertEqual(walk.handle(.cheatOpened), [])
         XCTAssertEqual(walk.handle(.assent), [],
                        "assent means nothing when no offer stands")
@@ -119,25 +133,25 @@ final class WalkTests: XCTestCase {
     // MARK: - Resume
 
     func testResumeLandsOnThePersistedStep() {
-        let walk = Walk(proposals: drafted, existingLetter: nil, resumeAt: 2)
+        let walk = Walk(proposals: drafted, existing: [], resumeAt: 2)
         XCTAssertEqual(walk.step, .graphOffer(drafted))
         XCTAssertEqual(walk.stepIndex, 2)
     }
 
     func testResumeToAnOfferThatNoLongerExistsResolvesForward() {
-        let walk = Walk(proposals: [], existingLetter: "g", resumeAt: 2)
-        XCTAssertEqual(walk.step, .graphGo(letter: "g"))
+        let walk = Walk(proposals: [], existing: ownGraph, resumeAt: 2)
+        XCTAssertEqual(walk.step, .graphGo(options: ownGraph))
     }
 
     func testResumeToAGraphStepWithNothingToPressResolvesForward() {
-        let walk = Walk(proposals: [], existingLetter: nil, resumeAt: 3)
+        let walk = Walk(proposals: [], existing: [], resumeAt: 3)
         XCTAssertEqual(walk.step, .inside)
     }
 
     func testStepIndexRoundTrips() {
-        var walk = Walk(proposals: drafted, existingLetter: nil)
+        var walk = Walk(proposals: drafted, existing: [])
         _ = walk.handle(.peeked)
-        let resumed = Walk(proposals: drafted, existingLetter: nil,
+        let resumed = Walk(proposals: drafted, existing: [],
                            resumeAt: walk.stepIndex)
         XCTAssertEqual(resumed.step, walk.step)
     }

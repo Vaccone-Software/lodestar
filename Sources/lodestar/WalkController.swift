@@ -169,19 +169,23 @@ final class WalkController: NSObject {
 
     private func beginWalk(at index: Int) {
         door.orderOut(nil)
-        // Proposals are drafted only for an empty graph — an existing graph
-        // is taught on its own letters instead, exactly as the deck did.
+        // Drafted for anyone with unbound running apps, not only an empty
+        // graph: an address the offer proposes is skipped wherever the app
+        // or the letter is already spoken for.
         let running = NSWorkspace.shared.runningApplications
             .filter { $0.activationPolicy == .regular }
             .compactMap(\.localizedName)
-        let proposals = config.graph.children.isEmpty
-            ? StarterGraph.propose(running: running, existing: config.graph,
-                                   reserved: Config.reservedTopLevel)
-            : []
+        let proposals = StarterGraph.propose(running: running, existing: config.graph,
+                                             reserved: Config.reservedTopLevel)
+        // A few of their own addresses for the graph card, shortest first.
+        // The card offers and never prescribes: "press A" once told
+        // somebody to open an app they had no wish to open.
         let existing = config.graph.leaves()
-            .min { $0.chain.count < $1.chain.count }?
-            .chain.joined(separator: " ")
-        walk = Walk(proposals: proposals, existingLetter: existing, resumeAt: index)
+            .sorted { ($0.chain.count, $0.target.label) < ($1.chain.count, $1.target.label) }
+            .prefix(4)
+            .map { Walk.GraphChoice(path: $0.chain.joined(separator: " "),
+                                    label: $0.target.label) }
+        walk = Walk(proposals: proposals, existing: Array(existing), resumeAt: index)
         persistStep?(walk!.stepIndex)
         renderCard()
     }
@@ -433,22 +437,21 @@ final class WalkController: NSObject {
                 illustration: proposalList(proposals),
                 keys: [("lode lode", "tap lode twice to take these letters"),
                        ("lode ⌫", "pass")])
-        case .graphGo(let letter):
-            let caps = letter.split(separator: " ").map { (String($0).uppercased(), true) }
+        case .graphGo(let options):
             return CardContent(
                 title: "The graph",
-                body: "Hold lode and press "
-                    + letter.uppercased().replacingOccurrences(of: " ", with: " then ")
-                    + ". No list, no search. You are simply there.\n\nThis "
-                    + "is the core of Lodestar. The letters become muscle "
+                body: "Some of your letters. Hold lode and press one. No "
+                    + "list, no search. You are simply there.\n\nThis is "
+                    + "the core of Lodestar. The letters become muscle "
                     + "memory, and navigation disappears.",
-                illustration: capsRow([("lode", false)] + caps))
+                illustration: choiceList(options))
         case .inside:
             return CardContent(
                 title: "Inside the app",
                 body: "Lodestar also works inside the window. Hold lode and "
                     + "press ; and every button and link wears a letter. "
-                    + "Type the letter to click it. Try it now.",
+                    + "Press a letter to click it, or press escape to put "
+                    + "the letters away. Try it now.",
                 illustration: capsRow([("lode", false), (";", true)]),
                 keys: [("lode .", "search the menus of the app you are in"),
                        ("lode `", "scroll from the keyboard")])
@@ -647,6 +650,26 @@ final class WalkController: NSObject {
         column.addArrangedSubview(row)
         column.addArrangedSubview(label("the right ⌘ is lode", size: 11,
                                         weight: .regular, color: .tertiaryLabelColor))
+        return column
+    }
+
+    private func choiceList(_ options: [Walk.GraphChoice]) -> NSView {
+        let column = NSStackView()
+        column.orientation = .vertical
+        column.alignment = .leading
+        column.spacing = 5
+        for option in options {
+            let row = NSStackView()
+            row.orientation = .horizontal
+            row.spacing = 8
+            row.setContentHuggingPriority(.required, for: .horizontal)
+            for letter in option.path.split(separator: " ") {
+                row.addArrangedSubview(keycap(String(letter).uppercased(), lit: true))
+            }
+            row.addArrangedSubview(label(option.label, size: 12.5, weight: .regular,
+                                         color: .labelColor))
+            column.addArrangedSubview(row)
+        }
         return column
     }
 

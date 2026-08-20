@@ -608,6 +608,9 @@ final class HotkeyEngine {
                 performPanel(panelAction)
             case .exitHints:
                 hints.exit()
+                // The walk's inside step completes when the mode ends, by
+                // a press or by escape. Entry alone proved nothing was seen.
+                walkSignal?(.hintsEnded)
             case .exitSelect:
                 select.exit()
             case .selectBackspace:
@@ -998,9 +1001,7 @@ extension HotkeyEngine: EngineWorld {
     func enterHints(sticky: Bool) -> Bool {
         hints.letters = config.hintLetters
         hints.rescanDelay = config.hintRescanDelay
-        let entered = hints.enter(sticky: sticky)
-        if entered { walkSignal?(.hintsEntered) }
-        return entered
+        return hints.enter(sticky: sticky)
     }
 
     func hintType(_ letter: String, shift: Bool) -> HintStep {

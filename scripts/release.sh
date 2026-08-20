@@ -30,7 +30,8 @@ echo "→ building v$VERSION"
 ./scripts/make-app.sh --universal >/dev/null
 
 echo "→ signing with: $IDENTITY"
-codesign --force --options runtime --timestamp --sign "$IDENTITY" "$APP"
+codesign --force --options runtime --timestamp \
+    --entitlements packaging/lodestar.entitlements --sign "$IDENTITY" "$APP"
 codesign --verify --strict "$APP"
 
 echo "→ submitting for notarization"

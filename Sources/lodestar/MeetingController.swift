@@ -131,6 +131,10 @@ final class MeetingController: NSObject {
     private func reconcile() {
         guard config.meetingsEnabled else {
             stop()
+            // Disabling re-arms the prime: someone who turns the feature
+            // back on is asking the question again and deserves the card
+            // again, this boot included.
+            primeShownThisBoot = false
             return
         }
         switch authorization {

@@ -129,13 +129,18 @@ final class EngineTests: XCTestCase {
         XCTAssertTrue(shift)
     }
 
-    func testRawHyperNeedsAllFourAndConsumesShift() {
-        let full = CGEventFlags(rawValue: EngineCore.meh.rawValue | CGEventFlags.maskShift.rawValue)
-        let (heldFull, shiftFull) = EngineCore.classify(full, trigger: .rawHyper)
-        XCTAssertTrue(heldFull)
-        XCTAssertFalse(shiftFull, "shift is part of the chord, not a modifier")
-        let (heldMeh, _) = EngineCore.classify(EngineCore.meh, trigger: .rawHyper)
-        XCTAssertFalse(heldMeh)
+    func testLeftCommandDeviceBitTriggersWhenChosen() {
+        let flags = CGEventFlags(rawValue: CGEventFlags.maskCommand.rawValue
+            | EngineCore.leftCommandBit)
+        let (held, shift) = EngineCore.classify(flags, trigger: .leftCommand)
+        XCTAssertTrue(held)
+        XCTAssertFalse(shift)
+        let (rightAsLeft, _) = EngineCore.classify(
+            CGEventFlags(rawValue: CGEventFlags.maskCommand.rawValue
+                | EngineCore.rightCommandBit), trigger: .leftCommand)
+        XCTAssertFalse(rightAsLeft, "the other command key stays the system's")
+        let (meh, _) = EngineCore.classify(EngineCore.meh, trigger: .leftCommand)
+        XCTAssertTrue(meh, "a hyper shim works under either trigger")
     }
 
     func testChainShiftReadsBareShiftWhenLodeReleased() {
@@ -194,6 +199,11 @@ final class EngineTests: XCTestCase {
         world.webBarVisible = false
         world.menuSearchVisible = true
         XCTAssertEqual(press("."), [.hideBars])
+    }
+
+    func testCommaOpensSettings() {
+        XCTAssertEqual(press(","), [.hideBars, .openSettings])
+        XCTAssertEqual(core.state, .idle, "settings is a window, not a mode")
     }
 
     func testBacktickEntersScroll() {

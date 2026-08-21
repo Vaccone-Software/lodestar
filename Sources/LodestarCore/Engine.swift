@@ -60,6 +60,7 @@ public enum EngineEffect: Equatable {
     case scrollToBottom
     case scrollCancelPendingG
     case scrollCyclePane
+    case openSettings
     case flipOrientation
     case undoLayout
     case redoLayout
@@ -213,11 +214,13 @@ public struct EngineCore {
     // MARK: - Trigger classification (pure)
 
     public enum Trigger {
-        case rightCommand, rawHyper
+        case rightCommand, leftCommand
     }
 
-    /// Device-dependent flag bit for the right command key (NX_DEVICERCMDKEYMASK).
+    /// Device-dependent flag bits for the two command keys
+    /// (NX_DEVICERCMDKEYMASK / NX_DEVICELCMDKEYMASK).
     public static let rightCommandBit: UInt64 = 0x0010
+    public static let leftCommandBit: UInt64 = 0x0008
     public static let meh: CGEventFlags = [.maskCommand, .maskControl, .maskAlternate]
 
     /// Did this event carry the trigger, and is shift held beyond it?
@@ -231,8 +234,9 @@ public struct EngineCore {
         case .rightCommand:
             let rawRight = flags.contains(.maskCommand) && (flags.rawValue & rightCommandBit) != 0
             return (rawRight || flags.contains(meh), shift)
-        case .rawHyper:
-            return (flags.contains(meh) && shift, false)
+        case .leftCommand:
+            let rawLeft = flags.contains(.maskCommand) && (flags.rawValue & leftCommandBit) != 0
+            return (rawLeft || flags.contains(meh), shift)
         }
     }
 
@@ -295,7 +299,10 @@ public struct EngineCore {
         if world.cheatVisible && !(key == "/" && shift) {
             effects.append(.dismissCheat)
         }
-        if disabledGestures.contains(key) {
+        // The cheat sheet rides select's key with shift, and help is the
+        // one gesture that must survive every toggle: someone who turned
+        // things off deserves the map that says so.
+        if disabledGestures.contains(key), !(key == "/" && shift) {
             effects.append(.passThrough)
             return effects
         }
@@ -329,10 +336,14 @@ public struct EngineCore {
             } else {
                 effects.append(.flash("✕ no focused window to hint"))
             }
+        case ",":
+            // The comma waited from 0.20 for this: settings, as ⌘, means
+            // it everywhere else on the Mac.
+            effects.append(contentsOf: [.hideBars, .openSettings])
         case "`":
             // Scroll's door moved off , in 0.20: the corner key is found
             // blind by the idle left hand while the right thumb holds lode,
-            // and the comma is freed to one day mean settings, as ⌘, does.
+            // and the comma is freed to mean settings, as ⌘, does.
             effects.append(.hideBars)
             if world.enterScroll() {
                 state = .scroll

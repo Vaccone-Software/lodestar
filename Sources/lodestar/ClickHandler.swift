@@ -32,7 +32,6 @@ final class ClickHandler {
     var context: () -> WebContext = { WebContext() }
     /// Bundle id of the browser that was default before Lodestar took over.
     var savedBrowser: () -> String = { "" }
-    var trace: () -> Bool = { false }
     var flash: (String) -> Void = { _ in }
     /// Receiving a link at all is proof we hold the browser role. If nothing
     /// recorded that — someone picked Lodestar in System Settings rather than
@@ -67,11 +66,9 @@ final class ClickHandler {
         }
         switch ClickRouter.route(url.absoluteString, in: live) {
         case .passThrough:
-            traceIfAsked(url, profile: nil, pattern: nil)
             observe(url.host()?.lowercased(), nil)
             handOff(url)
         case .profile(let profile, let pattern):
-            traceIfAsked(url, profile: profile, pattern: pattern)
             observe(url.host()?.lowercased(),
                     "\(profile.browser.rawValue):\(profile.display)")
             // The proven path, unchanged: the same mechanism the web bar has
@@ -131,10 +128,9 @@ final class ClickHandler {
 
     /// Where links are actually going, said once and again on every change.
     ///
-    /// The trace switch is off by default and stayed off through a loop that
-    /// ran for minutes at a time, so nothing in the log ever named the app we
-    /// were handing to — the single fact that would have ended the hunt in a
-    /// sentence. The bundle is only read when the answer changes, which keeps
+    /// Learned from a loop that ran for minutes with nothing in the log
+    /// naming the app we were handing to — the single fact that would have
+    /// ended the hunt in a sentence. The bundle is only read when the answer changes, which keeps
     /// it off the per-link path.
     private func noteTarget(_ application: URL) {
         guard application != lastTarget else { return }
@@ -157,15 +153,4 @@ final class ClickHandler {
         }
     }
 
-    /// Off by default, and even on it records the host rather than the URL:
-    /// the log is paste-able, and a path carries far more about you than a
-    /// host does.
-    private func traceIfAsked(_ url: URL, profile: BrowserProfile?, pattern: String?) {
-        guard trace() else { return }
-        Log.info("click", [
-            "host": url.host() ?? "?",
-            "profile": profile?.display ?? "pass-through",
-            "matched": pattern ?? "-",
-        ])
-    }
 }

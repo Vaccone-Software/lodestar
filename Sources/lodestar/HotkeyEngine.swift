@@ -21,6 +21,8 @@ final class HotkeyEngine {
     /// deck's keyboard interceptor is gone with the deck: a surface that
     /// owns no keys needs no machinery for owning them safely.)
     var walkSignal: ((Walk.Signal) -> Void)?
+    /// lode , — the settings window, opened by the app delegate.
+    var onOpenSettings: (() -> Void)?
 
     /// Chain timing, for the one measurement that says whether an address has
     /// compiled into muscle memory: the pauses inside it. The first stamp is
@@ -49,7 +51,6 @@ final class HotkeyEngine {
     /// The grammar lives in LodestarCore, pure and tested; this class is
     /// the AppKit shell that feeds it keys and executes its effects.
     private var core = EngineCore()
-    private var tapDetector = ModifierTapDetector()
     private var tap: CFMachPort?
     private var peekWork: DispatchWorkItem?
     private var isPeeking = false
@@ -144,7 +145,6 @@ final class HotkeyEngine {
 
     private func applyGrammarConfig() {
         core.disabledGestures = config.disabledGestures
-        tapDetector.bindings = config.doubleTaps
     }
 
     private var anyBarVisible: Bool {
@@ -274,7 +274,7 @@ final class HotkeyEngine {
     // MARK: - Trigger classification
 
     private var coreTrigger: EngineCore.Trigger {
-        config.trigger == .rawHyper ? .rawHyper : .rightCommand
+        config.trigger == .leftCommand ? .leftCommand : .rightCommand
     }
 
     private func classify(_ flags: CGEventFlags) -> (held: Bool, shift: Bool) {
@@ -323,16 +323,6 @@ final class HotkeyEngine {
                actingInputWasHuman {
                 onLodeDoubleTap?()
             }
-            if let verb = tapDetector.flagsChanged(event.flags, at: Date().timeIntervalSinceReferenceDate) {
-                cancelPeek(hideGuide: isPeeking)
-                lastActivityAt = Date()
-                let press = verb.keypress
-                let wasIdle = core.isIdle
-                _ = dispatch(core.keyDown(key: press.key, held: true, shift: press.shift, world: self),
-                          event: event)
-                if wasIdle != core.isIdle { onChainActive?(!core.isIdle) }
-                return Unmanaged.passUnretained(event)
-            }
             handleFlagsChanged(event)
             return Unmanaged.passUnretained(event)
         }
@@ -346,7 +336,6 @@ final class HotkeyEngine {
         }
         guard type == .keyDown else { return Unmanaged.passUnretained(event) }
 
-        tapDetector.keyDown()
         coachTaps.keyDown()
         if isPeeking { chainSawPeek = true }
         cancelPeek(hideGuide: isPeeking)
@@ -622,6 +611,8 @@ final class HotkeyEngine {
                 hints.rescan()
             case .dismissCheat:
                 cheat.hide()
+            case .openSettings:
+                onOpenSettings?()
             case .toggleCheat:
                 cheat.toggle(sections: cheatSections)
                 walkSignal?(.cheatOpened)
@@ -805,6 +796,7 @@ final class HotkeyEngine {
             GuideRow(key: "[ ]", label: "move window to prev/next display — ⇧ beside"),
             GuideRow(key: "'", label: "breaths — ' ' updates latest"),
             GuideRow(key: "hold", label: "peek the graph + window indexes"),
+            GuideRow(key: ",", label: "settings"),
             GuideRow(key: "?", label: "this sheet — whenever you forget"),
             GuideRow(key: "⇧⌘V", label: "clipboard — label pastes · ⇧ as copied · ⌘ actions · / search"),
             GuideRow(key: "esc", label: "clear a chain"),
@@ -1000,8 +992,7 @@ extension HotkeyEngine: EngineWorld {
     }
 
     func enterHints(sticky: Bool) -> Bool {
-        hints.letters = config.hintLetters
-        hints.rescanDelay = config.hintRescanDelay
+        hints.letters = KeyboardLayout.homeRow()
         return hints.enter(sticky: sticky)
     }
 
@@ -1010,7 +1001,7 @@ extension HotkeyEngine: EngineWorld {
     }
 
     func enterSelect() -> Bool {
-        select.letters = config.hintLetters
+        select.letters = KeyboardLayout.homeRow()
         return select.enter()
     }
 

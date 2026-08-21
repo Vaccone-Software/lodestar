@@ -462,7 +462,7 @@ public struct WebMenu {
                 text: pattern,
                 placeholder: "type a pattern",
                 verdict: problem
-                    ?? "anything matching \(pattern) opens in \(draft.profileKey ?? "")",
+                    ?? "anything matching \(pattern) opens in \(target?.display ?? draft.profileKey ?? "")",
                 problem: problem != nil,
                 control: profileControl(draft, in: context),
                 detail: target.map { "opens in \($0.display) · \($0.browser.label)" },
@@ -472,14 +472,15 @@ public struct WebMenu {
     }
 
     /// The profile setting, as a row rather than a footer hint. Its value is
-    /// the word the config would store — `Inherit` for a link with no pin —
+    /// what the config would store — `Inherit` for a link with no pin —
     /// so the row says what the setting *is*, and the line beneath says what
     /// that works out to today.
     private func profileControl(_ draft: Draft, in context: WebContext) -> Item? {
         guard !context.profiles.isEmpty else { return nil }
+        let pinned = draft.profileKey.flatMap { context.profiles[$0] }
         return Item(key: "⇥", title: "Profile",
                     role: .profile(pinned: draft.profileKey != nil),
-                    detail: draft.profileKey ?? "Inherit")
+                    detail: pinned?.display ?? draft.profileKey ?? "Inherit")
     }
 
     /// The profile list: for a link, inherit leads, because it is the answer
@@ -493,11 +494,11 @@ public struct WebMenu {
                               role: .choice(selected: draft.profileKey == nil),
                               detail: "\(inherited.profile.display) · \(inherited.source.label)"))
         }
-        // Nine at most: past that the digits run out, and a registry that
-        // large is a config file's problem, not a card's.
+        // Nine at most: past that the digits run out, and a machine with
+        // more profiles than that is a config file's problem, not a card's.
         for (index, key) in context.profileKeys.prefix(9).enumerated() {
             guard let profile = context.profiles[key] else { continue }
-            items.append(Item(key: "\(index + 1)", title: key,
+            items.append(Item(key: "\(index + 1)", title: profile.display,
                               role: .choice(selected: draft.profileKey == key),
                               detail: profile.browser.label))
         }

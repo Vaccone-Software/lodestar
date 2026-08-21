@@ -43,7 +43,8 @@ public enum Gestures {
         Verb(name: "flip-orientation", keys: ["\\"], about: "lode \\, flip the layout axis"),
         Verb(name: "layout-undo", keys: ["left", "right"], about: "lode ← undo, lode → redo"),
         Verb(name: "display-move", keys: ["[", "]"], about: "lode [ and ], move across displays"),
-        Verb(name: "cheat-sheet", keys: ["/"], about: "lode ?, the gesture reference"),
+        Verb(name: "select", keys: ["/"], about: "lode /, select text by typing it"),
+        Verb(name: "settings", keys: [","], about: "lode , , the settings window"),
     ]
 
     public static let keysByName: [String: [String]] =

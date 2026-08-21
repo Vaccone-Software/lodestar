@@ -74,11 +74,23 @@ public enum ChromiumBrowser: String, CaseIterable, Equatable {
         }
         return directories
     }
+
+    /// The profile display names exactly as the browser writes them —
+    /// casing intact, for every surface a person reads. Matching stays
+    /// case-insensitive; showing stays faithful.
+    public static func profileNames(fromLocalState data: Data) -> [String] {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let profile = json["profile"] as? [String: Any],
+              let cache = profile["info_cache"] as? [String: Any] else { return [] }
+        return cache.values.compactMap { ($0 as? [String: Any])?["name"] as? String }
+    }
 }
 
-/// A registry entry: which browser a lodestar profile key belongs to,
-/// and the browser's own display name for it. Keys are global across
-/// browsers so web links and routes can reference them bare.
+/// A browser profile, named the way the config references it: the browser
+/// and the profile's own display name, written `brave:Xonar`. There is no
+/// registry between a reference and the browser — the reference carries
+/// everything, and whether the profile actually exists is a ground-truth
+/// question the doctor asks the browser.
 public struct BrowserProfile: Equatable {
     public let browser: ChromiumBrowser
     public let display: String
@@ -86,5 +98,27 @@ public struct BrowserProfile: Equatable {
     public init(browser: ChromiumBrowser, display: String) {
         self.browser = browser
         self.display = display
+    }
+
+    /// The config line for this profile, casing intact.
+    public var reference: String { "\(browser.rawValue):\(display)" }
+
+    /// The lookup key a reference resolves under. Case folds away so
+    /// `brave:xonar` and `brave:Xonar` are the same profile — the browser
+    /// itself matches names case-insensitively everywhere Lodestar asks.
+    public var canonical: String { reference.lowercased() }
+
+    /// A written reference, or nil when it is not `browser:name` for a
+    /// browser Lodestar can address.
+    public static func parse(reference raw: String) -> BrowserProfile? {
+        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+        for browser in ChromiumBrowser.allCases
+        where trimmed.lowercased().hasPrefix("\(browser.rawValue):") {
+            let name = String(trimmed.dropFirst(browser.rawValue.count + 1))
+                .trimmingCharacters(in: .whitespaces)
+            guard !name.isEmpty else { return nil }
+            return BrowserProfile(browser: browser, display: name)
+        }
+        return nil
     }
 }

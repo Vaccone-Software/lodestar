@@ -7,7 +7,7 @@ final class StarterGraphTests: XCTestCase {
     private func graph(_ pairs: [String: String]) -> GraphNode {
         var problems: [String] = []
         let table = pairs.mapValues { ConfigValue.string($0) }
-        return GraphNode.build(from: table, path: "", registry: [:], problems: &problems)
+        return GraphNode.build(from: table, path: "", problems: &problems)
     }
 
     func testInitialsWhereTheyAreFree() {

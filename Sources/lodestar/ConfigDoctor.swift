@@ -7,9 +7,10 @@ import LodestarCore
 /// semantic warnings, schema emission. Shared by startup, Reload Config,
 /// and `lodestar --check`.
 enum ConfigDoctor {
-    /// Registry entries the browser doesn't actually have. A browser with
-    /// no readable Local State (not installed, never launched) validates
-    /// nothing — absence of ground truth is not a verdict.
+    /// References naming profiles the browser doesn't actually have. A
+    /// browser with no readable Local State (not installed, never
+    /// launched) validates nothing — absence of ground truth is not a
+    /// verdict.
     static func groundTruthProblems(_ config: Config) -> [String] {
         var problems: [String] = []
         // Intent lives in the config, authorization in the machine, and a
@@ -26,22 +27,47 @@ enum ConfigDoctor {
                     + "— allow Lodestar under Privacy & Security → Calendars")
             }
         }
-        let byBrowser = Dictionary(grouping: config.browserProfiles, by: \.value.browser)
-        for (browser, entries) in byBrowser.sorted(by: { $0.key.rawValue < $1.key.rawValue }) {
-            let known = ChromiumProfiles.knownDisplayNames(for: browser)
-            guard !known.isEmpty else { continue }
-            problems += entries
-                .filter { !known.contains($0.value.display.lowercased()) }
-                .map { "profiles.\(browser.rawValue).\($0.key): \(browser.label) has no profile named '\($0.value.display)'" }
-                .sorted()
+        // Each reference checked where it was written, so the finding
+        // lands under the row (and the line) that can fix it.
+        for (path, key) in profileReferences(config).sorted(by: { $0.0 < $1.0 }) {
+            guard let profile = config.browserProfiles[key] else { continue }
+            let known = ChromiumProfiles.knownDisplayNames(for: profile.browser)
+            guard !known.isEmpty, !known.contains(profile.display.lowercased()) else { continue }
+            problems.append("\(path): \(profile.browser.label) has no profile "
+                + "named '\(profile.display)'")
         }
         return problems
     }
 
-    /// Typo'd app names and dead registry weight.
+    /// Every place the config names a profile, as (path, canonical
+    /// reference) — the doctor's worklist.
+    static func profileReferences(_ config: Config) -> [(String, String)] {
+        var references: [(String, String)] = []
+        if config.webFallback != "most-recent" {
+            references.append(("web.fallback", config.webFallback))
+        }
+        for (pattern, key) in config.webRoutes {
+            references.append(("web.routes.\(pattern)", key))
+        }
+        for link in config.webLinks {
+            if let key = link.profileKey {
+                references.append(("web.links.\(link.name).profile", key))
+            }
+        }
+        for (calendar, key) in config.meetingsCalendars {
+            references.append(("meetings.calendars.\(calendar)", key))
+        }
+        for (path, target) in graphTargets(config.graph, prefix: "") {
+            if case .browserProfile(let profile) = target {
+                references.append(("graph.\(path)", profile.canonical))
+            }
+        }
+        return references
+    }
+
+    /// Typo'd app names.
     static func semanticWarnings(_ config: Config, appIndex: AppIndex) -> [String] {
         var warnings: [String] = []
-
         for (path, name) in appLeaves(config.graph, prefix: "") {
             let exact = appIndex.entries.contains { $0.name.lowercased() == name.lowercased() }
             if !exact {
@@ -52,21 +78,6 @@ enum ConfigDoctor {
                 }
             }
         }
-
-        var referenced = Set<String>()
-        for (_, target) in graphTargets(config.graph, prefix: "") {
-            if case .browserProfile(let key, _) = target { referenced.insert(key) }
-        }
-        for link in config.webLinks {
-            if let key = link.profileKey { referenced.insert(key) }
-        }
-        referenced.formUnion(config.webRoutes.values)
-        if config.webFallback != "most-recent" { referenced.insert(config.webFallback) }
-        for (key, profile) in config.browserProfiles.sorted(by: { $0.key < $1.key })
-        where !referenced.contains(key) {
-            warnings.append("profiles.\(profile.browser.rawValue).\(key) is declared but never referenced")
-        }
-
         return warnings
     }
 
@@ -311,8 +322,11 @@ func runConfigVerb(_ arguments: [String]) -> Never {
         guard let text = try? String(contentsOf: Config.file, encoding: .utf8) else { return nil }
         return try? Json.parse(text)
     }
+    /// Reads serve the tree as `build` would see it: the parse-time
+    /// migrations applied, so `config get` never hands back a value the
+    /// current release would refuse to be given.
     func options(_ tree: [String: ConfigValue]) -> [String: ConfigValue] {
-        var out = tree
+        var out = ConfigDefaults.normalized(tree)
         out.removeValue(forKey: "$schema")
         out.removeValue(forKey: "version")
         return out

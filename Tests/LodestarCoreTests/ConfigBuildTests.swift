@@ -23,7 +23,6 @@ final class ConfigBuildTests: XCTestCase {
         XCTAssertEqual(problems, [])
         let bare = Config()
         XCTAssertEqual(config.trigger, bare.trigger)
-        XCTAssertEqual(config.autoReload, bare.autoReload)
         XCTAssertEqual(config.autoUpdate, bare.autoUpdate)
         XCTAssertEqual(config.startAtLogin, bare.startAtLogin)
         XCTAssertEqual(config.showMenuBar, bare.showMenuBar)
@@ -31,8 +30,6 @@ final class ConfigBuildTests: XCTestCase {
         XCTAssertEqual(config.scrollStep, bare.scrollStep)
         XCTAssertEqual(config.scrollSmooth, bare.scrollSmooth)
         XCTAssertEqual(config.scrollSpeed, bare.scrollSpeed)
-        XCTAssertEqual(config.hintLetters, bare.hintLetters)
-        XCTAssertEqual(config.hintRescanDelay, bare.hintRescanDelay)
         XCTAssertEqual(config.webFallback, bare.webFallback)
         XCTAssertEqual(config.webSearchURL, bare.webSearchURL)
     }
@@ -54,9 +51,11 @@ final class ConfigBuildTests: XCTestCase {
         XCTAssertEqual(try build(#"{"scroll": {"step": 0}}"#).0.scrollStep, 10)
     }
 
-    func testRescanDelayClamps() throws {
-        XCTAssertEqual(try build(#"{"hints": {"rescan-delay": 9}}"#).0.hintRescanDelay, 2.0)
-        XCTAssertEqual(try build(#"{"hints": {"rescan-delay": 0}}"#).0.hintRescanDelay, 0.1)
+    /// Retired in 0.22: the delay is tuned once, for everyone. A file
+    /// that still carries the section parses clean and reports nothing.
+    func testRetiredHintsSectionParsesClean() throws {
+        let (_, problems) = try build(#"{"hints": {"rescan-delay": 0.8}}"#)
+        XCTAssertEqual(problems, [])
     }
 
     // MARK: - Enums fall back loudly
@@ -71,24 +70,13 @@ final class ConfigBuildTests: XCTestCase {
         XCTAssertTrue(lodeProblems.contains { $0.contains("trigger") }, "\(lodeProblems)")
     }
 
-    /// Pre-0.9.11 files named the lode key "hyper" and must still work.
+    /// Pre-0.9.11 files named the lode key "hyper" and must still work —
+    /// and the retired raw-hyper value folds into the default on the way.
     func testLegacyHyperSectionStillSetsTheTrigger() throws {
-        XCTAssertEqual(try build(#"{"hyper": {"trigger": "raw-hyper"}}"#).0.trigger, .rawHyper)
-    }
-
-    // MARK: - Hint letters
-
-    func testHintLettersAreNormalisedAndDeduplicated() throws {
-        XCTAssertEqual(try build(#"{"hints": {"letters": "ASDF"}}"#).0.hintLetters, "asdf")
-        XCTAssertEqual(try build(#"{"hints": {"letters": "aabbc"}}"#).0.hintLetters, "abc",
-                       "duplicates would mint colliding labels")
-        XCTAssertEqual(try build(#"{"hints": {"letters": "a1b!c"}}"#).0.hintLetters, "abc")
-    }
-
-    func testTooFewHintLettersIsRefusedWithTheDefaultKept() throws {
-        let (config, problems) = try build(#"{"hints": {"letters": "a"}}"#)
-        XCTAssertEqual(config.hintLetters, Config().hintLetters)
-        XCTAssertTrue(problems.contains { $0.contains("hints.letters") }, "\(problems)")
+        XCTAssertEqual(try build(#"{"hyper": {"trigger": "raw-hyper"}}"#).0.trigger,
+                       .rightCommand)
+        XCTAssertEqual(try build(#"{"lode": {"trigger": "left-command"}}"#).0.trigger,
+                       .leftCommand)
     }
 
     // MARK: - Gestures
@@ -99,26 +87,29 @@ final class ConfigBuildTests: XCTestCase {
         XCTAssertTrue(try build("{}").0.disabledGestures.isEmpty)
     }
 
-    // MARK: - Profiles and the references that depend on them
+    // MARK: - Profile references
 
-    func testProfileKeysAreGlobalAndLowercased() throws {
-        let (config, _) = try build(#"{"profiles": {"brave": {"Work": "Work Profile"}}}"#)
-        XCTAssertEqual(config.browserProfiles["work"]?.display, "Work Profile")
+    /// A reference carries browser and name; parsing registers the
+    /// profile under its canonical (lowercased) key, display casing kept.
+    func testReferencesParseAndRegisterThemselves() throws {
+        let (config, problems) = try build(#"{"web": {"fallback": "brave:Work Profile"}}"#)
+        XCTAssertEqual(problems, [])
+        XCTAssertEqual(config.webFallback, "brave:work profile")
+        XCTAssertEqual(config.browserProfiles["brave:work profile"]?.display, "Work Profile")
+        XCTAssertEqual(config.browserProfiles["brave:work profile"]?.browser, .brave)
     }
 
-    func testWebFallbackMustNameSomethingReal() throws {
+    func testWebFallbackMustBeAReference() throws {
         let (config, problems) = try build(#"{"web": {"fallback": "nowhere"}}"#)
         XCTAssertEqual(config.webFallback, "most-recent", "the default survives a bad reference")
         XCTAssertTrue(problems.contains { $0.contains("fallback") }, "\(problems)")
 
-        let (good, goodProblems) = try build("""
-        {"profiles": {"brave": {"work": "Work"}}, "web": {"fallback": "work"}}
-        """)
-        XCTAssertEqual(good.webFallback, "work")
+        let (good, goodProblems) = try build(#"{"web": {"fallback": "brave:Work"}}"#)
+        XCTAssertEqual(good.webFallback, "brave:work")
         XCTAssertEqual(goodProblems, [])
     }
 
-    func testWebRoutesAndLinksMustReferenceKnownProfiles() throws {
+    func testRoutesAndLinksRefuseBareNames() throws {
         let (config, problems) = try build("""
         {"web": {"routes": {"acme.com": "ghost"},
                  "links": {"yt": {"url": "youtube.com", "profile": "ghost"}}}}
@@ -127,6 +118,16 @@ final class ConfigBuildTests: XCTestCase {
         XCTAssertEqual(config.webLinks.count, 1, "the link survives; only its bad profile is refused")
         XCTAssertNil(config.webLinks.first?.profileKey)
         XCTAssertEqual(problems.filter { $0.contains("ghost") }.count, 2, "\(problems)")
+    }
+
+    func testRoutesAndLinksAcceptReferences() throws {
+        let (config, problems) = try build("""
+        {"web": {"routes": {"acme.com": "chrome:Work"},
+                 "links": {"yt": {"url": "youtube.com", "profile": "brave:Personal"}}}}
+        """)
+        XCTAssertEqual(problems, [])
+        XCTAssertEqual(config.webRoutes["acme.com"], "chrome:work")
+        XCTAssertEqual(config.webLinks.first?.profileKey, "brave:personal")
     }
 
     func testLinkWithoutUrlIsReported() throws {

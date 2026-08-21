@@ -18,7 +18,11 @@ final class HintsController {
 
     /// Refreshed from config at boot and reload.
     var letters = "asdfghjkl"
-    var rescanDelay: TimeInterval = 0.4
+    /// Sticky hints: seconds between a click and the relabel. Fixed, not
+    /// configurable — retired as a setting in 0.22: someone reaching for
+    /// this knob is telling us the default is wrong, and a wrong default
+    /// is ours to tune once, for everyone.
+    let rescanDelay: TimeInterval = 0.5
 
     private var targets: [Target] = []
     private var labels: [String] = []

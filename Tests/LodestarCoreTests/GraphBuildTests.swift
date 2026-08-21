@@ -5,11 +5,11 @@ import XCTest
 /// problems each malformation reports. The graph section is the config's
 /// most-edited surface; its failure modes must stay stable.
 final class GraphBuildTests: XCTestCase {
-    private func build(_ json: String, registry: [String: BrowserProfile] = [:]) throws -> (GraphNode, [String]) {
+    private func build(_ json: String) throws -> (GraphNode, [String]) {
         var problems: [String] = []
         let root = try Json.parse(json)
         let node = GraphNode.build(from: root.value(at: ["graph"])!.table!,
-                                   path: "", registry: registry, problems: &problems)
+                                   path: "", problems: &problems)
         return (node, problems)
     }
 
@@ -98,7 +98,7 @@ final class GraphBuildTests: XCTestCase {
     /// letters behind — the chain panel showed an "E →" row leading
     /// nowhere, waiting for a letter that could never complete it.
     func testSugarWithAnUnresolvableTargetLeavesNoOrphanBranch() throws {
-        let (node, problems) = try build(#"{"graph": {"eo": "brave: nope"}}"#)
+        let (node, problems) = try build(#"{"graph": {"eo": "brave:"}}"#)
         XCTAssertFalse(problems.isEmpty)
         guard case .miss = node.resolve(["e"]) else {
             return XCTFail("E survived as a phantom branch")
@@ -163,29 +163,24 @@ final class GraphBuildTests: XCTestCase {
 
     // MARK: - Browser profiles
 
-    func testBrowserProfileResolvesThroughRegistry() throws {
-        let personal = BrowserProfile(browser: .brave, display: "Personal")
-        let (node, problems) = try build(#"{"graph": {"p": "brave: personal"}}"#,
-                                         registry: ["personal": personal])
+    func testBrowserProfileParsesFromTheReferenceAlone() throws {
+        let (node, problems) = try build(#"{"graph": {"p": "brave:Personal"}}"#)
         XCTAssertTrue(problems.isEmpty, "\(problems)")
         guard case .leaf(let target) = node.resolve(["p"]),
-              target == .browserProfile(key: "personal", profile: personal) else {
-            return XCTFail("expected the registry profile")
+              target == .browserProfile(BrowserProfile(browser: .brave, display: "Personal")) else {
+            return XCTFail("expected the referenced profile")
         }
         XCTAssertEqual(target.label, "Brave (Personal)")
+        XCTAssertEqual(target.configValue, "brave:Personal", "the reference round-trips")
     }
 
     func testEveryBrowserPrefixResolves() throws {
-        let registry = [
-            "work": BrowserProfile(browser: .chrome, display: "Work"),
-            "school": BrowserProfile(browser: .edge, display: "School"),
-        ]
         let (node, problems) = try build("""
         {"graph": {
-          "w": "chrome: work",
-          "s": "edge: school"
+          "w": "chrome: Work",
+          "s": "edge: School"
         }}
-        """, registry: registry)
+        """)
         XCTAssertTrue(problems.isEmpty, "\(problems)")
         guard case .leaf(let chrome) = node.resolve(["w"]) else { return XCTFail() }
         XCTAssertEqual(chrome.label, "Chrome (Work)")
@@ -193,18 +188,18 @@ final class GraphBuildTests: XCTestCase {
         XCTAssertEqual(edge.label, "Edge (School)")
     }
 
-    func testUnknownProfileIsDroppedWithGuidance() throws {
-        let (node, problems) = try build(#"{"graph": {"p": "brave: nope"}}"#)
-        guard case .miss = node.resolve(["p"]) else { return XCTFail() }
-        XCTAssertTrue(problems.contains { $0.contains("unknown profile") && $0.contains("profiles.brave") },
-                      "\(problems)")
+    /// Whether the browser actually has the profile is the doctor's
+    /// question; the graph binds what the line says.
+    func testProfileExistenceIsNotTheParsersBusiness() throws {
+        let (node, problems) = try build(#"{"graph": {"p": "brave:Nope"}}"#)
+        XCTAssertTrue(problems.isEmpty, "\(problems)")
+        guard case .leaf = node.resolve(["p"]) else { return XCTFail() }
     }
 
-    func testWrongBrowserReferenceIsDroppedWithGuidance() throws {
-        let registry = ["work": BrowserProfile(browser: .chrome, display: "Work")]
-        let (node, problems) = try build(#"{"graph": {"p": "brave: work"}}"#, registry: registry)
+    func testBrowserPrefixWithNoNameIsDroppedWithGuidance() throws {
+        let (node, problems) = try build(#"{"graph": {"p": "brave:"}}"#)
         guard case .miss = node.resolve(["p"]) else { return XCTFail() }
-        XCTAssertTrue(problems.contains { $0.contains("declared under profiles.chrome") }, "\(problems)")
+        XCTAssertTrue(problems.contains { $0.contains("no profile") }, "\(problems)")
     }
 
     // MARK: - Guide

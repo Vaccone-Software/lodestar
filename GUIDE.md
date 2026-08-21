@@ -82,9 +82,9 @@ In a password field macOS blocks synthetic keystrokes outright, so Lodestar puts
 
 ## Click hints
 
-`lode ;` labels every pressable element of the focused window — buttons, links, checkboxes, popups, text inputs — with letters from your own alphabet (`hints.letters`, home row by default; singles while they suffice, uniform two-letter labels beyond, never a mix, so no label can fire while another remains reachable). **Type a label to press it; `⇧label` right-clicks it** (the element's own context-menu action when it has one, a synthetic right-click at its center otherwise); labels on text inputs focus them. Typing narrows — matching chips stay with your prefix accented, the rest vanish; `⌫` untypes.
+`lode ;` labels every pressable element of the focused window — buttons, links, checkboxes, popups, text inputs — with letters from your keyboard's own home row (read from the active layout, so Dvorak labels are Dvorak letters; singles while they suffice, uniform two-letter labels beyond, never a mix, so no label can fire while another remains reachable). **Type a label to press it; `⇧label` right-clicks it** (the element's own context-menu action when it has one, a synthetic right-click at its center otherwise); labels on text inputs focus them. Typing narrows — matching chips stay with your prefix accented, the rest vanish; `⌫` untypes.
 
-`lode ⇧;` is the **chain-click lens**: every pick clicks and then the window is re-scanned and relabeled after a beat (`hints.rescan-delay`), so a click that changed the app — opened a panel, revealed a menu — gets fresh labels. Filling a form or clicking through a wizard never leaves the mode. Same exit rules as scroll: `esc` (or `lode ;` again) closes, any other lode verb exits and executes.
+`lode ⇧;` is the **chain-click lens**: every pick clicks and then the window is re-scanned and relabeled after a beat, so a click that changed the app — opened a panel, revealed a menu — gets fresh labels. Filling a form or clicking through a wizard never leaves the mode. Same exit rules as scroll: `esc` (or `lode ;` again) closes, any other lode verb exits and executes.
 
 The harvest is asynchronous and bounded — a heavy Chromium page can never stall the overlay — and Electron apps get `AXManualAccessibility` woken automatically. Rows and table cells are deliberately unlabeled: they explode label counts and rarely beat scrolling.
 
@@ -127,15 +127,13 @@ Routes only help where Lodestar is asked, which is the half of the problem that 
 
 **It fails safe, deliberately.** `web.clicks.enabled: false` while still registered makes Lodestar a transparent pass-through, so the off switch works from a text file without a trip through System Settings. A rule naming a deleted profile passes through rather than stranding the link. Uninstalling restores your saved browser before removing the app. And while Lodestar holds the role, an auto-update has to prove its router answers before the watchdog blesses it — booting is not enough when every link on the machine depends on you.
 
-`web.clicks.trace: true` logs the host and chosen profile while you chase something. Off by default, host never URL: the log is paste-able, and where you go is not diagnostics.
-
-Profiles live in a registry (`profiles.brave`, `profiles.chrome`, `profiles.edge`): Lodestar name → the browser's profile name, with keys global across browsers and referenced everywhere else (`brave:work` or `chrome:work` in the graph, `profile: work` in links). References are validated at Reload Config, and the registry itself is checked against each browser's real profile list — a renamed browser profile surfaces as one flagged line, not a mystery failure later.
+A profile is referenced by naming it: `browser:Name` (`brave:Work`, `chrome:Personal`), the same form everywhere — routes, links, the fallback, meeting calendars, and the graph. There is no registry to maintain; the browser's own profile list is the authority, and every reference is checked against it at Reload Config — a renamed browser profile surfaces as one flagged line naming the exact config path, not a mystery failure later.
 
 ## Meetings
 
-The calendar's next join, offered at the door. Off by default: enable it from the menu bar (_Offer Meetings…_), which shows one card and then macOS's calendar-access prompt — the permission is asked when you reach for the feature, never at install. Once on, a small chip appears `meetings.lead-minutes` before a meeting starts (default 5) and lives the meeting out, so joining late is one gesture too. **Tap lode twice to join. `lode ⌫` dismisses this occurrence** — a recurring meeting returns tomorrow; a chip you joined or dismissed never resurrects, even across a restart. Declined and all-day events never get a chip, overlapping meetings queue soonest-first, and a join through the chip spends it.
+The calendar's next join, offered at the door. Off by default: turn it on in Settings (`lode ,`, pane 7), which shows one card and then macOS's calendar-access prompt — the permission is asked when you reach for the feature, never at install. Once on, a small chip appears `meetings.lead-minutes` before a meeting starts (default 5) and lives the meeting out, so joining late is one gesture too. **Tap lode twice to join. `lode ⌫` dismisses this occurrence** — a recurring meeting returns tomorrow; a chip you joined or dismissed never resurrects, even across a restart. Declined and all-day events never get a chip, overlapping meetings queue soonest-first, and a join through the chip spends it.
 
-The link is sniffed from the event's URL, location, and notes (Google Calendar's Meet links live in the notes; EventKit never sees the conference field). Zoom and Teams join natively when the app is installed — the URL is transformed and handed to the app by name, never a bare LaunchServices open. Everything else joins in a browser profile, resolved by precedence: **`meetings.calendars` first** (calendar name, then account name → profile key — the calendar is the only signal that can tell two meetings on the same host apart), then `web.routes`, then the ordinary fallback chain. The chip wears the profile and which rule chose it.
+The link is sniffed from the event's URL, location, and notes (Google Calendar's Meet links live in the notes; EventKit never sees the conference field). Zoom and Teams join natively when the app is installed — the URL is transformed and handed to the app by name, never a bare LaunchServices open. Everything else joins in a browser profile, resolved by precedence: **`meetings.calendars` first** (calendar name, then account name → profile — the calendar is the only signal that can tell two meetings on the same host apart), then `web.routes`, then the ordinary fallback chain. The chip wears the profile and which rule chose it.
 
 The coach learns to offer this feature itself: manual joins (meeting hosts opened, focus landing on Zoom or Teams) are already in the observation ledger, and when the habit is steady the offer appears seconds after a join — accept writes exactly the one line `meetings.enabled: true`. The observation layer keeps the provider and the deciding rule per chip, never a title, attendee, or URL.
 
@@ -157,6 +155,12 @@ Its whole grammar lives on the lode key. **Tap lode twice** to accept: the coach
 
 The coach paces itself by what your hands demonstrate, not by a calendar: after you accept a new address it stays silent until that address has actually compiled into your fingers, then considers the next. Expect it to speak rarely — a suggestion or two a month at most — and to say nothing at all for the first weeks while the evidence accrues. `coach.enabled` set to false turns the whole voice off; the findings remain readable in `lodestar observations` either way.
 
+## Settings (`lode ,`)
+
+The settings window: nine panes carrying every option the config file holds, and nothing else — the window and the file cannot drift in either direction, and a test enforces it. The grammar is the house's, recombined: **digits** address panes the way `lode 1…9` addresses windows, **letters** address rows the way hints label a window, `/` searches across every pane, and **escape pops one layer at a time** — field to page, search to page, page to closed. Tab walks every control; **return is the only commit** — a field left any other way snaps back to what the file says. Inside a list, arrows select, return edits, delete removes, and `a` jumps to the add line.
+
+Every row wears the config path it writes, so the window teaches the file as you use it; every write lands through the same pruned canonical path every other editor uses. A dot marks anything changed from default, and the rail's dot legend collects all of them on one page. The doctor's findings render beside the rows that fix them. One deliberate exception: the graph is edited where addressing happens — ⌘K and the file — never in a pane.
+
 ## Config (`lodestar.json`)
 
 The config is sparse JSON: it holds only what differs from the defaults,
@@ -169,22 +173,19 @@ and every writer — a hand edit, ⌘K in the launcher or in Ask,
 {
   "$schema": "lodestar-schema.json",
   "version": "0.9.10",
-  "profiles": {
-    "brave": { "work": "Work", "google": "Google" }
-  },
   "web": {
-    "links": { "yt": { "url": "youtube.com", "profile": "google" } },
-    "routes": { "acme": "work" }
+    "links": { "yt": { "url": "youtube.com", "profile": "brave:Google" } },
+    "routes": { "acme": "brave:Work" }
   },
   "graph": {
     "s": "Slack",
     "e": { "o": "Microsoft Outlook", "p": "Proton Mail" },
-    "w": { "w": "brave:work" }
+    "w": { "w": "brave:Work" }
   }
 }
 ```
 
-Nested letters are the trie; values are an app name or `<browser>:<registry key>` (`brave:work`, `chrome:work`). **Multi-letter keys are sugar**: `"eo": "Outlook"` binds the chain E → O without writing the nesting (any depth: `wgg` works); a multi-letter key whose prefix is already a destination is refused with a validation problem. **Double-taps** (the `double-tap` section) bind a modifier tapped twice alone — `"cmd": "scroll"` makes tap-tap-⌘ enter scroll mode — as additional triggers; every default gesture stays. **Disabling** (the `gestures` section) gives every gesture a named switch — `"scroll": false` frees its keys to pass through to the app, shift variants included. Reserved first letters: `O`, `Z`, `X`. Breaths live on `'`, vim's mark key for a saved position, so M is Messages and B is free to bind. Deleting a key restores its default; `lodestar config` prints the full effective picture. Menu bar → Reload Config applies edits and reports every validation problem.
+Nested letters are the trie; values are an app name or `<browser>:<profile name>` (`brave:Work`, `chrome:Personal`). **Multi-letter keys are sugar**: `"eo": "Outlook"` binds the chain E → O without writing the nesting (any depth: `wgg` works); a multi-letter key whose prefix is already a destination is refused with a validation problem. **Disabling** (the `gestures` section) gives every gesture a named switch — `"scroll": false` frees its keys to pass through to the app, shift variants included. Reserved first letters: `O`, `Z`, `X`. Breaths live on `'`, vim's mark key for a saved position, so M is Messages and B is free to bind. Deleting a key restores its default; `lodestar config` prints the full effective picture. Menu bar → Reload Config applies edits and reports every validation problem.
 
 **Migrating from 0.9.9 and earlier**: the automatic `lodestar.yaml` →
 `lodestar.json` conversion ran from 0.9.10 and is now retired. If a
@@ -197,7 +198,7 @@ the settings across by hand (or install 0.17.0 first and let it convert).
 
 ## Controls & state
 
-- Menu bar star: Check for Updates… · Report an Issue… · Edit Config… · Reveal Config in Finder · Reload Config · Open Log · Quit (quitting restores everything parked). Hide it with `app.show-menu-bar: false` — then picking **Lodestar** in the launcher reveals it for 60 seconds with the menu popped open, ready to use. (Hidden mode forgoes the chain-active star; the guide panel still shows every pending chain.) `kill -USR2 $(cat ~/.config/lodestar/lodestar.pid)` reloads the config from scripts.
+- Menu bar star: How Lodestar Works… · Check for Updates… · Report an Issue… · the browser-role item · Settings… · Edit Config… · Open Log · Quit (quitting restores everything parked). Verbs and state machines only — preferences live in Settings, and the watched config makes a reload item redundant. Hide it with `app.show-menu-bar: false` — then picking **Lodestar** in the launcher reveals it for 60 seconds with the menu popped open, ready to use. (Hidden mode forgoes the chain-active star; the guide panel still shows every pending chain.) `kill -USR2 $(cat ~/.config/lodestar/lodestar.pid)` reloads the config from scripts.
 - CLI: `lodestar check [--json]` validates the config (schema + referential + ground truth); `lodestar reload` applies it to the running instance; `lodestar config` prints the effective config, `config get <path>` one value, `config set <path> <value>` a validated write applied live, `config unset <path>` the way back to default; `lodestar diagnose` prints one paste-able report (version, instance, trust, displays, config, state, log tail); `lodestar schema` and `lodestar config-path` serve tools and agents — see AGENTS.md for the agent contract.
 - `scripts/install-app.sh` — build, sign, and install `~/Applications/lodestar.app` with a login LaunchAgent, so Lodestar survives reboots. **First install**: grant the app Accessibility when it prompts (System Settings → Privacy & Security → Accessibility) — Lodestar wakes up on its own within seconds of the grant. Signed with your Apple Development identity, so the grant survives rebuilds.
 - `scripts/dev-restart.sh` — rebuild + hot-swap (unloads the login agent so launchd doesn't fight the dev instance).
@@ -206,9 +207,9 @@ the settings across by hand (or install 0.17.0 first and let it convert).
 
 ## Config DX
 
-- **Every reload validates everything**: JSON syntax, unknown keys with "did you mean" hints, types/enums/ranges, registry references, the registry against each browser's real profile list, app names against what's installed, and unused profiles. Problems flash on screen and land in the log. `lodestar config set` refuses any write that would introduce a problem.
+- **Every reload validates everything**: JSON syntax, unknown keys with "did you mean" hints, types/enums/ranges, profile references against each browser's real profile list, and app names against what's installed. Problems flash on screen and land in the log. `lodestar config set` refuses any write that would introduce a problem.
 - **Editor intelligence for free**: the config's `$schema` key points at `lodestar-schema.json` (emitted beside the config, generated from the same Swift table that validates reloads — they cannot drift). VS Code natively, and any LSP-aware editor, gets completion, hover docs, and type checking.
-- **`app.auto-reload: true`** watches the file and reloads the moment you save — your editor becomes the IDE because saving is validating. Off by default.
+- **The file is watched, always**: saving applies the config the moment it parses, and a file that does not parse is announced once and left un-applied — the running config stays the last good one. Saving is validating; there is no switch.
 - **`app.start-at-login`** (default true) — the installed app installs or removes its own LaunchAgent to match; setting false never kills the running session, it just stops the next login from starting one. Dev builds never touch login items.
 - **`app.auto-update`** (default true) — the installed app keeps itself current: a daily check, a background download, and a strict verification (signature integrity, this team's Developer ID, this bundle id, version matching the release) before anything moves. The swap waits for a quiet moment — no chain, no panel, ten minutes since the last gesture — hands the session over exactly like a manual reinstall, and a watchdog restores the previous version if the new one fails to boot. One flash afterward: quiet, never hidden. Menu bar → Check for Updates… checks and applies immediately. Dev builds never self-update.
 - **`lodestar --check`** — full validation from the CLI, exit code included: `~/Applications/lodestar.app/Contents/MacOS/lodestar --check`.

@@ -63,6 +63,8 @@ public struct ProfileResolution: Equatable {
 public struct WebContext {
     public let links: [Config.WebLink]
     public let routes: [String: String]
+    /// Canonical reference (`brave:xonar`) → profile: everything the
+    /// config references plus everything the machine has.
     public let profiles: [String: BrowserProfile]
     public let fallback: String
     /// The profile of the most recently focused browser window, if any.
@@ -87,12 +89,13 @@ public struct WebContext {
                   mostRecent: mostRecent, handlesClicks: config.webHandleClicks)
     }
 
-    /// Registry keys, sorted — the digit list's order, stable across opens.
+    /// Canonical references, sorted — the digit list's order, stable
+    /// across opens.
     public var profileKeys: [String] { profiles.keys.sorted() }
 
     /// The profile a destination opens in: explicit pin, then rules (longest
     /// substring match), then the fallback, then the browser you were last
-    /// in. The last resort is any registered profile, so a destination always
+    /// in. The last resort is any known profile, so a destination always
     /// has somewhere to go.
     public func resolve(pinned: String?, routedOn text: String) -> ProfileResolution {
         if let pinned, let profile = profiles[pinned] {

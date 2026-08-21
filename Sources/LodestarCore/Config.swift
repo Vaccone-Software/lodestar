@@ -4,18 +4,25 @@ import Foundation
 public struct Config {
     public enum Trigger: String {
         case rightCommand = "right-command"
-        case rawHyper = "raw-hyper"
+        case leftCommand = "left-command"
     }
 
     public struct WebLink {
         public let name: String
         public let url: String
+        /// The pinned profile's canonical reference (`brave:xonar`), or nil
+        /// for a link that resolves through the rules each time it opens.
         public let profileKey: String?
+
+        public init(name: String, url: String, profileKey: String?) {
+            self.name = name
+            self.url = url
+            self.profileKey = profileKey
+        }
     }
 
     public var trigger: Trigger = .rightCommand
     /// Reload the config automatically when the file is saved.
-    public var autoReload = false
     /// Keep Lodestar current: check daily, verify, apply when idle
     /// (installed app only).
     public var autoUpdate = true
@@ -32,16 +39,14 @@ public struct Config {
     public var scrollSmooth = true
     /// Smooth-scroll velocity in pixels per second.
     public var scrollSpeed: CGFloat = 1800
-    /// The hint label alphabet — the letters labels are built from.
-    public var hintLetters = "asdfghjkl"
-    /// Sticky hints: seconds between a click and the relabel.
-    public var hintRescanDelay: TimeInterval = 0.4
     /// Double-tap modifier bindings: modifier → verb. Custom triggers only.
-    public var doubleTaps: [ModifierKey: TapVerb] = [:]
     /// Keys freed by gestures: toggles — they pass through to the app.
     public var disabledGestures: Set<String> = []
-    /// Profile registry: lodestar key → (browser, display name). Keys are
-    /// global across browsers so web links and routes reference them bare.
+    /// Every profile the config references, keyed by canonical reference
+    /// (`brave:xonar`). Built from the references themselves as they
+    /// parse — there is no registry to declare one in — and the shell
+    /// merges in what the browsers actually have, so pickers can offer
+    /// profiles nothing references yet.
     public var browserProfiles: [String: BrowserProfile] = [:]
 
     /// Meetings at the door. Off until asked for: the calendar permission
@@ -49,16 +54,17 @@ public struct Config {
     /// and the subsystem reconciles.
     public var meetingsEnabled = false
     public var meetingsLeadMinutes = 5
-    /// Calendar or account name → browser profile key. Outranks the
-    /// domain route for meeting joins: the calendar is the only signal
-    /// that can tell two meetings on the same host apart.
+    /// Calendar or account name → canonical profile reference. Outranks
+    /// the domain route for meeting joins: the calendar is the only
+    /// signal that can tell two meetings on the same host apart.
     public var meetingsCalendars: [String: String] = [:]
-    /// Where an unrouted site opens: "most-recent" or a registry key.
+    /// Where an unrouted site opens: "most-recent" or a canonical
+    /// profile reference.
     public var webFallback = "most-recent"
     /// Search template; %s is replaced with the encoded query (appended if absent).
     public var webSearchURL = "https://search.brave.com/search?q=%s"
     public var webLinks: [WebLink] = []
-    /// Substring pattern → registry key; longest match wins.
+    /// Substring pattern → canonical profile reference; longest match wins.
     public var webRoutes: [String: String] = [:]
     /// Whether Lodestar is standing as the http handler and routing clicked
     /// links. Not a switch you are meant to find and flip: the menu-bar flow
@@ -73,7 +79,6 @@ public struct Config {
     /// Log the host and chosen profile of clicked links while you chase
     /// something. Off, because the log is paste-able and where you go is not
     /// diagnostics.
-    public var webTraceClicks = false
     /// Clipboard history: how much disk it may claim, and what it must
     /// never record.
     public var clipboardEnabled = true
@@ -87,7 +92,6 @@ public struct Config {
     /// What to call you. Used sparingly, in the welcome and in a digest, never
     /// in a routine flash: a coach who says your name every time is not a
     /// coach. Empty means no salutation at all rather than "hey there".
-    public var yourName = ""
     /// Keycode → key-name overlays on the built-in ANSI table.
     public var keyOverrides: [Int64: String] = [:]
     public var graph: GraphNode = GraphNode()
@@ -96,6 +100,16 @@ public struct Config {
     /// merge, so this exists to make the type constructible, not to decide
     /// anything. `ConfigDefaults.tree` is where a default is chosen.
     public init() {}
+
+    /// Merge in the profiles the machine actually has, so pickers and
+    /// most-recent resolution can see profiles nothing references yet.
+    /// Detection overwrites a reference's casing — the browser's own
+    /// spelling is ground truth for what a label shows.
+    public mutating func registerDetected(_ profiles: [BrowserProfile]) {
+        for profile in profiles {
+            browserProfiles[profile.canonical] = profile
+        }
+    }
 
     public static let directory = Paths.config
     /// The config: sparse canonical JSON — only what differs from
@@ -114,11 +128,10 @@ public struct Config {
         "$schema": .string(allowed: nil, description: "Editor affordance — points at the emitted lodestar-schema.json so LSP-aware editors validate and complete."),
         "version": .string(allowed: nil, description: "The Lodestar release this config was written for."),
         "lode": .table([
-            "trigger": .string(allowed: ["right-command", "raw-hyper"],
+            "trigger": .string(allowed: ["right-command", "left-command"],
                                description: "The physical trigger for every gesture."),
         ], description: "The lode key."),
         "app": .table([
-            "auto-reload": .boolean(description: "Reload automatically when the config file is saved."),
             "auto-update": .boolean(description: "Keep Lodestar current: check daily, verify the download, apply quietly when idle (installed app only)."),
             "start-at-login": .boolean(description: "Keep the login LaunchAgent installed (installed app only)."),
             "show-menu-bar": .boolean(description: "Show the status item permanently; false hides it until lodestar is picked in the launcher."),
@@ -129,26 +142,18 @@ public struct Config {
                 ($0.name, SchemaNode.boolean(description: $0.about))
             }),
             description: "Every gesture, one switch each; false frees its keys to the app."),
-        "profiles": .table(
-            Dictionary(uniqueKeysWithValues: ChromiumBrowser.allCases.map { browser in
-                (browser.rawValue,
-                 SchemaNode.freeTable(value: .string(allowed: nil, description: "The browser's profile display name."),
-                                      description: "lodestar name → \(browser.label) profile display name."))
-            }),
-            description: "Chromium profile registry; keys are global across browsers."),
         "web": .table([
-            "fallback": .string(allowed: nil, description: "most-recent, or a profiles key."),
+            "fallback": .string(allowed: nil, description: "most-recent, or a profile as browser:name (brave:Work)."),
             "search-url": .string(allowed: nil, description: "Search template; %s becomes the encoded query."),
             "links": .freeTable(value: .table([
                 "url": .string(allowed: nil, description: "The site."),
-                "profile": .string(allowed: nil, description: "A profiles key (omit to route)."),
+                "profile": .string(allowed: nil, description: "A profile as browser:name (omit to route)."),
             ], description: "A named link."), description: "Named links."),
-            "routes": .freeTable(value: .string(allowed: nil, description: "A profiles key."),
+            "routes": .freeTable(value: .string(allowed: nil, description: "A profile as browser:name (brave:Work)."),
                                  description: "Substring pattern → profile; longest match wins."),
             "clicks": .table([
                 "enabled": .boolean(description: "Route links clicked in other apps. Set by the menu-bar flow."),
                 "browser": .string(allowed: nil, description: "Bundle id links go to when no route matches (your previous default browser)."),
-                "trace": .boolean(description: "Log host and profile for clicked links while debugging."),
             ], description: "Links clicked in other apps."),
         ], description: "The web bar."),
         "scroll": .table([
@@ -161,12 +166,9 @@ public struct Config {
             "lead-minutes": .number(min: 0, max: 120,
                                     description: "Minutes before the start the chip appears."),
             "calendars": .freeTable(value: .string(allowed: nil,
-                                                   description: "Browser profile key this calendar's meetings join in."),
-                                    description: "Calendar or account name → profile key. Outranks web.routes for meetings."),
+                                                   description: "The browser:name profile this calendar's meetings join in."),
+                                    description: "Calendar or account name → profile. Outranks web.routes for meetings."),
         ], description: "Meetings at the door."),
-        "double-tap": .freeTable(value: .string(allowed: TapVerb.allCases.map(\.rawValue),
-                                                description: "The verb this double-tap fires."),
-                                 description: "Double-tap a modifier alone to fire a verb — additional triggers; defaults untouched. Keys: cmd, shift, option, control, or sided forms like right-cmd."),
         "clipboard": .table([
             "enabled": .boolean(description: "⇧⌘V opens the clipboard strip. The one Lodestar binding outside the lode key, so it is also the one that can collide with an app; false gives ⇧⌘V back."),
             "max-size-mb": .number(min: 10, max: 20_000, description: "Disk the clipboard history may claim; the oldest clips are dropped to stay under it. Pins are never dropped."),
@@ -175,22 +177,15 @@ public struct Config {
             "exclude": .freeTable(value: .boolean(description: "true to never record clips containing this text."),
                                   description: "Substring → true, matched case-insensitively against the clip. The same shape web.routes uses."),
         ], description: "Clipboard history."),
-        "you": .table([
-            "name": .string(allowed: nil, description: "What Lodestar should call you. Left empty it addresses you as nobody in particular, which is better than a guess."),
-        ], description: "About the person, rather than the program."),
         "observations": .table([
             "enabled": .boolean(description: "Watch how you reach things, on this machine only, to suggest improvements later."),
         ], description: "Local observations. How you got places, never what you were doing there; nothing leaves the machine."),
         "coach": .table([
             "enabled": .boolean(description: "Let Lodestar offer one improvement at a time, in quiet moments, priced in seconds."),
         ], description: "The coach: rare, evidence-backed suggestions drawn from the observations."),
-        "hints": .table([
-            "letters": .string(allowed: nil, description: "The label alphabet, home row by default; labels are built only from these letters."),
-            "rescan-delay": .number(min: 0.1, max: 2.0, description: "Sticky hints: seconds between a click and the relabel."),
-        ], description: "Click hints."),
         "keys": .freeTable(value: .string(allowed: nil, description: "The key name this keycode produces."),
                            description: "Keycode → key-name overrides for non-ANSI layouts."),
-        "graph": .graph(description: "lode + letter chains → apps. Values: app name or <browser>:<registry key>."),
+        "graph": .graph(description: "lode + letter chains → apps. Values: app name or <browser>:<profile name>."),
     ], description: "lodestar configuration")
 
     /// Every config write funnels here: the tree is pruned sparse against
@@ -296,9 +291,6 @@ public struct Config {
         problems.append(contentsOf: ConfigSchema.validate(root, against: schema))
         let effective = Json.merged(defaults: ConfigDefaults.tree, overlay: root)
 
-        if let autoReload = effective.value(at: ["app", "auto-reload"])?.bool {
-            config.autoReload = autoReload
-        }
         if let autoUpdate = effective.value(at: ["app", "auto-update"])?.bool {
             config.autoUpdate = autoUpdate
         }
@@ -343,21 +335,6 @@ public struct Config {
         if let patterns = effective.value(at: ["clipboard", "exclude"])?.table {
             config.clipboardExcludePatterns = patterns.filter { $0.value.bool == true }.keys.sorted()
         }
-        if let letters = effective.value(at: ["hints", "letters"])?.string {
-            // Lowercased ASCII letters, first occurrence wins — duplicate
-            // letters would mint colliding labels.
-            var seen = Set<Character>()
-            let cleaned = String(letters.lowercased()
-                .filter { $0.isASCII && $0.isLetter && seen.insert($0).inserted })
-            if cleaned.count >= 2 {
-                config.hintLetters = cleaned
-            } else {
-                problems.append("hints.letters needs at least two distinct letters — using \(config.hintLetters)")
-            }
-        }
-        if let delay = effective.value(at: ["hints", "rescan-delay"])?.double {
-            config.hintRescanDelay = max(0.1, min(2.0, delay))
-        }
         if let gestures = effective.value(at: ["gestures"])?.table {
             // Unknown names and non-boolean values are the schema walk's
             // to report; here false just frees the verb's keys.
@@ -368,50 +345,28 @@ public struct Config {
             config.disabledGestures = Gestures.disabledKeys(from: toggles)
         }
 
-        // Double-taps. This section had a schema, a default, docs, a
-        // consumer and a tested detector — and no parser, so every
-        // binding validated, wrote, printed back, and did nothing.
-        if let taps = effective.value(at: ["double-tap"])?.table {
-            for (name, value) in taps.sorted(by: { $0.key < $1.key }) {
-                guard let modifier = ModifierKey(rawValue: name.lowercased()) else {
-                    problems.append("double-tap.\(name) is not a modifier — one of "
-                                    + ModifierKey.allCases.map(\.rawValue).sorted().joined(separator: ", "))
-                    continue
-                }
-                guard let raw = value.string, let verb = TapVerb(rawValue: raw) else {
-                    problems.append("double-tap.\(name) must be one of "
-                                    + TapVerb.allCases.map(\.rawValue).sorted().joined(separator: ", "))
-                    continue
-                }
-                config.doubleTaps[modifier] = verb
+        /// A reference as written (`brave:Xonar`) becomes its canonical
+        /// key, and the profile it names joins `browserProfiles` — the
+        /// reference carries everything, so parsing is the whole of
+        /// resolution. Whether the browser actually has the profile is
+        /// the doctor's question, asked against ground truth.
+        func profileReference(_ raw: String, at path: String) -> String? {
+            guard let profile = BrowserProfile.parse(reference: raw) else {
+                problems.append("\(path) '\(raw)' is not browser:name — write it like brave:Work")
+                return nil
             }
-        }
-
-        // Profiles first — the graph and web sections reference them.
-        for browser in ChromiumBrowser.allCases {
-            guard let registry = effective.value(at: ["profiles", browser.rawValue])?.table else {
-                continue
+            let key = profile.canonical
+            if config.browserProfiles[key] == nil {
+                config.browserProfiles[key] = profile
             }
-            for (key, value) in registry.sorted(by: { $0.key < $1.key }) {
-                let lowered = key.lowercased()
-                guard let display = value.string, !display.isEmpty else {
-                    problems.append("profiles.\(browser.rawValue).\(key) must be a profile name string")
-                    continue
-                }
-                if let taken = config.browserProfiles[lowered] {
-                    problems.append("profiles.\(browser.rawValue).\(key) collides with profiles.\(taken.browser.rawValue).\(key) — keys are global, keeping the first")
-                    continue
-                }
-                config.browserProfiles[lowered] = BrowserProfile(browser: browser, display: display)
-            }
+            return key
         }
 
         if let fallback = effective.value(at: ["web", "fallback"])?.string {
-            let lowered = fallback.lowercased()
-            if lowered == "most-recent" || config.browserProfiles[lowered] != nil {
-                config.webFallback = lowered
-            } else {
-                problems.append("web.fallback '\(fallback)' is neither most-recent nor a profiles key")
+            if fallback.lowercased() == "most-recent" {
+                config.webFallback = "most-recent"
+            } else if let key = profileReference(fallback, at: "web.fallback") {
+                config.webFallback = key
             }
         }
         if let searchURL = effective.value(at: ["web", "search-url"])?.string {
@@ -425,12 +380,7 @@ public struct Config {
                 }
                 var profileKey: String?
                 if let profile = table["profile"]?.string {
-                    let lowered = profile.lowercased()
-                    if config.browserProfiles[lowered] != nil {
-                        profileKey = lowered
-                    } else {
-                        problems.append("web.links.\(name) references unknown profile '\(profile)'")
-                    }
+                    profileKey = profileReference(profile, at: "web.links.\(name).profile")
                 }
                 config.webLinks.append(WebLink(name: name.lowercased(), url: url, profileKey: profileKey))
             }
@@ -457,27 +407,18 @@ public struct Config {
         if let calendars = effective.value(at: ["meetings", "calendars"])?.table {
             for (name, value) in calendars {
                 guard let profile = value.string else { continue }
-                let lowered = profile.lowercased()
-                if config.browserProfiles[lowered] != nil {
-                    config.meetingsCalendars[name] = lowered
-                } else {
-                    problems.append("meetings.calendars.\(name) references unknown profile '\(profile)'")
+                if let key = profileReference(profile, at: "meetings.calendars.\(name)") {
+                    config.meetingsCalendars[name] = key
                 }
             }
         }
         if let routes = effective.value(at: ["web", "routes"])?.table {
             for (pattern, value) in routes {
                 guard let profile = value.string else { continue }
-                let lowered = profile.lowercased()
-                if config.browserProfiles[lowered] != nil {
-                    config.webRoutes[pattern.lowercased()] = lowered
-                } else {
-                    problems.append("web.routes.\(pattern) references unknown profile '\(profile)'")
+                if let key = profileReference(profile, at: "web.routes.\(pattern)") {
+                    config.webRoutes[pattern.lowercased()] = key
                 }
             }
-        }
-        if let name = effective.value(at: ["you", "name"])?.string {
-            config.yourName = name.trimmingCharacters(in: .whitespaces)
         }
         if let enabled = effective.value(at: ["observations", "enabled"])?.bool {
             config.observationsEnabled = enabled
@@ -490,9 +431,6 @@ public struct Config {
         }
         if let browser = effective.value(at: ["web", "clicks", "browser"])?.string {
             config.webClickBrowser = browser
-        }
-        if let trace = effective.value(at: ["web", "clicks", "trace"])?.bool {
-            config.webTraceClicks = trace
         }
         // Naming ourselves is the one answer that cannot be obeyed: macOS
         // hands us the link because we hold the http role, so handing it back
@@ -513,11 +451,18 @@ public struct Config {
         }
 
         if let graphTable = effective.value(at: ["graph"])?.table {
-            config.graph = GraphNode.build(from: graphTable, path: "",
-                                           registry: config.browserProfiles, problems: &problems)
+            config.graph = GraphNode.build(from: graphTable, path: "", problems: &problems)
             for key in config.graph.children.keys where reservedTopLevel.contains(key) {
                 problems.append("graph uses reserved first letter '\(key)' — ignored")
                 config.graph.children.removeValue(forKey: key)
+            }
+            // The graph's profile targets join the referenced set like
+            // every other reference.
+            for (_, target) in config.graph.leaves() {
+                if case .browserProfile(let profile) = target,
+                   config.browserProfiles[profile.canonical] == nil {
+                    config.browserProfiles[profile.canonical] = profile
+                }
             }
         }
         return config

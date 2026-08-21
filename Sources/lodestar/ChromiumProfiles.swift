@@ -9,6 +9,7 @@ import LodestarCore
 /// Local State.
 enum ChromiumProfiles {
     private static var directoriesByBrowser: [ChromiumBrowser: [String: String]] = [:]
+    private static var namesByBrowser: [ChromiumBrowser: [String]] = [:]
 
     static func directory(for profile: BrowserProfile) -> String? {
         directories(for: profile.browser)[profile.display.lowercased()]
@@ -39,10 +40,28 @@ enum ChromiumProfiles {
     }
 
     /// Display names the browser actually has right now, lowercased —
-    /// ground truth for validating the config registry. Empty when the
-    /// browser is not installed.
+    /// ground truth for validating references. Empty when the browser is
+    /// not installed.
     static func knownDisplayNames(for browser: ChromiumBrowser) -> Set<String> {
         Set(directories(for: browser).keys)
+    }
+
+    /// The same names with the browser's own casing, sorted — for every
+    /// surface a person reads.
+    static func displayNames(for browser: ChromiumBrowser) -> [String] {
+        _ = directories(for: browser) // fills both caches
+        return (namesByBrowser[browser] ?? []).sorted {
+            $0.lowercased() < $1.lowercased()
+        }
+    }
+
+    /// Every profile the installed browsers actually have.
+    static func detected() -> [BrowserProfile] {
+        ChromiumBrowser.allCases.flatMap { browser in
+            displayNames(for: browser).map {
+                BrowserProfile(browser: browser, display: $0)
+            }
+        }
     }
 
     private static func launch(_ profile: BrowserProfile, url: String?) -> Bool {
@@ -71,10 +90,12 @@ enum ChromiumProfiles {
         let loaded: [String: String]
         if let data = try? Data(contentsOf: localState) {
             loaded = ChromiumBrowser.profileDirectories(fromLocalState: data)
+            namesByBrowser[browser] = ChromiumBrowser.profileNames(fromLocalState: data)
             Log.info("\(browser.rawValue): profiles \(loaded)")
         } else {
             // Referenced in config but not installed (or never launched).
             loaded = [:]
+            namesByBrowser[browser] = []
             Log.info("\(browser.rawValue): no Local State — treating as no profiles")
         }
         directoriesByBrowser[browser] = loaded

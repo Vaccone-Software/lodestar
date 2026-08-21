@@ -175,7 +175,7 @@ final class WebMenuTests: XCTestCase {
         _ = menu.handle(.tab, in: context)
         // Sorted registry: google, personal, work.
         _ = menu.handle(.character("3"), in: context)
-        XCTAssertEqual(menu.rendering(in: context).compose?.control?.detail, "work")
+        XCTAssertEqual(menu.rendering(in: context).compose?.control?.detail, "Work")
         XCTAssertEqual(menu.handle(.enter, in: context),
                        .addLink(name: "youtube", url: "youtube.com", profileKey: "work"))
         _ = menu.handle(.tab, in: context)
@@ -243,7 +243,7 @@ final class WebMenuTests: XCTestCase {
         let compose = menu.rendering(in: routed).compose
         XCTAssertEqual(compose?.header, "Route by pattern")
         XCTAssertEqual(compose?.text, "youtube.com") // the whole host
-        XCTAssertEqual(compose?.control?.detail, "personal")
+        XCTAssertEqual(compose?.control?.detail, "Personal")
     }
 
     func testARouteFromASearchPrefillsTheFirstWord() {
@@ -272,10 +272,10 @@ final class WebMenuTests: XCTestCase {
         _ = menu.handle(.character("r"), in: context)
         _ = menu.handle(.tab, in: context)
         let items = menu.rendering(in: context).profiles?.items ?? []
-        XCTAssertEqual(items.first?.title, "google") // no Inherit ahead of it
+        XCTAssertEqual(items.first?.title, "Google") // no Inherit ahead of it
         XCTAssertFalse(items.contains { $0.key == "0" })
         _ = menu.handle(.character("0"), in: context)
-        XCTAssertEqual(menu.rendering(in: context).compose?.control?.detail, "google")
+        XCTAssertEqual(menu.rendering(in: context).compose?.control?.detail, "Google")
     }
 
     func testARouteCommitsPatternAndProfile() {

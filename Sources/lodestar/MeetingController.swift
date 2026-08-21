@@ -101,6 +101,18 @@ final class MeetingController: NSObject {
 
     var chipVisible: Bool { panel.isVisible }
 
+    /// Calendar and account names for the settings picker — ground truth,
+    /// never typed. Empty until access is granted.
+    func calendarNames() -> [String] {
+        guard authorized else { return [] }
+        var names = Set<String>()
+        for calendar in store.calendars(for: .event) {
+            names.insert(calendar.title)
+            if let account = calendar.source?.title { names.insert(account) }
+        }
+        return names.sorted()
+    }
+
     // MARK: - Authorization
 
     var authorization: EKAuthorizationStatus {
@@ -110,28 +122,6 @@ final class MeetingController: NSObject {
     private var authorized: Bool {
         if #available(macOS 14.0, *) { return authorization == .fullAccess }
         return authorization == .authorized
-    }
-
-    /// One line for the menu item, so the state is always visible there.
-    var menuTitle: String {
-        guard config.meetingsEnabled else { return "Offer Meetings…" }
-        if authorized { return "Meetings: On" }
-        if authorization == .notDetermined { return "Meetings: Waiting for Calendar Access" }
-        return "Meetings: Calendar Access Denied"
-    }
-
-    /// The menu item's verb, matching its label.
-    func menuAction() {
-        guard config.meetingsEnabled else {
-            _ = setEnabled?(true) // reconcile() runs prime-then-prompt
-            return
-        }
-        if authorized || authorization == .notDetermined {
-            _ = setEnabled?(false)
-        } else if let url = URL(string:
-            "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars") {
-            NSWorkspace.shared.open(url)
-        }
     }
 
     // MARK: - Reconciling intent with the machine

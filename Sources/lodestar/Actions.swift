@@ -69,7 +69,7 @@ final class Actions {
         switch target {
         case .app(let name):
             summonApp(named: name, beside: beside)
-        case .browserProfile(_, let profile):
+        case .browserProfile(let profile):
             summonBrowser(profile, beside: beside)
         }
     }
@@ -245,7 +245,7 @@ final class Actions {
                 let rowIcon: NSImage?
                 switch target {
                 case .app(let name): rowIcon = icon(forAppNamed: name)
-                case .browserProfile(_, let profile): rowIcon = icon(forAppNamed: profile.browser.appName)
+                case .browserProfile(let profile): rowIcon = icon(forAppNamed: profile.browser.appName)
                 }
                 rows.append(GuideRow(key: path.joined(separator: " "), label: target.label, icon: rowIcon))
             } else {

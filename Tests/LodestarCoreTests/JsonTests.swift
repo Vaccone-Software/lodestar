@@ -84,13 +84,13 @@ final class JsonTests: XCTestCase {
             "lode": .table(["trigger": .string("right-command")]),
             "scroll": .table(["speed": .int(2200), "smooth": .bool(true)]),
             "gestures": .table(["scroll": .bool(false), "hints": .bool(true)]),
-            "profiles": .table(["brave": .table([:])]),
+            "web": .table(["links": .table([:])]),
             "graph": .table(["g": .string("Ghostty")]),
         ], defaults: ConfigDefaults.tree)
         XCTAssertNil(pruned["lode"])
         XCTAssertEqual(pruned["scroll"], .table(["speed": .int(2200)]))
         XCTAssertEqual(pruned["gestures"], .table(["scroll": .bool(false)]))
-        XCTAssertNil(pruned["profiles"]) // an empty registry says nothing
+        XCTAssertNil(pruned["web"]) // an empty table says nothing
         XCTAssertEqual(pruned["graph"], .table(["g": .string("Ghostty")]))
     }
 
@@ -115,7 +115,7 @@ final class JsonTests: XCTestCase {
         XCTAssertEqual(merged["scroll"]?.table?["smooth"], .bool(true)) // default survives beside the override
         XCTAssertEqual(merged["graph"]?.table?["g"], .string("Ghostty"))
         XCTAssertEqual(merged["mystery"], .bool(true))
-        XCTAssertEqual(merged["hints"]?.table?["letters"], .string("asdfghjkl"))
+        XCTAssertEqual(merged["clipboard"]?.table?["max-size-mb"], .int(500))
     }
 
     /// The drift guard: defaults emitted, parsed, and pruned against
@@ -182,10 +182,11 @@ final class JsonTests: XCTestCase {
         root.removeValue(forKey: "version")
         root.removeValue(forKey: "$schema")
         let sparse = Json.pruned(ConfigDefaults.normalized(root), defaults: ConfigDefaults.tree)
-        XCTAssertEqual(Set(sparse.keys), ["profiles", "graph", "scroll"])
+        XCTAssertEqual(Set(sparse.keys), ["graph", "scroll"])
         XCTAssertEqual(sparse["scroll"], .table(["speed": .int(2200)]))
         XCTAssertEqual(sparse["graph"]?.table?["g"], .string("Ghostty"))
-        XCTAssertEqual(sparse["profiles"]?.table?["brave"]?.table?["work"], .string("Work"))
+        // The retired registry translated its reference on the way out.
+        XCTAssertEqual(sparse["graph"]?.table?["b"]?.table?["x"], .string("brave:Work"))
     }
 
     // MARK: - Values this config cannot hold
@@ -244,13 +245,14 @@ final class JsonTests: XCTestCase {
     }
 
     /// Pre-0.9.11 files named the lode key "hyper" — the old section reads
-    /// as the new, and a non-default trigger survives the move.
+    /// as the new. The raw-hyper value itself retired in 0.22 and folds
+    /// into the default, so after pruning nothing remains of either.
     func testLegacyHyperSectionReadsAsLode() {
         let normalized = ConfigDefaults.normalized(["hyper": .table(["trigger": .string("raw-hyper")])])
         XCTAssertNil(normalized["hyper"])
-        XCTAssertEqual(normalized["lode"]?.table?["trigger"], .string("raw-hyper"))
+        XCTAssertEqual(normalized["lode"]?.table?["trigger"], .string("right-command"))
         let sparse = Json.pruned(normalized, defaults: ConfigDefaults.tree)
-        XCTAssertEqual(sparse["lode"]?.table?["trigger"], .string("raw-hyper"))
+        XCTAssertNil(sparse["lode"]?.table?["trigger"])
         // A lode section already present wins; the stray legacy one is dropped.
         let both = ConfigDefaults.normalized([
             "hyper": .table(["trigger": .string("raw-hyper")]),

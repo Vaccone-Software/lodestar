@@ -169,6 +169,13 @@ enum StripPreview {
             app.run()
         }
 
+        // 70…78 the settings window, one pane per variant.
+        if (70...78).contains(variant) {
+            let held = SettingsController.preview(variant - 70)
+            _ = held
+            app.run()
+        }
+
         if (9...14).contains(variant) {
             let held = OptionsCard.preview(variant - 8)
             _ = held

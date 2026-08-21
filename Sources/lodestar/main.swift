@@ -75,7 +75,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var defaultBrowserItem: NSMenuItem?
     private let walk = WalkController()
     private let meetings = MeetingController()
-    private var meetingsItem: NSMenuItem?
+    private let settings = SettingsController()
 
     /// Links clicked in other apps land here. Deliberately the shortest path
     /// in the app: it needs the config and nothing else — not the window
@@ -98,7 +98,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         // Before anything opens a file: settle where files live.
         Paths.migrateIfNeeded()
-        let (loaded, problems) = Config.load()
+        var (loaded, problems) = Config.load()
+        // What the browsers actually have joins what the config references,
+        // so pickers and most-recent resolution see every real profile.
+        loaded.registerDetected(ChromiumProfiles.detected())
         config = loaded
         Keys.apply(overrides: loaded.keyOverrides)
         ActivePolicy.mode = loaded.activeDisplayMode
@@ -196,8 +199,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         coach.enabled = loaded.coachEnabled
         coach.contextInputs = { [weak self] in
             guard let self else { return nil }
+            // Observed profile identity → the reference a route would
+            // store. The identity IS the reference now; the map survives
+            // to fold casing.
             let identityToKey = Dictionary(self.config.browserProfiles.map {
-                ("\($0.value.browser.rawValue):\($0.value.display)", $0.key)
+                ($0.value.reference, $0.value.reference)
             }, uniquingKeysWith: { first, _ in first })
             return (observations: self.observationStore.observations,
                     leaves: self.config.graph.leaves().map {
@@ -326,6 +332,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         installWalk()
         installMeetings()
+        installSettings()
 
         guard Permissions.isTrusted else {
             // A freshly installed bundle has its own TCC identity. Prompt,
@@ -485,18 +492,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(browserItem)
         // The coach's inbox of at most one: a suggestion whose moment was
         // missed parks here instead of being lost. Hidden when empty.
-        let meetingsMenuItem = makeItem("", #selector(toggleMeetings), key: "")
-        meetingsItem = meetingsMenuItem
-        menu.addItem(meetingsMenuItem)
         let coachItem = makeItem("", #selector(presentCoachSuggestion), key: "")
         coachItem.isHidden = true
         coachSuggestionItem = coachItem
         menu.addItem(coachItem)
         menu.delegate = self
         menu.addItem(.separator())
+        // Verbs and state machines only. Preferences live in Settings, and
+        // the file reloads itself on save — the menu carries nothing a
+        // window or a watcher already does.
+        menu.addItem(makeItem("Settings…", #selector(openSettingsWindow), key: ""))
         menu.addItem(makeItem("Edit Config…", #selector(editConfig), key: ""))
-        menu.addItem(makeItem("Reveal Config in Finder", #selector(revealConfig), key: ""))
-        menu.addItem(makeItem("Reload Config", #selector(reloadConfig), key: ""))
         menu.addItem(makeItem("Open Log", #selector(openLog), key: ""))
         menu.addItem(.separator())
         menu.addItem(makeItem("Quit lodestar", #selector(quit), key: "q"))
@@ -506,7 +512,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// The browser item reads the world each time the menu opens: it says what
     /// pressing it does, not what state you are in.
     func menuNeedsUpdate(_ menu: NSMenu) {
-        meetingsItem?.title = meetings.menuTitle
         if let coachItem = coachSuggestionItem {
             if let headline = coach?.parkedHeadline {
                 coachItem.isHidden = false
@@ -650,8 +655,96 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    @objc private func toggleMeetings() {
-        meetings.menuAction()
+    private func installSettings() {
+        settings.config = config
+        settings.apply = { [weak self] dottedPath, value in
+            guard let self else { return "lodestar is shutting down" }
+            // The clicks toggle is a state machine wearing a switch:
+            // turning it on has to *take* the browser role, and off has
+            // to give it back — the same doors the menu item opens. A raw
+            // config write here would claim a role macOS never granted.
+            // Only when the role already matches is this the documented
+            // pass-through switch, which is an ordinary write.
+            if dottedPath == "web.clicks.enabled", let wanted = value.bool,
+               wanted != self.holdsBrowserRole() {
+                wanted ? self.becomeDefaultBrowser() : self.standDownAsBrowser()
+                // When macOS sends the user to its picker instead, nothing
+                // was written — re-render so the switch shows reality, not
+                // the click.
+                self.settings.config = self.config
+                return nil
+            }
+            let path = dottedPath.split(separator: ".").map(String.init)
+            return self.rewriteConfig(flash: "✓ \(dottedPath)",
+                                      logged: "settings \(dottedPath)") { tree in
+                guard let updated = Json.setting(tree, path: path, to: value) else {
+                    throw Config.EditError.unparsed(dottedPath)
+                }
+                return updated
+            }
+        }
+        settings.machineState = { [weak self] in
+            var state = SettingsModel.MachineState()
+            state.accessibility = Permissions.isTrusted ? "Granted" : "Not granted"
+            state.screenRecording = CGPreflightScreenCaptureAccess()
+                ? "Granted" : "Not asked yet"
+            state.calendars = {
+                switch self?.meetings.authorization {
+                case .some(let status):
+                    if #available(macOS 14.0, *), status == .fullAccess { return "Granted" }
+                    if status == .authorized { return "Granted" }
+                    if status == .notDetermined { return "Not asked yet" }
+                    return "Denied"
+                case nil: return "unknown"
+                }
+            }()
+            state.browserRole = (self?.holdsBrowserRole() ?? false)
+                ? "Lodestar holds the role now." : "Your browser holds the role."
+            if let saved = self?.config.webClickBrowser, !saved.isEmpty {
+                let name = NSWorkspace.shared.urlForApplication(withBundleIdentifier: saved)
+                    .map { FileManager.default.displayName(atPath: $0.path)
+                        .replacingOccurrences(of: ".app", with: "") }
+                state.savedBrowser = name ?? saved
+                state.savedBrowserID = saved
+            }
+            var detected: [SettingsModel.DetectedProfile] = []
+            for browser in ChromiumBrowser.allCases {
+                for name in ChromiumProfiles.displayNames(for: browser) {
+                    detected.append(SettingsModel.DetectedProfile(
+                        browser: browser.rawValue, browserLabel: browser.label, name: name))
+                }
+            }
+            state.detectedProfiles = detected
+            return state
+        }
+        settings.problems = {
+            let (loaded, loadProblems) = Config.load()
+            return loadProblems + ConfigDoctor.groundTruthProblems(loaded)
+        }
+        settings.appDisplayName = { bundleID in
+            guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
+            else { return nil }
+            return FileManager.default.displayName(atPath: url.path)
+                .replacingOccurrences(of: ".app", with: "")
+        }
+        settings.calendarChoices = { [weak self] in
+            self?.meetings.calendarNames() ?? []
+        }
+        settings.appChoices = {
+            NSWorkspace.shared.runningApplications
+                .filter { $0.activationPolicy == .regular }
+                .compactMap { app in
+                    guard let name = app.localizedName, let id = app.bundleIdentifier
+                    else { return nil }
+                    return (name: name, bundleID: id)
+                }
+                .sorted { $0.name < $1.name }
+        }
+        engine.onOpenSettings = { [weak self] in self?.settings.toggle() }
+    }
+
+    @objc private func openSettingsWindow() {
+        settings.open()
     }
 
     @objc private func showWalk() {
@@ -685,7 +778,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             WebContext(config: self?.config ?? Config(), mostRecent: nil)
         }
         handler.savedBrowser = { [weak self] in self?.config.webClickBrowser ?? "" }
-        handler.trace = { [weak self] in self?.config.webTraceClicks ?? false }
         // The HUD is not up yet at install time, and a link is not worth
         // waiting for one; failures flash if there is anything to flash with.
         handler.flash = { [weak self] text in self?.hud?.flash(text, seconds: 5) }
@@ -1040,25 +1132,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// through the app index instead would miss the exact match, fuzzy-rank
     /// its way to the plain browser, and bind the wrong thing in silence.
     private func addTargetToGraph(_ letters: [String], target: String) -> String? {
-        let lowered = target.lowercased()
-        guard let browser = ChromiumBrowser.allCases.first(where: {
-            lowered.hasPrefix("\($0.rawValue):")
-        }) else {
+        guard let parsed = BrowserProfile.parse(reference: target) else {
             guard let entry = appIndex.entry(named: target) else {
                 return "\(target) is not installed any more"
             }
             return addAppToGraph(letters, entry: entry)
         }
-        let key = String(lowered.dropFirst(browser.rawValue.count + 1))
-            .trimmingCharacters(in: .whitespaces)
-        guard let profile = config.browserProfiles[key], profile.browser == browser else {
-            return "\(target) is not a profile you have declared"
+        // Detection is the authority; the merged map holds it after load.
+        guard let profile = config.browserProfiles[parsed.canonical] else {
+            return "\(parsed.browser.label) has no profile named '\(parsed.display)'"
         }
         if let problem = chainProblem(letters) { return problem }
         let shown = letters.map { $0.uppercased() }.joined(separator: " ")
-        let name = GraphTarget.browserProfile(key: key, profile: profile).label
+        let name = GraphTarget.browserProfile(profile).label
         return rewriteConfig(flash: "✓ lode \(shown) → \(name)") {
-            try GraphJsonEditor.addingPath(letters, target: "\(browser.rawValue):\(key)", in: $0)
+            try GraphJsonEditor.addingPath(letters, target: profile.reference, in: $0)
         }
     }
 
@@ -1154,10 +1242,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func applyConfigReload(successFlash: String) {
-        let (loaded, loadProblems) = Config.load()
+        var (loaded, loadProblems) = Config.load()
         let problems = loadProblems
             + ConfigDoctor.groundTruthProblems(loaded)
             + ConfigDoctor.semanticWarnings(loaded, appIndex: appIndex)
+        loaded.registerDetected(ChromiumProfiles.detected())
         recordGraphEpochs(old: config, new: loaded)
         config = loaded
         Keys.apply(overrides: loaded.keyOverrides)
@@ -1176,6 +1265,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         coach?.enabled = loaded.coachEnabled
         meetings.config = loaded
+        settings.config = loaded
         // A config edit changes the world the advisor reasons about —
         // including edits the coach itself just wrote.
         coach?.scheduleRefresh(after: 2)
@@ -1202,7 +1292,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Log.info("config-reload", [
             "graph": graphAddressByApp.count, "links": loaded.webLinks.count,
             "routes": loaded.webRoutes.count, "profiles": loaded.browserProfiles.count,
-            "problems": problems.count, "auto-reload": loaded.autoReload,
+            "problems": problems.count,
             "start-at-login": loaded.startAtLogin,
         ])
     }
@@ -1242,7 +1332,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func updateConfigWatcher() {
         configWatcher?.cancel()
         configWatcher = nil
-        guard config.autoReload else { return }
         let fd = open(Config.file.path, O_EVTONLY)
         guard fd >= 0 else { return }
         let source = DispatchSource.makeFileSystemObjectSource(
@@ -1257,8 +1346,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func scheduleAutoReload() {
         reloadDebounce?.cancel()
         let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            // Watching is simply how the config works now — but a file
+            // that does not parse is a save in progress or a mistake, and
+            // either way the running config is the last good one. Say so
+            // once and keep it.
+            if let contents = try? String(contentsOf: Config.file, encoding: .utf8),
+               (try? Json.parse(contents)) == nil {
+                Log.error("config-autoreload: the file does not parse — keeping the last good config")
+                self.hud.flash("Config not applied: the file does not parse. Fix it and save again.",
+                               seconds: 6)
+                self.updateConfigWatcher() // re-arm; the fix deserves a reload too
+                return
+            }
             Log.info("config-autoreload", ["trigger": "file-saved"])
-            self?.reloadConfig() // re-arms the watcher (editors save atomically via rename)
+            self.reloadConfig() // re-arms the watcher (editors save atomically via rename)
         }
         reloadDebounce = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
@@ -1355,11 +1457,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                     withApplicationAt: URL(fileURLWithPath: "/System/Applications/TextEdit.app"),
                                     configuration: NSWorkspace.OpenConfiguration())
         }
-    }
-
-    @objc private func revealConfig() {
-        ensureConfigOnDisk()
-        NSWorkspace.shared.activateFileViewerSelecting([Config.file])
     }
 
     /// The file can vanish between launch and the click; load() rewrites it.

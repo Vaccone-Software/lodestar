@@ -111,7 +111,11 @@ final class ScrollController {
         verticalRemainder = 0
         horizontalRemainder = 0
         let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now(), repeating: 1.0 / 120.0)
+        // Two milliseconds of leeway: invisible at 120Hz, and it lets the
+        // kernel coalesce the timer with the tap's own run-loop work
+        // instead of contending with it tick by tick.
+        timer.schedule(deadline: .now(), repeating: 1.0 / 120.0,
+                       leeway: .milliseconds(2))
         timer.setEventHandler { [weak self] in self?.smoothTick() }
         timer.resume()
         smoothTimer = timer

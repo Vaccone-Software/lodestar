@@ -64,6 +64,25 @@ public struct PersistedState: Codable {
     public var meetingSpent: [String]?
 }
 
+/// The corruption ritual, shared by every store that keeps user data:
+/// stamp the moment, set the evidence aside, return where it went.
+/// `keepOriginal` copies instead of moving — for a caller about to try a
+/// backup that still needs the original in place.
+public enum Quarantine {
+    @discardableResult
+    public static func setAside(_ file: URL, keepOriginal: Bool = false) -> URL {
+        let stamp = ISO8601DateFormatter().string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+        let quarantine = file.appendingPathExtension("corrupt-\(stamp)")
+        if keepOriginal {
+            try? FileManager.default.copyItem(at: file, to: quarantine)
+        } else {
+            try? FileManager.default.moveItem(at: file, to: quarantine)
+        }
+        return quarantine
+    }
+}
+
 /// Breaths and parking bookkeeping — saved on every change so a crash or
 /// restart can still find and restore everything best-effort.
 public final class StateStore {
@@ -98,9 +117,7 @@ public final class StateStore {
         }
         // Corruption. Quarantine the evidence, fall back to the backup,
         // and say so loudly — silence here costs the user their addresses.
-        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-        let quarantine = file.appendingPathExtension("corrupt-\(stamp)")
-        try? FileManager.default.copyItem(at: file, to: quarantine)
+        let quarantine = Quarantine.setAside(file, keepOriginal: true)
         Log.error("state: corrupt, quarantined", ["at": quarantine.lastPathComponent])
         if let recovered = decode(at: backupFile) {
             state = recovered

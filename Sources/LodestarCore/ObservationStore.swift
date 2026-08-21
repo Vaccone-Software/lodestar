@@ -17,6 +17,12 @@ public final class ObservationStore {
     public private(set) var observations = Observations()
     private var pendingSave: DispatchWorkItem?
     private var enabled = true
+    /// Where the coalesced save encodes and writes. `Observations` is a
+    /// value, so the work item carries a snapshot and the main thread is
+    /// done the moment it is taken — a quarter-megabyte of pretty-printed
+    /// JSON every few busy seconds is exactly the bill the tap's run loop
+    /// must never pay.
+    private let saveQueue = DispatchQueue(label: "lodestar.observations", qos: .utility)
 
     public init(file: URL = ObservationStore.defaultFile, log: EventLog = EventLog()) {
         self.file = file
@@ -25,9 +31,16 @@ public final class ObservationStore {
 
     /// Off means nothing is recorded and nothing is written. Somebody who
     /// does not want to be watched by their own window manager should get
-    /// exactly that, not a smaller file.
+    /// exactly that, not a smaller file. Turning off drains the save queue
+    /// first: a snapshot already in flight would otherwise land after the
+    /// switch, which is the one write "off" must make impossible.
     public func setEnabled(_ on: Bool) {
         enabled = on
+        if !on {
+            pendingSave?.cancel()
+            pendingSave = nil
+            saveQueue.sync {}
+        }
     }
 
     /// Read the store.
@@ -38,17 +51,31 @@ public final class ObservationStore {
     /// discards whatever the app had buffered since it last flushed.
     /// Rotation is the running instance's job.
     public func load(compacting: Bool = true) {
-        if compacting { log.compact() }
-        guard let data = try? Data(contentsOf: file),
+        // Rotation is queued, not awaited: the ring is a full decode and
+        // rewrite, and boot must not stand behind it. The rebuild path's
+        // own read is serialized after it, so a replay still sees the
+        // rotated file.
+        if compacting { log.compactSoon() }
+        let data = try? Data(contentsOf: file)
+        guard let data,
               let decoded = try? JSONDecoder().decode(Observations.self, from: data),
               decoded.version == Observations.currentVersion else {
             // Absent, unreadable, or a previous schema. The log is the
-            // truth, so the honest recovery is a replay, not a rescue.
+            // truth, so the honest recovery is a replay, not a rescue —
+            // but a file that existed and would not decode is evidence of
+            // a bug, so it is quarantined and said out loud, never silently
+            // overwritten by whatever the ring still holds.
+            if data != nil {
+                let quarantine = Quarantine.setAside(file)
+                Log.error("observations: \(file.lastPathComponent) would not decode — quarantined at \(quarantine.lastPathComponent), replaying the ring")
+            }
             let events = log.readAll()
             if !events.isEmpty {
                 Log.info("observations: rebuilding view from \(events.count) events")
                 observations = Observations.rebuild(from: events)
                 saveSoon()
+            } else if data != nil {
+                Log.error("observations: the ring is empty — starting fresh; the quarantined file holds the history")
             }
             return
         }
@@ -208,6 +235,10 @@ public final class ObservationStore {
         observations = Observations()
         pendingSave?.cancel()
         pendingSave = nil
+        // Drain before deleting: a snapshot already on the save queue
+        // would land after the removal and quietly resurrect the history
+        // the user just asked to be rid of.
+        saveQueue.sync {}
         log.clear()
         try? FileManager.default.removeItem(at: file)
     }
@@ -229,11 +260,14 @@ public final class ObservationStore {
         return true
     }
 
+    /// Synchronous: both files are settled when this returns. Shutdown's
+    /// path — the steady state coalesces through `saveSoon` instead.
     public func flush() {
         pendingSave?.cancel()
         pendingSave = nil
         log.flush()
-        save()
+        guard enabled else { return }
+        saveQueue.sync { [snapshot = observations] in self.write(snapshot) }
     }
 
     private func saveSoon() {
@@ -241,8 +275,12 @@ public final class ObservationStore {
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.pendingSave = nil
-            self.log.flush()
-            self.save()
+            self.log.flushSoon()
+            guard self.enabled else { return }
+            // The snapshot is taken here on main; the encode and the disk
+            // leave with it.
+            let snapshot = self.observations
+            self.saveQueue.async { self.write(snapshot) }
         }
         pendingSave = work
         // Longer than the state store's half second: nothing here is worth
@@ -250,11 +288,12 @@ public final class ObservationStore {
         DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: work)
     }
 
-    private func save() {
-        guard enabled else { return }
+    /// Runs on `saveQueue` only; the enabled check already happened on
+    /// main, where that flag lives.
+    private func write(_ snapshot: Observations) {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? encoder.encode(observations) else { return }
+        guard let data = try? encoder.encode(snapshot) else { return }
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
         try? data.write(to: file, options: .atomic)

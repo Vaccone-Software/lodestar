@@ -292,7 +292,7 @@ public enum SettingsModel {
             Row(title: "Smooth scrolling", path: "scroll.smooth",
                 control: .toggle(config.scrollSmooth), isDefault: config.scrollSmooth),
             Row(title: "Scroll speed", path: "scroll.speed",
-                control: .number(Int(config.scrollSpeed), min: 200, max: 6000, unit: "px/s"),
+                control: .number(Int(config.scrollSpeed), min: 200, max: 4000, unit: "px/s"),
                 detail: "How fast smooth scrolling moves.",
                 isDefault: isDefault(["scroll", "speed"], .int(Int(config.scrollSpeed))),
                 dimmed: !config.scrollSmooth),
@@ -312,7 +312,7 @@ public enum SettingsModel {
         }
         clipboardRows.append(contentsOf: [
             Row(title: "Size limit", path: "clipboard.max-size-mb",
-                control: .number(config.clipboardMaxBytes / 1_000_000, min: 10, max: 4000, unit: "MB"),
+                control: .number(config.clipboardMaxBytes / 1_000_000, min: 10, max: 20_000, unit: "MB"),
                 detail: "Clips past the limit are never recorded.",
                 isDefault: config.clipboardMaxBytes == 500_000_000),
             Row(title: "Excluded apps", path: "clipboard.exclude-apps",

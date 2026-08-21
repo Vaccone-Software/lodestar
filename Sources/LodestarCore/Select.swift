@@ -84,8 +84,11 @@ public struct SelectCore {
     public init(elements: [Element], alphabet: String) {
         self.elements = elements
         self.alphabet = alphabet
-        order = Dictionary(uniqueKeysWithValues:
-            elements.enumerated().map { ($0.element.id, $0.offset) })
+        // First occurrence wins: ids come from the harvest, which this
+        // layer does not control, and a duplicate is a reading-order tie —
+        // never a reason to trap.
+        order = Dictionary(elements.enumerated().map { ($0.element.id, $0.offset) },
+                           uniquingKeysWith: { first, _ in first })
     }
 
     /// Shifted punctuation and digits are search characters — labels are
@@ -181,10 +184,10 @@ public struct SelectCore {
 
     /// A match grown to the word it sits inside.
     private func snapped(_ match: Match) -> Match {
-        guard let text = elements.first(where: { $0.id == match.element })?.text
-        else { return match }
+        guard let index = order[match.element] else { return match }
         return Match(element: match.element,
-                     range: Self.wordSnapped(match.range, in: text as NSString))
+                     range: Self.wordSnapped(match.range,
+                                             in: elements[index].text as NSString))
     }
 
     /// The span two anchors make, piece by piece.
@@ -203,8 +206,8 @@ public struct SelectCore {
     /// nobody could see. Document order is the element order the caller
     /// supplied, so there is still no direction to get wrong.
     func span(from a: Match, to b: Match) -> [Match] {
-        guard let indexA = elements.firstIndex(where: { $0.id == a.element }),
-              let indexB = elements.firstIndex(where: { $0.id == b.element })
+        // The order index exists for exactly this question.
+        guard let indexA = order[a.element], let indexB = order[b.element]
         else { return [] }
         let forward = indexA < indexB
             || (indexA == indexB && a.range.location <= b.range.location)
@@ -242,8 +245,12 @@ public struct SelectCore {
     /// Expand a range outward to whitespace boundaries. Scans UTF-16
     /// units, which is safe: every whitespace character is BMP, so a
     /// surrogate pair is always non-whitespace and never splits.
+    /// Hoisted: this runs inside the per-keystroke match loop, and
+    /// building a CharacterSet per call was the loop's only allocation.
+    private static let whitespace = CharacterSet.whitespacesAndNewlines
+
     static func wordSnapped(_ range: NSRange, in text: NSString) -> NSRange {
-        let whitespace = CharacterSet.whitespacesAndNewlines
+        let whitespace = Self.whitespace
         func isBreak(_ index: Int) -> Bool {
             guard index >= 0, index < text.length else { return true }
             guard let scalar = Unicode.Scalar(text.character(at: index)) else { return false }

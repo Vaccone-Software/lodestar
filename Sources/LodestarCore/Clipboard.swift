@@ -270,8 +270,13 @@ public enum Clipboard {
 
     /// Newest first, pins excluded — pins have their own zone and their own
     /// addresses, so a pinned clip never also occupies a recent card.
+    ///
+    /// No sort: `merging` inserts every arrival at the front, so the list
+    /// is newest-first by construction, and this runs on every keystroke
+    /// of a strip search over a history capped at ten thousand. A test
+    /// stands on the invariant so a future merge cannot quietly break it.
     public static func recents(_ clips: [Clip]) -> [Clip] {
-        clips.filter { !$0.isPinned }.sorted { $0.created > $1.created }
+        clips.filter { !$0.isPinned }
     }
 
     public static func pins(_ clips: [Clip]) -> [Clip] {
@@ -299,14 +304,19 @@ public enum Clipboard {
         // have nothing to do with the query. Only for an ASCII needle —
         // byte folding is not Unicode case folding, and the correct search
         // below is worth its cost on the rare query that needs it.
-        if isASCII(needle), !containsInOrder(needle, in: preview) { return nil }
+        let ascii = isASCII(needle)
+        if ascii, !containsInOrder(needle, in: preview) { return nil }
         if let position = literalPosition(of: needle, in: preview) {
             return 1000 - Double(min(position, 800)) * 0.5
         }
-        guard needle.count >= 2, containsInOrder(needle, in: preview) else { return nil }
+        // An ASCII needle that reached this line already passed the gate's
+        // scan, so tier two never re-walks what tier zero settled.
+        guard needle.count >= 2, ascii || containsInOrder(needle, in: preview)
+        else { return nil }
         // Only the survivors pay for scoring. No length penalty either: a
-        // clip is not worse for being long.
-        return Fuzzy.score(query: needle, candidate: preview.lowercased(), lengthPenalty: 0)
+        // clip is not worse for being long. The preview goes in as copied —
+        // the scorer folds case once itself.
+        return Fuzzy.score(query: needle, candidate: preview, lengthPenalty: 0)
     }
 
     /// Foundation's search, deliberately. A hand-rolled byte scan looked

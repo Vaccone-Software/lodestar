@@ -153,7 +153,7 @@ public final class WindowModel {
     /// linger server-side app-dependently, FINDINGS §3), so this never
     /// resurrects. A failed or empty read touches nothing.
     public func sweepAgainstWindowServer() {
-        let extant = Set(CGWindows.list(onScreenOnly: false).map(\.id))
+        let extant = CGWindows.liveIDs(onScreenOnly: false)
         guard !extant.isEmpty else { return }
         let ghosts = windows.values.filter { $0.isAlive && !extant.contains($0.id) }
         for w in ghosts {
@@ -230,7 +230,9 @@ public final class WindowModel {
         w.isAlive = false
         w.deadAt = Date()
         windows[id] = w
-        idByElement = idByElement.filter { $0.value != id }
+        // The record keeps its element for life, so the reverse key is
+        // derivable — one removal, not a rebuild of the whole map.
+        idByElement.removeValue(forKey: ElementKey(element: w.element))
         if focusedID == id { focusedID = nil }
         onDestroyed?(id)
     }
@@ -283,9 +285,10 @@ public final class WindowModel {
         let cutoff = Date().addingTimeInterval(-interval)
         let expired = windows.filter { !$0.value.isAlive && ($0.value.deadAt ?? .distantPast) < cutoff }
         guard !expired.isEmpty else { return }
-        for id in expired.keys { windows.removeValue(forKey: id) }
-        let gone = Set(expired.keys)
-        idByElement = idByElement.filter { !gone.contains($0.value) }
+        for (id, w) in expired {
+            windows.removeValue(forKey: id)
+            idByElement.removeValue(forKey: ElementKey(element: w.element))
+        }
         onTrace?("pruned \(expired.count) dead record\(expired.count == 1 ? "" : "s")")
     }
 

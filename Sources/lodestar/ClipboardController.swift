@@ -17,6 +17,7 @@ final class ClipboardController {
     var bootWarning: String? { store.bootWarning }
     private var poll: Timer?
     private var lastChangeCount = NSPasteboard.general.changeCount
+    private var clearPollTick = 0
     /// Our own writes must not read back as new copies, or pasting would
     /// silently reorder the list it is supposed to leave alone.
     private var selfWrittenChangeCount = -1
@@ -70,10 +71,17 @@ final class ClipboardController {
     // MARK: - Capture
 
     private func capture() {
-        if store.consumeClearRequest() {
-            store.clearAll()
-            onCapture?()
-            flash("⌂ clipboard history cleared")
+        // The clear-request flag is a file stat; at the poll's 0.35s
+        // cadence that was three stats a second forever. Every eighth
+        // tick keeps a CLI clear landing within ~3 seconds.
+        clearPollTick += 1
+        if clearPollTick >= 8 {
+            clearPollTick = 0
+            if store.consumeClearRequest() {
+                store.clearAll()
+                onCapture?()
+                flash("⌂ clipboard history cleared")
+            }
         }
         let board = NSPasteboard.general
         let count = board.changeCount
@@ -157,13 +165,18 @@ final class ClipboardController {
     /// which is the deepest expectation there is. Only the *list* stays put
     /// — copies reorder it, pastes never do.
     func paste(_ clip: Clipboard.Clip, action: PasteAction) {
+        // One disk read for every representation this method wants: the
+        // native loop, the image fallback, and the file handover all drew
+        // from `nativeData`, each paying the read again — for an image
+        // near the size ceiling, tens of megabytes re-read inside the tap.
+        let natives = store.nativeData(clip)
         let board = NSPasteboard.general
         board.clearContents()
         let item = NSPasteboardItem()
         var wrote = false
 
         if action == .native {
-            for native in store.nativeData(clip) {
+            for native in natives {
                 item.setData(native.data, forType: NSPasteboard.PasteboardType(native.type))
                 wrote = true
             }
@@ -171,7 +184,7 @@ final class ClipboardController {
         if let plain = store.plainData(clip.id), let text = String(data: plain, encoding: .utf8) {
             item.setString(text, forType: .string)
             wrote = true
-        } else if action != .native, let native = store.nativeData(clip).first {
+        } else if action != .native, let native = natives.first {
             // An image has no plain form; both labels paste the image.
             item.setData(native.data, forType: NSPasteboard.PasteboardType(native.type))
             wrote = true
@@ -184,7 +197,7 @@ final class ClipboardController {
         if Clipboard.pastesAsFilePath(
             kind: clip.kind,
             frontmostBundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-        ), let file = imageFileForPasting(clip) {
+        ), let file = imageFileForPasting(clip, natives: natives) {
             item.setString(file.path, forType: .string)
             item.setString(file.absoluteString, forType: .fileURL)
             handedOverAsFile = true
@@ -222,8 +235,9 @@ final class ClipboardController {
     /// the tool on the far side reads back. Named by content id, so pasting
     /// the same clip twice writes the file once, and living in the temp
     /// directory, so nothing accumulates in the user's data.
-    private func imageFileForPasting(_ clip: Clipboard.Clip) -> URL? {
-        guard let first = store.nativeData(clip).first else { return nil }
+    private func imageFileForPasting(_ clip: Clipboard.Clip,
+                                     natives: [(type: String, data: Data)]) -> URL? {
+        guard let first = natives.first else { return nil }
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(
                 "\(Clipboard.handoverPrefix)\(clip.id).\(Clipboard.pasteableImageExtension)")

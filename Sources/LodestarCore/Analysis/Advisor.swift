@@ -320,12 +320,14 @@ public enum Advisor {
         let o = context.observations
         let addressed = Set(context.leaves.map { $0.label.lowercased() })
         let free = freeLetters(context)
+        // One walk of the ring for every app together — per-app rescans
+        // made this pass O(apps × events).
+        let searcherWeeks = Demand.weeklySearcherCountsByApp(events: context.events)
         var out: [(Recommendation, Double)] = []
         for (app, record) in o.apps where !addressed.contains(app) {
             guard record.searcher >= 8, o.activeWeeks(app: app) >= 2,
                   let launcherMean = record.commit.mean else { continue }
-            let counts = Demand.weeklySearcherCounts(app: app, events: context.events,
-                                                    now: context.now)
+            let counts = Demand.series(byWeek: searcherWeeks[app] ?? [:], now: context.now)
             guard let demand = Demand.fit(weeklyCounts: counts), demand.perWeek > 0 else {
                 continue
             }
@@ -349,7 +351,7 @@ public enum Advisor {
                     + " with no address · lode \(slot.uppercased()) would pay for itself",
                 secondsPerWeek: value.secondsPerWeek, probability: value.probability,
                 evidence: [
-                    "\(record.searcher) launcher reaches across \(o.activeWeeks(app: app)) weeks",
+                    "\(record.searcher) launcher reaches across \(o.observedWeeks(app: app, now: context.now)) weeks",
                     String(format: "launcher costs %.2fs; lode %@ predicted %.2fs",
                            launcherSeconds, slot.uppercased(), chainSeconds),
                     String(format: "learning bill ≈ %.0fs, from your own curves", learningCost),
@@ -381,7 +383,7 @@ public enum Advisor {
                 ? "lode"
                 : "lode " + key.split(separator: " ")
                     .map { $0.uppercased() }.joined(separator: " ")
-            let weeks = max(1, record.weeks.values.filter { $0 > 0 }.count)
+            let weeks = o.observedWeeks(addressKey: key, now: context.now)
             let weekly = Double(record.wrongKeys) / Double(weeks) * 1.5
             out.append((Recommendation(
                 kind: .rebind, target: key.isEmpty ? "lode" : key,
@@ -404,7 +406,7 @@ public enum Advisor {
             guard let record = o.addresses[key], record.completions >= 20,
                   let latency else { continue }
             let weekly = Double(record.completions)
-                / max(1, Double(o.activeWeeks(address: leaf.chain)))
+                / Double(o.observedWeeks(address: leaf.chain, now: context.now))
             guard weekly >= 10 else { continue }
             guard let slot = mnemonicLetters(app: leaf.label,
                                              record: o.apps[leaf.label.lowercased()])
@@ -456,11 +458,26 @@ public enum Advisor {
         let o = context.observations
         guard o.since != .distantPast,
               context.now.timeIntervalSince(o.since) >= 28 * 86_400 else { return [] }
+        // The clock that matters is the binding's, not the store's: a
+        // chain bound yesterday has had no chance to be typed, and "never
+        // used" must never describe something new — least of all a bind
+        // the coach itself just talked someone into. Recent additions
+        // carry their epoch event in the ring; anything older than the
+        // ring is older than the gate by definition.
+        var addedAt: [String: Date] = [:]
+        for event in context.events where event.kind == .epoch {
+            guard let address = event.address,
+                  event.change == "added" || event.change == "retargeted" else { continue }
+            addedAt[address] = event.t
+        }
         return o.unused(among: context.leaves.map(\.chain)).compactMap { chain in
             guard !chain.isEmpty else { return nil }
+            let key = Observations.key(chain)
+            if let added = addedAt[key],
+               context.now.timeIntervalSince(added) < 28 * 86_400 { return nil }
             let shown = "lode " + chain.map { $0.uppercased() }.joined(separator: " ")
             return (Recommendation(
-                kind: .retire, target: Observations.key(chain),
+                kind: .retire, target: key,
                 detail: "\(shown) has never been typed · a letter spent on nothing",
                 secondsPerWeek: 0, probability: 0.95,
                 evidence: ["four weeks of observation, zero completions"],
@@ -496,7 +513,8 @@ public enum Advisor {
             let chainSeconds = latency?.chainSeconds(leaf.chain, address: key) ?? 0.8
             let saved = launcherSeconds - chainSeconds
             guard saved > 0 else { continue }
-            let weekly = Double(record.searcher) / max(1, Double(o.activeWeeks(app: app)))
+            let weekly = Double(record.searcher)
+                / Double(o.observedWeeks(app: app, now: context.now))
             let lower = Maths.wilsonLower(successes: record.searcher, trials: record.reaches)
             guard lower > 0.5 else { continue }
             // The null: with an address in hand, searches should be the
@@ -505,8 +523,16 @@ public enum Advisor {
             let shown = "lode " + leaf.chain.map { $0.uppercased() }.joined(separator: " ")
             var evidence = [String(format: "%d%% of %d reaches went through the launcher",
                                    Int(share * 100), record.reaches)]
-            if let rescued = rescues[Observations.key(leaf.chain.prefix(1).map { $0 })],
-               rescued > 0 {
+            // Abandons are recorded under the full prefix where the hand
+            // stopped ("w", "w g", …), so this leaf's evidence is the sum
+            // over every prefix of its own chain. Reading just the first
+            // letter never matched a multi-letter abandon at all — the
+            // strongest rescue evidence was invisible.
+            let rescued = (1...leaf.chain.count)
+                .map { Observations.key(Array(leaf.chain.prefix($0))) }
+                .compactMap { rescues[$0] }
+                .reduce(0, +)
+            if rescued > 0 {
                 evidence.append("\(rescued) abandoned chains were rescued by the launcher")
             }
             out.append((Recommendation(
@@ -545,7 +571,9 @@ public enum Advisor {
                 detail: "\(pair.from) and \(pair.to) travel together "
                     + String(format: "%.0f× at lift %.1f · a breath would pin them side by side",
                              pair.count, pair.lift),
-                secondsPerWeek: pair.count * 2,
+                // A weekly-halved mass is ~a two-week window, so the rate
+                // is half of it — at two seconds a transition, the count.
+                secondsPerWeek: pair.count,
                 probability: probability,
                 evidence: [String(format: "lift %.1f over independent use", pair.lift)]), p))
         }
@@ -556,11 +584,10 @@ public enum Advisor {
         let o = context.observations
         var out: [(Recommendation, Double)] = []
         for (host, record) in o.hosts {
-            // "pass" is a clicked link that matched no rule — the user
-            // chose nothing, so it is evidence of nothing. Concentration
-            // is judged over deliberate profile choices only; a host that
-            // is all pass-through has no preference to make a rule of.
-            let chosen = record.profiles.filter { $0.key != "pass" }
+            // Concentration is judged over deliberate profile choices
+            // only; a host that is all pass-through has no preference to
+            // make a rule of.
+            let chosen = record.chosenProfiles
             let total = chosen.values.reduce(0, +)
             guard total >= 8,
                   let (profile, hits) = chosen.max(by: { $0.value < $1.value })
@@ -582,7 +609,7 @@ public enum Advisor {
                 detail: "\(host) has landed in \(profile) \(hits) of \(total) times · "
                     + "one route line would make it a fact instead of a habit",
                 secondsPerWeek: Double(total)
-                    / max(1, Double(record.weeks.count)) * 1.5,
+                    / Double(o.observedWeeks(host: host, now: context.now)) * 1.5,
                 probability: lower,
                 evidence: ["\(hits)/\(total) chosen opens in \(profile)"], edit: edit), p))
         }

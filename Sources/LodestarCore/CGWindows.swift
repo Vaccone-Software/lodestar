@@ -13,13 +13,16 @@ public struct CGWindowRecord {
 }
 
 public enum CGWindows {
-    public static func list(onScreenOnly: Bool = true) -> [CGWindowRecord] {
+    /// The one call both entry points share, so the option set cannot
+    /// diverge between the full listing and the id sweep.
+    private static func rawInfo(onScreenOnly: Bool) -> [[String: Any]] {
         var option: CGWindowListOption = [.excludeDesktopElements]
         if onScreenOnly { option.insert(.optionOnScreenOnly) }
-        guard let raw = CGWindowListCopyWindowInfo(option, kCGNullWindowID) as? [[String: Any]] else {
-            return []
-        }
-        return raw.compactMap { info in
+        return CGWindowListCopyWindowInfo(option, kCGNullWindowID) as? [[String: Any]] ?? []
+    }
+
+    public static func list(onScreenOnly: Bool = true) -> [CGWindowRecord] {
+        rawInfo(onScreenOnly: onScreenOnly).compactMap { info in
             guard
                 let id = info[kCGWindowNumber as String] as? CGWindowID,
                 let pid = info[kCGWindowOwnerPID as String] as? pid_t,
@@ -36,7 +39,16 @@ public enum CGWindows {
         }
     }
 
+    /// Just the ids, skipping record construction: the liveness sweep runs
+    /// on every focus change and every summon, and it only ever asks
+    /// "which windows still exist" — bridging bounds and owner names for
+    /// hundreds of windows to answer that was most of the sweep's cost.
+    public static func liveIDs(onScreenOnly: Bool = false) -> Set<CGWindowID> {
+        Set(rawInfo(onScreenOnly: onScreenOnly)
+            .compactMap { $0[kCGWindowNumber as String] as? CGWindowID })
+    }
+
     public static func contains(_ id: CGWindowID, onScreenOnly: Bool = false) -> Bool {
-        list(onScreenOnly: onScreenOnly).contains { $0.id == id }
+        liveIDs(onScreenOnly: onScreenOnly).contains(id)
     }
 }

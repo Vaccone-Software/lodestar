@@ -100,6 +100,13 @@ public final class EventLog {
     public static let retention: TimeInterval = 90 * 86_400
 
     public let file: URL
+    /// Owns `pending` and every touch of the file. Appends land here
+    /// without waiting; the scheduled flush writes here without ever
+    /// holding the main thread — the tap shares the main run loop, and a
+    /// disk that answers slowly must stall analysis, never a keystroke.
+    /// Synchronous entry points (`flush`, `readAll`, `compact`) hop
+    /// through it, so callers keep their ordering guarantees.
+    private let io = DispatchQueue(label: "lodestar.events", qos: .utility)
     private var pending: [ObservationEvent] = []
     private var flushWork: DispatchWorkItem?
 
@@ -121,13 +128,30 @@ public final class EventLog {
     }
 
     public func append(_ event: ObservationEvent) {
-        pending.append(event)
+        io.async { self.pending.append(event) }
         scheduleFlush()
     }
 
+    /// Synchronous: everything buffered is on disk when this returns.
+    /// Shutdown and tests want exactly this; the steady state never calls
+    /// it — the scheduled flush stays off the calling thread entirely.
     public func flush() {
         flushWork?.cancel()
         flushWork = nil
+        io.sync { self.flushLocked() }
+    }
+
+    /// The coalesced path: the write happens on `io`, and whoever
+    /// scheduled it has long since moved on.
+    public func flushSoon() {
+        flushWork?.cancel()
+        flushWork = nil
+        io.async { self.flushLocked() }
+    }
+
+    /// Callers must already be on `io`.
+    private func flushLocked() {
+        dispatchPrecondition(condition: .onQueue(io))
         guard !pending.isEmpty else { return }
         let encoder = Self.makeEncoder()
         var lines = Data()
@@ -177,13 +201,27 @@ public final class EventLog {
 
     /// Every event still in the ring, oldest first, pending included.
     public func readAll() -> [ObservationEvent] {
-        var events = Self.read(file: file)
-        events.append(contentsOf: pending)
-        return events
+        io.sync {
+            var events = Self.read(file: file)
+            events.append(contentsOf: pending)
+            return events
+        }
     }
 
-    /// Static and path-only on purpose: safe to call off the main thread,
-    /// which is where the coach's recommendation pass reads the ring.
+    /// Flush-then-read as one step on `io`, so the file the analysis pass
+    /// decodes already holds everything buffered — safe from any thread,
+    /// which is where the coach's recommendation pass runs it.
+    public func snapshot() -> [ObservationEvent] {
+        io.sync {
+            flushLocked()
+            var events = Self.read(file: file)
+            events.append(contentsOf: pending)
+            return events
+        }
+    }
+
+    /// Static and path-only on purpose: safe for a process that only reads
+    /// — the CLI report, tests pointing at a scratch file.
     public static func read(file: URL) -> [ObservationEvent] {
         guard let data = try? Data(contentsOf: file) else { return [] }
         let decoder = makeDecoder()
@@ -192,9 +230,20 @@ public final class EventLog {
         }
     }
 
-    /// Drop what has aged out of the ring, rewriting the file. Run at boot,
-    /// not on the hot path.
+    /// Drop what has aged out of the ring, rewriting the file.
     public func compact(now: Date = Date()) {
+        io.sync { self.compactLocked(now: now) }
+    }
+
+    /// The boot path: same rotation, but launch never waits on it — a
+    /// ninety-day ring is a full decode and rewrite, and the tap should be
+    /// standing before the disk has finished settling history.
+    public func compactSoon(now: Date = Date()) {
+        io.async { self.compactLocked(now: now) }
+    }
+
+    private func compactLocked(now: Date) {
+        dispatchPrecondition(condition: .onQueue(io))
         let cutoff = now.addingTimeInterval(-Self.retention)
         let events = Self.read(file: file)
         let kept = events.filter { $0.t >= cutoff }
@@ -210,19 +259,17 @@ public final class EventLog {
     }
 
     public func clear() {
-        pending = []
         flushWork?.cancel()
         flushWork = nil
-        try? FileManager.default.removeItem(at: file)
+        io.sync {
+            pending = []
+            try? FileManager.default.removeItem(at: file)
+        }
     }
 
     private func scheduleFlush() {
         guard flushWork == nil else { return }
-        let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.flushWork = nil
-            self.flush()
-        }
+        let work = DispatchWorkItem { [weak self] in self?.flushSoon() }
         flushWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: work)
     }

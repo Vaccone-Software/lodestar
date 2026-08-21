@@ -144,6 +144,10 @@ public struct Observations: Codable, Equatable {
         /// Completions whose first letter waited for the map.
         public var peeked = 0
         public var weeks: [Int: Int] = [:]
+        /// The week this record first appeared — the honest denominator
+        /// for its lifetime counters, which outlive the pruned week ring.
+        /// Optional so records written before the field decode unchanged.
+        public var firstWeek: Int?
         public var usage = MultiScale()
         /// The config generation this binding has had since.
         public var epoch = 0
@@ -200,6 +204,8 @@ public struct Observations: Codable, Equatable {
         /// First two characters typed when searching for this app.
         public var prefixes: [String: Int] = [:]
         public var weeks: [Int: Int] = [:]
+        /// See `AddressRecord.firstWeek`.
+        public var firstWeek: Int?
         /// 8 buckets: 4 six-hour dayparts × weekday/weekend.
         public var dayparts: [Int] = Array(repeating: 0, count: 8)
         public var usage = MultiScale()
@@ -244,9 +250,19 @@ public struct Observations: Codable, Equatable {
         /// typed | clicked.
         public var sources: [String: Int] = [:]
         public var weeks: [Int: Int] = [:]
+        /// See `AddressRecord.firstWeek`.
+        public var firstWeek: Int?
         public var lastUsed = Date.distantPast
 
         public init() {}
+
+        /// The deliberate choices only — "pass" is a clicked link that
+        /// matched no rule, evidence of nothing. One definition, shared by
+        /// the advisor's pricing and the chip's evidence, so the two can
+        /// never disagree about the population again.
+        public var chosenProfiles: [String: Int] {
+            profiles.filter { $0.key != "pass" }
+        }
     }
 
     /// One recommendation's life, as a view over coach events: offered,
@@ -360,6 +376,7 @@ public struct Observations: Codable, Equatable {
             touch(now)
             let key = Self.key(letters)
             var record = addresses[key] ?? AddressRecord()
+            record.firstWeek = record.firstWeek ?? Self.week(now)
             record.completions += 1
             record.lastUsed = now
             record.weeks[Self.week(now), default: 0] += 1
@@ -385,6 +402,7 @@ public struct Observations: Codable, Equatable {
             touch(now)
             let key = Self.key(letters)
             var record = addresses[key] ?? AddressRecord()
+            record.firstWeek = record.firstWeek ?? Self.week(now)
             record.abandons += 1
             if let hover = event.hover, hover > 0 {
                 record.hover.add(Foundation.log(min(hover, Self.recallCeiling)))
@@ -395,6 +413,7 @@ public struct Observations: Codable, Equatable {
             touch(now)
             let key = event.chain.map(Self.key) ?? ""
             var record = addresses[key] ?? AddressRecord()
+            record.firstWeek = record.firstWeek ?? Self.week(now)
             record.wrongKeys += 1
             if let pressed = event.pressed, !pressed.isEmpty {
                 if record.confusion[pressed] != nil || record.confusion.count < Self.confusionCap {
@@ -408,6 +427,7 @@ public struct Observations: Codable, Equatable {
                   let routeRaw = event.route, let route = Route(rawValue: routeRaw) else { return }
             touch(now)
             var record = apps[name] ?? AppRecord()
+            record.firstWeek = record.firstWeek ?? Self.week(now)
             switch route {
             case .graph: record.graph += 1
             case .searcher: record.searcher += 1
@@ -464,6 +484,7 @@ public struct Observations: Codable, Equatable {
                     return
                 }
             }
+            record.firstWeek = record.firstWeek ?? Self.week(now)
             record.count += 1
             record.lastUsed = now
             record.weeks[Self.week(now), default: 0] += 1
@@ -482,8 +503,18 @@ public struct Observations: Codable, Equatable {
             defer { lastApp = app }
             guard let previous = lastApp, previous != app else { return }
             decayTransitions(to: now)
-            let known = Set(transitions.keys).union(transitions.values.flatMap(\.keys))
-            if !known.contains(app), known.count >= Self.transitionAppCap { return }
+            // The cap audit walks every key in the table, so it runs only
+            // when this arrival could actually grow it — a seen pair, the
+            // overwhelmingly common case on this every-app-switch path,
+            // pays a lookup and nothing else. Both endpoints are audited:
+            // checking only the destination let a capped-out app slip in
+            // as a row key and grow the matrix past its bound anyway.
+            if transitions[previous]?[app] == nil {
+                let known = Set(transitions.keys).union(transitions.values.flatMap(\.keys))
+                let need = (known.contains(app) ? 0 : 1)
+                    + (known.contains(previous) ? 0 : 1)
+                if need > 0, known.count + need > Self.transitionAppCap { return }
+            }
             transitions[previous, default: [:]][app, default: 0] += 1
 
         case .epoch:
@@ -537,7 +568,8 @@ public struct Observations: Codable, Equatable {
                   let target = event.app else { return }
             let id = "\(kind):\(target)"
             let week = Self.week(now)
-            var entry = ledger.first { $0.id == id } ?? LedgerEntry(
+            let existing = ledger.firstIndex { $0.id == id }
+            var entry = existing.map { ledger[$0] } ?? LedgerEntry(
                 id: id, kind: kind, target: target, chain: event.address,
                 predictedSecondsPerWeek: event.seconds ?? 0,
                 firstOfferedWeek: week, lastOfferedWeek: week, offers: 0,
@@ -560,7 +592,7 @@ public struct Observations: Codable, Equatable {
             default:
                 return
             }
-            ledger.removeAll { $0.id == id }
+            if let existing { ledger.remove(at: existing) }
             ledger.append(entry)
             if ledger.count > Self.ledgerCap { ledger.removeFirst(ledger.count - Self.ledgerCap) }
         }
@@ -647,12 +679,46 @@ public struct Observations: Codable, Equatable {
     }
 
     /// Distinct active weeks. A signal that holds across two is a habit.
+    /// A gate, not a denominator: the week ring is pruned to `weekCap`, so
+    /// this saturates — dividing a lifetime counter by it inflates every
+    /// weekly rate once a record outlives the ring.
     public func activeWeeks(address letters: [String]) -> Int {
         addresses[Self.key(letters)]?.weeks.values.filter { $0 > 0 }.count ?? 0
     }
 
     public func activeWeeks(app: String) -> Int {
         apps[app.lowercased()]?.weeks.values.filter { $0 > 0 }.count ?? 0
+    }
+
+    /// Weeks a record has been observed, from its first sighting — the
+    /// denominator that matches a lifetime numerator. Records from before
+    /// `firstWeek` existed fall back to their retained active weeks, which
+    /// is the old (saturating) reading, gone as soon as they are touched.
+    static func observedWeeks(firstWeek: Int?, weeks: [Int: Int], now: Date) -> Int {
+        if let firstWeek { return max(1, week(now) - firstWeek + 1) }
+        return max(1, weeks.values.filter { $0 > 0 }.count)
+    }
+
+    public func observedWeeks(address letters: [String], now: Date = Date()) -> Int {
+        observedWeeks(addressKey: Self.key(letters), now: now)
+    }
+
+    public func observedWeeks(addressKey: String, now: Date = Date()) -> Int {
+        let record = addresses[addressKey]
+        return Self.observedWeeks(firstWeek: record?.firstWeek,
+                                  weeks: record?.weeks ?? [:], now: now)
+    }
+
+    public func observedWeeks(app: String, now: Date = Date()) -> Int {
+        let record = apps[app.lowercased()]
+        return Self.observedWeeks(firstWeek: record?.firstWeek,
+                                  weeks: record?.weeks ?? [:], now: now)
+    }
+
+    public func observedWeeks(host: String, now: Date = Date()) -> Int {
+        let record = hosts[host]
+        return Self.observedWeeks(firstWeek: record?.firstWeek,
+                                  weeks: record?.weeks ?? [:], now: now)
     }
 
     /// This person's own median trigger pause across fluent addresses —

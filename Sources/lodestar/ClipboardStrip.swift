@@ -12,6 +12,20 @@ import LodestarCore
 /// are typing in keeps focus and its insertion point the whole time. That is
 /// what lets the paste be a plain ⌘V into an app that never lost the cursor.
 final class ClipboardStrip {
+    /// Source-app icons by bundle id, misses cached too. The cards rebuild
+    /// on every keystroke of a strip search, and each icon was a fresh
+    /// LaunchServices lookup plus an icon load — the same ~3.5ms-cold call
+    /// AppIndex measured and cached, here paid per card per keystroke.
+    private var sourceIcons: [String: NSImage?] = [:]
+
+    private func sourceIcon(bundleID: String) -> NSImage? {
+        if let cached = sourceIcons[bundleID] { return cached }
+        let resolved = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
+            .map { NSWorkspace.shared.icon(forFile: $0.path) }
+        sourceIcons[bundleID] = resolved
+        return resolved
+    }
+
     static let labels = Clipboard.recentLabels
 
     /// What the region beside the pins is carrying, when it is carrying
@@ -224,9 +238,8 @@ final class ClipboardStrip {
             card.addSubview(preview)
         }
 
-        if let bundleID = clip.sourceBundleID,
-           let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
-            let icon = NSImageView(image: NSWorkspace.shared.icon(forFile: url.path))
+        if let bundleID = clip.sourceBundleID, let image = sourceIcon(bundleID: bundleID) {
+            let icon = NSImageView(image: image)
             icon.frame = NSRect(x: Self.cardWidth - 26, y: height - 24, width: 15, height: 15)
             icon.alphaValue = 0.7
             card.addSubview(icon)

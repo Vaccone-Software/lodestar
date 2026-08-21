@@ -65,6 +65,14 @@ public final class GraphNode {
                     }
                     node.children[lowered] = child
                 case .table(let sub):
+                    // The same twice-bound guard the string branch has: JSON
+                    // keys are case-sensitive, so "E" and "e" both reach
+                    // here, and the table silently swallowing the leaf left
+                    // an app unreachable with no problem reported.
+                    if node.children[lowered] != nil {
+                        problems.append("graph '\(path)\(lowered)' is bound twice — keeping the first")
+                        continue
+                    }
                     let child = GraphNode.build(from: sub, path: path + lowered + ".",
                                                 problems: &problems)
                     node.children[lowered] = child

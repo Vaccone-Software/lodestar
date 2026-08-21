@@ -74,10 +74,7 @@ final class ClipboardStore {
             return
         }
         guard let decoded = try? JSONDecoder().decode(Index.self, from: data) else {
-            let stamp = ISO8601DateFormatter().string(from: Date())
-                .replacingOccurrences(of: ":", with: "-")
-            let quarantine = root.appendingPathComponent("index.json.corrupt-\(stamp)")
-            try? FileManager.default.moveItem(at: indexFile, to: quarantine)
+            let quarantine = Quarantine.setAside(indexFile)
             Log.error("clipboard: index did not decode — quarantined at \(quarantine.lastPathComponent)")
             bootWarning = "clipboard history could not be read — the old index is kept beside it"
             return

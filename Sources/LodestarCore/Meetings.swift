@@ -156,7 +156,11 @@ public enum Meetings {
     /// case-insensitive: config keys are typed by hand.
     public static func mappedProfile(calendar: String?, account: String?,
                                      mappings: [String: String]) -> (profile: String, decider: Decider)? {
-        let lowered = Dictionary(uniqueKeysWithValues: mappings.map { ($0.key.lowercased(), $0.value) })
+        // Tolerant of duplicates: config keys are typed by hand, and two
+        // spellings that fold to one key ("Work", "work") must read as a
+        // config quirk, never trap the process.
+        let lowered = Dictionary(mappings.map { ($0.key.lowercased(), $0.value) },
+                                 uniquingKeysWith: { first, _ in first })
         for name in [calendar, account] {
             guard let name, let profile = lowered[name.lowercased()] else { continue }
             return (profile, .calendar(name))

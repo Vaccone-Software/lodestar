@@ -100,8 +100,7 @@ final class CoachController {
                               leaves: [Advisor.Leaf],
                               webRoutes: [String: String],
                               profileKeys: [String: String],
-                              meetingsEnabled: Bool,
-                              logFile: URL)? = { nil }
+                              meetingsEnabled: Bool)? = { nil }
     /// Perform the one config line. Returns an error string, or nil.
     var applyEdit: (ConfigEdit) -> String? = { _ in "coach is not wired" }
     /// The engine's stillness — no chain, no bars, no peek.
@@ -391,9 +390,11 @@ final class CoachController {
         guard enabled, !refreshing, !isDemo, let inputs = contextInputs() else { return }
         refreshing = true
         refreshedAt = Date()
-        observations?.log.flush()
+        // The ring is flushed and decoded on the pass's own thread — a
+        // megabytes-deep JSONL file, and a keystroke must never wait on it.
+        let log = observations?.log
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            let events = EventLog.read(file: inputs.logFile)
+            let events = log?.snapshot() ?? []
             let context = Advisor.Context(
                 observations: inputs.observations, events: events,
                 leaves: inputs.leaves, webRoutes: inputs.webRoutes,

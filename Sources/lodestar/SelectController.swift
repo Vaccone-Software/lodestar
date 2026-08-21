@@ -453,7 +453,11 @@ final class SelectController {
         var units: [Unit] = []
         for run in SelectRuns.merge(leaves) {
             let used = Set(run.fragments.map(\.leaf))
-            let lines = byID.filter { used.contains($0.key) }
+            // Pick the handful of used lines out of the map — filtering
+            // the whole dictionary per run made this O(runs × lines).
+            let lines = Dictionary(uniqueKeysWithValues: used.compactMap { id in
+                byID[id].map { (id, $0) }
+            })
             units.append(Unit(run: run, leaves: [:], ocrLines: lines,
                               editable: nil, geometry: .ocr,
                               frame: lines.values.reduce(.null) { $0.union($1.frame) }))

@@ -68,6 +68,10 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     /// Popup token tables, so a selected label resolves to its profile.
     private var popupTokens: [String: [String]] = [:]
     private var lastRenderedPane = -1
+    /// See render(): the doctor's findings and the machine probes, memoized
+    /// for one second so per-keystroke renders stop re-reading the disk.
+    private var doctorCache: (machine: SettingsModel.MachineState,
+                              problems: [String], at: Date)?
     private weak var paneScroll: NSScrollView?
 
     private static let width: CGFloat = 880
@@ -617,8 +621,23 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         let keepScroll = lastRenderedPane == pane && !showingChanged
         let offset = paneScroll?.contentView.bounds.origin
         lastRenderedPane = pane
-        sections = SettingsModel.catalog(config: config, machine: machineState(),
-                                         problems: problems())
+        // The doctor and the machine probes hit disk and LaunchServices;
+        // render runs per keystroke while the window is up. A one-second
+        // memo keeps them fresh at human speed and off the key path — a
+        // commit reloads the config, which pushes fresh state through the
+        // next render anyway.
+        let now = Date()
+        let machine: SettingsModel.MachineState
+        let findings: [String]
+        if let cached = doctorCache, now.timeIntervalSince(cached.at) < 1 {
+            (machine, findings) = (cached.machine, cached.problems)
+        } else {
+            machine = machineState()
+            findings = problems()
+            doctorCache = (machine, findings, now)
+        }
+        sections = SettingsModel.catalog(config: config, machine: machine,
+                                         problems: findings)
         // End any editing before the views under it go away — a field
         // editor serving a removed field is how ghost text gets drawn.
         if let responder = panel.firstResponder as? NSView,

@@ -13,6 +13,10 @@ final class AppIndex {
     }
 
     private(set) var entries: [Entry] = []
+    /// The same entries keyed by lowercased name — `entry(named:)` sits on
+    /// the graph-summon path, and an O(n) scan with a lowercase per entry
+    /// was the price of throwing the scan dictionary's keys away.
+    private var byLowerName: [String: Entry] = [:]
     private var lastScan = Date.distantPast
     private var scanning = false
     /// Resolved icons, living exactly as long as the entries they came from.
@@ -39,8 +43,7 @@ final class AppIndex {
             let found = AppIndex.scanDisk()
             DispatchQueue.main.async {
                 guard let self else { return }
-                self.entries = AppIndex.mergeRunning(into: found)
-                self.icons.removeAll()
+                self.install(AppIndex.mergeRunning(into: found))
                 self.lastScan = Date()
                 self.scanning = false
             }
@@ -49,9 +52,23 @@ final class AppIndex {
 
     /// Synchronous full scan — the boot path, before any panel exists.
     func refresh() {
-        entries = AppIndex.mergeRunning(into: AppIndex.scanDisk())
-        icons.removeAll()
+        install(AppIndex.mergeRunning(into: AppIndex.scanDisk()))
         lastScan = Date()
+    }
+
+    /// Swap in a fresh index. The icon table survives a swap that changed
+    /// no names — the overwhelmingly common rescan — because dropping it
+    /// wholesale meant the first chain guide after every 30-second rescan
+    /// paid the ~42ms cold path again, inside the tap. Any change to the
+    /// set of names drops it all: an installed or updated app is the one
+    /// moment an icon here can be stale, and correctness there is worth
+    /// one cold guide.
+    private func install(_ fresh: [Entry]) {
+        let changed = Set(fresh.map(\.name)) != Set(entries.map(\.name))
+        entries = fresh
+        byLowerName = Dictionary(fresh.map { ($0.name.lowercased(), $0) },
+                                 uniquingKeysWith: { first, _ in first })
+        if changed { icons.removeAll() }
     }
 
     /// An app's icon, resolved once per index.
@@ -138,8 +155,7 @@ final class AppIndex {
 
     func entry(named name: String) -> Entry? {
         refreshIfStale()
-        let lowered = name.lowercased()
-        if let exact = entries.first(where: { $0.name.lowercased() == lowered }) { return exact }
+        if let exact = byLowerName[name.lowercased()] { return exact }
         return Fuzzy.rank(query: name, candidates: entries, key: \.name).first
     }
 }

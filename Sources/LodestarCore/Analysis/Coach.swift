@@ -349,7 +349,10 @@ public enum Coach {
             }
             accept = "tap lode twice to bind it"
             if rec.kind == .bind, let record = observations.apps[rec.target.lowercased()] {
-                let weeks = max(1, observations.activeWeeks(app: rec.target))
+                // The observed span, not the pruned week ring: the count is
+                // lifetime, so the weeks beside it must be too, or the chip
+                // tells a six-month user their history is twelve weeks old.
+                let weeks = observations.observedWeeks(app: rec.target)
                 evidence = "you searched for it \(record.searcher) times"
                     + " across \(weeks) week\(weeks == 1 ? "" : "s")"
                     + secondsClause(rec.secondsPerWeek)
@@ -372,9 +375,13 @@ public enum Coach {
             } else {
                 headline = rec.target
             }
+            // The same population the advisor priced: deliberate choices
+            // only. Counting pass-throughs let the evidence contradict the
+            // recommendation — or name "pass" as the winning profile.
             if let record = observations.hosts[rec.target],
-               let (_, hits) = record.profiles.max(by: { $0.value < $1.value }) {
-                evidence = "opened there \(hits) of \(record.count) times"
+               let (_, hits) = record.chosenProfiles.max(by: { $0.value < $1.value }) {
+                let total = record.chosenProfiles.values.reduce(0, +)
+                evidence = "opened there \(hits) of \(total) times"
                     + secondsClause(rec.secondsPerWeek)
             }
             accept = "tap lode twice to add the route"

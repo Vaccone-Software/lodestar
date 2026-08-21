@@ -95,12 +95,15 @@ public enum SelectRuns {
         var fragments: [Fragment] = []
         var lineFrame = CGRect.null
         var previous: Leaf?
+        /// The run's UTF-16 length so far, advanced beside every append.
+        var utf16Length = 0
 
         func flush() {
             guard !fragments.isEmpty else { return }
             runs.append(Run(text: text, fragments: fragments))
             text = ""
             fragments = []
+            utf16Length = 0
         }
 
         for leaf in leaves {
@@ -139,14 +142,19 @@ public enum SelectRuns {
             // next line as its own continuation.
             if !fragments.isEmpty, let joiner {
                 text += joiner
+                // Joiners are ASCII (" ", "", "\n"): one UTF-16 unit each.
+                utf16Length += joiner.utf16.count
                 lineFrame = joiner == "\n" ? leaf.frame : lineFrame.union(leaf.frame)
             } else {
                 lineFrame = leaf.frame
             }
 
             let nsText = leaf.text as NSString
-            let start = (text as NSString).length
+            // Carried, not remeasured: bridging the accumulated run to
+            // NSString on every fragment made stitching quadratic.
+            let start = utf16Length
             text += leaf.text
+            utf16Length += nsText.length
             fragments.append(Fragment(
                 leaf: leaf.id,
                 range: NSRange(location: start, length: nsText.length),

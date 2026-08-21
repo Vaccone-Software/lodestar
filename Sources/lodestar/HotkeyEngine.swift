@@ -555,11 +555,12 @@ final class HotkeyEngine {
                 stopWatchingClicks()
                 strip.hide()
             case .pasteRecent(let label, let action):
-                actOnClip(strip.shownRecents.first { clip in
-                    ClipboardStrip.labels.firstIndex(of: label)
-                        .map { strip.shownRecents.indices.contains($0) && strip.shownRecents[$0].id == clip.id }
-                        ?? false
-                }, action: action)
+                // The label names a position, not a card — one index
+                // lookup answers it.
+                let clip = ClipboardStrip.labels.firstIndex(of: label).flatMap { index in
+                    strip.shownRecents.indices.contains(index) ? strip.shownRecents[index] : nil
+                }
+                actOnClip(clip, action: action)
             case .pastePinned(let slot, let action):
                 actOnClip(strip.shownPins[slot], action: action)
             case .pasteSearchBegin:

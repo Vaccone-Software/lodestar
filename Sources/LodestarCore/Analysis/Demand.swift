@@ -23,22 +23,32 @@ public struct Demand: Equatable {
         for event in events where event.kind == .reach && event.app == name {
             byWeek[Observations.week(event.t), default: 0] += 1
         }
-        guard let first = byWeek.keys.min() else { return [] }
-        let current = Observations.week(now)
-        guard current >= first else { return [] }
-        return (first...current).map { byWeek[$0] ?? 0 }
+        return series(byWeek: byWeek, now: now)
     }
 
     /// Launcher-only weekly counts: the demand that a new address would
     /// actually absorb.
     public static func weeklySearcherCounts(app: String, events: [ObservationEvent], now: Date)
         -> [Int] {
-        let name = app.lowercased()
-        var byWeek: [Int: Int] = [:]
-        for event in events
-            where event.kind == .reach && event.app == name && event.route == "searcher" {
-            byWeek[Observations.week(event.t), default: 0] += 1
+        series(byWeek: weeklySearcherCountsByApp(events: events)[app.lowercased()] ?? [:],
+               now: now)
+    }
+
+    /// Every app's launcher demand in one pass — the per-app scan above
+    /// made an advisor pass O(apps × ring), and the ring is megabytes.
+    public static func weeklySearcherCountsByApp(events: [ObservationEvent])
+        -> [String: [Int: Int]] {
+        var byApp: [String: [Int: Int]] = [:]
+        for event in events where event.kind == .reach && event.route == "searcher" {
+            guard let app = event.app else { continue }
+            byApp[app, default: [:]][Observations.week(event.t), default: 0] += 1
         }
+        return byApp
+    }
+
+    /// A by-week map as the zero-filled series `fit` wants: silence
+    /// between first appearance and now counts as silence.
+    public static func series(byWeek: [Int: Int], now: Date) -> [Int] {
         guard let first = byWeek.keys.min() else { return [] }
         let current = Observations.week(now)
         guard current >= first else { return [] }

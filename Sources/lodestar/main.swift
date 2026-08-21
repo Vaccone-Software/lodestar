@@ -212,8 +212,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     },
                     webRoutes: self.config.webRoutes,
                     profileKeys: identityToKey,
-                    meetingsEnabled: self.config.meetingsEnabled,
-                    logFile: self.observationStore.log.file)
+                    meetingsEnabled: self.config.meetingsEnabled)
         }
         coach.applyEdit = { [weak self] edit in
             guard let self else { return "lodestar is shutting down" }

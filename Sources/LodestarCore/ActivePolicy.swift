@@ -32,8 +32,22 @@ public enum ActivePolicy {
     }
 
     /// Shared by every panel: the visible frame to center on.
+    ///
+    /// Memoized for a quarter second: every read costs a window-server
+    /// pointer query plus a display walk, panels re-read it per keystroke,
+    /// and the guide reads it twice per build. A pointer that crossed
+    /// displays inside the window is 250ms of stale placement — below
+    /// what a hand can notice, far below what the queries were costing.
     public static var presentationFrame: NSRect {
-        (appKitScreen(fallbackFrom: nil) ?? NSScreen.screens.first)?.visibleFrame
+        let now = Date()
+        if let cached = cachedPresentation, now.timeIntervalSince(cached.at) < 0.25 {
+            return cached.frame
+        }
+        let frame = (appKitScreen(fallbackFrom: nil) ?? NSScreen.screens.first)?.visibleFrame
             ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        cachedPresentation = (frame, now)
+        return frame
     }
+
+    private static var cachedPresentation: (frame: NSRect, at: Date)?
 }

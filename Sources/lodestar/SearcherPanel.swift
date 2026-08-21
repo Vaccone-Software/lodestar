@@ -66,6 +66,8 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     private var rows: [Row] = []
     private var rowViews: [SearcherRowView] = []
     private var viewCache: [String: SearcherRowView] = [:]
+    /// Alive windows per pid, rebuilt once per requery for the row chips.
+    private var aliveByPid: [pid_t: Int] = [:]
     private var selected = 0
     private var mode: Mode = .apps
     private var menuState: MenuState = .closed
@@ -202,6 +204,12 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         switch mode {
         case .apps:
             rows = appIndex.query(query).map(Row.app)
+            // One walk of the model for every row's window-count chip:
+            // counting per row re-filtered every tracked window per visible
+            // row, per keystroke.
+            aliveByPid = model.windows.values.reduce(into: [:]) { counts, w in
+                if w.isAlive { counts[w.pid, default: 0] += 1 }
+            }
         case .windows(let pid, _, _):
             var windows = model.windows.values.filter { $0.isAlive && $0.pid == pid }
             let trimmed = query.trimmingCharacters(in: .whitespaces)
@@ -268,7 +276,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
                 chips.append(address)
             }
             if entry.isRunning, let pid = entry.pid {
-                let count = model.windows.values.filter { $0.isAlive && $0.pid == pid }.count
+                let count = aliveByPid[pid] ?? 0
                 if count > 1 { chips.append("⇥ \(count)") }
             }
             view.configure(

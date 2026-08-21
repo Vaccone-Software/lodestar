@@ -15,13 +15,19 @@ public enum Fuzzy {
         if query.isEmpty { return 0 }
         let q = Array(query.lowercased())
         let lower = Array(candidate.lowercased())
-        let original = Array(candidate)
         var qi = 0
         var score = 0.0
         var lastMatch = -10
 
-        for i in 0..<lower.count {
-            guard qi < q.count, lower[i] == q[qi] else { continue }
+        // One walk, pairing each lowered character with its original: this
+        // runs against every candidate on every panel keystroke, and the
+        // old shape lowercased the candidate twice and materialized it
+        // three times to answer once.
+        var i = 0
+        var previousOriginal: Character?
+        for original in candidate {
+            defer { previousOriginal = original; i += 1 }
+            guard qi < q.count, i < lower.count, lower[i] == q[qi] else { continue }
             var gain = 1.0
             if i == 0 {
                 gain += 3
@@ -29,7 +35,7 @@ public enum Fuzzy {
                 let previous = lower[i - 1]
                 if previous == " " || previous == "-" || previous == "." || previous == "_" {
                     gain += 2.5
-                } else if original[i].isUppercase && original[i - 1].isLowercase {
+                } else if original.isUppercase, previousOriginal?.isLowercase == true {
                     gain += 2
                 }
             }
@@ -41,7 +47,7 @@ public enum Fuzzy {
 
         guard qi == q.count else { return nil }
         score -= Double(lower.count) * lengthPenalty
-        if candidate.lowercased().hasPrefix(query.lowercased()) { score += 2 }
+        if lower.starts(with: q) { score += 2 }
         return score
     }
 

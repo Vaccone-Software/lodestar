@@ -383,8 +383,14 @@ final class Actions {
     func deleteBreathStep(_ letters: [String]) -> ChainStep {
         let path = letters.joined()
         if store.breath(at: path) != nil {
-            _ = store.deleteBreath(at: path)
-            return .done(flash: "◎ breath \(path.uppercased()) deleted")
+            // The decision is a dictionary read; the delete carries a full
+            // state write, which the tap must not wait on.
+            OffTap.run { [weak self] in
+                guard let self else { return }
+                _ = self.store.deleteBreath(at: path)
+                self.hud.flash("◎ breath \(path.uppercased()) deleted")
+            }
+            return .done(flash: nil)
         }
         if store.isBreathPrefix(path) { return .continuing(hint: nil) }
         return .failed(flash: "✕ no breath at \(path.uppercased())")
@@ -415,24 +421,53 @@ final class Actions {
         if let shadowed = store.breathWouldShadow(path) {
             return .failed(flash: "✕ \(path.uppercased()) would shadow breath \(shadowed.uppercased())")
         }
-        let members = currentBreathMembers()
-        guard !members.isEmpty else { return .failed(flash: "✕ nothing on screen to save") }
-        let orientation = layout.activeDisplay().map { layout.orientation(on: $0.id) } ?? .horizontal
-        store.setBreath(BreathRecord(path: path, orientation: orientation.rawValue, members: members))
-        return .done(flash: "◎ breath \(path.uppercased()) saved · \(members.count) window\(members.count == 1 ? "" : "s")")
+        // The shadow check above is the only decision the grammar needs
+        // now. The gather is a window-server sweep and the save a full
+        // state write — the restore verb was taken off the tap in 0.18.0,
+        // and its siblings reached the same work by the other door.
+        writeBreathOffTap(emptyFlash: "✕ nothing on screen to save",
+                          record: { members, orientation in
+                              BreathRecord(path: path, orientation: orientation,
+                                           members: members)
+                          },
+                          done: { "◎ breath \(path.uppercased()) saved · \($0) window\($0 == 1 ? "" : "s")" })
+        return .done(flash: nil)
     }
 
     func updateLatestBreath() -> ChainStep {
-        guard let latest = store.state.latestBreath, var record = store.breath(at: latest) else {
+        guard let latest = store.state.latestBreath, store.breath(at: latest) != nil else {
             return .failed(flash: "✕ no latest breath to update")
         }
-        let members = currentBreathMembers()
-        guard !members.isEmpty else { return .failed(flash: "✕ nothing on screen") }
-        record.members = members
-        let orientation = layout.activeDisplay().map { layout.orientation(on: $0.id) } ?? .horizontal
-        record.orientation = orientation.rawValue
-        store.setBreath(record)
-        return .done(flash: "◎ breath \(latest.uppercased()) updated · \(members.count) window\(members.count == 1 ? "" : "s")")
+        writeBreathOffTap(emptyFlash: "✕ nothing on screen",
+                          record: { [weak self] members, orientation in
+                              guard var record = self?.store.breath(at: latest) else { return nil }
+                              record.members = members
+                              record.orientation = orientation
+                              return record
+                          },
+                          done: { "◎ breath \(latest.uppercased()) updated · \($0) window\($0 == 1 ? "" : "s")" })
+        return .done(flash: nil)
+    }
+
+    /// The slow half of saving a breath — the members gather, the
+    /// orientation read, the state write — shared by bind and update and
+    /// always off the tap, so the sequence cannot drift between them.
+    private func writeBreathOffTap(emptyFlash: String,
+                                   record: @escaping ([BreathMember], String) -> BreathRecord?,
+                                   done: @escaping (Int) -> String) {
+        OffTap.run { [weak self] in
+            guard let self else { return }
+            let members = self.currentBreathMembers()
+            guard !members.isEmpty else {
+                self.hud.flash(emptyFlash)
+                return
+            }
+            let orientation = self.layout.activeDisplay()
+                .map { self.layout.orientation(on: $0.id) } ?? .horizontal
+            guard let built = record(members, orientation.rawValue) else { return }
+            self.store.setBreath(built)
+            self.hud.flash(done(members.count))
+        }
     }
 
     private func currentBreathMembers() -> [BreathMember] {

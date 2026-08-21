@@ -135,8 +135,10 @@ final class CoachController {
     private var chipHide: DispatchWorkItem?
     private var chipSeen: DispatchWorkItem?
     private var lastShownAt = Date.distantPast
-    /// One line per standing suggestion, not per boundary.
-    private var loggedNonHuman = false
+    /// One line per hold kind per standing suggestion, not per boundary.
+    /// Silence must say why, or the one veto that could be miscalibrated
+    /// (a keyboard remapper reposts events too) can never be found.
+    private var loggedHolds: Set<Coach.Hold> = []
     /// The suggestion in the slot has already spent a showing. Cleared when
     /// a pass puts a different suggestion there.
     private var offerCounted = false
@@ -168,6 +170,7 @@ final class CoachController {
         standing = rec
         standingSince = .distantPast
         offerCounted = false
+        loggedHolds = []
         demo = true
         onParkedChange()
     }
@@ -244,10 +247,12 @@ final class CoachController {
         #endif
     }
 
-    /// The menu item was clicked: the user asked, so the cue wait is over.
+    /// The menu item was clicked: the user asked, so the cue wait is over —
+    /// and a viewing they requested is not an interruption, so it spends
+    /// nothing from the suggestion's budget of showings.
     func presentParked() {
         guard enabled, let rec = standing else { return }
-        show(rec)
+        show(rec, countable: false)
     }
 
     // MARK: - Deciding
@@ -257,27 +262,36 @@ final class CoachController {
         // short-circuiting: the probes below are reached a handful of times
         // a week, not a handful of times a minute.
         guard let rec = standing, !suppressed() else { return }
+        let now = Date()
+        // A rehearsal ignores the real ledger's clocks: the pacing is the
+        // curriculum's, and the demo exists to walk the surface.
+        let ledger = isDemo ? [] : (observations?.observations.ledger ?? [])
+        let entry = ledger.first { $0.id == "\(rec.kind.rawValue):\(rec.target)" }
+        let answered = ledger.compactMap(\.lastAnsweredAt).max()
+        let offered = ledger.map(\.lastOfferedAt).filter { $0 != .distantPast }.max()
+        let thisOffered = entry.flatMap {
+            $0.lastOfferedAt == .distantPast ? nil : $0.lastOfferedAt
+        }
         let moment = Coach.Moment(
             enabled: enabled, chipVisible: chipVisible, offerSpent: offerCounted,
-            sinceLastShown: Date().timeIntervalSince(lastShownAt),
+            sinceLastShown: now.timeIntervalSince(lastShownAt),
+            sinceAnswered: answered.map(now.timeIntervalSince) ?? .infinity,
+            sinceOffered: offered.map(now.timeIntervalSince) ?? .infinity,
+            sinceThisOffered: thisOffered.map(now.timeIntervalSince) ?? .infinity,
+            channelOffers: ledger.reduce(0) { $0 + $1.offers },
+            thisOffers: entry?.offers ?? 0,
             engineQuiet: engineQuiet(), cameraRunning: CameraProbe.anyCameraRunning(),
             present: PresenceProbe.userIsPresent(humanIdle: humanIdle()),
             inputWasHuman: inputWasHuman())
-        switch Coach.hold(moment) {
-        case .speak:
-            break
-        case .notHuman:
-            // The one veto that could be miscalibrated: a keyboard remapper
-            // reposts events too, and a coach silenced by a wrong reading
-            // must at least say so. Once per standing suggestion, so a
-            // machine driven all afternoon does not fill the log.
-            if !loggedNonHuman {
-                loggedNonHuman = true
-                Log.info("coach", ["held": "input not hardware-origin",
-                                   "target": rec.target])
+        let hold = Coach.hold(moment)
+        guard hold == .speak else {
+            // Once per hold kind per standing suggestion, so a machine
+            // driven all afternoon does not fill the log — but every kind
+            // of silence leaves one line, because "why is the coach quiet"
+            // must be answerable from here.
+            if loggedHolds.insert(hold).inserted {
+                Log.info("coach", ["held": "\(hold)", "target": rec.target])
             }
-            return
-        default:
             return
         }
         // A cue-having suggestion holds out for its cue for a few days;
@@ -299,18 +313,21 @@ final class CoachController {
         show(rec)
     }
 
-    private func show(_ rec: Recommendation) {
+    private func show(_ rec: Recommendation, countable: Bool = true) {
         guard let observations else { return }
         let chip = Coach.chip(for: rec, observations: observations.observations)
         chipVisible = true
         lastShownAt = Date()
         showChip(chip)
         onParkedChange()
-        // An offer is spent by being read, not by being drawn.
-        let seen = DispatchWorkItem { [weak self] in self?.countOffer(rec) }
-        chipSeen?.cancel()
-        chipSeen = seen
-        DispatchQueue.main.asyncAfter(deadline: .now() + Coach.seenSeconds, execute: seen)
+        // An offer is spent by being read, not by being drawn — and never
+        // by a viewing the user summoned themselves.
+        if countable {
+            let seen = DispatchWorkItem { [weak self] in self?.countOffer(rec) }
+            chipSeen?.cancel()
+            chipSeen = seen
+            DispatchQueue.main.asyncAfter(deadline: .now() + Coach.seenSeconds, execute: seen)
+        }
         let work = DispatchWorkItem { [weak self] in self?.dismissChip(record: true) }
         chipHide?.cancel()
         chipHide = work
@@ -386,6 +403,7 @@ final class CoachController {
             let offer = Coach.standingOffer(observations: inputs.observations,
                                             recommendations: recommendations,
                                             now: Date())
+            let slotBusy = Coach.slotBusy(observations: inputs.observations, now: Date())
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.refreshing = false
@@ -395,8 +413,25 @@ final class CoachController {
                     self.standing = offer
                     self.standingSince = Date()
                     self.offerCounted = false
-                    self.loggedNonHuman = false
+                    self.loggedHolds = []
                     self.onParkedChange()
+                    // The slot's story, told at every change of occupant:
+                    // this line and the held lines above are what make
+                    // "why is the coach quiet" answerable from the log.
+                    if let offer {
+                        Log.info("coach", [
+                            "standing": "\(offer.kind.rawValue):\(offer.target)",
+                            "seconds": "\(Int(offer.secondsPerWeek.rounded()))",
+                            "candidates": "\(recommendations.count)",
+                        ])
+                    } else {
+                        Log.info("coach", [
+                            "standing": "none",
+                            "why": slotBusy ? "a habit is still being learned"
+                                : "no candidate cleared the gates",
+                            "candidates": "\(recommendations.count)",
+                        ])
+                    }
                 }
             }
         }

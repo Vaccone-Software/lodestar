@@ -138,6 +138,11 @@ final class CoachPresenceTests: XCTestCase {
         XCTAssertEqual(Coach.hold(Coach.Moment(chipVisible: true)), .chipUp)
         XCTAssertEqual(Coach.hold(Coach.Moment(offerSpent: true)), .offerSpent)
         XCTAssertEqual(Coach.hold(Coach.Moment(sinceLastShown: 1)), .tooSoon)
+        XCTAssertEqual(Coach.hold(Coach.Moment(sinceAnswered: 60)), .answerQuiet)
+        XCTAssertEqual(Coach.hold(Coach.Moment(sinceOffered: 60)), .offerQuiet)
+        XCTAssertEqual(Coach.hold(Coach.Moment(sinceThisOffered: 60,
+                                               channelOffers: 2, thisOffers: 1)),
+                       .retryCooldown)
         XCTAssertEqual(Coach.hold(Coach.Moment(engineQuiet: false)), .engineBusy)
         XCTAssertEqual(Coach.hold(Coach.Moment(cameraRunning: true)), .camera)
         XCTAssertEqual(Coach.hold(Coach.Moment(present: false)), .absent)

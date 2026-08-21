@@ -273,12 +273,16 @@ public struct Observations: Codable, Equatable {
         /// The user did it by hand: an epoch event matched this entry.
         public var adoptedWeek: Int?
         public var neverWeek: Int?
+        /// Day-grain like the offer stamp: the channel's quiet after an
+        /// answer is priced in days, and weeks cannot say "yesterday".
+        /// Optional so ledgers written before the field decode unchanged.
+        public var lastAnsweredAt: Date?
 
         public init(id: String, kind: String, target: String, chain: String? = nil,
                     predictedSecondsPerWeek: Double, firstOfferedWeek: Int,
                     lastOfferedWeek: Int, offers: Int, status: String,
                     acceptedWeek: Int? = nil, adoptedWeek: Int? = nil,
-                    neverWeek: Int? = nil) {
+                    neverWeek: Int? = nil, lastAnsweredAt: Date? = nil) {
             self.id = id
             self.kind = kind
             self.target = target
@@ -291,6 +295,7 @@ public struct Observations: Codable, Equatable {
             self.acceptedWeek = acceptedWeek
             self.adoptedWeek = adoptedWeek
             self.neverWeek = neverWeek
+            self.lastAnsweredAt = lastAnsweredAt
         }
     }
 
@@ -547,9 +552,11 @@ public struct Observations: Codable, Equatable {
             case "accepted":
                 entry.status = "accepted"
                 entry.acceptedWeek = week
+                entry.lastAnsweredAt = now
             case "never":
                 entry.status = "never"
                 entry.neverWeek = week
+                entry.lastAnsweredAt = now
             default:
                 return
             }

@@ -1247,7 +1247,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             + ConfigDoctor.groundTruthProblems(loaded)
             + ConfigDoctor.semanticWarnings(loaded, appIndex: appIndex)
         loaded.registerDetected(ChromiumProfiles.detected())
-        recordGraphEpochs(old: config, new: loaded)
+        recordGraphEpochs(old: config, new: loaded, problems: loadProblems)
         config = loaded
         Keys.apply(overrides: loaded.keyOverrides)
         ActivePolicy.mode = loaded.activeDisplayMode
@@ -1297,19 +1297,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ])
     }
 
+    /// The last graph whose parse had no problems — the only baseline an
+    /// epoch diff may run against. Seeded from the pre-reload config on
+    /// the first diff, then advanced only by clean parses.
+    private var epochGraphBaseline: [String: String]?
+
     /// Every graph edit is a natural experiment — the only causal data a
     /// single-user, no-A/B design will ever have. The epoch stamp is what
     /// makes it readable as one: learning curves restart at the stamp,
     /// interference on neighbors is measured against it, and a pending
     /// recommendation whose target appears here is marked adopted.
-    private func recordGraphEpochs(old: Config, new: Config) {
+    ///
+    /// The diff runs against the last *cleanly parsed* graph: a load whose
+    /// problems dropped leaves is a wounded read, not an edit. Diffing one
+    /// stamped three false removals the night an old binary met a new
+    /// config format — and every false epoch restarts real learning
+    /// curves, so a problem parse holds the baseline and says so.
+    private func recordGraphEpochs(old: Config, new: Config, problems: [String]) {
         guard let store = observationStore else { return }
-        let oldLeaves = Dictionary(old.graph.leaves().map {
-            (Observations.key($0.chain), $0.target.label)
-        }, uniquingKeysWith: { first, _ in first })
-        let newLeaves = Dictionary(new.graph.leaves().map {
-            (Observations.key($0.chain), $0.target.label)
-        }, uniquingKeysWith: { first, _ in first })
+        func leafMap(_ config: Config) -> [String: String] {
+            Dictionary(config.graph.leaves().map {
+                (Observations.key($0.chain), $0.target.label)
+            }, uniquingKeysWith: { first, _ in first })
+        }
+        let oldLeaves = epochGraphBaseline ?? leafMap(old)
+        guard !problems.contains(where: { $0.hasPrefix("graph") }) else {
+            epochGraphBaseline = oldLeaves
+            Log.info("config-epochs", ["held": "graph parse had problems"])
+            return
+        }
+        let newLeaves = leafMap(new)
+        epochGraphBaseline = newLeaves
         for (key, label) in newLeaves {
             let chain = key.split(separator: " ").map(String.init)
             if oldLeaves[key] == nil {

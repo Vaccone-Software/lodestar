@@ -11,26 +11,44 @@ import Foundation
 /// fast; a slow month is not nagged through. Declines are graded and none
 /// is forever — a parked suggestion returns when the evidence materially
 /// strengthens, because the data kept moving even while the answer was no.
+///
+/// The pacing distinguishes a chip that was answered from one that merely
+/// stood: an answer buys days of quiet, but an unanswered showing is a
+/// chip on glass, not a chip read, and the attention budget is only truly
+/// spent by chips a person noticed. So unanswered showings retry on a
+/// short leash before parking, while the long silences are reserved for
+/// what was actually declined.
 public enum Coach {
-    /// Floor between any two offers, even for the fastest learner —
-    /// consolidation is not instant.
-    public static let minDaysBetweenOffers = 3.0
+    /// Quiet after an answer, whichever answer it was — an accept is
+    /// consolidating and a no deserves its silence, and neither wants a
+    /// new question tomorrow.
+    public static let answerQuietDays = 3.0
+    /// Floor between any two counted showings, so two chips never share a
+    /// day and each appearance stays rare enough to mean something.
+    public static let offerQuietDays = 1.0
     /// An accepted habit that never bends stops blocking the queue.
     public static let stallWeeks = 3
     /// Completions at the new binding before its curve counts as bent.
     public static let bentCompletions = 15
-    /// Offers of one suggestion before it parks on its own.
+    /// Showings of one suggestion before it parks on its own.
     public static let maxOffers = 3
-    /// Days between showings of the same suggestion.
+    /// Days between showings of the same suggestion. Unanswered is not
+    /// declined — decay is "later" — so the retry is short enough that
+    /// "later" arrives while the evidence is still warm.
     public static let retryCooldownDays = 2.0
+    /// The channel's first showing ever is the one most likely to be
+    /// missed outright — nothing has yet taught the eye that the register
+    /// exists — so the debut alone retries a day sooner.
+    public static let debutRetryDays = 1.0
     /// "Not this one" sleeps this long...
     public static let neverSleepWeeks = 13
     /// ...unless the predicted value grows past this multiple of what was
     /// declined — the world changed, so the question may be asked again.
     public static let neverOverrideFactor = 2.0
     /// A parked suggestion re-enters after this long, or sooner when its
-    /// value grows past this multiple.
-    public static let parkedSleepWeeks = 8
+    /// value grows past this multiple. Parked is exhaustion, never a no:
+    /// nobody declined it, so it sleeps a month, not a season.
+    public static let parkedSleepWeeks = 4
     public static let parkedOverrideFactor = 1.5
     /// The first offer ever sets the channel's reputation: it waits for a
     /// clearly strong finding. Modest on purpose — approachable, not
@@ -57,15 +75,18 @@ public enum Coach {
 
     // MARK: - The moment
 
-    /// How long a chip stands before fading to "later".
-    public static let chipSeconds: TimeInterval = 30
+    /// How long a chip stands before fading to "later". A minute, because
+    /// the chip must survive the seconds of focused work between its
+    /// boundary and the eye's next saccade to the glass — a chip that fades
+    /// in half a thought teaches the user they hallucinated it.
+    public static let chipSeconds: TimeInterval = 60
     /// How long it must stand unclaimed before the offer is spent. A chip
     /// the engine takes off the glass in its first seconds was never read,
     /// and the curriculum must not charge for what nobody saw.
-    public static let seenSeconds: TimeInterval = 3
+    public static let seenSeconds: TimeInterval = 10
     /// A showing that never counted may try again — but not at once. A chip
     /// that flickers at every boundary is noise, not an offer.
-    public static let reshowSeconds: TimeInterval = 60
+    public static let reshowSeconds: TimeInterval = 120
     /// How stale the last hardware key may be before the chair counts as
     /// empty. Generous, because on the path that matters this is never near
     /// the limit: a navigation boundary is itself keyboard-driven, so the
@@ -108,13 +129,26 @@ public enum Coach {
         humanIdle < presenceCeiling && !screenLocked && !displayAsleep && onConsole
     }
 
-    /// Everything a decision to speak rests on, gathered by the coat.
+    /// Everything a decision to speak rests on, gathered by the coat. The
+    /// three ledger clocks pace the curriculum here rather than in the
+    /// selection: what stands and what may be shown are different
+    /// questions, and holding them apart is what lets a missed chip wait
+    /// in the menu instead of evaporating.
     public struct Moment {
         public var enabled: Bool
         public var chipVisible: Bool
         /// The standing suggestion has already spent a showing.
         public var offerSpent: Bool
         public var sinceLastShown: TimeInterval
+        /// Since the channel's last answer, whoever gave it.
+        public var sinceAnswered: TimeInterval
+        /// Since the channel's last counted showing, of anything.
+        public var sinceOffered: TimeInterval
+        /// Since this suggestion's own last counted showing.
+        public var sinceThisOffered: TimeInterval
+        /// Counted showings: the channel's total, and this suggestion's.
+        public var channelOffers: Int
+        public var thisOffers: Int
         public var engineQuiet: Bool
         public var cameraRunning: Bool
         public var present: Bool
@@ -122,12 +156,21 @@ public enum Coach {
 
         public init(enabled: Bool = true, chipVisible: Bool = false,
                     offerSpent: Bool = false, sinceLastShown: TimeInterval = 3600,
+                    sinceAnswered: TimeInterval = .infinity,
+                    sinceOffered: TimeInterval = .infinity,
+                    sinceThisOffered: TimeInterval = .infinity,
+                    channelOffers: Int = 0, thisOffers: Int = 0,
                     engineQuiet: Bool = true, cameraRunning: Bool = false,
                     present: Bool = true, inputWasHuman: Bool = true) {
             self.enabled = enabled
             self.chipVisible = chipVisible
             self.offerSpent = offerSpent
             self.sinceLastShown = sinceLastShown
+            self.sinceAnswered = sinceAnswered
+            self.sinceOffered = sinceOffered
+            self.sinceThisOffered = sinceThisOffered
+            self.channelOffers = channelOffers
+            self.thisOffers = thisOffers
             self.engineQuiet = engineQuiet
             self.cameraRunning = cameraRunning
             self.present = present
@@ -143,10 +186,18 @@ public enum Coach {
         case chipUp
         case offerSpent
         case tooSoon
+        case answerQuiet
+        case offerQuiet
+        case retryCooldown
         case engineBusy
         case camera
         case absent
         case notHuman
+    }
+
+    /// The wait before one suggestion may be shown again.
+    public static func retryDays(channelOffers: Int, thisOffers: Int) -> Double {
+        channelOffers == 1 && thisOffers == 1 ? debutRetryDays : retryCooldownDays
     }
 
     /// Ordered cheapest and most certain first; every one of them is
@@ -156,6 +207,13 @@ public enum Coach {
         if moment.chipVisible { return .chipUp }
         if moment.offerSpent { return .offerSpent }
         if moment.sinceLastShown < reshowSeconds { return .tooSoon }
+        if moment.sinceAnswered < answerQuietDays * 86_400 { return .answerQuiet }
+        if moment.sinceOffered < offerQuietDays * 86_400 { return .offerQuiet }
+        if moment.thisOffers > 0,
+           moment.sinceThisOffered < retryDays(channelOffers: moment.channelOffers,
+                                               thisOffers: moment.thisOffers) * 86_400 {
+            return .retryCooldown
+        }
         if !moment.engineQuiet { return .engineBusy }
         if moment.cameraRunning { return .camera }
         if !moment.present { return .absent }
@@ -163,19 +221,40 @@ public enum Coach {
         return .speak
     }
 
+    /// How long the pacing clocks alone would hold this suggestion from
+    /// showing — the report's answer to "why is it quiet", computed from
+    /// the same ledger the moment gate reads so the two cannot drift.
+    public static func showingWait(observations: Observations,
+                                   rec: Recommendation, now: Date) -> TimeInterval {
+        let ledger = observations.ledger
+        var wait: TimeInterval = 0
+        if let answered = ledger.compactMap(\.lastAnsweredAt).max() {
+            wait = max(wait, answerQuietDays * 86_400 - now.timeIntervalSince(answered))
+        }
+        if let offered = ledger.map(\.lastOfferedAt).filter({ $0 != .distantPast }).max() {
+            wait = max(wait, offerQuietDays * 86_400 - now.timeIntervalSince(offered))
+        }
+        if let entry = ledger.first(where: { $0.id == "\(rec.kind.rawValue):\(rec.target)" }),
+           entry.offers > 0, entry.lastOfferedAt != .distantPast {
+            let days = retryDays(channelOffers: ledger.reduce(0) { $0 + $1.offers },
+                                 thisOffers: entry.offers)
+            wait = max(wait, days * 86_400 - now.timeIntervalSince(entry.lastOfferedAt))
+        }
+        return max(0, wait)
+    }
+
     // MARK: - The offer
 
     /// The one suggestion worth standing behind right now, or nil — and
-    /// nil is the common, correct answer.
+    /// nil is the common, correct answer. Standing is not showing: an
+    /// unanswered suggestion keeps standing through every cooldown, so a
+    /// missed chip can wait in the menu instead of evaporating — the
+    /// moment gate is what paces its next appearance on the glass.
     public static func standingOffer(observations: Observations,
                                      recommendations: [Recommendation],
                                      now: Date) -> Recommendation? {
         guard !slotBusy(observations: observations, now: now) else { return nil }
         let ledger = observations.ledger
-        if let lastOffer = ledger.map(\.lastOfferedAt).max(), lastOffer != .distantPast,
-           now.timeIntervalSince(lastOffer) < minDaysBetweenOffers * 86_400 {
-            return nil
-        }
         let debut = ledger.allSatisfy { $0.offers == 0 }
         let week = Observations.week(now)
 
@@ -199,7 +278,7 @@ public enum Coach {
                     >= entry.predictedSecondsPerWeek * parkedOverrideFactor
                 return slept || outgrew
             }
-            return now.timeIntervalSince(entry.lastOfferedAt) >= retryCooldownDays * 86_400
+            return true
         }
         return eligible.max { $0.secondsPerWeek * $0.probability
             < $1.secondsPerWeek * $1.probability }

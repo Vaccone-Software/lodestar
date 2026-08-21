@@ -494,11 +494,17 @@ func runObservations(clear: Bool, engine: Bool) -> Never {
     }
 
     let bound = config.graph.leaves()
+    // The same context the app hands its coach, or the report would
+    // disagree with the chip about what stands.
     let context = Advisor.Context(
         observations: o, events: events,
         leaves: bound.map { Advisor.Leaf(chain: $0.chain, label: $0.target.label,
                                          value: $0.target.configValue) },
-        webRoutes: config.webRoutes
+        webRoutes: config.webRoutes,
+        profileKeys: Dictionary(config.browserProfiles.map {
+            ($0.value.reference, $0.value.reference)
+        }, uniquingKeysWith: { first, _ in first }),
+        meetingsEnabled: config.meetingsEnabled
     )
 
     if engine {
@@ -613,8 +619,11 @@ func runObservations(clear: Bool, engine: Bool) -> Never {
         print("")
     }
 
-    // The coach's ledger: everything it has said, and what became of it.
-    if !o.ledger.isEmpty {
+    // The coach's ledger — everything it has said and what became of it —
+    // then its pacing, so "am I missing chips, or is it quiet" is
+    // answerable from here instead of by feel.
+    let recommendations = Advisor.recommend(context)
+    if !o.ledger.isEmpty || !recommendations.isEmpty {
         print("coach")
         for entry in o.ledger.sorted(by: { $0.lastOfferedWeek > $1.lastOfferedWeek })
             .prefix(10) {
@@ -627,13 +636,36 @@ func runObservations(clear: Bool, engine: Bool) -> Never {
             }
             print(line)
         }
+        func relative(_ interval: TimeInterval) -> String {
+            if interval < 3600 { return "\(max(1, Int(interval / 60)))m" }
+            if interval < 86_400 { return "\(Int(interval / 3600))h" }
+            return "\(Int(interval / 86_400))d"
+        }
+        var pacing: [String] = []
+        if let spoke = o.ledger.map(\.lastOfferedAt).filter({ $0 != .distantPast }).max() {
+            pacing.append("last spoke \(relative(Date().timeIntervalSince(spoke))) ago")
+        } else {
+            pacing.append("has not spoken yet")
+        }
+        if let standing = Coach.standingOffer(observations: o,
+                                              recommendations: recommendations,
+                                              now: Date()) {
+            pacing.append("standing: \(Coach.chip(for: standing, observations: o).headline)")
+            let wait = Coach.showingWait(observations: o, rec: standing, now: Date())
+            pacing.append(wait > 0 ? "may show in \(relative(wait)) at the earliest"
+                                   : "free to show at the next quiet boundary")
+        } else if Coach.slotBusy(observations: o, now: Date()) {
+            pacing.append("nothing standing · a habit is still being learned")
+        } else {
+            pacing.append("nothing standing · no finding has cleared the gates")
+        }
+        print("  " + pacing.joined(separator: " · "))
         print("")
     }
 
     // The engine's verdicts: each survives a posterior-probability gate and
     // false-discovery control across everything tested, so a line here has
     // earned its place. Silence stays the honest answer until then.
-    let recommendations = Advisor.recommend(context)
     if recommendations.isEmpty {
         print("nothing worth saying yet. Silence is the honest answer until the numbers are in.")
     } else {

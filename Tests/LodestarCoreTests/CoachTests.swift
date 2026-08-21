@@ -120,15 +120,46 @@ final class CoachTests: XCTestCase {
 
     // MARK: - Cooldowns and declines
 
-    func testOffersRespectTheGlobalFloor() {
+    func testAnUnansweredOfferKeepsStandingForTheMenu() {
         var o = Observations()
-        o.apply(coachEvent(action: "offered", rec: routeRec(), at: start))
-        let next = bindRec(seconds: 60)
-        XCTAssertNil(Coach.standingOffer(observations: o, recommendations: [next],
-                                         now: later(0, 86_400)),
-                     "one day is not three")
-        XCTAssertNotNil(Coach.standingOffer(observations: o, recommendations: [next],
-                                            now: later(0, 4 * 86_400)))
+        let rec = bindRec()
+        o.apply(coachEvent(action: "offered", rec: rec, at: start))
+        XCTAssertEqual(Coach.standingOffer(observations: o, recommendations: [rec],
+                                           now: later(0, 3600))?.target, "facetime",
+                       "a missed chip parks in the menu; it does not evaporate")
+    }
+
+    func testTheMomentGatePacesShowingsNotTheSlot() {
+        XCTAssertEqual(Coach.hold(Coach.Moment(sinceOffered: 3600)), .offerQuiet,
+                       "two chips never share a day")
+        XCTAssertEqual(Coach.hold(Coach.Moment(sinceOffered: 90_000,
+                                               sinceThisOffered: 90_000,
+                                               channelOffers: 2, thisOffers: 1)),
+                       .retryCooldown,
+                       "the same suggestion waits out its own cooldown")
+        XCTAssertEqual(Coach.hold(Coach.Moment(sinceOffered: 3 * 86_400,
+                                               sinceThisOffered: 3 * 86_400,
+                                               channelOffers: 2, thisOffers: 1)),
+                       .speak)
+    }
+
+    func testAnAnswerBuysDaysOfQuietEitherWayItWent() {
+        XCTAssertEqual(Coach.hold(Coach.Moment(sinceAnswered: 86_400)), .answerQuiet,
+                       "an accept is consolidating and a no deserves its silence")
+        XCTAssertEqual(Coach.hold(Coach.Moment(sinceAnswered: 4 * 86_400)), .speak)
+    }
+
+    func testTheDebutAloneRetriesADaySooner() {
+        XCTAssertEqual(Coach.hold(Coach.Moment(sinceOffered: 90_000,
+                                               sinceThisOffered: 90_000,
+                                               channelOffers: 1, thisOffers: 1)),
+                       .speak,
+                       "the first chip ever is the likeliest missed outright")
+        XCTAssertEqual(Coach.hold(Coach.Moment(sinceOffered: 90_000,
+                                               sinceThisOffered: 90_000,
+                                               channelOffers: 2, thisOffers: 1)),
+                       .retryCooldown,
+                       "past the debut the ordinary cooldown holds")
     }
 
     func testTheSameSuggestionRetriesThenParksThenReturns() {

@@ -18,6 +18,11 @@ final class ScrollController {
     /// (measured empirically: natural ON means positive wheel1 = content
     /// down). Read at entry so a changed preference is picked up.
     private var sign: Int32 = 1
+    /// The horizontal axis answers backwards (measured the same way:
+    /// natural ON, where positive wheel1 moves the viewport toward the
+    /// document's end, positive wheel2 moves it toward the LEFT edge —
+    /// the start). One shared sign put h and l in each other's hands.
+    private var horizontalSign: Int32 { -sign }
 
     private(set) var appName = ""
     var step: CGFloat = 60
@@ -158,7 +163,7 @@ final class ScrollController {
         horizontalRemainder -= Double(dx)
         if dy != 0 || dx != 0 {
             if HotkeyEngine.traceTap { Log.info("smooth: tick dy=\(dy) dx=\(dx) held=\(heldKeys.sorted())") }
-            post(dx: sign * dx, dy: sign * dy)
+            post(dx: horizontalSign * dx, dy: sign * dy)
         }
     }
 
@@ -251,7 +256,7 @@ final class ScrollController {
     }
 
     private func postHorizontal(_ right: Int32) {
-        post(dx: sign * right)
+        post(dx: horizontalSign * right)
     }
 
     private func post(dx: Int32 = 0, dy: Int32 = 0) {

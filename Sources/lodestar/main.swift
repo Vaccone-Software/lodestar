@@ -135,6 +135,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             observationStore.load()
         }
         observationStore.setEnabled(loaded.observationsEnabled)
+        // Month ends arrive without reboots on a machine that only ever
+        // sleeps: the archive checks daily, and add-only makes every
+        // check but the first of the month nearly free.
+        Timer.scheduledTimer(withTimeInterval: 24 * 3600, repeats: true) {
+            [weak observationStore] _ in
+            observationStore?.rollupSoon()
+        }
         hud = HUD()
 
         store.load()

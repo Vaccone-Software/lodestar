@@ -526,6 +526,18 @@ func runObservations(clear: Bool, engine: Bool) -> Never {
     let days = max(1, Int(Date().timeIntervalSince(o.since) / 86400))
     print("observations · \(days) day\(days == 1 ? "" : "s") · \(events.count) events"
         + " · nothing here leaves this machine")
+    // The archive is part of what is kept, so it is part of what is shown.
+    if let data = try? Data(contentsOf: store.rollupFile) {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        if let archive = try? decoder.decode(Rollup.self, from: data),
+           !archive.months.isEmpty {
+            let keys = archive.months.keys.sorted()
+            print("archive · \(keys.count) month\(keys.count == 1 ? "" : "s")"
+                + " (\(keys.first!) … \(keys.last!)) · \(store.rollupFile.lastPathComponent)"
+                + " · cleared by observations clear")
+        }
+    }
     print("")
 
     func pad(_ text: String, _ width: Int) -> String {

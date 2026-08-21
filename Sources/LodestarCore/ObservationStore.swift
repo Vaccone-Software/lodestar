@@ -54,8 +54,13 @@ public final class ObservationStore {
         // Rotation is queued, not awaited: the ring is a full decode and
         // rewrite, and boot must not stand behind it. The rebuild path's
         // own read is serialized after it, so a replay still sees the
-        // rotated file.
-        if compacting { log.compactSoon() }
+        // rotated file. The archive rides the same moment: every
+        // completed month is rolled up before its days start falling out
+        // of the ring's window.
+        if compacting {
+            rollupSoon()
+            log.compactSoon()
+        }
         let data = try? Data(contentsOf: file)
         guard let data,
               let decoded = try? JSONDecoder().decode(Observations.self, from: data),
@@ -231,6 +236,31 @@ public final class ObservationStore {
 
     // MARK: - Lifecycle
 
+    /// The archive lives beside this store's own file — never at a global
+    /// default. A store pointed at a scratch directory must archive into
+    /// that scratch directory, or every test that loads one writes its
+    /// synthetic months into the user's real archive, where the add-only
+    /// law would keep them forever. Found the hard way, within the hour.
+    public var rollupFile: URL {
+        file.deletingLastPathComponent().appendingPathComponent("rollups.json")
+    }
+
+    /// Archive every completed month the ring still holds. Off the main
+    /// thread and add-only: months already written stand forever, so
+    /// running this daily costs one read and, at most one morning a
+    /// month, one write. Boot calls it; a long-lived process re-calls it
+    /// on its daily cadence, because a machine that never reboots still
+    /// crosses month ends.
+    public func rollupSoon(now: Date = Date()) {
+        guard enabled else { return }
+        saveQueue.async { [log, rollupFile] in
+            let outcome = Rollup.roll(events: log.readAll(), file: rollupFile, now: now)
+            if !outcome.added.isEmpty {
+                Log.info("rollup", ["archived": outcome.added.joined(separator: " ")])
+            }
+        }
+    }
+
     public func clear() {
         observations = Observations()
         pendingSave?.cancel()
@@ -241,6 +271,9 @@ public final class ObservationStore {
         saveQueue.sync {}
         log.clear()
         try? FileManager.default.removeItem(at: file)
+        // The archive is history too: cleared means cleared, months and
+        // all — deletability is half the consent.
+        try? FileManager.default.removeItem(at: rollupFile)
     }
 
     private var clearRequestFile: URL {

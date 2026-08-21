@@ -68,7 +68,7 @@ final class ClickHandler {
         case .passThrough:
             observe(url.host()?.lowercased(), nil)
             handOff(url)
-        case .profile(let profile, let pattern):
+        case .profile(let profile, _):
             observe(url.host()?.lowercased(),
                     "\(profile.browser.rawValue):\(profile.display)")
             // The proven path, unchanged: the same mechanism the web bar has
@@ -108,7 +108,11 @@ final class ClickHandler {
                                 configuration: configuration) { [flash] _, error in
             guard let error else { return }
             flash("✕ could not open that link")
-            Log.error("click", ["handoff-failed": error.localizedDescription])
+            // Domain and code only: the OS likes to render the document
+            // into its localized description, and this log never carries
+            // a URL.
+            let failure = error as NSError
+            Log.error("click", ["handoff-failed": "\(failure.domain) \(failure.code)"])
         }
     }
 

@@ -157,9 +157,15 @@ public struct EngineCore {
     /// namespace, because pasting happens inside a stream of typing rather
     /// than between them.
     public mutating func openPaste(world: EngineWorld) -> [EngineEffect] {
-        if case .paste = state {
+        switch state {
+        case .paste, .pastePanel:
+            // The toggle closes the strip from either level — a card's
+            // panel is still the strip, and re-entering from under it
+            // would silently reset the search the panel rode in on.
             state = .idle
             return [.exitPaste]
+        default:
+            break
         }
         guard world.enterPaste() else { return [.flash("⌂ nothing copied yet")] }
         state = .paste(searching: false)
@@ -240,11 +246,11 @@ public struct EngineCore {
         }
     }
 
-    /// Shift for a mid-chain letter: lode may or may not still be held.
-    public static func chainShift(_ flags: CGEventFlags, trigger: Trigger) -> Bool {
-        let (held, shift) = classify(flags, trigger: trigger)
-        if held { return shift }
-        return flags.contains(.maskShift)
+    /// Shift for a mid-chain letter. Whether lode is still held changes
+    /// nothing — classify reads shift straight off the event's flags
+    /// either way, so this is that one read, named for the call site.
+    public static func chainShift(_ flags: CGEventFlags) -> Bool {
+        flags.contains(.maskShift)
     }
 
     // MARK: - Key events

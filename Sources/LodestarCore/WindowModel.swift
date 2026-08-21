@@ -43,6 +43,17 @@ public final class WindowModel {
     public var onTrace: ((String) -> Void)?
 
     private var observers: [pid_t: AppObserver] = [:]
+
+    /// The per-window registrations, named once so the watch at track time
+    /// and the unwatch at burial can never drift apart.
+    private static let windowNotifications = [
+        kAXUIElementDestroyedNotification,
+        kAXTitleChangedNotification,
+        kAXMovedNotification,
+        kAXResizedNotification,
+        kAXWindowMiniaturizedNotification,
+        kAXWindowDeminiaturizedNotification,
+    ]
     private var idByElement: [ElementKey: CGWindowID] = [:]
     private var workspaceTokens: [any NSObjectProtocol] = []
 
@@ -171,7 +182,10 @@ public final class WindowModel {
                 return windows[id]
             }
         }
-        return windows.values.first { $0.isAlive && $0.pid == pid }
+        // Last-focused, then newest — never dictionary order: a hung app
+        // that cannot answer for its focused window must still summon the
+        // same window every time (FINDINGS §8).
+        return Self.mostCurrent(windows.values.filter { $0.isAlive && $0.pid == pid })
     }
 
     /// Re-read a window's frame right now (AX events can lag a beat).
@@ -231,7 +245,15 @@ public final class WindowModel {
         w.deadAt = Date()
         windows[id] = w
         // The record keeps its element for life, so the reverse key is
-        // derivable — one removal, not a rebuild of the whole map.
+        // derivable — one removal, not a rebuild of the whole map. The
+        // observer registrations do NOT keep theirs: six per window ever
+        // created, held in the observer's own table, is the accumulation
+        // pruneDead exists to prevent, one layer down.
+        if let observer = observers[w.pid] {
+            for notification in Self.windowNotifications {
+                observer.unwatch(notification, on: w.element)
+            }
+        }
         idByElement.removeValue(forKey: ElementKey(element: w.element))
         if focusedID == id { focusedID = nil }
         onDestroyed?(id)
@@ -265,12 +287,9 @@ public final class WindowModel {
         idByElement[ElementKey(element: element)] = id
         onTrace?("track id=\(id) \(window.appName) '\(window.title.prefix(30))' bundle=\(window.bundleID ?? "nil")")
         if let observer = observer(for: app) {
-            observer.watch(kAXUIElementDestroyedNotification, on: element)
-            observer.watch(kAXTitleChangedNotification, on: element)
-            observer.watch(kAXMovedNotification, on: element)
-            observer.watch(kAXResizedNotification, on: element)
-            observer.watch(kAXWindowMiniaturizedNotification, on: element)
-            observer.watch(kAXWindowDeminiaturizedNotification, on: element)
+            for notification in Self.windowNotifications {
+                observer.watch(notification, on: element)
+            }
         } else {
             onTrace?("track id=\(id) has no observer — frame will not refresh")
         }

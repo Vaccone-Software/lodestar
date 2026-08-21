@@ -74,6 +74,10 @@ public struct SelectCore {
     public private(set) var anchor: Match?
     /// Total matches found (capped) — the band says "of N" honestly.
     public private(set) var totalMatches = 0
+    /// Whether the count stopped at the cap: only then may the band wear
+    /// a "+" — below it the total is exact, and "45+" claims matches
+    /// that do not exist.
+    public var countCapped: Bool { totalMatches >= Self.countCap }
 
     let elements: [Element]
     let alphabet: String

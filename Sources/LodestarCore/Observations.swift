@@ -579,6 +579,12 @@ public struct Observations: Codable, Equatable {
                 entry.offers += 1
                 entry.lastOfferedWeek = week
                 entry.lastOfferedAt = now
+                // A fresh offer supersedes a stale answer: a "never" that
+                // the coach deliberately re-opened must read as offered
+                // again, or a later hand-adoption is invisible to
+                // markAdopted. The neverWeek stamp survives for the
+                // sleep arithmetic.
+                entry.status = "offered"
                 if let seconds = event.seconds { entry.predictedSecondsPerWeek = seconds }
                 if let chain = event.address { entry.chain = chain }
             case "accepted":

@@ -22,6 +22,8 @@ final class Actions {
     private let hud: HUD
 
     private var intents = IntentQueue()
+    /// True while a placement is mid-flight — the reentrancy latch above.
+    private var placing = false
 
     init(model: WindowModel, parking: ParkingLot, layout: LayoutController,
          appIndex: AppIndex, store: StateStore, hud: HUD) {
@@ -168,6 +170,13 @@ final class Actions {
             place(window, beside: beside)
             return
         }
+        // Open first, arm the intent second — the guard openWeb has always
+        // kept: a failed open with a 12-second intent standing would claim
+        // whatever matching window the user then opens by hand.
+        guard ChromiumProfiles.openWindow(profile) else {
+            hud.flash("✕ \(profile.browser.label) profile '\(profile.display)' not found")
+            return
+        }
         hud.flash("… opening \(profile.browser.label) · \(profile.display)",
                   icon: icon(forAppNamed: profile.browser.appName))
         expect(seconds: 12, matches: { window in
@@ -176,9 +185,6 @@ final class Actions {
         }, action: { [weak self] window in
             self?.place(window, beside: beside)
         })
-        if !ChromiumProfiles.openWindow(profile) {
-            hud.flash("✕ \(profile.browser.label) profile '\(profile.display)' not found")
-        }
     }
 
     private func launch(_ entry: AppIndex.Entry, beside: Bool) {
@@ -581,6 +587,15 @@ final class Actions {
     /// this process asked for and is still waiting on (a launch, a browser
     /// profile opening). Everything else floats, macOS-style.
     private func windowAppeared(_ id: CGWindowID) {
+        // A summon can *create* the record it is summoning — bestWindow
+        // tracks the app's focused window mid-place — and the synchronous
+        // onCreated then let a pending intent nest a second placement
+        // inside the first: two undo snapshots for one gesture. The claim
+        // waits its turn instead; the intent survives the beat.
+        guard !placing else {
+            DispatchQueue.main.async { [weak self] in self?.windowAppeared(id) }
+            return
+        }
         guard let window = model.window(id), window.isAlive else { return }
         if let action = intents.claim(window) {
             action(window)
@@ -590,8 +605,18 @@ final class Actions {
     private func expect(seconds: TimeInterval,
                         matches: @escaping (WindowModel.Window) -> Bool,
                         action: @escaping (WindowModel.Window) -> Void) {
-        intents.expect(.init(matches: matches, action: action,
-                             expires: Date().addingTimeInterval(seconds)))
+        // Places only, judged at claim time: a launch whose app fronts a
+        // dialog or splash first must not full-screen the event and park
+        // the world around it. Declining costs nothing — a claim consumes
+        // the intent only on a match, so it stays armed for the real
+        // window, whose arrival (or later title) fires this again. The
+        // subrole read is one AX call, and only after the cheap matcher
+        // has already said this is the awaited app.
+        intents.expect(.init(matches: { window in
+            guard matches(window) else { return false }
+            let subrole = AXWindow(element: window.element)?.subrole
+            return Placement.isPlace(subrole: subrole)
+        }, action: action, expires: Date().addingTimeInterval(seconds)))
     }
 
     private func place(_ window: WindowModel.Window, beside: Bool) {
@@ -601,6 +626,8 @@ final class Actions {
             hud.flash("✕ that window is gone")
             return
         }
+        placing = true
+        defer { placing = false }
         let began = Date()
         defer {
             Log.info("placed", ["window": window.id,

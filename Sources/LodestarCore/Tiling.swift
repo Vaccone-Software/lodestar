@@ -34,10 +34,13 @@ public enum Tiling {
     }
 
     /// Index order for `lode`+digit: left-to-right, then top-to-bottom.
+    /// Columns are judged on whole points — sub-point AX jitter must not
+    /// reorder, and quantizing keeps the comparison transitive where a
+    /// pairwise ±1 fuzz was not (three frames a point apart could answer
+    /// a≈b, b≈c, a<c, and sort's output is unspecified on such an order).
     public static func indexOrder(_ entries: [(id: CGWindowID, frame: CGRect)]) -> [CGWindowID] {
         entries.sorted {
-            if abs($0.frame.minX - $1.frame.minX) > 1 { return $0.frame.minX < $1.frame.minX }
-            return $0.frame.minY < $1.frame.minY
+            ($0.frame.minX.rounded(), $0.frame.minY) < ($1.frame.minX.rounded(), $1.frame.minY)
         }.map(\.id)
     }
 }

@@ -144,8 +144,8 @@ final class EngineTests: XCTestCase {
     }
 
     func testChainShiftReadsBareShiftWhenLodeReleased() {
-        XCTAssertTrue(EngineCore.chainShift(.maskShift, trigger: .rightCommand))
-        XCTAssertFalse(EngineCore.chainShift([], trigger: .rightCommand))
+        XCTAssertTrue(EngineCore.chainShift(.maskShift))
+        XCTAssertFalse(EngineCore.chainShift([]))
     }
 
     // MARK: - Idle dispatch

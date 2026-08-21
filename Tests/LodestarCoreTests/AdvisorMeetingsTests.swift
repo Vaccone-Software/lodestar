@@ -38,7 +38,7 @@ final class AdvisorMeetingsTests: XCTestCase {
     func testSteadyMeetingHabitProducesTheOffer() {
         let candidates = Advisor.meetingsCandidates(context(events: steadyHabit))
         XCTAssertEqual(candidates.count, 1)
-        let rec = candidates[0].0
+        let rec = candidates[0].rec
         XCTAssertEqual(rec.kind, .meetings)
         XCTAssertEqual(rec.edit, .enableMeetings)
         XCTAssertGreaterThanOrEqual(rec.probability, 0.9)
@@ -75,7 +75,7 @@ final class AdvisorMeetingsTests: XCTestCase {
         }
         let fromDoubled = Advisor.meetingsCandidates(context(events: doubled))
         let fromSingle = Advisor.meetingsCandidates(context(events: single))
-        XCTAssertEqual(fromDoubled.first?.0.detail, fromSingle.first?.0.detail,
+        XCTAssertEqual(fromDoubled.first?.rec.detail, fromSingle.first?.rec.detail,
                        "sessionization must collapse the echo")
     }
 
@@ -88,9 +88,27 @@ final class AdvisorMeetingsTests: XCTestCase {
         }
         let candidates = Advisor.meetingsCandidates(context(events: events))
         XCTAssertEqual(candidates.count, 1)
-        XCTAssertTrue(candidates.first?.0.evidence
+        XCTAssertTrue(candidates.first?.rec.evidence
                         .contains { $0.contains("14 manual joins") } ?? false,
                       "three focus arrivals inside half an hour are one meeting")
+    }
+
+    func testALongCallKeepsRefreshingItsOwnSession() {
+        // Signals at 0, 25, 50, and 75 minutes: every gap is under half an
+        // hour, so however long the call runs it stays one join. Judged
+        // against the session's start instead, minute 50 would have
+        // counted a second time.
+        var events: [ObservationEvent] = []
+        for day in stride(from: 1.0, through: 27, by: 2) {
+            for minute in [0.0, 25, 50, 75] {
+                events.append(focus(app: "zoom.us", daysAgo: day, minute: minute))
+            }
+        }
+        let candidates = Advisor.meetingsCandidates(context(events: events))
+        XCTAssertEqual(candidates.count, 1)
+        XCTAssertTrue(candidates.first?.rec.evidence
+                        .contains { $0.contains("14 manual joins") } ?? false,
+                      "an hour-plus call with periodic re-focus is one meeting")
     }
 
     func testNoMeetingActivityStaysSilent() {

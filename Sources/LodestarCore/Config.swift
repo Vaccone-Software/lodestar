@@ -76,9 +76,6 @@ public struct Config {
     /// id of whatever was your default before Lodestar took over. Recorded
     /// *before* the switch, because afterwards the answer is gone.
     public var webClickBrowser = ""
-    /// Log the host and chosen profile of clicked links while you chase
-    /// something. Off, because the log is paste-able and where you go is not
-    /// diagnostics.
     /// Clipboard history: how much disk it may claim, and what it must
     /// never record.
     public var clipboardEnabled = true
@@ -89,9 +86,6 @@ public struct Config {
     /// means nothing is recorded and no file is written.
     public var observationsEnabled = true
     public var coachEnabled = true
-    /// What to call you. Used sparingly, in the welcome and in a digest, never
-    /// in a routine flash: a coach who says your name every time is not a
-    /// coach. Empty means no salutation at all rather than "hey there".
     /// Keycode → key-name overlays on the built-in ANSI table.
     public var keyOverrides: [Int64: String] = [:]
     public var graph: GraphNode = GraphNode()

@@ -164,13 +164,31 @@ public enum Advisor {
         }
     }
 
+    /// One entry per hypothesis a generator entertained. The distinction
+    /// this carries is what makes the FDR control honest: a candidate that
+    /// was tested but failed its own decision gates stays in the family —
+    /// removed first, `m` counts only survivors, and Benjamini–Hochberg
+    /// on the remainder is post-selection, which controls nothing.
+    struct Candidate {
+        let rec: Recommendation
+        /// The test's p-value, when a null was actually tested. Nil for
+        /// rule-based candidates (retire), which state a fact — four
+        /// weeks, zero completions — rather than reject a chance
+        /// explanation; a constant stand-in p was previously injected
+        /// here and distorted the thresholds for the real tests.
+        let p: Double?
+        /// Whether the decision-theoretic gates passed. Only offerable
+        /// survivors surface; the rest exist to be counted.
+        let offerable: Bool
+    }
+
     public static func recommend(_ context: Context) -> [Recommendation] {
         let o = context.observations
         let latency = LatencyModel.fit(samples: LatencyModel.samples(from: context.events))
         let curve = LearningCurve.fit(observations: o)
         let learningCost = curve?.typicalLearningCost() ?? 60
 
-        var candidates: [(rec: Recommendation, p: Double)] = []
+        var candidates: [Candidate] = []
         candidates += bindCandidates(context, latency: latency, learningCost: learningCost)
         candidates += rebindCandidates(context)
         candidates += shortenCandidates(context, latency: latency, learningCost: learningCost)
@@ -180,12 +198,18 @@ public enum Advisor {
         candidates += routeCandidates(context)
         candidates += meetingsCandidates(context)
 
-        // One gate across everything tested at once: the report's
-        // credibility is a budget, spent by every claim it makes.
-        let surviving = Maths.benjaminiHochberg(candidates.map(\.p), q: 0.1)
-        return candidates.enumerated()
-            .filter { surviving.contains($0.offset) }
-            .map(\.element.rec)
+        // One gate across everything *tested* at once: the report's
+        // credibility is a budget, spent by every claim it makes, and the
+        // family is every hypothesis a generator ran — offerable or not.
+        // Rule-based candidates carry no p and stand outside it.
+        let tested = candidates.indices.filter { candidates[$0].p != nil }
+        let surviving = Maths.benjaminiHochberg(
+            tested.map { candidates[$0].p! }, q: 0.1)
+        let cleared = Set(surviving.map { tested[$0] })
+        return candidates.indices
+            .filter { candidates[$0].offerable
+                && (candidates[$0].p == nil || cleared.contains($0)) }
+            .map { candidates[$0].rec }
             .sorted { $0.secondsPerWeek * $0.probability > $1.secondsPerWeek * $1.probability }
     }
 
@@ -262,7 +286,7 @@ public enum Advisor {
     /// page is work the ledger cannot time directly. The one-off cost is
     /// the permission flow. Both are stated in the evidence, because a
     /// priced claim the user cannot audit is not this product's voice.
-    static func meetingsCandidates(_ context: Context) -> [(Recommendation, Double)] {
+    static func meetingsCandidates(_ context: Context) -> [Candidate] {
         guard !context.meetingsEnabled else { return [] }
         var stamps: [Date] = []
         for event in context.events {
@@ -282,10 +306,15 @@ public enum Advisor {
         // Sorted first, then sessionized once, globally: a re-focus
         // mid-call, the web-plus-app echo of one clicked link, and two
         // providers in one call all collapse the same way, and the answer
-        // cannot depend on the order events arrived in.
+        // cannot depend on the order events arrived in. The gap is judged
+        // against the previous signal, not the session's start — a long
+        // call keeps refreshing its own session, so an hour of re-focuses
+        // stays one join rather than becoming one every thirty minutes.
         var joins: [Date] = []
+        var previous: Date?
         for stamp in stamps.sorted() {
-            if let last = joins.last, stamp.timeIntervalSince(last) < 1800 { continue }
+            defer { previous = stamp }
+            if let previous, stamp.timeIntervalSince(previous) < 1800 { continue }
             joins.append(stamp)
         }
         var byWeek: [Int: Int] = [:]
@@ -299,9 +328,8 @@ public enum Advisor {
         let value = netBenefit(perUseSavedMean: 20, perUseSavedSD: 8,
                                usesPerWeek: demand.perWeek, usesPerWeekSE: demand.se,
                                oneOffCost: 120, seed: seed("meetings"))
-        guard value.probability >= probabilityGate else { return [] }
         let weekly = Int(demand.perWeek.rounded())
-        return [(Recommendation(
+        return [Candidate(rec: Recommendation(
             kind: .meetings, target: "meetings",
             detail: "about \(weekly) meeting\(weekly == 1 ? "" : "s") a week joined by hand",
             secondsPerWeek: value.secondsPerWeek,
@@ -312,18 +340,19 @@ public enum Advisor {
                 "one-off cost priced as the permission flow (120s)",
             ],
             display: "meetings at the door",
-            edit: .enableMeetings), 1 - value.probability)]
+            edit: .enableMeetings), p: 1 - value.probability,
+            offerable: value.probability >= probabilityGate)]
     }
 
     static func bindCandidates(_ context: Context, latency: LatencyModel?,
-                               learningCost: Double) -> [(Recommendation, Double)] {
+                               learningCost: Double) -> [Candidate] {
         let o = context.observations
         let addressed = Set(context.leaves.map { $0.label.lowercased() })
         let free = freeLetters(context)
         // One walk of the ring for every app together — per-app rescans
         // made this pass O(apps × events).
         let searcherWeeks = Demand.weeklySearcherCountsByApp(events: context.events)
-        var out: [(Recommendation, Double)] = []
+        var out: [Candidate] = []
         for (app, record) in o.apps where !addressed.contains(app) {
             guard record.searcher >= 8, o.activeWeeks(app: app) >= 2,
                   let launcherMean = record.commit.mean else { continue }
@@ -344,8 +373,7 @@ public enum Advisor {
                                    usesPerWeek: demand.perWeek, usesPerWeekSE: demand.se,
                                    oneOffCost: learningCost,
                                    seed: seed(app))
-            guard value.probability >= probabilityGate else { continue }
-            out.append((Recommendation(
+            out.append(Candidate(rec: Recommendation(
                 kind: .bind, target: app,
                 detail: "\(app) is searched \(String(format: "%.1f", demand.perWeek))×/week"
                     + " with no address · lode \(slot.uppercased()) would pay for itself",
@@ -355,7 +383,8 @@ public enum Advisor {
                     String(format: "launcher costs %.2fs; lode %@ predicted %.2fs",
                            launcherSeconds, slot.uppercased(), chainSeconds),
                     String(format: "learning bill ≈ %.0fs, from your own curves", learningCost),
-                ], edit: .bindTarget(chain: [slot], target: app)), 1 - value.probability))
+                ], edit: .bindTarget(chain: [slot], target: app)), p: 1 - value.probability,
+                offerable: value.probability >= probabilityGate))
         }
         return out
     }
@@ -366,18 +395,19 @@ public enum Advisor {
     /// strongest confusion lived entirely at two prefixes); this walks
     /// every record that accumulated wrong keys, wherever it sits in the
     /// trie.
-    static func rebindCandidates(_ context: Context) -> [(Recommendation, Double)] {
+    static func rebindCandidates(_ context: Context) -> [Candidate] {
         let o = context.observations
-        var out: [(Recommendation, Double)] = []
+        var out: [Candidate] = []
         for (key, record) in o.addresses {
             guard record.wrongKeys >= 5,
                   let (letter, count) = record.confusion.max(by: { $0.value < $1.value })
             else { continue }
             let share = Double(count) / Double(record.wrongKeys)
             let lower = Maths.wilsonLower(successes: count, trials: record.wrongKeys)
-            guard share >= 0.6, lower > 0.4 else { continue }
             // The null: wrong letters scatter across a few plausible keys.
-            // One letter absorbing them all is what needs explaining.
+            // One letter absorbing them all is what needs explaining. The
+            // test runs whenever the trials exist; share and the Wilson
+            // floor decide offerability, never membership in the family.
             let p = Maths.binomialTail(atLeast: count, n: record.wrongKeys, p: 0.25)
             let shown = key.isEmpty
                 ? "lode"
@@ -385,28 +415,29 @@ public enum Advisor {
                     .map { $0.uppercased() }.joined(separator: " ")
             let weeks = o.observedWeeks(addressKey: key, now: context.now)
             let weekly = Double(record.wrongKeys) / Double(weeks) * 1.5
-            out.append((Recommendation(
+            out.append(Candidate(rec: Recommendation(
                 kind: .rebind, target: key.isEmpty ? "lode" : key,
                 detail: "at \(shown) your hand keeps pressing \(letter.uppercased()) · "
                     + "the name in your head disagrees with the graph",
                 secondsPerWeek: weekly, probability: lower,
                 evidence: ["\(count) of \(record.wrongKeys) wrong keys were "
-                    + letter.uppercased()]), p))
+                    + letter.uppercased()]), p: p,
+                offerable: share >= 0.6 && lower > 0.4))
         }
         return out
     }
 
     static func shortenCandidates(_ context: Context, latency: LatencyModel?,
-                                  learningCost: Double) -> [(Recommendation, Double)] {
+                                  learningCost: Double) -> [Candidate] {
         let o = context.observations
         let free = freeLetters(context)
-        var out: [(Recommendation, Double)] = []
+        var out: [Candidate] = []
         for leaf in context.leaves where leaf.chain.count >= 2 {
             let key = Observations.key(leaf.chain)
             guard let record = o.addresses[key], record.completions >= 20,
                   let latency else { continue }
-            let weekly = Double(record.completions)
-                / Double(o.observedWeeks(address: leaf.chain, now: context.now))
+            let weeks = Double(o.observedWeeks(address: leaf.chain, now: context.now))
+            let weekly = Double(record.completions) / weeks
             guard weekly >= 10 else { continue }
             guard let slot = mnemonicLetters(app: leaf.label,
                                              record: o.apps[leaf.label.lowercased()])
@@ -434,13 +465,17 @@ public enum Advisor {
                 / Double(max(1, record.completions)).squareRoot()
             let proposedSD = proposed * latency.residualSD
             let savedSD = (currentSD * currentSD + proposedSD * proposedSD).squareRoot()
+            // The rate is a mean over `weeks` weeks of Poisson counts, so
+            // its SE shrinks as √weeks — the same discipline Demand.fit
+            // gives the bind path. √weekly alone is the spread of a single
+            // week, not of the estimate.
             let value = netBenefit(perUseSavedMean: saved, perUseSavedSD: savedSD,
-                                   usesPerWeek: weekly, usesPerWeekSE: weekly.squareRoot(),
+                                   usesPerWeek: weekly,
+                                   usesPerWeekSE: (weekly / weeks).squareRoot(),
                                    oneOffCost: learningCost,
                                    seed: seed(key))
-            guard value.probability >= probabilityGate else { continue }
             let shown = "lode " + leaf.chain.map { $0.uppercased() }.joined(separator: " ")
-            out.append((Recommendation(
+            out.append(Candidate(rec: Recommendation(
                 kind: .shorten, target: key,
                 detail: "\(shown) fires \(Int(weekly))×/week · it has earned "
                     + "lode \(slot.uppercased())",
@@ -449,12 +484,13 @@ public enum Advisor {
                                   current, proposed, record.completions)],
                 display: leaf.label,
                 edit: .bindTarget(chain: [slot], target: leaf.value)),
-                1 - value.probability))
+                p: 1 - value.probability,
+                offerable: value.probability >= probabilityGate))
         }
         return out
     }
 
-    static func retireCandidates(_ context: Context) -> [(Recommendation, Double)] {
+    static func retireCandidates(_ context: Context) -> [Candidate] {
         let o = context.observations
         guard o.since != .distantPast,
               context.now.timeIntervalSince(o.since) >= 28 * 86_400 else { return [] }
@@ -476,30 +512,38 @@ public enum Advisor {
             if let added = addedAt[key],
                context.now.timeIntervalSince(added) < 28 * 86_400 { return nil }
             let shown = "lode " + chain.map { $0.uppercased() }.joined(separator: " ")
-            return (Recommendation(
+            // No p: a retirement rejects no null. "Four weeks, zero
+            // completions" is a fact the rules above establish, and the
+            // constant stand-in p it used to carry sat inside the BH
+            // family distorting the thresholds for the real tests.
+            return Candidate(rec: Recommendation(
                 kind: .retire, target: key,
                 detail: "\(shown) has never been typed · a letter spent on nothing",
                 secondsPerWeek: 0, probability: 0.95,
                 evidence: ["four weeks of observation, zero completions"],
-                edit: .removeChain(chain: chain)), 0.05)
+                edit: .removeChain(chain: chain)), p: nil, offerable: true)
         }
     }
 
     static func nudgeCandidates(_ context: Context, latency: LatencyModel?)
-        -> [(Recommendation, Double)] {
+        -> [Candidate] {
         let o = context.observations
-        var out: [(Recommendation, Double)] = []
+        var out: [Candidate] = []
         // Rescues: an abandon followed within ten seconds by a launcher
         // reach for an app under the abandoned prefix is the address
-        // failing in the wild — measured, not inferred.
-        var rescues: [String: Int] = [:]
+        // failing in the wild — measured, not inferred. Counted per
+        // reached app, and joined below against the leaf's own app: a
+        // coincidental launch of something unrelated right after an
+        // abandon is not this address failing.
+        var rescues: [String: [String: Int]] = [:]
         let ordered = context.events.sorted { $0.t < $1.t }
         for (index, event) in ordered.enumerated() where event.kind == .abandon {
             guard let prefix = event.chain else { continue }
             for follower in ordered.dropFirst(index + 1) {
                 guard follower.t.timeIntervalSince(event.t) <= 10 else { break }
-                if follower.kind == .reach, follower.route == "searcher" {
-                    rescues[Observations.key(prefix), default: 0] += 1
+                if follower.kind == .reach, follower.route == "searcher",
+                   let reached = follower.app {
+                    rescues[Observations.key(prefix), default: [:]][reached, default: 0] += 1
                     break
                 }
             }
@@ -507,7 +551,7 @@ public enum Advisor {
         for leaf in context.leaves {
             let app = leaf.label.lowercased()
             guard let record = o.apps[app], record.reaches >= 10,
-                  let share = o.routeShare(app), share > 0.6,
+                  let share = o.routeShare(app),
                   let launcherSeconds = o.launcherSeconds(app) else { continue }
             let key = Observations.key(leaf.chain)
             let chainSeconds = latency?.chainSeconds(leaf.chain, address: key) ?? 0.8
@@ -516,9 +560,10 @@ public enum Advisor {
             let weekly = Double(record.searcher)
                 / Double(o.observedWeeks(app: app, now: context.now))
             let lower = Maths.wilsonLower(successes: record.searcher, trials: record.reaches)
-            guard lower > 0.5 else { continue }
             // The null: with an address in hand, searches should be the
-            // exception, not the majority.
+            // exception, not the majority. Tested whenever the reaches
+            // exist; the share and Wilson floors gate the offer, never
+            // the family.
             let p = Maths.binomialTail(atLeast: record.searcher, n: record.reaches, p: 0.5)
             let shown = "lode " + leaf.chain.map { $0.uppercased() }.joined(separator: " ")
             var evidence = [String(format: "%d%% of %d reaches went through the launcher",
@@ -530,17 +575,18 @@ public enum Advisor {
             // strongest rescue evidence was invisible.
             let rescued = (1...leaf.chain.count)
                 .map { Observations.key(Array(leaf.chain.prefix($0))) }
-                .compactMap { rescues[$0] }
+                .compactMap { rescues[$0]?[app] }
                 .reduce(0, +)
             if rescued > 0 {
                 evidence.append("\(rescued) abandoned chains were rescued by the launcher")
             }
-            out.append((Recommendation(
+            out.append(Candidate(rec: Recommendation(
                 kind: .nudge, target: app,
                 detail: "\(app) has \(shown) and you search for it anyway · "
                     + String(format: "each search pays %.1fs over the chain", saved),
                 secondsPerWeek: saved * weekly, probability: lower,
-                evidence: evidence), p))
+                evidence: evidence), p: p,
+                offerable: share > 0.6 && lower > 0.5))
         }
         return out
     }
@@ -551,14 +597,16 @@ public enum Advisor {
     /// obvious pattern can never fire. The z-score against independence
     /// carries the evidence at any concentration; lift keeps only a
     /// sanity floor.
-    static func breathCandidates(_ context: Context) -> [(Recommendation, Double)] {
+    static func breathCandidates(_ context: Context) -> [Candidate] {
         let pairs = Transitions.strongPairs(context.observations.transitions)
-        var out: [(Recommendation, Double)] = []
+        var out: [Candidate] = []
         // Directional pairs, undirected suggestion: A→B and B→A are one
         // finding, kept at the stronger direction's evidence.
         var seen = Set<Set<String>>()
-        for pair in pairs where pair.lift >= 1.3 && pair.count >= 20 {
-            guard out.count < 3 else { break }
+        // Three offers at most, but every tested pair joins the family —
+        // a cap that stopped the *testing* silently shrank m.
+        var offered = 0
+        for pair in pairs where pair.count >= 20 {
             guard seen.insert(Set([pair.from, pair.to])).inserted else { continue }
             // The null: the pair co-occurs at the rate independence
             // predicts. Normal approximation to the Poisson tail above it.
@@ -566,7 +614,11 @@ public enum Advisor {
             let z = (pair.count - expected) / max(1, expected).squareRoot()
             let p = 1 - Maths.normalCDF(z)
             let probability = min(0.95, Maths.normalCDF(z))
-            out.append((Recommendation(
+            // The lift floor is a sanity gate, not the test (see the
+            // z-score note above); the cap is presentation.
+            let offerable = pair.lift >= 1.3 && offered < 3
+            if offerable { offered += 1 }
+            out.append(Candidate(rec: Recommendation(
                 kind: .breath, target: "\(pair.from) + \(pair.to)",
                 detail: "\(pair.from) and \(pair.to) travel together "
                     + String(format: "%.0f× at lift %.1f · a breath would pin them side by side",
@@ -575,14 +627,15 @@ public enum Advisor {
                 // is half of it — at two seconds a transition, the count.
                 secondsPerWeek: pair.count,
                 probability: probability,
-                evidence: [String(format: "lift %.1f over independent use", pair.lift)]), p))
+                evidence: [String(format: "lift %.1f over independent use", pair.lift)]),
+                p: p, offerable: offerable))
         }
         return out
     }
 
-    static func routeCandidates(_ context: Context) -> [(Recommendation, Double)] {
+    static func routeCandidates(_ context: Context) -> [Candidate] {
         let o = context.observations
-        var out: [(Recommendation, Double)] = []
+        var out: [Candidate] = []
         for (host, record) in o.hosts {
             // Concentration is judged over deliberate profile choices
             // only; a host that is all pass-through has no preference to
@@ -592,26 +645,30 @@ public enum Advisor {
             guard total >= 8,
                   let (profile, hits) = chosen.max(by: { $0.value < $1.value })
             else { continue }
-            let lower = Maths.wilsonLower(successes: hits, trials: total)
-            guard Double(hits) / Double(total) >= 0.9, lower > 0.6 else { continue }
-            // Already covered by a rule? Then the decision is made and quiet.
+            // Already covered by a rule? No hypothesis is entertained:
+            // the decision is made and quiet.
             guard WebRouting.routePattern("https://\(host)", routes: context.webRoutes) == nil
             else { continue }
-            // The null: no preferred profile for this host.
+            let lower = Maths.wilsonLower(successes: hits, trials: total)
+            // The null: no preferred profile for this host. Tested for
+            // every host with enough deliberate choices; the 90% share
+            // and the Wilson floor gate the offer, never the family.
             let p = Maths.binomialTail(atLeast: hits, n: total, p: 0.5)
             // The chip can only offer what a config line can say, and a
             // route line needs the registry key behind the observed profile.
             let edit = context.profileKeys[profile].map {
                 ConfigEdit.addRoute(pattern: host, profileKey: $0)
             }
-            out.append((Recommendation(
+            out.append(Candidate(rec: Recommendation(
                 kind: .route, target: host,
                 detail: "\(host) has landed in \(profile) \(hits) of \(total) times · "
                     + "one route line would make it a fact instead of a habit",
                 secondsPerWeek: Double(total)
                     / Double(o.observedWeeks(host: host, now: context.now)) * 1.5,
                 probability: lower,
-                evidence: ["\(hits)/\(total) chosen opens in \(profile)"], edit: edit), p))
+                evidence: ["\(hits)/\(total) chosen opens in \(profile)"], edit: edit),
+                p: p,
+                offerable: Double(hits) / Double(total) >= 0.9 && lower > 0.6))
         }
         return out
     }

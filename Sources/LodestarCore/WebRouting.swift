@@ -117,9 +117,13 @@ public enum WebRouting {
     /// Build a search URL: `%s` is replaced with the encoded query, or the
     /// encoded query is appended when no placeholder exists.
     public static func searchURL(template: String, query: String) -> String {
+        // `+` gets the same treatment as `&`: .urlQueryAllowed passes it
+        // through, and every form-decoding engine reads a literal `+` as a
+        // space — so "c++" searched as typed came back as "c  ".
         let encoded = query.trimmingCharacters(in: .whitespaces)
             .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)?
-            .replacingOccurrences(of: "&", with: "%26") ?? ""
+            .replacingOccurrences(of: "&", with: "%26")
+            .replacingOccurrences(of: "+", with: "%2B") ?? ""
         if template.contains("%s") {
             return template.replacingOccurrences(of: "%s", with: encoded)
         }

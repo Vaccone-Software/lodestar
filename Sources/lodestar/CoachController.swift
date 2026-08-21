@@ -411,6 +411,10 @@ final class CoachController {
                 let changed = offer?.target != self.standing?.target
                     || offer?.kind != self.standing?.kind
                 if changed {
+                    // A chip on the glass must be the standing offer, never
+                    // a memory of one: left up through a swap, the two
+                    // gestures would answer a suggestion the user never read.
+                    if self.chipVisible { self.dismissChip(record: false) }
                     self.standing = offer
                     self.standingSince = Date()
                     self.offerCounted = false

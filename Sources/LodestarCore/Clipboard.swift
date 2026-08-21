@@ -310,9 +310,10 @@ public enum Clipboard {
             return 1000 - Double(min(position, 800)) * 0.5
         }
         // An ASCII needle that reached this line already passed the gate's
-        // scan, so tier two never re-walks what tier zero settled.
-        guard needle.count >= 2, ascii || containsInOrder(needle, in: preview)
-        else { return nil }
+        // scan, and a non-ASCII needle never owed it one — byte folding is
+        // not Unicode case folding, and a gate that cannot fold Ü would
+        // veto the very match the scorer below exists to find.
+        guard needle.count >= 2 else { return nil }
         // Only the survivors pay for scoring. No length penalty either: a
         // clip is not worse for being long. The preview goes in as copied —
         // the scorer folds case once itself.

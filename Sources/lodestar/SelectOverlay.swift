@@ -20,6 +20,7 @@ final class SelectOverlay {
         let typedLabel: String
         let shown: Int
         let total: Int
+        let capped: Bool
         let stage: Stage
         let scanning: Bool
 
@@ -222,7 +223,7 @@ final class SelectOverlay {
             }
             quiet(state.shown == state.total
                 ? "  ·  \(state.shown)"
-                : "  ·  \(state.shown) of \(state.total)+")
+                : "  ·  \(state.shown) of \(state.total)\(state.capped ? "+" : "")")
             quiet("  ·  ⇧letter " + (state.stage == .start ? "anchors" : "selects"))
         }
         quiet("  ·  esc")

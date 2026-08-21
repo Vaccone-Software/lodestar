@@ -103,8 +103,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // so pickers and most-recent resolution see every real profile.
         loaded.registerDetected(ChromiumProfiles.detected())
         config = loaded
+        // Layout first, overrides second: both layers live in Keys, and
+        // the config's `keys:` stays the user's last word over either.
+        KeyboardLayout.install()
         Keys.apply(overrides: loaded.keyOverrides)
         ActivePolicy.mode = loaded.activeDisplayMode
+        // A layout switched at lunch renames the keys by the afternoon:
+        // the overlay recomputes the moment the input source changes.
+        NotificationCenter.default.addObserver(
+            forName: NSTextInputContext.keyboardSelectionDidChangeNotification,
+            object: nil, queue: .main
+        ) { _ in
+            KeyboardLayout.install()
+        }
 
         // Stood up here, first thing after the config, and above everything
         // heavy: the model, the index, the clipboard, and the Accessibility
@@ -140,12 +151,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         rebuildGraphAddresses()
         searcher.graphAddress = { [weak self] name in self?.graphAddressByApp[name] }
         searcher.graphChains = { [weak self] name in self?.graphChains(for: name) ?? [] }
+        searcher.browserBindings = { [weak self] browser, name in
+            guard let self else { return [] }
+            return self.config.graph.chains(toBrowser: browser, appNamed: name) { alias in
+                self.appIndex.entry(named: alias)?.bundleID == browser.bundleID
+            }
+        }
         searcher.chainProblem = { [weak self] letters in self?.chainProblem(letters) }
         // No `self? … ??` here: these return nil on SUCCESS, and optional
         // chaining would flatten that nil into the error fallback.
-        searcher.addToGraph = { [weak self] letters, entry in
+        searcher.addToGraph = { [weak self] letters, entry, profile in
             guard let self else { return "lodestar is shutting down" }
-            return self.addAppToGraph(letters, entry: entry)
+            guard let profile else { return self.addAppToGraph(letters, entry: entry) }
+            return self.addTargetToGraph(letters, target: profile.reference)
         }
         searcher.removeFromGraph = { [weak self] letters in
             guard let self else { return "lodestar is shutting down" }
@@ -584,8 +602,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func rebuildGraphAddresses() {
         var map: [String: String] = [:]
         for (chain, target) in config.graph.leaves() {
-            guard case .app(let name) = target else { continue }
-            let key = name.lowercased()
+            // A profile binding is an address for its browser's row: the
+            // chip teaches the shortest way to some window of the app.
+            let key: String
+            switch target {
+            case .app(let name): key = name.lowercased()
+            case .browserProfile(let profile): key = profile.browser.appName.lowercased()
+            }
             let address = chain.map { $0.uppercased() }.joined(separator: " ")
             // Shortest chain wins; ties break on the sorted walk, so the
             // chip an app shows is stable across launches.
@@ -680,6 +703,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     throw Config.EditError.unparsed(dottedPath)
                 }
                 return updated
+            }
+        }
+        settings.applyEntries = { [weak self] removals, sets in
+            guard let self else { return "lodestar is shutting down" }
+            // The flash and the log name the table, never the entry: a
+            // route pattern or a link's key is the user's business, and
+            // the log is paste-able.
+            let tables = Set((removals + sets.map(\.0)).map {
+                $0.dropLast().joined(separator: ".")
+            }).sorted().joined(separator: " ")
+            return self.rewriteConfig(flash: "✓ \(tables)",
+                                      logged: "settings \(tables)") { tree in
+                var out = tree
+                for path in removals { out = Json.removingEntry(out, path: path) }
+                for (path, value) in sets {
+                    guard let updated = Json.settingEntry(out, path: path, to: value) else {
+                        throw Config.EditError.unparsed(path.dropLast().joined(separator: "."))
+                    }
+                    out = updated
+                }
+                return out
             }
         }
         settings.machineState = { [weak self] in
@@ -843,7 +887,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// The bundle id of whatever answers for https right now, us included.
     private func httpsHandler() -> String? {
-        guard let probe = URL(string: "https://example.com"),
+        handler(forScheme: "https")
+    }
+
+    private func handler(forScheme scheme: String) -> String? {
+        guard let probe = URL(string: "\(scheme)://example.com"),
               let application = NSWorkspace.shared.urlForApplication(toOpen: probe) else {
             return nil
         }
@@ -1003,9 +1051,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     self.openDefaultBrowserSettings()
                     return
                 }
-                // http usually follows https as one role; ask separately only
-                // if it did not, so the common case shows one panel.
-                if self.currentDefaultBrowser() != nil {
+                // http usually follows https as one role; ask *http itself*
+                // and claim separately only if it did not follow, so the
+                // common case shows one panel. Probing https here answered
+                // "us" the moment the claim above landed, which skipped the
+                // http claim exactly in the case it exists for.
+                if let http = self.handler(forScheme: "http"),
+                   http != Lodestar.bundleID {
                     NSWorkspace.shared.setDefaultApplication(
                         at: Bundle.main.bundleURL, toOpenURLsWithScheme: "http"
                     ) { _ in }
@@ -1242,6 +1294,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func applyConfigReload(successFlash: String) {
         var (loaded, loadProblems) = Config.load()
+        // Re-read Local State rather than re-serve the boot snapshot: a
+        // reload is the one moment the world is being asked again, and the
+        // doctor's ground truth below must not grade against stale caches.
+        ChromiumProfiles.invalidate()
         let problems = loadProblems
             + ConfigDoctor.groundTruthProblems(loaded)
             + ConfigDoctor.semanticWarnings(loaded, appIndex: appIndex)
@@ -1320,7 +1376,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }, uniquingKeysWith: { first, _ in first })
         }
         let oldLeaves = epochGraphBaseline ?? leafMap(old)
-        guard !problems.contains(where: { $0.hasPrefix("graph") }) else {
+        // A whole-file parse failure is the deepest wound of all: the "new"
+        // graph is the empty default, and diffing against it would stamp
+        // every binding removed the moment a typo lands.
+        guard !problems.contains(where: {
+            $0.hasPrefix("graph") || $0.hasPrefix("config parse failed")
+        }) else {
             epochGraphBaseline = oldLeaves
             Log.info("config-epochs", ["held": "graph parse had problems"])
             return

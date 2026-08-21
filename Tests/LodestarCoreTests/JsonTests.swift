@@ -51,7 +51,7 @@ final class JsonTests: XCTestCase {
             guard let match = line.range(of: "^  \"([^\"]+)\"", options: .regularExpression) else { return nil }
             return String(line[match]).replacingOccurrences(of: "\"", with: "").trimmingCharacters(in: .whitespaces)
         }
-        XCTAssertEqual(keys, ["$schema", "version", "graph", "scroll", "zebra"])
+        XCTAssertEqual(keys, ["$schema", "version", "scroll", "graph", "zebra"])
         XCTAssertTrue(text.hasSuffix("}\n"))
     }
 
@@ -259,5 +259,48 @@ final class JsonTests: XCTestCase {
             "lode": .table(["trigger": .string("right-command")]),
         ])
         XCTAssertEqual(both["lode"]?.table?["trigger"], .string("right-command"))
+    }
+
+    // MARK: - Entry edits
+
+    /// The bug these helpers exist to end: editing one row of a table must
+    /// leave every sibling exactly as the file had it — including rows the
+    /// loader rejected, which a whole-table rewrite silently erased.
+    func testRemovingEntryLeavesRejectedSiblingsAlone() {
+        let tree: [String: ConfigValue] = ["web": .table(["links": .table([
+            "mail": .table(["url": .string("mail.google.com")]),
+            "docs": .table(["profile": .string("brave:Work")]), // no url: loader rejects it
+        ])])]
+        let updated = Json.removingEntry(tree, path: ["web", "links", "mail"])
+        XCTAssertNil(updated.value(at: ["web", "links", "mail"]))
+        XCTAssertNotNil(updated.value(at: ["web", "links", "docs"]),
+                        "the broken sibling is the user's to fix, not ours to erase")
+    }
+
+    func testEntryEditsFoldCaseOnTheLastHopOnly() {
+        let tree: [String: ConfigValue] = ["web": .table(["routes": .table([
+            "YouTube": .string("brave:Home"),
+        ])])]
+        // The loader folds keys, so the editor holds "youtube" while the
+        // file spells "YouTube" — the file's spelling is the one edited.
+        let removed = Json.removingEntry(tree, path: ["web", "routes", "youtube"])
+        XCTAssertEqual(removed.value(at: ["web", "routes"]), .table([:]),
+                       "left empty here; the canonical write path prunes it")
+        let replaced = Json.settingEntry(tree, path: ["web", "routes", "youtube"],
+                                         to: .string("brave:Work"))
+        XCTAssertEqual(replaced?.value(at: ["web", "routes"])?.table?.count, 1,
+                       "a case-variant never becomes a second row")
+        XCTAssertEqual(replaced?.value(at: ["web", "routes", "youtube"]),
+                       .string("brave:Work"))
+    }
+
+    func testSettingEntryCreatesTheTableAndRemovingMissesQuietly() {
+        let made = Json.settingEntry([:], path: ["meetings", "calendars", "Work"],
+                                     to: .string("brave:Work"))
+        XCTAssertEqual(made?.value(at: ["meetings", "calendars", "Work"]),
+                       .string("brave:Work"))
+        let untouched: [String: ConfigValue] = ["web": .table([:])]
+        XCTAssertEqual(Json.removingEntry(untouched, path: ["web", "links", "gone"]),
+                       untouched)
     }
 }

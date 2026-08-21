@@ -423,13 +423,17 @@ final class HintOverlay {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
+        // The same explicit tone GlassChip.make locks in: labelColor here
+        // resolves against the glass's backdrop-stamped appearance, which
+        // is the invisible-text bug arriving on the first typed letter.
+        let base: NSColor = Tone.systemDark ? .white : NSColor(white: 0.12, alpha: 1)
         for (chip, label, text) in chips {
             if typed.isEmpty || text.hasPrefix(typed) {
                 chip.isHidden = false
                 let attributed = NSMutableAttributedString(
                     string: text.uppercased(),
                     attributes: [.font: Self.chipFont,
-                                 .foregroundColor: NSColor.labelColor])
+                                 .foregroundColor: base])
                 attributed.addAttribute(.foregroundColor,
                                         value: NSColor.controlAccentColor,
                                         range: NSRange(location: 0, length: typed.count))

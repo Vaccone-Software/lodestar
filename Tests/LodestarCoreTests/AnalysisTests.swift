@@ -146,6 +146,93 @@ final class AnalysisTests: XCTestCase {
         XCTAssertGreaterThan(fit?.totalSeconds(alpha: curve?.alpha ?? 0.25) ?? 0, 1)
     }
 
+    func testHardAddressesCannotBuyTheGridWithSilence() {
+        // One well-sampled curve at α≈0.25, plus five re-epoched addresses
+        // whose surviving samples sit at ordinals 61+ — where e^{-αn}
+        // collapses for large α and the per-address OLS goes singular.
+        // Skipping the failures let exactly the largest alphas post zero
+        // error for five addresses and win the grid; the intercept
+        // fallback makes every α pay the same bill, so the curved address
+        // decides and the hard ones keep flat fits.
+        var o = Observations()
+        var noise = Noise(seed: 23)
+        for n in 1...40 {
+            let gap = exp(log(0.2) + 1.2 * exp(-0.25 * Double(n)) + noise.normal(sd: 0.05))
+            var event = ObservationEvent(t: start.addingTimeInterval(Double(n) * 3600),
+                                         kind: .chain)
+            event.chain = ["q"]
+            event.gaps = [gap]
+            o.apply(event)
+        }
+        for letter in ["a", "b", "c", "d", "e"] {
+            for n in 1...60 {
+                var event = ObservationEvent(t: start.addingTimeInterval(Double(n) * 3600),
+                                             kind: .chain)
+                event.chain = [letter]
+                o.apply(event)
+            }
+            var bump = ObservationEvent(t: start.addingTimeInterval(61 * 3600), kind: .epoch)
+            bump.address = letter
+            bump.change = "retargeted"
+            o.apply(bump)
+            for n in 61...76 {
+                var event = ObservationEvent(t: start.addingTimeInterval(Double(n) * 3600),
+                                             kind: .chain)
+                event.chain = [letter]
+                event.gaps = [exp(log(0.4) + noise.normal(sd: 0.3))]
+                o.apply(event)
+            }
+        }
+        let curve = LearningCurve.fit(observations: o)
+        XCTAssertNotNil(curve)
+        XCTAssertEqual(curve?.alpha ?? 0, 0.25, accuracy: 0.15,
+                       "the pooled rate belongs to the evidence, not to the dropouts")
+        for letter in ["a", "b", "c", "d", "e"] {
+            XCTAssertNotNil(curve?.fits[letter], "a flat fit is still a fit")
+        }
+    }
+
+    // MARK: - The FDR family
+
+    func testTestedButUngatedCandidatesStayInTheFamily() {
+        // Five wrong keys, three on one letter: enough trials to run the
+        // test, too thin to clear the Wilson floor. The hypothesis was
+        // tested, so it must be counted — dropping it before BH is
+        // post-selection, and m stops meaning anything.
+        var o = Observations()
+        var event = ObservationEvent(t: start, kind: .wrongKey)
+        event.chain = ["w"]
+        for pressed in ["x", "x", "x", "y", "z"] {
+            event.pressed = pressed
+            o.apply(event)
+        }
+        let context = Advisor.Context(observations: o, events: [], leaves: [],
+                                      meetingsEnabled: false, now: start)
+        let candidates = Advisor.rebindCandidates(context)
+        XCTAssertEqual(candidates.count, 1)
+        XCTAssertNotNil(candidates.first?.p, "tested, so it carries its p")
+        XCTAssertEqual(candidates.first?.offerable, false,
+                       "in the family, never on the glass")
+    }
+
+    func testRetireStandsOutsideTheFamily() {
+        // A retirement rejects no null: four weeks and zero completions is
+        // a fact, and the constant stand-in p it used to carry sat inside
+        // the BH family distorting the thresholds for the real tests.
+        var o = Observations()
+        var seen = ObservationEvent(t: start.addingTimeInterval(-30 * 86_400), kind: .focus)
+        seen.app = "slack"
+        o.apply(seen)
+        let context = Advisor.Context(
+            observations: o, events: [],
+            leaves: [Advisor.Leaf(chain: ["z"], label: "Zed", value: "Zed")],
+            meetingsEnabled: false, now: start)
+        let candidates = Advisor.retireCandidates(context)
+        XCTAssertEqual(candidates.count, 1)
+        XCTAssertNil(candidates.first?.p, "a fact is not a rejection of chance")
+        XCTAssertEqual(candidates.first?.offerable, true)
+    }
+
     // MARK: - Recall mixture
 
     func testMixtureSeparatesRecallFromReconstruction() {

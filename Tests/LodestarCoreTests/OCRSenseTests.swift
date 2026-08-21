@@ -93,6 +93,16 @@ final class OCRSenseTests: XCTestCase {
                        "STAGING-7f3a9c1e", "an exact hit confirms the span unchanged")
     }
 
+    func testGroundingDeclinesWhenTwoRepairsDisagree() {
+        // Two near-identical values share the window. Aligning on the
+        // anchor's first occurrence alone would confidently return the
+        // earlier one — the wrong one half the time. Ambiguity keeps the
+        // pixels.
+        XCTAssertNil(OCRSense.ground("value: 4821",
+                                     in: ["value: 4826 then value: 4829"]),
+                     "two passing windows that disagree is a guess")
+    }
+
     func testIdentifiersSurviveWithoutLanguageCorrection() {
         // The copy path's whole fidelity case: an identifier must come out
         // character-for-character, not "corrected" into a word.

@@ -161,6 +161,15 @@ final class PasteModeTests: XCTestCase {
         XCTAssertEqual(core.state, .idle)
     }
 
+    func testTriggerTogglesShutFromACardsPanelToo() {
+        open()
+        _ = press("a", command: true)
+        XCTAssertEqual(core.state, .pastePanel(searching: false))
+        XCTAssertEqual(core.openPaste(world: world), [.exitPaste],
+                       "the panel is still the strip, so ⇧⌘V still closes it")
+        XCTAssertEqual(core.state, .idle)
+    }
+
     func testNothingCopiedYetStaysIdle() {
         world.pasteAvailable = false
         XCTAssertEqual(core.openPaste(world: world), [.flash("⌂ nothing copied yet")])

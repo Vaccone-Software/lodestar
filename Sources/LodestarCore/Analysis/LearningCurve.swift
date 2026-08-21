@@ -84,7 +84,21 @@ public struct LearningCurve: Equatable {
                 // Linear in (1, e^{-αn}): closed form per address.
                 let rows = points.map { [1.0, exp(-alpha * $0.n)] }
                 let y = points.map(\.y)
-                guard let beta = Maths.ols(rows: rows, y: y) else { continue }
+                let beta: [Double]
+                if let solved = Maths.ols(rows: rows, y: y) {
+                    beta = solved
+                } else {
+                    // The regressor collapsed — at these ordinals e^{-αn}
+                    // is flat, so this α sees no learning term left in the
+                    // address. The honest nested model is the intercept
+                    // alone: asymptote at the mean, no excess. Skipping
+                    // instead contributed zero SSE, which let exactly the
+                    // alphas that fit fewest addresses win the grid — the
+                    // pooled rate biased high, and the hard addresses'
+                    // fits silently lost.
+                    guard let mean = Maths.mean(y) else { continue }
+                    beta = [mean, 0]
+                }
                 var residual = 0.0
                 for (row, value) in zip(rows, y) {
                     let predicted = beta[0] + beta[1] * row[1]

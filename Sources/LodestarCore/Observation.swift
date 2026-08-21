@@ -30,6 +30,15 @@ public final class AppObserver {
         return AXObserverAddNotification(observer, element, notification as CFString, refcon) == .success
     }
 
+    /// Drop one registration. The observer's client-side table holds an
+    /// entry — element token included — per watch for the observer's whole
+    /// life, so a window's registrations must die with the window or a
+    /// browser churning hundreds of them grows the table for weeks.
+    public func unwatch(_ notification: String, on element: AXUIElement) {
+        guard let observer else { return }
+        AXObserverRemoveNotification(observer, element, notification as CFString)
+    }
+
     public func invalidate() {
         guard let observer else { return }
         CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .defaultMode)

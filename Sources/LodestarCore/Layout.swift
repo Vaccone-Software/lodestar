@@ -28,8 +28,11 @@ public final class LayoutController {
     }
 
     private var layouts: [CGDirectDisplayID: DisplayLayout] = [:]
-    private var undoStack: [Snapshot] = []
-    private var redoStack: [Snapshot] = []
+    /// One gesture, one entry: a step is every display the gesture
+    /// touched, snapshotted together — a cross-display move holds both
+    /// its source and its destination, so one undo restores both.
+    private var undoStack: [[Snapshot]] = []
+    private var redoStack: [[Snapshot]] = []
     private var retileGenerations: [CGDirectDisplayID: Int] = [:]
     private var dormant: [String: DormantLayout] = [:]
     private var knownUUIDs: [CGDirectDisplayID: String] = [:]
@@ -105,7 +108,7 @@ public final class LayoutController {
     /// Plain summon: this window becomes the display's whole layout,
     /// full-screen. The display's previous members are parked.
     public func replace(with id: CGWindowID, on display: CGDirectDisplayID) {
-        recordUndo(display)
+        recordUndo(touching: id, on: display)
         detach(id)
         var layout = layouts[display] ?? DisplayLayout()
         let previous = layout.members.filter { $0 != id }
@@ -130,7 +133,7 @@ public final class LayoutController {
             replace(with: id, on: display)
             return
         }
-        recordUndo(display)
+        recordUndo(touching: id, on: display)
         detach(id)
         layout = layouts[display] ?? DisplayLayout()
         layout.members.append(id)
@@ -157,10 +160,15 @@ public final class LayoutController {
         onChange?()
     }
 
-    /// Restore a breath: the whole world at once, one group per display.
+    /// Restore a breath: the whole world at once, one group per display —
+    /// and one undo step for all of it. Every display the restore touches
+    /// is snapshotted together, including displays that only *lose* a
+    /// member to it, so a single undo puts the whole world back.
     public func adoptGroups(_ groups: [CGDirectDisplayID: [CGWindowID]], orientation: Orientation) {
+        let touched = Set(groups.keys)
+            .union(groups.values.flatMap { $0 }.compactMap(display(of:)))
+        recordUndo(touched.sorted())
         for (display, members) in groups {
-            recordUndo(display)
             for id in members { detach(id) }
             var layout = layouts[display] ?? DisplayLayout()
             let incoming = Set(members)
@@ -202,8 +210,8 @@ public final class LayoutController {
             // returns early for a display that is not there. The windows
             // stayed in the 1px sliver with nothing left that knew where
             // they had come from.
-            undoStack.removeAll { $0.display == display }
-            redoStack.removeAll { $0.display == display }
+            undoStack.removeAll { step in step.contains { $0.display == display } }
+            redoStack.removeAll { step in step.contains { $0.display == display } }
             Log.info("display-departed", ["display": display, "parked": layout.members.count])
             onChange?()
         }
@@ -249,18 +257,29 @@ public final class LayoutController {
     /// Returns the affected display so focus can follow.
     @discardableResult
     public func undo() -> CGDirectDisplayID? {
-        guard let snapshot = undoStack.popLast() else { return nil }
-        redoStack.append(current(snapshot.display))
-        apply(snapshot)
-        return snapshot.display
+        guard let step = undoStack.popLast() else { return nil }
+        redoStack.append(step.map { current($0.display) })
+        apply(step: step)
+        // The last snapshot is the source in a cross-display step — where
+        // the moved window just returned, which is where the eye went.
+        return step.last?.display
     }
 
     @discardableResult
     public func redo() -> CGDirectDisplayID? {
-        guard let snapshot = redoStack.popLast() else { return nil }
-        undoStack.append(current(snapshot.display))
-        apply(snapshot)
-        return snapshot.display
+        guard let step = redoStack.popLast() else { return nil }
+        undoStack.append(step.map { current($0.display) })
+        apply(step: step)
+        return step.last?.display
+    }
+
+    /// Every display in the step restores under one rule: a window that
+    /// belongs anywhere in the step is never parked by another display's
+    /// half of it — parked-then-claimed was a visible flick to the sliver
+    /// and back.
+    private func apply(step: [Snapshot]) {
+        let arriving = Set(step.flatMap(\.layout.members))
+        for snapshot in step { apply(snapshot, keeping: arriving) }
     }
 
     private func current(_ display: CGDirectDisplayID) -> Snapshot {
@@ -268,16 +287,32 @@ public final class LayoutController {
     }
 
     private func recordUndo(_ display: CGDirectDisplayID) {
-        let snapshot = current(display)
-        if undoStack.last == snapshot { return }
-        undoStack.append(snapshot)
+        recordUndo([display])
+    }
+
+    /// The undo for a summon: the destination, plus — when the window is
+    /// leaving another display's layout — the source, so undo returns it
+    /// home instead of parking it as a stranger.
+    private func recordUndo(touching id: CGWindowID, on display: CGDirectDisplayID) {
+        var displays = [display]
+        if let source = self.display(of: id), source != display {
+            displays.append(source)
+        }
+        recordUndo(displays)
+    }
+
+    private func recordUndo(_ displays: [CGDirectDisplayID]) {
+        let step = displays.map(current)
+        if undoStack.last == step { return }
+        undoStack.append(step)
         if undoStack.count > 20 { undoStack.removeFirst() }
         redoStack.removeAll()
     }
 
-    private func apply(_ snapshot: Snapshot) {
+    private func apply(_ snapshot: Snapshot, keeping: Set<CGWindowID> = []) {
         let incoming = Set(snapshot.layout.members)
-        let previous = (layouts[snapshot.display]?.members ?? []).filter { !incoming.contains($0) }
+        let previous = (layouts[snapshot.display]?.members ?? [])
+            .filter { !incoming.contains($0) && !keeping.contains($0) }
         Log.info("layout", [
             "display": snapshot.display,
             "was": layouts[snapshot.display]?.members ?? [],

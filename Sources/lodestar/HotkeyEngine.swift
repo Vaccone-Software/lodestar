@@ -54,6 +54,10 @@ final class HotkeyEngine {
     private var tap: CFMachPort?
     private var peekWork: DispatchWorkItem?
     private var isPeeking = false
+    /// The physical lode key, tracked across modes: flagsChanged fires for
+    /// every modifier transition, and only the down edge may start the
+    /// chain clock.
+    private var lodeWasHeld = false
     private var tapWatchdog: Timer?
     /// Latched so a tap we cannot revive is reported once, not every tick.
     private var tapWasDead = false
@@ -263,7 +267,10 @@ final class HotkeyEngine {
 
     /// Drop any chain, peek, or mode in flight and go quiet.
     private func resetToIdle(reason: String) {
-        guard !core.isIdle || isPeeking else { return }
+        // A merely *scheduled* peek counts too: with the release event lost
+        // to a tap outage, the pending work would fire into an idle world
+        // and stand a phantom guide with lode already up.
+        guard !core.isIdle || isPeeking || peekWork != nil else { return }
         Log.info("hotkeys: engine reset", ["reason": reason])
         cancelPeek(hideGuide: true)
         _ = apply(core.reset(), event: nil)
@@ -282,7 +289,7 @@ final class HotkeyEngine {
     }
 
     private func chainShift(_ flags: CGEventFlags) -> Bool {
-        EngineCore.chainShift(flags, trigger: coreTrigger)
+        EngineCore.chainShift(flags)
     }
 
     // MARK: - Event handling
@@ -342,10 +349,23 @@ final class HotkeyEngine {
 
         let keycode = event.getIntegerValueField(.keyboardEventKeycode)
         guard let key = Keys.name(for: keycode) else {
-            // Unmapped keys pass through untouched, even mid-chain.
+            // Unmapped keys pass through untouched, even mid-chain — but
+            // never under a held highlight: Page Down scrolls the page out
+            // from beneath the ghost, so a key the table cannot name still
+            // dissolves it on the way through (nil ghost costs one check).
+            _ = select.ghostHandleKey(key: "", held: false, flags: event.flags)
             return Unmanaged.passUnretained(event)
         }
         let (held, shift) = classify(event.flags)
+
+        // A held lode+letter autorepeats like any key, and every repeat
+        // used to arrive as a fresh gesture: another summon, another
+        // deferred retile, another gap-less completion in the observation
+        // log. Repeats die here while lode is down; scroll keeps its
+        // repeats because its direction keys ride without lode.
+        if held, event.getIntegerValueField(.keyboardEventAutorepeat) != 0 {
+            return nil
+        }
 
         // lode ⌫ while a coach chip is up answers "not this one". The
         // closure acts only when a chip is visible, and the key is
@@ -391,8 +411,10 @@ final class HotkeyEngine {
     }
 
     /// Which verb an effect belongs to, for the count that lets a feature
-    /// nobody has ever touched say so. Names match the gesture roster, so the
-    /// report and the config speak the same words.
+    /// nobody has ever touched say so. These are the report's own short
+    /// words, not the gesture roster's — ninety days of recorded events
+    /// already speak them, so any future join against roster names (for a
+    /// "disable X?" suggestion) maps here rather than renaming the data.
     private static func verb(for effect: EngineEffect) -> String? {
         switch effect {
         case .showSearcher, .openWindowChooser: return "launcher"
@@ -684,14 +706,34 @@ final class HotkeyEngine {
     // MARK: - Peek (hold lode to see your world)
 
     private func handleFlagsChanged(_ event: CGEvent) {
-        guard core.isIdle else { return }
         let (held, _) = classify(event.flags)
+        let wasHeld = lodeWasHeld
+        lodeWasHeld = held
+        guard core.isIdle else {
+            // Inside a chain the stamps are the measurement — leave them.
+            // Inside any other mode there is no chain to clock, and the
+            // clock from before the mode must not survive it: a summon
+            // that exits the mode would read the minutes-old stamp as one
+            // enormous pause.
+            let chaining: Bool
+            if case .chain = core.state { chaining = true } else { chaining = false }
+            if held, !wasHeld, !chaining {
+                chainStamps = []
+                chainLetters = []
+                chainSawPeek = false
+            }
+            return
+        }
         if held {
             // The clock for a chain starts when lode goes down, not when the
-            // first letter arrives.
-            chainStamps = [Date()]
-            chainLetters = []
-            chainSawPeek = false
+            // first letter arrives — and only when it goes *down*: a shift
+            // pressed mid-hold lands here too, and restamping on it
+            // under-measured exactly the shifted gestures.
+            if !wasHeld {
+                chainStamps = [Date()]
+                chainLetters = []
+                chainSawPeek = false
+            }
             guard peekWork == nil, !isPeeking, !anyBarVisible else { return }
             let work = DispatchWorkItem { [weak self] in
                 guard let self, self.core.isIdle, !self.anyBarVisible else { return }

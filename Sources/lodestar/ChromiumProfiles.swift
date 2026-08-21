@@ -11,6 +11,15 @@ enum ChromiumProfiles {
     private static var directoriesByBrowser: [ChromiumBrowser: [String: String]] = [:]
     private static var namesByBrowser: [ChromiumBrowser: [String]] = [:]
 
+    /// Forget every cached Local State read. Called on config reload so a
+    /// menu-bar process that runs for weeks answers with the profiles the
+    /// browser has now, not the ones it had at launch — a profile created
+    /// yesterday must be offerable today without restarting Lodestar.
+    static func invalidate() {
+        directoriesByBrowser = [:]
+        namesByBrowser = [:]
+    }
+
     static func directory(for profile: BrowserProfile) -> String? {
         directories(for: profile.browser)[profile.display.lowercased()]
     }
@@ -67,6 +76,15 @@ enum ChromiumProfiles {
     private static func launch(_ profile: BrowserProfile, url: String?) -> Bool {
         guard let dir = directory(for: profile) else {
             Log.error("\(profile.browser.rawValue): no profile directory for '\(profile.display)'")
+            return false
+        }
+        // A trashed browser leaves its Local State behind, so the profile
+        // still resolves while `open` has nothing to open — and a routed
+        // link must never vanish on a success that was never verified.
+        // Asking LaunchServices for the app is the synchronous truth.
+        guard NSWorkspace.shared.urlForApplication(
+            withBundleIdentifier: profile.browser.bundleID) != nil else {
+            Log.error("\(profile.browser.rawValue): app is not installed")
             return false
         }
         let process = Process()

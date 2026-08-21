@@ -244,11 +244,19 @@ final class MeetingController: NSObject {
                 guard let self else { return }
                 self.refreshing = false
                 self.occurrences = fetched
-                self.saveSpent(Meetings.prune(spent: self.loadSpent(), keeping: fetched))
-                // The offered set answers "was this chip's observation
-                // recorded"; keys whose occurrences are gone are done
-                // answering.
-                self.offered.formIntersection(fetched.map(\.key))
+                // Never prune against an empty fetch: EventKit can answer
+                // empty for a beat (a sync hiccup, an account briefly
+                // offline), and a wiped spent set would resurrect a
+                // dismissed chip when the events return. A truly empty
+                // calendar offers nothing anyway; the stale keys wait for
+                // the next real fetch to prune them.
+                if !fetched.isEmpty {
+                    self.saveSpent(Meetings.prune(spent: self.loadSpent(), keeping: fetched))
+                    // The offered set answers "was this chip's observation
+                    // recorded"; keys whose occurrences are gone are done
+                    // answering.
+                    self.offered.formIntersection(fetched.map(\.key))
+                }
                 self.evaluate()
             }
         }

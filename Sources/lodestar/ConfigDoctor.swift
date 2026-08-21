@@ -370,7 +370,12 @@ func runConfigVerb(_ arguments: [String]) -> Never {
             print("✕ the config does not parse — fix it (lodestar check) before writing")
             exit(1)
         }
+        // The mutation is kept as a transform so the write below can run
+        // it against the tree Config.edit re-reads under its own lock:
+        // writing the pre-read `updated` tree instead would silently
+        // revert any key another process changed in between.
         let updated: [String: ConfigValue]
+        let transform: ([String: ConfigValue]) -> [String: ConfigValue]
         if arguments.first == "set" {
             guard arguments.count == 3 else {
                 print("usage: lodestar config set <dotted.path> <value>")
@@ -382,6 +387,9 @@ func runConfigVerb(_ arguments: [String]) -> Never {
                 exit(1)
             }
             updated = next
+            transform = { fresh in
+                Json.setting(fresh, path: path, to: Json.parseFragment(arguments[2])) ?? fresh
+            }
         } else {
             guard arguments.count == 2 else {
                 print("usage: lodestar config unset <dotted.path>")
@@ -401,6 +409,10 @@ func runConfigVerb(_ arguments: [String]) -> Never {
                 print("✕ \(arguments[1]) is not reachable — a value sits at \(prefix)")
                 exit(1)
             }
+            transform = { fresh in
+                if case .removed(let next) = Json.removing(fresh, path: path) { return next }
+                return fresh
+            }
         }
         // Refuse any write that introduces a problem the file didn't
         // already have; pre-existing complaints stay the user's business.
@@ -413,7 +425,7 @@ func runConfigVerb(_ arguments: [String]) -> Never {
             exit(1)
         }
         do {
-            try Config.edit { _ in updated }
+            try Config.edit { fresh in transform(fresh) }
         } catch {
             print("✕ could not write the config: \(error)")
             exit(1)

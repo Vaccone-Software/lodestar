@@ -26,6 +26,15 @@ final class PlacementTests: XCTestCase {
         XCTAssertEqual(Placement.reorder([10, 20, 30], move: 10, toDigit: 9), [20, 30, 10])
     }
 
+    func testPlacesAreStandardOrUnsubroled() {
+        XCTAssertTrue(Placement.isPlace(subrole: "AXStandardWindow"))
+        XCTAssertTrue(Placement.isPlace(subrole: nil), "some apps never set one")
+        for event in ["AXDialog", "AXSystemDialog", "AXFloatingWindow", "AXUnknown"] {
+            XCTAssertFalse(Placement.isPlace(subrole: event),
+                           "\(event) is an event, never a destination")
+        }
+    }
+
     func testReorderRejectsNoopsAndInvalid() {
         XCTAssertNil(Placement.reorder([10, 20, 30], move: 10, toDigit: 1), "already there")
         XCTAssertNil(Placement.reorder([10, 20, 30], move: 99, toDigit: 1), "not a member")

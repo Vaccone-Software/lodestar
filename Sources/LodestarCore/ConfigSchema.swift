@@ -197,7 +197,7 @@ public enum ConfigSchema {
         document["definitions"] = [
             "graphNode": [
                 "oneOf": [
-                    ["type": "string", "description": "An app name, or brave:<profile registry key>"],
+                    ["type": "string", "description": "An app name, or a profile as browser:name (brave:Work)"],
                     ["type": "object", "additionalProperties": ["$ref": "#/definitions/graphNode"]],
                 ],
             ] as [String: Any],

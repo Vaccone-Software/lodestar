@@ -276,7 +276,8 @@ final class UpdateController {
         }
         let plist = NSDictionary(contentsOf: bundle.appendingPathComponent("Contents/Info.plist"))
         guard let stagedVersion = plist?["CFBundleShortVersionString"] as? String,
-              Updater.parseVersion(stagedVersion) == release.version else {
+              let staged = Updater.parseVersion(stagedVersion),
+              Updater.sameVersion(staged, release.version) else {
             failStage(force: force, log: "staged bundle version does not match the release tag")
             return
         }

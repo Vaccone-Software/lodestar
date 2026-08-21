@@ -45,4 +45,66 @@ final class KeysTests: XCTestCase {
         XCTAssertEqual(Keys.codes["v"], 9)
         XCTAssertEqual(Keys.name(for: 50), "`")
     }
+
+    // MARK: - Layout adoption
+
+    /// A fully ASCII layout (Dvorak's shape) adopts wholesale: every key
+    /// is named by what it types, and no name is lost or doubled.
+    func testAFullPermutationAdoptsWholesale() {
+        let codes = Keys.characterCodes.sorted()
+        var rotated: [Int64: String] = [:]
+        for (index, code) in codes.enumerated() {
+            rotated[code] = Keys.ansi[codes[(index + 1) % codes.count]]
+        }
+        let overlay = Keys.layoutOverlay(translated: rotated)
+        XCTAssertEqual(overlay.count, codes.count, "every character key adopted")
+        Keys.apply(layout: overlay)
+        defer { Keys.apply(layout: [:]) }
+        XCTAssertEqual(Keys.name(for: codes[0]), Keys.ansi[codes[1]],
+                       "the key is named by what it types")
+        XCTAssertEqual(Set(Keys.names.values), Set(Keys.ansi.values),
+                       "no name lost, none invented")
+    }
+
+    /// A layout with a few non-ASCII keys (QWERTZ's umlauts) adopts its
+    /// letters and digits; punctuation stays positional, so the gestures
+    /// bound to punctuation names keep their keys.
+    func testUmlautLayoutAdoptsLettersAndKeepsPunctuationPositional() {
+        var translated: [Int64: String] = [:]
+        for code in Keys.characterCodes {
+            translated[code] = Keys.ansi[code] // most keys type their ANSI name
+        }
+        translated[6] = "y"    // z and y trade places
+        translated[16] = "z"
+        translated[41] = "ö"   // umlauts where ; ' [ live
+        translated[39] = "ä"
+        translated[33] = "ü"
+        translated[30] = "+"   // the + key where ] lives
+        let overlay = Keys.layoutOverlay(translated: translated)
+        Keys.apply(layout: overlay)
+        defer { Keys.apply(layout: [:]) }
+        XCTAssertEqual(Keys.name(for: 6), "y")
+        XCTAssertEqual(Keys.name(for: 16), "z")
+        XCTAssertEqual(Keys.name(for: 41), ";", "punctuation stays positional")
+        XCTAssertEqual(Keys.name(for: 30), "]", "no name may be displaced by +")
+    }
+
+    /// A layout that cannot keep the name set intact (AZERTY moves m onto
+    /// the ; key while , takes m's place) adopts nothing: half a table
+    /// would mean two keys named m and none named ; at all.
+    func testIncoherentLayoutFallsBackToTheFloor() {
+        XCTAssertEqual(Keys.layoutOverlay(translated: [41: "m", 46: ","]), [:])
+    }
+
+    /// The config's `keys:` stays the last word over the layout.
+    func testOverridesOutrankTheLayout() {
+        Keys.apply(layout: [6: "y", 16: "z"])
+        Keys.apply(overrides: [6: "b"])
+        defer {
+            Keys.apply(layout: [:])
+            Keys.apply(overrides: [:])
+        }
+        XCTAssertEqual(Keys.name(for: 6), "b", "the user outranks the machine")
+        XCTAssertEqual(Keys.name(for: 16), "z", "the layout holds where no override speaks")
+    }
 }

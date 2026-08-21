@@ -131,20 +131,42 @@ public enum OCRSense {
                 guard let targetAnchor = target.range(of: String(anchor)) else { continue }
                 let lead = target.distance(from: target.startIndex,
                                            to: targetAnchor.lowerBound)
+                // Every occurrence of the anchor, in every haystack — the
+                // first occurrence alone once repaired "value: 4821" from
+                // an earlier "value: 4826" and called it truth. An exact
+                // window anywhere confirms the span; a repair is taken
+                // only when exactly one candidate passes, because two
+                // passing windows that disagree is a guess, and a
+                // grounding that guessed would be the worse corruption.
+                var candidates: Set<String> = []
                 for haystack in haystacks {
-                    guard let anchorRange = haystack.range(of: String(anchor)),
-                          let start = haystack.index(anchorRange.lowerBound, offsetBy: -lead,
-                                                     limitedBy: haystack.startIndex),
-                          let end = haystack.index(start, offsetBy: target.count,
-                                                   limitedBy: haystack.endIndex)
-                    else { continue }
-                    let window = String(haystack[start..<end])
-                    guard window.count == target.count else { continue }
-                    let mismatches = zip(window, target).filter { $0.0 != $0.1 }.count
-                    if mismatches == 0 { return span }
-                    if Double(mismatches) / Double(target.count) <= 0.15 {
-                        return window
+                    var from = haystack.startIndex
+                    while let anchorRange = haystack.range(of: String(anchor),
+                                                           range: from..<haystack.endIndex) {
+                        from = haystack.index(after: anchorRange.lowerBound)
+                        guard let start = haystack.index(anchorRange.lowerBound,
+                                                         offsetBy: -lead,
+                                                         limitedBy: haystack.startIndex),
+                              let end = haystack.index(start, offsetBy: target.count,
+                                                       limitedBy: haystack.endIndex)
+                        else { continue }
+                        let window = String(haystack[start..<end])
+                        guard window.count == target.count else { continue }
+                        let mismatches = zip(window, target).filter { $0.0 != $0.1 }.count
+                        if mismatches == 0 { return span }
+                        if Double(mismatches) / Double(target.count) <= 0.15 {
+                            candidates.insert(window)
+                        }
                     }
+                }
+                guard candidates.isEmpty else {
+                    // The window is the haystack's normalized text: one
+                    // line, spaces collapsed. Substituting it under a
+                    // multi-line span would paste one long line while
+                    // three stand lit — the highlight is the promise, so
+                    // a span with a newline is confirmed or left alone.
+                    guard !span.contains("\n"), candidates.count == 1 else { return nil }
+                    return candidates.first
                 }
             }
             return nil

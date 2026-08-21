@@ -90,7 +90,7 @@ final class GraphBuildTests: XCTestCase {
         """)
         assertLeaf(node, ["e", "p"], app: "First")
         XCTAssertEqual(problems.count, 1)
-        XCTAssertTrue(problems[0].contains("collides"), "\(problems)")
+        XCTAssertTrue(problems[0].contains("already bound"), "\(problems)")
     }
 
     /// Sugar splices its intermediate letters in before the target is
@@ -257,9 +257,50 @@ final class GraphBuildTests: XCTestCase {
         XCTAssertEqual(node.chains(toAppNamed: "Nothing"), [])
     }
 
+    func testChainsToBrowserGatherTheBareAppAndItsProfiles() throws {
+        // A browser row owns every binding that means it: the bare app
+        // (the inherit binding) and each profile-targeted chain — never
+        // another browser's, never another app's.
+        let (node, problems) = try build("""
+        {"graph": {
+          "n": "Brave Browser",
+          "b": {"p": "brave:Personal", "w": "brave:Work"},
+          "c": "chrome:Home",
+          "s": "Slack"
+        }}
+        """)
+        XCTAssertTrue(problems.isEmpty)
+        let bindings = node.chains(toBrowser: .brave, appNamed: "Brave Browser")
+        XCTAssertEqual(bindings.map(\.chain), [["n"], ["b", "p"], ["b", "w"]],
+                       "shortest first, ties on letters")
+        guard case .app("Brave Browser") = bindings[0].target else {
+            return XCTFail("the bare app is the inherit binding")
+        }
+        guard case .browserProfile(let personal) = bindings[1].target,
+              personal == BrowserProfile(browser: .brave, display: "Personal") else {
+            return XCTFail("profile bindings travel whole")
+        }
+        let chrome = node.chains(toBrowser: .chrome, appNamed: "Google Chrome")
+        XCTAssertEqual(chrome.map(\.chain), [["c"]], "other browsers keep their own")
+    }
+
+    func testChainsToBrowserSeeAliasNamedBindings() throws {
+        // A hand-written "brave" fuzzy-resolves to Brave Browser at summon
+        // time; the card's dedupe must count it as the inherit binding.
+        let (node, _) = try build(#"{"graph": {"b": "brave", "s": "Slack"}}"#)
+        let bindings = node.chains(toBrowser: .brave, appNamed: "Brave Browser") {
+            $0 == "brave"
+        }
+        XCTAssertEqual(bindings.map(\.chain), [["b"]])
+        XCTAssertTrue(node.chains(toBrowser: .brave, appNamed: "Brave Browser").isEmpty,
+                      "without the resolver the alias stays invisible")
+    }
+
     func testLeavesSkipBranchNodesThatAlsoCarryTargets() throws {
-        // A letter that is both a leaf and a branch resolves in favor of the
-        // subdivision, so the walk must report the children, not the letter.
+        // The walk reports a branch node's children, never the letter
+        // itself — the guard that keeps a node carrying both a target and
+        // children honest, held even though the builder's bound-twice rule
+        // no longer produces one.
         let (node, _) = try build(#"{"graph": {"e": {"o": "Outlook"}}}"#)
         XCTAssertEqual(node.leaves().map(\.chain), [["e", "o"]])
     }

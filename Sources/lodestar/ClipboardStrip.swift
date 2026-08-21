@@ -92,9 +92,12 @@ final class ClipboardStrip {
         let fit = max(1, Int((usable + Self.gap) / (Self.cardWidth + Self.gap)))
         let visibleRecents = Array(recents.prefix(min(fit, Self.labels.count)))
         shownRecents = visibleRecents
-        shownPins = Dictionary(uniqueKeysWithValues: pins.compactMap { clip in
+        // Last-wins, never a trap: a hand-edited or drifted index can hold
+        // two clips claiming one slot, and the strip opening is the wrong
+        // place to die over it.
+        shownPins = Dictionary(pins.compactMap { clip in
             clip.pinnedSlot.map { ($0, clip) }
-        })
+        }, uniquingKeysWith: { _, second in second })
 
         root.subviews.forEach { $0.removeFromSuperview() }
 

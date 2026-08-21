@@ -192,6 +192,27 @@ final class LayoutControllerTests: XCTestCase {
         XCTAssertNil(layout.redo())
     }
 
+    /// The bug this shape exists to end: a cross-display move undone used
+    /// to restore only the destination, so the moved window — a member of
+    /// neither snapshot — slid into the sliver instead of going home.
+    func testUndoOfACrossDisplayMoveReturnsTheWindowHome() {
+        model.addWindow(10)
+        model.addWindow(20)
+        layout.replace(with: 10, on: 1)
+        layout.replace(with: 20, on: 2)
+        layout.replace(with: 10, on: 2) // the move: 10 leaves display 1 for 2
+
+        XCTAssertEqual(layout.undo(), 1, "focus follows the window home")
+        XCTAssertEqual(layout.members(on: 1), [10], "back on its source display")
+        XCTAssertEqual(layout.members(on: 2), [20], "the displacer returns too")
+        XCTAssertFalse(parking.isParked(10), "home, never the sliver")
+
+        XCTAssertEqual(layout.redo(), 1)
+        XCTAssertEqual(layout.members(on: 2), [10], "redo re-makes the move whole")
+        XCTAssertEqual(layout.members(on: 1), [], "one step, both displays")
+        XCTAssertTrue(parking.isParked(20))
+    }
+
     // MARK: - Order and digits
 
     func testOrderedByPositionAndDigits() {

@@ -29,9 +29,9 @@ public enum GraphTarget: Equatable {
 }
 
 /// The chain trie. Built from config, so it is acyclic by construction; the
-/// only structural error possible is a letter that is both a leaf and an
-/// internal node, which the builder reports and resolves in favor of the
-/// subdivision.
+/// only structural error possible is a letter bound twice — as leaf, as
+/// branch, or one of each — which the builder reports and resolves
+/// deterministically: the first spelling in its sorted walk wins.
 public final class GraphNode {
     public var children: [String: GraphNode] = [:]
 
@@ -108,7 +108,7 @@ public final class GraphNode {
             if blocked { continue }
             let last = String(lowered.last!)
             if cursor.children[last] != nil {
-                problems.append("graph '\(path)\(lowered)' collides with existing '\(path)\(lowered)' — ignored")
+                problems.append("graph '\(path)\(lowered)' is already bound by an earlier entry — ignored")
                 continue
             }
             let child = GraphNode()
@@ -208,6 +208,28 @@ public final class GraphNode {
             .filter { if case .app(let app) = $0.target { return app.lowercased() == lowered }; return false }
             .map(\.chain)
             .sorted { ($0.count, $0.joined()) < ($1.count, $1.joined()) }
+    }
+
+    /// Everything bound to one browser — the bare app and each of its
+    /// profiles alike — shortest first. To the ⌘K card a browser row owns
+    /// all of them: the bindings are told apart by target, and the bare
+    /// app is the inherit binding. `aliasResolves` answers for app names
+    /// that are not the browser's own — a hand-written "b": "brave"
+    /// summons the browser through the app index's fuzzy resolve, and a
+    /// card that cannot see it would offer the duplicate it refuses.
+    public func chains(toBrowser browser: ChromiumBrowser, appNamed name: String,
+                       aliasResolves: (String) -> Bool = { _ in false })
+        -> [(chain: [String], target: GraphTarget)] {
+        let lowered = name.lowercased()
+        return leaves()
+            .filter {
+                switch $0.target {
+                case .app(let app):
+                    return app.lowercased() == lowered || aliasResolves(app)
+                case .browserProfile(let profile): return profile.browser == browser
+                }
+            }
+            .sorted { ($0.chain.count, $0.chain.joined()) < ($1.chain.count, $1.chain.joined()) }
     }
 
     /// Guide rows for the persistent chain panel: keycap → destination.

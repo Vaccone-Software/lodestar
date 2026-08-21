@@ -18,6 +18,10 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     // Wired by the app delegate.
     /// Write one config value at a dotted path. Returns an error, or nil.
     var apply: ((String, ConfigValue) -> String?)?
+    /// Free-table entry edits, batched into one write: removals first,
+    /// then sets, each addressed by path components — a key holding dots
+    /// (a bundle id, a route pattern) cannot ride a dotted string.
+    var applyEntries: (([[String]], [([String], ConfigValue)]) -> String?)?
     var machineState: () -> SettingsModel.MachineState = { .init() }
     /// The machine's calendars and accounts, once access is granted.
     var calendarChoices: () -> [String] = { [] }
@@ -315,6 +319,9 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             removeEntry(kind: kind, key: entries[focus.entry].key)
         case "a":
             listFocus = nil
+            // Repaint before the field takes over: without it the row
+            // keeps its focus tint and the window shows two focuses.
+            render()
             if let input = addInputs[addKey(kind)] {
                 panel.makeFirstResponder(input)
             }
@@ -537,42 +544,33 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         rowViews.first { control.isDescendant(of: $0.value) }?.key
     }
 
-    // MARK: - Table edits (composed whole, written at the parent path)
+    // MARK: - Table edits (one entry at its own path, never the whole table)
 
-    private func removeEntry(kind: SettingsModel.TableKind, key: String) {
+    /// Rewriting a table whole from the parsed config silently erased any
+    /// sibling the loader had rejected — a link the doctor flagged as
+    /// fixable vanished when its neighbor was edited. Every edit now
+    /// touches only the entry it names.
+    private func entryPath(_ kind: SettingsModel.TableKind, _ key: String) -> [String] {
         switch kind {
-        case .links:
-            write("web.links", linksTable(excluding: key))
-        case .routes:
-            write("web.routes", .table(referenceTable(
-                config.webRoutes.filter { $0.key != key })))
-        case .calendars:
-            write("meetings.calendars", .table(referenceTable(
-                config.meetingsCalendars.filter { $0.key != key })))
-        case .excludeApps:
-            write("clipboard.exclude-apps", .table(Dictionary(uniqueKeysWithValues:
-                config.clipboardExcludedApps.subtracting([key]).map { ($0, ConfigValue.bool(true)) })))
-        case .excludePatterns:
-            write("clipboard.exclude", .table(Dictionary(uniqueKeysWithValues:
-                config.clipboardExcludePatterns.filter { $0 != key }
-                    .map { ($0, ConfigValue.bool(true)) })))
-        case .keyRemaps:
-            write("keys", .table(Dictionary(uniqueKeysWithValues:
-                config.keyOverrides.filter { String($0.key) != key }
-                    .map { (String($0.key), ConfigValue.string($0.value)) })))
+        case .links: return ["web", "links", key]
+        case .routes: return ["web", "routes", key]
+        case .calendars: return ["meetings", "calendars", key]
+        case .excludeApps: return ["clipboard", "exclude-apps", key]
+        case .excludePatterns: return ["clipboard", "exclude", key]
+        case .keyRemaps: return ["keys", key]
         }
     }
 
-    private func linksTable(excluding removed: String? = nil,
-                            adding: Config.WebLink? = nil) -> ConfigValue {
-        var table: [String: ConfigValue] = [:]
-        for link in config.webLinks where link.name != removed && link.name != adding?.name {
-            table[link.name] = linkValue(url: link.url, profile: link.profileKey)
+    private func writeEntries(remove removals: [[String]] = [],
+                              set sets: [([String], ConfigValue)] = []) {
+        guard !removals.isEmpty || !sets.isEmpty else { return }
+        if let problem = applyEntries?(removals, sets) {
+            Log.error("settings", ["write": "entries", "problem": problem])
         }
-        if let adding {
-            table[adding.name] = linkValue(url: adding.url, profile: adding.profileKey)
-        }
-        return .table(table)
+    }
+
+    private func removeEntry(kind: SettingsModel.TableKind, key: String) {
+        writeEntries(remove: [entryPath(kind, key)])
     }
 
     /// Always the table form: the schema declares a link as a section
@@ -588,10 +586,9 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         return .table(table)
     }
 
-    /// A key → reference map as the file writes it, each reference
-    /// wearing the browser's own casing.
-    private func referenceTable(_ map: [String: String]) -> [String: ConfigValue] {
-        map.mapValues { .string(config.browserProfiles[$0]?.reference ?? $0) }
+    /// A reference as the file writes it, wearing the browser's own casing.
+    private func reference(_ key: String) -> String {
+        config.browserProfiles[key]?.reference ?? key
     }
 
     // MARK: - Drawing
@@ -680,8 +677,14 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             paneScroll.reflectScrolledClipView(paneScroll.contentView)
         }
         // A reload mid-search rebuilt the field; typing must not die with
-        // the old one.
+        // the old one. The hits die with it, though: results standing for
+        // a query the empty field no longer shows would be an answer with
+        // no question.
         if layer == .searching, let searchField {
+            if searchField.stringValue.isEmpty, !hits.isEmpty {
+                hits = []
+                renderHits()
+            }
             panel.makeFirstResponder(searchField)
         }
     }
@@ -1320,51 +1323,42 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             }
             // Editor state clears before the write: the write renders,
             // and a render that still believes in the editor redraws it.
+            // A rename removes the old entry and sets the new in the same
+            // write — one reload, no window where the link is gone.
             let replacing = editing["links"]
             editing["links"] = nil
             inlineEdit = nil
-            write("web.links", linksTable(excluding: replacing,
-                                          adding: Config.WebLink(
-                name: name, url: url, profileKey: profileKey)))
+            writeEntries(
+                remove: replacing.flatMap { $0 == name ? nil : [entryPath(.links, $0)] } ?? [],
+                set: [(entryPath(.links, name), linkValue(url: url, profile: profileKey))])
         case "routes":
             let pattern = fieldText("routes").lowercased()
             guard !pattern.isEmpty, let profile = chosenToken("routes.profile") else { return }
-            var routes = referenceTable(config.webRoutes)
-            if let original = editing["routes"] { routes.removeValue(forKey: original) }
+            let original = editing["routes"]
             editing["routes"] = nil
             inlineEdit = nil
-            routes[pattern] = .string(profile)
-            write("web.routes", .table(routes))
+            writeEntries(
+                remove: original.flatMap { $0 == pattern ? nil : [entryPath(.routes, $0)] } ?? [],
+                set: [(entryPath(.routes, pattern), .string(reference(profile)))])
         case "calendars":
             let calendar = popupChoice("calendars")
             guard calendar != "none found", !calendar.isEmpty,
                   let profile = chosenToken("calendars.profile") else { return }
-            var table = referenceTable(config.meetingsCalendars)
-            table[calendar] = .string(profile)
-            write("meetings.calendars", .table(table))
+            writeEntries(set: [(entryPath(.calendars, calendar), .string(reference(profile)))])
         case "excludeApps":
             let name = popupChoice("excludeApps")
             guard let bundleID = appChoices().first(where: { $0.name == name })?.bundleID
             else { return }
-            var table = Dictionary(uniqueKeysWithValues:
-                config.clipboardExcludedApps.map { ($0, ConfigValue.bool(true)) })
-            table[bundleID.lowercased()] = .bool(true)
-            write("clipboard.exclude-apps", .table(table))
+            writeEntries(set: [(entryPath(.excludeApps, bundleID.lowercased()), .bool(true))])
         case "excludePatterns":
             let pattern = fieldText("excludePatterns")
             guard !pattern.isEmpty else { return }
-            var table = Dictionary(uniqueKeysWithValues:
-                config.clipboardExcludePatterns.map { ($0, ConfigValue.bool(true)) })
-            table[pattern] = .bool(true)
-            write("clipboard.exclude", .table(table))
+            writeEntries(set: [(entryPath(.excludePatterns, pattern), .bool(true))])
         case "keyRemaps":
             let code = fieldText("keyRemaps")
             let name = popupChoice("keys.name")
             guard Int64(code) != nil, !name.isEmpty else { return }
-            var table = Dictionary(uniqueKeysWithValues:
-                config.keyOverrides.map { (String($0.key), ConfigValue.string($0.value)) })
-            table[code] = .string(name)
-            write("keys", .table(table))
+            writeEntries(set: [(entryPath(.keyRemaps, code), .string(name))])
         default:
             break
         }

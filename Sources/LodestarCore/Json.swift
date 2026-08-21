@@ -105,8 +105,8 @@ public enum Json {
     /// Top-level section order; everything unknown trails alphabetically,
     /// where validation's complaints and the reader's eye both land last.
     private static let sectionOrder = [
-        "$schema", "version", "lode", "gestures", "app", "profiles",
-        "graph", "web", "scroll", "hints", "clipboard", "double-tap", "keys",
+        "$schema", "version", "lode", "app", "gestures", "web", "scroll",
+        "meetings", "clipboard", "observations", "coach", "keys", "graph",
     ]
 
     public static func emit(_ root: [String: ConfigValue]) -> String {
@@ -289,6 +289,35 @@ public enum Json {
 
     public static func removing(_ root: [String: ConfigValue], path: [String]) -> Removal {
         removing(root, path: path, walked: [])
+    }
+
+    // MARK: - Entry edits (free-table rows, case-folded on the last hop)
+
+    /// The tree without one free-table entry. The last path component is
+    /// matched case-insensitively: the loader folds link names, route
+    /// patterns, and bundle ids, so the parsed key an editor holds may not
+    /// be the file's spelling — and the file's spelling is the one to
+    /// delete. Everything else in the table survives untouched, including
+    /// entries the loader rejected: an editor removing one row has no
+    /// business deciding a sibling's fate.
+    public static func removingEntry(_ root: [String: ConfigValue],
+                                     path: [String]) -> [String: ConfigValue] {
+        guard let last = path.last?.lowercased() else { return root }
+        let parentPath = Array(path.dropLast())
+        guard let parent = root.value(at: parentPath)?.table else { return root }
+        let doomed = parent.keys.filter { $0.lowercased() == last }
+        guard !doomed.isEmpty else { return root }
+        var updated = parent
+        for key in doomed { updated.removeValue(forKey: key) }
+        return setting(root, path: parentPath, to: .table(updated)) ?? root
+    }
+
+    /// One free-table entry written in place, replacing any case-variant
+    /// of its key first so "Gmail" and "gmail" can never coexist as two
+    /// rows. Nil when a value blocks the parent path.
+    public static func settingEntry(_ root: [String: ConfigValue], path: [String],
+                                    to value: ConfigValue) -> [String: ConfigValue]? {
+        setting(removingEntry(root, path: path), path: path, to: value)
     }
 
     private static func removing(_ root: [String: ConfigValue], path: [String],

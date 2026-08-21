@@ -23,6 +23,17 @@ public enum Placement {
         return .replace
     }
 
+    /// Is this window a place — somewhere the user goes — as opposed to an
+    /// event (dialog, palette, popover) that happens on top of one? Born
+    /// for adoption and sweep (FINDINGS §6), both since retired; its one
+    /// remaining station is the intent queue, where it matters just as
+    /// much — a launch whose app fronts a login dialog or a splash first
+    /// must not full-screen the event and park the world around it. A
+    /// missing subrole is treated as standard — some apps never set one.
+    public static func isPlace(subrole: String?) -> Bool {
+        subrole == nil || subrole == "AXStandardWindow"
+    }
+
     /// Insert-and-shift reorder: the window slides into the digit's position
     /// (9 = last), the others shift. nil when the move is meaningless —
     /// window absent, position out of range, or a no-op.

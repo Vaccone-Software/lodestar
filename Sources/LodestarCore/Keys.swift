@@ -1,7 +1,12 @@
 import CoreGraphics
 
-/// ANSI virtual keycode table — the classic kVK_ANSI_* values, which are
-/// layout-position codes, not characters. Good enough for a US-style board.
+/// The key-name table: what each physical key should be called. Three
+/// layers, each overlaying the last — the classic kVK_ANSI_* position
+/// table as the floor, the active layout's own characters where they can
+/// be adopted coherently (see `layoutOverlay`), and the config's `keys:`
+/// overrides as the user's last word. Labels, gesture matching, and key
+/// synthesis all read this one table, which is what keeps a hint's chip
+/// and the key that fires it the same character on every layout.
 public enum Keys {
     /// The built-in ANSI-layout table.
     public static let ansi: [Int64: String] = [
@@ -15,15 +20,38 @@ public enum Keys {
         123: "left", 124: "right", 125: "down", 126: "up",
     ]
 
-    /// The live table: ANSI overlaid with config `keys:` overrides.
+    /// The positions a layout may rename: every key whose ANSI name is the
+    /// single character it types. Named keys (return, space, arrows…) are
+    /// positions forever.
+    public static let characterCodes: Set<Int64> =
+        Set(ansi.filter { $0.value.count == 1 }.keys)
+
+    /// The live table.
     public private(set) static var names: [Int64: String] = ansi
 
     /// Reverse lookup, cached — the scroll dead-man guard reads it at 120Hz.
     public private(set) static var codes: [String: Int64] = reverse(ansi)
 
-    /// Overlay config overrides (reload-safe: always rebuilds from ANSI).
+    private static var layout: [Int64: String] = [:]
+    private static var overrides: [Int64: String] = [:]
+
+    /// Overlay config overrides (reload-safe: always rebuilds from the floor).
     public static func apply(overrides: [Int64: String]) {
-        names = ansi.merging(overrides) { _, override in override }
+        self.overrides = overrides
+        rebuild()
+    }
+
+    /// Overlay the active layout's characters, as `layoutOverlay` vetted
+    /// them. Installed at boot and again whenever the input source changes.
+    public static func apply(layout: [Int64: String]) {
+        self.layout = layout
+        rebuild()
+    }
+
+    private static func rebuild() {
+        names = ansi
+            .merging(layout) { _, adopted in adopted }
+            .merging(overrides) { _, override in override }
         var reversed = reverse(names)
         // An override that renames a keycode onto a name the built-in
         // table already owns is a deliberate act, and it has to win the
@@ -35,6 +63,50 @@ public enum Keys {
             reversed[name] = code
         }
         codes = reversed
+    }
+
+    /// The layout's character table, vetted for coherence. `translated`
+    /// carries what each character position actually types (positions the
+    /// layout cannot answer for are simply absent). Adoption is judged
+    /// whole, never key by key: the result must keep every ANSI name
+    /// alive on exactly one key, because a half-adopted table strands
+    /// gestures — a layout that moves "s" onto the ";" position while the
+    /// old "s" position keeps its stale name has two keys called s and no
+    /// key called ; at all.
+    ///
+    /// Two tiers, then the floor. A fully ASCII layout (Dvorak, Colemak)
+    /// adopts wholesale — every label, chain letter, and gesture then
+    /// follows the printed keycap. A layout with a few non-ASCII keys
+    /// (QWERTZ umlauts) adopts its letters and digits, its punctuation
+    /// staying positional exactly as before. Anything that cannot keep
+    /// the name set intact (AZERTY's shifted digits) adopts nothing, and
+    /// behaves as it always has.
+    public static func layoutOverlay(translated: [Int64: String]) -> [Int64: String] {
+        let usable = translated.filter { code, char in
+            guard characterCodes.contains(code), char.count == 1,
+                  let first = char.first else { return false }
+            return first.isASCII && !first.isWhitespace && first.asciiValue.map { $0 > 32 } == true
+        }.mapValues { $0.lowercased() }
+
+        let ansiNames = ansi.filter { characterCodes.contains($0.key) }.values.sorted()
+        func keepsEveryName(_ overlay: [Int64: String]) -> Bool {
+            var table = ansi
+            for (code, char) in overlay { table[code] = char }
+            let names = table.filter { characterCodes.contains($0.key) }.values.sorted()
+            return names == ansiNames
+        }
+
+        if keepsEveryName(usable) {
+            return usable
+        }
+        let lettersAndDigits = usable.filter { _, char in
+            let first = char.first!
+            return first.isLetter || first.isNumber
+        }
+        if keepsEveryName(lettersAndDigits) {
+            return lettersAndDigits
+        }
+        return [:]
     }
 
     /// Two keycodes can carry one name once a config override renames a

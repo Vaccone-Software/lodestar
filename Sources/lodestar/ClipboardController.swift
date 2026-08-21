@@ -53,11 +53,15 @@ final class ClipboardController {
     }
 
     func start() {
-        // What is already on the pasteboard counts: a restart or a quiet
-        // auto-update must not lose the clip you copied a moment before it.
-        // Every filter still applies, so a concealed clip stays refused.
-        lastChangeCount = -1
-        capture()
+        // What is already on the pasteboard stays off the record. The
+        // app-exclusion promise is "never written", and it can only be
+        // kept by asking who is frontmost — an answer that means nothing
+        // for a clip copied before this process existed. The clip is
+        // still on the pasteboard and pastes as ever; only the history
+        // declines it. The price is one absent card after a restart; the
+        // alternative recorded from excluded apps whenever a restart
+        // followed the copy.
+        lastChangeCount = NSPasteboard.general.changeCount
         poll = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { [weak self] _ in
             self?.capture()
         }
@@ -237,7 +241,12 @@ final class ClipboardController {
     /// directory, so nothing accumulates in the user's data.
     private func imageFileForPasting(_ clip: Clipboard.Clip,
                                      natives: [(type: String, data: Data)]) -> URL? {
-        guard let first = natives.first else { return nil }
+        // The same pick capture makes for the thumbnail: natives arrive in
+        // pasteboard type order, and a browser copy can lead with HTML.
+        guard let first = natives.first(where: {
+            $0.type == NSPasteboard.PasteboardType.png.rawValue
+                || $0.type == NSPasteboard.PasteboardType.tiff.rawValue
+        }) ?? natives.first else { return nil }
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(
                 "\(Clipboard.handoverPrefix)\(clip.id).\(Clipboard.pasteableImageExtension)")
@@ -292,16 +301,29 @@ final class ClipboardController {
     // MARK: - Card actions
 
     func saveImage(_ clip: Clipboard.Clip) {
-        guard clip.kind == .image, let native = store.nativeData(clip).first else {
+        let natives = store.nativeData(clip)
+        // The same pick capture makes for the thumbnail — the first native
+        // can be HTML — and the extension has to be honest: undecodable
+        // bytes never go to disk wearing .png.
+        let native = natives.first {
+            $0.type == NSPasteboard.PasteboardType.png.rawValue
+                || $0.type == NSPasteboard.PasteboardType.tiff.rawValue
+        } ?? natives.first
+        guard clip.kind == .image, let native else {
             flash("✕ nothing to save")
+            return
+        }
+        let png = native.type == NSPasteboard.PasteboardType.png.rawValue
+            ? native.data : NSImage(data: native.data)?.pngData()
+        guard let png else {
+            flash("✕ could not save the image")
             return
         }
         let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
         let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
         guard let target = downloads?.appendingPathComponent("lodestar-\(stamp).png") else { return }
-        let data = NSImage(data: native.data)?.pngData() ?? native.data
         do {
-            try data.write(to: target)
+            try png.write(to: target)
             flash("⌂ saved to Downloads")
         } catch {
             flash("✕ could not save the image")

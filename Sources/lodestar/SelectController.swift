@@ -191,7 +191,12 @@ final class SelectController {
         // A harvest is up to 600 units, each carrying its OCR-recognized
         // lines; none of it means anything once the mode is over, and
         // holding it is pure resident-set for an app that lives for weeks.
+        // The grounding goes with them: kept, it would stand in for the
+        // NEXT session's truth until that window's own harvest lands, and
+        // a commit in those first beats would be "repaired" against
+        // whatever window the mode last visited.
         units = []
+        grounding = OCRSense.Grounding([])
         if modeEnteredAt != .distantPast {
             observations?.selected(
                 app: appName, action: committedOutcome == nil ? "abandoned" : "completed",
@@ -413,8 +418,11 @@ final class SelectController {
     /// Recognize the frozen frame twice: fast to be present within about
     /// a hundred milliseconds, accurate to be right a few hundred later,
     /// the second replacing the first through the same adoption that
-    /// already lets richer passes replace poorer ones. Copies are always
-    /// served from the accurate world (or grounded against AX regardless).
+    /// already lets richer passes replace poorer ones — unless an anchor
+    /// has already landed, which pins the world the anchor indexes into.
+    /// A copy made that early is served from the fast pass, with the AX
+    /// grounding as its only repair — the price of never yanking a
+    /// half-placed span out from under the hand.
     private func senseOCR(image: CGImage, frame: CGRect, generation expected: Int) {
         let began = Date()
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -583,7 +591,16 @@ final class SelectController {
                     // stays excluded rather than guessed at.
                     var lineTier = false
                     if !bounded, !editable, role == "AXTextArea" {
-                        let lines = text.components(separatedBy: "\n").count
+                        // Counted the way the renderer counts rows —
+                        // .byLines, one terminator of any spelling per
+                        // line, no phantom row for a trailing newline —
+                        // so the cell this check approves is the cell
+                        // that gets drawn.
+                        var lines = 0
+                        (text as NSString).enumerateSubstrings(
+                            in: NSRange(location: 0, length: (text as NSString).length),
+                            options: [.byLines, .substringNotRequired]
+                        ) { _, _, _, _ in lines += 1 }
                         let cell = frame.height / CGFloat(max(1, lines))
                         lineTier = lines >= 3 && cell >= 8 && cell <= 40
                     }
@@ -748,9 +765,14 @@ final class SelectController {
             var starts: [Int] = [0]
             text.enumerateSubstrings(in: NSRange(location: 0, length: text.length),
                                      options: [.byLines, .substringNotRequired]) {
-                _, lineRange, _, _ in
-                let next = lineRange.location + lineRange.length
-                if next < text.length { starts.append(next + 1) }
+                _, _, enclosingRange, _ in
+                // The enclosing range carries the terminator, whatever it
+                // is — one unit for \n, two for \r\n — so the next line
+                // starts exactly where it ends. Adding 1 to the line range
+                // instead drifted one unit per CRLF, shifting every row
+                // below it.
+                let next = enclosingRange.location + enclosingRange.length
+                if next < text.length { starts.append(next) }
             }
             let lineCount = max(1, starts.count)
             let cell = frame.height / CGFloat(lineCount)
@@ -799,7 +821,7 @@ final class SelectController {
         let snapshot = units
         let state = SelectOverlay.State(
             appName: appName, query: core.query, typedLabel: core.typedLabel,
-            shown: matches.count, total: core.totalMatches,
+            shown: matches.count, total: core.totalMatches, capped: core.countCapped,
             stage: anchor == nil ? .start : .end,
             scanning: false)
 

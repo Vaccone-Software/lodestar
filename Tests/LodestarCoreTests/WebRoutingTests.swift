@@ -73,4 +73,18 @@ final class WebRoutingTests: XCTestCase {
             "https://g.co/s?q=a"
         )
     }
+
+    func testSearchURLEncodesFormMeaningfulCharacters() {
+        // `&` would split the query; a literal `+` decodes as a space on
+        // every form-reading engine, so "c++" searched as typed came back
+        // as "c  ".
+        XCTAssertEqual(
+            WebRouting.searchURL(template: "https://g.co/s?q=%s", query: "c++"),
+            "https://g.co/s?q=c%2B%2B"
+        )
+        XCTAssertEqual(
+            WebRouting.searchURL(template: "https://g.co/s?q=%s", query: "a&b"),
+            "https://g.co/s?q=a%26b"
+        )
+    }
 }

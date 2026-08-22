@@ -8,10 +8,20 @@ import LodestarCore
 /// receives the selection when the mode commits.
 final class SelectOverlay {
     struct Chip {
+        /// A text match wears its wash — the highlight is the answer — and
+        /// its label just above the word. An element target is a box, not
+        /// a word: its frame often wraps padding or a whole clickable
+        /// region, so a wash is noise and a label floated above the box
+        /// detaches from the text the eye actually reads. Targets pin the
+        /// label at the frame's top-left corner, overlapping it, the way
+        /// hints always did.
+        enum Style { case match, target }
+
         let label: String
         /// One rect per fragment the match crosses — a phrase over a bold
         /// boundary highlights as several honest rectangles.
         let frames: [CGRect]
+        var style: Style = .match
     }
 
     struct State {
@@ -23,6 +33,10 @@ final class SelectOverlay {
         let capped: Bool
         let stage: Stage
         let scanning: Bool
+        /// What a capital does here — "anchors", "selects", or the click
+        /// door's "clicks". The band says it so the door never has to be
+        /// remembered.
+        let verb: String
 
         enum Stage { case start, end }
     }
@@ -90,11 +104,11 @@ final class SelectOverlay {
         view.layer?.shadowOffset = CGSize(width: 0, height: -1)
     }
 
-    func showScanning(over windowFrame: CGRect, appName: String) {
+    func showScanning(over windowFrame: CGRect, appName: String, mode: String = "select") {
         clear()
         present(over: windowFrame)
         statusChip.isHidden = false
-        status.stringValue = "⌖ select · \(appName) · scanning…"
+        status.stringValue = "⌖ \(mode) · \(appName) · scanning…"
     }
 
     func show(chips: [Chip], anchor: [CGRect], over windowFrame: CGRect, state: State) {
@@ -132,17 +146,19 @@ final class SelectOverlay {
         }
 
         for chip in chips {
-            // The match itself, washed in accent — the chip names it, the
-            // highlight is it.
-            for rect in chip.frames {
-                let highlight = NSView()
-                highlight.wantsLayer = true
-                highlight.layer?.backgroundColor = NSColor.controlAccentColor
-                    .withAlphaComponent(0.22).cgColor
-                highlight.layer?.cornerRadius = 3
-                highlight.frame = appKitRect(rect).insetBy(dx: -1.5, dy: -1.5)
-                highlightHost.addSubview(highlight)
-                decorations.append(highlight)
+            if chip.style == .match {
+                // The match itself, washed in accent — the chip names it,
+                // the highlight is it.
+                for rect in chip.frames {
+                    let highlight = NSView()
+                    highlight.wantsLayer = true
+                    highlight.layer?.backgroundColor = NSColor.controlAccentColor
+                        .withAlphaComponent(0.22).cgColor
+                    highlight.layer?.cornerRadius = 3
+                    highlight.frame = appKitRect(rect).insetBy(dx: -1.5, dy: -1.5)
+                    highlightHost.addSubview(highlight)
+                    decorations.append(highlight)
+                }
             }
             guard let first = chip.frames.first else { continue }
 
@@ -151,9 +167,12 @@ final class SelectOverlay {
             let width = label.frame.width + 7
             let height = GlassChip.height
             let target = appKitRect(first)
-            // Above the match, hugging its start; clamped to the overlay.
             let x = min(max(target.minX - 2, 0), panel.frame.width - width)
-            let y = min(max(target.maxY + 1, 0), panel.frame.height - height)
+            // A match's label floats just above the word; a target's pins
+            // to the frame's top-left corner, overlapping it — attached to
+            // the box it fires, however large the box.
+            let raw = chip.style == .match ? target.maxY + 1 : target.maxY - height + 4
+            let y = min(max(raw, 0), panel.frame.height - height)
             cap.frame = NSRect(x: x, y: y, width: width, height: height)
             label.frame = NSRect(x: 0, y: (height - label.frame.height) / 2,
                                  width: width, height: label.frame.height)
@@ -232,7 +251,7 @@ final class SelectOverlay {
             quiet(state.shown == state.total
                 ? "  ·  \(state.shown)"
                 : "  ·  \(state.shown) of \(state.total)\(state.capped ? "+" : "")")
-            quiet("  ·  ⇧letter " + (state.stage == .start ? "anchors" : "selects"))
+            quiet("  ·  ⇧letter " + state.verb)
         }
         quiet("  ·  esc")
         return line

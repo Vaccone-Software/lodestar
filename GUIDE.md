@@ -21,7 +21,7 @@ Lode is **right ⌘** (configurable in `~/.config/lodestar/lodestar.json`).
 | `⌘K` in the launcher / Ask     | Add to graph · add a link · route a host or search — written into the config |
 | `lode .`                       | Menu search: the frontmost app's menus, fuzzy, `↵` executes                  |
 | `` lode `  ``                  | Scroll mode: `j/k` `h/l` · `d/u` half-page · `gg`/`⇧G` ends · `⇥` panes      |
-| `lode ;` / `lode ⇧;`           | Click hints on the focused window — `⇧;` chains clicks (sticky)              |
+| `lode ;` / `lode ⇧;`           | Click by reading — type what you see, `⇧letter` clicks; `⇧;` chains clicks   |
 | `lode /`                       | Select text by typing it — `⇧letter` anchors, `⌘C` takes the anchored word   |
 | `lode [` / `lode ]`            | Move the focused window to the prev/next display (`⇧` = arrive beside)       |
 | `lode ←` / `lode →`            | Undo / redo the layout (summons, besides, flips, breaths)                    |
@@ -84,11 +84,13 @@ In a password field macOS blocks synthetic keystrokes outright, so Lodestar puts
 
 ## Click hints
 
-`lode ;` labels every pressable element of the focused window — buttons, links, checkboxes, popups, text inputs — with letters from your keyboard's own home row (read from the active layout, so Dvorak labels are Dvorak letters; singles while they suffice, uniform two-letter labels beyond, never a mix, so no label can fire while another remains reachable). **Type a label to press it; `⇧label` right-clicks it** (the element's own context-menu action when it has one, a synthetic right-click at its center otherwise); labels on text inputs focus them. Typing narrows — matching chips stay with your prefix accented, the rest vanish; `⌫` untypes.
+`lode ;` is select's machine wearing the click verb: same capture, same pixel sensor, same grammar, and the door you entered through decides what a capital does. **Lowercase always aims** — type a few characters of anything you can read, matches highlight and wear capital chips — and **a capital always fires**: `⇧letter` clicks the word you picked, `⌃⇧letter` right-clicks it (the element's own context-menu action when the tree knows it, a synthetic right-click at the word otherwise; on a two-letter chip, the last key decides the button). Because the sensor is the screen itself, this works identically in a terminal, a browser, an Electron app, or anything else with visible text — clickability is not asked of the app, it is declared by your pick.
 
-`lode ⇧;` is the **chain-click lens**: every pick clicks and then the window is re-scanned and relabeled after a beat, so a click that changed the app — opened a panel, revealed a menu — gets fresh labels. Filling a form or clicking through a wizard never leaves the mode. Same exit rules as scroll: `esc` (or `lode ;` again) closes, any other lode verb exits and executes.
+Before you type, the elements the accessibility tree _can_ name — buttons, links, checkboxes, text inputs — wear corner-pinned chips immediately, so a dialog's three buttons cost one capital with no typing at all, and icon-only controls stay reachable. Typing hands the glass to the search universe; backspacing to nothing hands it back. Wherever your pick lands inside a tree-known element, the click is the app's own press rather than a synthetic one; text inputs focus, putting your typing there.
 
-The harvest is asynchronous and bounded — a heavy Chromium page can never stall the overlay — and Electron apps get `AXManualAccessibility` woken automatically. Rows and table cells are deliberately unlabeled: they explode label counts and rarely beat scrolling.
+`lode ⇧;` is the **chain-click lens**: every fire re-captures and relabels after a beat, so a click that changed the app — opened a panel, revealed a menu — gets a fresh read. Filling a form or clicking through a wizard never leaves the mode. Same exit rules as scroll: `esc` (or `lode ;` again) closes, any other lode verb exits and executes.
+
+The tree harvest stays asynchronous and bounded — a heavy Chromium page can never stall the overlay — and Electron apps get `AXManualAccessibility` woken automatically. The first `lode ;` may ask for Screen Recording, the same permission select already earned; until granted, the tree-named chips still answer.
 
 ## Select (`lode /`)
 

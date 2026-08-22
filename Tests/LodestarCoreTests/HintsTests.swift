@@ -55,8 +55,9 @@ final class EngineHintsTests: XCTestCase {
         world = WorldStub()
     }
 
-    private func press(_ key: String, held: Bool = true, shift: Bool = false) -> [EngineEffect] {
-        core.keyDown(key: key, held: held, shift: shift, world: world)
+    private func press(_ key: String, held: Bool = true, shift: Bool = false,
+                       control: Bool = false) -> [EngineEffect] {
+        core.keyDown(key: key, held: held, shift: shift, control: control, world: world)
     }
 
     func testSemicolonEntersHints() {
@@ -103,6 +104,24 @@ final class EngineHintsTests: XCTestCase {
         world.hintOutcomes["a"] = .fired
         _ = press("a", held: false, shift: true)
         XCTAssertEqual(world.calls.last, "hintType:a:shift")
+    }
+
+    func testControlRidesEachKeystrokeSeparately() {
+        // ⇧ fires, ⌃⇧ fires the other button — the system's own word for
+        // a secondary click. The flag travels per keystroke, so on a
+        // two-letter label the completing key alone decides the button.
+        _ = press(";")
+        world.hintOutcomes["a"] = .pending
+        world.hintOutcomes["b"] = .pending
+        world.hintOutcomes["c"] = .fired
+        _ = press("a", held: false, shift: true, control: true)
+        XCTAssertEqual(world.calls.last, "hintType:a:shift:control")
+        _ = press("b", held: false)
+        XCTAssertEqual(world.calls.last, "hintType:b",
+                       "the first key's control never lingers into the next")
+        _ = press("c", held: false, control: true)
+        XCTAssertEqual(world.calls.last, "hintType:c:control",
+                       "a label-completing key carries its own control")
     }
 
     func testEscapeAndRepeatSemicolonExit() {

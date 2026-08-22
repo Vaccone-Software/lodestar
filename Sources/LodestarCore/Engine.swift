@@ -116,7 +116,11 @@ public protocol EngineWorld: AnyObject {
     /// treated as addressing the strip rather than the app underneath.
     func pasteCardExists(address: String) -> Bool
     /// A plain letter while hints are up — the overlay narrows or fires.
-    func hintType(_ letter: String, shift: Bool) -> HintStep
+    /// Shift fires a pick; control, held with it, right-clicks instead —
+    /// the system's own word for a secondary click. Which button is a
+    /// variant of the fire, carried by the keystroke that completes it:
+    /// on a two-letter label, the last key decides.
+    func hintType(_ letter: String, shift: Bool, control: Bool) -> HintStep
     /// Enter select on the focused window; false when there is none.
     func enterSelect() -> Bool
     /// A key while select is up — search, label, anchor, or finish.
@@ -269,6 +273,7 @@ public struct EngineCore {
     /// every other state ignores it.
     public mutating func keyDown(key: String, held: Bool, shift: Bool,
                                  command: Bool = false, option: Bool = false,
+                                 control: Bool = false,
                                  world: EngineWorld) -> [EngineEffect] {
         switch state {
         case .idle:
@@ -285,7 +290,8 @@ public struct EngineCore {
         case .scroll:
             return scrollPress(key: key, held: held, shift: shift, world: world)
         case .hints(let sticky):
-            return hintsPress(key: key, held: held, shift: shift, sticky: sticky, world: world)
+            return hintsPress(key: key, held: held, shift: shift, control: control,
+                              sticky: sticky, world: world)
         case .select:
             return selectPress(key: key, held: held, shift: shift, command: command,
                                option: option, world: world)
@@ -548,7 +554,8 @@ public struct EngineCore {
     /// again) closes it, any other lode verb exits and executes. Plain
     /// typing belongs to the labels; everything unlabeled is swallowed.
     private mutating func hintsPress(key: String, held: Bool, shift: Bool,
-                                     sticky: Bool, world: EngineWorld) -> [EngineEffect] {
+                                     control: Bool, sticky: Bool,
+                                     world: EngineWorld) -> [EngineEffect] {
         if held {
             state = .idle
             var effects: [EngineEffect] = [.exitHints]
@@ -563,8 +570,11 @@ public struct EngineCore {
             return [.exitHints]
         case "delete":
             return [.hintBackspace]
-        case _ where Self.isLetter(key):
-            switch world.hintType(key, shift: shift) {
+        default:
+            // Every typable key feeds the mode — the pixel door aims by
+            // typing what the screen says, and a URL or a count needs its
+            // digits and symbols. Unmappable keys die quietly inside.
+            switch world.hintType(key, shift: shift, control: control) {
             case .fired where sticky:
                 return [.hintRescan]
             case .fired:
@@ -573,8 +583,6 @@ public struct EngineCore {
             case .pending, .ignored:
                 return []
             }
-        default:
-            return [] // swallowed — mode discipline
         }
     }
 

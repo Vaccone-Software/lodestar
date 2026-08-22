@@ -83,8 +83,8 @@ final class WorldStub: EngineWorld {
         return hintsEnterSucceeds
     }
 
-    func hintType(_ letter: String, shift: Bool) -> HintStep {
-        calls.append("hintType:\(letter)\(shift ? ":shift" : "")")
+    func hintType(_ letter: String, shift: Bool, control: Bool) -> HintStep {
+        calls.append("hintType:\(letter)\(shift ? ":shift" : "")\(control ? ":control" : "")")
         return hintOutcomes[letter] ?? .ignored
     }
 }

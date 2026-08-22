@@ -212,7 +212,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         engine = HotkeyEngine(config: config, actions: actions, hud: hud, searcher: searcher,
                               webBar: webBar, menuSearch: MenuSearchController(),
                               scroller: ScrollController(model: model),
-                              hints: HintsController(model: model),
                               select: selectController,
                               clipboard: clipboardController)
 

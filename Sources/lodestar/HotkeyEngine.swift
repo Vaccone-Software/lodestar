@@ -114,7 +114,6 @@ final class HotkeyEngine {
     private let webBar: WebBarController
     private let menuSearch: MenuSearchController
     private let scroller: ScrollController
-    private let hints: HintsController
     private let select: SelectController
     private let clipboard: ClipboardController
     private let strip = ClipboardStrip()
@@ -131,7 +130,7 @@ final class HotkeyEngine {
 
     init(config: Config, actions: Actions, hud: HUD, searcher: SearcherController,
          webBar: WebBarController, menuSearch: MenuSearchController,
-         scroller: ScrollController, hints: HintsController,
+         scroller: ScrollController,
          select: SelectController, clipboard: ClipboardController) {
         self.config = config
         self.actions = actions
@@ -140,7 +139,6 @@ final class HotkeyEngine {
         self.webBar = webBar
         self.menuSearch = menuSearch
         self.scroller = scroller
-        self.hints = hints
         self.select = select
         self.clipboard = clipboard
         clipboard.onCapture = { [weak self] in self?.refreshStripIfOpen() }
@@ -402,7 +400,8 @@ final class HotkeyEngine {
         let wasIdle = core.isIdle
         let effects = core.keyDown(key: key, held: held, shift: effectiveShift,
                                    command: event.flags.contains(.maskCommand),
-                                   option: event.flags.contains(.maskAlternate), world: self)
+                                   option: event.flags.contains(.maskAlternate),
+                                   control: event.flags.contains(.maskControl), world: self)
         let arrived = Date()
         let verdict = dispatch(effects, event: event)
         observeChain(effects, key: key, at: arrived)
@@ -620,7 +619,7 @@ final class HotkeyEngine {
             case .pastePanelAct(let panelAction):
                 performPanel(panelAction)
             case .exitHints:
-                hints.exit()
+                select.exit()
                 // The walk's inside step completes when the mode ends, by
                 // a press or by escape. Entry alone proved nothing was seen.
                 walkSignal?(.hintsEnded)
@@ -629,9 +628,9 @@ final class HotkeyEngine {
             case .selectBackspace:
                 select.backspace()
             case .hintBackspace:
-                hints.backspace()
+                select.backspace()
             case .hintRescan:
-                hints.rescan()
+                select.rescanClick()
             case .dismissCheat:
                 cheat.hide()
             case .openSettings:
@@ -1034,13 +1033,18 @@ extension HotkeyEngine: EngineWorld {
         clickMonitor = nil
     }
 
+    /// The `;` door enters the same machine as `/` — same capture, same
+    /// sensor, same grammar — with the verb declared at the door: a
+    /// capital clicks here where it anchors there. The old tree-only
+    /// hints controller keeps only its harvest and its press, both
+    /// borrowed by the door for entry chips and the commit layer.
     func enterHints(sticky: Bool) -> Bool {
-        hints.letters = KeyboardLayout.homeRow()
-        return hints.enter(sticky: sticky)
+        select.letters = KeyboardLayout.homeRow()
+        return select.enter(door: .click, sticky: sticky)
     }
 
-    func hintType(_ letter: String, shift: Bool) -> HintStep {
-        hints.type(letter, shift: shift)
+    func hintType(_ letter: String, shift: Bool, control: Bool) -> HintStep {
+        select.clickKey(letter, shift: shift, control: control)
     }
 
     func enterSelect() -> Bool {

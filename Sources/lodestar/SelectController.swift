@@ -1,10 +1,14 @@
 import AppKit
 import LodestarCore
 
-/// Select (`lode /`): text addressed by its own content. Type a few
+/// One machine, two doors. Text addressed by its own content: type a few
 /// characters of what you can see; matches highlight and wear capital
-/// chips; a capital anchors the start — lit as a whole word, which ⌘C
-/// alone will take — and a second search and capital anchor the end.
+/// chips; a capital picks. At the `/` door a pick anchors — the start lit
+/// as a whole word, which ⌘C alone will take, a second search and capital
+/// for the far end. At the `;` door a pick clicks (⌃⇧ right-clicks), the
+/// tree-named pressables wear chips before any typing, and the mouse's
+/// last territory is annexed by reading. The entry key declares the verb,
+/// the way ⇧ declares beside; everything below the verb is shared.
 ///
 /// The mode always ends the same way: **the span is highlighted, and the
 /// next verb is yours.** Text whose selection is settable gets a real
@@ -99,6 +103,28 @@ final class SelectController {
     /// arbiter — the mode never reads the situation, which is what buried
     /// the first auto-copy.
     var copyOnComplete = false
+
+    /// Which door the mode was entered through: `lode /` anchors on a
+    /// pick, `lode ;` clicks on one. Same sensor, same grammar — the
+    /// entry key declares the verb, the way ⇧ declares beside.
+    enum Door { case anchor, click }
+    private(set) var door: Door = .anchor
+    private var sticky = false
+    /// The `;` door's entry chips: pressables the accessibility tree
+    /// could name, pickable by capitals before any typing — a dialog's
+    /// three buttons answer the instant the tree does, even while OCR is
+    /// still reading. They yield the glass the moment aiming starts and
+    /// return if the query empties; the elements stay behind for the
+    /// commit layer, which prefers an app's own press to a synthetic
+    /// click.
+    private var entryTargets: [HintTargets.Target] = []
+    private var entryLabels: [String] = []
+    private var entryTyped = ""
+    /// How many chips greeted the entry, and how long the hands waited
+    /// before the first key — the two numbers the entry-chips verdict
+    /// rests on, recorded per session.
+    private var entryChipsAtEntry = 0
+    private var firstKeyAt: Date?
     private var lastMatchCount = 0
     private var windowFrame: CGRect = .zero
     private var appName = ""
@@ -122,8 +148,15 @@ final class SelectController {
 
     // MARK: - Lifecycle
 
-    func enter() -> Bool {
+    func enter(door: Door = .anchor, sticky: Bool = false) -> Bool {
         guard let window = model.focusedWindow, window.isAlive else { return false }
+        self.door = door
+        self.sticky = sticky
+        entryTargets = []
+        entryLabels = []
+        entryTyped = ""
+        entryChipsAtEntry = 0
+        firstKeyAt = nil
         dissolveGhost()
         core = nil
         units = []
@@ -136,7 +169,22 @@ final class SelectController {
         modeEnteredAt = Date()
         typedInMode = 0
         committedOutcome = nil
-        observations?.verbUsed("select")
+        observations?.verbUsed(door == .click ? "hints" : "select")
+        if door == .click {
+            let expected = generation
+            HintTargets.harvest(
+                window: window,
+                capacity: HintLabels.capacity(alphabet: letters)
+            ) { [weak self] found in
+                guard let self, self.generation == expected, self.door == .click else { return }
+                self.entryTargets = found
+                self.entryLabels = HintLabels.labels(count: found.count, alphabet: self.letters)
+                // Counted only while the hands have not yet moved: chips
+                // arriving after the first key never greeted anyone.
+                if self.firstKeyAt == nil { self.entryChipsAtEntry = found.count }
+                self.renderEntry()
+            }
+        }
 
         // Everything above is bookkeeping in memory and stays here, because
         // the keys that follow read it: `key` refuses to act while `core` is
@@ -174,7 +222,8 @@ final class SelectController {
                 self.flash("⌖ grant Screen Recording to select in every window · using accessibility for now")
             }
             if captured != nil { self.windowFrame = display }
-            self.overlay.showScanning(over: self.windowFrame, appName: window.appName)
+            self.overlay.showScanning(over: self.windowFrame, appName: window.appName,
+                                      mode: self.door == .click ? "click" : "select")
             if let captured {
                 self.senseOCR(image: captured, frame: display, generation: expected)
             }
@@ -202,23 +251,42 @@ final class SelectController {
         // whatever window the mode last visited.
         units = []
         grounding = OCRSense.Grounding([])
+        entryTargets = []
+        entryLabels = []
+        entryTyped = ""
         if modeEnteredAt != .distantPast {
             observations?.selected(
                 app: appName, action: committedOutcome == nil ? "abandoned" : "completed",
                 source: ocrAdopted ? "ocr" : "ax", outcome: committedOutcome,
                 typed: typedInMode, seconds: Date().timeIntervalSince(modeEnteredAt),
-                matches: lastMatchCount)
+                matches: lastMatchCount,
+                firstKey: firstKeyAt.map { $0.timeIntervalSince(modeEnteredAt) },
+                entryChips: door == .click ? entryChipsAtEntry : nil)
             modeEnteredAt = .distantPast
         }
     }
 
     func backspace() {
+        if door == .click, !entryTyped.isEmpty {
+            entryTyped.removeLast()
+            renderEntry()
+            return
+        }
         guard core != nil else { return }
         _ = core?.backspace()
         render()
     }
 
     func key(_ key: String, shift: Bool) -> SelectStep {
+        if firstKeyAt == nil { firstKeyAt = Date() }
+        // The `;` door's entry chips answer before the sensor does: a
+        // capital while nothing is typed picks among the pressables the
+        // tree named, even if OCR is still reading.
+        if door == .click, core?.query.isEmpty != false, !entryTargets.isEmpty,
+           key.count == 1, key.first?.isLetter == true,
+           shift || !entryTyped.isEmpty {
+            return entryPick(letter: key)
+        }
         guard core != nil else { return .pending } // still scanning — keys wait
         let effect = core!.key(key, shift: shift)
         if !shift, case .updated = effect { typedInMode += 1 }
@@ -227,11 +295,129 @@ final class SelectController {
         case .selected(let pieces):
             commit(pieces: pieces)
             return .done
-        case .anchored, .updated:
+        case .anchored:
+            // The click door fires on the first pick: the anchor is
+            // already snapped to its whole word, so the capital names a
+            // word and the click lands on it. No second stage exists
+            // behind this door.
+            if door == .click, let anchor = core!.anchor {
+                performClick(on: anchor)
+                return .done
+            }
+            render()
+            return .pending
+        case .updated:
             render()
             return .pending
         case .none:
             return .pending
+        }
+    }
+
+    // MARK: - The click door
+
+    /// The engine's hints grammar feeds here at the `;` door — same keys,
+    /// same core, the step vocabulary translated at the seam. Control is
+    /// the system's own word for a secondary click, and it is read only
+    /// from the keystroke that completes a pick — on a two-letter label,
+    /// the last key decides, so the button can be chosen as late as the
+    /// final letter.
+    func clickKey(_ letter: String, shift: Bool, control: Bool) -> HintStep {
+        controlAtPick = control
+        defer { controlAtPick = false }
+        switch key(letter, shift: shift) {
+        case .done: return .fired
+        case .pending: return .pending
+        }
+    }
+
+    /// True only for the synchronous span of the keystroke being handled.
+    private var controlAtPick = false
+
+    private func entryPick(letter: String) -> SelectStep {
+        let candidate = entryTyped + letter.lowercased()
+        switch HintLabels.match(typed: candidate, labels: entryLabels) {
+        case .exact(let index):
+            let target = entryTargets[index]
+            let rightClick = controlAtPick
+            entryTyped = ""
+            committedOutcome = "entry"
+            Log.info("select", ["outcome": "entry-fired", "right": rightClick])
+            OffTap.run { HintTargets.fire(target, rightClick: rightClick) }
+            return .done
+        case .partial:
+            entryTyped = candidate
+            renderEntry()
+            return .pending
+        case .none:
+            entryTyped = ""
+            return .pending
+        }
+    }
+
+    /// The entry chips, filtered by any capital prefix underway. Shown
+    /// only while the query is empty: the moment aiming starts, the
+    /// search universe owns the glass, and it owns it again the moment
+    /// the query walks back to nothing.
+    private func renderEntry() {
+        guard door == .click, core?.query.isEmpty != false else { return }
+        let chips: [SelectOverlay.Chip] = zip(entryLabels, entryTargets).compactMap {
+            label, target in
+            guard entryTyped.isEmpty || label.hasPrefix(entryTyped) else { return nil }
+            return SelectOverlay.Chip(label: label, frames: [target.frame],
+                                      style: .target)
+        }
+        let state = SelectOverlay.State(
+            appName: appName, query: "", typedLabel: entryTyped,
+            shown: chips.count, total: entryTargets.count, capped: false,
+            stage: .start, scanning: false, verb: "clicks · ⌃⇧ right-clicks")
+        overlay.show(chips: chips, anchor: [], over: windowFrame, state: state)
+    }
+
+    /// The three-layer commit: the picked word supplies the point, an AX
+    /// pressable that owns the point supplies the press, and a synthetic
+    /// click is the honest floor. Geometry and the press both talk to the
+    /// focused app, so the whole resolution runs off the tap.
+    private func performClick(on match: SelectCore.Match) {
+        guard units.indices.contains(match.element) else { return }
+        let unit = units[match.element]
+        let range = match.range
+        let owners = entryTargets
+        let rightClick = controlAtPick
+        committedOutcome = "clicked"
+        Log.info("select", ["outcome": "clicked", "chars": range.length,
+                            "right": rightClick])
+        OffTap.run { [weak self] in
+            guard let self else { return }
+            guard let rect = self.boundsRects(unit: unit, range: range).first else { return }
+            let point = CGPoint(x: rect.midX, y: rect.midY)
+            if let owner = owners.first(where: { $0.frame.contains(point) }) {
+                HintTargets.fire(owner, rightClick: rightClick)
+            } else {
+                Self.click(at: point, right: rightClick)
+            }
+        }
+    }
+
+    private static func click(at point: CGPoint, right: Bool) {
+        let downType: CGEventType = right ? .rightMouseDown : .leftMouseDown
+        let upType: CGEventType = right ? .rightMouseUp : .leftMouseUp
+        let button: CGMouseButton = right ? .right : .left
+        guard let down = CGEvent(mouseEventSource: nil, mouseType: downType,
+                                 mouseCursorPosition: point, mouseButton: button),
+              let up = CGEvent(mouseEventSource: nil, mouseType: upType,
+                               mouseCursorPosition: point, mouseButton: button) else { return }
+        down.post(tap: .cghidEventTap)
+        up.post(tap: .cghidEventTap)
+    }
+
+    /// Sticky `lode ⇧;` after a fire: the app may have changed — a beat,
+    /// then the whole capture again, entry chips and all.
+    func rescanClick() {
+        let expected = generation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self, self.generation == expected else { return }
+            _ = self.enter(door: .click, sticky: true)
         }
     }
 
@@ -831,6 +1017,12 @@ final class SelectController {
     /// generation instead.
     private func render() {
         guard let core else { return }
+        // The click door's empty-query state belongs to the entry chips —
+        // a sensor pass landing must not wipe them with zero matches.
+        if door == .click, core.query.isEmpty {
+            renderEntry()
+            return
+        }
         boundsGeneration += 1
         let expected = boundsGeneration
         let matches = core.matches
@@ -841,7 +1033,9 @@ final class SelectController {
             appName: appName, query: core.query, typedLabel: core.typedLabel,
             shown: matches.count, total: core.totalMatches, capped: core.countCapped,
             stage: anchor == nil ? .start : .end,
-            scanning: false)
+            scanning: false,
+            verb: door == .click ? "clicks · ⌃⇧ right-clicks"
+                : (anchor == nil ? "anchors" : "selects"))
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             func rects(_ match: SelectCore.Match) -> [CGRect] {

@@ -148,9 +148,14 @@ public final class ObservationStore {
     }
 
     /// A select mode ended — counts and timings, never the text.
+    /// `firstKey` is entry-to-first-keystroke — the hesitation measure the
+    /// click door's entry-chips verdict rests on. `entryChips` rides in
+    /// `rank`: how many tree-named targets wore chips at entry, so the
+    /// hesitation can be split by whether chips were there to read.
     public func selected(app: String, action: String, source: String,
                          outcome: String?, typed: Int, seconds: TimeInterval,
-                         matches: Int? = nil, at now: Date = Date()) {
+                         matches: Int? = nil, firstKey: TimeInterval? = nil,
+                         entryChips: Int? = nil, at now: Date = Date()) {
         var event = ObservationEvent(t: now, kind: .select)
         event.app = app.lowercased()
         event.action = action
@@ -159,6 +164,8 @@ public final class ObservationStore {
         event.typed = typed
         event.seconds = seconds
         event.listLength = matches
+        event.openToFirstKey = firstKey
+        event.rank = entryChips
         record(event)
     }
 

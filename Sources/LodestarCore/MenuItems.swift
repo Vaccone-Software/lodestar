@@ -1,7 +1,7 @@
 import ApplicationServices
 import Foundation
 
-/// Menu-bar harvesting for menu search: every enabled, actionable item of an
+/// Menu-bar harvesting for the commands bar: every enabled, actionable item of an
 /// app's menus, with its path and native shortcut. Bounded walk — depth and
 /// visit caps keep giant menu trees quick.
 public enum MenuItems {
@@ -9,6 +9,12 @@ public enum MenuItems {
         public let element: AXUIElement
         public let path: [String]
         public let shortcut: String?
+
+        public init(element: AXUIElement, path: [String], shortcut: String?) {
+            self.element = element
+            self.path = path
+            self.shortcut = shortcut
+        }
     }
 
     public static func items(forAppWithPID pid: pid_t, limit: Int = 400) -> [Item] {

@@ -112,7 +112,7 @@ final class HotkeyEngine {
     private let hud: HUD
     private let searcher: SearcherController
     private let webBar: WebBarController
-    private let menuSearch: MenuSearchController
+    private let commandsBar: CommandsBarController
     private let scroller: ScrollController
     private let select: SelectController
     private let clipboard: ClipboardController
@@ -129,7 +129,7 @@ final class HotkeyEngine {
     static var traceTap = ProcessInfo.processInfo.environment["LODESTAR_TRACE"] != nil
 
     init(config: Config, actions: Actions, hud: HUD, searcher: SearcherController,
-         webBar: WebBarController, menuSearch: MenuSearchController,
+         webBar: WebBarController, commandsBar: CommandsBarController,
          scroller: ScrollController,
          select: SelectController, clipboard: ClipboardController) {
         self.config = config
@@ -137,7 +137,7 @@ final class HotkeyEngine {
         self.hud = hud
         self.searcher = searcher
         self.webBar = webBar
-        self.menuSearch = menuSearch
+        self.commandsBar = commandsBar
         self.scroller = scroller
         self.select = select
         self.clipboard = clipboard
@@ -150,13 +150,13 @@ final class HotkeyEngine {
     }
 
     private var anyBarVisible: Bool {
-        searcher.isVisible || webBar.isVisible || menuSearch.isVisible
+        searcher.isVisible || webBar.isVisible || commandsBar.isVisible
     }
 
     private func hideBars() {
         searcher.hide()
         webBar.hide()
-        menuSearch.hide()
+        commandsBar.hide()
     }
 
     func start() -> Bool {
@@ -418,7 +418,7 @@ final class HotkeyEngine {
         switch effect {
         case .showSearcher, .openWindowChooser: return "launcher"
         case .showWebBar: return "web"
-        case .showMenuSearch: return "menu"
+        case .showCommandsBar: return "menu"
         case .enterPaste: return "clipboard"
         case .enterScroll: return "scroll"
         case .toggleCheat: return "cheat"
@@ -502,7 +502,7 @@ final class HotkeyEngine {
     /// under; the chip yields to every one of them.
     private static func claimsSurface(_ effect: EngineEffect) -> Bool {
         switch effect {
-        case .showSearcher, .showWebBar, .showMenuSearch, .openWindowChooser,
+        case .showSearcher, .showWebBar, .showCommandsBar, .openWindowChooser,
              .enterPaste, .toggleCheat, .showGuide, .scrollGuide, .hideBars:
             return true
         default:
@@ -646,8 +646,8 @@ final class HotkeyEngine {
                 webBar.config = config
                 webBar.show()
                 walkSignal?(.webBarOpened)
-            case .showMenuSearch:
-                menuSearch.show()
+            case .showCommandsBar:
+                commandsBar.show()
             case .openWindowChooser:
                 if let app = actions.focusedAppInfo() {
                     searcher.showWindowChooser(pid: app.pid, appName: app.name)
@@ -825,7 +825,7 @@ final class HotkeyEngine {
         let verbs: [GuideRow] = [
             GuideRow(key: "␣", label: "launcher"),
             GuideRow(key: "⏎", label: "ask — links · domains · search"),
-            GuideRow(key: ".", label: "menu search — the frontmost app's menus"),
+            GuideRow(key: ".", label: "commands — the frontmost app's menus"),
             GuideRow(key: "⇥", label: "windows of the focused app"),
             GuideRow(key: "1…9", label: "jump to window by position"),
             GuideRow(key: "0", label: "the focused window fills the display — ⇧0 beside"),
@@ -1072,7 +1072,7 @@ extension HotkeyEngine: EngineWorld {
 
     var searcherVisible: Bool { searcher.isVisible }
     var webBarVisible: Bool { webBar.isVisible }
-    var menuSearchVisible: Bool { menuSearch.isVisible }
+    var commandsBarVisible: Bool { commandsBar.isVisible }
     var cheatVisible: Bool { cheat.isVisible }
     var hasFocusedApp: Bool { actions.focusedAppInfo() != nil }
 }

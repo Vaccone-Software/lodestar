@@ -527,11 +527,35 @@ final class MeetingController: NSObject {
                     calendar: "Work", account: "Google")
                 controller.occurrences = [occurrence]
                 controller.evaluate()
+                // The chip's own titled, deferred, never-key panel refuses
+                // to reach the window server in this headless process, so
+                // the photograph borrows the searcher's panel shell and
+                // wears the chip's real content view — every pixel inside
+                // the glass is the production render.
+                let frame = controller.panel.frame
+                let content = controller.panel.contentView
+                controller.panel.orderOut(nil)
+                let host = KeyablePanel(
+                    contentRect: frame,
+                    styleMask: [.borderless, .nonactivatingPanel],
+                    backing: .buffered, defer: false)
+                host.level = .floating
+                host.isOpaque = false
+                host.backgroundColor = .clear
+                host.hasShadow = true
+                host.isReleasedWhenClosed = false
+                host.contentView = content
+                host.setFrame(frame, display: true)
+                host.makeKeyAndOrderFront(nil)
+                host.orderFrontRegardless()
+                previewHost = host
             } else {
                 controller.showPrime()
             }
         }
         return controller
     }
+
+    private static var previewHost: NSPanel?
     #endif
 }

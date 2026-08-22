@@ -13,7 +13,7 @@ final class WorldStub: EngineWorld {
 
     var searcherVisible = false
     var webBarVisible = false
-    var menuSearchVisible = false
+    var commandsBarVisible = false
     var cheatVisible = false
     var hasFocusedApp = true
     var scrollEnterSucceeds = true
@@ -191,13 +191,13 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(press("space"), [.hideBars], "visible searcher hides, not reopens")
     }
 
-    func testWebBarAndMenuSearchToggle() {
+    func testWebBarAndCommandsToggle() {
         XCTAssertEqual(press("return"), [.hideBars, .showWebBar])
-        XCTAssertEqual(press("."), [.hideBars, .showMenuSearch])
+        XCTAssertEqual(press("."), [.hideBars, .showCommandsBar])
         world.webBarVisible = true
         XCTAssertEqual(press("return"), [.hideBars])
         world.webBarVisible = false
-        world.menuSearchVisible = true
+        world.commandsBarVisible = true
         XCTAssertEqual(press("."), [.hideBars])
     }
 

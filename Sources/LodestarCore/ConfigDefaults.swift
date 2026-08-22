@@ -34,6 +34,14 @@ public enum ConfigDefaults {
            gestures.removeValue(forKey: "back-forward") != nil {
             out["gestures"] = .table(gestures)
         }
+        // Menu search became the commands bar: the same switch under the
+        // register's new name, ahead of system commands joining as a
+        // second feed.
+        if case .table(var gestures)? = out["gestures"],
+           let legacy = gestures.removeValue(forKey: "menu-search") {
+            if gestures["commands"] == nil { gestures["commands"] = legacy }
+            out["gestures"] = .table(gestures)
+        }
         // The cheat sheet stopped being a toggle in 0.22: help is not a
         // feature you turn off. Select took its key's toggle instead.
         if case .table(var gestures)? = out["gestures"],

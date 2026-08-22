@@ -19,7 +19,7 @@ Lode is **right ⌘** (configurable in `~/.config/lodestar/lodestar.json`).
 | `Tab` on a launcher app row    | Expand a running app into its windows                                        |
 | `lode ⏎`                       | Ask: links · domains · search, each routed to its profile                    |
 | `⌘K` in the launcher / Ask     | Add to graph · add a link · route a host or search — written into the config |
-| `lode .`                       | Menu search: the frontmost app's menus, fuzzy, `↵` executes                  |
+| `lode .`                       | Commands: the frontmost app's verbs, fuzzy, `↵` runs one                     |
 | `` lode `  ``                  | Scroll mode: `j/k` `h/l` · `d/u` half-page · `gg`/`⇧G` ends · `⇥` panes      |
 | `lode ;` / `lode ⇧;`           | Click by reading — type what you see, `⇧letter` clicks; `⇧;` chains clicks   |
 | `lode /`                       | Select text by typing it — `⇧letter` anchors, `⌘C` takes the anchored word   |

@@ -261,6 +261,14 @@ final class JsonTests: XCTestCase {
         XCTAssertEqual(both["lode"]?.table?["trigger"], .string("right-command"))
     }
 
+    /// The register renamed; the switch survives under the new word.
+    func testLegacyMenuSearchToggleReadsAsCommands() {
+        let normalized = ConfigDefaults.normalized(
+            ["gestures": .table(["menu-search": .bool(false)])])
+        XCTAssertEqual(normalized["gestures"]?.table?["commands"], .bool(false))
+        XCTAssertNil(normalized["gestures"]?.table?["menu-search"])
+    }
+
     // MARK: - Entry edits
 
     /// The bug these helpers exist to end: editing one row of a table must

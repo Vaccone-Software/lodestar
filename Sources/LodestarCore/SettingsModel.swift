@@ -184,7 +184,7 @@ public enum SettingsModel {
         "web-bar": ("Ask", ["lode", "⏎"],
                     "Type a destination or a question. It opens in the "
                     + "right browser profile."),
-        "menu-search": ("Menu search", ["lode", "."], nil),
+        "commands": ("Commands", ["lode", "."], nil),
         "scroll": ("Scroll", ["lode", "`"], nil),
         "hints": ("Click hints", ["lode", ";"], nil),
         "select": ("Select text", ["lode", "/"], nil),
@@ -265,7 +265,7 @@ public enum SettingsModel {
             ("Navigation", ["launcher", "graph", "window-chooser", "index-jump"]),
             ("Windows", ["maximize", "flip-orientation", "layout-undo",
                          "display-move", "breaths"]),
-            ("Interactions", ["hints", "scroll", "select", "menu-search"]),
+            ("Interactions", ["hints", "scroll", "select", "commands"]),
             ("Panels", ["web-bar", "settings"]),
         ]
         var gestureRows: [Row] = []

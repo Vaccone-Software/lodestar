@@ -13,6 +13,7 @@ enum StripPreview {
     /// Held, or ARC frees them the moment the loop ends and the ground never
     /// appears.
     private static var stageWindows: [NSWindow] = []
+    private static var heldMeeting: MeetingController?
 
     private static func stage() {
         for screen in NSScreen.screens {
@@ -162,10 +163,33 @@ enum StripPreview {
             app.run()
         }
 
-        // 60 the meeting chip, 61 the calendar prime card.
-        if variant == 60 || variant == 61 {
-            let held = MeetingController.preview(variant - 60)
+        // 16: the commands bar, mid-search over synthetic menus.
+        if variant == 16 {
+            let held = CommandsBarController.preview(query: "pa")
             _ = held
+            app.run()
+        }
+
+        // 60 the meeting chip, 61 the calendar prime card. Constructed on
+        // the run loop: a panel born before the app finishes launching
+        // never reaches the window server, and the chip is never key, so
+        // nothing later would rescue it.
+        if variant == 60 || variant == 61 {
+            DispatchQueue.main.async {
+                heldMeeting = MeetingController.preview(variant - 60)
+            }
+            app.run()
+        }
+
+        // 62: the coach chip, worded exactly as Coach.chip words a bind
+        // offer — the copy here quotes the real templates, not a mock.
+        if variant == 62 {
+            let hud = HUD()
+            hud.showGuide(title: "⌖ coach",
+                          rows: [GuideRow(key: "lode lode", label: "lode F → Figma")],
+                          footer: "you searched for it 31 times across 6 weeks"
+                              + " · about 40 seconds a week   ·   tap lode twice"
+                              + " to bind it · lode ⌫ not this one · fades on its own")
             app.run()
         }
 

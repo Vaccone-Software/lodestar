@@ -1,10 +1,10 @@
 import AppKit
 import LodestarCore
 
-/// Menu search (`lode .`): the frontmost app's entire menu bar, fuzzy-
-/// searchable, `↵` executes. Rows wear the item's native shortcut as a
-/// chip — every search teaches the app's own faster path.
-final class MenuSearchController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
+/// The commands bar (`lode .`): the frontmost app's entire menu bar,
+/// fuzzy-searchable, `↵` executes. Rows wear the item's native shortcut
+/// as a chip — every search teaches the app's own faster path.
+final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     private let panel: KeyablePanel
     private let root = NSView()
     private let field = NSTextField()
@@ -13,8 +13,8 @@ final class MenuSearchController: NSObject, NSTextFieldDelegate, NSWindowDelegat
     private let rowsStack = NSStackView()
     private let footer = NSTextField(labelWithString: "↵ run    esc close")
 
-    private var items: [MenuItems.Item] = []
-    private var rows: [MenuItems.Item] = []
+    private var items: [Commands.Row] = []
+    private var rows: [Commands.Row] = []
     private var selected = 0
 
     private let panelWidth = BarTheme.panelWidth
@@ -52,7 +52,7 @@ final class MenuSearchController: NSObject, NSTextFieldDelegate, NSWindowDelegat
         field.drawsBackground = false
         field.focusRingType = .none
         field.font = BarTheme.inputFont
-        field.placeholderString = "Menus"
+        field.placeholderString = "Do what?"
         field.delegate = self
         field.translatesAutoresizingMaskIntoConstraints = false
 
@@ -108,7 +108,7 @@ final class MenuSearchController: NSObject, NSTextFieldDelegate, NSWindowDelegat
         let name = app.localizedName ?? "App"
         let pid = app.processIdentifier
         items = []
-        field.placeholderString = "\(name) menus…"
+        field.placeholderString = "Do what?"
         field.stringValue = ""
         requery()
         panel.makeKeyAndOrderFront(nil)
@@ -118,8 +118,8 @@ final class MenuSearchController: NSObject, NSTextFieldDelegate, NSWindowDelegat
             let harvested = MenuItems.items(forAppWithPID: pid)
             DispatchQueue.main.async {
                 guard let self, self.harvestGeneration == generation, self.isVisible else { return }
-                self.items = harvested
-                self.field.placeholderString = "\(name) menus"
+                self.items = Commands.rows(menus: harvested, app: name)
+                
                 self.requery()
             }
         }
@@ -137,29 +137,30 @@ final class MenuSearchController: NSObject, NSTextFieldDelegate, NSWindowDelegat
             rows = Array(items.prefix(8))
         } else {
             rows = Array(Fuzzy.rank(query: query, candidates: items,
-                                    key: { $0.path.joined(separator: " ") }).prefix(8))
+                                    key: { $0.searchKey }).prefix(8))
         }
         selected = 0
         if HotkeyEngine.traceTap {
-            Log.info("menus: '\(query)' -> \(rows.prefix(4).map { $0.path.joined(separator: "›") }.joined(separator: " | "))")
+            Log.info("do: '\(query)' -> \(rows.prefix(4).map(\.title).joined(separator: " | "))")
         }
         renderRows()
         reposition()
     }
 
     /// Row views are pooled and mutated — typing repaints, it never rebuilds.
-    private var rowViews: [MenuRowView] = []
+    private var rowViews: [CommandsRowView] = []
 
     private func renderRows() {
+        let mixed = Commands.mixedSources(rows)
         while rowViews.count < rows.count {
-            let view = MenuRowView(height: rowHeight)
+            let view = CommandsRowView(height: rowHeight)
             rowViews.append(view)
             rowsStack.addArrangedSubview(view)
         }
         for (index, view) in rowViews.enumerated() {
             if index < rows.count {
                 view.isHidden = false
-                view.configure(rows[index])
+                view.configure(rows[index], showSource: mixed)
                 view.setSelected(index == selected)
             } else {
                 view.isHidden = true
@@ -221,25 +222,62 @@ final class MenuSearchController: NSObject, NSTextFieldDelegate, NSWindowDelegat
 
     private func pick() {
         guard rows.indices.contains(selected) else { return }
-        let item = rows[selected]
+        let row = rows[selected]
         hide()
-        let ok = MenuItems.press(item)
-        Log.info("menu-press", ["path": item.path.joined(separator: "›"), "ok": ok])
+        switch row.verb {
+        case .menu(let item):
+            let ok = MenuItems.press(item)
+            Log.info("menu-press", ["path": item.path.joined(separator: "›"), "ok": ok])
+        }
     }
 
     func windowDidResignKey(_ notification: Notification) {
         hide()
     }
+
+    #if DEBUG
+    /// `lodestar __strip-preview 16` stages the bar mid-search. Synthetic
+    /// menus on purpose — a real harvest would photograph whatever app is
+    /// frontmost on the machine taking the picture. The element is a dummy;
+    /// a preview renders rows and never presses one.
+    static func preview(query: String) -> CommandsBarController {
+        let bar = CommandsBarController()
+        let dummy = AXUIElementCreateApplication(ProcessInfo.processInfo.processIdentifier)
+        func item(_ path: [String], _ shortcut: String? = nil) -> MenuItems.Item {
+            MenuItems.Item(element: dummy, path: path, shortcut: shortcut)
+        }
+        let menus = [
+            item(["Edit", "Paste"], "⌘V"),
+            item(["Edit", "Paste and Match Style"], "⌥⇧⌘V"),
+            item(["Format", "Font", "Paste Style"], "⌥⌘V"),
+            item(["File", "Pin Note"]),
+            item(["File", "Page Setup…"], "⇧⌘P"),
+            item(["File", "Export as PDF…"]),
+            item(["Edit", "Copy"], "⌘C"),
+            item(["Window", "Photo Browser"]),
+        ]
+        bar.items = Commands.rows(menus: menus, app: "Notes")
+        bar.field.stringValue = query
+        bar.panel.makeKeyAndOrderFront(nil)
+        bar.panel.orderFrontRegardless()
+        bar.panel.makeFirstResponder(bar.field)
+        bar.field.currentEditor()?.selectedRange = NSRange(location: query.count, length: 0)
+        bar.requery()
+        return bar
+    }
+    #endif
 }
 
-/// One reusable menu row: title over breadcrumb, native-shortcut chip.
-private final class MenuRowView: NSView {
+/// One reusable commands row: title over breadcrumb, a source chip when the
+/// list mixes feeds, and the native-shortcut chip at the edge.
+private final class CommandsRowView: NSView {
     private let title = NSTextField(labelWithString: "")
     private let crumb = NSTextField(labelWithString: "")
     private let chipLabel = NSTextField(labelWithString: "")
     private let chip = NSView()
-    private var toChip: [NSLayoutConstraint] = []
-    private var toEdge: [NSLayoutConstraint] = []
+    private let sourceLabel = NSTextField(labelWithString: "")
+    private let sourceChip = NSView()
+    private let trailing = NSStackView()
     private var selectedState = false
 
     init(height: CGFloat) {
@@ -256,56 +294,62 @@ private final class MenuRowView: NSView {
         crumb.lineBreakMode = .byTruncatingTail
         crumb.translatesAutoresizingMaskIntoConstraints = false
 
-        chipLabel.font = BarTheme.chipFont
-        chipLabel.translatesAutoresizingMaskIntoConstraints = false
-        chip.wantsLayer = true
-        chip.layer?.cornerRadius = BarTheme.chipRadius
-        chip.translatesAutoresizingMaskIntoConstraints = false
-        chip.addSubview(chipLabel)
+        for (box, label) in [(chip, chipLabel), (sourceChip, sourceLabel)] {
+            label.font = BarTheme.chipFont
+            label.translatesAutoresizingMaskIntoConstraints = false
+            box.wantsLayer = true
+            box.layer?.cornerRadius = BarTheme.chipRadius
+            box.translatesAutoresizingMaskIntoConstraints = false
+            box.addSubview(label)
+            NSLayoutConstraint.activate([
+                label.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: 6),
+                label.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -6),
+                label.topAnchor.constraint(equalTo: box.topAnchor, constant: 2),
+                label.bottomAnchor.constraint(equalTo: box.bottomAnchor, constant: -2),
+            ])
+        }
+
+        // A trailing stack, so a hidden chip leaves no hole: the source
+        // chip appears only when the list mixes feeds, and the shortcut
+        // chip only when the app printed one.
+        trailing.orientation = .horizontal
+        trailing.spacing = 8
+        trailing.translatesAutoresizingMaskIntoConstraints = false
+        trailing.addArrangedSubview(sourceChip)
+        trailing.addArrangedSubview(chip)
 
         addSubview(title)
         addSubview(crumb)
-        addSubview(chip)
+        addSubview(trailing)
         NSLayoutConstraint.activate([
             title.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
             title.topAnchor.constraint(equalTo: topAnchor, constant: 6),
             crumb.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
             crumb.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 1),
-            chipLabel.leadingAnchor.constraint(equalTo: chip.leadingAnchor, constant: 6),
-            chipLabel.trailingAnchor.constraint(equalTo: chip.trailingAnchor, constant: -6),
-            chipLabel.topAnchor.constraint(equalTo: chip.topAnchor, constant: 2),
-            chipLabel.bottomAnchor.constraint(equalTo: chip.bottomAnchor, constant: -2),
-            chip.centerYAnchor.constraint(equalTo: centerYAnchor),
-            chip.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            trailing.centerYAnchor.constraint(equalTo: centerYAnchor),
+            trailing.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            title.trailingAnchor.constraint(lessThanOrEqualTo: trailing.leadingAnchor,
+                                            constant: -12),
+            crumb.trailingAnchor.constraint(lessThanOrEqualTo: trailing.leadingAnchor,
+                                            constant: -12),
         ])
-        toChip = [
-            title.trailingAnchor.constraint(lessThanOrEqualTo: chip.leadingAnchor, constant: -12),
-            crumb.trailingAnchor.constraint(lessThanOrEqualTo: chip.leadingAnchor, constant: -12),
-        ]
-        toEdge = [
-            title.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -12),
-            crumb.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -12),
-        ]
-        NSLayoutConstraint.activate(toEdge)
         restyle()
     }
 
     required init?(coder: NSCoder) { nil }
 
-    func configure(_ item: MenuItems.Item) {
-        let newTitle = item.path.last ?? ""
-        let newCrumb = item.path.dropLast().joined(separator: " › ")
-        if title.stringValue != newTitle { title.stringValue = newTitle }
-        if crumb.stringValue != newCrumb { crumb.stringValue = newCrumb }
+    func configure(_ row: Commands.Row, showSource: Bool) {
+        if title.stringValue != row.title { title.stringValue = row.title }
+        if crumb.stringValue != row.crumb { crumb.stringValue = row.crumb }
 
-        let shortcut = item.shortcut ?? ""
-        if chipLabel.stringValue != shortcut {
-            chipLabel.stringValue = shortcut
-            let hasChip = !shortcut.isEmpty
-            chip.isHidden = !hasChip
-            NSLayoutConstraint.deactivate(hasChip ? toEdge : toChip)
-            NSLayoutConstraint.activate(hasChip ? toChip : toEdge)
-        }
+        // Hidden state set unconditionally: the guard is only a repaint
+        // saver, and a chip born visible must still learn it is empty.
+        let source = showSource ? row.source : ""
+        if sourceLabel.stringValue != source { sourceLabel.stringValue = source }
+        sourceChip.isHidden = source.isEmpty
+        let shortcut = row.shortcut ?? ""
+        if chipLabel.stringValue != shortcut { chipLabel.stringValue = shortcut }
+        chip.isHidden = shortcut.isEmpty
     }
 
     func setSelected(_ selected: Bool) {
@@ -318,9 +362,13 @@ private final class MenuRowView: NSView {
         layer?.backgroundColor = selectedState ? NSColor.controlAccentColor.cgColor : nil
         title.textColor = selectedState ? .white : .labelColor
         crumb.textColor = selectedState ? NSColor.white.withAlphaComponent(0.75) : .secondaryLabelColor
-        chipLabel.textColor = selectedState ? .white : .secondaryLabelColor
-        chip.layer?.backgroundColor = selectedState
-            ? NSColor.white.withAlphaComponent(0.22).cgColor
-            : NSColor.labelColor.withAlphaComponent(0.08).cgColor
+        for label in [chipLabel, sourceLabel] {
+            label.textColor = selectedState ? .white : .secondaryLabelColor
+        }
+        for box in [chip, sourceChip] {
+            box.layer?.backgroundColor = selectedState
+                ? NSColor.white.withAlphaComponent(0.22).cgColor
+                : NSColor.labelColor.withAlphaComponent(0.08).cgColor
+        }
     }
 }

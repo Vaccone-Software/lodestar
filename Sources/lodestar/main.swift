@@ -210,7 +210,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         selectController.flash = { [weak self] text in self?.hud.flash(text) }
         selectController.observations = observationStore
         engine = HotkeyEngine(config: config, actions: actions, hud: hud, searcher: searcher,
-                              webBar: webBar, menuSearch: MenuSearchController(),
+                              webBar: webBar, commandsBar: CommandsBarController(),
                               scroller: ScrollController(model: model),
                               select: selectController,
                               clipboard: clipboardController)
@@ -1631,7 +1631,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Log.info("DUMP display\(active)=\(info.id) layout[\(layout.orientation(on: info.id).rawValue)]=[\(members.joined(separator: " | "))]")
         }
         Log.info("DUMP v=\(Lodestar.version) focused=\(focused.map { "\($0.id):\($0.appName)" } ?? "none") parked=\(parking.snapshot().keys.sorted()) tracked=\(model.windows.values.filter(\.isAlive).count) searcher=\(searcher.isVisible) webbar=\(webBar.isVisible) engine=\(engine.stateDescription)")
-        // menu search visibility is engine-owned; log via its trace lines
+        // commands bar visibility is engine-owned; log via its trace lines
     }
 
     private func fmt(_ r: CGRect) -> String {

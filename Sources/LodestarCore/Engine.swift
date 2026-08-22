@@ -47,7 +47,7 @@ public enum EngineEffect: Equatable {
     case hideBars
     case showSearcher
     case showWebBar
-    case showMenuSearch
+    case showCommandsBar
     case openWindowChooser
     case maximizeFocused(beside: Bool)
     case enterScroll
@@ -131,7 +131,7 @@ public protocol EngineWorld: AnyObject {
     func selectCopy() -> SelectStep
     var searcherVisible: Bool { get }
     var webBarVisible: Bool { get }
-    var menuSearchVisible: Bool { get }
+    var commandsBarVisible: Bool { get }
     var cheatVisible: Bool { get }
     var hasFocusedApp: Bool { get }
 }
@@ -338,9 +338,9 @@ public struct EngineCore {
             effects.append(.hideBars)
             if !wasVisible { effects.append(.showWebBar) }
         case ".":
-            let wasVisible = world.menuSearchVisible
+            let wasVisible = world.commandsBarVisible
             effects.append(.hideBars)
-            if !wasVisible { effects.append(.showMenuSearch) }
+            if !wasVisible { effects.append(.showCommandsBar) }
         case ";":
             effects.append(.hideBars)
             if world.enterHints(sticky: shift) {

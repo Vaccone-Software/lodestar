@@ -1,7 +1,7 @@
 import AppKit
 
 /// Which way a key walks a highlighted list — decided once, because three
-/// panels run one: the launcher, the web bar, and menu search.
+/// panels run one: the launcher, the web bar, and the commands bar.
 ///
 /// The arrows are the answer everyone already knows, and ⌃N/⌃P arrive as
 /// those same two selectors without us asking, because macOS binds them

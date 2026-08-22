@@ -34,7 +34,7 @@ public enum Gestures {
         Verb(name: "graph", keys: graphLetters, about: "lode letter chains to your apps"),
         Verb(name: "window-chooser", keys: ["tab"], about: "lode tab, the focused app's windows"),
         Verb(name: "web-bar", keys: ["return"], about: "lode ⏎, links and search"),
-        Verb(name: "menu-search", keys: ["."], about: "lode . , the focused app's menus"),
+        Verb(name: "commands", keys: ["."], about: "lode . the commands bar, the focused app's verbs"),
         Verb(name: "scroll", keys: ["`"], about: "lode ` , keyboard scrolling"),
         Verb(name: "hints", keys: [";"], about: "lode ; click hints, ⇧; sticky"),
         Verb(name: "breaths", keys: ["'"], about: "lode ', saved layouts"),

@@ -178,20 +178,15 @@ and every writer — a hand edit, ⌘K in the launcher or in Ask,
 ```json
 {
   "$schema": "lodestar-schema.json",
-  "version": "0.9.10",
+  "version": "0.24.3",
   "web": {
     "links": { "yt": { "url": "youtube.com", "profile": "brave:Google" } },
     "routes": { "acme": "brave:Work" }
-  },
-  "graph": {
-    "s": "Slack",
-    "e": { "o": "Microsoft Outlook", "p": "Proton Mail" },
-    "w": { "w": "brave:Work" }
   }
 }
 ```
 
-Nested letters are the trie; values are an app name or `<browser>:<profile name>` (`brave:Work`, `chrome:Personal`). **Multi-letter keys are sugar**: `"eo": "Outlook"` binds the chain E → O without writing the nesting (any depth: `wgg` works); a multi-letter key whose prefix is already a destination is refused with a validation problem. **Disabling** (the `gestures` section) gives every gesture a named switch — `"scroll": false` frees its keys to pass through to the app, shift variants included. Reserved first letters: `O`, `Z`, `X`. Breaths live on `'`, vim's mark key for a saved position, so M is Messages and B is free to bind. Deleting a key restores its default; `lodestar config` prints the full effective picture. Menu bar → Reload Config applies edits and reports every validation problem.
+The `graph` section holds your letters: nested letters are the trie; values are an app name or `<browser>:<profile name>` (`brave:Work`, `chrome:Personal`). **Multi-letter keys are sugar**: `"eo": "Outlook"` binds the chain E → O without writing the nesting (any depth: `wgg` works); a multi-letter key whose prefix is already a destination is refused with a validation problem. **Disabling** (the `gestures` section) gives every gesture a named switch — `"scroll": false` frees its keys to pass through to the app, shift variants included. Reserved first letters: `O`, `Z`, `X`. Breaths live on `'`, vim's mark key for a saved position, so M is Messages and B is free to bind. Deleting a key restores its default; `lodestar config` prints the full effective picture. Menu bar → Reload Config applies edits and reports every validation problem.
 
 **Migrating from 0.9.9 and earlier**: the automatic `lodestar.yaml` →
 `lodestar.json` conversion ran from 0.9.10 and is now retired. If a

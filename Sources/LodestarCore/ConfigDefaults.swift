@@ -181,6 +181,9 @@ public enum ConfigDefaults {
             "speed": .int(1800),
             "step": .int(60),
         ]),
+        "select": .table([
+            "copy-on-complete": .bool(false),
+        ]),
         "clipboard": .table([
             "enabled": .bool(true),
             "max-size-mb": .int(500),

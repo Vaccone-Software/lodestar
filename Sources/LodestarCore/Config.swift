@@ -39,6 +39,11 @@ public struct Config {
     public var scrollSmooth = true
     /// Smooth-scroll velocity in pixels per second.
     public var scrollSpeed: CGFloat = 1800
+    /// A completed span copies itself the moment its second anchor lands.
+    /// The second capital is the grammar's full stop — nothing follows it —
+    /// so copying there arbitrates nothing; the config line is the arbiter,
+    /// decided once, never at the moment of use.
+    public var selectCopyOnComplete = false
     /// Double-tap modifier bindings: modifier → verb. Custom triggers only.
     /// Keys freed by gestures: toggles — they pass through to the app.
     public var disabledGestures: Set<String> = []
@@ -155,6 +160,9 @@ public struct Config {
             "speed": .number(min: 200, max: 4000, description: "Smooth velocity, pixels per second."),
             "step": .number(min: 10, max: 400, description: "Pixels per press when smooth is off."),
         ], description: "Scroll mode."),
+        "select": .table([
+            "copy-on-complete": .boolean(description: "Copy a completed span to the clipboard the moment its second anchor lands."),
+        ], description: "Select mode."),
         "meetings": .table([
             "enabled": .boolean(description: "Offer the calendar's next meeting as a chip."),
             "lead-minutes": .number(min: 0, max: 120,
@@ -316,6 +324,9 @@ public struct Config {
         }
         if let speed = effective.value(at: ["scroll", "speed"])?.double {
             config.scrollSpeed = CGFloat(max(200, min(4000, speed)))
+        }
+        if let copy = effective.value(at: ["select", "copy-on-complete"])?.bool {
+            config.selectCopyOnComplete = copy
         }
         if let enabled = effective.value(at: ["clipboard", "enabled"])?.bool {
             config.clipboardEnabled = enabled

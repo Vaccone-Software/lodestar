@@ -1045,6 +1045,9 @@ extension HotkeyEngine: EngineWorld {
 
     func enterSelect() -> Bool {
         select.letters = KeyboardLayout.homeRow()
+        // Read at mode entry, the way scroll reads its physics: a reload
+        // mid-session is honored by the next `lode /`.
+        select.copyOnComplete = config.selectCopyOnComplete
         return select.enter()
     }
 

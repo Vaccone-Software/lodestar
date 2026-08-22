@@ -302,6 +302,11 @@ public enum SettingsModel {
                     + "is off.",
                 isDefault: isDefault(["scroll", "step"], .int(Int(config.scrollStep))),
                 dimmed: config.scrollSmooth),
+            Row(title: "Copy on select", path: "select.copy-on-complete",
+                control: .toggle(config.selectCopyOnComplete),
+                detail: "A completed span is copied the moment its second "
+                    + "anchor lands.",
+                isDefault: !config.selectCopyOnComplete),
         ]))
 
         // 5 · Clipboard

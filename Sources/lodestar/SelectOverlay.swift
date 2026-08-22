@@ -169,7 +169,7 @@ final class SelectOverlay {
     /// The highlight is the entire statement; what it answers to (⌘C, or
     /// any key to dismiss) lives in the hands and the guide, not on the
     /// glass.
-    func hold(spans: [CGRect], over windowFrame: CGRect) {
+    func hold(spans: [CGRect], over windowFrame: CGRect, note: String? = nil) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
@@ -189,7 +189,15 @@ final class SelectOverlay {
             highlightHost.addSubview(view)
             decorations.append(view)
         }
-        statusChip.isHidden = true
+        // The band survives into the held state only when it has something
+        // to say — the auto-copy receipt. A copy is invisible, and the
+        // highlight alone does not announce it.
+        if let note {
+            status.stringValue = note
+            statusChip.isHidden = false
+        } else {
+            statusChip.isHidden = true
+        }
     }
 
     /// The band's line, typeset so the query is the protagonist: what you

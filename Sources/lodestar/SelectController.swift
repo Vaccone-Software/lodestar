@@ -94,6 +94,11 @@ final class SelectController {
     private var modeEnteredAt = Date.distantPast
     private var typedInMode = 0
     private var committedOutcome: String?
+    /// select.copy-on-complete: a completed span serves the pasteboard at
+    /// the grammar's full stop, every ending alike. The config line is the
+    /// arbiter — the mode never reads the situation, which is what buried
+    /// the first auto-copy.
+    var copyOnComplete = false
     private var lastMatchCount = 0
     private var windowFrame: CGRect = .zero
     private var appName = ""
@@ -248,8 +253,7 @@ final class SelectController {
             && !flags.contains(.maskAlternate) && !flags.contains(.maskControl)
             && !flags.contains(.maskShift)
         if key == "c", plainCommand {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(ghost.text, forType: .string)
+            serve(ghost.text)
             Log.info("select", ["outcome": "ghost-copied", "chars": (ghost.text as NSString).length])
             dissolveGhost()
             return true
@@ -262,9 +266,9 @@ final class SelectController {
         return false
     }
 
-    private func holdGhost(text: String, rects: [CGRect]) {
+    private func holdGhost(text: String, rects: [CGRect], note: String? = nil) {
         ghost = (text, rects)
-        overlay.hold(spans: rects, over: windowFrame)
+        overlay.hold(spans: rects, over: windowFrame, note: note)
         guard ghostClickMonitor == nil else { return }
         ghostClickMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
@@ -327,6 +331,9 @@ final class SelectController {
             }
             Log.info("select", ["outcome": "selected", "chars": only.range.length])
             committedOutcome = "native"
+            // One rule across every ending: the native selection still
+            // stands for cut and retype; the copy just arrived early.
+            if copyOnComplete { serve(gather(pieces).text) }
             return
         }
         // Read-only, or sensed from pixels. First, grounding: if the
@@ -337,6 +344,7 @@ final class SelectController {
         if case .ocr = unit.geometry, commitToFocusedEditable(span.text) {
             Log.info("select", ["outcome": "grounded-selected", "chars": only.range.length])
             committedOutcome = "grounded"
+            if copyOnComplete { serve(span.text) }
             return
         }
         hold(span, pieces: 1)
@@ -358,7 +366,18 @@ final class SelectController {
         Log.info("select", ["outcome": "held",
                             "chars": (span.text as NSString).length, "pieces": pieces])
         committedOutcome = "held"
-        holdGhost(text: span.text, rects: span.rects)
+        if copyOnComplete { serve(span.text) }
+        // The receipt rides the band, quiet and in place: a copy is an
+        // invisible state change, and the highlight alone does not say it
+        // happened.
+        holdGhost(text: span.text, rects: span.rects,
+                  note: copyOnComplete ? "⌖ copied" : nil)
+    }
+
+    /// The one pasteboard write, shared by every copying verb.
+    private func serve(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     /// ⌘C with a start anchored and no far end yet: take that word and end
@@ -375,8 +394,7 @@ final class SelectController {
             flash("✕ that text lost its place on screen")
             return .pending
         }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(span.text, forType: .string)
+        serve(span.text)
         // The same ending as a finished span, so the highlight standing
         // there is the same statement it always was — and the ending it
         // records is the one it actually reached, native or held.

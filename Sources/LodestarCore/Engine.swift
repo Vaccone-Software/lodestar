@@ -577,7 +577,10 @@ public struct EngineCore {
             switch world.hintType(key, shift: shift, control: control) {
             case .fired where sticky:
                 return [.hintRescan]
-            case .fired:
+            case .fired, .firedFocus:
+                // firedFocus ends the mode even in sticky: the fire put
+                // focus in a text input, and what the hands type next
+                // belongs in it, not in the aim.
                 state = .idle
                 return [.exitHints]
             case .pending, .ignored:

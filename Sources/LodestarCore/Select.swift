@@ -84,6 +84,11 @@ public struct SelectCore {
     /// Element id → its place in reading order, so a match can be put
     /// before or after another without scanning.
     private let order: [Int: Int]
+    /// Each element's text with OCR's classic glyph confusions folded —
+    /// what the search runs against, so the truth you type finds the
+    /// misread the recognizer stored. Built once per world, not per
+    /// keystroke.
+    private let folded: [NSString]
 
     public init(elements: [Element], alphabet: String) {
         self.elements = elements
@@ -93,6 +98,37 @@ public struct SelectCore {
         // never a reason to trap.
         order = Dictionary(elements.enumerated().map { ($0.element.id, $0.offset) },
                            uniquingKeysWith: { first, _ in first })
+        folded = elements.map { Self.confusionFolded($0.text) as NSString }
+    }
+
+    /// The single-glyph confusions clean-screen recognition actually
+    /// makes — 1/l/I, 0/O, 5/S, 8/B, 2/Z, and the pipe — folded to one
+    /// representative on both sides of the search, so a quarter of failed
+    /// aims stop failing. Every fold maps one UTF-16 unit to one, which
+    /// is what keeps a range found in folded text valid in the original;
+    /// rn↔m is a real confusion but a length-changing one, and a matcher
+    /// that lies about ranges corrupts every highlight downstream, so it
+    /// stays out.
+    static func confusionFolded(_ text: String) -> String {
+        let source = text as NSString
+        guard source.length > 0 else { return text }
+        var units = [unichar](repeating: 0, count: source.length)
+        source.getCharacters(&units)
+        var changed = false
+        for index in units.indices {
+            switch units[index] {
+            case 0x30, 0x4F: units[index] = 0x6F; changed = true // 0, O → o
+            case 0x31, 0x49, 0x69, 0x7C: units[index] = 0x6C; changed = true // 1, I, i, | → l
+            case 0x35, 0x53: units[index] = 0x73; changed = true // 5, S → s
+            case 0x38, 0x42: units[index] = 0x62; changed = true // 8, B → b
+            case 0x32, 0x5A: units[index] = 0x7A; changed = true // 2, Z → z
+            default: break
+            }
+        }
+        // The fold runs at every world adoption on the run loop the tap
+        // shares; an element with nothing to fold keeps its own string.
+        guard changed else { return text }
+        return String(utf16CodeUnits: units, count: units.count)
     }
 
     /// Shifted punctuation and digits are search characters — labels are
@@ -102,6 +138,13 @@ public struct SelectCore {
         "8": "*", "9": "(", "0": ")", "-": "_", "=": "+", "[": "{", "]": "}",
         "\\": "|", ";": ":", "'": "\"", ",": "<", ".": ">", "/": "?", "`": "~",
     ]
+
+    /// Whether an unshifted key would extend the query — the gate a
+    /// pre-sensor buffer uses so an arrow's repeat cannot hoard slots
+    /// that only aiming deserves.
+    public static func isSearchKey(_ key: String) -> Bool {
+        character(for: key, shift: false) != nil
+    }
 
     static func character(for key: String, shift: Bool) -> String? {
         if key == "space" { return " " }
@@ -286,12 +329,17 @@ public struct SelectCore {
         // deserve addresses. So a one-character query matches only exact
         // standalone words: whole and whitespace-bounded, case folded.
         let wordExact = (query as NSString).length < 2
+        // The search runs in the confusion-folded world — needle and
+        // haystack alike — and every range it finds is used against the
+        // original text, which the unit-for-unit fold keeps honest.
+        let needle = Self.confusionFolded(query)
         var hits: [Match] = []
-        for element in elements {
+        for (index, element) in elements.enumerated() {
             let text = element.text as NSString
-            var cursor = NSRange(location: 0, length: text.length)
+            let haystack = folded[index]
+            var cursor = NSRange(location: 0, length: haystack.length)
             while totalMatches < Self.countCap {
-                let found = text.range(of: query, options: [.caseInsensitive], range: cursor)
+                let found = haystack.range(of: needle, options: [.caseInsensitive], range: cursor)
                 guard found.location != NSNotFound, found.length > 0 else { break }
                 let standalone = !wordExact
                     || Self.wordSnapped(found, in: text) == found
@@ -300,8 +348,8 @@ public struct SelectCore {
                     hits.append(Match(element: element.id, range: found))
                 }
                 let next = found.location + found.length
-                guard next < text.length else { break }
-                cursor = NSRange(location: next, length: text.length - next)
+                guard next < haystack.length else { break }
+                cursor = NSRange(location: next, length: haystack.length - next)
             }
             if totalMatches >= Self.countCap { break }
         }

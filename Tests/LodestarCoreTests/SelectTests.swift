@@ -28,6 +28,32 @@ final class SelectCoreTests: XCTestCase {
         XCTAssertEqual(c.labels.count, 2)
     }
 
+    func testConfusionFoldFindsTheMisreadTheRecognizerStored() {
+        // You type the truth; OCR stored the twin. A quarter of real
+        // aims failed exactly here before the fold.
+        var c = core(["deploy STAGING-7f3a9cle done", "va1ue 0lder l0gin"])
+        for ch in "9c1e" { _ = c.key(String(ch), shift: false) }
+        XCTAssertEqual(c.matches.count, 1, "typed 1 finds the stored l")
+        c = core(["va1ue 0lder l0gin"])
+        for ch in "value" { _ = c.key(String(ch), shift: false) }
+        XCTAssertEqual(c.matches.count, 1, "typed l finds the stored 1")
+        c = core(["va1ue 0lder l0gin"])
+        for ch in "older" { _ = c.key(String(ch), shift: false) }
+        XCTAssertEqual(c.matches.count, 1, "typed o finds the stored 0")
+    }
+
+    func testConfusionFoldKeepsRangesHonestInTheOriginal() {
+        // The fold is unit-for-unit, so the range the search returns cuts
+        // the original text at the same offsets — the copy stays exactly
+        // what stood on screen, misread glyphs included.
+        var c = core(["pay va1ue now"])
+        for ch in "value" { _ = c.key(String(ch), shift: false) }
+        guard let match = c.matches.first else { return XCTFail("no match") }
+        let original = "pay va1ue now" as NSString
+        XCTAssertEqual(original.substring(with: match.range), "va1ue",
+                       "the highlight promises the screen's own glyphs")
+    }
+
     func testShiftedSymbolsAndDigitsAreSearchCharacters() {
         // Labels are letters only, so ⇧4 can never be a pick — "$100"
         // types exactly as seen.

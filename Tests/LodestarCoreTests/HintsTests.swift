@@ -106,6 +106,15 @@ final class EngineHintsTests: XCTestCase {
         XCTAssertEqual(world.calls.last, "hintType:a:shift")
     }
 
+    func testATextInputFireEndsEvenAStickyMode() {
+        // Focusing a field means "my typing goes here next" — a sticky
+        // mode that stayed up would eat that typing as aiming.
+        _ = press(";", shift: true) // sticky door
+        world.hintOutcomes["a"] = .firedFocus
+        XCTAssertEqual(press("a", held: false, shift: true), [.exitHints])
+        XCTAssertTrue(core.isIdle)
+    }
+
     func testControlRidesEachKeystrokeSeparately() {
         // ⇧ fires, ⌃⇧ fires the other button — the system's own word for
         // a secondary click. The flag travels per keystroke, so on a

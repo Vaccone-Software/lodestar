@@ -125,6 +125,11 @@ final class SelectController {
     /// rests on, recorded per session.
     private var entryChipsAtEntry = 0
     private var firstKeyAt: Date?
+    /// Aiming typed inside the sensor's first beats, held for the first
+    /// world instead of dropped — the hands may start the moment the mode
+    /// key lands. Lowercase only: a capital typed before any chips exist
+    /// had nothing to pick and stays the no-op it always was.
+    private var pendingKeys: [(key: String, shift: Bool)] = []
     private var lastMatchCount = 0
     private var windowFrame: CGRect = .zero
     private var appName = ""
@@ -157,6 +162,7 @@ final class SelectController {
         entryTyped = ""
         entryChipsAtEntry = 0
         firstKeyAt = nil
+        pendingKeys = []
         dissolveGhost()
         core = nil
         units = []
@@ -266,13 +272,36 @@ final class SelectController {
         }
     }
 
+    /// The keys the hands typed before the first world existed, fed
+    /// straight into the query the moment it does. Straight in, not
+    /// through `key()`: buffered keys are aiming by construction —
+    /// capitals were never buffered — and routing them through the
+    /// entry-chip gate would let them finish a label pick begun *after*
+    /// they were typed, firing a click the engine never hears about.
+    /// Later worlds carry their query via seed and find this empty.
+    private func replayPendingKeys() {
+        guard !pendingKeys.isEmpty else { return }
+        let queued = pendingKeys
+        pendingKeys = []
+        guard core != nil else { return }
+        for entry in queued {
+            if case .updated = core!.key(entry.key, shift: false) {
+                typedInMode += 1
+            }
+        }
+        lastMatchCount = core!.totalMatches
+    }
+
     func backspace() {
         if door == .click, !entryTyped.isEmpty {
             entryTyped.removeLast()
             renderEntry()
             return
         }
-        guard core != nil else { return }
+        guard core != nil else {
+            _ = pendingKeys.popLast() // walk the buffered aim back too
+            return
+        }
         _ = core?.backspace()
         render()
     }
@@ -287,7 +316,17 @@ final class SelectController {
            shift || !entryTyped.isEmpty {
             return entryPick(letter: key)
         }
-        guard core != nil else { return .pending } // still scanning — keys wait
+        guard core != nil else {
+            // Still scanning: aiming is buffered for the first world, not
+            // dropped. Only keys that can become query characters get a
+            // slot — a held arrow would otherwise hoard the cap with
+            // entries the replay must reject — and the cap keeps a
+            // runaway letter repeat from hoarding memory.
+            if !shift, pendingKeys.count < 32, SelectCore.isSearchKey(key) {
+                pendingKeys.append((key: key, shift: shift))
+            }
+            return .pending
+        }
         let effect = core!.key(key, shift: shift)
         if !shift, case .updated = effect { typedInMode += 1 }
         lastMatchCount = core!.totalMatches
@@ -324,15 +363,22 @@ final class SelectController {
     /// final letter.
     func clickKey(_ letter: String, shift: Bool, control: Bool) -> HintStep {
         controlAtPick = control
+        firedTextInput = false
         defer { controlAtPick = false }
         switch key(letter, shift: shift) {
-        case .done: return .fired
+        case .done: return firedTextInput ? .firedFocus : .fired
         case .pending: return .pending
         }
     }
 
     /// True only for the synchronous span of the keystroke being handled.
     private var controlAtPick = false
+    /// The fire just focused a text input — the engine ends the mode even
+    /// in sticky, because the next keystrokes belong in the field. Known
+    /// synchronously for entry picks and for OCR-geometry picks (whose
+    /// rects are pure arithmetic); an AX-geometry pick resolves its owner
+    /// off the tap and simply keeps today's sticky behavior.
+    private var firedTextInput = false
 
     private func entryPick(letter: String) -> SelectStep {
         let candidate = entryTyped + letter.lowercased()
@@ -340,6 +386,7 @@ final class SelectController {
         case .exact(let index):
             let target = entryTargets[index]
             let rightClick = controlAtPick
+            firedTextInput = target.isTextInput && !rightClick
             entryTyped = ""
             committedOutcome = "entry"
             Log.info("select", ["outcome": "entry-fired", "right": rightClick])
@@ -376,8 +423,11 @@ final class SelectController {
 
     /// The three-layer commit: the picked word supplies the point, an AX
     /// pressable that owns the point supplies the press, and a synthetic
-    /// click is the honest floor. Geometry and the press both talk to the
-    /// focused app, so the whole resolution runs off the tap.
+    /// click is the honest floor. The press always runs off the tap; so
+    /// does geometry for anything AX-backed. Only the OCR branch may
+    /// resolve on the tap — it is arithmetic over recognizer data, no AX
+    /// anywhere — and that carve-out is load-bearing: it is what lets a
+    /// text-input fire end a sticky mode before the typing arrives.
     private func performClick(on match: SelectCore.Match) {
         guard units.indices.contains(match.element) else { return }
         let unit = units[match.element]
@@ -385,12 +435,29 @@ final class SelectController {
         let owners = entryTargets
         let rightClick = controlAtPick
         committedOutcome = "clicked"
+        // OCR rects are pure arithmetic, so an OCR-geometry pick can know
+        // its owner before returning — which is what lets a text-input
+        // fire end even a sticky mode in time to receive the typing.
+        var resolvedPoint: CGPoint?
+        if case .ocr = unit.geometry,
+           let rect = boundsRects(unit: unit, range: range).first {
+            let point = CGPoint(x: rect.midX, y: rect.midY)
+            resolvedPoint = point
+            let owner = owners.first { $0.frame.contains(point) }
+            firedTextInput = (owner?.isTextInput ?? false) && !rightClick
+        }
         Log.info("select", ["outcome": "clicked", "chars": range.length,
                             "right": rightClick])
         OffTap.run { [weak self] in
             guard let self else { return }
-            guard let rect = self.boundsRects(unit: unit, range: range).first else { return }
-            let point = CGPoint(x: rect.midX, y: rect.midY)
+            let point: CGPoint
+            if let resolvedPoint {
+                point = resolvedPoint
+            } else if let rect = self.boundsRects(unit: unit, range: range).first {
+                point = CGPoint(x: rect.midX, y: rect.midY)
+            } else {
+                return
+            }
             if let owner = owners.first(where: { $0.frame.contains(point) }) {
                 HintTargets.fire(owner, rightClick: rightClick)
             } else {
@@ -687,6 +754,7 @@ final class SelectController {
             alphabet: letters)
         if !query.isEmpty { rebuilt.seed(query: query) }
         core = rebuilt
+        replayPendingKeys()
         render()
     }
 
@@ -937,6 +1005,7 @@ final class SelectController {
             alphabet: letters)
         if !query.isEmpty { rebuilt.seed(query: query) }
         core = rebuilt
+        replayPendingKeys()
         render()
     }
 
@@ -946,7 +1015,9 @@ final class SelectController {
     /// fragment slice, each asked of its own leaf — or, for an editable
     /// field whose geometry does not answer, interpolated inside its
     /// frame on the single-line assumption. Synchronous AX — call off the
-    /// main thread for anything plural.
+    /// main thread for anything plural. The one tap-safe branch is
+    /// `.ocr`: pure arithmetic over recognizer data, no AX, which
+    /// `performClick` relies on for its synchronous owner check.
     private func boundsRects(unit: Unit, range: NSRange) -> [CGRect] {
         if case .ocr = unit.geometry {
             return unit.run.slices(of: range).flatMap { slice -> [CGRect] in

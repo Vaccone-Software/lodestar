@@ -60,6 +60,10 @@ public enum HintStep: Equatable {
     case pending
     /// A label completed and its element was acted on.
     case fired
+    /// A label completed on a text input, which was focused. The mode
+    /// ends even in sticky: focusing a field means "my typing goes here
+    /// next", and a mode that stayed up would eat that typing as aiming.
+    case firedFocus
     /// The letter matched nothing and was dropped.
     case ignored
 }

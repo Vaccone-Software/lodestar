@@ -67,6 +67,26 @@ final class CoachPacingTests: XCTestCase {
                                          recommendations: [rec], now: start))
     }
 
+    /// A retirement carries `secondsPerWeek: 0` — not because it is
+    /// worthless but because its worth is a freed letter, which the
+    /// seconds floor cannot read. Judging it by that floor silenced every
+    /// retirement the advisor could ever make.
+    func testARetirementIsNotJudgedByTheSecondsFloor() {
+        let retire = Recommendation(
+            kind: .retire, target: "q w",
+            detail: "lode Q W has never been typed",
+            secondsPerWeek: 0, probability: 0.95, evidence: [],
+            edit: .removeChain(chain: ["q", "w"]))
+        // Past the debut, where the higher bar no longer applies.
+        let spent = Observations.LedgerEntry(
+            id: "shorten:v z", kind: "shorten", target: "v z",
+            predictedSecondsPerWeek: 40, firstOfferedWeek: 2950,
+            lastOfferedWeek: 2950, offers: 3, status: "offered")
+        XCTAssertEqual(Coach.standingOffer(observations: observations([spent]),
+                                           recommendations: [retire], now: start)?.kind,
+                       .retire)
+    }
+
     func testTheFloorSitsBelowTheDebutBar() {
         XCTAssertLessThan(Coach.offerFloorSecondsPerWeek, Coach.debutFloorSecondsPerWeek)
     }

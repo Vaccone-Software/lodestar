@@ -318,7 +318,14 @@ public enum Coach {
 
         let eligible = recommendations.filter { rec in
             guard rec.edit != nil else { return false }
-            if rec.secondsPerWeek < offerFloorSecondsPerWeek { return false }
+            // The floor is denominated in seconds saved, so it can only
+            // judge suggestions that save seconds. A retirement saves none
+            // and never claimed to: what it buys back is a letter, and the
+            // zero it carries is the absence of a seconds figure rather
+            // than a measurement of worthlessness. Judging it by this floor
+            // silenced the whole kind.
+            if rec.kind != .retire,
+               rec.secondsPerWeek < offerFloorSecondsPerWeek { return false }
             if debut, rec.secondsPerWeek < debutFloorSecondsPerWeek { return false }
             guard let entry = ledger.first(where: { $0.id == "\(rec.kind.rawValue):\(rec.target)" })
             else { return true }

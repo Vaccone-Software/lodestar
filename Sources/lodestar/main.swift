@@ -266,6 +266,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         coach.hideChip = { [weak self] in self?.hud.hide() }
         coach.ownsSurface = { [weak self] in self?.hud.owner == .coach }
+        coach.standingSinceFor = { [weak self] id in
+            self?.store.coachStandingSince(id) ?? Date()
+        }
         coach.inputWasHuman = { [weak self] in self?.engine.actingInputWasHuman ?? true }
         coach.humanIdle = { [weak self] in
             guard let engine = self?.engine else { return 0 }
@@ -656,6 +659,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func installMeetings() {
         meetings.observations = observationStore
         meetings.flash = { [weak self] text in self?.hud.flash(text, seconds: 8) }
+        meetings.onChipShown = { [weak self] in self?.coach.surfaceClaimed() }
         meetings.openWeb = { [weak self] url, profile in
             self?.actions.openWeb(url: url, profile: profile, beside: false)
         }

@@ -62,6 +62,16 @@ public struct PersistedState: Codable {
     /// Meeting occurrences already joined or dismissed — the chip never
     /// resurrects one. Pruned to live occurrences on every write.
     public var meetingSpent: [String]?
+    /// When each coach suggestion first took the standing slot, keyed by
+    /// `kind:target`.
+    ///
+    /// Machine owned and persisted because the cue wait is measured from
+    /// it. Held only in memory it restarted on every launch, and the wait
+    /// is four days: across 120 launches on the author's machine the
+    /// longest uninterrupted run was 2.3 days, so the escape hatch that
+    /// promises a cue-having suggestion goes out eventually had never once
+    /// opened. An auto-update alone is enough to reset it.
+    public var coachStandingSince: [String: Date]?
 }
 
 /// The corruption ritual, shared by every store that keeps user data:
@@ -233,6 +243,31 @@ public final class StateStore {
         state.meetingSpent = spent.sorted()
         saveSoon()
     }
+
+    // MARK: - The coach
+
+    /// When this suggestion first took the slot. Stamps on first sight and
+    /// returns the same answer forever after, so the cue wait counts
+    /// wall-clock days rather than the life of one process.
+    public func coachStandingSince(_ id: String, now: Date = Date()) -> Date {
+        var map = state.coachStandingSince ?? [:]
+        if let stamped = map[id] { return stamped }
+        map[id] = now
+        // Bounded, and the eviction can never disturb a live suggestion:
+        // only one stands at a time, so anything old enough to be dropped
+        // has long since been answered, parked, or outgrown.
+        if map.count > Self.coachStandingCap {
+            for key in map.sorted(by: { $0.value < $1.value })
+                .prefix(map.count - Self.coachStandingCap).map(\.key) {
+                map.removeValue(forKey: key)
+            }
+        }
+        state.coachStandingSince = map
+        saveSoon()
+        return now
+    }
+
+    static let coachStandingCap = 64
 
     // MARK: - Usage (searcher frecency)
 

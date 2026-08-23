@@ -36,6 +36,13 @@ public enum Coach {
     /// declined — decay is "later" — so the retry is short enough that
     /// "later" arrives while the evidence is still warm.
     public static let retryCooldownDays = 2.0
+    /// ...unless the chip demonstrably stood its whole life and was still
+    /// not answered. That is a different fact, and until v0.24.4 it could
+    /// not be told apart from the common case: chips were being erased by
+    /// the next chain and billed anyway, so "unanswered" almost always
+    /// meant "never readable". Now a full standing is evidence the offer
+    /// was seen and passed over, and the leash it earns is the long one.
+    public static let ignoredRetryDays = 4.0
     /// The channel's first showing ever is the one most likely to be
     /// missed outright — nothing has yet taught the eye that the register
     /// exists — so the debut alone retries a day sooner.
@@ -54,6 +61,16 @@ public enum Coach {
     /// clearly strong finding. Modest on purpose — approachable, not
     /// monumental.
     public static let debutFloorSecondsPerWeek = 30.0
+
+    /// What a suggestion must be worth to be offered at all, ever.
+    ///
+    /// The debut floor above only guards the first offer; past it there was
+    /// no floor at all, so a finding worth six seconds a week — five
+    /// minutes a year — earned the same three chips as one worth three
+    /// minutes a week. A chip costs a minute of glass and a decision, so a
+    /// suggestion that cannot repay the attention its own offers cost is
+    /// not a suggestion, and silence is the better answer.
+    public static let offerFloorSecondsPerWeek = 10.0
 
     /// Where a suggestion lands best: right after its cost was felt.
     public enum Cue: Equatable {
@@ -176,6 +193,8 @@ public enum Coach {
         /// Counted showings: the channel's total, and this suggestion's.
         public var channelOffers: Int
         public var thisOffers: Int
+        /// This suggestion's last showing stood its whole life unanswered.
+        public var thisStoodFull: Bool
         public var engineQuiet: Bool
         public var cameraRunning: Bool
         public var present: Bool
@@ -187,6 +206,7 @@ public enum Coach {
                     sinceOffered: TimeInterval = .infinity,
                     sinceThisOffered: TimeInterval = .infinity,
                     channelOffers: Int = 0, thisOffers: Int = 0,
+                    thisStoodFull: Bool = false,
                     engineQuiet: Bool = true, cameraRunning: Bool = false,
                     present: Bool = true, inputWasHuman: Bool = true) {
             self.enabled = enabled
@@ -198,6 +218,7 @@ public enum Coach {
             self.sinceThisOffered = sinceThisOffered
             self.channelOffers = channelOffers
             self.thisOffers = thisOffers
+            self.thisStoodFull = thisStoodFull
             self.engineQuiet = engineQuiet
             self.cameraRunning = cameraRunning
             self.present = present
@@ -223,8 +244,16 @@ public enum Coach {
     }
 
     /// The wait before one suggestion may be shown again.
-    public static func retryDays(channelOffers: Int, thisOffers: Int) -> Double {
-        channelOffers == 1 && thisOffers == 1 ? debutRetryDays : retryCooldownDays
+    ///
+    /// A chip that stood its full life takes the long leash even on the
+    /// debut. The debut's shortcut exists because a first chip is the one
+    /// most likely to be missed outright — but a chip that held the glass
+    /// for a solid minute was not missed, and the shortcut has nothing
+    /// left to correct for.
+    public static func retryDays(channelOffers: Int, thisOffers: Int,
+                                 stoodFull: Bool = false) -> Double {
+        if stoodFull { return ignoredRetryDays }
+        return channelOffers == 1 && thisOffers == 1 ? debutRetryDays : retryCooldownDays
     }
 
     /// Ordered cheapest and most certain first; every one of them is
@@ -238,7 +267,8 @@ public enum Coach {
         if moment.sinceOffered < offerQuietDays * 86_400 { return .offerQuiet }
         if moment.thisOffers > 0,
            moment.sinceThisOffered < retryDays(channelOffers: moment.channelOffers,
-                                               thisOffers: moment.thisOffers) * 86_400 {
+                                               thisOffers: moment.thisOffers,
+                                               stoodFull: moment.thisStoodFull) * 86_400 {
             return .retryCooldown
         }
         if !moment.engineQuiet { return .engineBusy }
@@ -264,7 +294,8 @@ public enum Coach {
         if let entry = ledger.first(where: { $0.id == "\(rec.kind.rawValue):\(rec.target)" }),
            entry.offers > 0, entry.lastOfferedAt != .distantPast {
             let days = retryDays(channelOffers: ledger.reduce(0) { $0 + $1.offers },
-                                 thisOffers: entry.offers)
+                                 thisOffers: entry.offers,
+                                 stoodFull: entry.lastShowingStood ?? false)
             wait = max(wait, days * 86_400 - now.timeIntervalSince(entry.lastOfferedAt))
         }
         return max(0, wait)
@@ -287,6 +318,7 @@ public enum Coach {
 
         let eligible = recommendations.filter { rec in
             guard rec.edit != nil else { return false }
+            if rec.secondsPerWeek < offerFloorSecondsPerWeek { return false }
             if debut, rec.secondsPerWeek < debutFloorSecondsPerWeek { return false }
             guard let entry = ledger.first(where: { $0.id == "\(rec.kind.rawValue):\(rec.target)" })
             else { return true }

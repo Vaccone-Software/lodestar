@@ -60,6 +60,11 @@ final class MeetingController: NSObject {
     /// keeps, kept here too.
     private var grantPoll: Timer?
     var flash: ((String) -> Void)?
+    /// The chip took the screen. Meetings outrank the coach — that order is
+    /// already enforced for chips not yet shown, through `coach.suppressed`
+    /// — but the two live on separate panels, so a coach chip already
+    /// standing had nothing to tell it to go.
+    var onChipShown: () -> Void = {}
 
     private(set) var current: Meetings.Candidate?
 
@@ -413,7 +418,11 @@ final class MeetingController: NSObject {
         let origin = NSPoint(x: visible.maxX - size.width - 20,
                              y: visible.maxY - size.height - 20)
         panel.setFrame(NSRect(origin: origin, size: size), display: true)
+        let wasVisible = panel.isVisible
         panel.orderFrontRegardless()
+        // Only on the way up: render is called again to retitle a chip that
+        // is already standing, and that is not a fresh claim.
+        if !wasVisible { onChipShown() }
     }
 
     // MARK: - The prime card

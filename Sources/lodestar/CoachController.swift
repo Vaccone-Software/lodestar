@@ -127,6 +127,10 @@ final class CoachController {
     /// for the same reason the other probes are permissive: an unwired
     /// coach must not silence itself.
     var ownsSurface: () -> Bool = { true }
+    /// When this suggestion first took the slot, remembered across
+    /// restarts. Defaults to now, which is the old process-scoped
+    /// behaviour — correct for a controller nobody has wired a store to.
+    var standingSinceFor: (String) -> Date = { _ in Date() }
     var flash: (String) -> Void = { _ in }
     /// The parked offer changed; the menu item re-reads it.
     var onParkedChange: () -> Void = {}
@@ -153,6 +157,10 @@ final class CoachController {
     /// The suggestion in the slot has already spent a showing. Cleared when
     /// a pass puts a different suggestion there.
     private var offerCounted = false
+    /// This showing's full standing has already been written down. Without
+    /// it a later menu viewing of the same suggestion would record a second
+    /// ignore for one unanswered chip.
+    private var ignoreRecorded = false
     private var refreshedAt = Date.distantPast
     private var refreshing = false
 
@@ -297,6 +305,7 @@ final class CoachController {
             sinceThisOffered: thisOffered.map(now.timeIntervalSince) ?? .infinity,
             channelOffers: ledger.reduce(0) { $0 + $1.offers },
             thisOffers: entry?.offers ?? 0,
+            thisStoodFull: entry?.lastShowingStood ?? false,
             engineQuiet: engineQuiet(), cameraRunning: CameraProbe.anyCameraRunning(),
             present: PresenceProbe.userIsPresent(humanIdle: humanIdle()),
             inputWasHuman: inputWasHuman())
@@ -367,6 +376,7 @@ final class CoachController {
         let chip = Coach.chip(for: rec, observations: observations.observations)
         chipVisible = true
         lastShownAt = Date()
+        if countable { ignoreRecorded = false }
         showChip(chip)
         onParkedChange()
         // An offer is spent by being read, not by being drawn — and never
@@ -416,6 +426,15 @@ final class CoachController {
         chipHide = nil
         chipSeen?.cancel()
         chipSeen = nil
+        // It ran its whole life and nobody answered. That is not an
+        // answer either — the suggestion stays on offer — but it is the
+        // one fact that separates a chip passed over from a chip that was
+        // never readable, and it is what the retry leash is priced on.
+        if record, offerCounted, !ignoreRecorded, chipVisible,
+           let rec = standing, !isDemo {
+            ignoreRecorded = true
+            observations?.coach(action: "ignored", rec: rec)
+        }
         guard chipVisible else { return }
         chipVisible = false
         // Only take the panel down if it is still ours. At the sixty-second
@@ -423,9 +442,6 @@ final class CoachController {
         // guide the hand is reading.
         if ownsSurface() { hideChip() }
         onParkedChange()
-        // Decay IS "later"; whether this showing counted at all was
-        // settled at the seen checkpoint, or never happened.
-        _ = record
     }
 
     // MARK: - Recommendations
@@ -475,8 +491,11 @@ final class CoachController {
                     // gestures would answer a suggestion the user never read.
                     if self.chipVisible { self.dismissChip(record: false) }
                     self.standing = offer
-                    self.standingSince = Date()
+                    self.standingSince = offer.map {
+                        self.standingSinceFor("\($0.kind.rawValue):\($0.target)")
+                    } ?? .distantPast
                     self.offerCounted = false
+                    self.ignoreRecorded = false
                     self.loggedHolds = []
                     self.onParkedChange()
                     // The slot's story, told at every change of occupant:

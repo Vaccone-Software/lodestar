@@ -293,12 +293,20 @@ public struct Observations: Codable, Equatable {
         /// answer is priced in days, and weeks cannot say "yesterday".
         /// Optional so ledgers written before the field decode unchanged.
         public var lastAnsweredAt: Date?
+        /// The chip stood its whole life and was still not answered — seen
+        /// and passed over, as distinct from never readable. Reset by each
+        /// new showing, so it always describes the most recent one.
+        /// Optional for the same back-compatibility reason.
+        public var lastShowingStood: Bool?
+        /// How many times that has happened, for the report.
+        public var ignores: Int?
 
         public init(id: String, kind: String, target: String, chain: String? = nil,
                     predictedSecondsPerWeek: Double, firstOfferedWeek: Int,
                     lastOfferedWeek: Int, offers: Int, status: String,
                     acceptedWeek: Int? = nil, adoptedWeek: Int? = nil,
-                    neverWeek: Int? = nil, lastAnsweredAt: Date? = nil) {
+                    neverWeek: Int? = nil, lastAnsweredAt: Date? = nil,
+                    lastShowingStood: Bool? = nil, ignores: Int? = nil) {
             self.id = id
             self.kind = kind
             self.target = target
@@ -312,6 +320,8 @@ public struct Observations: Codable, Equatable {
             self.adoptedWeek = adoptedWeek
             self.neverWeek = neverWeek
             self.lastAnsweredAt = lastAnsweredAt
+            self.lastShowingStood = lastShowingStood
+            self.ignores = ignores
         }
     }
 
@@ -585,8 +595,18 @@ public struct Observations: Codable, Equatable {
                 // markAdopted. The neverWeek stamp survives for the
                 // sleep arithmetic.
                 entry.status = "offered"
+                // A fresh showing has not stood yet; the flag describes the
+                // most recent one, never the history.
+                entry.lastShowingStood = false
                 if let seconds = event.seconds { entry.predictedSecondsPerWeek = seconds }
                 if let chain = event.address { entry.chain = chain }
+            case "ignored":
+                // Not an answer, so no lastAnsweredAt and no status change:
+                // the suggestion is still on offer. What changed is what is
+                // known about the last showing — it was read and passed
+                // over — and that buys the long retry instead of the short.
+                entry.lastShowingStood = true
+                entry.ignores = (entry.ignores ?? 0) + 1
             case "accepted":
                 entry.status = "accepted"
                 entry.acceptedWeek = week

@@ -653,6 +653,11 @@ func runObservations(clear: Bool, engine: Bool) -> Never {
             .prefix(10) {
             var line = pad("  \(entry.kind) \(entry.target)", 34) + pad(entry.status, 10)
             line += pad("\(entry.offers) offer\(entry.offers == 1 ? "" : "s")", 10)
+            // Stood its whole minute and got no answer: the one thing that
+            // separates passed over from never readable, so it is worth a
+            // column of its own.
+            let ignores = entry.ignores ?? 0
+            line += pad(ignores > 0 ? "\(ignores) stood out" : "", 13)
             if entry.adoptedWeek != nil, entry.status != "accepted" {
                 line += "adopted by hand"
             } else if entry.predictedSecondsPerWeek > 0 {

@@ -386,7 +386,7 @@ public enum Coach {
         switch rec.kind {
         case .bind, .nudge: return .app(rec.target)
         case .shorten:
-            if case .bindTarget(_, let target)? = rec.edit {
+            if case .supersede(_, _, let target)? = rec.edit {
                 return .app((rec.display ?? target).lowercased())
             }
             return nil
@@ -404,7 +404,16 @@ public enum Coach {
         var evidence = rec.detail
         switch rec.kind {
         case .bind, .shorten:
-            if case .bindTarget(let chain, let target)? = rec.edit {
+            // Both land on "the address you will type next", which for a
+            // supersede is the new chain rather than the one being given
+            // up — the chip names the gain, not the loss.
+            let landing: (chain: [String], target: String)?
+            switch rec.edit {
+            case .bindTarget(let chain, let target): landing = (chain, target)
+            case .supersede(_, let new, let target): landing = (new, target)
+            default: landing = nil
+            }
+            if let (chain, target) = landing {
                 let shown = chain.map { $0.uppercased() }.joined(separator: " ")
                 // The label, never the config value: a chip saying
                 // "lode X → brave:xonar" quotes the machinery at someone
@@ -413,7 +422,16 @@ public enum Coach {
             } else {
                 headline = rec.target
             }
-            accept = "tap lode twice to bind it"
+            // "bind" is honest for a bind and a lie for a supersede: the
+            // old address stops working, and a user who was told only that
+            // something was being added did not agree to that. The verb
+            // matches the one the old address will use when it is pressed
+            // afterwards, so the two surfaces tell one story.
+            if case .supersede? = rec.edit {
+                accept = "tap lode twice to move it"
+            } else {
+                accept = "tap lode twice to bind it"
+            }
             if rec.kind == .bind, let record = observations.apps[rec.target.lowercased()] {
                 // The observed span, not the pruned week ring: the count is
                 // lifetime, so the weeks beside it must be too, or the chip

@@ -226,10 +226,17 @@ public final class ObservationStore {
         event.rec = rec.kind.rawValue
         event.app = rec.target
         event.seconds = rec.secondsPerWeek
-        if case .bindTarget(let chain, _)? = rec.edit {
+        // The address the ledger keeps is always the one being learned:
+        // the new chain for a supersede, so `slotBusy` watches the curve
+        // that has to bend and `supersededBy` knows where the old address
+        // went.
+        switch rec.edit {
+        case .bindTarget(let chain, _), .removeChain(let chain):
             event.address = Observations.key(chain)
-        } else if case .removeChain(let chain)? = rec.edit {
-            event.address = Observations.key(chain)
+        case .supersede(_, let new, _):
+            event.address = Observations.key(new)
+        case .addRoute, .enableMeetings, nil:
+            break
         }
         record(event)
     }

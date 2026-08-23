@@ -760,6 +760,22 @@ public struct Observations: Codable, Equatable {
     }
 
     /// Addresses bound in the config and never completed here.
+    /// The address that replaced this one, shown, when the user accepted
+    /// a supersede. Nil for an address that was simply never bound.
+    ///
+    /// No tombstone is stored anywhere: an accepted superseding entry
+    /// already holds the old address in `target` and the new one in
+    /// `chain`, so the redirect is a view over the ledger rather than a
+    /// second copy of it that could disagree.
+    public func supersededBy(_ letters: [String]) -> String? {
+        let key = Self.key(letters)
+        guard let entry = ledger.first(where: {
+            $0.target == key && $0.status == "accepted"
+                && Recommendation.Kind(rawValue: $0.kind)?.supersedes == true
+        }), let chain = entry.chain, !chain.isEmpty else { return nil }
+        return chain.split(separator: " ").map { $0.uppercased() }.joined(separator: " ")
+    }
+
     public func unused(among bound: [[String]]) -> [[String]] {
         bound.filter { (addresses[Self.key($0)]?.completions ?? 0) == 0 }
     }

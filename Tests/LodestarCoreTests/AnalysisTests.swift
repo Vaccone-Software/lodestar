@@ -427,8 +427,10 @@ final class AnalysisTests: XCTestCase {
             now: start.addingTimeInterval(3 * 86_400))
         let shorten = Advisor.recommend(context).first { $0.kind == .shorten }
         XCTAssertNotNil(shorten, "a deep chain typed 40 times has earned a letter")
-        XCTAssertEqual(shorten?.edit, .bindTarget(chain: ["x"], target: "brave:xonar"),
-                       "the edit writes the profile reference, never the rendered label")
+        XCTAssertEqual(shorten?.edit,
+                       .supersede(old: ["b", "x"], new: ["x"], target: "brave:xonar"),
+                       "the edit writes the profile reference, never the rendered label, "
+                           + "and carries the address being given up as well as the one gained")
         XCTAssertEqual(shorten?.display, "Brave (Xonar)",
                        "the chip still shows the name a person would recognise")
     }

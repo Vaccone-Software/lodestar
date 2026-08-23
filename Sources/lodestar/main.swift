@@ -245,6 +245,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 return self.addTargetToGraph(chain, target: target)
             case .removeChain(let chain):
                 return self.removeChainFromGraph(chain)
+            case .supersede(let old, let new, let target):
+                return self.supersedeInGraph(old: old, new: new, target: target)
             case .addRoute(let pattern, let profileKey):
                 return self.addWebRoute(pattern: pattern, profileKey: profileKey)
             case .enableMeetings:
@@ -1194,22 +1196,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// checked against what is actually installed first. Sending a profile
     /// through the app index instead would miss the exact match, fuzzy-rank
     /// its way to the plain browser, and bind the wrong thing in silence.
-    private func addTargetToGraph(_ letters: [String], target: String) -> String? {
+    /// What a recommendation's `target` string means on this machine: the
+    /// value a config line would carry, and the name a person would
+    /// recognise — or the problem to report instead.
+    private enum ResolvedTarget {
+        case ok(value: String, label: String)
+        case problem(String)
+    }
+
+    private func resolveGraphTarget(_ target: String) -> ResolvedTarget {
         guard let parsed = BrowserProfile.parse(reference: target) else {
             guard let entry = appIndex.entry(named: target) else {
-                return "\(target) is not installed any more"
+                return .problem("\(target) is not installed any more")
             }
-            return addAppToGraph(letters, entry: entry)
+            return .ok(value: entry.name, label: entry.name)
         }
         // Detection is the authority; the merged map holds it after load.
         guard let profile = config.browserProfiles[parsed.canonical] else {
-            return "\(parsed.browser.label) has no profile named '\(parsed.display)'"
+            return .problem("\(parsed.browser.label) has no profile named '\(parsed.display)'")
         }
-        if let problem = chainProblem(letters) { return problem }
-        let shown = letters.map { $0.uppercased() }.joined(separator: " ")
-        let name = GraphTarget.browserProfile(profile).label
-        return rewriteConfig(flash: "✓ lode \(shown) → \(name)") {
-            try GraphJsonEditor.addingPath(letters, target: profile.reference, in: $0)
+        return .ok(value: profile.reference,
+                   label: GraphTarget.browserProfile(profile).label)
+    }
+
+    private func addTargetToGraph(_ letters: [String], target: String) -> String? {
+        switch resolveGraphTarget(target) {
+        case .problem(let problem): return problem
+        case .ok(let value, let label):
+            if let problem = chainProblem(letters) { return problem }
+            let shown = letters.map { $0.uppercased() }.joined(separator: " ")
+            return rewriteConfig(flash: "✓ lode \(shown) → \(label)") {
+                try GraphJsonEditor.addingPath(letters, target: value, in: $0)
+            }
         }
     }
 
@@ -1218,6 +1236,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let shown = letters.map { $0.uppercased() }.joined(separator: " ")
         return rewriteConfig(flash: "✓ lode \(shown) → \(entry.name)") {
             try GraphJsonEditor.addingPath(letters, target: entry.name, in: $0)
+        }
+    }
+
+    /// Bind the new address and drop the old one in a single write, so a
+    /// failure between them cannot leave the graph holding both or
+    /// neither. The flash names the move rather than the addition: what
+    /// the user agreed to was a replacement.
+    private func supersedeInGraph(old: [String], new: [String], target: String) -> String? {
+        let value: String, label: String
+        switch resolveGraphTarget(target) {
+        case .problem(let problem): return problem
+        case .ok(let resolved, let name): (value, label) = (resolved, name)
+        }
+        if let problem = chainProblem(new) { return problem }
+        let from = old.map { $0.uppercased() }.joined(separator: " ")
+        let to = new.map { $0.uppercased() }.joined(separator: " ")
+        return rewriteConfig(flash: "✓ lode \(from) → lode \(to) · \(label)") {
+            // Old out first. A replacement is not required to be shorter,
+            // so the two addresses can share a prefix — superseding X with
+            // X Y, say — and adding first would then bind the new address
+            // inside a branch the delete is about to take with it. Config
+            // .edit runs the whole transform before it writes anything, so
+            // a throw between the two leaves the file untouched.
+            let pruned = try GraphJsonEditor.deletingPath(old, in: $0)
+            return try GraphJsonEditor.addingPath(new, target: value, in: pruned)
         }
     }
 

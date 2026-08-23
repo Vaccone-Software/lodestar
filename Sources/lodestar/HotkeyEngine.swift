@@ -869,6 +869,13 @@ extension HotkeyEngine: EngineWorld {
         }
     }
 
+    /// The ledger answers this, not a stored tombstone — see
+    /// `Observations.supersededBy`. Reached only when the graph missed,
+    /// which is rare, so the walk costs nothing worth caching.
+    func supersededBy(_ letters: [String]) -> String? {
+        observations?.observations.supersededBy(letters)
+    }
+
     func breathGo(_ letters: [String]) -> ChainStep { actions.breathChain(letters) }
     func breathBind(_ letters: [String]) -> ChainStep { actions.bindBreath(letters) }
     func breathDelete(_ letters: [String]) -> ChainStep { actions.deleteBreathStep(letters) }

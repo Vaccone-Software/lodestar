@@ -18,6 +18,19 @@ public enum ConfigEdit: Codable, Equatable {
     case bindTarget(chain: [String], target: String)
     /// Remove a binding (retire).
     case removeChain(chain: [String])
+    /// Replace one address with another in a single write: bind `new`,
+    /// remove `old`.
+    ///
+    /// Deliberately not "shorten". The replacement need not be shorter —
+    /// a swap of the same length can win by no longer fighting the hand —
+    /// so what this names is the supersession, not the saving.
+    ///
+    /// The removal is the point, not tidiness. Leaving the old address
+    /// bound leaves the hand a way to keep the habit, and the hand takes
+    /// it: with both paths open, Grossman et al. (CHI 2007) measured
+    /// 28.9% expert use against 72.8% when the old path was closed, and
+    /// half their control group never made the transition at all.
+    case supersede(old: [String], new: [String], target: String)
     /// One route line: pattern → profile registry key.
     case addRoute(pattern: String, profileKey: String)
     /// The one line `meetings.enabled: true`. The permission ask is not
@@ -44,6 +57,18 @@ public struct Recommendation: Codable, Equatable {
         case route
         /// Meetings joined by hand that the chip could hand over.
         case meetings
+
+        /// Does accepting this replace one address with another?
+        ///
+        /// The old address is then not missing but moved, and the ledger
+        /// entry already says where: a superseding recommendation carries
+        /// the old address as its `target` and the new one as its `chain`.
+        /// That is the whole tombstone, kept where the coach already keeps
+        /// what it said and what became of it, so nothing has to be stored
+        /// beside the config or in it.
+        public var supersedes: Bool {
+            self == .shorten || self == .rebind
+        }
     }
 
     public var kind: Kind
@@ -483,7 +508,7 @@ public enum Advisor {
                 evidence: [String(format: "%.2fs now vs %.2fs shortened, %d completions",
                                   current, proposed, record.completions)],
                 display: leaf.label,
-                edit: .bindTarget(chain: [slot], target: leaf.value)),
+                edit: .supersede(old: leaf.chain, new: [slot], target: leaf.value)),
                 p: 1 - value.probability,
                 offerable: value.probability >= probabilityGate))
         }

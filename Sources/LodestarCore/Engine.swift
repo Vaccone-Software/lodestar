@@ -131,6 +131,10 @@ public enum PanelAction: Equatable {
 /// implementations; tests script them.
 public protocol EngineWorld: AnyObject {
     func resolveGraph(_ letters: [String]) -> GraphResolution
+    /// Was this address replaced by one the user accepted? The new
+    /// address, shown, when so. Asked only on a miss, so it costs nothing
+    /// on the path that resolves.
+    func supersededBy(_ letters: [String]) -> String?
     func breathGo(_ letters: [String]) -> ChainStep
     func breathBind(_ letters: [String]) -> ChainStep
     func breathDelete(_ letters: [String]) -> ChainStep
@@ -487,7 +491,18 @@ public struct EngineCore {
             state = .chain(kind: .graph, letters: letters, deleting: false)
             effects.append(.showGuide(kind: .graph, letters: letters, deleting: false, note: nil))
         case .miss:
-            if firstLetter {
+            // An address the coach superseded is not a typo. The hand is
+            // reaching for a habit it agreed to give up, so say where the
+            // habit went and leave the chain — waiting inside `b` for a
+            // letter that is never coming again would strand the user in
+            // a mode over a gesture they were told to stop making.
+            if let moved = world.supersededBy(letters) {
+                state = .idle
+                effects.append(contentsOf: [
+                    .hideGuide,
+                    .flash("⌖ lode \(Self.display(letters)) moved to lode \(moved)"),
+                ])
+            } else if firstLetter {
                 // A complete failed gesture, not an abandoned traversal —
                 // do not trap the user in a mode over a stray lode+letter.
                 state = .idle

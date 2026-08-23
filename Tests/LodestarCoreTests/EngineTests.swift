@@ -11,6 +11,9 @@ final class WorldStub: EngineWorld {
     /// every world call, in order.
     var calls: [String] = []
 
+    /// joined letters → the address that replaced them.
+    var superseded: [String: String] = [:]
+
     var searcherVisible = false
     var webBarVisible = false
     var commandsBarVisible = false
@@ -21,6 +24,10 @@ final class WorldStub: EngineWorld {
     var hintOutcomes: [String: HintStep] = [:]
     var selectEnterSucceeds = true
     var selectOutcomes: [String: SelectStep] = [:]
+
+    func supersededBy(_ letters: [String]) -> String? {
+        superseded[letters.joined()]
+    }
 
     func enterSelect() -> Bool {
         calls.append("enterSelect")

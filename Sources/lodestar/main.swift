@@ -261,9 +261,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // with no way in.
             self?.hud.showGuide(title: "⌖ coach",
                                 rows: [GuideRow(key: "lode lode", label: chip.headline)],
-                                footer: "\(chip.evidence)   ·   \(chip.footer)")
+                                footer: "\(chip.evidence)   ·   \(chip.footer)",
+                                owner: .coach)
         }
         coach.hideChip = { [weak self] in self?.hud.hide() }
+        coach.ownsSurface = { [weak self] in self?.hud.owner == .coach }
         coach.inputWasHuman = { [weak self] in self?.engine.actingInputWasHuman ?? true }
         coach.humanIdle = { [weak self] in
             guard let engine = self?.engine else { return 0 }

@@ -86,6 +86,36 @@ public enum EngineEffect: Equatable {
     case pastePanelAct(PanelAction)
 }
 
+public extension EngineEffect {
+    /// Does running this effect take the shared glass panel away from
+    /// whatever was on it?
+    ///
+    /// The coach's chip is the only thing that lives on that panel long
+    /// enough to be stolen from, and being stolen from is correct — a
+    /// chain guide is pending state the hand is waiting on, an offer is a
+    /// suggestion that can wait. What matters is that the theft is
+    /// *recorded*, because an offer is spent by being read, not by being
+    /// drawn.
+    ///
+    /// `hideGuide` is the one that has to be here and is easiest to
+    /// forget: it draws nothing, so it does not look like a claim, but
+    /// `hud.hide()` orders the panel out and every completed chain emits
+    /// one (`graphStep`, `.leaf`). Left off this list it erased the chip
+    /// while the controller went on believing it stood, and the offer was
+    /// billed ten seconds later to a user who had seen it for a third of
+    /// a second.
+    var claimsSurface: Bool {
+        switch self {
+        case .showSearcher, .showWebBar, .showCommandsBar, .openWindowChooser,
+             .enterPaste, .toggleCheat, .showGuide, .scrollGuide, .hideBars,
+             .hideGuide:
+            return true
+        default:
+            return false
+        }
+    }
+}
+
 /// How much of the query a backspace takes.
 public enum SearchDeletion: Equatable {
     case character, word, all

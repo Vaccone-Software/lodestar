@@ -25,6 +25,11 @@ final class HUD {
     /// has left the screen must not still answer to lode lode.
     var onTakeover: (() -> Void)?
 
+    /// Who the panel belongs to right now. Every writer goes through
+    /// `handOver`, so there is exactly one place a takeover can be missed
+    /// and it is a place with a test on it.
+    private(set) var owner: SurfaceOwner = .none
+
     private let panel: NSPanel
     private let root = NSView()
     private var content: NSStackView?
@@ -40,7 +45,11 @@ final class HUD {
     // MARK: - Public surface
 
     /// Persistent guide for an active chain. Stays until updated or hidden.
-    func showGuide(title: String, rows: [GuideRow], footer: String) {
+    /// The coach passes `.coach`; everything else is the guide, which is
+    /// what makes a guide drawn over a chip a recorded takeover.
+    func showGuide(title: String, rows: [GuideRow], footer: String,
+                   owner: SurfaceOwner = .guide) {
+        handOver(to: owner)
         hideTimer?.invalidate()
         hideTimer = nil
         build(title: title, titleIcon: nil, rows: Array(rows.prefix(24)), footer: footer)
@@ -49,7 +58,7 @@ final class HUD {
 
     /// A transient message, optionally wearing the app it acted on.
     func flash(_ text: String, icon: NSImage? = nil, seconds: TimeInterval = 1.4) {
-        onTakeover?()
+        handOver(to: .flash)
         build(title: text, titleIcon: icon, rows: [], footer: nil)
         present()
         hideTimer?.invalidate()
@@ -59,9 +68,19 @@ final class HUD {
     }
 
     func hide() {
+        handOver(to: .none)
         hideTimer?.invalidate()
         hideTimer = nil
         panel.orderOut(nil)
+    }
+
+    /// The owner moves before the notification goes out, so a listener that
+    /// responds by hiding the panel — which the coach does — finds the
+    /// handover already recorded and stops, instead of recurring.
+    private func handOver(to next: SurfaceOwner) {
+        let previous = owner
+        owner = next
+        if Surface.displacesCoach(from: previous, to: next) { onTakeover?() }
     }
 
     // MARK: - Construction

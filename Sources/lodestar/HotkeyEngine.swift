@@ -498,18 +498,6 @@ final class HotkeyEngine {
         }
     }
 
-    /// Effects that put something on screen the coach chip would sit
-    /// under; the chip yields to every one of them.
-    private static func claimsSurface(_ effect: EngineEffect) -> Bool {
-        switch effect {
-        case .showSearcher, .showWebBar, .showCommandsBar, .openWindowChooser,
-             .enterPaste, .toggleCheat, .showGuide, .scrollGuide, .hideBars:
-            return true
-        default:
-            return false
-        }
-    }
-
     /// Whether an effect moves windows through the Accessibility API.
     ///
     /// These are the only effects whose cost is unbounded: each one walks
@@ -563,7 +551,7 @@ final class HotkeyEngine {
     private func apply(_ effects: [EngineEffect], event: CGEvent?) -> Unmanaged<CGEvent>? {
         var pass = false
         for effect in effects {
-            if Self.claimsSurface(effect) { onSurfaceClaimed?() }
+            if effect.claimsSurface { onSurfaceClaimed?() }
             switch effect {
             case .passThrough:
                 pass = true

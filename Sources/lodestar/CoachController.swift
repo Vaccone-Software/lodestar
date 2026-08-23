@@ -90,7 +90,12 @@ enum PresenceProbe {
 final class CoachController {
     /// coach.enabled. Off hides everything and offers nothing.
     var enabled = true {
-        didSet { if !enabled { dismissChip(record: false) } }
+        didSet {
+            if !enabled {
+                cancelSettle()
+                dismissChip(record: false)
+            }
+        }
     }
     var observations: ObservationStore?
 
@@ -118,6 +123,10 @@ final class CoachController {
     var humanIdle: () -> TimeInterval = { 0 }
     var showChip: (Coach.Chip) -> Void = { _ in }
     var hideChip: () -> Void = {}
+    /// Are the chip's pixels still the ones on the glass? True by default,
+    /// for the same reason the other probes are permissive: an unwired
+    /// coach must not silence itself.
+    var ownsSurface: () -> Bool = { true }
     var flash: (String) -> Void = { _ in }
     /// The parked offer changed; the menu item re-reads it.
     var onParkedChange: () -> Void = {}
@@ -133,6 +142,9 @@ final class CoachController {
     private var chipVisible = false
     private var chipHide: DispatchWorkItem?
     private var chipSeen: DispatchWorkItem?
+    /// The boundary that wants to speak, waiting to see whether the hand
+    /// has actually stopped. Disarmed by any further claim on the glass.
+    private var settleWork: DispatchWorkItem?
     private var lastShownAt = Date.distantPast
     /// One line per hold kind per standing suggestion, not per boundary.
     /// Silence must say why, or the one veto that could be miscalibrated
@@ -199,9 +211,15 @@ final class CoachController {
         considerShowing(cueApp: nil, cueHost: host)
     }
 
-    /// The engine took the glass — a chain started, a bar opened. The chip
-    /// yields instantly and its decay counts as "later".
+    /// The engine took the glass — a chain started, a chain finished, a bar
+    /// opened. The chip yields instantly and its decay counts as "later".
+    ///
+    /// This also disarms a pending settle, and that is the more important
+    /// half: the claim that would have erased the chip is exactly the
+    /// signal that the hand has not finished moving, so the wait starts
+    /// again from the boundary after it.
     func surfaceClaimed() {
+        cancelSettle()
         dismissChip(record: false)
     }
 
@@ -256,11 +274,11 @@ final class CoachController {
 
     // MARK: - Deciding
 
-    private func considerShowing(cueApp: String?, cueHost: String?) {
-        // Nothing standing is the common answer, and the only one worth
-        // short-circuiting: the probes below are reached a handful of times
-        // a week, not a handful of times a minute.
-        guard let rec = standing, !suppressed() else { return }
+    /// The ledger and the machine, read fresh. Called twice per boundary —
+    /// once to decide whether to wait, once when the wait is over — because
+    /// several seconds pass in between and presence above all can change
+    /// inside them.
+    private func moment(for rec: Recommendation) -> Coach.Moment {
         let now = Date()
         // A rehearsal ignores the real ledger's clocks: the pacing is the
         // curriculum's, and the demo exists to walk the surface.
@@ -271,7 +289,7 @@ final class CoachController {
         let thisOffered = entry.flatMap {
             $0.lastOfferedAt == .distantPast ? nil : $0.lastOfferedAt
         }
-        let moment = Coach.Moment(
+        return Coach.Moment(
             enabled: enabled, chipVisible: chipVisible, offerSpent: offerCounted,
             sinceLastShown: now.timeIntervalSince(lastShownAt),
             sinceAnswered: answered.map(now.timeIntervalSince) ?? .infinity,
@@ -282,7 +300,14 @@ final class CoachController {
             engineQuiet: engineQuiet(), cameraRunning: CameraProbe.anyCameraRunning(),
             present: PresenceProbe.userIsPresent(humanIdle: humanIdle()),
             inputWasHuman: inputWasHuman())
-        let hold = Coach.hold(moment)
+    }
+
+    private func considerShowing(cueApp: String?, cueHost: String?) {
+        // Nothing standing is the common answer, and the only one worth
+        // short-circuiting: the probes below are reached a handful of times
+        // a week, not a handful of times a minute.
+        guard let rec = standing, !suppressed() else { return }
+        let hold = Coach.hold(moment(for: rec))
         guard hold == .speak else {
             // Once per hold kind per standing suggestion, so a machine
             // driven all afternoon does not fill the log — but every kind
@@ -309,7 +334,32 @@ final class CoachController {
                 guard appHit || hostHit else { return }
             }
         }
-        show(rec)
+        armSettle(rec)
+    }
+
+    /// The boundary passed every gate; now the hand has to prove it has
+    /// stopped. Re-armed by each boundary, so the wait always measures
+    /// quiet since the most recent one.
+    private func armSettle(_ rec: Recommendation) {
+        cancelSettle()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.settleWork = nil
+            // Re-read, never remembered: the gates that passed five seconds
+            // ago are not the gates now, and the whole point of the wait is
+            // that the world moved during it.
+            guard self.enabled, !self.suppressed(), let standing = self.standing,
+                  standing.kind == rec.kind, standing.target == rec.target,
+                  Coach.hold(self.moment(for: rec)) == .speak else { return }
+            self.show(rec)
+        }
+        settleWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Coach.settleSeconds, execute: work)
+    }
+
+    private func cancelSettle() {
+        settleWork?.cancel()
+        settleWork = nil
     }
 
     private func show(_ rec: Recommendation, countable: Bool = true) {
@@ -340,10 +390,16 @@ final class CoachController {
     /// keeps showings from outrunning it.
     private func countOffer(_ rec: Recommendation) {
         guard chipVisible, !offerCounted else { return }
-        // The screen locked, the display slept, or the chair emptied while it
-        // stood: nothing was read, so nothing is spent — and it comes down
-        // rather than waiting behind a lock screen for a gesture.
-        guard PresenceProbe.userIsPresent(humanIdle: humanIdle()) else {
+        // Two ways a chip that is still believed in was never read. The
+        // screen locked, the display slept, or the chair emptied while it
+        // stood — or something took the glass and the chip has not been on
+        // it since. Either way nothing was read, so nothing is spent, and
+        // it comes down rather than waiting behind a lock screen for a
+        // gesture.
+        guard Coach.offerCounts(stoodFor: Coach.seenSeconds,
+                                ownsSurface: ownsSurface(),
+                                present: PresenceProbe.userIsPresent(
+                                    humanIdle: humanIdle())) else {
             dismissChip(record: false)
             return
         }
@@ -362,7 +418,10 @@ final class CoachController {
         chipSeen = nil
         guard chipVisible else { return }
         chipVisible = false
-        hideChip()
+        // Only take the panel down if it is still ours. At the sixty-second
+        // expiry it usually is not, and hiding then would tear down a chain
+        // guide the hand is reading.
+        if ownsSurface() { hideChip() }
         onParkedChange()
         // Decay IS "later"; whether this showing counted at all was
         // settled at the seen checkpoint, or never happened.

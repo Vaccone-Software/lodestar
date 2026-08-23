@@ -87,6 +87,20 @@ public enum Coach {
     /// A showing that never counted may try again — but not at once. A chip
     /// that flickers at every boundary is noise, not an offer.
     public static let reshowSeconds: TimeInterval = 120
+    /// How long the hand must rest after a boundary before the chip is
+    /// drawn.
+    ///
+    /// A boundary is not a resting point. It is the moment a navigation
+    /// completed, and the hand that just navigated is the hand most likely
+    /// to navigate again within the second — the next chain erases the
+    /// panel, so a chip painted on the boundary itself is drawn into the
+    /// one moment it is least likely to survive. Measured over five
+    /// thousand real boundaries: painting immediately, 46% of chips still
+    /// stand at `seenSeconds`; waiting five, 67%. The wait costs candidate
+    /// moments and there is no shortage of those — a boundary arrives
+    /// thousands of times to the coach's twice a week — so it buys the
+    /// only thing that is scarce, which is a chip that gets read.
+    public static let settleSeconds: TimeInterval = 5
     /// How stale the last hardware key may be before the chair counts as
     /// empty. Generous, because on the path that matters this is never near
     /// the limit: a navigation boundary is itself keyboard-driven, so the
@@ -127,6 +141,19 @@ public enum Coach {
     public static func isPresent(humanIdle: TimeInterval, screenLocked: Bool,
                                  displayAsleep: Bool, onConsole: Bool) -> Bool {
         humanIdle < presenceCeiling && !screenLocked && !displayAsleep && onConsole
+    }
+
+    /// Was this showing read, and may the curriculum charge for it?
+    ///
+    /// The rule the code always claimed and did not enforce: an offer is
+    /// spent by being read, not by being drawn. Three things have to hold
+    /// at the checkpoint, and the middle one is the one that was missing —
+    /// the chip must still be the thing on the glass. A chip the engine
+    /// ordered off two hundred milliseconds after it appeared was never
+    /// read, however faithfully a timer went on counting for it.
+    public static func offerCounts(stoodFor: TimeInterval, ownsSurface: Bool,
+                                   present: Bool) -> Bool {
+        stoodFor >= seenSeconds && ownsSurface && present
     }
 
     /// Everything a decision to speak rests on, gathered by the coat. The

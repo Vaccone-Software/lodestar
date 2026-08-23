@@ -57,6 +57,22 @@ public enum Coach {
     /// nobody declined it, so it sleeps a month, not a season.
     public static let parkedSleepWeeks = 4
     public static let parkedOverrideFactor = 1.5
+    /// How long a superseded address goes on saying where it went, when
+    /// the curve never bends to retire it sooner.
+    ///
+    /// A backstop, not the rule. The redirect is a transition aid, and the
+    /// honest measure of a finished transition is the hand, not the
+    /// calendar — so `bentCompletions` at the new address ends it first in
+    /// every case where the switch actually happened. This catches the
+    /// other case: an address so rarely used that the curve never bends at
+    /// all, where the redirect would otherwise outlive anyone's memory of
+    /// agreeing to it and start reading as archaeology.
+    ///
+    /// Nine weeks is Lally's 66-day median to habit automaticity, rounded
+    /// to the week the rest of the curriculum counts in. Past it, a hand
+    /// that has not moved is not going to be moved by a flash.
+    public static let supersedeCutoffWeeks = 9
+
     /// The first offer ever sets the channel's reputation: it waits for a
     /// clearly strong finding. Modest on purpose — approachable, not
     /// monumental.
@@ -348,6 +364,40 @@ public enum Coach {
         }
         return eligible.max { $0.secondsPerWeek * $0.probability
             < $1.secondsPerWeek * $1.probability }
+    }
+
+    /// The address that replaced this one, shown, while saying so is still
+    /// doing a job. Nil for an address that was simply never bound.
+    ///
+    /// Nothing is stored to answer this: an accepted superseding entry
+    /// already holds the old address in `target` and the new one in
+    /// `chain`, so the redirect is a view over the ledger rather than a
+    /// second copy that could disagree with it.
+    ///
+    /// It expires, and the reason is worth writing down because the first
+    /// build of this did not. The redirect is true forever — the address
+    /// really did move — but truth is not the standard, usefulness at the
+    /// moment it is read is. Its whole job is carrying a hand through a
+    /// transition, and once the hand is through, a permanent signpost
+    /// keeps a decommissioned address meaningful when the goal was for it
+    /// to stop being a place at all. Read a year later by someone who has
+    /// forgotten agreeing to any of it, "moved" is archaeology, and the
+    /// plain miss is the clearer answer.
+    public static func supersededBy(observations: Observations, letters: [String],
+                                    now: Date = Date()) -> String? {
+        let key = Observations.key(letters)
+        guard let entry = observations.ledger.first(where: {
+            $0.target == key && $0.status == "accepted"
+                && Recommendation.Kind(rawValue: $0.kind)?.supersedes == true
+        }), let chain = entry.chain, !chain.isEmpty else { return nil }
+        // The hand arrived: the same bent curve the slot waits on.
+        let completions = observations.addresses[chain]?.trigger.n ?? 0
+        if completions >= bentCompletions { return nil }
+        // Or it never will. An undated accept cannot be aged, and absence
+        // of a date is not grounds for silence — the curve still governs.
+        if let accepted = entry.acceptedWeek,
+           Observations.week(now) - accepted >= supersedeCutoffWeeks { return nil }
+        return chain.split(separator: " ").map { $0.uppercased() }.joined(separator: " ")
     }
 
     /// One learning habit at a time. A habit occupies the slot from

@@ -30,16 +30,23 @@ final class SupersedeTests: XCTestCase {
         return o
     }
 
+    /// The week the fixtures accept in, so age is stated rather than
+    /// inherited from whenever the suite happens to run.
+    private var acceptedAt: Date { weekStart(2955) }
+    private func weekStart(_ week: Int) -> Date {
+        Date(timeIntervalSince1970: Double(week) * 604_800)
+    }
+
     // MARK: - The ledger is the tombstone
 
     func testAnAcceptedSupersedeNamesWhereTheAddressWent() {
         let o = accepted(old: "b x", new: "x")
-        XCTAssertEqual(o.supersededBy(["b", "x"]), "X")
+        XCTAssertEqual(Coach.supersededBy(observations: o, letters: ["b", "x"], now: acceptedAt), "X")
     }
 
     func testAnAddressThatWasNeverBoundHasNotMoved() {
         let o = accepted(old: "b x", new: "x")
-        XCTAssertNil(o.supersededBy(["q", "z"]))
+        XCTAssertNil(Coach.supersededBy(observations: o, letters: ["q", "z"], now: acceptedAt))
     }
 
     /// An offer that was made and not taken leaves the old address exactly
@@ -47,13 +54,13 @@ final class SupersedeTests: XCTestCase {
     func testAnUnansweredOfferIsNotARedirect() {
         var o = accepted(old: "b x", new: "x")
         o.ledger[0].status = "offered"
-        XCTAssertNil(o.supersededBy(["b", "x"]))
+        XCTAssertNil(Coach.supersededBy(observations: o, letters: ["b", "x"], now: acceptedAt))
     }
 
     func testADeclinedOfferIsNotARedirect() {
         var o = accepted(old: "b x", new: "x")
         o.ledger[0].status = "never"
-        XCTAssertNil(o.supersededBy(["b", "x"]))
+        XCTAssertNil(Coach.supersededBy(observations: o, letters: ["b", "x"], now: acceptedAt))
     }
 
     /// A bind adds an address without replacing one, so its accepted entry
@@ -62,7 +69,7 @@ final class SupersedeTests: XCTestCase {
     func testAPlainBindIsNotARedirect() {
         var o = accepted(old: "b x", new: "x", kind: .bind)
         o.ledger[0].kind = Recommendation.Kind.bind.rawValue
-        XCTAssertNil(o.supersededBy(["b", "x"]))
+        XCTAssertNil(Coach.supersededBy(observations: o, letters: ["b", "x"], now: acceptedAt))
     }
 
     /// The generalisation the whole shape exists for: a replacement need
@@ -70,7 +77,7 @@ final class SupersedeTests: XCTestCase {
     /// supersedes exactly as much.
     func testASameLengthRebindAlsoSupersedes() {
         let o = accepted(old: "v", new: "x", kind: .rebind)
-        XCTAssertEqual(o.supersededBy(["v"]), "X")
+        XCTAssertEqual(Coach.supersededBy(observations: o, letters: ["v"], now: acceptedAt), "X")
         XCTAssertTrue(Recommendation.Kind.rebind.supersedes)
         XCTAssertTrue(Recommendation.Kind.shorten.supersedes)
     }
@@ -80,6 +87,51 @@ final class SupersedeTests: XCTestCase {
                                           .meetings, .nudge] {
             XCTAssertFalse(kind.supersedes, "\(kind) replaces nothing")
         }
+    }
+
+    // MARK: - When it stops saying so
+
+    /// The primary gate, and the honest one: the hand arrived. Same bent
+    /// curve the learning slot waits on, so "learned" means one thing in
+    /// this codebase rather than two.
+    func testTheRedirectRetiresOnceTheNewAddressCurveBends() {
+        var o = accepted(old: "b x", new: "x")
+        var record = Observations.AddressRecord()
+        for _ in 0..<Coach.bentCompletions { record.trigger.add(0.2) }
+        o.addresses["x"] = record
+        XCTAssertNil(Coach.supersededBy(observations: o, letters: ["b", "x"],
+                                        now: acceptedAt))
+    }
+
+    /// One short of bent is still mid-transition.
+    func testTheRedirectStandsWhileTheCurveIsStillBending() {
+        var o = accepted(old: "b x", new: "x")
+        var record = Observations.AddressRecord()
+        for _ in 0..<(Coach.bentCompletions - 1) { record.trigger.add(0.2) }
+        o.addresses["x"] = record
+        XCTAssertEqual(Coach.supersededBy(observations: o, letters: ["b", "x"],
+                                          now: acceptedAt), "X")
+    }
+
+    /// The backstop, for an address so rarely used the curve never bends.
+    /// Past it the redirect outlives anyone's memory of agreeing to it.
+    func testTheRedirectExpiresOnTheCutoffEvenIfTheCurveNeverBent() {
+        let o = accepted(old: "b x", new: "x")
+        let justInside = weekStart(2955 + Coach.supersedeCutoffWeeks - 1)
+        let past = weekStart(2955 + Coach.supersedeCutoffWeeks)
+        XCTAssertEqual(Coach.supersededBy(observations: o, letters: ["b", "x"],
+                                          now: justInside), "X")
+        XCTAssertNil(Coach.supersededBy(observations: o, letters: ["b", "x"],
+                                        now: past))
+    }
+
+    /// An accept with no date cannot be aged, and that is not grounds for
+    /// going quiet — the curve still governs it.
+    func testAnUndatedAcceptIsGovernedByTheCurveAlone() {
+        var o = accepted(old: "b x", new: "x")
+        o.ledger[0].acceptedWeek = nil
+        XCTAssertEqual(Coach.supersededBy(observations: o, letters: ["b", "x"],
+                                          now: weekStart(2955 + 200)), "X")
     }
 
     // MARK: - What the old address does when it is pressed

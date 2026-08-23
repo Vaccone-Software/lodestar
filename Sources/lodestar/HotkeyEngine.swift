@@ -873,7 +873,7 @@ extension HotkeyEngine: EngineWorld {
     /// `Observations.supersededBy`. Reached only when the graph missed,
     /// which is rare, so the walk costs nothing worth caching.
     func supersededBy(_ letters: [String]) -> String? {
-        observations?.observations.supersededBy(letters)
+        observations.map { Coach.supersededBy(observations: $0.observations, letters: letters) } ?? nil
     }
 
     func breathGo(_ letters: [String]) -> ChainStep { actions.breathChain(letters) }

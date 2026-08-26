@@ -37,6 +37,42 @@ final class KeysTests: XCTestCase {
         }
     }
 
+    // MARK: - What a key types
+
+    /// Both incremental searches in the product read this one table, so a
+    /// key cannot type one character in select and another in the strip.
+    func testEveryCharacterKeyTypesSomething() {
+        for (_, name) in Keys.ansi where name.count == 1 {
+            XCTAssertNotNil(Keys.character(for: name, shift: false),
+                            "\(name) is a character key and must type")
+        }
+        for named in ["return", "escape", "delete", "tab", "left", "up"] {
+            XCTAssertNil(Keys.character(for: named, shift: false),
+                         "\(named) types nothing")
+        }
+        XCTAssertEqual(Keys.character(for: "space", shift: false), " ")
+    }
+
+    /// The characters people actually search text for. A band that took
+    /// letters and digits alone could not be typed a file name.
+    func testPunctuationAndItsShiftedForms() {
+        XCTAssertEqual(Keys.character(for: "-", shift: false), "-")
+        XCTAssertEqual(Keys.character(for: "-", shift: true), "_")
+        XCTAssertEqual(Keys.character(for: "/", shift: false), "/")
+        XCTAssertEqual(Keys.character(for: ".", shift: false), ".")
+        XCTAssertEqual(Keys.character(for: "2", shift: true), "@")
+        XCTAssertEqual(Keys.character(for: "a", shift: true), "A")
+    }
+
+    /// Select gives capitals another job — they pick a chip — and that is
+    /// the only place the two callers part company.
+    func testSelectKeepsCapitalsForItsChips() {
+        XCTAssertNil(SelectCore.character(for: "a", shift: true))
+        XCTAssertEqual(SelectCore.character(for: "4", shift: true), "$",
+                       "⇧4 is $ and can never be a pick")
+        XCTAssertEqual(SelectCore.character(for: "-", shift: true), "_")
+    }
+
     /// Clearing the overrides puts the built-in answer back.
     func testReloadRebuildsFromTheBuiltInTable() {
         Keys.apply(overrides: [50: "v"])

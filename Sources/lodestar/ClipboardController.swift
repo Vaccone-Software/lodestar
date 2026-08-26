@@ -92,39 +92,66 @@ final class ClipboardController {
         guard count != lastChangeCount else { return }
         lastChangeCount = count
         guard count != selfWrittenChangeCount else { return }
-        guard let item = board.pasteboardItems?.first else { return }
+        // A copy is not always one thing. Three files selected in Finder
+        // arrive as three items, and reading only the first filed a third
+        // of what was copied — a card that pasted one file where three
+        // were meant, which is worse than the copy having missed.
+        guard let boardItems = board.pasteboardItems, !boardItems.isEmpty else { return }
 
-        let types = item.types.map(\.rawValue)
+        // Every item's types before any item's content, so the promise
+        // below is kept for the whole copy: one concealed item conceals
+        // all of it.
+        let types = boardItems.flatMap { $0.types.map(\.rawValue) }
         let source = NSWorkspace.shared.frontmostApplication
 
         // Before a single byte: a concealed clip, or one from an app the
         // user excluded, is none of our business and must not be read at
         // all — not merely left unwritten.
         if let refusal = Clipboard.refusalBeforeReading(
-            types: types, sourceBundleID: source?.bundleIdentifier, excludedApps: excludedApps
+            types: types, sourceBundleID: source?.bundleIdentifier,
+            excludedApps: excludedApps, itemCount: boardItems.count
         ) {
             Log.info("clipboard", ["refused": "\(refusal)"])
             return
         }
 
-        let text = board.string(forType: .string)
-
-        // Our own handover file, coming back around after a terminal paste.
-        if Clipboard.isOwnHandoverPath(
-            text, temporaryDirectory: FileManager.default.temporaryDirectory.path
-        ) { return }
-
-        // Everything a clip weighs, judged before anything is written.
-        var bytes = text?.utf8.count ?? 0
-        var natives: [(type: String, data: Data)] = []
-        for type in types where type != NSPasteboard.PasteboardType.string.rawValue {
-            guard let data = item.data(forType: NSPasteboard.PasteboardType(type)) else { continue }
-            natives.append((type, data))
-            bytes += data.count
+        // What each item pastes as text, and — separately — what it can be
+        // read and searched by. They part company for a file: its URL is
+        // text on the board, so the card can show a path and the search
+        // can find it by name, while what gets stored and pasted stays the
+        // file itself. Deriving one from the other would turn a copied
+        // file into a copied string.
+        let plainTexts = boardItems.map { $0.string(forType: .string) }
+        let readableTexts = boardItems.enumerated().map { offset, item in
+            plainTexts[offset] ?? item.string(forType: .fileURL).flatMap { URL(string: $0)?.path }
         }
 
+        // Our own handover file, coming back around after a terminal paste.
+        if boardItems.count == 1, Clipboard.isOwnHandoverPath(
+            plainTexts[0], temporaryDirectory: FileManager.default.temporaryDirectory.path
+        ) { return }
+
+        // Everything the copy weighs, judged before anything is written.
+        var bytes = 0
+        var items: [ClipboardStore.Item] = []
+        for (offset, boardItem) in boardItems.enumerated() {
+            let plain = plainTexts[offset].map { Data($0.utf8) }
+            var natives: [(type: String, data: Data)] = []
+            for type in boardItem.types.map(\.rawValue)
+            where type != NSPasteboard.PasteboardType.string.rawValue {
+                guard let data = boardItem.data(forType: NSPasteboard.PasteboardType(type))
+                else { continue }
+                natives.append((type, data))
+                bytes += data.count
+            }
+            bytes += plain?.count ?? 0
+            items.append(.init(plain: plain, natives: natives))
+        }
+
+        let readable = readableTexts.compactMap { $0 }.joined(separator: "\n")
         if let refusal = Clipboard.refusal(
-            types: types, sourceBundleID: source?.bundleIdentifier, text: text, bytes: bytes,
+            types: types, sourceBundleID: source?.bundleIdentifier,
+            text: readableTexts.contains(where: { $0 != nil }) ? readable : nil, bytes: bytes,
             excludedApps: excludedApps, excludedPatterns: excludedPatterns,
             maxItemBytes: maxItemBytes
         ) {
@@ -137,23 +164,23 @@ final class ClipboardController {
         // preview comes out of the file header and the thumbnail is
         // downsampled from the same source, so a 40MB screenshot is never
         // fully decoded just to be filed.
-        let imageData = natives.first {
+        let imageData = items[0].natives.first {
             $0.type == NSPasteboard.PasteboardType.png.rawValue
                 || $0.type == NSPasteboard.PasteboardType.tiff.rawValue
         }?.data
 
-        let identityData = text.map { Data($0.utf8) }
-            ?? natives.first?.data
-            ?? Data()
-        guard !identityData.isEmpty else { return }
-        let id = ClipboardStore.identity(for: identityData)
+        let identity = Clipboard.identityData(items: items.map { item in
+            item.plain ?? item.natives.first?.data ?? Data()
+        })
+        guard !identity.isEmpty else { return }
+        let id = ClipboardStore.identity(for: identity)
 
-        let preview = text.map { Clipboard.preview(of: $0) }
-            ?? imageData.flatMap { ClipboardStore.pixelSize(of: $0) }
-                .map { "image \(Int($0.width))×\(Int($0.height))" }
-            ?? "clip"
+        let preview = readable.isEmpty
+            ? (imageData.flatMap { ClipboardStore.pixelSize(of: $0) }
+                .map { "image \(Int($0.width))×\(Int($0.height))" } ?? "clip")
+            : Clipboard.preview(of: readable)
         store.record(id: id, kind: imageData != nil ? .image : .text,
-                     plain: text.map { Data($0.utf8) }, natives: natives, imageData: imageData,
+                     items: items, imageData: imageData,
                      preview: preview,
                      sourceBundleID: source?.bundleIdentifier,
                      sourceAppName: source?.localizedName)
@@ -173,42 +200,51 @@ final class ClipboardController {
         // native loop, the image fallback, and the file handover all drew
         // from `nativeData`, each paying the read again — for an image
         // near the size ceiling, tens of megabytes re-read inside the tap.
-        let natives = store.nativeData(clip)
+        let stored = store.itemData(clip)
         let board = NSPasteboard.general
         board.clearContents()
-        let item = NSPasteboardItem()
-        var wrote = false
 
-        if action == .native {
-            for native in natives {
+        // One board item per item copied, so three copied files arrive as
+        // three files rather than as the first one three times.
+        var items: [NSPasteboardItem] = []
+        for content in stored {
+            let item = NSPasteboardItem()
+            var wrote = false
+            if action == .native {
+                for native in content.natives {
+                    item.setData(native.data, forType: NSPasteboard.PasteboardType(native.type))
+                    wrote = true
+                }
+            }
+            if let plain = content.plain, let text = String(data: plain, encoding: .utf8) {
+                item.setString(text, forType: .string)
+                wrote = true
+            } else if action != .native, let native = content.natives.first {
+                // An image has no plain form; both labels paste the image.
                 item.setData(native.data, forType: NSPasteboard.PasteboardType(native.type))
                 wrote = true
             }
+            if wrote { items.append(item) }
         }
-        if let plain = store.plainData(clip.id), let text = String(data: plain, encoding: .utf8) {
-            item.setString(text, forType: .string)
-            wrote = true
-        } else if action != .native, let native = natives.first {
-            // An image has no plain form; both labels paste the image.
-            item.setData(native.data, forType: NSPasteboard.PasteboardType(native.type))
-            wrote = true
-        }
+
         // An image bound for a terminal rides as a file as well. The path is
         // what ⌘V lands there, and the tool on the far side reads the
         // picture back off it. Written after the image data so that stays
         // the richer offer for anything able to take it.
+        //
+        // One item only: the handover is a single path in a single string,
+        // and there is no honest way to say "these three pictures" in one.
         var handedOverAsFile = false
-        if Clipboard.pastesAsFilePath(
+        if items.count == 1, let content = stored.first, Clipboard.pastesAsFilePath(
             kind: clip.kind,
             frontmostBundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-        ), let file = imageFileForPasting(clip, natives: natives) {
-            item.setString(file.path, forType: .string)
-            item.setString(file.absoluteString, forType: .fileURL)
+        ), let file = imageFileForPasting(clip, natives: content.natives) {
+            items[0].setString(file.path, forType: .string)
+            items[0].setString(file.absoluteString, forType: .fileURL)
             handedOverAsFile = true
-            wrote = true
         }
 
-        guard wrote, board.writeObjects([item]) else {
+        guard !items.isEmpty, board.writeObjects(items) else {
             flash("✕ that clip could not be read")
             return
         }

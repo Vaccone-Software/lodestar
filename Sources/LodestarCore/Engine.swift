@@ -726,19 +726,50 @@ public struct EngineCore {
                 return [.pasteSearchMove(delta: -1)]
             case "right":
                 return [.pasteSearchMove(delta: 1)]
-            case "space":
-                return [.pasteSearchType(" ")]
-            case _ where Self.isLetter(key) || Self.isDigit(key):
-                // ⌘ makes it the app's shortcut rather than a character, and
-                // reaching for one means this search is over. ⌘⌫ and ⌘↵ are
-                // handled above, being about the search itself.
+            // ⌥ says the key is an address rather than a character. The
+            // cards wear their chips the whole time you are typing, and
+            // this is what makes them true: the fourth match is one
+            // keystroke away instead of three presses of an arrow. The
+            // verbs are the strip's own — ⌥⇧ pastes as copied, ⌥⌘ opens
+            // the card's actions — because it is the same addressing.
+            //
+            // An address with nothing behind it is swallowed rather than
+            // obeyed. A mis-hit must not throw away the query you typed,
+            // which is the one thing this mode holds that cannot be had
+            // back by pressing the key again.
+            case _ where option && (Self.isLetter(key) || Self.isDigit(key)):
+                guard world.pasteCardExists(address: key) else { return [] }
+                let effect: EngineEffect
+                if let slot = Int(key) {
+                    effect = .pastePinned(slot: slot, action: action)
+                } else {
+                    effect = .pasteRecent(label: key, action: action)
+                }
+                if action == .panel {
+                    state = .pastePanel(searching: true)
+                    return [effect, .pastePanelShow]
+                }
+                state = .idle
+                return [effect, .exitPaste]
+            default:
+                // Anything that types a character extends the query: a
+                // hyphen, an underscore, a slash, a dot, as much as a
+                // letter. What people search a clipboard for is file
+                // names, identifiers and commands, and a band that took
+                // letters and digits alone could not be typed most of
+                // them.
+                //
+                // ⌘ makes it the app's shortcut rather than a character,
+                // and reaching for one means this search is over. ⌘⌫ and
+                // ⌘↵ are handled above, being about the search itself.
+                guard let typed = Keys.character(for: key, shift: shift) else {
+                    return [] // swallowed — mode discipline
+                }
                 if command {
                     state = .idle
                     return [.exitPaste]
                 }
-                return [.pasteSearchType(shift ? key.uppercased() : key)]
-            default:
-                return [] // swallowed — mode discipline
+                return [.pasteSearchType(typed)]
             }
         }
 

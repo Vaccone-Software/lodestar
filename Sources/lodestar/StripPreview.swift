@@ -67,6 +67,20 @@ enum StripPreview {
             clip("r4", "func actionFrame(for id: String?) -> NSRect", minutes: 1500),
         ]
 
+        /// One copy that was several things: what Finder puts on the board
+        /// when three files are selected, and what the card has to say
+        /// about it.
+        func files(_ id: String, _ paths: [String], minutes: Double = 3) -> Clipboard.Clip {
+            Clipboard.Clip(id: id, kind: .text,
+                           created: Date().addingTimeInterval(-60 * minutes),
+                           sourceBundleID: "com.apple.finder", sourceAppName: "Finder",
+                           preview: paths.joined(separator: "\n"),
+                           bytes: 600,
+                           nativeTypes: [Clipboard.fileURLType],
+                           otherItemTypes: Array(repeating: [Clipboard.fileURLType],
+                                                 count: max(0, paths.count - 1)))
+        }
+
         // Which card the menu hangs off, per variant.
         let target: Clipboard.Clip
         switch variant {
@@ -213,8 +227,20 @@ enum StripPreview {
         _ = companion
 
         let strip = ClipboardStrip()
-        strip.show(recents: recents, pins: pins, thumbnail: { _ in nil },
-                   band: .actions(actions), selection: 0, actingOn: target.id)
+        // 9 stages the search band instead of the menu: every chip wears ⌥,
+        // because while the letters are the query that is what addresses a
+        // card, and the first card is a copy that was three files.
+        if variant == 9 {
+            strip.show(recents: [files("f0", ["/Users/you/Reports/Q3 report.pdf",
+                                              "/Users/you/Reports/Q3 notes.txt",
+                                              "/Users/you/Reports/chart.png"], minutes: 1),
+                                 recents[0], recents[2], recents[4]],
+                       pins: pins, thumbnail: { _ in nil },
+                       band: .search("report"), selection: 0)
+        } else {
+            strip.show(recents: recents, pins: pins, thumbnail: { _ in nil },
+                       band: .actions(actions), selection: 0, actingOn: target.id)
+        }
         app.run()
     }
 }

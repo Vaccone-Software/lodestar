@@ -149,9 +149,17 @@ final class PasteModeTests: XCTestCase {
     }
 
     private func open() { _ = core.openPaste(world: world) }
-    private func press(_ key: String, held: Bool = false,
-                       shift: Bool = false, command: Bool = false) -> [EngineEffect] {
-        core.keyDown(key: key, held: held, shift: shift, command: command, world: world)
+    private func press(_ key: String, held: Bool = false, shift: Bool = false,
+                       command: Bool = false, option: Bool = false) -> [EngineEffect] {
+        core.keyDown(key: key, held: held, shift: shift, command: command,
+                     option: option, world: world)
+    }
+
+    /// Open the strip and start typing at it — the state most of the
+    /// search tests below begin from.
+    private func openSearching() {
+        open()
+        _ = press("/")
     }
 
     func testTriggerOpensAndTogglesShut() {
@@ -657,5 +665,165 @@ final class ClipboardSearchTests: XCTestCase {
         #endif
         XCTAssertLessThan(elapsed, ceiling, "10k long clips searched in \(elapsed)s")
         print("search over 10k × \(filler.count) chars: \(String(format: "%.3f", elapsed))s")
+    }
+}
+
+extension PasteModeTests {
+    /// What people search a clipboard for is file names, identifiers and
+    /// commands. A band that took letters and digits alone could not be
+    /// typed most of them.
+    func testEveryCharacterKeyExtendsTheQuery() {
+        openSearching()
+        XCTAssertEqual(press("-"), [.pasteSearchType("-")])
+        XCTAssertEqual(press("-", shift: true), [.pasteSearchType("_")])
+        XCTAssertEqual(press("."), [.pasteSearchType(".")])
+        XCTAssertEqual(press("2", shift: true), [.pasteSearchType("@")])
+        XCTAssertEqual(press("a", shift: true), [.pasteSearchType("A")])
+        XCTAssertEqual(press("space"), [.pasteSearchType(" ")])
+        XCTAssertEqual(press("/"), [.pasteSearchType("/")],
+                       "the key that opened the search is a character inside it")
+        XCTAssertEqual(core.state, .paste(searching: true))
+    }
+
+    /// ⌘ still means the app's shortcut rather than a character, whatever
+    /// key it is held with.
+    func testCommandPunctuationWhileSearchingLeavesTheMode() {
+        openSearching()
+        XCTAssertEqual(press("[", command: true), [.exitPaste], "⌘[ belongs to the app")
+        XCTAssertTrue(core.isIdle)
+    }
+
+    /// The chips stay on the cards while you type, and ⌥ is what makes
+    /// them true — every match one keystroke away, not an arrow walk.
+    func testOptionAddressesACardWhileSearching() {
+        openSearching()
+        XCTAssertEqual(press("a", option: true),
+                       [.pasteRecent(label: "a", action: .plain), .exitPaste])
+        XCTAssertTrue(core.isIdle)
+    }
+
+    /// The same addressing, so the same verbs ride on it.
+    func testOptionCarriesTheStripsOwnVerbs() {
+        openSearching()
+        XCTAssertEqual(press("s", shift: true, option: true),
+                       [.pasteRecent(label: "s", action: .native), .exitPaste])
+        openSearching()
+        XCTAssertEqual(press("d", command: true, option: true),
+                       [.pasteRecent(label: "d", action: .panel), .pastePanelShow])
+        XCTAssertEqual(core.state, .pastePanel(searching: true),
+                       "and escape from there comes back to the search")
+    }
+
+    func testOptionAddressesPinsWhileSearchingToo() {
+        openSearching()
+        XCTAssertEqual(press("1", option: true),
+                       [.pastePinned(slot: 1, action: .plain), .exitPaste])
+    }
+
+    /// A mis-hit must not throw away the query, which is the one thing
+    /// this mode holds that pressing the key again cannot bring back.
+    func testAnAddressWithNothingBehindItKeepsTheSearch() {
+        openSearching()
+        _ = press("h")
+        XCTAssertEqual(press("l", option: true), [], "no card answers to l")
+        XCTAssertEqual(press("4", option: true), [], "pin four is empty")
+        XCTAssertEqual(core.state, .paste(searching: true))
+    }
+
+    /// Nothing changes on the strip itself: there, a letter is already an
+    /// address and ⌥ is not what makes it one.
+    func testOptionOnTheStripItselfIsStillJustTheLabel() {
+        open()
+        XCTAssertEqual(press("a", option: true),
+                       [.pasteRecent(label: "a", action: .plain), .exitPaste])
+    }
+}
+
+extension ClipboardTests {
+    // MARK: - A copy is its items
+
+    /// The test that must not regress: the index on disk was written
+    /// before a copy could be several things, and a clip that will not
+    /// decode takes the whole history down with it.
+    func testAClipWrittenBeforeMultiItemCaptureStillDecodes() throws {
+        let legacy = #"{"bytes":12,"created":760000,"id":"abc","kind":"text","#
+            + #""nativeTypes":["public.html"],"preview":"hello"}"#
+        let clip = try JSONDecoder().decode(Clipboard.Clip.self, from: Data(legacy.utf8))
+        XCTAssertEqual(clip.itemCount, 1)
+        XCTAssertEqual(clip.itemTypes, [["public.html"]])
+        XCTAssertTrue(clip.hasNativeForm)
+        XCTAssertNil(clip.itemsLabel, "one item says nothing")
+    }
+
+    /// And the ordinary copy keeps writing what it always wrote: the index
+    /// is rewritten for the life of the app, and a key that says nothing
+    /// is not worth ten thousand writes.
+    func testASingleItemCopyWritesNoKeyItDoesNotNeed() throws {
+        let clip = Clipboard.Clip(id: "a", kind: .text, created: Date(),
+                                  sourceBundleID: nil, sourceAppName: nil,
+                                  preview: "x", bytes: 1, nativeTypes: ["public.html"])
+        let json = String(decoding: try JSONEncoder().encode(clip), as: UTF8.self)
+        XCTAssertFalse(json.contains("otherItemTypes"))
+    }
+
+    func testEveryItemsTypesSurviveTheRoundTrip() throws {
+        let clip = Clipboard.Clip(id: "a", kind: .text, created: Date(),
+                                  sourceBundleID: nil, sourceAppName: nil,
+                                  preview: "x", bytes: 3,
+                                  nativeTypes: [Clipboard.fileURLType],
+                                  otherItemTypes: [[Clipboard.fileURLType],
+                                                   [Clipboard.fileURLType]])
+        let decoded = try JSONDecoder().decode(
+            Clipboard.Clip.self, from: try JSONEncoder().encode(clip))
+        XCTAssertEqual(decoded.itemCount, 3)
+        XCTAssertEqual(decoded.itemTypes.count, 3)
+        XCTAssertEqual(decoded.itemsLabel, "3 files")
+    }
+
+    func testTheCardNamesFilesWhenItHonestlyCan() {
+        XCTAssertNil(Clipboard.itemsLabel(itemTypes: [[Clipboard.fileURLType]]))
+        XCTAssertEqual(Clipboard.itemsLabel(
+            itemTypes: [[Clipboard.fileURLType], [Clipboard.fileURLType]]), "2 files")
+        XCTAssertEqual(Clipboard.itemsLabel(
+            itemTypes: [[Clipboard.fileURLType], ["public.html"]]), "2 items",
+                       "one of them is not a file, so the card does not claim they are")
+    }
+
+    /// A re-copy has to land on the card it already has, so the one-item
+    /// name is the one every clip on disk was written with.
+    func testIdentityIsUnchangedForOneItemAndUnambiguousForSeveral() {
+        let ab = Data("ab".utf8)
+        let c = Data("c".utf8)
+        XCTAssertEqual(Clipboard.identityData(items: [ab]), ab)
+        XCTAssertEqual(Clipboard.identityData(items: []), Data())
+        XCTAssertNotEqual(Clipboard.identityData(items: [ab, c]),
+                          Clipboard.identityData(items: [Data("abc".utf8)]),
+                          "two files copied together are not their contents run together")
+        XCTAssertNotEqual(Clipboard.identityData(items: [ab, c]),
+                          Clipboard.identityData(items: [c, ab]),
+                          "order is part of what was copied")
+    }
+
+    /// Kept in part is worse than not kept: a card that pastes some of
+    /// what you copied looks like it worked.
+    func testACopyTooLongToHoldIsRefusedWhole() {
+        func verdict(_ count: Int) -> Clipboard.Refusal? {
+            Clipboard.refusalBeforeReading(types: ["public.utf8-plain-text"],
+                                           sourceBundleID: nil, excludedApps: [],
+                                           itemCount: count)
+        }
+        XCTAssertNil(verdict(Clipboard.maxItemsPerClip))
+        XCTAssertEqual(verdict(Clipboard.maxItemsPerClip + 1),
+                       .tooManyItems(Clipboard.maxItemsPerClip + 1))
+    }
+
+    /// And a concealed item still outranks it — the count is never a
+    /// reason to have read one.
+    func testConcealedOutranksTheItemCeiling() {
+        XCTAssertEqual(
+            Clipboard.refusalBeforeReading(types: ["org.nspasteboard.ConcealedType"],
+                                           sourceBundleID: nil, excludedApps: [],
+                                           itemCount: 9_000),
+            .concealed("org.nspasteboard.ConcealedType"))
     }
 }

@@ -131,6 +131,11 @@ final class ClipboardStrip {
         // Recents are the bottom row, always — opening search must not
         // shift the cards you are looking at.
         let y: CGFloat = 0
+        // While the band is open every letter is query text, so a chip that
+        // still read "A" would be naming a key that no longer does this.
+        // ⌥ is what addresses a card mid-search, and the chip says so for
+        // as long as that is true.
+        let address = query != nil ? "⌥" : ""
         switch band {
         case .none:
             break
@@ -150,7 +155,7 @@ final class ClipboardStrip {
 
         for (offset, clip) in visibleRecents.enumerated() {
             let label = Self.labels[offset]
-            let card = makeCard(clip: clip, label: label, height: Self.cardHeight,
+            let card = makeCard(clip: clip, label: address + label, height: Self.cardHeight,
                                 thumbnail: thumbnail(clip.id),
                                 highlighted: clip.id == actingOn
                                     || (query != nil && offset == selection))
@@ -183,7 +188,7 @@ final class ClipboardStrip {
         for slot in 1...Clipboard.pinSlots {
             let card: NSView
             if let clip = shownPins[slot] {
-                card = makeCard(clip: clip, label: "\(slot)", height: Self.cardHeight,
+                card = makeCard(clip: clip, label: address + "\(slot)", height: Self.cardHeight,
                                 thumbnail: thumbnail(clip.id),
                                 highlighted: clip.id == actingOn)
             } else {
@@ -213,6 +218,19 @@ final class ClipboardStrip {
         chip.sizeToFit()
         chip.frame.origin = NSPoint(x: 11, y: height - chip.frame.height - 9)
         card.addSubview(chip)
+
+        // A copy of several things reads as one card, and without this it
+        // reads as one *thing* — three files copied together look exactly
+        // like the first of them until they are pasted.
+        if let items = clip.itemsLabel {
+            let count = NSTextField(labelWithString: items)
+            count.font = .systemFont(ofSize: 10, weight: .medium)
+            count.textColor = .tertiaryLabelColor
+            count.sizeToFit()
+            count.frame.origin = NSPoint(x: chip.frame.maxX + 6,
+                                         y: height - count.frame.height - 11)
+            card.addSubview(count)
+        }
 
         if let thumbnail {
             let view = NSImageView(image: thumbnail)

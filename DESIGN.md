@@ -90,6 +90,8 @@ Test it passes: the gesture is fixed (`lode ⏎`, type, `↵`), and the profile 
 
 The strip is **never key**: it reads its keys from the event tap, so the window you were typing in keeps focus and its insertion point, and the paste is a plain `⌘V` into an app that never lost the cursor. History lives in `~/.local/share`, not `~/.config`, because the config is what people commit to a dotfiles repo and clipboard history is the last thing that belongs there. `clipboard.exclude` / `exclude-apps` are how something never gets recorded in the first place.
 
+A clip is **whatever was copied**, not the first piece of it. The pasteboard carries items — three files selected in Finder are three of them — so a history that kept only the first would hand back a third of a copy while looking like it worked. And while the search band has the letters, `⌥` is what addresses a card: the chips stay on the cards and wear the modifier that makes them true, because a label you can see and cannot press is worse than no label.
+
 _(This section describes what the code does; the framing is worth your eye.)_
 
 ## Select (added after the four)

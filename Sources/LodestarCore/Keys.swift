@@ -123,6 +123,36 @@ public enum Keys {
         return reversed
     }
 
+    // MARK: - What a key types
+
+    /// The shifted half of the character table: what a US keyboard prints
+    /// above each character key. Positional, like the ANSI floor it
+    /// extends — a layout that renames its character keys carries the
+    /// unshifted half (see `layoutOverlay`), while the shifted half stays
+    /// what the position types on ANSI.
+    public static let shifted: [String: String] = [
+        "1": "!", "2": "@", "3": "#", "4": "$", "5": "%", "6": "^", "7": "&",
+        "8": "*", "9": "(", "0": ")", "-": "_", "=": "+", "[": "{", "]": "}",
+        "\\": "|", ";": ":", "'": "\"", ",": "<", ".": ">", "/": "?", "`": "~",
+    ]
+
+    /// The character a key name puts on the screen, or nil for a key that
+    /// types nothing (return, escape, an arrow).
+    ///
+    /// Every incremental search in the product reads this one function, so
+    /// the two of them agree about what a keyboard produces: text people
+    /// search for is full of hyphens, underscores, slashes and dots, and a
+    /// band that took letters and digits alone could not be typed the name
+    /// of the file it was looking for. Callers that give letters another
+    /// job under shift — select's chips are letters, so a capital there is
+    /// a pick — decide that themselves and delegate the rest here.
+    public static func character(for key: String, shift: Bool) -> String? {
+        if key == "space" { return " " }
+        guard key.count == 1, let first = key.first else { return nil }
+        if first.isLetter { return shift ? key.uppercased() : key }
+        return shift ? shifted[key] : key
+    }
+
     public static func isValidName(_ name: String) -> Bool {
         ansi.values.contains(name)
     }

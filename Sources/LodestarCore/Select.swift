@@ -131,14 +131,6 @@ public struct SelectCore {
         return String(utf16CodeUnits: units, count: units.count)
     }
 
-    /// Shifted punctuation and digits are search characters — labels are
-    /// letters only, so `⇧4` can never be a pick and `$100` types as seen.
-    static let shifted: [String: String] = [
-        "1": "!", "2": "@", "3": "#", "4": "$", "5": "%", "6": "^", "7": "&",
-        "8": "*", "9": "(", "0": ")", "-": "_", "=": "+", "[": "{", "]": "}",
-        "\\": "|", ";": ":", "'": "\"", ",": "<", ".": ">", "/": "?", "`": "~",
-    ]
-
     /// Whether an unshifted key would extend the query — the gate a
     /// pre-sensor buffer uses so an arrow's repeat cannot hoard slots
     /// that only aiming deserves.
@@ -146,11 +138,14 @@ public struct SelectCore {
         character(for: key, shift: false) != nil
     }
 
+    /// Shifted punctuation and digits are search characters — labels are
+    /// letters only, so `⇧4` can never be a pick and `$100` types as seen.
+    /// That is the one rule this mode adds; what a key types is
+    /// `Keys.character`, shared with the clipboard strip's search so both
+    /// bands answer a keyboard the same way.
     static func character(for key: String, shift: Bool) -> String? {
-        if key == "space" { return " " }
-        guard key.count == 1, let ch = key.first else { return nil }
-        if ch.isLetter { return shift ? nil : key }
-        return shift ? Self.shifted[key] : key
+        if shift, key.count == 1, key.first?.isLetter == true { return nil }
+        return Keys.character(for: key, shift: shift)
     }
 
     // MARK: - Keys

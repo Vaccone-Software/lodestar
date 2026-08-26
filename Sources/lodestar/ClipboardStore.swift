@@ -122,29 +122,55 @@ final class ClipboardStore {
 
     private func typeExtension(_ index: Int) -> String { "type\(index)" }
 
+    /// Item one keeps the names it has always had on disk, so a history
+    /// written before a copy could be several things reads back untouched;
+    /// every later item hangs off its index.
+    private func itemFile(_ id: String, item: Int, _ ext: String) -> URL {
+        file(id, item == 0 ? ext : "i\(item).\(ext)")
+    }
+
+    /// One pasteboard item as it is stored and put back: the plain text
+    /// form, and every richer form the source app offered beside it.
+    struct Item {
+        var plain: Data?
+        var natives: [(type: String, data: Data)]
+    }
+
     // MARK: - Recording
 
-    /// Write a clip's representations, then fold it into the index. The
+    /// Write a copy's representations, then fold it into the index. The
     /// plain form is what a bare label pastes; the natives are what ⇧label
     /// pastes, stored richest first exactly as the source app offered them.
+    ///
+    /// A copy is a list of items rather than one thing, because the
+    /// pasteboard is: three files selected in Finder arrive as three
+    /// items, and each of them has its own forms to keep.
     ///
     /// The index is updated here and now, so the strip can draw the moment
     /// a copy lands; the bytes go to disk on the io queue, because a large
     /// screenshot is tens of megabytes and this is called from a timer on
     /// the main thread.
-    func record(id: String, kind: Clipboard.Kind, plain: Data?,
-                natives: [(type: String, data: Data)],
+    func record(id: String, kind: Clipboard.Kind, items: [Item],
                 imageData: Data?, preview: String,
                 sourceBundleID: String?, sourceAppName: String?) {
-        var bytes = plain?.count ?? 0
-        for native in natives { bytes += native.data.count }
+        guard let first = items.first else { return }
+        var bytes = 0
+        for item in items {
+            bytes += item.plain?.count ?? 0
+            for native in item.natives { bytes += native.data.count }
+        }
 
         let thumbFile = thumbs.appendingPathComponent("\(id).png")
         io.async { [weak self] in
             guard let self else { return }
-            if let plain { try? plain.write(to: self.file(id, "plain")) }
-            for (offset, native) in natives.enumerated() {
-                try? native.data.write(to: self.file(id, self.typeExtension(offset)))
+            for (index, item) in items.enumerated() {
+                if let plain = item.plain {
+                    try? plain.write(to: self.itemFile(id, item: index, "plain"))
+                }
+                for (offset, native) in item.natives.enumerated() {
+                    try? native.data.write(
+                        to: self.itemFile(id, item: index, self.typeExtension(offset)))
+                }
             }
             guard let imageData, let thumbnail = Self.thumbnail(from: imageData) else { return }
             try? thumbnail.write(to: thumbFile)
@@ -158,7 +184,8 @@ final class ClipboardStore {
             id: id, kind: kind, created: Date(),
             sourceBundleID: sourceBundleID, sourceAppName: sourceAppName,
             preview: preview, bytes: bytes,
-            nativeTypes: natives.map(\.type)
+            nativeTypes: first.natives.map(\.type),
+            otherItemTypes: items.dropFirst().map { $0.natives.map(\.type) }
         )
         index.clips = Clipboard.merging(index.clips, with: clip)
         saveSoon()
@@ -221,13 +248,27 @@ final class ClipboardStore {
 
     // MARK: - Reading back
 
-    func plainData(_ id: String) -> Data? { try? Data(contentsOf: file(id, "plain")) }
+    func plainData(_ id: String, item: Int = 0) -> Data? {
+        try? Data(contentsOf: itemFile(id, item: item, "plain"))
+    }
 
-    /// Every stored representation, richest first — what ⇧label restores.
-    func nativeData(_ clip: Clipboard.Clip) -> [(type: String, data: Data)] {
-        clip.nativeTypes.enumerated().compactMap { offset, type in
-            guard let data = try? Data(contentsOf: file(clip.id, typeExtension(offset))) else { return nil }
+    /// One item's stored representations, richest first — what ⇧label
+    /// restores.
+    func nativeData(_ clip: Clipboard.Clip, item: Int = 0) -> [(type: String, data: Data)] {
+        guard clip.itemTypes.indices.contains(item) else { return [] }
+        return clip.itemTypes[item].enumerated().compactMap { offset, type in
+            guard let data = try? Data(contentsOf: itemFile(clip.id, item: item,
+                                                            typeExtension(offset)))
+            else { return nil }
             return (type, data)
+        }
+    }
+
+    /// The whole copy, in the order the board carried it — what a paste
+    /// has to put back for three copied files to arrive as three files.
+    func itemData(_ clip: Clipboard.Clip) -> [Item] {
+        clip.itemTypes.indices.map { index in
+            Item(plain: plainData(clip.id, item: index), natives: nativeData(clip, item: index))
         }
     }
 

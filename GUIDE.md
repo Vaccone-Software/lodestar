@@ -69,8 +69,11 @@ Results are ranked by fuzzy match quality **plus frecency** — every summon (gr
 - **`⇧letter` pastes it as copied** — rich text, HTML, or whatever proprietary flavour the source app offered. An image has no plain form, so both paste the image.
 - **`⌘letter` opens that card's actions**: pin or unpin, delete, save an image to Downloads, or never save from that app again.
 - **`1`…`5` reach the pins.** Slots are permanent: a new pin takes the lowest free one, and unpinning leaves a hole rather than renumbering the others, so a pin you have learned never moves. Empty slots still draw, so the numbers are always visible.
-- **`/` searches**, `↵` pastes the match, `esc` steps back to the strip. A second `esc` closes.
+- **`/` searches**, `↵` pastes the match, `esc` steps back to the strip. A second `esc` closes. Everything your keyboard types is a search character — hyphens, underscores, slashes, dots — because that is what file names and commands are made of.
+- **`⌥letter` pastes a match without leaving the search.** While you are typing, the letters belong to the query, so the cards wear `⌥` on their chips to say what addresses them: `⌥` and a chip pastes that card, `⌥⇧` pastes it as copied, `⌥⌘` opens its actions, and `⌥1`…`⌥5` still reach the pins. `←` `→` walk the matches for the hand that would rather not reach.
 - Any lode gesture exits and executes, the same as scroll and hints.
+
+**A copy of several things stays several things.** Three files selected in Finder go on the clipboard as three items, and they arrive in the history as one card marked `3 files` that pastes all three. The card reads by name, so the search finds them the way you would look for them. A copy past thirty two items is left alone entirely rather than kept in part.
 
 Pasting sets your system clipboard, so plain `⌘V` repeats it. What it never does is **reorder the list** — copies reorder, pastes do not, so the strip stays your copy history and the positions hold still while you use them.
 

@@ -75,6 +75,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var defaultBrowserItem: NSMenuItem?
     private let walk = WalkController()
     private let meetings = MeetingController()
+    private let linkChip = LinkChip()
     private let settings = SettingsController()
 
     /// Links clicked in other apps land here. Deliberately the shortest path
@@ -262,7 +263,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // "G G" does: two lodes, tapped. A blank cap read as a row
             // with no way in.
             self?.hud.showGuide(title: "⌖ coach",
-                                rows: [GuideRow(key: "lode lode", label: chip.headline)],
+                                rows: [GuideRow(keys: ["lode", "lode"], label: chip.headline)],
                                 footer: "\(chip.evidence)   ·   \(chip.footer)",
                                 owner: .coach)
         }
@@ -289,6 +290,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self.walk.assent()
             } else if self.meetings.join() {
                 return
+            } else if self.linkChip.take() {
+                return
             } else {
                 self.coach.lodeDoubleTapped()
             }
@@ -297,13 +300,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self else { return false }
             if self.walk.pass() { return true }
             if self.meetings.dismiss() { return true }
+            if self.linkChip.dismiss() { return true }
             return self.coach.lodeDelete()
         }
+        // A link you just clicked outranks a suggestion about links in
+        // general: the chip is answering a thing the hand did seconds ago,
+        // and the coach can wait the minute out.
         coach.suppressed = { [weak self] in
+            guard let self else { return false }
+            return self.walk.isUp || self.meetings.chipVisible || self.linkChip.isUp
+        }
+        meetings.suppressed = { [weak self] in self?.walk.isUp ?? false }
+        linkChip.suppressed = { [weak self] in
             guard let self else { return false }
             return self.walk.isUp || self.meetings.chipVisible
         }
-        meetings.suppressed = { [weak self] in self?.walk.isUp ?? false }
+        // The coach and the link chip live on separate panels, so a coach
+        // chip already standing has to be told to go — the same debt the
+        // meeting chip pays through `onChipShown`.
+        linkChip.onShown = { [weak self] in self?.coach.surfaceClaimed() }
+        actions.onLinkHeld = { [weak self] target in
+            guard let self else { return }
+            // Bound per showing, because the destination is per link.
+            self.linkChip.summon = { [weak self] in
+                self?.actions?.summon(target, beside: false, via: .other)
+            }
+            self.linkChip.show(destination: target.label,
+                               icon: self.icon(for: target))
+        }
+        actions.onLinkSpent = { [weak self] in self?.linkChip.hide() }
         engine.walkSignal = { [weak self] signal in self?.walk.notice(signal) }
         actions.walkPick = { [weak self] in self?.walk.notice(.launcherPick) }
         engine.onSurfaceClaimed = { [weak self] in self?.coach.surfaceClaimed() }
@@ -845,11 +870,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.observationStore?.webOpened(host: host, profile: profile ?? "pass",
                                               source: "clicked")
         }
+        // Same lazy shape as `observe`, and for the same reason: this is
+        // installed before the model, the layout, or Accessibility exist,
+        // so a link that arrives during boot simply settles nowhere rather
+        // than waiting for a world that is not up yet.
+        handler.arrived = { [weak self] target in
+            self?.actions?.linkArrived(target)
+        }
         clickHandler = handler
         if !pendingClicks.isEmpty {
             let queued = pendingClicks
             pendingClicks = []
             handler.open(queued)
+        }
+    }
+
+    /// The app a link target wears, for the chip. A profile is still the
+    /// browser's icon — Chromium does not give one per profile, and the
+    /// chip already says which profile in words.
+    private func icon(for target: GraphTarget) -> NSImage? {
+        switch target {
+        case .app(let name):
+            return actions?.icon(forAppNamed: name)
+        case .browserProfile(let profile):
+            return actions?.icon(forAppNamed: profile.browser.appName)
         }
     }
 

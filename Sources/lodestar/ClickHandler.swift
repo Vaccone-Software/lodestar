@@ -41,6 +41,13 @@ final class ClickHandler {
     /// The host and where it landed, for the observation layer. In-memory
     /// append only, so the never-block rule of this path holds.
     var observe: (_ host: String?, _ profile: String?) -> Void = { _, _ in }
+    /// The link is on its way; decide what the screen does about it.
+    ///
+    /// Called only after the hand-off has been dispatched, and never on the
+    /// way to it. Everything behind this closure touches the window model,
+    /// which is the one thing this path may not wait on — so it does not:
+    /// by the time this fires the URL is already the browser's problem.
+    var arrived: (GraphTarget) -> Void = { _ in }
 
     /// Every macOS install has Safari, so the chain always ends somewhere.
     /// A link must never simply vanish.
@@ -74,7 +81,22 @@ final class ClickHandler {
             // The proven path, unchanged: the same mechanism the web bar has
             // always used. It costs a process launch that Chromium forwards
             // and exits, which is the price of naming a profile at all.
-            if !ChromiumProfiles.openURL(url.absoluteString, in: profile) {
+            if ChromiumProfiles.openURL(url.absoluteString, in: profile) {
+                // A routed link never asked to be brought forward at all:
+                // `open -na` hands the URL to the running Chromium through
+                // its own singleton and exits, and whatever activation the
+                // launch was granted dies with the process that forwarded
+                // it. The hand-off path has always asked; this one never
+                // did, so a rule that matched used to be *less* likely to
+                // put the browser in front of you than one that did not.
+                //
+                // Off this turn of the loop, exactly like the hand-off's
+                // completion: `open(_:)` runs inside the URL Apple Event,
+                // and settling touches AX. Answering the event first is
+                // what keeps a wedged browser out of the link's way.
+                let arrived = self.arrived
+                DispatchQueue.main.async { arrived(.browserProfile(profile)) }
+            } else {
                 // The profile is gone from the browser. The link still has to
                 // open, so it takes the ordinary road.
                 handOff(url)
@@ -104,9 +126,17 @@ final class ClickHandler {
         noteTarget(application)
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = true
+        // Named here rather than inside the completion: the app is known
+        // now, and the completion runs on whatever queue AppKit hands it.
+        let target = GraphTarget.app(application.deletingPathExtension().lastPathComponent)
         NSWorkspace.shared.open([url], withApplicationAt: application,
-                                configuration: configuration) { [flash] _, error in
-            guard let error else { return }
+                                configuration: configuration) { [flash, arrived] _, error in
+            guard let error else {
+                // Only once the OS says the open took. Settling a link the
+                // browser never received would move the screen for nothing.
+                DispatchQueue.main.async { arrived(target) }
+                return
+            }
             flash("✕ could not open that link")
             // Domain and code only: the OS likes to render the document
             // into its localized description, and this log never carries

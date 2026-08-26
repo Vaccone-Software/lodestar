@@ -24,6 +24,9 @@ final class Actions {
     private var intents = IntentQueue()
     /// True while a placement is mid-flight — the reentrancy latch above.
     private var placing = false
+    /// Destinations already waiting on a window, and until when. Keyed by
+    /// target label; entries expire by their own clock rather than a timer.
+    private var pendingLinks: [String: Date] = [:]
 
     init(model: WindowModel, parking: ParkingLot, layout: LayoutController,
          appIndex: AppIndex, store: StateStore, hud: HUD) {
@@ -65,8 +68,13 @@ final class Actions {
 
     // MARK: - Summoning
 
-    func summon(_ target: GraphTarget, beside: Bool) {
-        observations?.reached(target.label, via: .graph)
+    /// `via` is how the hand got here. It defaults to the graph because
+    /// that is what a summon is; the link chip passes `.other` so a chip
+    /// taken with lode lode never counts as a chain the fingers walked —
+    /// the coach reads this table to decide what is worth binding, and a
+    /// reach nobody navigated would argue for a shortcut nobody uses.
+    func summon(_ target: GraphTarget, beside: Bool, via route: Observations.Route = .graph) {
+        observations?.reached(target.label, via: route)
         coachBoundary?(target.label.lowercased())
         switch target {
         case .app(let name):
@@ -107,6 +115,110 @@ final class Actions {
         }, action: { [weak self] window in
             self?.place(window, beside: beside)
         })
+    }
+
+    // MARK: - Clicked links
+
+    /// A link clicked in another app is on its way to the browser.
+    ///
+    /// Called *after* the hand-off is already in flight, never before it.
+    /// Everything below this line touches the window model, and the click
+    /// path's oldest rule is that no link waits on AX — one wedged app must
+    /// not be able to delay somebody's link by seconds. It cannot, from
+    /// here: the URL is gone before this runs.
+    func linkArrived(_ target: GraphTarget) {
+        if let window = linkWindow(for: target) {
+            settleLink(target, window: window)
+            return
+        }
+        // No window to settle yet — a cold browser, or a link making its
+        // first one. The same intent the web bar uses, and the decision is
+        // taken when the window actually arrives rather than now, because
+        // the layout it has to answer to is the one standing then.
+        //
+        // One intent per destination, though, which the web bar never had
+        // to care about: a claim consumes exactly one intent, and links
+        // arrive in handfuls where typed opens arrive one at a time. Four
+        // links into a cold browser used to arm four intents, and Chromium
+        // answers all four with a single window — leaving three armed for
+        // twelve seconds, each waiting to place the next Brave window the
+        // person opened themselves.
+        let key = target.label
+        let now = Date()
+        pendingLinks = pendingLinks.filter { $0.value > now }
+        if pendingLinks[key] != nil { return }
+        pendingLinks[key] = now.addingTimeInterval(Self.linkIntentSeconds)
+        expect(seconds: Self.linkIntentSeconds,
+               matches: { window in Self.window(window, matches: target) },
+               action: { [weak self] window in
+                   self?.pendingLinks[key] = nil
+                   self?.settleLink(target, window: window)
+               })
+    }
+
+    /// How long a link waits for a browser window to exist. Matches the
+    /// web bar's own patience, and doubles as the life of the entry in
+    /// `pendingLinks` — which is why that map needs no timer to clean it.
+    private static let linkIntentSeconds: TimeInterval = 12
+
+    /// A link went to the browser and the screen is not going to move for
+    /// it. The chip is the only evidence the click did anything.
+    var onLinkHeld: ((GraphTarget) -> Void)?
+
+    /// The chip's premise is gone: the screen it promised not to move has
+    /// moved, or the browser is in front of them anyway. A chip outliving
+    /// that says something false about the screen it is sitting on, and
+    /// offers a ride to somewhere the eyes already are.
+    var onLinkSpent: (() -> Void)?
+
+    private func settleLink(_ target: GraphTarget, window: WindowModel.Window) {
+        guard let active = layout.activeDisplay() else { return }
+        // A minimized member is a member the eyes cannot find. Calling it
+        // homeless sends it back through the count rule, which asks the
+        // question that actually matters — is there anything here to
+        // disturb — instead of `.nothing`, which would answer "you can
+        // already see it" about a window in the Dock.
+        let home = window.isMinimized ? nil : layout.display(of: window.id)
+        let tiled = layout.members(on: active.id).count
+        let arrival = ClickArrivalRule.decide(browserHome: home,
+                                              activeDisplay: active.id,
+                                              membersOnActiveDisplay: tiled)
+        Log.info("link-arrival", ["target": target.label, "did": "\(arrival)",
+                                  "tiled": tiled])
+        switch arrival {
+        case .place:
+            // `place` spends any standing chip on its own way through.
+            place(window, beside: false)
+        case .chip:
+            onLinkHeld?(target)
+        case .nothing:
+            // Already in front of them. The tab is the feedback — and a
+            // chip left over from an earlier link is now describing a
+            // screen that no longer exists.
+            onLinkSpent?()
+        }
+    }
+
+    private func linkWindow(for target: GraphTarget) -> WindowModel.Window? {
+        switch target {
+        case .browserProfile(let profile):
+            return ChromiumProfiles.window(for: profile, in: model)
+        case .app(let name):
+            return bestAliveWindow(bundleID: appIndex.entry(named: name)?.bundleID,
+                                   appName: name)
+        }
+    }
+
+    private static func window(_ window: WindowModel.Window,
+                               matches target: GraphTarget) -> Bool {
+        switch target {
+        case .browserProfile(let profile):
+            return window.bundleID == profile.browser.bundleID
+                && profile.browser.windowMatches(title: window.title,
+                                                 profile: profile.display)
+        case .app(let name):
+            return window.appName.lowercased() == name.lowercased()
+        }
     }
 
     /// "Going to lodestar" reveals the (possibly hidden) menu bar.
@@ -626,6 +738,12 @@ final class Actions {
             hud.flash("✕ that window is gone")
             return
         }
+        // Any placement at all, by any road — the link chip's whole claim
+        // is that the screen did not move for it. The moment the screen
+        // moves, whoever moved it, the claim is spent. This is what stops a
+        // chip standing out its minute over a browser the hand already went
+        // and fetched.
+        onLinkSpent?()
         placing = true
         defer { placing = false }
         let began = Date()

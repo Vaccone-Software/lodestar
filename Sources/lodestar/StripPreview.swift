@@ -14,6 +14,7 @@ enum StripPreview {
     /// appears.
     private static var stageWindows: [NSWindow] = []
     private static var heldMeeting: MeetingController?
+    private static var heldLink: LinkChip?
 
     private static func stage() {
         for screen in NSScreen.screens {
@@ -200,10 +201,21 @@ enum StripPreview {
         if variant == 62 {
             let hud = HUD()
             hud.showGuide(title: "⌖ coach",
-                          rows: [GuideRow(key: "lode lode", label: "lode F → Figma")],
+                          rows: [GuideRow(keys: ["lode", "lode"], label: "lode F → Figma")],
                           footer: "you searched for it 31 times across 6 weeks"
                               + " · about 40 seconds a week   ·   tap lode twice"
                               + " to bind it · lode ⌫ not this one · fades on its own")
+            app.run()
+        }
+
+        // 63: the link chip — what a clicked link leaves behind when an
+        // arrangement was standing and the screen deliberately did not move.
+        if variant == 63 {
+            DispatchQueue.main.async {
+                heldLink = LinkChip()
+                heldLink?.show(destination: "Brave (Xonar)",
+                               icon: NSWorkspace.shared.icon(forFile: "/Applications/Safari.app"))
+            }
             app.run()
         }
 

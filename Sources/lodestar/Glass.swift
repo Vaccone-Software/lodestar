@@ -215,3 +215,92 @@ enum BarTheme {
     static let chipFont = NSFont.monospacedSystemFont(ofSize: 11.5, weight: .semibold)
     static let footerFont = NSFont.systemFont(ofSize: 11, weight: .regular)
 }
+
+/// Keys, drawn as keys. One cap is one press.
+///
+/// That rule cannot be inferred from a key string, which is why this exists
+/// as a type the caller fills in rather than something that splits text on
+/// spaces. The guide's own rows prove why: `G G` means press G twice, and
+/// `J K` means press either one. Same delimiter, opposite meanings — a
+/// splitter would render half the guide as a lie.
+///
+/// So the surfaces that describe a *specific* gesture say what it is here,
+/// and the chain guide keeps its one-cap-per-row string for the rows where
+/// the keys are alternatives rather than a sequence.
+enum Keycaps {
+    /// One gesture: the keys pressed, and what pressing them does.
+    struct Gesture {
+        let keys: [String]
+        let verb: String
+
+        init(_ keys: [String], _ verb: String) {
+            self.keys = keys
+            self.verb = verb
+        }
+    }
+
+    /// A single cap — the one shape, shared with the chain guide's rows so
+    /// a key never looks like two different things on two surfaces.
+    static func cap(_ text: String) -> NSView {
+        let letter = NSTextField(labelWithString: text)
+        letter.font = BarTheme.chipFont
+        letter.textColor = .secondaryLabelColor
+        letter.alignment = .center
+        letter.translatesAutoresizingMaskIntoConstraints = false
+
+        let cap = NSView()
+        cap.wantsLayer = true
+        cap.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.09).cgColor
+        cap.layer?.cornerRadius = BarTheme.chipRadius
+        cap.translatesAutoresizingMaskIntoConstraints = false
+        cap.setContentHuggingPriority(.required, for: .horizontal)
+        cap.addSubview(letter)
+        NSLayoutConstraint.activate([
+            letter.leadingAnchor.constraint(equalTo: cap.leadingAnchor,
+                                            constant: BarTheme.chipPadX),
+            letter.trailingAnchor.constraint(equalTo: cap.trailingAnchor,
+                                             constant: -BarTheme.chipPadX),
+            letter.centerYAnchor.constraint(equalTo: cap.centerYAnchor),
+            cap.heightAnchor.constraint(equalToConstant: BarTheme.chipHeight),
+            cap.widthAnchor.constraint(greaterThanOrEqualToConstant: BarTheme.chipMinWidth),
+        ])
+        return cap
+    }
+
+    /// A chip's gesture line: caps and the words that say what they do,
+    /// with a middot between gestures. Tight inside a gesture and open
+    /// between them, so `lode lode` reads as one thing done twice rather
+    /// than two things.
+    static func line(_ gestures: [Gesture]) -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 4
+        var previous: NSView?
+
+        func add(_ view: NSView, spacingBefore: CGFloat? = nil) {
+            if let spacingBefore, let previous { row.setCustomSpacing(spacingBefore, after: previous) }
+            row.addArrangedSubview(view)
+            previous = view
+        }
+
+        for (index, gesture) in gestures.enumerated() {
+            if index > 0 {
+                add(word("·", color: .tertiaryLabelColor), spacingBefore: 10)
+            }
+            for (position, key) in gesture.keys.enumerated() {
+                add(cap(key), spacingBefore: index > 0 && position == 0 ? 10 : nil)
+            }
+            add(word(gesture.verb, color: .tertiaryLabelColor), spacingBefore: 7)
+        }
+        return row
+    }
+
+    private static func word(_ text: String, color: NSColor) -> NSTextField {
+        let field = NSTextField(labelWithString: text)
+        field.font = .systemFont(ofSize: 10.5, weight: .regular)
+        field.textColor = color
+        field.lineBreakMode = .byTruncatingTail
+        return field
+    }
+}

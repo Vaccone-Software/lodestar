@@ -3,12 +3,25 @@ import LodestarCore
 
 /// One line of the chain guide: keycap → destination, with its app icon.
 struct GuideRow {
-    let key: String
+    /// One entry per cap. A row whose keys are *alternatives* ("J K" —
+    /// either one) passes a single string and gets a single cap; a row
+    /// that is a *sequence* ("lode" then "lode") passes them separately
+    /// and gets one cap each. The distinction cannot be read off the
+    /// string, so the caller states it.
+    let keys: [String]
     let label: String
     let icon: NSImage?
 
+    var key: String { keys.joined(separator: " ") }
+
     init(key: String, label: String, icon: NSImage? = nil) {
-        self.key = key
+        self.keys = [key]
+        self.label = label
+        self.icon = icon
+    }
+
+    init(keys: [String], label: String, icon: NSImage? = nil) {
+        self.keys = keys
         self.label = label
         self.icon = icon
     }
@@ -210,26 +223,21 @@ final class HUD {
         spacer.widthAnchor.constraint(
             greaterThanOrEqualToConstant: BarTheme.rowKeyGap).isActive = true
 
-        let keycap = NSTextField(labelWithString: guideRow.key)
-        keycap.font = BarTheme.chipFont
-        keycap.textColor = .secondaryLabelColor
-        keycap.alignment = .center
-        keycap.translatesAutoresizingMaskIntoConstraints = false
-
-        let chip = NSView()
-        chip.wantsLayer = true
-        chip.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.09).cgColor
-        chip.layer?.cornerRadius = BarTheme.chipRadius
-        chip.translatesAutoresizingMaskIntoConstraints = false
-        chip.setContentHuggingPriority(.required, for: .horizontal)
-        chip.addSubview(keycap)
-        NSLayoutConstraint.activate([
-            keycap.leadingAnchor.constraint(equalTo: chip.leadingAnchor, constant: BarTheme.chipPadX),
-            keycap.trailingAnchor.constraint(equalTo: chip.trailingAnchor, constant: -BarTheme.chipPadX),
-            keycap.centerYAnchor.constraint(equalTo: chip.centerYAnchor),
-            chip.heightAnchor.constraint(equalToConstant: BarTheme.chipHeight),
-            chip.widthAnchor.constraint(greaterThanOrEqualToConstant: BarTheme.chipMinWidth),
-        ])
+        // One cap per press, through the shared shape. A row whose keys are
+        // alternatives rather than a sequence passes them as one string and
+        // still gets one cap, which is what `J K` — either one — needs.
+        let chip: NSView
+        if guideRow.keys.count == 1 {
+            chip = Keycaps.cap(guideRow.keys[0])
+        } else {
+            let caps = NSStackView()
+            caps.orientation = .horizontal
+            caps.alignment = .centerY
+            caps.spacing = 4
+            caps.setContentHuggingPriority(.required, for: .horizontal)
+            for key in guideRow.keys { caps.addArrangedSubview(Keycaps.cap(key)) }
+            chip = caps
+        }
 
         if let iconView { row.addArrangedSubview(iconView) }
         row.addArrangedSubview(text)

@@ -402,8 +402,10 @@ final class MeetingController: NSObject {
         stack.addArrangedSubview(label("\(phase) · \(destination)", size: 12,
                                        weight: .regular, color: .secondaryLabelColor))
         stack.setCustomSpacing(9, after: stack.arrangedSubviews.last!)
-        stack.addArrangedSubview(label("lode lode joins · lode ⌫ dismisses", size: 10.5,
-                                       weight: .regular, color: .tertiaryLabelColor))
+        stack.addArrangedSubview(Keycaps.line([
+            .init(["lode", "lode"], "joins"),
+            .init(["lode", "⌫"], "dismisses"),
+        ]))
 
         root.addSubview(stack)
         NSLayoutConstraint.activate([

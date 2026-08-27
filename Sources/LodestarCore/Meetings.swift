@@ -235,6 +235,18 @@ public enum Meetings {
         return Candidate(occurrence: soonest, phase: phase)
     }
 
+    /// Is a meeting happening right now?
+    ///
+    /// Deliberately blind to `spent`, which is the whole reason it is not
+    /// `candidate(…) != nil`. Joining spends an occurrence, and joining is
+    /// the moment a screen starts being shared — so every question answered
+    /// from the chip goes false at exactly the instant the true answer
+    /// becomes yes. Blind to `leadMinutes` too: the minutes before a meeting
+    /// are already covered, because the chip is standing through them.
+    public static func inProgress(occurrences: [Occurrence], now: Date) -> Bool {
+        occurrences.contains { now >= $0.start && now < $0.end }
+    }
+
     /// Spent keys worth keeping: anything whose occurrence could still be
     /// on screen. The past prunes itself, so state.json never accretes a
     /// year of dead meetings.

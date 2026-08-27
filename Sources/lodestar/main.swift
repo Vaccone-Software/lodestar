@@ -76,6 +76,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let walk = WalkController()
     private let meetings = MeetingController()
     private let linkChip = LinkChip()
+    private let presenting = Presenting()
+    private let control = ControlSocket()
     private let settings = SettingsController()
 
     /// Links clicked in other apps land here. Deliberately the shortest path
@@ -319,15 +321,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // A link you just clicked outranks a suggestion about links in
         // general: the chip is answering a thing the hand did seconds ago,
         // and the coach can wait the minute out.
+        //
+        // Both also yield to a call. The rule is that Lodestar holds what
+        // it *initiates* and never what you asked for: an offer waits, a
+        // placement you set in motion by clicking a link still happens, and
+        // the meeting chip itself is exempt because it is the one surface
+        // that is about the meeting.
         coach.suppressed = { [weak self] in
             guard let self else { return false }
             return self.walk.isUp || self.meetings.chipVisible || self.linkChip.isUp
+                || self.presenting.isOn
         }
         meetings.suppressed = { [weak self] in self?.walk.isUp ?? false }
         linkChip.suppressed = { [weak self] in
             guard let self else { return false }
-            return self.walk.isUp || self.meetings.chipVisible
+            return self.walk.isUp || self.meetings.chipVisible || self.presenting.isOn
         }
+        presenting.meetingInProgress = { [weak self] in self?.meetings.inProgress ?? false }
+        // Suppression only gates what has not been drawn yet. A chip already
+        // standing when the call starts has to be told to go, or the one
+        // case this exists for — you join, and the suggestion from four
+        // minutes ago is still sitting on the shared screen — is the one it
+        // misses. Unrecorded on purpose: nobody declined anything.
+        presenting.onChange = { [weak self] on in
+            guard on, let self else { return }
+            self.coach.surfaceClaimed()
+            self.linkChip.hide()
+        }
+        presenting.start()
         // The coach and the link chip live on separate panels, so a coach
         // chip already standing has to be told to go — the same debt the
         // meeting chip pays through `onChipShown`.
@@ -353,6 +374,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         armCoachDemoIfRequested()
         #endif
 
+        // Opened last, after every piece a verb can reach exists. The
+        // handler is built per request from the live references rather than
+        // captured once, so a config reload is visible to the next verb.
+        control.handle = { [weak self] arguments in
+            guard let self, self.actions != nil else {
+                return ["ok": false, "error": "lodestar is still starting up"]
+            }
+            return ControlVerbs(actions: self.actions, appIndex: self.appIndex,
+                                model: self.model, layout: self.layout,
+                                parking: self.parking,
+                                config: { self.config },
+                                mostRecentProfile: { self.mostRecentBrowserProfile() },
+                                presenting: { self.presenting.isOn }).run(arguments)
+        }
+        control.start()
         model.start()
         layout.reconcileDisplays() // learn the connected monitors' identities
         NotificationCenter.default.addObserver(
@@ -453,6 +489,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // The door shuts first. Unparking below is seconds of AX work, and
+        // a verb accepted during it would be answered by an instance on its
+        // way out — worse than being told nobody is home, which is what a
+        // closed socket says.
+        control.stop()
+        presenting.stop()
         // State first, unparking second. Restoring is unbounded AX work —
         // a second per unresponsive app — and a successor process that
         // starts reading while we are still in the middle of it must find
@@ -1769,6 +1811,16 @@ func printUsage() {
       config-path      print the config file path
       apps             list every app name the graph can bind
 
+    Scripted verbs — these drive the running instance:
+
+      go <chain|app> [--beside]   summon, exactly as the keys would
+      web <url> [--profile b:N]   open a destination in a profile
+      layout undo|redo|flip|fill|index <n>
+      breath <address>            restore; save/delete <address> also
+      state                       what is on screen, as JSON, parked included
+
+    Add --json to any of them for the whole answer rather than a line.
+
     The app itself is started by its login agent (scripts/install-app.sh).
     Reference: GUIDE.md · agents: AGENTS.md
     """)
@@ -1787,6 +1839,13 @@ if cliArguments.isEmpty && getppid() != 1 {
 }
 if cliArguments.first == "config" {
     runConfigVerb(Array(cliArguments.dropFirst()))
+}
+// The scripted verbs, matched on the *first* word rather than by searching
+// the whole line the way the older commands do. `lodestar go check` must be
+// a summon and not a config check, and a url is allowed to contain any word
+// this file has ever used.
+if let first = cliArguments.first, ControlClient.verbs.contains(first) {
+    ControlClient.run(Array(cliArguments))
 }
 if cliArguments.contains("--check") || cliArguments.contains("check") {
     runConfigCheck(json: cliArguments.contains("--json"))

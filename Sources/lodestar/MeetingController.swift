@@ -108,6 +108,13 @@ final class MeetingController: NSObject {
 
     var chipVisible: Bool { panel.isVisible }
 
+    /// A meeting is running now, answered from the calendar rather than
+    /// from the chip. The chip is spent by the join, so it stops being
+    /// evidence at the exact moment the meeting starts mattering.
+    var inProgress: Bool {
+        Meetings.inProgress(occurrences: occurrences, now: Date())
+    }
+
     /// Calendar and account names for the settings picker — ground truth,
     /// never typed. Empty until access is granted.
     func calendarNames() -> [String] {

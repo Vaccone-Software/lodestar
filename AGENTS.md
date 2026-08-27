@@ -48,6 +48,34 @@ lodestar diagnose           # one paste-able report: version, instance,
                             # validation, state summary, log tail
 ```
 
+## Driving the running instance
+
+These reach the live app over a Unix socket at
+`~/.local/share/lodestar/control.sock` (mode `0600`). They do exactly what
+the keys do — same code path, same log lines — and are recorded as route
+`other`, so a scripted summon never inflates the numbers the coach reads
+to decide which addresses your hands actually use.
+
+```sh
+lodestar go g               # summon the chain, or an app by name
+lodestar go e p --beside    # a deeper address, arranged beside
+lodestar web example.com --profile brave:Xonar
+lodestar layout undo        # undo · redo · flip · fill · index <1-9>
+lodestar breath gb          # restore; `save`/`delete <address>` too
+lodestar state              # the whole world as JSON, parked included
+```
+
+Every verb takes `--json` and answers `{"ok": …}`; without it you get one
+line. Exit is `0` on success, `1` when the app refused, `69` when nothing
+is listening. A chain is tried before an app name, so `go m` is the letter
+you bound even on a machine with an app called M.
+
+`state` is the only way to see the **parked** half of the world — the
+windows Lodestar is holding as a corner sliver, which no other surface
+lists. Breath and layout verbs answer as soon as the work is _accepted_;
+the heavy part runs off the keyboard's path by design, so `ok` means begun
+rather than finished.
+
 ## Notes
 
 - The config carries `version` — the Lodestar release that last wrote

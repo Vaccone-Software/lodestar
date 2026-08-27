@@ -38,7 +38,7 @@ final class LinkChip {
 
     init() {
         panel.contentView = root
-        panel.ignoresMouseEvents = true
+        Movable.enable(panel)
         _ = Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
     }
 
@@ -120,8 +120,8 @@ final class LinkChip {
         // two words have about 298pt inside a 330pt chip, and the labels
         // truncate rather than wrap. "goes there" measured 299.8.
         stack.addArrangedSubview(Keycaps.line([
-            .init(["lode", "lode"], "goes"),
-            .init(["lode", "⌫"], "dismisses"),
+            .init(["lode", "lode"], "goes", action: { [weak self] in _ = self?.take() }),
+            .init(["lode", "⌫"], "dismisses", action: { [weak self] in _ = self?.dismiss() }),
         ]))
 
         root.addSubview(stack)
@@ -132,11 +132,12 @@ final class LinkChip {
         ])
         root.layoutSubtreeIfNeeded()
         let size = NSSize(width: Self.width, height: stack.fittingSize.height + 13 + 12)
-        let visible = ActivePolicy.presentationFrame
-        let origin = NSPoint(x: visible.maxX - size.width - 20,
-                             y: visible.maxY - size.height - 20)
-        panel.setFrame(NSRect(origin: origin, size: size), display: true)
         let wasVisible = panel.isVisible
+        Movable.place(panel, size: size) {
+            let visible = ActivePolicy.presentationFrame
+            return NSPoint(x: visible.maxX - size.width - 20,
+                           y: visible.maxY - size.height - 20)
+        }
         panel.orderFrontRegardless()
         // Only on the way up: a second link inside the same minute redraws
         // a chip that is already standing, and that is not a fresh claim.

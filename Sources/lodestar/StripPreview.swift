@@ -201,7 +201,10 @@ enum StripPreview {
         if variant == 62 {
             let hud = HUD()
             hud.showGuide(title: "⌖ coach",
-                          rows: [GuideRow(keys: ["lode", "lode"], label: "lode F → Figma")],
+                          rows: [GuideRow(keys: ["lode", "lode"], label: "lode F → Figma",
+                                          action: {}),
+                                 GuideRow(keys: ["lode", "⌫"], label: "not this one",
+                                          action: {})],
                           footer: "you searched for it 31 times across 6 weeks"
                               + " · about 40 seconds a week   ·   tap lode twice"
                               + " to bind it · lode ⌫ not this one · fades on its own")

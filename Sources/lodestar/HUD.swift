@@ -11,19 +11,28 @@ struct GuideRow {
     let keys: [String]
     let label: String
     let icon: NSImage?
+    /// What the caps do when clicked instead of typed. Only offers set it;
+    /// a chain guide's rows are a readout of what the keyboard can do next,
+    /// not a set of controls, and giving them a pointer would promise an
+    /// interaction the surface does not have.
+    let action: (() -> Void)?
 
     var key: String { keys.joined(separator: " ") }
 
-    init(key: String, label: String, icon: NSImage? = nil) {
+    init(key: String, label: String, icon: NSImage? = nil,
+         action: (() -> Void)? = nil) {
         self.keys = [key]
         self.label = label
         self.icon = icon
+        self.action = action
     }
 
-    init(keys: [String], label: String, icon: NSImage? = nil) {
+    init(keys: [String], label: String, icon: NSImage? = nil,
+         action: (() -> Void)? = nil) {
         self.keys = keys
         self.label = label
         self.icon = icon
+        self.action = action
     }
 }
 
@@ -47,6 +56,9 @@ final class HUD {
     private let root = NSView()
     private var content: NSStackView?
     private var hideTimer: Timer?
+    /// The occupant this drawing is replacing — read by `present` to tell a
+    /// chip being redrawn from a chip arriving.
+    private var cameFromCoach = false
 
     init() {
         panel = Glass.makePanel(level: .statusBar)
@@ -92,7 +104,20 @@ final class HUD {
     /// handover already recorded and stops, instead of recurring.
     private func handOver(to next: SurfaceOwner) {
         let previous = owner
+        cameFromCoach = previous == .coach
         owner = next
+        // The glass takes the mouse only for the one occupant that is an
+        // offer. A chain guide is the pending state of a gesture already in
+        // progress and stands over whatever you are working in; if it took
+        // clicks it would eat them mid-chain, and if it could be dragged a
+        // stray press would move it while your hand was still typing. The
+        // coach's chip is the opposite: it waits, it asks, and it is the
+        // thing you might want out of the way.
+        let offering = next == .coach
+        panel.ignoresMouseEvents = !offering
+        panel.isMovable = offering
+        panel.isMovableByWindowBackground = offering
+        panel.acceptsMouseMovedEvents = offering
         if Surface.displacesCoach(from: previous, to: next) { onTakeover?() }
     }
 
@@ -227,16 +252,18 @@ final class HUD {
         // alternatives rather than a sequence passes them as one string and
         // still gets one cap, which is what `J K` — either one — needs.
         let chip: NSView
-        if guideRow.keys.count == 1 {
-            chip = Keycaps.cap(guideRow.keys[0])
+        let caps = guideRow.keys.map { Keycaps.cap($0) }
+        if let action = guideRow.action {
+            chip = Keycaps.CapGroup(caps: caps, action: action)
+        } else if caps.count == 1 {
+            chip = caps[0]
         } else {
-            let caps = NSStackView()
-            caps.orientation = .horizontal
-            caps.alignment = .centerY
-            caps.spacing = 4
-            caps.setContentHuggingPriority(.required, for: .horizontal)
-            for key in guideRow.keys { caps.addArrangedSubview(Keycaps.cap(key)) }
-            chip = caps
+            let group = NSStackView(views: caps)
+            group.orientation = .horizontal
+            group.alignment = .centerY
+            group.spacing = 4
+            group.setContentHuggingPriority(.required, for: .horizontal)
+            chip = group
         }
 
         if let iconView { row.addArrangedSubview(iconView) }
@@ -252,12 +279,18 @@ final class HUD {
         size.width = min(max(size.width, 200), 1100)
         size.height = max(size.height, 44)
 
-        let visible = ActivePolicy.presentationFrame
-        let origin = NSPoint(
-            x: visible.midX - size.width / 2,
-            y: visible.minY + 96
-        )
-        panel.setFrame(NSRect(origin: origin, size: size), display: true)
+        // A chip redrawn in place keeps where it was put; anything else
+        // takes the panel's home. Without the second half, a chip dragged
+        // once would hand its position to the next chain guide, which has
+        // no business being anywhere but centred.
+        if owner == .coach, cameFromCoach, panel.isVisible {
+            Movable.place(panel, size: size) { panel.frame.origin }
+        } else {
+            let visible = ActivePolicy.presentationFrame
+            panel.setFrame(NSRect(origin: NSPoint(x: visible.midX - size.width / 2,
+                                                  y: visible.minY + 96),
+                                  size: size), display: true)
+        }
         panel.orderFrontRegardless()
     }
 }

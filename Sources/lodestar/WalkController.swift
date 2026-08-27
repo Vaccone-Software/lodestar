@@ -95,6 +95,8 @@ final class WalkController: NSObject {
         }
         card.contentView = cardRoot
         _ = Glass.installBackdrop(in: cardRoot, cornerRadius: BarTheme.glassRadius)
+        Movable.enable(door)
+        Movable.enable(card)
     }
 
     // MARK: - Entry
@@ -410,8 +412,23 @@ final class WalkController: NSObject {
         var title: String
         var body: String
         var illustration: NSView?
-        /// The gesture that answers this card, shown as caps + meaning rows.
-        var keys: [(cap: String, meaning: String)] = []
+        /// The gesture that answers this card, shown as caps + meaning
+        /// rows. A row carrying an action is pressable as well as typable —
+        /// which matters most on the first card, where the gesture being
+        /// taught is the only way out and has not been learned yet.
+        var keys: [KeyRow] = []
+    }
+
+    private struct KeyRow {
+        let cap: String
+        let meaning: String
+        let action: (() -> Void)?
+
+        init(_ cap: String, _ meaning: String, action: (() -> Void)? = nil) {
+            self.cap = cap
+            self.meaning = meaning
+            self.action = action
+        }
     }
 
     private func content(for step: Walk.Step) -> CardContent {
@@ -439,8 +456,10 @@ final class WalkController: NSObject {
                     + "address your hand learns. These were drafted from the "
                     + "apps you have open.",
                 illustration: proposalList(proposals),
-                keys: [("lode lode", "tap lode twice to take these letters"),
-                       ("lode ⌫", "pass")])
+                keys: [KeyRow("lode lode", "tap lode twice to take these letters",
+                              action: { [weak self] in self?.assent() }),
+                       KeyRow("lode ⌫", "pass",
+                              action: { [weak self] in _ = self?.pass() })])
         case .graphGo(let options):
             return CardContent(
                 title: "The graph",
@@ -457,8 +476,8 @@ final class WalkController: NSObject {
                     + "Press a letter to click it, or press escape to put "
                     + "the letters away. Try it now.",
                 illustration: capsRow([("lode", false), (";", true)]),
-                keys: [("lode .", "search the menus of the app you are in"),
-                       ("lode `", "scroll from the keyboard")])
+                keys: [KeyRow("lode .", "search the menus of the app you are in"),
+                       KeyRow("lode `", "scroll from the keyboard")])
         case .web:
             return CardContent(
                 title: "The web",
@@ -495,7 +514,8 @@ final class WalkController: NSObject {
                     + "you do not. Lodestar offers the rest one suggestion "
                     + "at a time, as it learns how you work.\n\nPress "
                     + "lode ? whenever you need a reminder.",
-                keys: [("lode ⌫", "close this card")])
+                keys: [KeyRow("lode ⌫", "close this card",
+                              action: { [weak self] in _ = self?.pass() })])
         }
     }
 
@@ -529,7 +549,8 @@ final class WalkController: NSObject {
             stack.setCustomSpacing(14, after: illustration)
         }
         for row in content.keys {
-            stack.addArrangedSubview(keyMeaningRow(cap: row.cap, meaning: row.meaning))
+            stack.addArrangedSubview(keyMeaningRow(cap: row.cap, meaning: row.meaning,
+                                                   action: row.action))
         }
 
         // The footer: skipping is per step and the walk cannot be
@@ -554,10 +575,11 @@ final class WalkController: NSObject {
                           height: stack.fittingSize.height + 18 + 16)
         // Top-right corner: the launcher owns the middle, the HUD and the
         // clipboard own the bottom, so this is the quiet quarter.
-        let visible = ActivePolicy.presentationFrame
-        let origin = NSPoint(x: visible.maxX - size.width - 20,
-                             y: visible.maxY - size.height - 20)
-        card.setFrame(NSRect(origin: origin, size: size), display: true)
+        Movable.place(card, size: size) {
+            let visible = ActivePolicy.presentationFrame
+            return NSPoint(x: visible.maxX - size.width - 20,
+                           y: visible.maxY - size.height - 20)
+        }
         card.orderFrontRegardless()
     }
 
@@ -594,7 +616,7 @@ final class WalkController: NSObject {
     }
 
     private func smallLink(_ title: String, action: Selector) -> NSButton {
-        let button = NSButton(title: title, target: self, action: action)
+        let button = HandButton(title: title, target: self, action: action)
         button.isBordered = false
         button.font = .systemFont(ofSize: 11.5, weight: .regular)
         button.contentTintColor = .tertiaryLabelColor
@@ -706,12 +728,24 @@ final class WalkController: NSObject {
         return column
     }
 
-    private func keyMeaningRow(cap: String, meaning: String) -> NSView {
+    private func keyMeaningRow(cap: String, meaning: String,
+                               action: (() -> Void)? = nil) -> NSView {
         let row = NSStackView()
         row.orientation = .horizontal
         row.spacing = 8
         row.setContentHuggingPriority(.required, for: .horizontal)
-        row.addArrangedSubview(keycap(cap))
+        let box = keycap(cap)
+        if let action {
+            // The walk's caps keep their own family — bordered, larger,
+            // warmer than the chips' — so only the fill moves under the
+            // pointer, through the same three states everything else uses.
+            row.addArrangedSubview(Keycaps.CapGroup(content: box, paint: { state in
+                box.layer?.backgroundColor = NSColor.labelColor
+                    .withAlphaComponent(state == .resting ? 0.08 : state.fill).cgColor
+            }, action: action))
+        } else {
+            row.addArrangedSubview(box)
+        }
         row.addArrangedSubview(label(meaning, size: 11.5, weight: .regular,
                                      color: .secondaryLabelColor))
         return row

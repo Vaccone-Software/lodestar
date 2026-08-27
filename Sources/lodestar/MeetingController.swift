@@ -84,6 +84,7 @@ final class MeetingController: NSObject {
     override init() {
         super.init()
         panel.contentView = root
+        Movable.enable(panel)
         _ = Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
         prime.level = .modalPanel
         prime.isOpaque = false
@@ -92,6 +93,7 @@ final class MeetingController: NSObject {
         prime.isReleasedWhenClosed = false
         prime.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
         prime.contentView = primeRoot
+        Movable.enable(prime)
         _ = Glass.installBackdrop(in: primeRoot, cornerRadius: BarTheme.glassRadius)
         prime.onKeyDown = { [weak self] event in
             guard let self, let key = Keys.name(for: Int64(event.keyCode)),
@@ -403,8 +405,8 @@ final class MeetingController: NSObject {
                                        weight: .regular, color: .secondaryLabelColor))
         stack.setCustomSpacing(9, after: stack.arrangedSubviews.last!)
         stack.addArrangedSubview(Keycaps.line([
-            .init(["lode", "lode"], "joins"),
-            .init(["lode", "⌫"], "dismisses"),
+            .init(["lode", "lode"], "joins", action: { [weak self] in _ = self?.join() }),
+            .init(["lode", "⌫"], "dismisses", action: { [weak self] in _ = self?.dismiss() }),
         ]))
 
         root.addSubview(stack)
@@ -416,11 +418,12 @@ final class MeetingController: NSObject {
         root.layoutSubtreeIfNeeded()
         let size = NSSize(width: Self.chipWidth,
                           height: stack.fittingSize.height + 13 + 12)
-        let visible = ActivePolicy.presentationFrame
-        let origin = NSPoint(x: visible.maxX - size.width - 20,
-                             y: visible.maxY - size.height - 20)
-        panel.setFrame(NSRect(origin: origin, size: size), display: true)
         let wasVisible = panel.isVisible
+        Movable.place(panel, size: size) {
+            let visible = ActivePolicy.presentationFrame
+            return NSPoint(x: visible.maxX - size.width - 20,
+                           y: visible.maxY - size.height - 20)
+        }
         panel.orderFrontRegardless()
         // Only on the way up: render is called again to retitle a chip that
         // is already standing, and that is not a fresh claim.
@@ -453,13 +456,13 @@ final class MeetingController: NSObject {
         stack.addArrangedSubview(body)
         stack.setCustomSpacing(16, after: body)
 
-        let allow = NSButton(title: "Allow Calendar Access", target: self,
-                             action: #selector(allowButton))
+        let allow = HandButton(title: "Allow Calendar Access", target: self,
+                               action: #selector(allowButton))
         allow.bezelStyle = .rounded
         allow.controlSize = .large
         allow.keyEquivalent = "\r"
         stack.addArrangedSubview(allow)
-        let notNow = NSButton(title: "not now", target: self, action: #selector(notNowButton))
+        let notNow = HandButton(title: "not now", target: self, action: #selector(notNowButton))
         notNow.isBordered = false
         notNow.font = .systemFont(ofSize: 11.5)
         notNow.contentTintColor = .tertiaryLabelColor
@@ -474,10 +477,11 @@ final class MeetingController: NSObject {
         primeRoot.layoutSubtreeIfNeeded()
         let size = NSSize(width: Self.primeWidth,
                           height: stack.fittingSize.height + 28 + 24)
-        let visible = ActivePolicy.presentationFrame
-        prime.setFrame(NSRect(x: visible.midX - size.width / 2,
-                              y: visible.midY - size.height / 2 + 40,
-                              width: size.width, height: size.height), display: true)
+        Movable.place(prime, size: size) {
+            let visible = ActivePolicy.presentationFrame
+            return NSPoint(x: visible.midX - size.width / 2,
+                           y: visible.midY - size.height / 2 + 40)
+        }
         prime.makeKeyAndOrderFront(nil)
     }
 

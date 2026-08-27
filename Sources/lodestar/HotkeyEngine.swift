@@ -343,10 +343,49 @@ final class HotkeyEngine {
 
         coachTaps.keyDown()
         if isPeeking { chainSawPeek = true }
-        cancelPeek(hideGuide: isPeeking)
 
         let keycode = event.getIntegerValueField(.keyboardEventKeycode)
-        guard let key = Keys.name(for: keycode) else {
+        let named = Keys.name(for: keycode)
+
+        // lode ⌫ answers a standing chip, and it is asked *before* the peek
+        // comes down.
+        //
+        // The order used to be the other way, and the teardown answered the
+        // gesture first: cancelling a peek hides the glass, hiding the glass
+        // is a handover away from `.coach`, and that handover retires the
+        // chip. So `coachDelete` arrived to find nothing standing, said it
+        // had not acted, and the key was let through — which is not a
+        // no-op, because lode is a command key. The dismissal a person
+        // asked for became ⌘⌫ delivered to whatever was in front, and in
+        // Finder ⌘⌫ is move to trash.
+        //
+        // `core.isIdle` stays. It is not paranoia: ⌫ inside a breath chain
+        // arms that chain's deletion (EngineCore.chainPress), and inside
+        // hints, select, and paste search it edits. Only an idle keyboard
+        // has a spare ⌫ to give.
+        var dismissedChip = false
+        if classify(event.flags).held, named == "delete", core.isIdle,
+           event.getIntegerValueField(.keyboardEventAutorepeat) == 0 {
+            // Provenance is not asked here, unlike the double tap. Assent
+            // writes a config line and must be a hand's; a dismissal writes
+            // nothing but its own record, and a gesture that silently does
+            // nothing under a keyboard remapper is the worse failure.
+            dismissedChip = coachDelete?() == true
+            if !dismissedChip {
+                // Declined, and silence is what made this hard to report.
+                // One line naming it, only ever on a real lode ⌫.
+                Log.info("lode-delete", ["acted": false, "reason": "nothing standing"])
+            }
+        }
+        // Always, and exactly once, whichever way that went.
+        cancelPeek(hideGuide: isPeeking)
+        // Only an answered gesture is swallowed. A declined one falls
+        // through the rest of this function untouched, which is what a
+        // standing select highlight relies on: it dissolves on any key that
+        // is not ⌘C, and an early return here would have kept it alive.
+        if dismissedChip { return nil }
+
+        guard let key = named else {
             // Unmapped keys pass through untouched, even mid-chain — but
             // never under a held highlight: Page Down scrolls the page out
             // from beneath the ghost, so a key the table cannot name still
@@ -362,15 +401,6 @@ final class HotkeyEngine {
         // log. Repeats die here while lode is down; scroll keeps its
         // repeats because its direction keys ride without lode.
         if held, event.getIntegerValueField(.keyboardEventAutorepeat) != 0 {
-            return nil
-        }
-
-        // lode ⌫ while a coach chip is up answers "not this one". The
-        // closure acts only when a chip is visible, and the key is
-        // swallowed only when it acted — idle lode ⌫ everywhere else stays
-        // exactly the nothing it always was.
-        if held, key == "delete", core.isIdle, actingInputWasHuman,
-           coachDelete?() == true {
             return nil
         }
 

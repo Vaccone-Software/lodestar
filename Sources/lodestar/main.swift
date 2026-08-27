@@ -262,10 +262,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // The keycap names the gesture the way the scroll guide's
             // "G G" does: two lodes, tapped. A blank cap read as a row
             // with no way in.
-            self?.hud.showGuide(title: "⌖ coach",
-                                rows: [GuideRow(keys: ["lode", "lode"], label: chip.headline)],
-                                footer: "\(chip.evidence)   ·   \(chip.footer)",
-                                owner: .coach)
+            //
+            // Both rows carry the action the keys carry, so the chip can be
+            // answered with the mouse when the gesture is inconvenient or
+            // when a hand is already on it. The dismissal has a row of its
+            // own now rather than living only in the footer's prose: a way
+            // out that cannot be clicked is not a way out for anyone
+            // reaching for the pointer.
+            self?.hud.showGuide(
+                title: "⌖ coach",
+                rows: [
+                    GuideRow(keys: ["lode", "lode"], label: chip.headline,
+                             action: { [weak self] in self?.coach.lodeDoubleTapped() }),
+                    GuideRow(keys: ["lode", "⌫"], label: "not this one",
+                             action: { [weak self] in _ = self?.coach.lodeDelete() }),
+                ],
+                footer: "\(chip.evidence)   ·   \(chip.footer)",
+                owner: .coach)
         }
         coach.hideChip = { [weak self] in self?.hud.hide() }
         coach.ownsSurface = { [weak self] in self?.hud.owner == .coach }

@@ -24,6 +24,18 @@ public final class LayoutController {
         let layout: DisplayLayout
     }
 
+    /// One gesture on the timeline: the displays it touched, plus the
+    /// windows it swept. The sweep rides the same step as the summon that
+    /// caused it, so one `lode ←` restores the whole stage — a gesture
+    /// with a half-reversible door would be the first in the app.
+    struct Step: Equatable {
+        var snapshots: [Snapshot]
+        /// Parked when this step is applied — the redo of a sweep.
+        var park: [CGWindowID] = []
+        /// Unparked when this step is applied — the undo of one.
+        var unpark: [CGWindowID] = []
+    }
+
     /// A departed monitor's arrangement, keyed by hardware UUID, waiting
     /// for the monitor to return. In-memory only — a restart while
     /// undocked forgets it, deliberately (restarts are fresh).
@@ -36,8 +48,8 @@ public final class LayoutController {
     /// One gesture, one entry: a step is every display the gesture
     /// touched, snapshotted together — a cross-display move holds both
     /// its source and its destination, so one undo restores both.
-    private var undoStack: [[Snapshot]] = []
-    private var redoStack: [[Snapshot]] = []
+    private var undoStack: [Step] = []
+    private var redoStack: [Step] = []
     private var retileGenerations: [CGDirectDisplayID: Int] = [:]
     private var dormant: [String: DormantLayout] = [:]
     private var knownUUIDs: [CGDirectDisplayID: String] = [:]
@@ -123,9 +135,13 @@ public final class LayoutController {
     // MARK: - Mutations (display-scoped)
 
     /// Plain summon: this window becomes the display's whole layout,
-    /// full-screen. The display's previous members are parked.
-    public func replace(with id: CGWindowID, on display: CGDirectDisplayID) {
-        recordUndo(touching: id, on: display)
+    /// full-screen. The display's previous members are parked, and so is
+    /// anything in `sweeping` — the session-claimed strays the summon
+    /// takes with it. The sweep rides this gesture's own undo step, so
+    /// one undo restores members and swept alike.
+    public func replace(with id: CGWindowID, on display: CGDirectDisplayID,
+                        sweeping: [CGWindowID] = []) {
+        recordUndo(touching: id, on: display, unparking: sweeping)
         detach(id)
         var layout = layouts[display] ?? DisplayLayout()
         let previous = layout.members.filter { $0 != id }
@@ -133,6 +149,7 @@ public final class LayoutController {
         layouts[display] = layout
         parking.claim(id)
         park(previous)
+        park(sweeping.filter { $0 != id })
         retile(on: display)
         onChange?()
     }
@@ -233,8 +250,8 @@ public final class LayoutController {
             // returns early for a display that is not there. The windows
             // stayed in the 1px sliver with nothing left that knew where
             // they had come from.
-            undoStack.removeAll { step in step.contains { $0.display == display } }
-            redoStack.removeAll { step in step.contains { $0.display == display } }
+            undoStack.removeAll { step in step.snapshots.contains { $0.display == display } }
+            redoStack.removeAll { step in step.snapshots.contains { $0.display == display } }
             Log.info("display-departed", ["display": display, "parked": layout.members.count])
             onChange?()
         }
@@ -281,28 +298,39 @@ public final class LayoutController {
     @discardableResult
     public func undo() -> CGDirectDisplayID? {
         guard let step = undoStack.popLast() else { return nil }
-        redoStack.append(step.map { current($0.display) })
+        // The inverse step: today's world, and the sweep turned around —
+        // what undoing brings back, redoing parks again.
+        redoStack.append(Step(snapshots: step.snapshots.map { current($0.display) },
+                              park: step.unpark, unpark: step.park))
         apply(step: step)
         // The last snapshot is the source in a cross-display step — where
         // the moved window just returned, which is where the eye went.
-        return step.last?.display
+        return step.snapshots.last?.display
     }
 
     @discardableResult
     public func redo() -> CGDirectDisplayID? {
         guard let step = redoStack.popLast() else { return nil }
-        undoStack.append(step.map { current($0.display) })
+        undoStack.append(Step(snapshots: step.snapshots.map { current($0.display) },
+                              park: step.unpark, unpark: step.park))
         apply(step: step)
-        return step.last?.display
+        return step.snapshots.last?.display
     }
 
     /// Every display in the step restores under one rule: a window that
     /// belongs anywhere in the step is never parked by another display's
     /// half of it — parked-then-claimed was a visible flick to the sliver
-    /// and back.
-    private func apply(step: [Snapshot]) {
-        let arriving = Set(step.flatMap(\.layout.members))
-        for snapshot in step { apply(snapshot, keeping: arriving) }
+    /// and back. The swept lists settle after the layouts: they touch
+    /// only non-members, so the order is for reading, not correctness.
+    private func apply(step: Step) {
+        let arriving = Set(step.snapshots.flatMap(\.layout.members))
+        for snapshot in step.snapshots { apply(snapshot, keeping: arriving) }
+        for id in step.unpark {
+            guard let window = model.window(id), window.isAlive else { continue }
+            parking.unpark(window)
+        }
+        park(step.park)
+        if !step.park.isEmpty || !step.unpark.isEmpty { onChange?() }
     }
 
     private func current(_ display: CGDirectDisplayID) -> Snapshot {
@@ -315,17 +343,20 @@ public final class LayoutController {
 
     /// The undo for a summon: the destination, plus — when the window is
     /// leaving another display's layout — the source, so undo returns it
-    /// home instead of parking it as a stranger.
-    private func recordUndo(touching id: CGWindowID, on display: CGDirectDisplayID) {
+    /// home instead of parking it as a stranger. `unparking` is the
+    /// sweep's half of the step: what one undo must bring back.
+    private func recordUndo(touching id: CGWindowID, on display: CGDirectDisplayID,
+                            unparking: [CGWindowID] = []) {
         var displays = [display]
         if let source = self.display(of: id), source != display {
             displays.append(source)
         }
-        recordUndo(displays)
+        recordUndo(displays, unparking: unparking)
     }
 
-    private func recordUndo(_ displays: [CGDirectDisplayID]) {
-        let step = displays.map(current)
+    private func recordUndo(_ displays: [CGDirectDisplayID],
+                            unparking: [CGWindowID] = []) {
+        let step = Step(snapshots: displays.map(current), unpark: unparking)
         if undoStack.last == step { return }
         undoStack.append(step)
         if undoStack.count > 20 { undoStack.removeFirst() }

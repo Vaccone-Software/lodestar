@@ -24,6 +24,13 @@ final class Actions {
     private var intents = IntentQueue()
     /// True while a placement is mid-flight — the reentrancy latch above.
     private var placing = false
+    /// Every window this session has placed — summoned, adopted with
+    /// lode 0, or seated by a breath. The sweep's whole jurisdiction:
+    /// only what Lodestar was once asked to move may ever be moved
+    /// unasked, so a plain summon can clear its own strays while a
+    /// window macOS placed stays exactly where its app put it. Session
+    /// scoped like the ids themselves.
+    private var sessionClaimed: Set<CGWindowID> = []
     /// Destinations already waiting on a window, and until when. Keyed by
     /// target label; entries expire by their own clock rather than a timer.
     private var pendingLinks: [String: Date] = [:]
@@ -41,6 +48,19 @@ final class Actions {
     func attach() {
         model.onFocus = { [weak self] id in
             guard let self else { return }
+            // An outside road — cmd-tab, a Dock click — reached a parked
+            // window: give it back where it was, and touch nothing else.
+            // Lodestar's own summons claim before they raise, so only an
+            // external focus can find the window still parked; without
+            // this, a swept window's app could stand frontmost with its
+            // window a sliver in the corner.
+            if self.parking.isParked(id), let window = self.model.windows[id],
+               window.isAlive {
+                if self.parking.unpark(window) {
+                    self.store.setParked(self.parking.snapshot())
+                    Log.info("unpark", ["window": id, "via": "external focus"])
+                }
+            }
             // The transition structure: which app follows which, by any
             // road — Lodestar's or the system's. App names only; the
             // observation layer decays and caps the matrix.
@@ -598,6 +618,7 @@ final class Actions {
         // arrives through the tap, so it waits its turn like every verb.
         OffTap.run { [weak self] in
             guard let self else { return }
+            for window in windows { self.sessionClaimed.insert(window.id) }
             self.layout.replace(with: windows[0].id, on: active.id)
             for window in windows.dropFirst() {
                 guard self.layout.add(window.id, on: active.id) else { return }
@@ -674,6 +695,7 @@ final class Actions {
         }
 
         let orientation = Orientation(rawValue: record.orientation) ?? .horizontal
+        for (_, id) in resolvedPairs { sessionClaimed.insert(id) }
         if !resolvedPairs.isEmpty {
             // Members go home: each restores to the display its stored frame
             // was on; members of a since-unplugged display join the active one.
@@ -714,6 +736,7 @@ final class Actions {
             (bundleID != nil && window.bundleID == bundleID) || window.appName == appName
         }, action: { [weak self] window in
             guard let self else { return }
+            self.sessionClaimed.insert(window.id)
             self.store.rebindBreathMember(path: path, oldID: member.windowID,
                                           newID: UInt32(window.id), title: window.title)
             let display = Displays.display(containing: member.frame)?.id
@@ -819,6 +842,7 @@ final class Actions {
                                       activeDisplay: active.id)
         Log.info("place", ["window": window.id, "app": window.appName,
                            "action": "\(action)", "display": active.id])
+        sessionClaimed.insert(window.id)
         switch action {
         case .add:
             // The tenth window is prevented, not absorbed: nine is the cap
@@ -829,10 +853,31 @@ final class Actions {
                 hud.flash("✕ nine windows is the cap · plain summon replaces")
                 return
             }
-        case .replace: layout.replace(with: window.id, on: active.id)
+        case .replace:
+            // The summon takes its strays with it: session-claimed
+            // windows still standing on this display park alongside the
+            // replaced members, in the same gesture and the same undo
+            // step. Silent, because the screen changing is the feedback.
+            layout.replace(with: window.id, on: active.id,
+                           sweeping: sweepCandidates(on: active, summoning: window.id))
         case .visit: break // take me there — its arrangement stays untouched
         }
         raise(window)
+    }
+
+    /// The world mapped for `Sweep.windows` — the decision itself lives
+    /// in core, where the tests reach.
+    private func sweepCandidates(on active: Displays.DisplayInfo,
+                                 summoning id: CGWindowID) -> [CGWindowID] {
+        Sweep.windows(
+            claimed: sessionClaimed, summoned: id,
+            members: layout.allMembers,
+            parked: Set(parking.snapshot().keys),
+            display: active.bounds,
+            among: model.windows.values.map {
+                Sweep.Candidate(id: $0.id, frame: $0.frame,
+                                isAlive: $0.isAlive, isMinimized: $0.isMinimized)
+            })
     }
 
     private func raise(_ window: WindowModel.Window) {

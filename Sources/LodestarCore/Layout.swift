@@ -7,7 +7,12 @@ import CoreGraphics
 /// full-screen, per display; multiplicity only ever comes from an explicit
 /// beside-summon or a breath.
 public final class LayoutController {
-    public static let maxWindows = 10
+    /// Nine, because the digits are the addresses: `lode 1…9` reaches
+    /// every member, and a tenth window made 9 ambiguous (the "last" it
+    /// promised was a window no digit could name). Beyond this is not
+    /// usefully navigable, so the tenth beside-summon is refused rather
+    /// than supported.
+    public static let maxWindows = 9
 
     public struct DisplayLayout: Equatable {
         public var members: [CGWindowID] = []
@@ -48,15 +53,27 @@ public final class LayoutController {
     private let parking: ParkingLot
     private let mover: WindowMoving
     private let displays: DisplayOracle
+    /// Where the AX moves run. Nil executes them inline — tests, and any
+    /// caller that needs the world settled on return. The app passes a
+    /// serial queue: a retile is ten AX round trips per member, each one
+    /// bounded only by the target app's event loop, and the tap shares
+    /// the main run loop — so a wedged app used to hold the machine's
+    /// keyboard for as long as its slowest window took to answer.
+    private let moveQueue: DispatchQueue?
 
     public var onChange: (() -> Void)?
+    /// One retile batch finished: its wall-clock seconds and member count
+    /// — the instrument observing itself.
+    public var onMoves: ((TimeInterval, Int) -> Void)?
 
     public init(model: WindowQuerying, parking: ParkingLot,
-                mover: WindowMoving = AXMover(), displays: DisplayOracle = .live) {
+                mover: WindowMoving = AXMover(), displays: DisplayOracle = .live,
+                moveQueue: DispatchQueue? = nil) {
         self.model = model
         self.parking = parking
         self.mover = mover
         self.displays = displays
+        self.moveQueue = moveQueue
     }
 
     // MARK: - Active display
@@ -121,18 +138,23 @@ public final class LayoutController {
     }
 
     /// Beside-summon: join the display's layout as an equal member.
-    public func add(_ id: CGWindowID, on display: CGDirectDisplayID) {
-        parking.claim(id)
+    /// Returns false — having touched nothing — when the display is at
+    /// its cap: the tenth window is prevented, not absorbed. Replacing
+    /// instead, which is what this used to do, answered "beside" with a
+    /// takeover — the one summon whose meaning must never drift.
+    @discardableResult
+    public func add(_ id: CGWindowID, on display: CGDirectDisplayID) -> Bool {
         var layout = layouts[display] ?? DisplayLayout()
         if layout.members.contains(id) {
+            parking.claim(id)
             retile(on: display)
-            return
+            return true
         }
         guard layout.members.count < Self.maxWindows else {
-            Log.info("layout", ["display": display, "note": "at cap, replacing"])
-            replace(with: id, on: display)
-            return
+            Log.info("layout", ["display": display, "note": "at cap, refused"])
+            return false
         }
+        parking.claim(id)
         recordUndo(touching: id, on: display)
         detach(id)
         layout = layouts[display] ?? DisplayLayout()
@@ -140,6 +162,7 @@ public final class LayoutController {
         layouts[display] = layout
         retile(on: display)
         onChange?()
+        return true
     }
 
     /// A window died or left; its display's survivors retile. World-driven,
@@ -362,14 +385,46 @@ public final class LayoutController {
         tiledFrames[display] = bounds
         let frames = Tiling.frames(count: layout.members.count, in: bounds, orientation: layout.orientation)
 
+        // The decision happens here, on the model's thread; only the AX
+        // conversation moves. Windows are captured now so the batch acts
+        // on the members this retile decided, not on whatever the layout
+        // holds by the time a queue gets to it.
+        var moves: [(WindowModel.Window, CGRect)] = []
         for (id, frame) in zip(layout.members, frames) {
             guard let window = model.window(id), window.isAlive else { continue }
-            mover.setFrame(window, frame)
+            moves.append((window, frame))
         }
-        for id in layout.members { model.refreshFrame(id) }
+        let members = layout.members
+        perform(moves: moves) { [weak self] in
+            guard let self, self.retileGenerations[display] == generation else { return }
+            for id in members { self.model.refreshFrame(id) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                self?.correctivePass(on: display, generation: generation)
+            }
+        }
+    }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-            self?.correctivePass(on: display, generation: generation)
+    /// Run a batch of frame writes, then `completion` on the main thread.
+    /// Inline when no queue was given — the tests' world, where the moves
+    /// must land before the assertion. Ordering across batches holds
+    /// either way: the queue is serial.
+    private func perform(moves: [(WindowModel.Window, CGRect)],
+                         completion: @escaping () -> Void) {
+        guard let moveQueue else {
+            let began = Date()
+            for (window, frame) in moves { mover.setFrame(window, frame) }
+            onMoves?(Date().timeIntervalSince(began), moves.count)
+            completion()
+            return
+        }
+        moveQueue.async { [mover, onMoves] in
+            let began = Date()
+            for (window, frame) in moves { mover.setFrame(window, frame) }
+            let took = Date().timeIntervalSince(began)
+            DispatchQueue.main.async {
+                onMoves?(took, moves.count)
+                completion()
+            }
         }
     }
 
@@ -405,15 +460,20 @@ public final class LayoutController {
         guard flexibleSpan >= 120 else { return }
 
         var cursor = horizontal ? bounds.minX : bounds.minY
+        var moves: [(WindowModel.Window, CGRect)] = []
         for (index, window) in alive.enumerated() {
             let span = spans[index] > 0 ? spans[index] : flexibleSpan
             let frame = horizontal
                 ? CGRect(x: cursor, y: bounds.minY, width: span, height: bounds.height)
                 : CGRect(x: bounds.minX, y: cursor, width: bounds.width, height: span)
-            mover.setFrame(window, frame)
+            moves.append((window, frame))
             cursor += span
         }
-        for id in layout.members { model.refreshFrame(id) }
+        let members = layout.members
+        perform(moves: moves) { [weak self] in
+            guard let self, self.retileGenerations[display] == generation else { return }
+            for id in members { self.model.refreshFrame(id) }
+        }
         Log.info("layout-corrective", ["display": display, "absorbed": alive.count - flexibleCount])
     }
 

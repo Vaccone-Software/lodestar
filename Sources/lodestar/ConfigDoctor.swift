@@ -506,6 +506,15 @@ func runObservations(clear: Bool, engine: Bool) -> Never {
     }
 
     let bound = config.graph.leaves()
+    // The saved breath paths, read without a StateStore: its load() takes
+    // a backup on the way through, and a reporting process must never
+    // write beside the running instance.
+    let breathPaths: [String] = {
+        guard let data = try? Data(contentsOf: StateStore.defaultFile),
+              let state = try? JSONDecoder().decode(PersistedState.self, from: data)
+        else { return [] }
+        return state.breaths.map(\.path)
+    }()
     // The same context the app hands its coach, or the report would
     // disagree with the chip about what stands.
     let context = Advisor.Context(
@@ -516,7 +525,8 @@ func runObservations(clear: Bool, engine: Bool) -> Never {
         profileKeys: Dictionary(config.browserProfiles.map {
             ($0.value.reference, $0.value.reference)
         }, uniquingKeysWith: { first, _ in first }),
-        meetingsEnabled: config.meetingsEnabled
+        meetingsEnabled: config.meetingsEnabled,
+        breathPaths: breathPaths
     )
 
     if engine {
@@ -641,6 +651,66 @@ func runObservations(clear: Bool, engine: Bool) -> Never {
             print(line)
         }
         print("")
+    }
+
+    // The hands' pulse, described and never judged: the mirror's whole
+    // grammar. Four weeks, because a trend needs a baseline and a month
+    // is the shortest span a rhythm shows in.
+    if let health = Health.summary(events: events, days: 28) {
+        print("health · last \(health.days) active day\(health.days == 1 ? "" : "s")"
+            + " · counts and moments only, never which keys")
+        var input = pad("  input", 10)
+        let keysPerDay = Double(health.keys) / Double(max(1, health.days))
+        input += pad(keysPerDay >= 1000
+                     ? String(format: "%.1fk keys/day", keysPerDay / 1000)
+                     : String(format: "%.0f keys/day", keysPerDay), 16)
+        if let rate = health.correctionRate {
+            input += pad(String(format: "%.1f%% corrections", rate * 100), 20)
+        }
+        if let pointer = health.pointerShare {
+            input += String(format: "pointer share %d%%", Int(pointer * 100))
+        }
+        print(input)
+        var rhythm = pad("  rhythm", 10)
+        rhythm += pad(String(format: "%.1fh active/day",
+                             Double(health.activeMinutes) / 60 / Double(max(1, health.days))), 18)
+        rhythm += pad("longest stretch \(health.longestStretchMinutes)m", 24)
+        if let mean = health.interKeyMean {
+            rhythm += String(format: "inter-key %.0fms", mean * 1000)
+        }
+        print(rhythm)
+        if let peak = health.hourMinutes.enumerated().max(by: { $0.element < $1.element }),
+           peak.element > 0 {
+            let late = health.hourMinutes[23] + health.hourMinutes[0]
+                + health.hourMinutes[1] + health.hourMinutes[2]
+            let total = max(1, health.activeMinutes)
+            print(pad("  shape", 10)
+                + pad(String(format: "peak %02d:00", peak.offset), 14)
+                + "late night \(late * 100 / total)% (23:00 to 03:00)")
+        }
+        print("")
+    }
+
+    // The instrument observing itself: what its own warmups cost, so a
+    // regression in the instrument surfaces the way one in the hand does.
+    let warmups = events.filter { $0.kind == .latency }
+    if !warmups.isEmpty {
+        var bySurface: [String: [Double]] = [:]
+        for event in warmups {
+            guard let surface = event.verb, let s = event.seconds else { continue }
+            bySurface[surface, default: []].append(s)
+        }
+        let line = bySurface.sorted { $0.key < $1.key }.compactMap { surface, samples -> String? in
+            let sorted = samples.sorted()
+            guard !sorted.isEmpty else { return nil }
+            return String(format: "%@ %.2fs median (n=%d)", surface,
+                          sorted[sorted.count / 2], sorted.count)
+        }.joined(separator: " · ")
+        if !line.isEmpty {
+            print("latency")
+            print("  " + line)
+            print("")
+        }
     }
 
     // The coach's ledger — everything it has said and what became of it —

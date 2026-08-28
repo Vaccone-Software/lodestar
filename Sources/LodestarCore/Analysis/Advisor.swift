@@ -37,6 +37,13 @@ public enum ConfigEdit: Codable, Equatable {
     /// here: the subsystem, finding itself enabled but unauthorized, runs
     /// its own prime-then-prompt — so this edit stays exactly one line.
     case enableMeetings
+    /// Arrange these apps side by side right now and save the layout as a
+    /// breath at `path`. The one accept that is state rather than a config
+    /// line — a breath has no line to write — settled deliberately: one
+    /// gesture, one receipt (the saved address), and the chip's copy says
+    /// a layout will appear. The shell refuses when an app has no window,
+    /// because composing must never mean launching things behind someone.
+    case composeBreath(apps: [String], path: String)
 }
 
 public struct Recommendation: Codable, Equatable {
@@ -133,19 +140,23 @@ public enum Advisor {
         public var profileKeys: [String: String]
         /// The meetings offer retires the moment the feature is on.
         public var meetingsEnabled: Bool
+        /// Saved breath paths, so a breath offer can name a free letter.
+        public var breathPaths: [String]
         public var now: Date
 
         public init(observations: Observations, events: [ObservationEvent],
                     leaves: [Leaf],
                     webRoutes: [String: String] = [:],
                     profileKeys: [String: String] = [:],
-                    meetingsEnabled: Bool = false, now: Date = Date()) {
+                    meetingsEnabled: Bool = false,
+                    breathPaths: [String] = [], now: Date = Date()) {
             self.observations = observations
             self.events = events
             self.leaves = leaves
             self.webRoutes = webRoutes
             self.profileKeys = profileKeys
             self.meetingsEnabled = meetingsEnabled
+            self.breathPaths = breathPaths
             self.now = now
         }
     }
@@ -250,6 +261,41 @@ public enum Advisor {
         let taken = Set(context.leaves.compactMap { $0.chain.first })
         let alphabet = "abcdefghijklmnopqrstuvwxyz".map(String.init)
         return Set(alphabet).subtracting(taken).subtracting(reservedLetters)
+    }
+
+    /// Whether a proposed chain can be bound without colliding: no leaf
+    /// equals it, sits under it, or stands over it — except the one a
+    /// supersede is about to remove.
+    static func chainFree(_ proposed: [String], leaves: [Leaf],
+                          ignoring: [String]? = nil) -> Bool {
+        guard let first = proposed.first, !reservedLetters.contains(first) else {
+            return false
+        }
+        let key = Observations.key(proposed)
+        for leaf in leaves {
+            if let ignoring, leaf.chain == ignoring { continue }
+            let bound = Observations.key(leaf.chain)
+            if bound == key || bound.hasPrefix(key + " ") || key.hasPrefix(bound + " ") {
+                return false
+            }
+        }
+        return true
+    }
+
+    /// Every name under which an app is already addressable. The labels
+    /// alone missed half the truth: a browser-profile leaf is labeled
+    /// "Brave (Xonar)" while the launcher records a reach for the app
+    /// index's "Brave Browser", so an app fully covered by profile
+    /// bindings looked unaddressed and could be offered a letter it
+    /// already had several of.
+    static func addressedNames(_ leaves: [Leaf]) -> Set<String> {
+        var names = Set(leaves.map { $0.label.lowercased() })
+        for leaf in leaves {
+            if let profile = BrowserProfile.parse(reference: leaf.value) {
+                names.insert(profile.browser.appName.lowercased())
+            }
+        }
+        return names
     }
 
     /// The letters a name could plausibly live under: word initials first,
@@ -372,7 +418,7 @@ public enum Advisor {
     static func bindCandidates(_ context: Context, latency: LatencyModel?,
                                learningCost: Double) -> [Candidate] {
         let o = context.observations
-        let addressed = Set(context.leaves.map { $0.label.lowercased() })
+        let addressed = addressedNames(context.leaves)
         let free = freeLetters(context)
         // One walk of the ring for every app together — per-app rescans
         // made this pass O(apps × events).
@@ -420,8 +466,17 @@ public enum Advisor {
     /// strongest confusion lived entirely at two prefixes); this walks
     /// every record that accumulated wrong keys, wherever it sits in the
     /// trie.
+    ///
+    /// The wrong key names the address the hand believes in, but not the
+    /// destination it wanted — so alone it can only report. The events
+    /// carry the missing half: what the hand did in the seconds after
+    /// each stumble. When one destination dominates those recoveries, the
+    /// finding becomes an edit — the errors are proposals, and the
+    /// proposal is to bind the destination at the address already being
+    /// pressed, closing the old one the way every supersede does.
     static func rebindCandidates(_ context: Context) -> [Candidate] {
         let o = context.observations
+        let recoveries = rebindRecoveries(context.events)
         var out: [Candidate] = []
         for (key, record) in o.addresses {
             guard record.wrongKeys >= 5,
@@ -440,16 +495,99 @@ public enum Advisor {
                     .map { $0.uppercased() }.joined(separator: " ")
             let weeks = o.observedWeeks(addressKey: key, now: context.now)
             let weekly = Double(record.wrongKeys) / Double(weeks) * 1.5
+            var detail = "at \(shown) your hand keeps pressing \(letter.uppercased()) · "
+                + "the name in your head disagrees with the graph"
+            var evidence = ["\(count) of \(record.wrongKeys) wrong keys were "
+                + letter.uppercased()]
+            var edit: ConfigEdit?
+            var display: String?
+            let prefix = key.isEmpty ? [] : key.split(separator: " ").map(String.init)
+            let proposed = prefix + [letter]
+            if let resolved = dominantRecovery(recoveries["\(key)|\(letter)"],
+                                               context: context, proposed: proposed) {
+                edit = resolved.edit
+                display = resolved.label
+                let shownNew = proposed.map { $0.uppercased() }.joined(separator: " ")
+                detail = "your hand keeps pressing lode \(shownNew) for \(resolved.label) · "
+                    + "the graph could agree with it"
+                evidence.append(resolved.evidence)
+            }
             out.append(Candidate(rec: Recommendation(
                 kind: .rebind, target: key.isEmpty ? "lode" : key,
-                detail: "at \(shown) your hand keeps pressing \(letter.uppercased()) · "
-                    + "the name in your head disagrees with the graph",
+                detail: detail,
                 secondsPerWeek: weekly, probability: lower,
-                evidence: ["\(count) of \(record.wrongKeys) wrong keys were "
-                    + letter.uppercased()]), p: p,
+                evidence: evidence, display: display, edit: edit), p: p,
                 offerable: share >= 0.6 && lower > 0.4))
         }
         return out
+    }
+
+    /// One walk of the ring: for each (prefix, wrong key), what the hand
+    /// reached within ten seconds — a completed chain, or a launcher pick.
+    /// Keys are "prefixKey|letter"; values are "chain:<key>" or
+    /// "app:<name>" tallies.
+    static func rebindRecoveries(_ events: [ObservationEvent]) -> [String: [String: Int]] {
+        var out: [String: [String: Int]] = [:]
+        let ordered = events.sorted { $0.t < $1.t }
+        for (index, event) in ordered.enumerated() where event.kind == .wrongKey {
+            guard let pressed = event.pressed else { continue }
+            let prefix = event.chain.map(Observations.key) ?? ""
+            for follower in ordered.dropFirst(index + 1) {
+                guard follower.t.timeIntervalSince(event.t) <= 10 else { break }
+                if follower.kind == .chain, let chain = follower.chain {
+                    let winner = "chain:\(Observations.key(chain))"
+                    out["\(prefix)|\(pressed)", default: [:]][winner, default: 0] += 1
+                    break
+                }
+                if follower.kind == .reach, follower.route == "searcher",
+                   let app = follower.app {
+                    out["\(prefix)|\(pressed)", default: [:]]["app:\(app)", default: 0] += 1
+                    break
+                }
+            }
+        }
+        return out
+    }
+
+    /// The destination the recoveries agree on, as an edit — or nil when
+    /// they scatter, the proposed address is not free, or the destination
+    /// cannot be named as a config value.
+    private static func dominantRecovery(_ tally: [String: Int]?, context: Context,
+                                         proposed: [String])
+        -> (edit: ConfigEdit, label: String, evidence: String)? {
+        guard let tally, !tally.isEmpty else { return nil }
+        let total = tally.values.reduce(0, +)
+        guard total >= 3,
+              let (winner, count) = tally.max(by: { $0.value < $1.value }),
+              Double(count) / Double(total) >= 0.6 else { return nil }
+        if winner.hasPrefix("chain:") {
+            let key = String(winner.dropFirst(6))
+            guard let leaf = context.leaves.first(where: {
+                Observations.key($0.chain) == key
+            }), leaf.chain != proposed,
+                chainFree(proposed, leaves: context.leaves, ignoring: leaf.chain)
+            else { return nil }
+            return (.supersede(old: leaf.chain, new: proposed, target: leaf.value),
+                    leaf.label,
+                    "\(count) of \(total) stumbles ended at \(leaf.label)")
+        }
+        let app = String(winner.dropFirst(4))
+        // A launcher recovery: the app may already be bound elsewhere — a
+        // supersede — or not bound at all, which is a bind at the address
+        // the hand already presses.
+        if let leaf = context.leaves
+            .filter({ $0.label.lowercased() == app })
+            .min(by: { $0.chain.count < $1.chain.count }) {
+            guard leaf.chain != proposed,
+                  chainFree(proposed, leaves: context.leaves, ignoring: leaf.chain)
+            else { return nil }
+            return (.supersede(old: leaf.chain, new: proposed, target: leaf.value),
+                    leaf.label,
+                    "\(count) of \(total) stumbles ended at \(leaf.label)")
+        }
+        guard chainFree(proposed, leaves: context.leaves) else { return nil }
+        return (.bindTarget(chain: proposed, target: app), app,
+                "\(count) of \(total) stumbles ended at \(app) via the launcher")
     }
 
     static func shortenCandidates(_ context: Context, latency: LatencyModel?,
@@ -643,6 +781,12 @@ public enum Advisor {
             // z-score note above); the cap is presentation.
             let offerable = pair.lift >= 1.3 && offered < 3
             if offerable { offered += 1 }
+            // The accept: compose the pair side by side and save it at a
+            // free breath letter. No free letter, no edit — the finding
+            // still reports.
+            let edit = breathLetter(for: pair, context: context).map {
+                ConfigEdit.composeBreath(apps: [pair.from, pair.to], path: $0)
+            }
             out.append(Candidate(rec: Recommendation(
                 kind: .breath, target: "\(pair.from) + \(pair.to)",
                 detail: "\(pair.from) and \(pair.to) travel together "
@@ -652,10 +796,29 @@ public enum Advisor {
                 // is half of it — at two seconds a transition, the count.
                 secondsPerWeek: pair.count,
                 probability: probability,
-                evidence: [String(format: "lift %.1f over independent use", pair.lift)]),
+                evidence: [String(format: "lift %.1f over independent use", pair.lift)],
+                display: "\(pair.from) + \(pair.to)",
+                edit: edit),
                 p: p, offerable: offerable))
         }
         return out
+    }
+
+    /// A mnemonic letter for the pair's breath: the apps' own initials
+    /// first, then anything free. A path is free when no saved breath
+    /// equals it or nests around it — and never "b", which the breath
+    /// grammar reserves.
+    static func breathLetter(for pair: Transitions.Pair, context: Context) -> String? {
+        let taken = context.breathPaths
+        func free(_ letter: String) -> Bool {
+            letter != "b" && !taken.contains { $0 == letter || $0.hasPrefix(letter) }
+        }
+        var candidates: [String] = []
+        for app in [pair.from, pair.to] {
+            candidates.append(contentsOf: mnemonicLetters(app: app, record: nil))
+        }
+        candidates.append(contentsOf: "abcdefghijklmnopqrstuvwxyz".map(String.init))
+        return candidates.first(where: free)
     }
 
     static func routeCandidates(_ context: Context) -> [Candidate] {

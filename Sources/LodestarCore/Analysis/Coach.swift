@@ -319,6 +319,51 @@ public enum Coach {
 
     // MARK: - The offer
 
+    /// How well this kind of intervention has actually worked on this
+    /// user — the curriculum's own calibration, read off the ledger.
+    ///
+    /// A trial is an answered offer of the kind; a win is an accept whose
+    /// habit demonstrably took (the curve bent, judged by the same
+    /// `bentCompletions` every other maturity gate uses), or an accept of
+    /// an edit that needs no learning. A "never" is a trial with no win. An
+    /// accept still young enough to be learning is neither — it must not
+    /// count against a kind for being recent. The result multiplies the
+    /// *ranking* only, never the gates: evidence decides what may be
+    /// offered; history decides what is offered first. Bounded in
+    /// (0.5, 1.5) with a two-trial prior, so one bad accept cannot silence
+    /// a kind and one good one cannot crown it.
+    public static func kindWeight(observations: Observations,
+                                  kind: Recommendation.Kind, now: Date = Date()) -> Double {
+        var trials = 0
+        var wins = 0
+        for entry in observations.ledger where entry.kind == kind.rawValue {
+            switch entry.status {
+            case "accepted":
+                if requiresLearning(entry.kind) {
+                    let bent = entry.chain
+                        .map { (observations.addresses[$0]?.trigger.n ?? 0)
+                            >= bentCompletions } ?? false
+                    if bent {
+                        trials += 1
+                        wins += 1
+                    } else if let accepted = entry.acceptedWeek,
+                              Observations.week(now) - accepted >= stallWeeks {
+                        // Old enough to have bent and it did not: a loss.
+                        trials += 1
+                    }
+                } else {
+                    trials += 1
+                    wins += 1
+                }
+            case "never":
+                trials += 1
+            default:
+                break
+            }
+        }
+        return 0.5 + (Double(wins) + 1) / (Double(trials) + 2)
+    }
+
     /// The one suggestion worth standing behind right now, or nil — and
     /// nil is the common, correct answer. Standing is not showing: an
     /// unanswered suggestion keeps standing through every cooldown, so a
@@ -362,8 +407,13 @@ public enum Coach {
             }
             return true
         }
-        return eligible.max { $0.secondsPerWeek * $0.probability
-            < $1.secondsPerWeek * $1.probability }
+        // Value times confidence, weighted by how this kind of
+        // intervention has historically fared on this user.
+        func score(_ rec: Recommendation) -> Double {
+            rec.secondsPerWeek * rec.probability
+                * kindWeight(observations: observations, kind: rec.kind, now: now)
+        }
+        return eligible.max { score($0) < score($1) }
     }
 
     /// The address that replaced this one, shown, while saying so is still
@@ -435,14 +485,20 @@ public enum Coach {
     public static func cue(for rec: Recommendation) -> Cue? {
         switch rec.kind {
         case .bind, .nudge: return .app(rec.target)
-        case .shorten:
+        case .shorten, .rebind:
+            // A rebind's felt cost is the stumble, and the stumble ends at
+            // the destination — so the chip lands seconds after arriving
+            // there, when the wrong press is still in the fingers.
             if case .supersede(_, _, let target)? = rec.edit {
+                return .app((rec.display ?? target).lowercased())
+            }
+            if case .bindTarget(_, let target)? = rec.edit {
                 return .app((rec.display ?? target).lowercased())
             }
             return nil
         case .route: return .host(rec.target)
         case .meetings: return .meeting
-        case .rebind, .retire, .breath: return nil
+        case .retire, .breath: return nil
         }
     }
 
@@ -453,7 +509,23 @@ public enum Coach {
         let headline: String
         var evidence = rec.detail
         switch rec.kind {
-        case .bind, .shorten:
+        case .nudge,
+             .rebind where rec.edit == nil,
+             .breath where rec.edit == nil:
+            // Report-only findings: the chip can only offer what it can
+            // commit, so these point at the report instead.
+            headline = rec.target
+            accept = "see lodestar observations"
+        case .breath:
+            // The one accept that composes rather than writes: the apps
+            // arrange side by side and the layout saves at the address.
+            if case .composeBreath(_, let path)? = rec.edit {
+                headline = "lode ' \(path.uppercased()) → \(rec.display ?? rec.target)"
+            } else {
+                headline = rec.target
+            }
+            accept = "tap lode twice to save them side by side"
+        case .bind, .shorten, .rebind:
             // Both land on "the address you will type next", which for a
             // supersede is the new chain rather than the one being given
             // up — the chip names the gain, not the loss.
@@ -523,9 +595,6 @@ public enum Coach {
             headline = "meetings at the door"
             evidence = rec.detail + secondsClause(rec.secondsPerWeek)
             accept = "tap lode twice to turn it on"
-        case .rebind, .nudge, .breath:
-            headline = rec.target
-            accept = "see lodestar observations"
         }
         return Chip(headline: headline, evidence: evidence,
                     footer: "\(accept) · lode ⌫ not this one · fades on its own")

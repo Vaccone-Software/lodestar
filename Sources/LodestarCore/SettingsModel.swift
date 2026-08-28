@@ -307,6 +307,12 @@ public enum SettingsModel {
                 detail: "A completed span is copied the moment its second "
                     + "anchor lands.",
                 isDefault: !config.selectCopyOnComplete),
+            Row(title: "Guide fade", path: "guide.fade",
+                control: .toggle(config.guideFade),
+                detail: "The chain guide waits longer to appear as a "
+                    + "subtree is learned, so recall gets its chance "
+                    + "first. A stumble brings it back immediately.",
+                isDefault: config.guideFade),
         ]))
 
         // 5 · Clipboard
@@ -449,6 +455,15 @@ public enum SettingsModel {
                     + "Never titles, URLs, or content. Feeds the coach and "
                     + "the retrospective.",
                 isDefault: config.observationsEnabled),
+            Row(title: "Health pulse", path: "observations.health",
+                control: .toggle(config.observationsHealth && config.observationsEnabled),
+                detail: config.observationsEnabled
+                    ? "Also keep input counts and typing rhythm, for the "
+                        + "quarterly mirror. Counts only, never which keys "
+                        + "or what was typed."
+                    : "Needs observations.",
+                isDefault: config.observationsHealth,
+                dimmed: !config.observationsEnabled),
             Row(title: "Coach", path: "coach.enabled",
                 control: .toggle(config.coachEnabled && config.observationsEnabled),
                 detail: config.observationsEnabled

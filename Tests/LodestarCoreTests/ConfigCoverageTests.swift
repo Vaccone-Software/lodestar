@@ -52,6 +52,8 @@ final class ConfigCoverageTests: XCTestCase {
         },
 
         Probe(path: ["observations", "enabled"], value: .bool(false)) { !$0.observationsEnabled },
+        Probe(path: ["observations", "health"], value: .bool(false)) { !$0.observationsHealth },
+        Probe(path: ["guide", "fade"], value: .bool(false)) { !$0.guideFade },
         Probe(path: ["coach", "enabled"], value: .bool(false)) { !$0.coachEnabled },
 
         Probe(path: ["keys", "50"], value: .string("-")) { $0.keyOverrides[50] == "-" },

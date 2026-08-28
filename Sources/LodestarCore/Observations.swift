@@ -572,6 +572,11 @@ public struct Observations: Codable, Equatable {
             // view needs nothing from it yet — aggregate at read time.
             touch(now)
 
+        case .pulse, .latency:
+            // Same deal: the health mirror and the latency line are views
+            // computed from the log and the rollups when they are read.
+            touch(now)
+
         case .coach:
             touch(now)
             guard let action = event.action, let kind = event.rec,

@@ -408,7 +408,10 @@ final class Actions {
         Log.info("move-display", ["window": focused.id, "from": home.id,
                                   "to": destination.id, "beside": beside])
         if beside {
-            layout.add(focused.id, on: destination.id)
+            guard layout.add(focused.id, on: destination.id) else {
+                hud.flash("✕ nine windows is the cap · plain [ ] replaces")
+                return
+            }
         } else {
             layout.replace(with: focused.id, on: destination.id)
         }
@@ -565,6 +568,57 @@ final class Actions {
                           },
                           done: { "◎ breath \(latest.uppercased()) updated · \($0) window\($0 == 1 ? "" : "s")" })
         return .done(flash: nil)
+    }
+
+    /// The coach's breath accept: arrange the pair side by side on the
+    /// active display right now, then save the layout at `path`. The one
+    /// accept that composes state rather than writing a config line —
+    /// decided deliberately, and held to two honesty rules: it refuses
+    /// when an app has no live window (composing must never mean
+    /// launching things behind someone), and it refuses a path already
+    /// taken (the coach must not overwrite an address a hand chose).
+    func composeBreath(apps: [String], path: String) -> String? {
+        guard store.breath(at: path) == nil else {
+            return "breath \(path.uppercased()) is already saved"
+        }
+        if let shadowed = store.breathWouldShadow(path) {
+            return "\(path.uppercased()) would shadow breath \(shadowed.uppercased())"
+        }
+        var windows: [WindowModel.Window] = []
+        for name in apps {
+            guard let window = bestAliveWindow(
+                bundleID: appIndex.entry(named: name)?.bundleID, appName: name
+            ) else { return "open \(name) first, then accept" }
+            windows.append(window)
+        }
+        guard let active = layout.activeDisplay() else { return "no display to arrange on" }
+        Log.info("compose-breath", ["path": path, "apps": apps.count])
+        // The checks above answered synchronously — that is what the chip's
+        // error flash needs. The arranging is AX work and the accept
+        // arrives through the tap, so it waits its turn like every verb.
+        OffTap.run { [weak self] in
+            guard let self else { return }
+            self.layout.replace(with: windows[0].id, on: active.id)
+            for window in windows.dropFirst() {
+                guard self.layout.add(window.id, on: active.id) else { return }
+            }
+            self.raise(windows[0])
+            // The save waits for the frames to land — the moves run off
+            // the main thread — so the breath remembers where the windows
+            // are, not where they were.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+                guard let self, self.store.breath(at: path) == nil else { return }
+                let members = self.currentBreathMembers()
+                guard !members.isEmpty else { return }
+                let orientation = self.layout.orientation(on: active.id)
+                self.store.setBreath(BreathRecord(path: path,
+                                                  orientation: orientation.rawValue,
+                                                  members: members))
+                self.hud.flash("◎ breath \(path.uppercased()) saved · "
+                    + apps.joined(separator: " + "))
+            }
+        }
+        return nil
     }
 
     /// The slow half of saving a breath — the members gather, the
@@ -766,7 +820,15 @@ final class Actions {
         Log.info("place", ["window": window.id, "app": window.appName,
                            "action": "\(action)", "display": active.id])
         switch action {
-        case .add: layout.add(window.id, on: active.id)
+        case .add:
+            // The tenth window is prevented, not absorbed: nine is the cap
+            // because the digits are the addresses. The refusal leaves the
+            // world exactly as it was — a half-acted gesture would be
+            // worse than a declined one.
+            guard layout.add(window.id, on: active.id) else {
+                hud.flash("✕ nine windows is the cap · plain summon replaces")
+                return
+            }
         case .replace: layout.replace(with: window.id, on: active.id)
         case .visit: break // take me there — its arrangement stays untouched
         }

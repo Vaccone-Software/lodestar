@@ -105,7 +105,8 @@ final class CoachController {
                               leaves: [Advisor.Leaf],
                               webRoutes: [String: String],
                               profileKeys: [String: String],
-                              meetingsEnabled: Bool)? = { nil }
+                              meetingsEnabled: Bool,
+                              breathPaths: [String])? = { nil }
     /// Perform the one config line. Returns an error string, or nil.
     var applyEdit: (ConfigEdit) -> String? = { _ in "coach is not wired" }
     /// The engine's stillness — no chain, no bars, no peek.
@@ -469,12 +470,15 @@ final class CoachController {
         // megabytes-deep JSONL file, and a keystroke must never wait on it.
         let log = observations?.log
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            let events = log?.snapshot() ?? []
+            // Bounded on purpose: the ring now keeps a year, and every
+            // generator's evidence joins live inside ninety days.
+            let events = log?.snapshot(days: EventLog.advisorWindowDays) ?? []
             let context = Advisor.Context(
                 observations: inputs.observations, events: events,
                 leaves: inputs.leaves, webRoutes: inputs.webRoutes,
                 profileKeys: inputs.profileKeys,
-                meetingsEnabled: inputs.meetingsEnabled)
+                meetingsEnabled: inputs.meetingsEnabled,
+                breathPaths: inputs.breathPaths)
             let recommendations = Advisor.recommend(context)
             let offer = Coach.standingOffer(observations: inputs.observations,
                                             recommendations: recommendations,

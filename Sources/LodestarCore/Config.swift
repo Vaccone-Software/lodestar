@@ -90,7 +90,14 @@ public struct Config {
     /// Watch how you reach things, locally, to make suggestions later. Off
     /// means nothing is recorded and no file is written.
     public var observationsEnabled = true
+    /// The health pulse: input counts and rhythm moments over all typing
+    /// and clicking, never key identities. Its own switch because it
+    /// watches more than Lodestar's gestures.
+    public var observationsHealth = true
     public var coachEnabled = true
+    /// The chain guide fades as a subtree is learned: the map waits for
+    /// recall before it appears. False paints it immediately, always.
+    public var guideFade = true
     /// Keycode → key-name overlays on the built-in ANSI table.
     public var keyOverrides: [Int64: String] = [:]
     public var graph: GraphNode = GraphNode()
@@ -181,7 +188,11 @@ public struct Config {
         ], description: "Clipboard history."),
         "observations": .table([
             "enabled": .boolean(description: "Watch how you reach things, on this machine only, to suggest improvements later."),
+            "health": .boolean(description: "Also keep the hands' pulse: input counts, typing rhythm moments, active minutes. Counts only, never which keys or what was typed."),
         ], description: "Local observations. How you got places, never what you were doing there; nothing leaves the machine."),
+        "guide": .table([
+            "fade": .boolean(description: "The chain guide waits longer to appear as a subtree is learned, so recall gets its chance first. False paints it immediately."),
+        ], description: "The chain guide."),
         "coach": .table([
             "enabled": .boolean(description: "Let Lodestar offer one improvement at a time, in quiet moments, priced in seconds."),
         ], description: "The coach: rare, evidence-backed suggestions drawn from the observations."),
@@ -428,8 +439,14 @@ public struct Config {
         if let enabled = effective.value(at: ["observations", "enabled"])?.bool {
             config.observationsEnabled = enabled
         }
+        if let enabled = effective.value(at: ["observations", "health"])?.bool {
+            config.observationsHealth = enabled
+        }
         if let enabled = effective.value(at: ["coach", "enabled"])?.bool {
             config.coachEnabled = enabled
+        }
+        if let fade = effective.value(at: ["guide", "fade"])?.bool {
+            config.guideFade = fade
         }
         if let enabled = effective.value(at: ["web", "clicks", "enabled"])?.bool {
             config.webHandleClicks = enabled

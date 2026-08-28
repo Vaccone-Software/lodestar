@@ -121,13 +121,22 @@ final class LayoutControllerTests: XCTestCase {
         XCTAssertEqual(layout.members(on: 1), [10])
     }
 
-    func testAddAtCapReplaces() {
-        for id in 1...11 { model.addWindow(CGWindowID(id * 10)) }
+    /// Nine is the cap because the digits are the addresses, and the
+    /// tenth beside-summon is refused with the world untouched — not
+    /// absorbed by a takeover, which is what "beside" must never mean.
+    func testAddAtCapRefuses() {
+        for id in 1...10 { model.addWindow(CGWindowID(id * 10)) }
         layout.replace(with: 10, on: 1)
-        for id in 2...10 { layout.add(CGWindowID(id * 10), on: 1) }
-        XCTAssertEqual(layout.members(on: 1).count, 10)
-        layout.add(110, on: 1)
-        XCTAssertEqual(layout.members(on: 1), [110], "the eleventh replaces")
+        for id in 2...9 {
+            XCTAssertTrue(layout.add(CGWindowID(id * 10), on: 1))
+        }
+        XCTAssertEqual(layout.members(on: 1).count, 9)
+        let before = layout.members(on: 1)
+        XCTAssertFalse(layout.add(100, on: 1), "the tenth is prevented")
+        XCTAssertEqual(layout.members(on: 1), before,
+                       "a refusal leaves the layout exactly as it was")
+        // And the ninth digit still reaches the ninth (last) window.
+        XCTAssertEqual(layout.windowID(atDigit: 9, on: 1), before.last)
     }
 
     func testRemoveHealsSurvivors() {

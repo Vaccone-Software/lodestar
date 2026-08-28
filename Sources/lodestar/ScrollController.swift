@@ -44,18 +44,67 @@ final class ScrollController {
     /// Called when async pane discovery lands (for guide refreshes).
     var onPanesDiscovered: (() -> Void)?
 
+    /// The instrument observing itself: a warmup's name and its seconds.
+    var latency: ((String, TimeInterval) -> Void)?
+
     /// Enter immediately — warp to the window center now; pane discovery
     /// runs off the main thread and refines Tab targets when it lands.
+    ///
+    /// The model being cold is not a refusal. Wheel events land on
+    /// whatever sits under the pointer regardless, so on a window the
+    /// model has not discovered yet (a big Brave window can take seconds)
+    /// the mode enters against the frontmost app, scrolls immediately at
+    /// the pointer, and keeps asking the model until the window turns up
+    /// — at which point panes and the guide refine. The old behavior
+    /// returned false, the engine stayed idle, and the j the hand had
+    /// already committed fell through to the graph as "j is not on the
+    /// graph": a keystroke landing in the wrong register, over a mode the
+    /// user had validly entered. That is the trust bug this closes.
     func enter() -> Bool {
-        guard let focused = model.focusedWindow, focused.isAlive else { return false }
-        appName = focused.appName
-        windowFrame = focused.frame
         panes = []
         areaIndex = 0
         pendingG = false
         discoveryGeneration += 1
+        let natural = CFPreferencesCopyAppValue(
+            "com.apple.swipescrolldirection" as CFString,
+            kCFPreferencesAnyApplication
+        ) as? Bool ?? true
+        sign = natural ? 1 : -1
+        if let focused = model.focusedWindow, focused.isAlive {
+            appName = focused.appName
+            windowFrame = focused.frame
+            discoverPanes(of: focused.element, began: Date())
+            warpToCurrent()
+            return true
+        }
+        guard let front = NSWorkspace.shared.frontmostApplication else { return false }
+        appName = front.localizedName ?? "…"
+        windowFrame = .zero
+        retryDiscovery(generation: discoveryGeneration, began: Date(), attempts: 0)
+        return true
+    }
+
+    /// Ask the model again until the focused window exists, then discover
+    /// its panes. The keys never waited: this refines aim, it does not
+    /// gate the mode.
+    private func retryDiscovery(generation: Int, began: Date, attempts: Int) {
+        guard discoveryGeneration == generation, attempts < 16 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            guard let self, self.discoveryGeneration == generation else { return }
+            guard let focused = self.model.focusedWindow, focused.isAlive else {
+                self.retryDiscovery(generation: generation, began: began,
+                                    attempts: attempts + 1)
+                return
+            }
+            self.appName = focused.appName
+            self.windowFrame = focused.frame
+            self.discoverPanes(of: focused.element, began: began)
+            self.onPanesDiscovered?()
+        }
+    }
+
+    private func discoverPanes(of element: AXUIElement, began: Date) {
         let generation = discoveryGeneration
-        let element = focused.element
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             var found = ScrollAreas.panes(of: element)
                 .sorted { $0.frame.width * $0.frame.height > $1.frame.width * $1.frame.height }
@@ -63,21 +112,15 @@ final class ScrollController {
             DispatchQueue.main.async {
                 guard let self, self.discoveryGeneration == generation else { return }
                 self.panes = found
+                self.latency?("scroll-panes", Date().timeIntervalSince(began))
                 self.onPanesDiscovered?()
             }
         }
-        let natural = CFPreferencesCopyAppValue(
-            "com.apple.swipescrolldirection" as CFString,
-            kCFPreferencesAnyApplication
-        ) as? Bool ?? true
-        sign = natural ? 1 : -1
-        warpToCurrent()
-        return true
     }
 
     func exit() {
         pendingG = false
-        discoveryGeneration += 1 // invalidate in-flight discovery
+        discoveryGeneration += 1 // invalidate in-flight discovery and retries
         cancelGlide()
         heldKeys.removeAll()
         stopSmoothTimer()
@@ -172,7 +215,16 @@ final class ScrollController {
     }
 
     private var currentPaneFrame: CGRect {
-        panes.indices.contains(areaIndex) ? panes[areaIndex].frame : windowFrame
+        if panes.indices.contains(areaIndex) { return panes[areaIndex].frame }
+        if windowFrame.height > 10 { return windowFrame }
+        // Cold entry, window still unknown: the screen under the pointer
+        // is the honest stand-in, so half-page verbs still mean something.
+        if let screen = NSScreen.screens.first(where: {
+            NSMouseInRect(NSEvent.mouseLocation, $0.frame, false)
+        }) ?? NSScreen.main {
+            return screen.visibleFrame
+        }
+        return windowFrame
     }
 
     // MARK: - Verbs (positive = toward the end of the document / rightward)

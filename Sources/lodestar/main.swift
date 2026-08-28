@@ -79,6 +79,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let presenting = Presenting()
     private let control = ControlSocket()
     private let settings = SettingsController()
+    private let health = HealthMonitor()
 
     /// Links clicked in other apps land here. Deliberately the shortest path
     /// in the app: it needs the config and nothing else — not the window
@@ -128,7 +129,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         model = WindowModel()
         parking = ParkingLot()
-        layout = LayoutController(model: model, parking: parking)
+        // The serial queue is what takes the AX conversation off the tap's
+        // run loop: a wedged app now stalls a retile, never the keyboard.
+        layout = LayoutController(model: model, parking: parking,
+                                  moveQueue: DispatchQueue(label: "lodestar.moves",
+                                                           qos: .userInteractive))
         appIndex = AppIndex()
         store = StateStore()
         observationStore = ObservationStore()
@@ -138,6 +143,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             observationStore.load()
         }
         observationStore.setEnabled(loaded.observationsEnabled)
+        observationStore.setHealthEnabled(loaded.observationsHealth)
+        layout.onMoves = { [weak self] seconds, members in
+            // Only batches big enough to mean anything: a single window's
+            // move is noise, and the latency line is for regressions.
+            guard members > 0 else { return }
+            self?.observationStore?.latency(surface: "retile", seconds: seconds)
+        }
         // Month ends arrive without reboots on a machine that only ever
         // sleeps: the archive checks daily, and add-only makes every
         // check but the first of the month nearly free.
@@ -212,13 +224,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let selectController = SelectController(model: model)
         selectController.flash = { [weak self] text in self?.hud.flash(text) }
         selectController.observations = observationStore
+        let scroller = ScrollController(model: model)
+        scroller.latency = { [weak self] surface, seconds in
+            self?.observationStore?.latency(surface: surface, seconds: seconds)
+        }
         engine = HotkeyEngine(config: config, actions: actions, hud: hud, searcher: searcher,
                               webBar: webBar, commandsBar: CommandsBarController(),
-                              scroller: ScrollController(model: model),
+                              scroller: scroller,
                               select: selectController,
                               clipboard: clipboardController)
 
         engine.observations = observationStore
+
+        // The hands' pulse: keys from the main tap, clicks and scroll
+        // bursts from its own listen-only tap. Gated by both switches —
+        // health watches more than Lodestar's gestures, so it answers to
+        // its own config line as well as the master.
+        health.observations = observationStore
+        engine.onHumanKey = { [weak self] backspace in
+            self?.health.noteKey(backspace: backspace)
+        }
+        health.setEnabled(loaded.observationsEnabled && loaded.observationsHealth)
 
         // The coach: decisions in LodestarCore, this wiring is the coat.
         coach = CoachController()
@@ -239,7 +265,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     },
                     webRoutes: self.config.webRoutes,
                     profileKeys: identityToKey,
-                    meetingsEnabled: self.config.meetingsEnabled)
+                    meetingsEnabled: self.config.meetingsEnabled,
+                    breathPaths: self.store.state.breaths.map(\.path))
         }
         coach.applyEdit = { [weak self] edit in
             guard let self else { return "lodestar is shutting down" }
@@ -257,6 +284,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 // The meetings controller notices enabled-but-unauthorized
                 // on the reload and runs its own prime-then-prompt.
                 return self.setMeetingsEnabled(true)
+            case .composeBreath(let apps, let path):
+                // State, not config: the pair arranges side by side and
+                // the layout saves at the address. The flash it earns is
+                // its own — nothing here reloads the config.
+                return self.actions.composeBreath(apps: apps, path: path)
             }
         }
         coach.engineQuiet = { [weak self] in self?.engine.isQuiet ?? false }
@@ -501,6 +533,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // a state file that is already complete. The second save records
         // the emptied parking map when the restore does finish.
         store?.save()
+        health.flush()
         observationStore?.flush()
         Log.info("terminating: restoring parked windows")
         actions?.restoreAllParked()
@@ -1468,6 +1501,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         clipboardController.maxBytes = loaded.clipboardMaxBytes
         clipboardController.setEnabled(loaded.clipboardEnabled)
         observationStore?.setEnabled(loaded.observationsEnabled)
+        observationStore?.setHealthEnabled(loaded.observationsHealth)
+        health.setEnabled(loaded.observationsEnabled && loaded.observationsHealth)
         if observationStore?.consumeClearRequest() == true {
             observationStore?.clear()
             hud.flash("⌂ observations cleared")

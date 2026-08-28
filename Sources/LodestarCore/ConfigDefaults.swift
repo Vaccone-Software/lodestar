@@ -200,6 +200,10 @@ public enum ConfigDefaults {
         ]),
         "observations": .table([
             "enabled": .bool(true),
+            "health": .bool(true),
+        ]),
+        "guide": .table([
+            "fade": .bool(true),
         ]),
         "meetings": .table([
             "enabled": .bool(false),

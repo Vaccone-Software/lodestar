@@ -235,9 +235,40 @@ public final class ObservationStore {
             event.address = Observations.key(chain)
         case .supersede(_, let new, _):
             event.address = Observations.key(new)
+        case .composeBreath(_, let path):
+            // The breath's letters, keyed like any address; nothing reads
+            // it as a learning slot — a breath needs no curve to bend.
+            event.address = Observations.key(path.map(String.init))
         case .addRoute, .enableMeetings, nil:
             break
         }
+        record(event)
+    }
+
+    /// A quarter hour of the hands, already folded to counts and moments
+    /// by `HealthPulse`. Gated separately from the master switch because
+    /// it watches all typing, not just Lodestar's gestures —
+    /// `observations.health false` turns exactly this off.
+    public func healthPulse(_ event: ObservationEvent) {
+        guard event.kind == .pulse, healthEnabled else { return }
+        record(event)
+    }
+
+    /// Off means no pulse is recorded; the accumulator upstream also stops
+    /// feeding, but the store enforces its own gate so a straggler flush
+    /// cannot land after the switch.
+    public func setHealthEnabled(_ on: Bool) {
+        healthEnabled = on
+    }
+
+    private var healthEnabled = true
+
+    /// The instrument observing itself: a surface's warmup, in seconds.
+    public func latency(surface: String, seconds: TimeInterval, at now: Date = Date()) {
+        guard seconds > 0, !surface.isEmpty else { return }
+        var event = ObservationEvent(t: now, kind: .latency)
+        event.verb = surface
+        event.seconds = seconds
         record(event)
     }
 

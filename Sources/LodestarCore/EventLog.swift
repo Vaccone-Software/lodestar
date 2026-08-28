@@ -50,6 +50,21 @@ public struct ObservationEvent: Codable, Equatable {
         /// `source` (ocr | ax), `row` (native | grounded | held for
         /// completions), `typed` (query characters), `seconds` in mode.
         case select
+        /// A quarter-hour of the hands, as counts and moments only: `keys`,
+        /// `backspaces`, `clicks`, `scrolls` (bursts, not wheel events),
+        /// `activeMinutes`, and the inter-key interval's sufficient
+        /// statistics (`ikN`, `ikSum`, `ikSumSq`). The hard line, stated
+        /// once and enforced at the accumulator: **never key identities on
+        /// general typing** — per-key or per-digraph timing on arbitrary
+        /// text statistically reconstructs content, so the fingers'
+        /// metrics are global moments and one anonymous flag (backspace,
+        /// the correction key) and nothing else, ever.
+        case pulse
+        /// The instrument observing itself: `verb` names a surface's
+        /// warmup ("scroll-panes", "retile"), `seconds` what it took —
+        /// so a regression in the instrument surfaces the way a
+        /// regression in the hand does.
+        case latency
     }
 
     public var t: Date
@@ -79,6 +94,14 @@ public struct ObservationEvent: Codable, Equatable {
     public var rec: String?
     public var lead: Double?
     public var seconds: Double?
+    public var keys: Int?
+    public var backspaces: Int?
+    public var clicks: Int?
+    public var scrolls: Int?
+    public var activeMinutes: Int?
+    public var ikN: Int?
+    public var ikSum: Double?
+    public var ikSumSq: Double?
 
     public init(t: Date, kind: Kind) {
         self.t = t
@@ -92,12 +115,23 @@ public struct ObservationEvent: Codable, Equatable {
 /// bounded by age: events older than `retention` fall off at compaction, by
 /// which time their contribution lives on in the aggregates' running
 /// statistics — the raw sample is dropped only once its summary is kept.
+///
+/// The ring is sharded by UTC month: the live file holds the open month,
+/// and compaction moves every closed month into `events-YYYY-MM.jsonl`
+/// beside it. A closed shard is never re-parsed or rewritten — retention
+/// retires it by deleting the whole file — which is what keeps a year of
+/// raw material from making every boot pay for the archive. Bounded reads
+/// (`recent`) open only the shards a window actually touches.
 public final class EventLog {
     public static let defaultFile = Paths.data.appendingPathComponent("events.jsonl")
-    /// Ninety days of raw material. Old enough for every curve to keep its
-    /// beginning within an epoch, small enough that the file stays a working
-    /// set rather than an archive.
-    public static let retention: TimeInterval = 90 * 86_400
+    /// A year of raw material. The monthly shards keep the working set
+    /// small — the live file never holds more than the open month — so
+    /// retention buys replay depth for models without a boot-time bill.
+    public static let retention: TimeInterval = 365 * 86_400
+    /// The window handed to the recommendation pass: every generator's
+    /// evidence joins live inside it, and a pass that decoded the whole
+    /// year on every refresh would pay for history nothing reads.
+    public static let advisorWindowDays = 90
 
     public let file: URL
     /// Owns `pending` and every touch of the file. Appends land here
@@ -202,22 +236,39 @@ public final class EventLog {
     /// Every event still in the ring, oldest first, pending included.
     public func readAll() -> [ObservationEvent] {
         io.sync {
-            var events = Self.read(file: file)
+            var events = shardFilesLocked().flatMap { Self.read(file: $0) }
+            events.append(contentsOf: Self.read(file: file))
             events.append(contentsOf: pending)
             return events
         }
     }
 
+    /// The last `days` of the ring — the bounded read the recommendation
+    /// pass runs on. Only shards the window touches are opened, so a year
+    /// of archive costs a ninety-day reader nothing.
+    public func recent(days: Int, now: Date = Date()) -> [ObservationEvent] {
+        let cutoff = now.addingTimeInterval(-Double(days) * 86_400)
+        return io.sync {
+            var events = shardFilesLocked()
+                .filter { shard in
+                    guard let month = Self.shardMonth(of: shard) else { return true }
+                    return Self.monthEnd(of: month) >= cutoff
+                }
+                .flatMap { Self.read(file: $0) }
+            events.append(contentsOf: Self.read(file: file))
+            events.append(contentsOf: pending)
+            return events.filter { $0.t >= cutoff }
+        }
+    }
+
     /// Flush-then-read as one step on `io`, so the file the analysis pass
     /// decodes already holds everything buffered — safe from any thread,
-    /// which is where the coach's recommendation pass runs it.
-    public func snapshot() -> [ObservationEvent] {
-        io.sync {
-            flushLocked()
-            var events = Self.read(file: file)
-            events.append(contentsOf: pending)
-            return events
-        }
+    /// which is where the coach's recommendation pass runs it. `days`
+    /// bounds the window; nil reads the whole ring.
+    public func snapshot(days: Int? = nil, now: Date = Date()) -> [ObservationEvent] {
+        io.sync { flushLocked() }
+        guard let days else { return readAll() }
+        return recent(days: days, now: now)
     }
 
     /// Static and path-only on purpose: safe for a process that only reads
@@ -230,32 +281,73 @@ public final class EventLog {
         }
     }
 
-    /// Drop what has aged out of the ring, rewriting the file.
+    /// Rotate closed months into shards and drop what has aged out.
     public func compact(now: Date = Date()) {
         io.sync { self.compactLocked(now: now) }
     }
 
-    /// The boot path: same rotation, but launch never waits on it — a
-    /// ninety-day ring is a full decode and rewrite, and the tap should be
+    /// The boot path: same rotation, but launch never waits on it — the
+    /// live file is a full decode and rewrite, and the tap should be
     /// standing before the disk has finished settling history.
     public func compactSoon(now: Date = Date()) {
         io.async { self.compactLocked(now: now) }
     }
 
+    /// Two jobs, both cheap because shards are immutable. Closed-month
+    /// events leave the live file for their month's shard — appended, so a
+    /// month that closes across several compactions accumulates rather
+    /// than replacing. Retention deletes whole shard files whose month has
+    /// fallen out of the window; a shard straddling the cutoff keeps all
+    /// of its events, because rewriting an archive to shave days off its
+    /// oldest edge is exactly the kind of churn the shards exist to end.
     private func compactLocked(now: Date) {
         dispatchPrecondition(condition: .onQueue(io))
         let cutoff = now.addingTimeInterval(-Self.retention)
+        for shard in shardFilesLocked() {
+            guard let month = Self.shardMonth(of: shard) else { continue }
+            if Self.monthEnd(of: month) < cutoff {
+                try? FileManager.default.removeItem(at: shard)
+            }
+        }
+        let open = Self.monthKey(now)
         let events = Self.read(file: file)
-        let kept = events.filter { $0.t >= cutoff }
-        guard kept.count < events.count else { return }
-        let encoder = Self.makeEncoder()
+        var keep: [ObservationEvent] = []
+        var closing: [String: [ObservationEvent]] = [:]
+        for event in events {
+            let month = Self.monthKey(event.t)
+            if month == open {
+                keep.append(event)
+            } else if event.t >= cutoff {
+                closing[month, default: []].append(event)
+            } // else: aged out entirely — dropped.
+        }
+        guard keep.count < events.count else { return }
+        for (month, moved) in closing.sorted(by: { $0.key < $1.key }) {
+            let shard = shardFile(for: month)
+            let lines = Self.encodeLines(moved)
+            if let handle = try? FileHandle(forWritingTo: shard) {
+                defer { try? handle.close() }
+                _ = try? handle.seekToEnd()
+                try? handle.write(contentsOf: lines)
+            } else if !FileManager.default.fileExists(atPath: shard.path) {
+                // First write for this month. The existence check is the
+                // guard: an open that failed on an existing shard must not
+                // fall through to replacing it.
+                try? lines.write(to: shard, options: .atomic)
+            }
+        }
+        try? Self.encodeLines(keep).write(to: file, options: .atomic)
+    }
+
+    private static func encodeLines(_ events: [ObservationEvent]) -> Data {
+        let encoder = makeEncoder()
         var lines = Data()
-        for event in kept {
+        for event in events {
             guard let data = try? encoder.encode(event) else { continue }
             lines.append(data)
             lines.append(0x0A)
         }
-        try? lines.write(to: file, options: .atomic)
+        return lines
     }
 
     public func clear() {
@@ -264,7 +356,67 @@ public final class EventLog {
         io.sync {
             pending = []
             try? FileManager.default.removeItem(at: file)
+            for shard in shardFilesLocked() {
+                try? FileManager.default.removeItem(at: shard)
+            }
         }
+    }
+
+    // MARK: - Shards
+
+    private static let shardCalendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC") ?? .current
+        return calendar
+    }()
+
+    /// "2026-08" for any moment in that UTC month — the same bucketing the
+    /// rollup uses, so a shard and an archived month describe one span.
+    static func monthKey(_ date: Date) -> String {
+        let parts = shardCalendar.dateComponents([.year, .month], from: date)
+        return String(format: "%04d-%02d", parts.year ?? 0, parts.month ?? 0)
+    }
+
+    /// The last instant a "YYYY-MM" key can contain, for retention.
+    static func monthEnd(of key: String) -> Date {
+        let parts = key.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 2 else { return .distantFuture }
+        var components = DateComponents()
+        components.year = parts[0]
+        components.month = parts[1] + 1
+        return shardCalendar.date(from: components) ?? .distantFuture
+    }
+
+    /// `events.jsonl` → `events-2026-08.jsonl`, whatever the base name —
+    /// a log pointed at a scratch file shards beside that scratch file.
+    func shardFile(for month: String) -> URL {
+        let base = file.deletingPathExtension().lastPathComponent
+        return file.deletingLastPathComponent()
+            .appendingPathComponent("\(base)-\(month).jsonl")
+    }
+
+    /// The month a shard file carries, from its name; nil for the live file.
+    static func shardMonth(of url: URL) -> String? {
+        let name = url.deletingPathExtension().lastPathComponent
+        guard name.count >= 8 else { return nil }
+        let tail = String(name.suffix(7))
+        guard tail.count == 7, tail[tail.index(tail.startIndex, offsetBy: 4)] == "-",
+              tail.dropFirst(5).allSatisfy(\.isNumber),
+              tail.prefix(4).allSatisfy(\.isNumber) else { return nil }
+        return tail
+    }
+
+    /// Every shard beside the live file, oldest month first. Callers must
+    /// already be on `io`.
+    private func shardFilesLocked() -> [URL] {
+        let directory = file.deletingLastPathComponent()
+        let base = file.deletingPathExtension().lastPathComponent
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        return names
+            .filter { $0.hasPrefix("\(base)-") && $0.hasSuffix(".jsonl") }
+            .sorted()
+            .map { directory.appendingPathComponent($0) }
+            .filter { Self.shardMonth(of: $0) != nil }
     }
 
     private func scheduleFlush() {

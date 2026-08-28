@@ -48,12 +48,22 @@ final class HotkeyEngine {
     var onSurfaceClaimed: (() -> Void)?
     private var coachTaps = LodeTapDetector()
 
+    /// A hardware keystroke passed through the tap; true when it was the
+    /// correction key. The health pulse counts these — a count and one
+    /// anonymous flag, never the key itself.
+    var onHumanKey: ((Bool) -> Void)?
+
     /// The grammar lives in LodestarCore, pure and tested; this class is
     /// the AppKit shell that feeds it keys and executes its effects.
     private var core = EngineCore()
     private var tap: CFMachPort?
     private var peekWork: DispatchWorkItem?
     private var isPeeking = false
+    /// The guide's training wheels (GuideFade, core): the paint of a
+    /// chain guide waits longer as its subtree is learned, so recall gets
+    /// its chance before reading does. A stumble brings it back at once.
+    private var guideFade = GuideFade()
+    private var guideWork: DispatchWorkItem?
     /// The physical lode key, tracked across modes: flagsChanged fires for
     /// every modifier transition, and only the down edge may start the
     /// chain clock.
@@ -346,6 +356,7 @@ final class HotkeyEngine {
 
         let keycode = event.getIntegerValueField(.keyboardEventKeycode)
         let named = Keys.name(for: keycode)
+        if actingInputWasHuman { onHumanKey?(named == "delete") }
 
         // lode ⌫ answers a standing chip, and it is asked *before* the peek
         // comes down.
@@ -520,6 +531,9 @@ final class HotkeyEngine {
                 if !completed, !chainLetters.isEmpty {
                     let hover = chainStamps.last.map { now.timeIntervalSince($0) } ?? 0
                     observations.chainAbandoned(chainLetters, hover: hover, at: now)
+                    // An abandon is a stumble too: the map owes the hand
+                    // immediacy here for a while.
+                    guideFade.stumbled(prefix: chainLetters, at: now)
                 }
                 if !completed { chainStamps = []; chainLetters = []; chainSawPeek = false }
             default:
@@ -712,8 +726,32 @@ final class HotkeyEngine {
             case .flash(let text):
                 hud.flash(text)
             case .showGuide(let kind, let letters, let deleting, let note):
-                showGuide(kind: kind, letters: letters, deleting: deleting, note: note)
+                guideWork?.cancel()
+                guideWork = nil
+                if note != nil, kind == .graph { guideFade.stumbled(prefix: letters) }
+                let delay = guideDelay(kind: kind, letters: letters,
+                                       deleting: deleting, note: note)
+                if delay <= 0 {
+                    showGuide(kind: kind, letters: letters, deleting: deleting, note: note)
+                } else {
+                    // The chain state is already advanced and visible in
+                    // the menu bar; only the map waits, and only while the
+                    // hand is being given its chance to recall. A fluent
+                    // completion cancels the paint entirely.
+                    let work = DispatchWorkItem { [weak self] in
+                        guard let self else { return }
+                        self.guideWork = nil
+                        guard case .chain(let k, let l, let d) = self.core.state,
+                              k == kind, l == letters, d == deleting else { return }
+                        self.showGuide(kind: kind, letters: letters,
+                                       deleting: deleting, note: note)
+                    }
+                    guideWork = work
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+                }
             case .hideGuide:
+                guideWork?.cancel()
+                guideWork = nil
                 hud.hide()
             }
         }
@@ -807,6 +845,21 @@ final class HotkeyEngine {
 
     private func display(_ letters: [String]) -> String {
         letters.map { $0.uppercased() }.joined(separator: " ")
+    }
+
+    /// How long this guide paint should wait. Zero for everything except
+    /// a clean mid-chain graph guide over a learned subtree — and zero
+    /// whenever the panel already shows a guide, because delaying an
+    /// *update* would leave a stale map standing, which is worse than any
+    /// map at all.
+    private func guideDelay(kind: ChainKind, letters: [String],
+                            deleting: Bool, note: String?) -> TimeInterval {
+        guard kind == .graph, note == nil, !deleting, config.guideFade,
+              hud.owner != .guide, let observations else { return 0 }
+        guard case .deeper(let node) = config.graph.resolve(letters) else { return 0 }
+        let leaves = node.leaves().map { letters + $0.chain }
+        return guideFade.delay(prefix: letters, leaves: leaves,
+                               observations: observations.observations)
     }
 
     private func showGuide(kind: ChainKind, letters: [String], deleting: Bool, note: String?) {

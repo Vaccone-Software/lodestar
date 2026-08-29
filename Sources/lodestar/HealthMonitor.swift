@@ -21,6 +21,7 @@ final class HealthMonitor {
     var observations: ObservationStore?
 
     private var pulse = HealthPulse()
+    private var clickPulse = ClickPulse()
     private var enabled = false
     private var tap: CFMachPort?
     private var tapThread: Thread?
@@ -29,8 +30,36 @@ final class HealthMonitor {
     /// Mouse-side counts cross from the tap thread through this lock; the
     /// main thread drains them into the pulse on its flush cadence.
     private let lock = NSLock()
-    private var pendingClicks: [Date] = []
+    private var pendingClicks: [PendingClick] = []
     private var pendingScrolls: [Date] = []
+    /// The last keystroke and the last mouse act, for the hand-trip
+    /// verdict: a click is a trip when the key came after the mouse.
+    /// Both under the lock — keys land from the main thread, the mouse
+    /// from the tap's.
+    private var lastKeyAt: Date?
+    private var lastMouseAt: Date?
+
+    /// A click with its target's class resolved: the pid the element
+    /// belongs to and its accessibility role. Nothing else about the
+    /// target is ever read.
+    private struct PendingClick {
+        let at: Date
+        let trip: Bool
+        let pid: pid_t?
+        let role: String?
+    }
+
+    /// Where a click's target is asked for. Off the tap thread: the
+    /// accessibility call blocks on the clicked app's event loop, and a
+    /// listen-only tap must never carry that wait. Serial, so a wedged
+    /// app delays later lookups rather than crowding the machine, and
+    /// bounded by its own short messaging timeout.
+    private let lookup = DispatchQueue(label: "lodestar.health.lookup", qos: .utility)
+    private lazy var systemWide: AXUIElement = {
+        let element = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(element, 0.25)
+        return element
+    }()
 
     /// Config's word: `observations.health`, joined with the master
     /// switch by the caller.
@@ -46,12 +75,16 @@ final class HealthMonitor {
             flushTimer = nil
             drainPending()
             if let final = pulse.flush() { observations?.healthPulse(final) }
+            for event in clickPulse.flush() { observations?.clickPulse(event) }
         }
     }
 
     /// A hardware keystroke, from the main tap. Main thread.
     func noteKey(backspace: Bool, at now: Date = Date()) {
         guard enabled else { return }
+        lock.lock()
+        lastKeyAt = now
+        lock.unlock()
         if let flushed = pulse.key(at: now, backspace: backspace) {
             observations?.healthPulse(flushed)
         }
@@ -61,6 +94,7 @@ final class HealthMonitor {
     func flush() {
         drainPending()
         if let final = pulse.flush() { observations?.healthPulse(final) }
+        for event in clickPulse.flush() { observations?.clickPulse(event) }
     }
 
     // MARK: - The mouse side
@@ -73,8 +107,15 @@ final class HealthMonitor {
         pendingScrolls = []
         lock.unlock()
         guard enabled || !(clicks.isEmpty && scrolls.isEmpty) else { return }
-        for at in clicks {
-            if let flushed = pulse.click(at: at) { observations?.healthPulse(flushed) }
+        for click in clicks {
+            if let flushed = pulse.click(at: click.at) { observations?.healthPulse(flushed) }
+            // The pid becomes a name here, on the main thread, and only
+            // the name travels: the same word the focus events use.
+            let app = click.pid.flatMap { NSRunningApplication(processIdentifier: $0)?.localizedName }
+                ?? "unknown"
+            for event in clickPulse.click(app: app, role: click.role, trip: click.trip, at: click.at) {
+                observations?.clickPulse(event)
+            }
         }
         for at in scrolls {
             if let flushed = pulse.scroll(at: at) { observations?.healthPulse(flushed) }
@@ -158,6 +199,9 @@ final class HealthMonitor {
         let now = Date()
         lock.lock()
         defer { lock.unlock() }
+        let trip: Bool
+        if let key = lastKeyAt { trip = key > (lastMouseAt ?? .distantPast) } else { trip = false }
+        lastMouseAt = now
         switch type {
         case .scrollWheel:
             // Coalesced at the source: hundreds of wheel events per flick
@@ -170,7 +214,23 @@ final class HealthMonitor {
                 pendingScrolls[pendingScrolls.count - 1] = now
             }
         default:
-            pendingClicks.append(now)
+            let location = event.location
+            lookup.async { [weak self] in
+                guard let self else { return }
+                var element: AXUIElement?
+                var pid: pid_t = 0
+                var role: String?
+                if AXUIElementCopyElementAtPosition(self.systemWide, Float(location.x),
+                                                    Float(location.y), &element) == .success,
+                   let element {
+                    if AXUIElementGetPid(element, &pid) != .success { pid = 0 }
+                    role = AX.string(element, kAXRoleAttribute)
+                }
+                self.lock.lock()
+                self.pendingClicks.append(PendingClick(at: now, trip: trip,
+                                                       pid: pid > 0 ? pid : nil, role: role))
+                self.lock.unlock()
+            }
         }
     }
 }

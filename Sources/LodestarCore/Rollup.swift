@@ -127,10 +127,40 @@ public struct Rollup: Codable, Equatable {
         /// Gaps between active stretches, minutes — 20 minutes to 4
         /// hours; longer is a day boundary, not a break.
         public var breakMinutes = Stat()
+        /// The mouse by app: clicks, hand trips, and role classes. The
+        /// same line as the events it folds — never a label or a title.
+        public var clicksByApp: [String: ClickMonth] = [:]
 
         public init() {}
 
+        /// Archives before 0.25.5 have no click column; a missing key
+        /// reads as empty rather than refusing the whole file.
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            keys = try c.decodeIfPresent(Int.self, forKey: .keys) ?? 0
+            backspaces = try c.decodeIfPresent(Int.self, forKey: .backspaces) ?? 0
+            clicks = try c.decodeIfPresent(Int.self, forKey: .clicks) ?? 0
+            scrolls = try c.decodeIfPresent(Int.self, forKey: .scrolls) ?? 0
+            activeMinutes = try c.decodeIfPresent(Int.self, forKey: .activeMinutes) ?? 0
+            interKey = try c.decodeIfPresent(Stat.self, forKey: .interKey) ?? Stat()
+            activeHours = try c.decodeIfPresent([Int].self, forKey: .activeHours)
+                ?? [Int](repeating: 0, count: 24)
+            weekdays = try c.decodeIfPresent([Int].self, forKey: .weekdays)
+                ?? [Int](repeating: 0, count: 7)
+            stretchMinutes = try c.decodeIfPresent(Stat.self, forKey: .stretchMinutes) ?? Stat()
+            breakMinutes = try c.decodeIfPresent(Stat.self, forKey: .breakMinutes) ?? Stat()
+            clicksByApp = try c.decodeIfPresent([String: ClickMonth].self, forKey: .clicksByApp) ?? [:]
+        }
+
         var isEmpty: Bool { self == HealthMonth() }
+    }
+
+    /// One app's month of clicks.
+    public struct ClickMonth: Codable, Equatable {
+        public var clicks = 0
+        public var trips = 0
+        public var roles: [String: Int] = [:]
+        public init() {}
     }
 
     /// One week's health sub-rollup, keyed by the epoch-week ordinal the
@@ -511,6 +541,16 @@ public struct Rollup: Codable, Equatable {
             guard let surface = event.verb, let seconds = event.seconds, seconds > 0
             else { return }
             month.latency[surface, default: Stat()].add(log(seconds))
+
+        case .clicks:
+            guard let app = event.app else { return }
+            var record = month.health.clicksByApp[app] ?? ClickMonth()
+            record.clicks += event.clicks ?? 0
+            record.trips += event.trips ?? 0
+            for (role, count) in event.roles ?? [:] {
+                record.roles[role, default: 0] += count
+            }
+            month.health.clicksByApp[app] = record
 
         case .epoch:
             guard let change = event.change else { return }

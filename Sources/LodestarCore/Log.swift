@@ -96,7 +96,8 @@ public enum Log {
         guard handle == nil else { return }
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         if !FileManager.default.fileExists(atPath: file.path) {
-            FileManager.default.createFile(atPath: file.path, contents: nil)
+            FileManager.default.createFile(atPath: file.path, contents: nil,
+                                           attributes: [.posixPermissions: 0o600])
         }
         handle = try? FileHandle(forWritingTo: file)
         handle?.seekToEndOfFile()

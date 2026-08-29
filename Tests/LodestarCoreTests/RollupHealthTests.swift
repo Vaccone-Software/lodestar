@@ -96,6 +96,27 @@ final class RollupHealthTests: XCTestCase {
                       "the open month is still being written")
     }
 
+    func testClicksFoldByAppAndSurviveAnArchiveWithoutThem() throws {
+        var click = ObservationEvent(t: july, kind: .clicks)
+        click.app = "brave"
+        click.clicks = 4
+        click.trips = 1
+        click.roles = ["link": 3, "button": 1]
+        var again = click
+        again.roles = ["link": 1]
+        let months = Rollup.build(events: [click, again], now: now)
+        let record = months[Rollup.monthKey(july)]?.health.clicksByApp["brave"]
+        XCTAssertEqual(record?.clicks, 8)
+        XCTAssertEqual(record?.trips, 2)
+        XCTAssertEqual(record?.roles, ["link": 4, "button": 1])
+
+        // A health column written before the click pulse existed.
+        let old = #"{"keys": 5, "backspaces": 1, "clicks": 2, "scrolls": 0, "activeMinutes": 3}"#
+        let health = try JSONDecoder().decode(Rollup.HealthMonth.self, from: Data(old.utf8))
+        XCTAssertEqual(health.keys, 5)
+        XCTAssertTrue(health.clicksByApp.isEmpty)
+    }
+
     func testLatencyAndIgnoredFold() {
         var warm = ObservationEvent(t: july, kind: .latency)
         warm.verb = "scroll-panes"

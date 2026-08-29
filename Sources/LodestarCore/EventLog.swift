@@ -60,6 +60,13 @@ public struct ObservationEvent: Codable, Equatable {
         /// metrics are global moments and one anonymous flag (backspace,
         /// the correction key) and nothing else, ever.
         case pulse
+        /// A quarter hour of clicks in one app: `app`, `clicks`, `trips`
+        /// (clicks whose previous input was a keystroke — the hand left
+        /// the keys), and `roles`, a histogram of the clicked element's
+        /// accessibility role class. An app name and a role class, never
+        /// a label, a title, a coordinate, or a URL: the pool priced at
+        /// the grain the focus events already keep, and no finer.
+        case clicks
         /// The instrument observing itself: `verb` names a surface's
         /// warmup ("scroll-panes", "retile"), `seconds` what it took —
         /// so a regression in the instrument surfaces the way a
@@ -102,6 +109,8 @@ public struct ObservationEvent: Codable, Equatable {
     public var ikN: Int?
     public var ikSum: Double?
     public var ikSumSq: Double?
+    public var trips: Int?
+    public var roles: [String: Int]?
 
     public init(t: Date, kind: Kind) {
         self.t = t
@@ -221,6 +230,7 @@ public final class EventLog {
             // the last few seconds of them.
             do {
                 try lines.write(to: file, options: .atomic)
+                Paths.restrict(file)
                 appended = true
             } catch {
                 Log.error("events: could not create \(file.lastPathComponent) (\(error))")
@@ -334,9 +344,11 @@ public final class EventLog {
                 // guard: an open that failed on an existing shard must not
                 // fall through to replacing it.
                 try? lines.write(to: shard, options: .atomic)
+                Paths.restrict(shard)
             }
         }
         try? Self.encodeLines(keep).write(to: file, options: .atomic)
+        Paths.restrict(file)
     }
 
     private static func encodeLines(_ events: [ObservationEvent]) -> Data {

@@ -109,6 +109,10 @@ final class Stage {
     let webBar = FakeBar()
     let commandsBar = FakeBar()
     let observations: ObservationStore
+    let scroller: ScrollController
+    /// Every wheel delta scroll mode posted, caught before the window
+    /// server saw it.
+    var wheel: [(dx: Int32, dy: Int32)] = []
     /// Every config line the coach asked the app to write.
     private(set) var edits: [ConfigEdit] = []
     private let directory: URL
@@ -156,9 +160,10 @@ final class Stage {
         let model = WindowModel()
         let clipboard = ClipboardController(
             store: ClipboardStore(root: directory.appendingPathComponent("clipboard")))
+        scroller = ScrollController(model: model)
         engine = HotkeyEngine(config: config, actions: actions, hud: hud,
                               searcher: searcher, webBar: webBar, commandsBar: commandsBar,
-                              scroller: ScrollController(model: model),
+                              scroller: scroller,
                               select: SelectController(model: model),
                               clipboard: clipboard, clock: clock.clock)
         engine.observations = observations
@@ -173,6 +178,7 @@ final class Stage {
             return nil
         }
         actions.coachBoundary = { [unowned self] app in self.coach.noteBoundary(app: app) }
+        scroller.sink = { [unowned self] dx, dy in self.wheel.append((dx, dy)) }
 
         SurfaceWiring.wire(engine: engine, hud: hud, coach: coach,
                            voices: voices, clock: clock.clock)
@@ -252,6 +258,36 @@ final class Stage {
         let swallowed = send(event(type: .keyDown, keycode: code, flags: flags, posted: posted))
         send(event(type: .keyUp, keycode: code, flags: flags, posted: posted))
         return swallowed
+    }
+
+    /// A key goes down and stays down — a held direction in scroll mode.
+    @discardableResult
+    func keyDown(_ name: String, shift: Bool = false) -> Bool {
+        var flags: CGEventFlags = lodeHeld ? Self.lodeFlags : []
+        if shift { flags.insert(.maskShift) }
+        return send(event(type: .keyDown, keycode: Self.keycode(name), flags: flags, posted: false))
+    }
+
+    func keyUp(_ name: String, shift: Bool = false) {
+        var flags: CGEventFlags = lodeHeld ? Self.lodeFlags : []
+        if shift { flags.insert(.maskShift) }
+        send(event(type: .keyUp, keycode: Self.keycode(name), flags: flags, posted: false))
+    }
+
+    private static let leftShiftKeycode: CGKeyCode = 56
+
+    /// Shift alone goes down or up, lode untouched.
+    func shift(_ down: Bool) {
+        var flags: CGEventFlags = lodeHeld ? Self.lodeFlags : []
+        if down { flags.insert(.maskShift) }
+        send(event(type: .flagsChanged, keycode: Self.leftShiftKeycode, flags: flags, posted: false))
+    }
+
+    /// Spin the main run loop until `condition` holds or a bounded number
+    /// of turns pass — for the real timers a surface owns (scroll's 120Hz
+    /// glide) that no virtual clock drives.
+    func pump(until condition: () -> Bool, turns: Int = 200) {
+        for _ in 0..<turns where !condition() { Self.pump() }
     }
 
     /// `lode` + key as one gesture: down, letter, up.

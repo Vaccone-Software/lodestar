@@ -174,6 +174,7 @@ final class SelectController {
         ocrAdopted = false
         focusedPid = window.pid
         modeEnteredAt = Date()
+        capturedAt = nil
         typedInMode = 0
         committedOutcome = nil
         observations?.verbUsed(door == .click ? "hints" : "select")
@@ -717,6 +718,10 @@ final class SelectController {
                     }
                     guard self.core?.anchor == nil else { return }
                     self.adoptOCR(lines, windows: windows)
+                    if level == .accurate {
+                        self.observations?.latency(surface: "select-ocr",
+                                                   seconds: Double(elapsed) / 1000)
+                    }
                     // `windows` is new in this line on purpose: its presence
                     // in a log is what says the build that stitches by
                     // window is the one running.
@@ -747,7 +752,22 @@ final class SelectController {
             .map(\.bounds)
     }
 
+    /// The first moment the mode had anything to offer: entry to the
+    /// first adopted sense, pixels or tree, whichever landed first. The
+    /// audit's 0.89s median to first key was mostly this wait, and the
+    /// instrument had no line for it.
+    private var capturedAt: Date?
+
+    private func noteCaptured() {
+        guard capturedAt == nil else { return }
+        let now = Date()
+        capturedAt = now
+        observations?.latency(surface: "select-capture",
+                              seconds: now.timeIntervalSince(modeEnteredAt))
+    }
+
     private func adoptOCR(_ lines: [OCRSense.Line], windows: [CGRect]) {
+        noteCaptured()
         ocrAdopted = true
         var leaves = lines.enumerated().map { index, line in
             SelectRuns.Leaf(id: index, text: line.text, frame: line.frame)
@@ -947,6 +967,7 @@ final class SelectController {
                 // under an anchor breaks its promise.
                 let grew = found.count > self.lastPassLeaves
                 if !self.ocrAdopted, self.core?.anchor == nil, grew || self.core == nil {
+                    if !found.isEmpty { self.noteCaptured() }
                     self.adopt(found.map { item in
                         (element: item.element, frame: item.frame, text: item.text,
                          settable: item.settable, bounded: item.boundsWork,

@@ -158,3 +158,76 @@ final class HealthTests: XCTestCase {
         XCTAssertEqual(events.first?.seconds ?? 0, 1.4, accuracy: 0.001)
     }
 }
+
+/// The mouse, priced: per app, per role class, and never anything else.
+/// The line is structural — the accumulator takes an app name and a
+/// role string — so what these hold is the folding: trips are counted,
+/// roles are classed, windows roll, and the caps hold.
+final class ClickPulseTests: XCTestCase {
+    private let start = Date(timeIntervalSince1970: 1_700_000_000)
+
+    func testClicksFoldPerAppWithRolesAndTrips() {
+        var pulse = ClickPulse()
+        XCTAssertTrue(pulse.click(app: "Brave Browser", role: "AXLink", trip: true, at: start).isEmpty)
+        XCTAssertTrue(pulse.click(app: "Brave Browser", role: "AXButton", trip: false,
+                                  at: start.addingTimeInterval(1)).isEmpty)
+        XCTAssertTrue(pulse.click(app: "Ghostty", role: nil, trip: true,
+                                  at: start.addingTimeInterval(2)).isEmpty)
+        let events = pulse.flush(now: start.addingTimeInterval(3))
+        XCTAssertEqual(events.map(\.app), ["brave browser", "ghostty"])
+        XCTAssertEqual(events[0].kind, .clicks)
+        XCTAssertEqual(events[0].clicks, 2)
+        XCTAssertEqual(events[0].trips, 1)
+        XCTAssertEqual(events[0].roles, ["link": 1, "button": 1])
+        XCTAssertEqual(events[1].roles, ["unknown": 1])
+        XCTAssertEqual(events[0].t, start, "stamped at the window's start")
+    }
+
+    func testWindowRollsAtItsQuarterHour() {
+        var pulse = ClickPulse()
+        _ = pulse.click(app: "a", role: "AXButton", trip: false, at: start)
+        let rolled = pulse.click(app: "a", role: "AXButton", trip: false,
+                                 at: start.addingTimeInterval(ClickPulse.windowSeconds))
+        XCTAssertEqual(rolled.count, 1)
+        XCTAssertEqual(rolled[0].clicks, 1)
+        XCTAssertEqual(pulse.flush().first?.clicks, 1, "the roller's click opened the new window")
+    }
+
+    func testCapsFoldTheTailIntoOther() {
+        var pulse = ClickPulse()
+        for i in 0..<(ClickPulse.appCap + 3) {
+            _ = pulse.click(app: "app\(i)", role: "AXRole\(i)", trip: false, at: start)
+        }
+        for i in 0..<(ClickPulse.roleCap + 3) {
+            _ = pulse.click(app: "app0", role: "AXRole\(i)", trip: false, at: start)
+        }
+        let events = pulse.flush(now: start)
+        XCTAssertEqual(events.count, ClickPulse.appCap + 1)
+        XCTAssertEqual(events.first { $0.app == ClickPulse.other }?.clicks, 3)
+        let app0 = events.first { $0.app == "app0" }!
+        XCTAssertEqual(app0.roles?.count, ClickPulse.roleCap + 1)
+        XCTAssertEqual(app0.roles?[ClickPulse.other], 3)
+    }
+
+    func testRoleNames() {
+        XCTAssertEqual(ClickPulse.roleName("AXStaticText"), "statictext")
+        XCTAssertEqual(ClickPulse.roleName(""), "unknown")
+        XCTAssertEqual(ClickPulse.roleName(nil), "unknown")
+    }
+
+    func testSummaryRanksAppsAndShares() {
+        var pulse = ClickPulse()
+        _ = pulse.click(app: "brave", role: "AXLink", trip: true, at: start)
+        _ = pulse.click(app: "brave", role: "AXLink", trip: false, at: start)
+        _ = pulse.click(app: "ghostty", role: "AXTextArea", trip: true, at: start)
+        let events = pulse.flush(now: start)
+        let clicks = Health.clicks(events: events, days: 28, now: start.addingTimeInterval(60))
+        XCTAssertEqual(clicks?.clicks, 3)
+        XCTAssertEqual(clicks?.trips, 2)
+        XCTAssertEqual(clicks?.days, 1)
+        XCTAssertEqual(clicks?.ranked.map(\.app), ["brave", "ghostty"])
+        XCTAssertEqual(clicks?.tripShare ?? 0, 2.0 / 3.0, accuracy: 0.001)
+        XCTAssertNil(Health.clicks(events: events, days: 28, now: start.addingTimeInterval(40 * 86_400)),
+                     "outside the window there is nothing to show")
+    }
+}

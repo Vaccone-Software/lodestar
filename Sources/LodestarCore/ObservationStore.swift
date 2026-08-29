@@ -254,6 +254,13 @@ public final class ObservationStore {
         record(event)
     }
 
+    /// A quarter hour of clicks in one app, folded by `ClickPulse`. The
+    /// same gate as the pulse: it watches every click, not Lodestar's.
+    public func clickPulse(_ event: ObservationEvent) {
+        guard event.kind == .clicks, healthEnabled else { return }
+        record(event)
+    }
+
     /// Off means no pulse is recorded; the accumulator upstream also stops
     /// feeding, but the store enforces its own gate so a straggler flush
     /// cannot land after the switch.
@@ -375,5 +382,6 @@ public final class ObservationStore {
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
         try? data.write(to: file, options: .atomic)
+        Paths.restrict(file)
     }
 }

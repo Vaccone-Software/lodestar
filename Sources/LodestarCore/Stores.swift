@@ -155,6 +155,7 @@ public final class StateStore {
         guard let data = try? encoder.encode(state) else { return }
         do {
             try data.write(to: file, options: .atomic)
+            Paths.restrict(file)
             reportedSaveFailure = false
         } catch {
             if !reportedSaveFailure {

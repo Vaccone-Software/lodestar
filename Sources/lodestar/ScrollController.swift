@@ -55,6 +55,11 @@ final class ScrollController {
     /// The instrument observing itself: a warmup's name and its seconds.
     var latency: ((String, TimeInterval) -> Void)?
 
+    /// Where wheel deltas go when a stage is catching them instead of
+    /// the window server. Set, it also stops the pointer warp: a stage
+    /// has no pointer to move.
+    var sink: ((_ dx: Int32, _ dy: Int32) -> Void)?
+
     /// Enter immediately — warp to the window center now; pane discovery
     /// runs off the main thread and refines Tab targets when it lands.
     ///
@@ -316,6 +321,7 @@ final class ScrollController {
     // MARK: - Physics
 
     private func warpToCurrent() {
+        guard sink == nil else { return }
         let target = currentPaneFrame
         CGWarpMouseCursorPosition(CGPoint(x: target.midX, y: target.midY))
     }
@@ -329,6 +335,10 @@ final class ScrollController {
     }
 
     private func post(dx: Int32 = 0, dy: Int32 = 0) {
+        if let sink {
+            sink(dx, dy)
+            return
+        }
         guard let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel,
                                   wheelCount: 2, wheel1: dy, wheel2: dx, wheel3: 0) else { return }
         event.post(tap: .cghidEventTap)

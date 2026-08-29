@@ -688,6 +688,25 @@ func runObservations(clear: Bool, engine: Bool) -> Never {
                 + pad(String(format: "peak %02d:00", peak.offset), 14)
                 + "late night \(late * 100 / total)% (23:00 to 03:00)")
         }
+        // The mouse by app: where the clicks go and what they land on,
+        // by role class. Described, not judged — the pool's size is the
+        // fact, and what to do about it is a later release's question.
+        if let clicks = Health.clicks(events: events, days: 28), clicks.clicks > 0 {
+            var line = pad("  clicks", 10)
+            line += pad(String(format: "%.0f/day", Double(clicks.clicks) / Double(max(1, clicks.days))), 10)
+            if let trips = clicks.tripShare {
+                line += pad(String(format: "%d%% hand trips", Int(trips * 100)), 18)
+            }
+            line += clicks.ranked.prefix(3).map { app, record in
+                let share = record.clicks * 100 / max(1, clicks.clicks)
+                let roles = record.roles.sorted { $0.value > $1.value || ($0.value == $1.value && $0.key < $1.key) }
+                    .prefix(2)
+                    .map { "\($0.key) \($0.value * 100 / max(1, record.clicks))" }
+                    .joined(separator: " · ")
+                return "\(app) \(share)%" + (roles.isEmpty ? "" : " (\(roles))")
+            }.joined(separator: "  ")
+            print(line)
+        }
         print("")
     }
 

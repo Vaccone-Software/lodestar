@@ -34,15 +34,40 @@ public enum Paths {
     /// off other users' reach — clipboard history has no business in a
     /// Time Machine snapshot.
     public static func prepare() {
-        try? FileManager.default.createDirectory(at: config, withIntermediateDirectories: true)
-        try? FileManager.default.createDirectory(
+        let fm = FileManager.default
+        try? fm.createDirectory(at: config, withIntermediateDirectories: true)
+        try? fm.createDirectory(
             at: data, withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700]
         )
+        // `createDirectory` leaves an existing directory's mode alone, so
+        // a data directory made before the mode was asked for stayed
+        // world-readable for months. Set it every launch, and sweep the
+        // files inside: the behavioral record — app switches, hosts, the
+        // hands' pulse — is browser-history-grade, and nothing on this
+        // machine but you has business reading it.
+        try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: data.path)
+        if let names = try? fm.contentsOfDirectory(atPath: data.path) {
+            for name in names {
+                let item = data.appendingPathComponent(name)
+                var isDirectory: ObjCBool = false
+                guard fm.fileExists(atPath: item.path, isDirectory: &isDirectory),
+                      !isDirectory.boolValue else { continue }
+                restrict(item)
+            }
+        }
         var directory = data
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
         try? directory.setResourceValues(values)
+    }
+
+    /// Owner-only. Atomic writes replace the inode, and the fresh file
+    /// takes the process umask — 0644 — so every writer of the record
+    /// calls this after the write, and `prepare` sweeps at boot.
+    public static func restrict(_ file: URL) {
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600],
+                                               ofItemAtPath: file.path)
     }
 
     /// One-way move of the files that predate the split. Runs at boot,

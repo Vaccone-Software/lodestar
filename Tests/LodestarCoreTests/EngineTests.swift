@@ -454,10 +454,21 @@ final class EngineTests: XCTestCase {
 
     func testScrollDirectionKeys() {
         enterScrollMode()
-        XCTAssertEqual(press("j", held: false), [.scrollCancelPendingG, .scrollDirectionDown("j")])
-        XCTAssertEqual(press("k", held: false), [.scrollCancelPendingG, .scrollDirectionDown("k")])
-        XCTAssertEqual(press("h", held: false), [.scrollCancelPendingG, .scrollDirectionDown("h")])
-        XCTAssertEqual(press("l", held: false), [.scrollCancelPendingG, .scrollDirectionDown("l")])
+        XCTAssertEqual(press("j", held: false), [.scrollCancelPendingG, .scrollDirectionDown("j", fast: false)])
+        XCTAssertEqual(press("k", held: false), [.scrollCancelPendingG, .scrollDirectionDown("k", fast: false)])
+        XCTAssertEqual(press("h", held: false), [.scrollCancelPendingG, .scrollDirectionDown("h", fast: false)])
+        XCTAssertEqual(press("l", held: false), [.scrollCancelPendingG, .scrollDirectionDown("l", fast: false)])
+    }
+
+    func testScrollShiftIsFast() {
+        enterScrollMode()
+        for key in ["j", "k", "h", "l"] {
+            XCTAssertEqual(press(key, held: false, shift: true),
+                           [.scrollCancelPendingG, .scrollDirectionDown(key, fast: true)])
+        }
+        XCTAssertEqual(press("d", held: false, shift: true), [.scrollCancelPendingG, .scrollFullPage(down: true)])
+        XCTAssertEqual(press("u", held: false, shift: true), [.scrollCancelPendingG, .scrollFullPage(down: false)])
+        XCTAssertEqual(core.state, .scroll)
     }
 
     func testScrollKeyUpsSwallowedOnlyForDirections() {

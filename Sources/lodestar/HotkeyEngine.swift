@@ -699,12 +699,14 @@ final class HotkeyEngine {
                 showScrollGuide()
             case .scrollExit:
                 scroller.exit()
-            case .scrollDirectionDown(let key):
-                scroller.directionKeyDown(key)
+            case .scrollDirectionDown(let key, let fast):
+                scroller.directionKeyDown(key, fast: fast)
             case .scrollDirectionUp(let key):
                 scroller.directionKeyUp(key)
             case .scrollHalfPage(let down):
-                scroller.halfPage(down: down)
+                scroller.page(down: down, fraction: 0.5)
+            case .scrollFullPage(let down):
+                scroller.page(down: down, fraction: 1)
             case .scrollTapG:
                 scroller.tapG()
             case .scrollToBottom:
@@ -773,6 +775,11 @@ final class HotkeyEngine {
         let (held, _) = classify(event.flags)
         let wasHeld = lodeWasHeld
         lodeWasHeld = held
+        // Shift is live while a direction key is held: pressing it mid-glide
+        // sprints, releasing it settles, without lifting the key.
+        if case .scroll = core.state {
+            scroller.shiftChanged(event.flags.contains(.maskShift))
+        }
         guard core.isIdle else {
             // Inside a chain the stamps are the measurement — leave them.
             // Inside any other mode there is no chain to clock, and the
@@ -840,9 +847,9 @@ final class HotkeyEngine {
         hud.showGuide(
             title: "≡ scroll · \(scroller.appName)\(pane)",
             rows: [
-                GuideRow(key: "J K", label: "down · up"),
-                GuideRow(key: "H L", label: "left · right"),
-                GuideRow(key: "D U", label: "half-page down · up"),
+                GuideRow(key: "J K", label: "down · up    ·    ⇧ 3× faster"),
+                GuideRow(key: "H L", label: "left · right    ·    ⇧ 3× faster"),
+                GuideRow(key: "D U", label: "half-page down · up    ·    ⇧ full page"),
                 GuideRow(key: "G G", label: "top    ·    ⇧G bottom"),
                 GuideRow(key: "⇥", label: "next pane"),
             ],
@@ -910,7 +917,7 @@ final class HotkeyEngine {
             GuideRow(key: "1…9", label: "jump to window by position"),
             GuideRow(key: "0", label: "the focused window fills the display — ⇧0 beside"),
             GuideRow(key: "\\", label: "flip layout orientation"),
-            GuideRow(key: "`", label: "scroll mode — j/k · h/l · d/u · gg/G"),
+            GuideRow(key: "`", label: "scroll mode — j/k · h/l · d/u · gg/G · ⇧ for more"),
             GuideRow(key: ";", label: "click hints — ⇧; chains · ⇧label right-clicks"),
             GuideRow(key: "/", label: "select text — ⇧letter anchors · ⌘C takes that word"),
             GuideRow(key: "← →", label: "undo · redo the layout"),

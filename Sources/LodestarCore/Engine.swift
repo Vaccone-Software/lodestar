@@ -53,9 +53,11 @@ public enum EngineEffect: Equatable {
     case enterScroll
     case scrollGuide
     case scrollExit
-    case scrollDirectionDown(String)
+    /// `fast` is shift: the same key, three times the distance.
+    case scrollDirectionDown(String, fast: Bool)
     case scrollDirectionUp(String)
     case scrollHalfPage(down: Bool)
+    case scrollFullPage(down: Bool)
     case scrollTapG
     case scrollToBottom
     case scrollCancelPendingG
@@ -573,12 +575,15 @@ public struct EngineCore {
         case "escape":
             state = .idle
             effects.append(contentsOf: [.scrollExit, .hideGuide])
+        // Shift means "more" across the mode: three times the distance
+        // on a direction, the whole page instead of half on d/u, the
+        // document's end on g. One modifier, one meaning, no new key.
         case "j", "k", "h", "l":
-            effects.append(.scrollDirectionDown(key))
+            effects.append(.scrollDirectionDown(key, fast: shift))
         case "d":
-            effects.append(.scrollHalfPage(down: true))
+            effects.append(shift ? .scrollFullPage(down: true) : .scrollHalfPage(down: true))
         case "u":
-            effects.append(.scrollHalfPage(down: false))
+            effects.append(shift ? .scrollFullPage(down: false) : .scrollHalfPage(down: false))
         case "g":
             if shift {
                 effects.append(contentsOf: [.scrollCancelPendingG, .scrollToBottom])

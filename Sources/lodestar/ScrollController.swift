@@ -28,6 +28,14 @@ final class ScrollController {
     var step: CGFloat = 60
     var smooth = true
     var speed: CGFloat = 900
+    /// Shift's multiplier on a direction key: fixed, not a knob. One
+    /// modifier the hand already owns, one meaning, so the pair stays a
+    /// gesture rather than a decision.
+    static let fastMultiplier: CGFloat = 3
+    /// Shift is down. Latched from the key that entered the hold and
+    /// updated live by flags-changed, so a shift pressed or released
+    /// mid-glide changes the velocity on the next tick.
+    private(set) var fast = false
 
     private var heldKeys: Set<String> = []
     private var lastKeyDown: [String: Date] = [:]
@@ -131,14 +139,16 @@ final class ScrollController {
     /// A direction key went down (repeats included; the set makes them
     /// no-ops). Smooth off falls back to one step per event — the classic
     /// key-repeat feel.
-    func directionKeyDown(_ key: String) {
+    func directionKeyDown(_ key: String, fast: Bool = false) {
         cancelGlide()
+        self.fast = fast
         guard smooth else {
+            let distance = Int32(step * (fast ? Self.fastMultiplier : 1))
             switch key {
-            case "j": postVertical(Int32(step))
-            case "k": postVertical(-Int32(step))
-            case "h": postHorizontal(-Int32(step))
-            case "l": postHorizontal(Int32(step))
+            case "j": postVertical(distance)
+            case "k": postVertical(-distance)
+            case "h": postHorizontal(-distance)
+            case "l": postHorizontal(distance)
             default: break
             }
             return
@@ -152,6 +162,12 @@ final class ScrollController {
     func directionKeyUp(_ key: String) {
         heldKeys.remove(key)
         if heldKeys.isEmpty { stopSmoothTimer() }
+    }
+
+    /// The modifier moved while the mode is on. Only a held glide reads
+    /// it; a later key-down brings its own flag.
+    func shiftChanged(_ down: Bool) {
+        fast = down
     }
 
     private func startSmoothTimerIfNeeded() {
@@ -190,7 +206,7 @@ final class ScrollController {
             return
         }
 
-        let perTick = Double(speed) / 120.0
+        let perTick = Double(speed * (fast ? Self.fastMultiplier : 1)) / 120.0
         var vertical: Double = 0
         var horizontal: Double = 0
         if heldKeys.contains("j") { vertical += perTick }
@@ -229,10 +245,11 @@ final class ScrollController {
 
     // MARK: - Verbs (positive = toward the end of the document / rightward)
 
-    func halfPage(down: Bool) {
+    /// d/u move half the pane; under shift, the whole of it.
+    func page(down: Bool, fraction: CGFloat) {
         cancelGlide()
-        let half = Int32(currentPaneFrame.height / 2)
-        postVertical(down ? half : -half)
+        let distance = Int32(currentPaneFrame.height * fraction)
+        postVertical(down ? distance : -distance)
     }
 
     func toEnd(bottom: Bool) {

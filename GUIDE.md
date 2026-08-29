@@ -20,7 +20,7 @@ Lode is **right ⌘** (configurable in `~/.config/lodestar/lodestar.json`).
 | `lode ⏎`                       | Ask: links · domains · search, each routed to its profile                    |
 | `⌘K` in the launcher / Ask     | Add to graph · add a link · route a host or search — written into the config |
 | `lode .`                       | Commands: the frontmost app's verbs, fuzzy, `↵` runs one                     |
-| `` lode `  ``                  | Scroll mode: `j/k` `h/l` · `d/u` half-page · `gg`/`⇧G` ends · `⇥` panes      |
+| `` lode `  ``                  | Scroll mode: `j/k` `h/l` · `d/u` half-page · `⇧` 3× / full page · `gg`/`⇧G` ends · `⇥` panes |
 | `lode ;` / `lode ⇧;`           | Click by reading — type what you see, `⇧letter` clicks; `⇧;` chains clicks   |
 | `lode /`                       | Select text by typing it — `⇧letter` anchors, `⌘C` takes the anchored word   |
 | `lode [` / `lode ]`            | Move the focused window to the prev/next display (`⇧` = arrive beside)       |
@@ -85,7 +85,7 @@ In a password field macOS blocks synthetic keystrokes outright, so Lodestar puts
 
 ## Scroll mode
 
-`` lode `  `` toggles it (Escape closes too). Entry warps the pointer to the focused window's primary scroll pane — the same gesture scrolls the same thing every time — and `⇥` cycles between discovered panes (sidebar ↔ content), warping to each. **Holding `j/k/h/l` scrolls at constant velocity and stops the instant you release** (`scroll.smooth`, with `scroll.speed` px/s; turn smooth off for classic one-step-per-repeat with `scroll.step`). `gg`/`⇧G` jump by setting the pane's scrollbar value directly — instant and app-independent — with `gg` a true two-tap, no timeout. Polarity follows your system natural-scrolling preference automatically. Scroll mode is a lens, not a transaction: **any other lode verb exits and executes immediately** (`lode S` mid-scroll just takes you to Slack); plain typing is swallowed while the mode is on.
+`` lode `  `` toggles it (Escape closes too). Entry warps the pointer to the focused window's primary scroll pane — the same gesture scrolls the same thing every time — and `⇥` cycles between discovered panes (sidebar ↔ content), warping to each. **Holding `j/k/h/l` scrolls at constant velocity and stops the instant you release** (`scroll.smooth`, with `scroll.speed` px/s; turn smooth off for classic one-step-per-repeat with `scroll.step`). **Shift means more**: `⇧J/K/H/L` move three times as fast (press or release shift mid-hold and the velocity follows), and `⇧D/⇧U` move a full page instead of half. `gg`/`⇧G` jump by setting the pane's scrollbar value directly — instant and app-independent — with `gg` a true two-tap, no timeout. Polarity follows your system natural-scrolling preference automatically. Scroll mode is a lens, not a transaction: **any other lode verb exits and executes immediately** (`lode S` mid-scroll just takes you to Slack); plain typing is swallowed while the mode is on.
 
 ## Click hints
 

@@ -81,6 +81,36 @@ public enum SelectRuns {
     /// column and are never joined into one block.
     static let columnOverlap: CGFloat = 0.5
 
+    /// Whether two rectangles share a column: their horizontal extents
+    /// overlap by at least `columnOverlap` of the narrower one. Measured
+    /// against the narrower so a short line inside a wide column still
+    /// belongs to it, and a line beside the column does not. The one
+    /// definition of a column this layer has; a span that decides what
+    /// lies between its ends asks the same question.
+    static func sharesColumn(_ a: CGRect, _ b: CGRect) -> Bool {
+        let overlap = min(a.maxX, b.maxX) - max(a.minX, b.minX)
+        let narrower = min(a.width, b.width)
+        return narrower > 0 && overlap / narrower >= columnOverlap
+    }
+
+    /// Merge leaves that may belong to different windows. A leaf belongs
+    /// to the frontmost window whose bounds contain its center — windows
+    /// front to back, as the window server draws them — or to no window
+    /// at all; each window's leaves are stitched on their own. A run
+    /// never straddles two windows: a reference window beside the focused
+    /// one is every bit as selectable, but its lines are not the focused
+    /// window's continuation, whatever column the two happen to share.
+    public static func merge(_ leaves: [Leaf], windows: [CGRect]) -> [Run] {
+        guard !windows.isEmpty else { return merge(leaves) }
+        var groups = [[Leaf]](repeating: [], count: windows.count + 1)
+        for leaf in leaves {
+            let center = CGPoint(x: leaf.frame.midX, y: leaf.frame.midY)
+            let owner = windows.firstIndex { $0.contains(center) } ?? windows.count
+            groups[owner].append(leaf)
+        }
+        return groups.flatMap(merge)
+    }
+
     /// Merge leaves (already roughly reading-ordered by the caller) into
     /// runs. Same line and close → joined with a space when the layout
     /// drew a gap, nothing when it did not; consecutive lines of one
@@ -88,80 +118,116 @@ public enum SelectRuns {
     /// Conservative on purpose: an over-merged run promises spans across
     /// unrelated columns, and a promise the highlight cannot keep is worse
     /// than a shorter run.
+    ///
+    /// Every run stays open until the pass ends, and each leaf joins the
+    /// nearest open run it continues — not merely the run of the leaf
+    /// before it. Reading order interleaves columns line by line, so on a
+    /// screen with a sidebar the leaf before is usually the other
+    /// column's; a merge that only ever asked about that one failed the
+    /// column test on every line and shattered both columns into
+    /// single-line runs. The rules are unchanged; they are simply asked
+    /// of every run that could answer. Cost is leaves × open runs — a
+    /// few hundred each way on a dense screen, cheap float comparisons,
+    /// tens of microseconds measured.
     public static func merge(_ leaves: [Leaf]) -> [Run] {
         guard !leaves.isEmpty else { return [] }
-        var runs: [Run] = []
-        var text = ""
-        var fragments: [Fragment] = []
-        var lineFrame = CGRect.null
-        var previous: Leaf?
-        /// The run's UTF-16 length so far, advanced beside every append.
-        var utf16Length = 0
 
-        func flush() {
-            guard !fragments.isEmpty else { return }
-            runs.append(Run(text: text, fragments: fragments))
-            text = ""
-            fragments = []
-            utf16Length = 0
+        /// A run under construction.
+        struct Block {
+            var text: String
+            var fragments: [Fragment]
+            /// The run's UTF-16 length so far, advanced beside every
+            /// append: bridging the accumulated text to NSString per
+            /// fragment made stitching quadratic.
+            var utf16Length: Int
+            /// The extent of the run's current visual line — a newline
+            /// replaces it, a same-line merge widens it. Kept per run:
+            /// unioning across runs once let a right-hand column inherit
+            /// the whole visual line and claim the left column's next
+            /// line as its own continuation.
+            var lineFrame: CGRect
+            /// Where the run's last leaf began, so a leaf that sits above
+            /// it (an input the caller failed to sort) never continues it.
+            var lastMinY: CGFloat
         }
+        var blocks: [Block] = []
 
         for leaf in leaves {
-            let joiner: String?
-            if let prior = previous {
-                let sameLine = abs(prior.frame.midY - leaf.frame.midY) <= lineTolerance
-                if sameLine {
-                    let gap = leaf.frame.minX - prior.frame.maxX
-                    if gap <= wordGap {
-                        joiner = gap > 1.5 ? " " : ""
-                    } else {
-                        joiner = nil
-                    }
-                } else {
-                    let lineHeight = max(lineFrame.height, leaf.frame.height, 8)
-                    let verticalGap = leaf.frame.minY - lineFrame.maxY
-                    let overlap = min(lineFrame.maxX, leaf.frame.maxX)
-                        - max(lineFrame.minX, leaf.frame.minX)
-                    let narrower = min(lineFrame.width, leaf.frame.width)
-                    let sameColumn = narrower > 0 && overlap / narrower >= columnOverlap
-                    let continues = leaf.frame.minY > prior.frame.minY - lineTolerance
-                        && verticalGap <= lineHeight * blockGapFactor
-                    joiner = sameColumn && continues ? "\n" : nil
-                }
-            } else {
-                joiner = nil
+            let frame = leaf.frame
+            var chosen: Int?
+            var joiner = ""
+
+            // Same line first: the run whose current line ends nearest
+            // to this leaf's left, within a word gap. A drawn gap is a
+            // space; touching fragments are one token split by styling.
+            // To its left, strictly: reading order sorts a line's leaves
+            // by x, but a tall leaf can sort ahead of a short one on the
+            // same visual line, and a leaf that lies before a line's end
+            // is not its continuation — appending it would put the words
+            // in the wrong order, and did, when a sidebar item followed a
+            // heading in the sort and vanished into the heading's run.
+            var nearestEnd = -CGFloat.infinity
+            for (index, block) in blocks.enumerated() {
+                let line = block.lineFrame
+                guard abs(line.midY - frame.midY) <= lineTolerance else { continue }
+                let gap = frame.minX - line.maxX
+                guard gap >= -lineTolerance, gap <= wordGap, line.maxX > nearestEnd
+                else { continue }
+                nearestEnd = line.maxX
+                chosen = index
+                joiner = gap > 1.5 ? " " : ""
             }
 
-            if previous != nil, joiner == nil {
-                flush()
-            }
-            // The line extent belongs to the CURRENT RUN: a new run starts
-            // its own line, a newline advances it, a same-line merge widens
-            // it. Unioning across run boundaries let a right-hand column
-            // inherit the whole visual line and claim the left column's
-            // next line as its own continuation.
-            if !fragments.isEmpty, let joiner {
-                text += joiner
-                // Joiners are ASCII (" ", "", "\n"): one UTF-16 unit each.
-                utf16Length += joiner.utf16.count
-                lineFrame = joiner == "\n" ? leaf.frame : lineFrame.union(leaf.frame)
-            } else {
-                lineFrame = leaf.frame
+            // Then the column: the nearest run above whose current line
+            // shares this leaf's column, within a block gap. A later run
+            // wins a tie, which is the run the leaf before this one most
+            // likely joined.
+            if chosen == nil {
+                var nearestBottom = -CGFloat.infinity
+                for (index, block) in blocks.enumerated() {
+                    let line = block.lineFrame
+                    let lineHeight = max(line.height, frame.height, 8)
+                    let verticalGap = frame.minY - line.maxY
+                    let continues = frame.minY > block.lastMinY - lineTolerance
+                        && verticalGap <= lineHeight * blockGapFactor
+                    guard continues, sharesColumn(line, frame),
+                          line.maxY >= nearestBottom else { continue }
+                    nearestBottom = line.maxY
+                    chosen = index
+                    joiner = "\n"
+                }
             }
 
             let nsText = leaf.text as NSString
-            // Carried, not remeasured: bridging the accumulated run to
-            // NSString on every fragment made stitching quadratic.
-            let start = utf16Length
-            text += leaf.text
-            utf16Length += nsText.length
-            fragments.append(Fragment(
-                leaf: leaf.id,
-                range: NSRange(location: start, length: nsText.length),
-                localRange: NSRange(location: 0, length: nsText.length)))
-            previous = leaf
+            if let index = chosen {
+                blocks[index].text += joiner
+                // Joiners are ASCII (" ", "", "\n"): one UTF-16 unit each.
+                blocks[index].utf16Length += joiner.utf16.count
+                blocks[index].lineFrame = joiner == "\n"
+                    ? frame : blocks[index].lineFrame.union(frame)
+                let start = blocks[index].utf16Length
+                blocks[index].text += leaf.text
+                blocks[index].utf16Length += nsText.length
+                blocks[index].fragments.append(Fragment(
+                    leaf: leaf.id,
+                    range: NSRange(location: start, length: nsText.length),
+                    localRange: NSRange(location: 0, length: nsText.length)))
+                blocks[index].lastMinY = frame.minY
+            } else {
+                blocks.append(Block(
+                    text: leaf.text,
+                    fragments: [Fragment(
+                        leaf: leaf.id,
+                        range: NSRange(location: 0, length: nsText.length),
+                        localRange: NSRange(location: 0, length: nsText.length))],
+                    utf16Length: nsText.length,
+                    lineFrame: frame,
+                    lastMinY: frame.minY))
+            }
         }
-        flush()
-        return runs
+        // Runs come out in the order they opened — top to bottom, then
+        // left to right, by first leaf — which is the reading order the
+        // caller sorts by anyway.
+        return blocks.map { Run(text: $0.text, fragments: $0.fragments) }
     }
 }

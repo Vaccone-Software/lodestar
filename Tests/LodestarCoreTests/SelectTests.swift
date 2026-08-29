@@ -12,6 +12,13 @@ final class SelectCoreTests: XCTestCase {
         }, alphabet: alphabet)
     }
 
+    /// Elements with a place on screen, for spans that must know their column.
+    private func placed(_ elements: [(String, CGRect)]) -> SelectCore {
+        SelectCore(elements: elements.enumerated().map {
+            SelectCore.Element(id: $0.offset, text: $0.element.0, frame: $0.element.1)
+        }, alphabet: "asdfghjkl")
+    }
+
     /// The pieces a landed span covers, or nil if the effect was not one.
     private func pieces(_ effect: SelectCore.Effect) -> [SelectCore.Match]? {
         guard case .selected(let pieces) = effect else { return nil }
@@ -180,6 +187,57 @@ final class SelectCoreTests: XCTestCase {
         XCTAssertEqual(span.map(\.element), [0, 1], "document order, not typing order")
         XCTAssertEqual(span[0].range, NSRange(location: 0, length: 15))
         XCTAssertEqual(span[1].range, NSRange(location: 0, length: 15))
+    }
+
+    func testASpanBetweenStackedGroupsSkipsTheColumnBeside() {
+        // Two cards stacked in a content column, and a sidebar whose next
+        // item begins between them in reading order. The span runs down
+        // the cards' column; the item beside it was never between the
+        // ends on the page, and is not a piece.
+        let content = CGRect(x: 400, y: 0, width: 500, height: 40)
+        var c = placed([
+            ("card one body here", content),
+            ("sidebar item", CGRect(x: 0, y: 50, width: 200, height: 20)),
+            ("card two body there", content.offsetBy(dx: 0, dy: 100)),
+        ])
+        for ch in "here" { _ = c.key(String(ch), shift: false) }
+        _ = c.key("a", shift: true) // the first chip: "here" in card one
+        for ch in "there" { _ = c.key(String(ch), shift: false) }
+        guard let span = pieces(c.key("a", shift: true)) else { return XCTFail() }
+        XCTAssertEqual(span.map(\.element), [0, 2], "the column's own cards, nothing beside")
+    }
+
+    func testEndsInDifferentColumnsTakeEverythingBetween() {
+        // Crossing columns is still allowed; it has to be asked for at
+        // both ends. Anchored in the sidebar and ended in a card, the
+        // span covers both columns and takes everything between.
+        var c = placed([
+            ("sidebar top here", CGRect(x: 0, y: 0, width: 200, height: 20)),
+            ("card one body", CGRect(x: 400, y: 0, width: 500, height: 40)),
+            ("sidebar next", CGRect(x: 0, y: 50, width: 200, height: 20)),
+            ("card two body there", CGRect(x: 400, y: 100, width: 500, height: 40)),
+        ])
+        for ch in "here" { _ = c.key(String(ch), shift: false) }
+        _ = c.key("a", shift: true)
+        for ch in "there" { _ = c.key(String(ch), shift: false) }
+        guard let span = pieces(c.key("a", shift: true)) else { return XCTFail() }
+        XCTAssertEqual(span.map(\.element), [0, 1, 2, 3])
+    }
+
+    func testAFullWidthLineBetweenTheEndsIsStillBetween() {
+        // A rule or heading spanning the whole page overlaps the cards'
+        // column entirely — it lies across the drag, and comes along.
+        let content = CGRect(x: 400, y: 0, width: 500, height: 40)
+        var c = placed([
+            ("card one body here", content),
+            ("Section two", CGRect(x: 0, y: 50, width: 900, height: 30)),
+            ("card two body there", content.offsetBy(dx: 0, dy: 100)),
+        ])
+        for ch in "here" { _ = c.key(String(ch), shift: false) }
+        _ = c.key("a", shift: true)
+        for ch in "there" { _ = c.key(String(ch), shift: false) }
+        guard let span = pieces(c.key("a", shift: true)) else { return XCTFail() }
+        XCTAssertEqual(span.map(\.element), [0, 1, 2])
     }
 
     func testEmptyElementsBetweenAreNotPieces() {

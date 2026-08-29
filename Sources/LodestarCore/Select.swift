@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// What one keystroke did inside select mode — the seam between grammar
@@ -29,10 +30,15 @@ public struct SelectCore {
     public struct Element: Equatable {
         public let id: Int
         public let text: String
+        /// Where the element sits on screen, so a span crossing elements
+        /// can tell the column it runs down from the ones beside it.
+        /// `.null` is "unknown", and unknown never excludes anything.
+        public let frame: CGRect
 
-        public init(id: Int, text: String) {
+        public init(id: Int, text: String, frame: CGRect = .null) {
             self.id = id
             self.text = text
+            self.frame = frame
         }
     }
 
@@ -270,18 +276,37 @@ public struct SelectCore {
 
         let head = Self.wordSnapped(first.range, in: firstText).location
         let tail = NSMaxRange(Self.wordSnapped(last.range, in: lastText))
+        // The column the span runs down is whatever its two ends cover
+        // between them. Reading order interleaves columns, so an element
+        // between the ends by index may sit beside that column — the
+        // sidebar's next item, the neighboring card's line — and a drag
+        // from one end to the other would never have crossed it. Two
+        // ends in different columns cover both, and then everything
+        // between is taken as before: a span may still cross columns, it
+        // just has to be asked for at both ends.
+        let column = elements[firstIndex].frame.union(elements[lastIndex].frame)
         var pieces = [Match(element: elements[firstIndex].id,
                             range: NSRange(location: head,
                                            length: firstText.length - head))]
         for element in elements[(firstIndex + 1)..<lastIndex] {
             let length = (element.text as NSString).length
-            guard length > 0 else { continue }
+            guard length > 0, Self.inColumn(element.frame, column) else { continue }
             pieces.append(Match(element: element.id,
                                 range: NSRange(location: 0, length: length)))
         }
         pieces.append(Match(element: elements[lastIndex].id,
                             range: NSRange(location: 0, length: tail)))
         return pieces
+    }
+
+    /// Whether an element between a span's ends lies in the column those
+    /// ends define — the stitching layer's own definition of a column, so
+    /// the two never disagree about what a column is. Unknown geometry
+    /// on either side never excludes: a caller without frames gets the
+    /// span it always got.
+    static func inColumn(_ frame: CGRect, _ column: CGRect) -> Bool {
+        if frame.isNull || column.isNull { return true }
+        return SelectRuns.sharesColumn(frame, column)
     }
 
     /// Expand a range outward to whitespace boundaries. Scans UTF-16

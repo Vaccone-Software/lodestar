@@ -23,9 +23,10 @@ import LodestarCore
 /// into runs (`SelectRuns`) before matching, so phrases match across
 /// styling boundaries and a span may cross fragments; its highlight is
 /// then several honest rectangles. A span may also cross whole runs, in
-/// reading order, which is what lets it run down a page whose every line
-/// is its own run: the pieces it covers are gathered into one copy and one
-/// highlight, so what lights up is exactly what ⌘C serves.
+/// reading order and down the column its two ends share, which is what
+/// lets it run down a page whose every line is its own run without
+/// taking the sidebar beside it: the pieces it covers are gathered into
+/// one copy and one highlight, so what lights up is exactly what ⌘C serves.
 final class SelectController {
     /// One searchable unit: an editable element standing alone, or a run
     /// of stitched read-only fragments.
@@ -219,9 +220,14 @@ final class SelectController {
             // before any overlay exists: our own scanning band, captured,
             // would become matchable text.
             var captured: CGImage?
+            var stack: [CGRect] = []
             if CGPreflightScreenCaptureAccess() {
                 captured = CGWindowListCreateImage(display, .optionOnScreenOnly,
                                                    kCGNullWindowID, [.bestResolution])
+                // The same instant as the frame: which window owns each
+                // pixel of it, so a line is stitched only with lines of
+                // its own window.
+                stack = Self.windowStack()
             } else if !self.screenAccessPrompted {
                 self.screenAccessPrompted = true
                 DispatchQueue.global(qos: .utility).async { CGRequestScreenCaptureAccess() }
@@ -231,7 +237,8 @@ final class SelectController {
             self.overlay.showScanning(over: self.windowFrame, appName: window.appName,
                                       mode: self.door == .click ? "click" : "select")
             if let captured {
-                self.senseOCR(image: captured, frame: display, generation: expected)
+                self.senseOCR(image: captured, frame: display, windows: stack,
+                              generation: expected)
             }
             self.harvest(window: window, generation: expected, attempt: 1)
         }
@@ -694,7 +701,8 @@ final class SelectController {
     /// A copy made that early is served from the fast pass, with the AX
     /// grounding as its only repair — the price of never yanking a
     /// half-placed span out from under the hand.
-    private func senseOCR(image: CGImage, frame: CGRect, generation expected: Int) {
+    private func senseOCR(image: CGImage, frame: CGRect, windows: [CGRect],
+                          generation expected: Int) {
         let began = Date()
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             for level in [OCRSense.Level.fast, .accurate] {
@@ -708,17 +716,38 @@ final class SelectController {
                         return
                     }
                     guard self.core?.anchor == nil else { return }
-                    self.adoptOCR(lines)
+                    self.adoptOCR(lines, windows: windows)
+                    // `windows` is new in this line on purpose: its presence
+                    // in a log is what says the build that stitches by
+                    // window is the one running.
                     Log.info("select", ["sense": level == .fast ? "ocr-fast" : "ocr",
                                         "lines": lines.count,
                                         "units": self.units.count, "ms": elapsed,
+                                        "windows": windows.count,
                                         "app": self.appName])
                 }
             }
         }
     }
 
-    private func adoptOCR(_ lines: [OCRSense.Line]) {
+    /// The on-screen windows, front to back, as the window server draws
+    /// them: which window a recognized line belongs to. Our own are left
+    /// out — the band about to appear must not claim the text beneath it
+    /// — and so is anything filed below the desktop or at screen-saver
+    /// level and above, where system overlays live. Those are invisible
+    /// by design and lie about ownership: a notch companion app was found
+    /// holding a 624×320 window at the top of the screen, alpha 1, which
+    /// claimed fourteen lines of the page beneath it.
+    private static func windowStack() -> [CGRect] {
+        let own = ProcessInfo.processInfo.processIdentifier
+        let overlayLevel = Int(CGWindowLevelForKey(.screenSaverWindow))
+        return CGWindows.list(onScreenOnly: true)
+            .filter { $0.pid != own && $0.layer >= 0 && $0.layer < overlayLevel
+                && $0.bounds.width >= 4 && $0.bounds.height >= 4 }
+            .map(\.bounds)
+    }
+
+    private func adoptOCR(_ lines: [OCRSense.Line], windows: [CGRect]) {
         ocrAdopted = true
         var leaves = lines.enumerated().map { index, line in
             SelectRuns.Leaf(id: index, text: line.text, frame: line.frame)
@@ -730,7 +759,7 @@ final class SelectController {
         }
         let byID = Dictionary(uniqueKeysWithValues: lines.enumerated().map { ($0.offset, $0.element) })
         var units: [Unit] = []
-        for run in SelectRuns.merge(leaves) {
+        for run in SelectRuns.merge(leaves, windows: windows) {
             let used = Set(run.fragments.map(\.leaf))
             // Pick the handful of used lines out of the map — filtering
             // the whole dictionary per run made this O(runs × lines).
@@ -749,7 +778,8 @@ final class SelectController {
         self.units = units
         var rebuilt = SelectCore(
             elements: units.enumerated().map {
-                SelectCore.Element(id: $0.offset, text: $0.element.run.text)
+                SelectCore.Element(id: $0.offset, text: $0.element.run.text,
+                                   frame: $0.element.frame)
             },
             alphabet: letters)
         if !query.isEmpty { rebuilt.seed(query: query) }
@@ -1000,7 +1030,8 @@ final class SelectController {
         self.units = units
         var rebuilt = SelectCore(
             elements: units.enumerated().map {
-                SelectCore.Element(id: $0.offset, text: $0.element.run.text)
+                SelectCore.Element(id: $0.offset, text: $0.element.run.text,
+                                   frame: $0.element.frame)
             },
             alphabet: letters)
         if !query.isEmpty { rebuilt.seed(query: query) }

@@ -135,6 +135,11 @@ final class CoachController {
     var flash: (String) -> Void = { _ in }
     /// The parked offer changed; the menu item re-reads it.
     var onParkedChange: () -> Void = {}
+    /// The two probes that read the machine rather than the app, held as
+    /// closures for the same reason the others are: a test stage has no
+    /// camera and is always attended.
+    var cameraRunning: () -> Bool = { CameraProbe.anyCameraRunning() }
+    var present: (TimeInterval) -> Bool = { PresenceProbe.userIsPresent(humanIdle: $0) }
 
     /// How long a cue-having suggestion waits for its cue before going out
     /// at any quiet boundary instead.
@@ -142,9 +147,12 @@ final class CoachController {
     /// Recommendations are recomputed at most this often.
     static let refreshInterval: TimeInterval = 30 * 60
 
-    private var standing: Recommendation?
+    private(set) var standing: Recommendation?
     private var standingSince = Date.distantPast
-    private var chipVisible = false
+    /// The coach's belief that its chip is on the glass. The harness reads
+    /// it beside `HUD.owner`, because the two disagreeing is the whole
+    /// shape of the bug this seam exists to catch.
+    private(set) var chipVisible = false
     private var chipHide: DispatchWorkItem?
     private var chipSeen: DispatchWorkItem?
     /// The boundary that wants to speak, waiting to see whether the hand
@@ -164,6 +172,23 @@ final class CoachController {
     private var ignoreRecorded = false
     private var refreshedAt = Date.distantPast
     private var refreshing = false
+    private let clock: Clock
+
+    init(clock: Clock = .live) {
+        self.clock = clock
+    }
+
+    /// A suggestion takes the slot without an advisor pass having put it
+    /// there — the harness's door, and the demo's. `since` is when it took
+    /// the slot; `.distantPast` means its cue wait is already over.
+    func stand(_ rec: Recommendation, since: Date) {
+        standing = rec
+        standingSince = since
+        offerCounted = false
+        ignoreRecorded = false
+        loggedHolds = []
+        onParkedChange()
+    }
 
     #if DEBUG
     /// A rehearsal is in progress: the standing offer is synthetic, so no
@@ -187,12 +212,8 @@ final class CoachController {
     /// boundary shows it; every veto still applies, because the vetoes are
     /// part of what is being rehearsed.
     func armDemo(_ rec: Recommendation) {
-        standing = rec
-        standingSince = .distantPast
-        offerCounted = false
-        loggedHolds = []
+        stand(rec, since: .distantPast)
         demo = true
-        onParkedChange()
     }
     #endif
 
@@ -245,7 +266,7 @@ final class CoachController {
         }
         // The write path's own ✓ flash is the receipt; the config reload it
         // triggers re-runs the advisor against the new world.
-        if !isDemo { observations?.coach(action: "accepted", rec: rec) }
+        if !isDemo { observations?.coach(action: "accepted", rec: rec, at: clock.now()) }
         endDemo()
         standing = nil
         onParkedChange()
@@ -259,7 +280,7 @@ final class CoachController {
     func lodeDelete() -> Bool {
         guard enabled, chipVisible, let rec = standing else { return false }
         dismissChip(record: false)
-        if !isDemo { observations?.coach(action: "never", rec: rec) }
+        if !isDemo { observations?.coach(action: "never", rec: rec, at: clock.now()) }
         endDemo()
         flash("⌖ noted · not that one")
         standing = nil
@@ -288,7 +309,7 @@ final class CoachController {
     /// several seconds pass in between and presence above all can change
     /// inside them.
     private func moment(for rec: Recommendation) -> Coach.Moment {
-        let now = Date()
+        let now = clock.now()
         // A rehearsal ignores the real ledger's clocks: the pacing is the
         // curriculum's, and the demo exists to walk the surface.
         let ledger = isDemo ? [] : (observations?.observations.ledger ?? [])
@@ -307,8 +328,8 @@ final class CoachController {
             channelOffers: ledger.reduce(0) { $0 + $1.offers },
             thisOffers: entry?.offers ?? 0,
             thisStoodFull: entry?.lastShowingStood ?? false,
-            engineQuiet: engineQuiet(), cameraRunning: CameraProbe.anyCameraRunning(),
-            present: PresenceProbe.userIsPresent(humanIdle: humanIdle()),
+            engineQuiet: engineQuiet(), cameraRunning: cameraRunning(),
+            present: present(humanIdle()),
             inputWasHuman: inputWasHuman())
     }
 
@@ -332,7 +353,7 @@ final class CoachController {
         // after that, or for suggestions with no cue, any quiet boundary
         // will do. Proactive either way — nothing waits forever.
         if let cue = Coach.cue(for: rec),
-           Date().timeIntervalSince(standingSince) < Self.cueWaitDays * 86_400 {
+           clock.now().timeIntervalSince(standingSince) < Self.cueWaitDays * 86_400 {
             switch cue {
             case .app(let name): guard cueApp == name.lowercased() else { return }
             case .host(let host): guard cueHost == host.lowercased() else { return }
@@ -364,7 +385,7 @@ final class CoachController {
             self.show(rec)
         }
         settleWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + Coach.settleSeconds, execute: work)
+        clock.after(Coach.settleSeconds, work)
     }
 
     private func cancelSettle() {
@@ -376,7 +397,7 @@ final class CoachController {
         guard let observations else { return }
         let chip = Coach.chip(for: rec, observations: observations.observations)
         chipVisible = true
-        lastShownAt = Date()
+        lastShownAt = clock.now()
         if countable { ignoreRecorded = false }
         showChip(chip)
         onParkedChange()
@@ -386,12 +407,12 @@ final class CoachController {
             let seen = DispatchWorkItem { [weak self] in self?.countOffer(rec) }
             chipSeen?.cancel()
             chipSeen = seen
-            DispatchQueue.main.asyncAfter(deadline: .now() + Coach.seenSeconds, execute: seen)
+            clock.after(Coach.seenSeconds, seen)
         }
         let work = DispatchWorkItem { [weak self] in self?.dismissChip(record: true) }
         chipHide?.cancel()
         chipHide = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + Coach.chipSeconds, execute: work)
+        clock.after(Coach.chipSeconds, work)
     }
 
     /// The chip stood long enough to be read: the ledger learns of the
@@ -409,12 +430,11 @@ final class CoachController {
         // gesture.
         guard Coach.offerCounts(stoodFor: Coach.seenSeconds,
                                 ownsSurface: ownsSurface(),
-                                present: PresenceProbe.userIsPresent(
-                                    humanIdle: humanIdle())) else {
+                                present: present(humanIdle())) else {
             dismissChip(record: false)
             return
         }
-        if !isDemo { observations?.coach(action: "offered", rec: rec) }
+        if !isDemo { observations?.coach(action: "offered", rec: rec, at: clock.now()) }
         // Only mark the slot spent if it still holds what was shown; a pass
         // that swapped it mid-chip has already cleared the flag itself.
         if rec.kind == standing?.kind, rec.target == standing?.target {
@@ -434,7 +454,7 @@ final class CoachController {
         if record, offerCounted, !ignoreRecorded, chipVisible,
            let rec = standing, !isDemo {
             ignoreRecorded = true
-            observations?.coach(action: "ignored", rec: rec)
+            observations?.coach(action: "ignored", rec: rec, at: clock.now())
         }
         guard chipVisible else { return }
         chipVisible = false
@@ -451,21 +471,20 @@ final class CoachController {
     /// keystroke must never wait on it. Inputs are gathered on main; the
     /// log is read from disk by path, so nothing shares mutable state.
     private func refreshIfStale() {
-        guard Date().timeIntervalSince(refreshedAt) >= Self.refreshInterval else { return }
+        guard clock.now().timeIntervalSince(refreshedAt) >= Self.refreshInterval else { return }
         refresh()
     }
 
     func scheduleRefresh(after seconds: TimeInterval) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
-            self?.refresh()
-        }
+        clock.after(seconds, DispatchWorkItem { [weak self] in self?.refresh() })
     }
 
     func refresh() {
         // Never clobber a rehearsal with the real (empty) world.
         guard enabled, !refreshing, !isDemo, let inputs = contextInputs() else { return }
         refreshing = true
-        refreshedAt = Date()
+        let now = clock.now()
+        refreshedAt = now
         // The ring is flushed and decoded on the pass's own thread — a
         // megabytes-deep JSONL file, and a keystroke must never wait on it.
         let log = observations?.log
@@ -482,8 +501,8 @@ final class CoachController {
             let recommendations = Advisor.recommend(context)
             let offer = Coach.standingOffer(observations: inputs.observations,
                                             recommendations: recommendations,
-                                            now: Date())
-            let slotBusy = Coach.slotBusy(observations: inputs.observations, now: Date())
+                                            now: now)
+            let slotBusy = Coach.slotBusy(observations: inputs.observations, now: now)
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.refreshing = false

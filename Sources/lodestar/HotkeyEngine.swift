@@ -58,7 +58,7 @@ final class HotkeyEngine {
     private var core = EngineCore()
     private var tap: CFMachPort?
     private var peekWork: DispatchWorkItem?
-    private var isPeeking = false
+    private(set) var isPeeking = false
     /// The guide's training wheels (GuideFade, core): the paint of a
     /// chain guide waits longer as its subtree is learned, so recall gets
     /// its chance before reading does. A stumble brings it back at once.
@@ -118,11 +118,11 @@ final class HotkeyEngine {
     var config: Config {
         didSet { applyGrammarConfig() }
     }
-    private let actions: Actions
+    private let actions: EngineActions
     private let hud: HUD
-    private let searcher: SearcherController
-    private let webBar: WebBarController
-    private let commandsBar: CommandsBarController
+    private let searcher: SearcherSurface
+    private let webBar: WebBarSurface
+    private let commandsBar: BarSurface
     private let scroller: ScrollController
     private let select: SelectController
     private let clipboard: ClipboardController
@@ -134,14 +134,18 @@ final class HotkeyEngine {
     private var clickMonitor: Any?
     private let badges = IndexBadges()
     private let cheat = CheatSheet()
+    /// Every wait and every stamp; the harness owns it, the app runs live.
+    let clock: Clock
 
     /// Verbose tap tracing for E2E runs.
     static var traceTap = ProcessInfo.processInfo.environment["LODESTAR_TRACE"] != nil
 
-    init(config: Config, actions: Actions, hud: HUD, searcher: SearcherController,
-         webBar: WebBarController, commandsBar: CommandsBarController,
+    init(config: Config, actions: EngineActions, hud: HUD, searcher: SearcherSurface,
+         webBar: WebBarSurface, commandsBar: BarSurface,
          scroller: ScrollController,
-         select: SelectController, clipboard: ClipboardController) {
+         select: SelectController, clipboard: ClipboardController,
+         clock: Clock = .live) {
+        self.clock = clock
         self.config = config
         self.actions = actions
         self.hud = hud
@@ -302,7 +306,10 @@ final class HotkeyEngine {
 
     // MARK: - Event handling
 
-    private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+    /// The tap's callback, and the scenario harness's door: a synthesized
+    /// event fed here walks exactly the path a hardware one does, verdict
+    /// included.
+    func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if Self.traceTap {
             let keycode = event.getIntegerValueField(.keyboardEventKeycode)
             Log.info("tap: type=\(type.rawValue) key=\(keycode) flags=\(String(event.flags.rawValue, radix: 16))")
@@ -323,7 +330,7 @@ final class HotkeyEngine {
         lastEventSourceStateID = event.getIntegerValueField(.eventSourceStateID)
         lastEventPostingPID = event.getIntegerValueField(.eventSourceUnixProcessID)
         actingInputWasHuman = lastInputWasHuman
-        if actingInputWasHuman { lastHumanInputAt = Date() }
+        if actingInputWasHuman { lastHumanInputAt = clock.now() }
         if type == .flagsChanged {
             // The coach's assent gesture watches the classified lode state
             // and consumes nothing — fed first, so no other path can
@@ -334,7 +341,7 @@ final class HotkeyEngine {
             // it is a state machine, and starving it would desync the
             // gesture — but a posted double-tap agrees to nothing.
             if coachTaps.lodeChanged(held: lodeHeld,
-                                     at: Date().timeIntervalSinceReferenceDate),
+                                     at: clock.now().timeIntervalSinceReferenceDate),
                actingInputWasHuman {
                 onLodeDoubleTap?()
             }
@@ -428,7 +435,7 @@ final class HotkeyEngine {
         // tells the two apart.
         if !held, key == "v", config.clipboardEnabled,
            event.flags.contains(.maskShift), event.flags.contains(.maskCommand) {
-            lastActivityAt = Date()
+            lastActivityAt = clock.now()
             return dispatch(core.openPaste(world: self), event: event)
         }
         // Mid-chain and mid-scroll, lode may or may not still be down —
@@ -436,14 +443,14 @@ final class HotkeyEngine {
         let effectiveShift = core.isIdle ? shift : chainShift(event.flags)
         // Ordinary typing is not engine activity; lode gestures and
         // anything mid-chain are.
-        if held || !core.isIdle { lastActivityAt = Date() }
+        if held || !core.isIdle { lastActivityAt = clock.now() }
 
         let wasIdle = core.isIdle
         let effects = core.keyDown(key: key, held: held, shift: effectiveShift,
                                    command: event.flags.contains(.maskCommand),
                                    option: event.flags.contains(.maskAlternate),
                                    control: event.flags.contains(.maskControl), world: self)
-        let arrived = Date()
+        let arrived = clock.now()
         let verdict = dispatch(effects, event: event)
         observeChain(effects, key: key, at: arrived)
         if wasIdle != core.isIdle { onChainActive?(!core.isIdle) }
@@ -720,7 +727,7 @@ final class HotkeyEngine {
                 actions.moveFocusedDisplay(direction: direction, beside: beside)
             case .summonGraph(let letters, let beside):
                 if case .leaf(let target) = config.graph.resolve(letters) {
-                    actions.summon(target, beside: beside)
+                    actions.summon(target, beside: beside, via: .graph)
                     walkSignal?(.graphSummon)
                 }
             case .flash(let text):
@@ -728,7 +735,9 @@ final class HotkeyEngine {
             case .showGuide(let kind, let letters, let deleting, let note):
                 guideWork?.cancel()
                 guideWork = nil
-                if note != nil, kind == .graph { guideFade.stumbled(prefix: letters) }
+                if note != nil, kind == .graph {
+                    guideFade.stumbled(prefix: letters, at: clock.now())
+                }
                 let delay = guideDelay(kind: kind, letters: letters,
                                        deleting: deleting, note: note)
                 if delay <= 0 {
@@ -747,7 +756,7 @@ final class HotkeyEngine {
                                        deleting: deleting, note: note)
                     }
                     guideWork = work
-                    DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+                    clock.after(delay, work)
                 }
             case .hideGuide:
                 guideWork?.cancel()
@@ -785,7 +794,7 @@ final class HotkeyEngine {
             // pressed mid-hold lands here too, and restamping on it
             // under-measured exactly the shifted gestures.
             if !wasHeld {
-                chainStamps = [Date()]
+                chainStamps = [clock.now()]
                 chainLetters = []
                 chainSawPeek = false
             }
@@ -793,7 +802,7 @@ final class HotkeyEngine {
             let work = DispatchWorkItem { [weak self] in
                 guard let self, self.core.isIdle, !self.anyBarVisible else { return }
                 self.isPeeking = true
-                self.lastActivityAt = Date()
+                self.lastActivityAt = self.clock.now()
                 self.onSurfaceClaimed?()
                 self.walkSignal?(.peeked)
                 self.hud.showGuide(
@@ -804,7 +813,7 @@ final class HotkeyEngine {
                 self.badges.show(self.actions.indexBadgeItems())
             }
             peekWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: work)
+            clock.after(0.45, work)
         } else {
             cancelPeek(hideGuide: isPeeking)
         }
@@ -859,7 +868,7 @@ final class HotkeyEngine {
         guard case .deeper(let node) = config.graph.resolve(letters) else { return 0 }
         let leaves = node.leaves().map { letters + $0.chain }
         return guideFade.delay(prefix: letters, leaves: leaves,
-                               observations: observations.observations)
+                               observations: observations.observations, now: clock.now())
     }
 
     private func showGuide(kind: ChainKind, letters: [String], deleting: Bool, note: String?) {
@@ -916,7 +925,7 @@ final class HotkeyEngine {
         ]
         return [
             .init(header: "verbs", rows: verbs),
-            .init(header: "graph", rows: actions.graphCheatRows(config.graph)),
+            .init(header: "graph", rows: actions.graphCheatRows(config.graph, prefix: [])),
             .init(header: "breaths", rows: actions.breathGuide(prefix: "")),
         ]
     }

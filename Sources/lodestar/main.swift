@@ -291,64 +291,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 return self.actions.composeBreath(apps: apps, path: path)
             }
         }
-        coach.engineQuiet = { [weak self] in self?.engine.isQuiet ?? false }
-        coach.showChip = { [weak self] chip in
-            // The keycap names the gesture the way the scroll guide's
-            // "G G" does: two lodes, tapped. A blank cap read as a row
-            // with no way in.
-            //
-            // Both rows carry the action the keys carry, so the chip can be
-            // answered with the mouse when the gesture is inconvenient or
-            // when a hand is already on it. The dismissal has a row of its
-            // own now rather than living only in the footer's prose: a way
-            // out that cannot be clicked is not a way out for anyone
-            // reaching for the pointer.
-            self?.hud.showGuide(
-                title: "⌖ coach",
-                rows: [
-                    GuideRow(keys: ["lode", "lode"], label: chip.headline,
-                             action: { [weak self] in self?.coach.lodeDoubleTapped() }),
-                    GuideRow(keys: ["lode", "⌫"], label: "not this one",
-                             action: { [weak self] in _ = self?.coach.lodeDelete() }),
-                ],
-                footer: "\(chip.evidence)   ·   \(chip.footer)",
-                owner: .coach)
-        }
-        coach.hideChip = { [weak self] in self?.hud.hide() }
-        coach.ownsSurface = { [weak self] in self?.hud.owner == .coach }
+        // Everything the engine, the glass, and the coach say to each other
+        // is wired in `SurfaceWiring`, once, with the scenario harness on
+        // it. Every voice on the floor shares the lode-lode grammar, so the
+        // floor has one owner at a time: walk, then meeting, then the link
+        // chip, then the coach. An assent can only ever mean one thing.
+        SurfaceWiring.wire(engine: engine, hud: hud, coach: coach, voices: [
+            Voice(assent: { [weak self] in
+                      guard let self, self.walk.cardVisible else { return false }
+                      self.walk.assent()
+                      return true
+                  },
+                  dismiss: { [weak self] in self?.walk.pass() ?? false }),
+            Voice(assent: { [weak self] in self?.meetings.join() ?? false },
+                  dismiss: { [weak self] in self?.meetings.dismiss() ?? false }),
+            Voice(assent: { [weak self] in self?.linkChip.take() ?? false },
+                  dismiss: { [weak self] in self?.linkChip.dismiss() ?? false }),
+        ])
         coach.standingSinceFor = { [weak self] id in
             self?.store.coachStandingSince(id) ?? Date()
-        }
-        coach.inputWasHuman = { [weak self] in self?.engine.actingInputWasHuman ?? true }
-        coach.humanIdle = { [weak self] in
-            guard let engine = self?.engine else { return 0 }
-            return Date().timeIntervalSince(engine.lastHumanInputAt)
-        }
-        // A flash steals the glass without going through the engine's
-        // surface claim; the chip must not outlive its own pixels.
-        hud.onTakeover = { [weak self] in self?.coach.surfaceClaimed() }
-        coach.flash = { [weak self] text in self?.hud.flash(text) }
-        // Every voice here shares the lode-lode grammar, so the floor has
-        // one owner at a time: walk, then meeting, then coach. An assent
-        // can only ever mean one thing.
-        engine.onLodeDoubleTap = { [weak self] in
-            guard let self else { return }
-            if self.walk.cardVisible {
-                self.walk.assent()
-            } else if self.meetings.join() {
-                return
-            } else if self.linkChip.take() {
-                return
-            } else {
-                self.coach.lodeDoubleTapped()
-            }
-        }
-        engine.coachDelete = { [weak self] in
-            guard let self else { return false }
-            if self.walk.pass() { return true }
-            if self.meetings.dismiss() { return true }
-            if self.linkChip.dismiss() { return true }
-            return self.coach.lodeDelete()
         }
         // A link you just clicked outranks a suggestion about links in
         // general: the chip is answering a thing the hand did seconds ago,
@@ -397,7 +358,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         actions.onLinkSpent = { [weak self] in self?.linkChip.hide() }
         engine.walkSignal = { [weak self] signal in self?.walk.notice(signal) }
         actions.walkPick = { [weak self] in self?.walk.notice(.launcherPick) }
-        engine.onSurfaceClaimed = { [weak self] in self?.coach.surfaceClaimed() }
         actions.coachBoundary = { [weak self] app in self?.coach.noteBoundary(app: app) }
         actions.coachWebOpen = { [weak self] host in self?.coach.noteWebOpen(host: host) }
         // First pass once the boot dust settles; boundaries keep it fresh.

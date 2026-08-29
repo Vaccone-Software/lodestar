@@ -14,5 +14,9 @@ let package = Package(
         // Slice 0: the window-identity probe. Throwaway by design.
         .executableTarget(name: "probe", dependencies: ["LodestarCore"]),
         .testTarget(name: "LodestarCoreTests", dependencies: ["LodestarCore"]),
+        // The scenario harness: the real engine, glass, and coach wired the
+        // way the app wires them, driven by scripted keystrokes against a
+        // world that never moves a window.
+        .testTarget(name: "LodestarAppTests", dependencies: ["lodestar", "LodestarCore"]),
     ]
 )

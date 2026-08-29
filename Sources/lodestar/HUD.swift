@@ -55,12 +55,14 @@ final class HUD {
     private let panel: NSPanel
     private let root = NSView()
     private var content: NSStackView?
-    private var hideTimer: Timer?
+    private var hideWork: DispatchWorkItem?
     /// The occupant this drawing is replacing — read by `present` to tell a
     /// chip being redrawn from a chip arriving.
     private var cameFromCoach = false
+    private let clock: Clock
 
-    init() {
+    init(clock: Clock = .live) {
+        self.clock = clock
         panel = Glass.makePanel(level: .statusBar)
         panel.ignoresMouseEvents = true
         panel.contentView = root
@@ -75,8 +77,8 @@ final class HUD {
     func showGuide(title: String, rows: [GuideRow], footer: String,
                    owner: SurfaceOwner = .guide) {
         handOver(to: owner)
-        hideTimer?.invalidate()
-        hideTimer = nil
+        hideWork?.cancel()
+        hideWork = nil
         build(title: title, titleIcon: nil, rows: Array(rows.prefix(24)), footer: footer)
         present()
     }
@@ -86,16 +88,16 @@ final class HUD {
         handOver(to: .flash)
         build(title: text, titleIcon: icon, rows: [], footer: nil)
         present()
-        hideTimer?.invalidate()
-        hideTimer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { [weak self] _ in
-            self?.hide()
-        }
+        hideWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.hide() }
+        hideWork = work
+        clock.after(seconds, work)
     }
 
     func hide() {
         handOver(to: .none)
-        hideTimer?.invalidate()
-        hideTimer = nil
+        hideWork?.cancel()
+        hideWork = nil
         panel.orderOut(nil)
     }
 

@@ -9,70 +9,95 @@ import LodestarCore
 /// remembered volume — because the classic radio cannot carry music out
 /// and voice in at once. No setting prevents it, every app that opens
 /// the mic causes it, and while it stands there is nothing worth
-/// listening to. So whatever is playing is paused instead, and resumed
-/// once the device is back on its music profile.
+/// hearing. So whatever is playing is paused, and resumed once the
+/// device is back on its music profile.
 ///
-/// Derived, never configured. It acts only when the input about to be
-/// read and the current output are the same Bluetooth radio, only when
-/// something was verifiably playing across a small window (a keyboard
-/// click app flickers in one roll call; music stands in two), and it
-/// resumes only what it watched stop. The pause key is a toggle aimed at
-/// whichever app owns Now Playing, so every step distrusts it: sent,
-/// then checked, and any doubt collapses to doing nothing — the one
-/// wrong action it could take, starting something silent, is watched for
-/// and undone on the spot.
+/// The players are asked directly, by Apple Events, because the audio
+/// system cannot answer the question. A first design inferred "playing"
+/// from CoreAudio's process roll call and pressed the Now Playing ⏯:
+/// measurement killed it twice on the machine it was built for — a
+/// paused player keeps its silent output stream for fifteen seconds
+/// (the verify read "no effect" and stranded the pause), and a
+/// keyboard-click app holds one forever (the gate read "playing" from
+/// silence, and the ⏯, a blind toggle, would have started music into
+/// every silent dictation). Asking the player is exact in both
+/// directions: pause is pause, play is play, and only what said
+/// "playing" is ever owed a resume.
+///
+/// Derived, never configured: it acts only when the input about to be
+/// read and the current output are the same Bluetooth radio, and it
+/// touches only players that answered. A browser tab cannot be asked
+/// and is left alone.
 final class PlaybackPause {
     /// The system's side, behind closures so the stage can play it.
+    ///
+    /// The player calls are Apple Events, and an Apple Event can block —
+    /// on a beachballing player, or on the one-time automation-consent
+    /// prompt itself. The main thread hosts the event tap, so a blocked
+    /// main thread holds every keyDown on the machine until macOS kills
+    /// the tap. The live world therefore runs all player work on its
+    /// own serial queue and completes on main; the stage completes
+    /// inline.
     struct World {
         /// Whether `input` (nil = the system default) and the current
         /// default output are the same Bluetooth radio.
         var sharedRoute: (String?) -> Bool
-        /// Processes with audio flowing to an output right now, ours
-        /// excluded. Empty on macOS before 14.4, where the roll call
-        /// does not exist and the gate stays closed.
-        var outputters: () -> Set<pid_t>
-        /// The ⏯ a keyboard would send, to whoever owns Now Playing.
-        var playPause: () -> Void
+        /// Off the main thread: pause every running player that says
+        /// "playing", and complete on main with who was paused.
+        var pausePlaying: (@escaping ([String]) -> Void) -> Void
+        /// Off the main thread: play each owed player that is not
+        /// already playing — a hand that pressed play first settles the
+        /// debt, and a player quit meanwhile is left quit. Completes on
+        /// main with who was actually played.
+        var resumePlayers: ([String], @escaping ([String]) -> Void) -> Void
         /// The default output's nominal sample rate right now.
         var outputRate: () -> Double
         /// Watch that rate; the closure returned stops watching.
         var watchRate: (@escaping (Double) -> Void) -> () -> Void
 
-        static let live = World(
-            sharedRoute: SystemAudio.sharedBluetoothRoute,
-            outputters: SystemAudio.outputtingPids,
-            playPause: SystemAudio.playPauseKey,
-            outputRate: { SystemAudio.outputRate() ?? 0 },
-            watchRate: SystemAudio.watchOutputRate)
+        static let live: World = {
+            let queue = DispatchQueue(label: "com.vaccone.lodestar.playback")
+            return World(
+                sharedRoute: SystemAudio.sharedBluetoothRoute,
+                pausePlaying: { done in
+                    queue.async {
+                        let playing = Players.playing()
+                        playing.forEach(Players.pause)
+                        DispatchQueue.main.async { done(playing) }
+                    }
+                },
+                resumePlayers: { owed, done in
+                    queue.async {
+                        let played = owed.filter { !Players.isPlaying($0) }
+                        played.forEach(Players.play)
+                        DispatchQueue.main.async { done(played) }
+                    }
+                },
+                outputRate: { SystemAudio.outputRate() ?? 0 },
+                watchRate: SystemAudio.watchOutputRate)
+        }()
     }
 
-    /// Two roll calls this far apart tell music from a click.
-    static let sampleGap: TimeInterval = 0.25
-    /// How long the Now Playing app gets to act on the key before the
-    /// check on what it did.
-    static let verifyDelay: TimeInterval = 0.8
     /// The resume never waits longer than this on a profile that is not
     /// coming back.
     static let resumeBackstop: TimeInterval = 3.0
-    /// Hands-free profiles speak at 8 or 16 kHz; a rate at or above this
-    /// is a music profile again.
+    /// Hands-free profiles speak at 8 or 16 kHz; a rate at or above
+    /// this is a music profile again.
     static let musicRate: Double = 32_000
 
     private enum State {
         case idle
-        /// First roll call taken; the second is scheduled.
-        case sampling(first: Set<pid_t>)
-        /// The key went out; the check on what it did is scheduled.
-        case verifying(candidates: Set<pid_t>, baseline: Set<pid_t>)
-        /// These stopped when asked, so they are owed a resume.
-        case paused(Set<pid_t>)
+        /// The players are being asked, off the main thread.
+        case asking
+        /// These players said "playing" and were paused; they are owed
+        /// a resume.
+        case paused([String])
     }
 
     private let world: World
     private let clock: Clock
     private var state: State = .idle
     private var draftOpen = false
-    private var pending: DispatchWorkItem?
     private var backstop: DispatchWorkItem?
     private var stopWatching: (() -> Void)?
 
@@ -92,88 +117,43 @@ final class PlaybackPause {
             // The next draft inherits the quiet; the resume waits for
             // this one's own end.
             cancelResume()
-        case .sampling, .verifying:
+        case .asking:
             break
         case .idle:
             guard world.sharedRoute(input) else {
                 Log.info("draft", ["playback": "no shared radio"])
                 return
             }
-            let first = world.outputters()
-            guard !first.isEmpty else {
-                Log.info("draft", ["playback": "nothing playing"])
-                return
-            }
-            state = .sampling(first: first)
-            let work = DispatchWorkItem { [weak self] in self?.secondSample() }
-            pending = work
-            clock.after(Self.sampleGap, work)
+            state = .asking
+            world.pausePlaying { [weak self] paused in self?.pausedPlayers(paused) }
         }
     }
 
-    /// The draft closed, whatever the ending.
+    /// The draft closed, whatever the ending. An ask still in flight
+    /// finishes on its own and starts the resume itself.
     func dictationEnded() {
         draftOpen = false
-        switch state {
-        case .idle:
-            break
-        case .sampling:
-            // No key was sent; there is nothing to undo.
-            pending?.cancel()
-            pending = nil
-            state = .idle
-        case .verifying:
-            // The check still lands, and starts the resume itself.
-            break
-        case .paused:
-            beginResume()
-        }
-    }
-
-    private func secondSample() {
-        guard case .sampling(let first) = state else { return }
-        guard draftOpen else { state = .idle; return }
-        let second = world.outputters()
-        let playing = first.intersection(second)
-        guard !playing.isEmpty else { state = .idle; return }
-        world.playPause()
-        Log.info("draft", ["playback": "pause sent", "playing": playing.count])
-        state = .verifying(candidates: playing, baseline: first.union(second))
-        let work = DispatchWorkItem { [weak self] in self?.verify() }
-        pending = work
-        clock.after(Self.verifyDelay, work)
-    }
-
-    private func verify() {
-        guard case .verifying(let candidates, let baseline) = state else { return }
-        let after = world.outputters()
-        let stopped = candidates.subtracting(after)
-        let started = after.subtracting(baseline)
-        if !stopped.isEmpty {
-            state = .paused(stopped)
-            Log.info("draft", ["playback": "paused", "stopped": stopped.count])
-            if !draftOpen { beginResume() }
-        } else if !started.isEmpty {
-            // The toggle toggled something on. Undo it, owe nothing.
-            world.playPause()
-            state = .idle
-            Log.info("draft", ["playback": "misfire undone"])
-        } else {
-            // The key went nowhere — a call, no Now Playing app, or a
-            // player that paused but kept a silent stream open. All
-            // indistinguishable from here, so nothing is owed: a pause
-            // this could strand is one keypress to undo, a guess is not.
-            state = .idle
-            Log.info("draft", ["playback": "no effect"])
-        }
-    }
-
-    /// The draft is closed and a resume is owed: send it the moment the
-    /// output is a music profile again, or at the backstop, whichever
-    /// comes first. Resuming into a still-flipped profile would put the
-    /// first seconds of music through the telephone band.
-    private func beginResume() {
         guard case .paused = state else { return }
+        beginResume()
+    }
+
+    private func pausedPlayers(_ players: [String]) {
+        guard case .asking = state else { return }
+        guard !players.isEmpty else {
+            state = .idle
+            Log.info("draft", ["playback": "nothing playing"])
+            return
+        }
+        state = .paused(players)
+        Log.info("draft", ["playback": "paused", "players": players.joined(separator: " ")])
+        if !draftOpen { beginResume() }
+    }
+
+    /// Send the resume the moment the output is a music profile again,
+    /// or at the backstop, whichever comes first: resuming into a
+    /// still-flipped profile would put the first seconds of music
+    /// through the telephone band.
+    private func beginResume() {
         if world.outputRate() >= Self.musicRate { resume(); return }
         stopWatching = world.watchRate { [weak self] rate in
             guard rate >= Self.musicRate else { return }
@@ -188,15 +168,10 @@ final class PlaybackPause {
         guard case .paused(let owed) = state else { return }
         cancelResume()
         state = .idle
-        // A hand may have pressed play first; a resume on top of that
-        // is the toggle's other wrong action. Owed pids audible again
-        // mean the debt was settled by the user, not by us.
-        if !owed.isDisjoint(with: world.outputters()) {
-            Log.info("draft", ["playback": "resumed by hand"])
-            return
+        world.resumePlayers(owed) { played in
+            Log.info("draft", ["playback": played.isEmpty ? "resumed by hand" : "resumed",
+                               "players": played.joined(separator: " ")])
         }
-        world.playPause()
-        Log.info("draft", ["playback": "resumed"])
     }
 
     private func cancelResume() {
@@ -207,7 +182,51 @@ final class PlaybackPause {
     }
 }
 
-/// The CoreAudio and event-posting side, kept apart from the decisions.
+/// The players the draft can ask directly, by Apple Events: the ones
+/// that own Now Playing in practice. Asking is exact — no roll call,
+/// no toggle — at the price of a one-time automation consent per
+/// player, which the entitlement and the Info.plist purpose string
+/// permit. A player that is not running is never addressed: sending
+/// script to a quit app would launch it.
+enum Players {
+    static let known = ["com.apple.Music", "com.spotify.client"]
+
+    static func playing() -> [String] {
+        known.filter { isPlaying($0) }
+    }
+
+    static func isPlaying(_ id: String) -> Bool {
+        running(id) && ask("player state as string", of: id) == "playing"
+    }
+
+    static func pause(_ id: String) {
+        guard running(id) else { return }
+        _ = ask("pause", of: id)
+    }
+
+    static func play(_ id: String) {
+        guard running(id) else { return }
+        _ = ask("play", of: id)
+    }
+
+    private static func running(_ id: String) -> Bool {
+        !NSRunningApplication.runningApplications(withBundleIdentifier: id).isEmpty
+    }
+
+    private static func ask(_ body: String, of id: String) -> String? {
+        let source = "tell application id \"\(id)\" to \(body)"
+        var error: NSDictionary?
+        let result = NSAppleScript(source: source)?.executeAndReturnError(&error)
+        if let error {
+            Log.info("draft", ["playback": "script error", "player": id,
+                               "error": "\(error[NSAppleScript.errorMessage] ?? error)"])
+            return nil
+        }
+        return result?.stringValue
+    }
+}
+
+/// The CoreAudio side, kept apart from the decisions.
 enum SystemAudio {
     private static let system = AudioObjectID(kAudioObjectSystemObject)
 
@@ -216,13 +235,6 @@ enum SystemAudio {
         -> AudioObjectPropertyAddress {
         AudioObjectPropertyAddress(mSelector: selector, mScope: scope,
                                    mElement: kAudioObjectPropertyElementMain)
-    }
-
-    /// 'abcd' → the selector, for the process properties macOS 14.4
-    /// added: asked by raw value, the binary still links on 13, where
-    /// the question has no answer and answers empty.
-    private static func selector(_ code: String) -> AudioObjectPropertySelector {
-        code.utf8.reduce(0) { $0 << 8 | AudioObjectPropertySelector($1) }
     }
 
     private static func readU32(_ id: AudioObjectID, _ address: AudioObjectPropertyAddress) -> UInt32? {
@@ -250,15 +262,6 @@ enum SystemAudio {
         }
         guard status == noErr, let string = value?.takeRetainedValue() else { return nil }
         return string as String
-    }
-
-    private static func readList(_ id: AudioObjectID, _ address: AudioObjectPropertyAddress) -> [AudioObjectID] {
-        var address = address
-        var size: UInt32 = 0
-        guard AudioObjectGetPropertyDataSize(id, &address, 0, nil, &size) == noErr, size > 0 else { return [] }
-        var list = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
-        guard AudioObjectGetPropertyData(id, &address, 0, nil, &size, &list) == noErr else { return [] }
-        return list
     }
 
     static func defaultOutput() -> AudioDeviceID? {
@@ -306,21 +309,6 @@ enum SystemAudio {
         return inRoot == outRoot
     }
 
-    /// Every process with audio flowing to an output right now, ours
-    /// excluded. macOS 14.4's process roll call; older systems answer
-    /// nothing and no pause is ever attempted.
-    static func outputtingPids() -> Set<pid_t> {
-        let me = getpid()
-        var pids: Set<pid_t> = []
-        for process in readList(system, address(selector("prs#"))) {
-            guard readU32(process, address(selector("piro"))) == 1,
-                  let raw = readU32(process, address(selector("ppid"))) else { continue }
-            let pid = pid_t(bitPattern: raw)
-            if pid != me { pids.insert(pid) }
-        }
-        return pids
-    }
-
     static func outputRate() -> Double? {
         guard let output = defaultOutput() else { return nil }
         return readDouble(output, address(kAudioDevicePropertyNominalSampleRate))
@@ -340,24 +328,5 @@ enum SystemAudio {
             var removeAddress = address(kAudioDevicePropertyNominalSampleRate)
             AudioObjectRemovePropertyListenerBlock(device, &removeAddress, .main, block)
         }
-    }
-
-    /// The ⏯ a keyboard sends: NX_KEYTYPE_PLAY in a system-defined
-    /// event, down then up, landing on whichever app owns Now Playing.
-    static func playPauseKey() {
-        postMediaKey(down: true)
-        postMediaKey(down: false)
-    }
-
-    private static func postMediaKey(down: Bool) {
-        // NX_KEYTYPE_PLAY = 16; data1 packs the key and its state the
-        // way IOKit's hid system does.
-        let data1 = Int((16 << 16) | ((down ? 0x0A : 0x0B) << 8))
-        guard let event = NSEvent.otherEvent(
-            with: .systemDefined, location: .zero,
-            modifierFlags: NSEvent.ModifierFlags(rawValue: down ? 0xA00 : 0xB00),
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: 0, context: nil, subtype: 8, data1: data1, data2: -1) else { return }
-        event.cgEvent?.post(tap: .cghidEventTap)
     }
 }

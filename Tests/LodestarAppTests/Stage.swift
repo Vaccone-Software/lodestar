@@ -188,13 +188,14 @@ final class Stage {
     var field: DraftController.Field?
     /// Every input chosen on the register line (nil = system default).
     var chosenInputs: [String?] = []
-    /// The playback world: what the fake system reports playing, by
-    /// pid, whether the route is a shared Bluetooth radio, the output's
-    /// nominal rate, and every ⏯ the pauser sent. The stage's system
-    /// never reacts on its own; a test scripts what the key did.
-    var playing: Set<pid_t> = []
+    /// The playback world: which players say they are playing, whether
+    /// the route is a shared Bluetooth radio, the output's nominal
+    /// rate, and every pause and play the pauser sent. Pausing and
+    /// playing move the fake players' state the way the real ones obey.
+    var playing: Set<String> = []
     var sharedRoute = false
-    private(set) var mediaKeys = 0
+    private(set) var pausedPlayers: [String] = []
+    private(set) var playedPlayers: [String] = []
     private var outputRate: Double = 44_100
     private var rateWatcher: ((Double) -> Void)?
     /// The profile flips: the rate changes and any watcher hears it.
@@ -289,8 +290,20 @@ final class Stage {
         draft.chooseInput = { [unowned self] name in self.chosenInputs.append(name) }
         draft.playback = PlaybackPause(world: PlaybackPause.World(
             sharedRoute: { [unowned self] _ in self.sharedRoute },
-            outputters: { [unowned self] in self.playing },
-            playPause: { [unowned self] in self.mediaKeys += 1 },
+            pausePlaying: { [unowned self] done in
+                let playing = self.playing.sorted()
+                self.pausedPlayers.append(contentsOf: playing)
+                self.playing = []
+                done(playing)
+            },
+            resumePlayers: { [unowned self] owed, done in
+                let played = owed.filter { !self.playing.contains($0) }
+                for id in played {
+                    self.playedPlayers.append(id)
+                    self.playing.insert(id)
+                }
+                done(played)
+            },
             outputRate: { [unowned self] in self.outputRate },
             watchRate: { [unowned self] onChange in
                 self.rateWatcher = onChange

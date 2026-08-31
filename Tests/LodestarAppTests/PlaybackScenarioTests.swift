@@ -3,26 +3,21 @@ import XCTest
 @testable import LodestarCore
 
 /// Music steps aside while the draft listens — but only on a shared
-/// Bluetooth radio, only when something was verifiably playing, and it
-/// resumes only what it watched stop. The stage's system never reacts
-/// on its own: each test scripts what the ⏯ key did, the way the real
-/// Now Playing app would or would not obey it.
+/// Bluetooth radio, only players that said "playing", and only what
+/// was paused is ever owed a resume. The players are asked directly,
+/// so there is no toggle to distrust: the fake ones obey a pause and
+/// a play the way Music does.
 final class PlaybackScenarioTests: XCTestCase {
-    /// A shared radio with music standing through both roll calls: the
-    /// key goes out, the app obeys, and the resume follows the closed
-    /// draft as soon as the output is a music profile again.
+    /// A shared radio with music playing: paused the moment listening
+    /// starts, resumed after the draft when the profile is musical.
     func testMusicPausesForTheDraftAndResumesAtItsEnd() {
         let stage = Stage()
         stage.sharedRoute = true
-        stage.playing = [500]
+        stage.playing = ["com.apple.Music"]
         stage.lode(".")
-        XCTAssertEqual(stage.mediaKeys, 0, "one roll call is not proof of music")
-        stage.clock.advance(by: 0.25)
-        XCTAssertEqual(stage.mediaKeys, 1, "standing in both roll calls, it is paused")
-        stage.playing = []
-        stage.clock.advance(by: 0.8)
+        XCTAssertEqual(stage.pausedPlayers, ["com.apple.Music"], "paused as listening starts")
         _ = stage.press("return")
-        XCTAssertEqual(stage.mediaKeys, 2, "the profile is already musical, so resume at once")
+        XCTAssertEqual(stage.playedPlayers, ["com.apple.Music"], "the profile is musical, so resume at once")
     }
 
     /// The output is still on the hands-free profile when the draft
@@ -30,120 +25,76 @@ final class PlaybackScenarioTests: XCTestCase {
     func testResumeWaitsForTheMusicProfile() {
         let stage = Stage()
         stage.sharedRoute = true
-        stage.playing = [500]
+        stage.playing = ["com.apple.Music"]
         stage.lode(".")
-        stage.clock.advance(by: 0.25)
-        stage.playing = []
-        stage.clock.advance(by: 0.8)
         stage.setOutputRate(16_000)
         _ = stage.press("return")
-        XCTAssertEqual(stage.mediaKeys, 1, "resuming into the telephone band helps no one")
+        XCTAssertTrue(stage.playedPlayers.isEmpty, "resuming into the telephone band helps no one")
         stage.setOutputRate(44_100)
-        XCTAssertEqual(stage.mediaKeys, 2, "the profile returned, and so did the music")
+        XCTAssertEqual(stage.playedPlayers, ["com.apple.Music"], "the profile returned, and so did the music")
         stage.clock.advance(by: 5)
-        XCTAssertEqual(stage.mediaKeys, 2, "the backstop was cancelled by the real resume")
-    }
-
-    /// The user pressed play themselves while the resume was owed: the
-    /// debt is settled, and a ⏯ on top would pause them again.
-    func testAHandRestartOwesNoResume() {
-        let stage = Stage()
-        stage.sharedRoute = true
-        stage.playing = [500]
-        stage.lode(".")
-        stage.clock.advance(by: 0.25)
-        stage.playing = []
-        stage.clock.advance(by: 0.8)
-        stage.setOutputRate(16_000)
-        _ = stage.press("return")
-        stage.playing = [500]
-        stage.setOutputRate(44_100)
-        XCTAssertEqual(stage.mediaKeys, 1, "audible again means resumed by hand, not by us")
-        stage.clock.advance(by: 5)
-        XCTAssertEqual(stage.mediaKeys, 1, "and the backstop owes nothing either")
+        XCTAssertEqual(stage.playedPlayers.count, 1, "the backstop was cancelled by the real resume")
     }
 
     /// A profile that never comes back cannot hold the music forever.
     func testResumeBackstopFiresWhenTheProfileNeverReturns() {
         let stage = Stage()
         stage.sharedRoute = true
-        stage.playing = [500]
+        stage.playing = ["com.apple.Music"]
         stage.lode(".")
-        stage.clock.advance(by: 0.25)
-        stage.playing = []
-        stage.clock.advance(by: 0.8)
         stage.setOutputRate(16_000)
         _ = stage.press("return")
         stage.clock.advance(by: 3)
-        XCTAssertEqual(stage.mediaKeys, 2, "three seconds is as long as the music waits")
-    }
-
-    /// A keyboard-click app is loud in one roll call and gone in the
-    /// next; it never draws a key.
-    func testABurstyOutputterIsNotMusic() {
-        let stage = Stage()
-        stage.sharedRoute = true
-        stage.playing = [700]
-        stage.lode(".")
-        stage.playing = []
-        stage.clock.advance(by: 2)
-        XCTAssertEqual(stage.mediaKeys, 0, "a click is not a song")
+        XCTAssertEqual(stage.playedPlayers, ["com.apple.Music"], "three seconds is as long as the music waits")
     }
 
     /// Wired headphones, a desk microphone: no shared radio, no flip,
-    /// and nothing to protect anyone from.
-    func testNoKeyWithoutASharedBluetoothRoute() {
+    /// and the players are never even asked.
+    func testNoPauseWithoutASharedBluetoothRoute() {
         let stage = Stage()
         stage.sharedRoute = false
-        stage.playing = [500]
+        stage.playing = ["com.apple.Music"]
         stage.lode(".")
-        stage.clock.advance(by: 2)
-        XCTAssertEqual(stage.mediaKeys, 0)
+        stage.clock.advance(by: 5)
+        XCTAssertTrue(stage.pausedPlayers.isEmpty)
     }
 
-    /// A call keeps playing through the key, because a call is not a
-    /// Now Playing app: nothing stopped, so nothing is owed a resume.
-    func testNothingStoppedMeansNothingIsResumed() {
+    /// No player says "playing": nothing is paused, nothing is owed.
+    func testNothingPlayingMeansNothingHappens() {
         let stage = Stage()
         stage.sharedRoute = true
-        stage.playing = [600]
         stage.lode(".")
-        stage.clock.advance(by: 0.25)
-        XCTAssertEqual(stage.mediaKeys, 1)
-        stage.clock.advance(by: 0.8)
         _ = stage.press("return")
         stage.clock.advance(by: 5)
-        XCTAssertEqual(stage.mediaKeys, 1, "no resume for a pause that did nothing")
+        XCTAssertTrue(stage.pausedPlayers.isEmpty)
+        XCTAssertTrue(stage.playedPlayers.isEmpty)
     }
 
-    /// The toggle's one wrong action: nothing was pausable and the key
-    /// started something instead. It is undone on the spot.
-    func testAKeyThatStartedSomethingIsUndone() {
+    /// The user pressed play themselves while the resume was owed: the
+    /// debt is settled, and a play on top would not be theirs.
+    func testAHandRestartOwesNoResume() {
         let stage = Stage()
         stage.sharedRoute = true
-        stage.playing = [500]
+        stage.playing = ["com.apple.Music"]
         stage.lode(".")
-        stage.clock.advance(by: 0.25)
-        XCTAssertEqual(stage.mediaKeys, 1)
-        stage.playing = [500, 900]
-        stage.clock.advance(by: 0.8)
-        XCTAssertEqual(stage.mediaKeys, 2, "the misfire is undone at once")
+        stage.setOutputRate(16_000)
         _ = stage.press("return")
+        stage.playing = ["com.apple.Music"]
+        stage.setOutputRate(44_100)
+        XCTAssertTrue(stage.playedPlayers.isEmpty, "audible again means resumed by hand, not by us")
         stage.clock.advance(by: 5)
-        XCTAssertEqual(stage.mediaKeys, 2, "and nothing more is ever sent for it")
+        XCTAssertTrue(stage.playedPlayers.isEmpty, "and the backstop owes nothing either")
     }
 
-    /// A draft closed before the second roll call never sent a key, so
-    /// there is nothing to undo and nothing ever fires late.
-    func testAShortDraftSendsNoKeyAtAll() {
+    /// Two players playing: both paused, both resumed.
+    func testEveryPlayingPlayerIsPausedAndResumed() {
         let stage = Stage()
         stage.sharedRoute = true
-        stage.playing = [500]
+        stage.playing = ["com.apple.Music", "com.spotify.client"]
         stage.lode(".")
-        stage.clock.advance(by: 0.1)
+        XCTAssertEqual(stage.pausedPlayers.sorted(), ["com.apple.Music", "com.spotify.client"])
         _ = stage.press("return")
-        stage.clock.advance(by: 5)
-        XCTAssertEqual(stage.mediaKeys, 0)
+        XCTAssertEqual(stage.playedPlayers.sorted(), ["com.apple.Music", "com.spotify.client"])
     }
 
     /// A new draft before the owed resume: the quiet carries over, and
@@ -151,19 +102,16 @@ final class PlaybackScenarioTests: XCTestCase {
     func testTheNextDraftInheritsThePause() {
         let stage = Stage()
         stage.sharedRoute = true
-        stage.playing = [500]
+        stage.playing = ["com.apple.Music"]
         stage.lode(".")
-        stage.clock.advance(by: 0.25)
-        stage.playing = []
-        stage.clock.advance(by: 0.8)
         stage.setOutputRate(16_000)
         _ = stage.press("return")
-        XCTAssertEqual(stage.mediaKeys, 1, "the resume is pending, not sent")
+        XCTAssertTrue(stage.playedPlayers.isEmpty, "the resume is pending, not sent")
         stage.lode(".")
         stage.clock.advance(by: 5)
-        XCTAssertEqual(stage.mediaKeys, 1, "the pause stands through the second draft")
+        XCTAssertTrue(stage.playedPlayers.isEmpty, "the pause stands through the second draft")
         _ = stage.press("return")
         stage.setOutputRate(44_100)
-        XCTAssertEqual(stage.mediaKeys, 2, "one resume, after the last draft")
+        XCTAssertEqual(stage.playedPlayers, ["com.apple.Music"], "one resume, after the last draft")
     }
 }

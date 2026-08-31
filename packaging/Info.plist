@@ -33,6 +33,8 @@
 	     the feature is enabled, never at install. -->
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Lodestar listens while the draft is open so you can speak text into the app you are in. Recognition runs on this Mac; no audio is kept or sent anywhere.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Lodestar pauses music while dictation listens on a shared Bluetooth headset and resumes it after.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Lodestar reads your calendar to offer the next meeting a few minutes before it starts. Nothing about your events leaves your Mac.</string>
 	<key>NSCalendarsUsageDescription</key>

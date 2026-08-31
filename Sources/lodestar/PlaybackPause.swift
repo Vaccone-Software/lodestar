@@ -95,9 +95,15 @@ final class PlaybackPause {
         case .sampling, .verifying:
             break
         case .idle:
-            guard world.sharedRoute(input) else { return }
+            guard world.sharedRoute(input) else {
+                Log.info("draft", ["playback": "no shared radio"])
+                return
+            }
             let first = world.outputters()
-            guard !first.isEmpty else { return }
+            guard !first.isEmpty else {
+                Log.info("draft", ["playback": "nothing playing"])
+                return
+            }
             state = .sampling(first: first)
             let work = DispatchWorkItem { [weak self] in self?.secondSample() }
             pending = work
@@ -261,8 +267,12 @@ enum SystemAudio {
         return AudioDeviceID(id)
     }
 
+    private static func transport(_ id: AudioDeviceID) -> UInt32? {
+        readU32(id, address(kAudioDevicePropertyTransportType))
+    }
+
     private static func bluetooth(_ id: AudioDeviceID) -> Bool {
-        let transport = readU32(id, address(kAudioDevicePropertyTransportType))
+        let transport = transport(id)
         return transport == kAudioDeviceTransportTypeBluetooth
             || transport == kAudioDeviceTransportTypeBluetoothLE
     }
@@ -280,7 +290,15 @@ enum SystemAudio {
     /// default output are the same Bluetooth radio — the one condition
     /// under which opening the mic degrades what is playing.
     static func sharedBluetoothRoute(input name: String?) -> Bool {
-        let wanted = name.flatMap { name in AudioInput.inputDevices().first { $0.name == name }?.id }
+        var wanted = name.flatMap { name in AudioInput.inputDevices().first { $0.name == name }?.id }
+        // An engine following the system default reads through a private
+        // aggregate its process owns ("CADefaultDeviceAggregate-<pid>-<n>"),
+        // and that is the name the session can report. The wrapper is
+        // never the radio itself — its transport says aggregate — but it
+        // is on the owner's own device list, so the name resolves. Gate
+        // on what it wraps: the system default. (v0.26.1 gated on the
+        // wrapper and never opened.)
+        if let id = wanted, transport(id) == kAudioDeviceTransportTypeAggregate { wanted = nil }
         guard let input = wanted ?? AudioInput.defaultInput(),
               let output = defaultOutput() else { return false }
         guard bluetooth(input), bluetooth(output) else { return false }

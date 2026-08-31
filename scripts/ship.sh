@@ -17,7 +17,6 @@ fi
 
 VERSION=$(grep 'public static let version' Sources/LodestarCore/Version.swift | cut -d'"' -f2)
 REPO=Vaccone-Software/lodestar
-TAP="https://github.com/Vaccone-Software/homebrew-tap.git"
 PRERELEASE=""
 case "$VERSION" in 0.*) PRERELEASE="--prerelease";; esac
 
@@ -31,18 +30,5 @@ gh release create "v$VERSION" "dist/lodestar-$VERSION.zip" "dist/lodestar-$VERSI
     $PRERELEASE --title "Lodestar $VERSION" --notes-file "$NOTES" --repo "$REPO"
 
 echo "→ bumping cask"
-SHA=$(shasum -a 256 "dist/lodestar-$VERSION.zip" | cut -d' ' -f1)
-STAGE=$(mktemp -d)
-trap 'rm -rf "$STAGE"' EXIT
-git -c credential.helper='!gh auth git-credential' clone -q "$TAP" "$STAGE"
-python3 - "$STAGE/Casks/lodestar.rb" "$VERSION" "$SHA" <<'PY'
-import re, sys
-path, version, sha = sys.argv[1], sys.argv[2], sys.argv[3]
-s = open(path).read()
-s = re.sub(r'version "[^"]*"', f'version "{version}"', s, count=1)
-s = re.sub(r'sha256 "[^"]*"', f'sha256 "{sha}"', s, count=1)
-open(path, "w").write(s)
-PY
-git -C "$STAGE" commit -qam "Lodestar $VERSION"
-git -C "$STAGE" -c credential.helper='!gh auth git-credential' push -q origin main
+./scripts/bump-cask.sh "$VERSION" "dist/lodestar-$VERSION.zip"
 echo "✓ shipped v$VERSION"

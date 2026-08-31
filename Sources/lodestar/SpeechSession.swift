@@ -478,24 +478,42 @@ private actor AnalyzerBox {
         guard !stopped else { return }
         let feed = AudioFeed(outFormat: outFormat, continuation: continuation, onLevel: onLevel)
         self.feed = feed
-        let input: String?
-        do {
-            let started = try await MainActor.run { () throws -> (format: AVAudioFormat, name: String?) in
-                // The session may have been stopped while this was queued:
-                // a draft closed during prepare must not start the mic.
-                guard stillWanted() else { throw CancellationError() }
-                return try microphone.start(device: wanted) { buffer in feed.push(buffer) }
+        // A Bluetooth radio resting on its music profile flips to the
+        // hands-free profile when the input opens, and a start inside the
+        // flip fails with -10868 — measured on the headset this was built
+        // against: the first start from the music profile always fails,
+        // and one ~750ms later succeeds (longer while music actively
+        // streams). The engine's own immediate rebuild cannot outwait
+        // that, so the settling happens here, off the main thread,
+        // across a few attempts.
+        var started: (format: AVAudioFormat, name: String?)?
+        for attempt in 1...4 {
+            if attempt > 1 {
+                try? await Task.sleep(for: .milliseconds(650))
+                guard !stopped else { return }
             }
-            input = started.name
-            Log.info("draft", ["speech": "audio", "input": input ?? "unknown",
-                               "hz": Int(started.format.sampleRate),
-                               "channels": Int(started.format.channelCount)])
-        } catch is CancellationError {
-            return
-        } catch {
-            Log.info("draft", ["speech": "audio start failed", "error": "\(error.localizedDescription)"])
+            do {
+                started = try await MainActor.run { () throws -> (format: AVAudioFormat, name: String?) in
+                    // The session may have been stopped while this was queued:
+                    // a draft closed during prepare must not start the mic.
+                    guard stillWanted() else { throw CancellationError() }
+                    return try microphone.start(device: wanted) { buffer in feed.push(buffer) }
+                }
+                break
+            } catch is CancellationError {
+                return
+            } catch {
+                Log.info("draft", ["speech": "audio start failed", "attempt": attempt,
+                                   "error": "\(error.localizedDescription)"])
+            }
+        }
+        guard let started else {
             say(.failed("the microphone could not start")); return
         }
+        let input = started.name
+        Log.info("draft", ["speech": "audio", "input": input ?? "unknown",
+                           "hz": Int(started.format.sampleRate),
+                           "channels": Int(started.format.channelCount)])
         guard !stopped else { await MainActor.run { microphone.stop() }; return }
         say(.listening(input: input))
     }

@@ -33,6 +33,8 @@ s = re.sub(r'version "[^"]*"', f'version "{version}"', s, count=1)
 s = re.sub(r'sha256 "[^"]*"', f'sha256 "{sha}"', s, count=1)
 open(path, "w").write(s)
 PY
-git -C "$STAGE" "${IDENTITY[@]}" commit -qam "Lodestar $VERSION"
+# ${arr[@]+...} rather than a bare expansion: macOS bash 3.2 under set -u
+# treats an empty array as unbound.
+git -C "$STAGE" ${IDENTITY[@]+"${IDENTITY[@]}"} commit -qam "Lodestar $VERSION"
 git -C "$STAGE" -c credential.helper="$HELPER" push -q origin main
 echo "✓ cask → $VERSION ($SHA)"

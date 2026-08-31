@@ -378,8 +378,26 @@ final class DraftPanel {
 
 #if DEBUG
 extension DraftPanel {
-    /// The preview harness's lanes: 0 speaking with a ghost, 1 editing.
+    /// The preview harness's lanes: 0 speaking with a ghost, 1 editing,
+    /// 2 the website's photograph.
     static func preview(_ variant: Int) -> DraftPanel {
+        if variant == 2 {
+            let panel = DraftPanel()
+            var buffer = Draft.Buffer()
+            let icon = NSWorkspace.shared.icon(forFile: "/System/Applications/Notes.app")
+            buffer.settle("What does man gain by all the toil at which he toils under the sun?")
+            buffer.settle("A generation goes, and a generation comes, but the earth remains forever.")
+            buffer.settle("The sun rises, and the sun goes down,")
+            buffer.showGhost("and hastens to the place where it rises")
+            panel.show(DraftView(buffer: buffer, mode: .insert, editor: .insert,
+                                 speech: .listening(input: "Cypress"),
+                                 input: "Cypress", level: 0.55,
+                                 inputs: ["Cypress", "MacBook Pro Microphone"],
+                                 systemInput: "Cypress",
+                                 micOn: true,
+                                 destination: ("Notes", icon), replacing: false))
+            return panel
+        }
         let panel = DraftPanel()
         var buffer = Draft.Buffer()
         let icon = NSWorkspace.shared.icon(forFile: "/System/Applications/Messages.app")

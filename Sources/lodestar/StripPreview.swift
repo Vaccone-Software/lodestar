@@ -180,8 +180,9 @@ enum StripPreview {
         }
 
         // 70: the draft, speaking, with a ghost standing; 71 the edit door
-        // in normal mode over a pulled field. The panel is the real one.
-        if variant == 70 || variant == 71 {
+        // in normal mode over a pulled field; 72 the website's photograph.
+        // The panel is the real one.
+        if variant == 70 || variant == 71 || variant == 72 {
             DispatchQueue.main.async {
                 heldDraft = DraftPanel.preview(variant - 70)
             }

@@ -43,6 +43,9 @@ final class DraftController {
     /// The user picked an input on the register line; the app writes the
     /// config line (`draft.input`), nil meaning the system default.
     var chooseInput: ((String?) -> Void)?
+    /// Music steps aside while the mic is open on a shared Bluetooth
+    /// radio; the draft only reports its edges.
+    var playback: PlaybackPause?
     let clock: Clock
 
     struct Destination: Equatable {
@@ -340,6 +343,9 @@ final class DraftController {
             if case .listening(let input) = state {
                 self.listening = true
                 self.inputName = input
+                // The device actually read, when the session named it:
+                // a pinned input that fell back gates on what is open.
+                self.playback?.dictationBegan(input: input ?? self.inputDevice)
                 self.observations?.latency(surface: "draft-listen",
                                            seconds: self.clock.now().timeIntervalSince(self.openedAt))
                 if self.mode == .normal || !self.micWanted { self.speech.pause() }
@@ -677,6 +683,7 @@ final class DraftController {
 
     private func close() {
         isOpen = false
+        playback?.dictationEnded()
         listening = false
         sessionStarted = false
         inputName = nil

@@ -234,6 +234,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         draft.observations = observationStore
         draft.words = config.draftWords
         draft.inputDevice = config.draftInput.isEmpty ? nil : config.draftInput
+        draft.playback = PlaybackPause()
         draft.chooseInput = { [weak self] name in
             guard let self else { return }
             let flash = name.map { "✓ microphone: \($0)" } ?? "✓ microphone: system default"

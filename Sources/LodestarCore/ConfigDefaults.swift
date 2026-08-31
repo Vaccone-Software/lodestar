@@ -192,6 +192,10 @@ public enum ConfigDefaults {
         "select": .table([
             "copy-on-complete": .bool(false),
         ]),
+        "draft": .table([
+            "input": .string(""),
+            "words": .table([:]),
+        ]),
         "clipboard": .table([
             "enabled": .bool(true),
             "max-size-mb": .int(500),

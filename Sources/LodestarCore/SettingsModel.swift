@@ -25,6 +25,7 @@ public enum SettingsModel {
         case calendars
         case excludeApps
         case excludePatterns
+        case draftWords
         case keyRemaps
     }
 
@@ -144,6 +145,10 @@ public enum SettingsModel {
         public var savedBrowserID: String?
         /// Every profile the installed browsers actually have.
         public var detectedProfiles: [DetectedProfile]
+        /// Every audio input the machine has right now, by name, and
+        /// which of them the system calls its default.
+        public var inputDevices: [String] = []
+        public var defaultInput: String?
 
         public init(accessibility: String = "unknown", screenRecording: String = "unknown",
                     calendars: String = "unknown", browserRole: String = "unknown",
@@ -184,7 +189,8 @@ public enum SettingsModel {
         "web-bar": ("Ask", ["lode", "⏎"],
                     "Type a destination or a question. It opens in the "
                     + "right browser profile."),
-        "commands": ("Commands", ["lode", "."], nil),
+        "commands": ("Commands", ["lode", "-"], nil),
+        "draft": ("Draft", ["lode", "."], "Speak into it and ⏎ pastes where your cursor was. ⇧. edits the field."),
         "scroll": ("Scroll", ["lode", "`"], nil),
         "hints": ("Click hints", ["lode", ";"], nil),
         "select": ("Select text", ["lode", "/"], nil),
@@ -265,7 +271,7 @@ public enum SettingsModel {
             ("Navigation", ["launcher", "graph", "window-chooser", "index-jump"]),
             ("Windows", ["maximize", "flip-orientation", "layout-undo",
                          "display-move", "breaths"]),
-            ("Interactions", ["hints", "scroll", "select", "commands"]),
+            ("Interactions", ["hints", "scroll", "select", "commands", "draft"]),
             ("Panels", ["web-bar", "settings"]),
         ]
         var gestureRows: [Row] = []
@@ -286,6 +292,24 @@ public enum SettingsModel {
                                keycaps: ["⇧⌘V"],
                                isDefault: config.clipboardEnabled, group: "Panels"))
         sections.append(Section(name: "Gestures", rows: gestureRows))
+
+        // 4b · The draft
+        let inputOptions = [""] + machine.inputDevices
+        let inputLabels = ["System default" + (machine.defaultInput.map { " (\($0))" } ?? "")]
+            + machine.inputDevices
+        let draftRows: [Row] = [
+            Row(title: "Microphone", path: "draft.input",
+                control: .choice(options: inputOptions, labels: inputLabels,
+                                 current: inputOptions.contains(config.draftInput) ? config.draftInput : ""),
+                detail: "What the draft listens to. The register line names it while listening.",
+                isDefault: config.draftInput.isEmpty),
+            Row(title: "Words", path: "draft.words",
+                control: .table(kind: .draftWords, entries: config.draftWords
+                    .map { TableEntry(key: $0, display: $0) }),
+                detail: "Names and terms speech gets wrong. A spoken word within a letter "
+                    + "or two of one of these becomes it, case and all.",
+                isDefault: config.draftWords.isEmpty),
+        ]
 
         // 4 · Interaction
         sections.append(Section(name: "Interaction", rows: [
@@ -313,7 +337,7 @@ public enum SettingsModel {
                     + "subtree is learned, so recall gets its chance "
                     + "first. A stumble brings it back immediately.",
                 isDefault: config.guideFade),
-        ]))
+        ] + draftRows))
 
         // 5 · Clipboard
         var clipboardRows: [Row] = []

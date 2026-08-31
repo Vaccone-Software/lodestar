@@ -476,7 +476,7 @@ final class WalkController: NSObject {
                     + "Press a letter to click it, or press escape to put "
                     + "the letters away. Try it now.",
                 illustration: capsRow([("lode", false), (";", true)]),
-                keys: [KeyRow("lode .", "search the menus of the app you are in"),
+                keys: [KeyRow("lode -", "search the menus of the app you are in"),
                        KeyRow("lode `", "scroll from the keyboard")])
         case .web:
             return CardContent(

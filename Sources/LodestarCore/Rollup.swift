@@ -228,6 +228,11 @@ public struct Rollup: Codable, Equatable {
         public var selectActions: [String: Int] = [:]
         public var selectSources: [String: Int] = [:]
         public var selectRows: [String: Int] = [:]
+        // v3: the draft, as counts and sums — never the text.
+        public var draftActions: [String: Int] = [:]
+        public var draftDoors: [String: Int] = [:]
+        public var draftWords = 0
+        public var draftSeconds: Double = 0
         // v2: the health pulse and the focus structure.
         public var health = HealthMonth()
         /// Focus changes by local hour, 24 buckets.
@@ -274,6 +279,12 @@ public struct Rollup: Codable, Equatable {
                                                           forKey: .selectSources) ?? [:]
             selectRows = try container.decodeIfPresent([String: Int].self,
                                                        forKey: .selectRows) ?? [:]
+            draftActions = try container.decodeIfPresent([String: Int].self,
+                                                         forKey: .draftActions) ?? [:]
+            draftDoors = try container.decodeIfPresent([String: Int].self,
+                                                       forKey: .draftDoors) ?? [:]
+            draftWords = try container.decodeIfPresent(Int.self, forKey: .draftWords) ?? 0
+            draftSeconds = try container.decodeIfPresent(Double.self, forKey: .draftSeconds) ?? 0
             health = try container.decodeIfPresent(HealthMonth.self,
                                                    forKey: .health) ?? HealthMonth()
             hours = try container.decodeIfPresent([Int].self, forKey: .hours)
@@ -589,6 +600,16 @@ public struct Rollup: Codable, Equatable {
             if let row = event.row {
                 month.selectRows[row, default: 0] += 1
             }
+
+        case .draft:
+            if let action = event.action {
+                month.draftActions[action, default: 0] += 1
+            }
+            if let door = event.source {
+                month.draftDoors[door, default: 0] += 1
+            }
+            month.draftWords += event.words ?? 0
+            month.draftSeconds += event.seconds ?? 0
         }
     }
 

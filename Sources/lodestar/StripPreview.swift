@@ -14,6 +14,7 @@ enum StripPreview {
     /// appears.
     private static var stageWindows: [NSWindow] = []
     private static var heldMeeting: MeetingController?
+    private static var heldDraft: DraftPanel?
     private static var heldLink: LinkChip?
 
     private static func stage() {
@@ -175,6 +176,15 @@ enum StripPreview {
         if (20...51).contains(variant) {
             let held = WalkController.preview(variant % 20, empty: variant >= 40)
             _ = held
+            app.run()
+        }
+
+        // 70: the draft, speaking, with a ghost standing; 71 the edit door
+        // in normal mode over a pulled field. The panel is the real one.
+        if variant == 70 || variant == 71 {
+            DispatchQueue.main.async {
+                heldDraft = DraftPanel.preview(variant - 70)
+            }
             app.run()
         }
 

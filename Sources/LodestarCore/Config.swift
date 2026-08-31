@@ -87,6 +87,11 @@ public struct Config {
     public var clipboardMaxBytes = 500_000_000
     public var clipboardExcludedApps: Set<String> = []
     public var clipboardExcludePatterns: [String] = []
+    /// `draft.words`: the user's own vocabulary, repaired into speech.
+    public var draftWords: [String] = []
+    /// `draft.input`: the microphone by name; empty means the system's
+    /// default input, whatever it is at the moment of use.
+    public var draftInput = ""
     /// Watch how you reach things, locally, to make suggestions later. Off
     /// means nothing is recorded and no file is written.
     public var observationsEnabled = true
@@ -178,6 +183,11 @@ public struct Config {
                                                    description: "The browser:name profile this calendar's meetings join in."),
                                     description: "Calendar or account name → profile. Outranks web.routes for meetings."),
         ], description: "Meetings at the door."),
+        "draft": .table([
+            "input": .string(allowed: nil, description: "The microphone the draft listens to, by its name in Sound settings. Empty follows the system default input."),
+            "words": .freeTable(value: .boolean(description: "true to keep this word in the draft's vocabulary."),
+                                description: "Word → true. Names and terms speech gets wrong; a settled result within a letter or two of one is repaired to it, case and all."),
+        ], description: "The draft: lode . speaks, lode ⇧. edits."),
         "clipboard": .table([
             "enabled": .boolean(description: "⇧⌘V opens the clipboard strip. The one Lodestar binding outside the lode key, so it is also the one that can collide with an app; false gives ⇧⌘V back."),
             "max-size-mb": .number(min: 10, max: 20_000, description: "Disk the clipboard history may claim; the oldest clips are dropped to stay under it. Pins are never dropped."),
@@ -350,6 +360,12 @@ public struct Config {
         }
         if let patterns = effective.value(at: ["clipboard", "exclude"])?.table {
             config.clipboardExcludePatterns = patterns.filter { $0.value.bool == true }.keys.sorted()
+        }
+        if let words = effective.value(at: ["draft", "words"])?.table {
+            config.draftWords = words.filter { $0.value.bool == true }.keys.sorted()
+        }
+        if let input = effective.value(at: ["draft", "input"])?.string {
+            config.draftInput = input.trimmingCharacters(in: .whitespaces)
         }
         if let gestures = effective.value(at: ["gestures"])?.table {
             // Unknown names and non-boolean values are the schema walk's

@@ -126,6 +126,7 @@ final class HotkeyEngine {
     private let scroller: ScrollController
     private let select: SelectController
     private let clipboard: ClipboardController
+    private let draft: DraftController
     private let strip = ClipboardStrip()
     private var pasteQuery: String?
     private var pasteSelection = 0
@@ -144,8 +145,10 @@ final class HotkeyEngine {
          webBar: WebBarSurface, commandsBar: BarSurface,
          scroller: ScrollController,
          select: SelectController, clipboard: ClipboardController,
+         draft: DraftController,
          clock: Clock = .live) {
         self.clock = clock
+        self.draft = draft
         self.config = config
         self.actions = actions
         self.hud = hud
@@ -156,6 +159,10 @@ final class HotkeyEngine {
         self.select = select
         self.clipboard = clipboard
         clipboard.onCapture = { [weak self] in self?.refreshStripIfOpen() }
+        draft.onActivity = { [weak self] in
+            guard let self else { return }
+            self.lastActivityAt = self.clock.now()
+        }
         applyGrammarConfig()
     }
 
@@ -163,14 +170,20 @@ final class HotkeyEngine {
         core.disabledGestures = config.disabledGestures
     }
 
-    private var anyBarVisible: Bool {
+    private var anyKeyBarVisible: Bool {
         searcher.isVisible || webBar.isVisible || commandsBar.isVisible
     }
+
+    private var anyBarVisible: Bool { anyKeyBarVisible || draft.isOpen }
 
     private func hideBars() {
         searcher.hide()
         webBar.hide()
         commandsBar.hide()
+        // The draft is not hidden with them: it has exactly two exits, and
+        // another bar or mode over it borrows the keys, then gives them
+        // back. Pressing `lode ;` to click into the field you mean to
+        // paste into is the whole point of that.
     }
 
     func start() -> Bool {
@@ -364,6 +377,13 @@ final class HotkeyEngine {
         let keycode = event.getIntegerValueField(.keyboardEventKeycode)
         let named = Keys.name(for: keycode)
         if actingInputWasHuman { onHumanKey?(named == "delete") }
+        // A chord carrying ⌘⌥⌃ together is a hyper-key shim's, never typing:
+        // under LODESTAR_TRACE it is logged as it arrived, name or not, so
+        // a chord that "does nothing" can be read back.
+        if Self.traceTap, event.flags.contains([.maskCommand, .maskAlternate, .maskControl]) {
+            Log.info("chord", ["keycode": keycode, "key": named ?? "?",
+                               "flags": String(event.flags.rawValue, radix: 16)])
+        }
 
         // lode ⌫ answers a standing chip, and it is asked *before* the peek
         // comes down.
@@ -421,6 +441,12 @@ final class HotkeyEngine {
         if held, event.getIntegerValueField(.keyboardEventAutorepeat) != 0 {
             return nil
         }
+        // One line per lode gesture, with the flags as they arrived: the
+        // record that settles "the chord did nothing" without a debugger.
+        if Self.traceTap, held {
+            Log.info("lode", ["key": key, "shift": shift,
+                              "flags": String(event.flags.rawValue, radix: 16)])
+        }
 
         // A held select highlight answers ⌘C and dissolves on anything
         // else. First line inside is a nil-check — this costs nothing on
@@ -436,7 +462,35 @@ final class HotkeyEngine {
         if !held, key == "v", config.clipboardEnabled,
            event.flags.contains(.maskShift), event.flags.contains(.maskCommand) {
             lastActivityAt = clock.now()
+            // The strip over an open draft feeds it: the clip's ⌘V comes
+            // back through this tap and lands in the draft, so the draft
+            // stays up rather than being hidden with the other bars.
             return dispatch(core.openPaste(world: self), event: event)
+        }
+        // The draft reads its keys here, the way the strip does: never key,
+        // so the app underneath keeps its cursor. Lode gestures pass on to
+        // the engine untouched — `lode s` mid-draft summons Slack and the
+        // live destination follows — and ⌘ chords go to the system, which
+        // is how ⌘⇥ changes where ⏎ will land.
+        // Another bar on top of the draft (the window chooser, the cheat
+        // sheet) owns the keys while it stands; the draft waits underneath.
+        // And the door key's own autorepeat, arriving after lode lifted a
+        // beat before the finger did, is not typing.
+        if draft.isOpen, !held, !anyKeyBarVisible, !cheat.isVisible,
+           core.isIdle || core.isChain {
+            // A graph chain with lode already up, over an open draft, is a
+            // chain the hand abandoned: unheld letters here are text, so
+            // the chain ends (guide down) and the draft takes the key.
+            if !core.isIdle { _ = apply(core.reset(), event: nil); hud.hide() }
+            if event.getIntegerValueField(.keyboardEventAutorepeat) != 0, draft.justOpened(clock.now()) {
+                return nil
+            }
+            lastActivityAt = clock.now()
+            let taken = draft.handleKey(key, shift: shift,
+                                        command: event.flags.contains(.maskCommand),
+                                        option: event.flags.contains(.maskAlternate),
+                                        control: event.flags.contains(.maskControl))
+            return taken ? nil : Unmanaged.passUnretained(event)
         }
         // Mid-chain and mid-scroll, lode may or may not still be down —
         // shift keeps its meaning either way.
@@ -467,6 +521,7 @@ final class HotkeyEngine {
         case .showSearcher, .openWindowChooser: return "launcher"
         case .showWebBar: return "web"
         case .showCommandsBar: return "menu"
+        case .showDraft: return "draft"
         case .enterPaste: return "clipboard"
         case .enterScroll: return "scroll"
         case .toggleCheat: return "cheat"
@@ -687,6 +742,10 @@ final class HotkeyEngine {
                 walkSignal?(.webBarOpened)
             case .showCommandsBar:
                 commandsBar.show()
+            case .showDraft(let door):
+                draft.open(door: door)
+            case .draftPosture(let door):
+                draft.posture(door: door)
             case .openWindowChooser:
                 if let app = actions.focusedAppInfo() {
                     searcher.showWindowChooser(pid: app.pid, appName: app.name)
@@ -912,7 +971,8 @@ final class HotkeyEngine {
         let verbs: [GuideRow] = [
             GuideRow(key: "␣", label: "launcher"),
             GuideRow(key: "⏎", label: "ask — links · domains · search"),
-            GuideRow(key: ".", label: "commands — the frontmost app's menus"),
+            GuideRow(key: ".", label: "draft — speak, ⏎ pastes · ⇧. edits the field"),
+            GuideRow(key: "-", label: "commands — the frontmost app's menus"),
             GuideRow(key: "⇥", label: "windows of the focused app"),
             GuideRow(key: "1…9", label: "jump to window by position"),
             GuideRow(key: "0", label: "the focused window fills the display — ⇧0 beside"),
@@ -1169,4 +1229,5 @@ extension HotkeyEngine: EngineWorld {
     var commandsBarVisible: Bool { commandsBar.isVisible }
     var cheatVisible: Bool { cheat.isVisible }
     var hasFocusedApp: Bool { actions.focusedAppInfo() != nil }
+    var draftVisible: Bool { draft.isOpen }
 }

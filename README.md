@@ -21,8 +21,10 @@ choosing a destination rather than the steps that lead to it.
   relaunching apps that are not running.
 - **`lode ;`**: click hints. Every pressable element wears a label. Type the
   label to click it.
-- **``lode ` ``** / **`lode .`** / **`lode ⏎`**: scroll mode, menu search,
+- **``lode ` ``** / **`lode -`** / **`lode ⏎`**: scroll mode, menu search,
   and Ask, which routes each destination to the right browser profile.
+- **`lode .`**: the draft. Speak, type into the same cursor, and `⏎` pastes
+  it where your cursor already was. On-device; nothing leaves the Mac.
 
 One grammar spans applications, the inside of a window, the web, and what you
 have copied. Learn it once. Your hands know it everywhere. SIP stays on. Spaces stay untouched.

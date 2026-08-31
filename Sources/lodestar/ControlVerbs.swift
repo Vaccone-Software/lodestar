@@ -20,6 +20,7 @@ struct ControlVerbs {
     let config: () -> Config
     let mostRecentProfile: () -> BrowserProfile?
     let presenting: () -> Bool
+    let draft: () -> DraftController?
 
     func run(_ arguments: [String]) -> [String: Any] {
         switch ControlParse.parse(arguments) {
@@ -42,7 +43,64 @@ struct ControlVerbs {
             return runBreath(which)
         case .state:
             return ["ok": true, "result": worldState()]
+        case .draft(let which):
+            return runDraft(which)
         }
+    }
+
+    // MARK: - draft
+
+    /// The same calls the keys make, so a scripted draft is the draft a
+    /// hand would get. `type` spells its text through the key table, one
+    /// press per character, shift where the character needs it.
+    private func runDraft(_ verb: DraftVerb) -> [String: Any] {
+        guard let draft = draft() else { return ["ok": false, "error": "the draft is not wired"] }
+        switch verb {
+        case .open(let door):
+            draft.open(door: door)
+        case .close:
+            draft.cancel(reason: "control")
+        case .commit:
+            draft.commit()
+        case .state:
+            break
+        case .type(let text):
+            for character in text {
+                guard let press = Self.press(for: character) else {
+                    return ["ok": false, "error": "no key types '\(character)'"]
+                }
+                _ = draft.handleKey(press.key, shift: press.shift, command: false, option: false, control: false)
+            }
+        case .key(let name, let shift):
+            guard Keys.isValidName(name) || ["return", "escape", "delete", "space", "tab", "left", "right", "up", "down"].contains(name) else {
+                return ["ok": false, "error": "unknown key '\(name)'"]
+            }
+            _ = draft.handleKey(name, shift: shift, command: false, option: false, control: false)
+        case .audio(let path):
+            guard draft.isOpen else { return ["ok": false, "error": "the draft is not open"] }
+            guard draft.feedAudio(path: path) else { return ["ok": false, "error": "no session to feed"] }
+        }
+        return ["ok": true, "result": draft.state]
+    }
+
+    /// The key and shift that produce a character, from the key table.
+    private static let presses: [Character: (key: String, shift: Bool)] = {
+        var out: [Character: (key: String, shift: Bool)] = [:]
+        for name in Keys.codes.keys {
+            for shift in [false, true] {
+                if let produced = Keys.character(for: name, shift: shift), let c = produced.first,
+                   produced.count == 1, out[c] == nil {
+                    out[c] = (name, shift)
+                }
+            }
+        }
+        out["\n"] = ("return", true)
+        out[" "] = ("space", false)
+        return out
+    }()
+
+    private static func press(for character: Character) -> (key: String, shift: Bool)? {
+        presses[character]
     }
 
     // MARK: - go

@@ -22,6 +22,9 @@ func usage() -> Never {
       probe watch <app> [--seconds N]  log window ids while you close/reopen windows
       probe selection [--write]        which apps expose character geometry and a settable
                                        selection, the two facts a selection mode needs
+      probe speech [--seconds N] [--words a,b] [--dictation] [--cycle] [--auth]
+                                       the draft's questions: latency to first word, revisions,
+                                       restart cost, contextual vocabulary, which TCC grant
 
     the slice-0 questions, and the command that answers each:
       1. does _AXUIElementGetWindow bridge AX windows to real window-server ids?  -> list
@@ -47,6 +50,7 @@ case "harvest": runHarvest(&arguments)
 case "termtext": runTermtext(&arguments)
 case "selectpipe": runSelectPipe(&arguments)
 case "ocrlive": runOCRLive(&arguments)
+case "speech": runSpeech(&arguments)
 case "help", "--help", "-h": usage()
 default:
     fputs("probe: unknown command '\(command)'\n\n", stderr)

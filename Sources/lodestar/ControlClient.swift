@@ -11,7 +11,7 @@ enum ControlClient {
     /// The words that mean "hand this to the running app". Kept here rather
     /// than inferred, so a typo becomes usage rather than a socket round
     /// trip that fails with something less helpful.
-    static let verbs: Set<String> = ["go", "web", "layout", "breath", "state"]
+    static let verbs: Set<String> = ["go", "web", "layout", "breath", "state", "draft"]
 
     /// Long enough for a breath restoring several windows, short enough
     /// that a script never hangs on a wedged app.

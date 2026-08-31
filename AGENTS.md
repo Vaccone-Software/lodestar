@@ -90,3 +90,16 @@ rather than finished.
   migrated from 0.9.9 or earlier. Nothing reads it any more — the JSON is
   the config, and the stale file is safe to delete.
 - State (`state.json`) is machine-owned — never edit it.
+
+## The draft, by verb
+
+`lodestar draft speak` and `lodestar draft edit` open the draft through
+its two doors, exactly as `lode .` and `lode ⇧.` do; `draft close` keeps
+the text on the pasteboard and closes; `draft commit` is `⏎`; `draft
+state` is the draft as JSON (text, cursor, ghost, mode, editor mode,
+listening, input, counts). `draft type <text>` and `draft key <name>
+[--shift]` press keys through the same tap path a hand uses. `draft audio
+<file>` streams a recording into the live session at real-time pace in
+place of the microphone, which is how dictation is tested end to end on
+a machine with no live mic (`tools/draft-functional.sh` does the whole
+run). The audio verb needs an open draft with a session started.

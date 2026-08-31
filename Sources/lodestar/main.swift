@@ -58,6 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var searcher: SearcherController!
     private var webBar: WebBarController!
     private var engine: HotkeyEngine!
+    private var draftController: DraftController?
     private var coach: CoachController!
     private var updater: UpdateController!
     private var clipboardController: ClipboardController!
@@ -228,11 +229,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         scroller.latency = { [weak self] surface, seconds in
             self?.observationStore?.latency(surface: surface, seconds: seconds)
         }
+        let draft = DraftController(speech: AnalyzerSpeechSession())
+        draft.flash = { [weak self] text in self?.hud.flash(text) }
+        draft.observations = observationStore
+        draft.words = config.draftWords
+        draft.inputDevice = config.draftInput.isEmpty ? nil : config.draftInput
+        draft.chooseInput = { [weak self] name in
+            guard let self else { return }
+            let flash = name.map { "✓ microphone: \($0)" } ?? "✓ microphone: system default"
+            if let problem = self.rewriteConfig(flash: flash, logged: "draft.input") { tree in
+                guard let updated = Json.setting(tree, path: ["draft", "input"],
+                                                 to: .string(name ?? "")) else {
+                    throw Config.EditError.unparsed("draft.input")
+                }
+                return updated
+            } {
+                self.hud.flash("✕ \(problem)")
+            }
+        }
+        // The model is loaded at boot only once the grant exists; the
+        // first `lode .` asks for it, and every launch after pays nothing.
+        if AVCaptureDevicePermission.granted {
+            // After the tap is up: building the audio engine costs the main
+            // thread a second, and the first gesture must not wait on it.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak draft] in draft?.warmSpeech() }
+        }
+        draftController = draft
         engine = HotkeyEngine(config: config, actions: actions, hud: hud, searcher: searcher,
                               webBar: webBar, commandsBar: CommandsBarController(),
                               scroller: scroller,
                               select: selectController,
-                              clipboard: clipboardController)
+                              clipboard: clipboardController,
+                              draft: draft)
 
         engine.observations = observationStore
 
@@ -378,7 +406,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                 parking: self.parking,
                                 config: { self.config },
                                 mostRecentProfile: { self.mostRecentBrowserProfile() },
-                                presenting: { self.presenting.isOn }).run(arguments)
+                                presenting: { self.presenting.isOn },
+                                draft: { self.draftController }).run(arguments)
         }
         control.start()
         model.start()
@@ -481,6 +510,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // A draft still open keeps its text on the pasteboard, as every
+        // other exit does.
+        draftController?.cancel(reason: "quit")
         // The door shuts first. Unparking below is seconds of AX work, and
         // a verb accepted during it would be answered by an instance on its
         // way out — worse than being told nobody is home, which is what a
@@ -815,6 +847,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         settings.machineState = { [weak self] in
             var state = SettingsModel.MachineState()
+            state.inputDevices = AudioInput.inputDevices().map(\.name)
+            state.defaultInput = AudioInput.defaultInputName
             state.accessibility = Permissions.isTrusted ? "Granted" : "Not granted"
             state.screenRecording = CGPreflightScreenCaptureAccess()
                 ? "Granted" : "Not asked yet"
@@ -1458,6 +1492,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         updater.enabled = loaded.autoUpdate
         clipboardController.excludedApps = loaded.clipboardExcludedApps
         clipboardController.excludedPatterns = loaded.clipboardExcludePatterns
+        draftController?.words = loaded.draftWords
+        draftController?.inputDevice = loaded.draftInput.isEmpty ? nil : loaded.draftInput
         clipboardController.maxBytes = loaded.clipboardMaxBytes
         clipboardController.setEnabled(loaded.clipboardEnabled)
         observationStore?.setEnabled(loaded.observationsEnabled)
@@ -1813,6 +1849,9 @@ func printUsage() {
       layout undo|redo|flip|fill|index <n>
       breath <address>            restore; save/delete <address> also
       state                       what is on screen, as JSON, parked included
+      draft speak|edit|close|commit|state
+      draft type <text> · key <name> [--shift] · audio <file>
+                                  drive the draft; audio feeds a file in place of the mic
 
     Add --json to any of them for the whole answer rather than a line.
 

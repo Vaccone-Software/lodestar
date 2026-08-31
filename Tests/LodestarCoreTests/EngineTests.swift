@@ -17,6 +17,7 @@ final class WorldStub: EngineWorld {
     var searcherVisible = false
     var webBarVisible = false
     var commandsBarVisible = false
+    var draftVisible = false
     var cheatVisible = false
     var hasFocusedApp = true
     var scrollEnterSucceeds = true
@@ -163,7 +164,7 @@ final class EngineTests: XCTestCase {
     }
 
     func testUnboundPunctuationPassesThrough() {
-        XCTAssertEqual(press("-"), [.passThrough])
+        XCTAssertEqual(press("="), [.passThrough])
         // Plain / spent its reservation in 0.15.0: it enters select now.
         _ = press("/")
         XCTAssertEqual(core.state, .select)
@@ -198,14 +199,26 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(press("space"), [.hideBars], "visible searcher hides, not reopens")
     }
 
+    /// `.` opens the draft speaking, `⇧.` opens it editing; once it is up
+    /// the same keys set its posture instead of reopening it, because a
+    /// reopen would drop the text and a toggle would need reading first.
+    func testDraftDoorsAndPosture() {
+        XCTAssertEqual(press("."), [.hideBars, .showDraft(door: .speak)])
+        XCTAssertEqual(press(".", shift: true), [.hideBars, .showDraft(door: .edit)])
+        world.draftVisible = true
+        XCTAssertEqual(press("."), [.draftPosture(door: .speak)])
+        XCTAssertEqual(press(".", shift: true), [.draftPosture(door: .edit)])
+        XCTAssertEqual(core.state, .idle, "the draft is a bar, not an engine state")
+    }
+
     func testWebBarAndCommandsToggle() {
         XCTAssertEqual(press("return"), [.hideBars, .showWebBar])
-        XCTAssertEqual(press("."), [.hideBars, .showCommandsBar])
+        XCTAssertEqual(press("-"), [.hideBars, .showCommandsBar])
         world.webBarVisible = true
         XCTAssertEqual(press("return"), [.hideBars])
         world.webBarVisible = false
         world.commandsBarVisible = true
-        XCTAssertEqual(press("."), [.hideBars])
+        XCTAssertEqual(press("-"), [.hideBars])
     }
 
     func testCommaOpensSettings() {
@@ -244,10 +257,11 @@ final class EngineTests: XCTestCase {
     }
 
     /// The number row is one sentence: 0 collapses to one window, 1…9 pick
-    /// among many. Nothing sweeps, and the old claim key is free.
-    func testEqualsAndMinusAreFree() {
+    /// among many. Nothing sweeps, and the old claim key is free; the minus
+    /// beside it took the commands bar in 0.26.
+    func testEqualsIsFreeAndMinusIsCommands() {
         XCTAssertEqual(press("="), [.passThrough])
-        XCTAssertEqual(press("-"), [.passThrough])
+        XCTAssertEqual(press("-"), [.hideBars, .showCommandsBar])
         XCTAssertEqual(core.state, .idle)
     }
 
@@ -527,7 +541,7 @@ final class EngineTests: XCTestCase {
 
     func testScrollExitAndExecutePassesUnboundKeys() {
         enterScrollMode()
-        XCTAssertEqual(press("-"), [.scrollExit, .hideGuide, .passThrough])
+        XCTAssertEqual(press("="), [.scrollExit, .hideGuide, .passThrough])
         XCTAssertEqual(core.state, .idle)
     }
 

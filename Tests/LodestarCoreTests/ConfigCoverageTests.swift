@@ -50,6 +50,12 @@ final class ConfigCoverageTests: XCTestCase {
         Probe(path: ["clipboard", "exclude", "hunter2"], value: .bool(true)) {
             $0.clipboardExcludePatterns.contains("hunter2")
         },
+        Probe(path: ["draft", "words", "Ghostty"], value: .bool(true)) {
+            $0.draftWords.contains("Ghostty")
+        },
+        Probe(path: ["draft", "input"], value: .string("MacBook Pro Microphone")) {
+            $0.draftInput == "MacBook Pro Microphone"
+        },
 
         Probe(path: ["observations", "enabled"], value: .bool(false)) { !$0.observationsEnabled },
         Probe(path: ["observations", "health"], value: .bool(false)) { !$0.observationsHealth },

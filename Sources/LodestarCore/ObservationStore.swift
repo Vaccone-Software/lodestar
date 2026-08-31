@@ -169,6 +169,27 @@ public final class ObservationStore {
         record(event)
     }
 
+    /// A draft ended — counts and timings, never the text.
+    public func drafted(app: String, door: String, action: String, row: String?,
+                        seconds: TimeInterval, typed: Int, words: Int, backspaces: Int,
+                        switches: Int, firstKey: TimeInterval?, firstWord: TimeInterval?,
+                        warm: Bool, at now: Date = Date()) {
+        var event = ObservationEvent(t: now, kind: .draft)
+        event.app = app.lowercased()
+        event.source = door
+        event.action = action
+        event.row = row
+        event.seconds = seconds
+        event.typed = typed
+        event.words = words
+        event.backspaces = backspaces
+        event.switches = switches
+        event.openToFirstKey = firstKey
+        event.firstWord = firstWord
+        event.warm = warm
+        record(event)
+    }
+
     public func verbUsed(_ verb: String, at now: Date = Date()) {
         guard !verb.isEmpty else { return }
         var event = ObservationEvent(t: now, kind: .verb)

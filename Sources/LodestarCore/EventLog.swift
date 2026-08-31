@@ -72,6 +72,14 @@ public struct ObservationEvent: Codable, Equatable {
         /// so a regression in the instrument surfaces the way a
         /// regression in the hand does.
         case latency
+        /// A draft ended: `source` the door (speak | edit), `action` how
+        /// (pasted | replaced | copied | cancelled | empty), `row` the
+        /// ending or the cancel's reason, `app` the destination, `seconds`
+        /// open, `typed` characters typed, `words` spoken words settled,
+        /// `backspaces`, `switches` between modes, `openToFirstKey` and
+        /// `firstWord` the two hesitations, `warm` whether the model was
+        /// already loaded. Never the text.
+        case draft
     }
 
     public var t: Date
@@ -111,6 +119,10 @@ public struct ObservationEvent: Codable, Equatable {
     public var ikSumSq: Double?
     public var trips: Int?
     public var roles: [String: Int]?
+    public var words: Int?
+    public var switches: Int?
+    public var firstWord: Double?
+    public var warm: Bool?
 
     public init(t: Date, kind: Kind) {
         self.t = t

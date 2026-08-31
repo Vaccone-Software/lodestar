@@ -1,7 +1,7 @@
 import AppKit
 import LodestarCore
 
-/// The commands bar (`lode .`): the frontmost app's entire menu bar,
+/// The commands bar (`lode -`): the frontmost app's entire menu bar,
 /// fuzzy-searchable, `↵` executes. Rows wear the item's native shortcut
 /// as a chip — every search teaches the app's own faster path.
 final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {

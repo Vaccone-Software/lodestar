@@ -75,6 +75,76 @@ final class FakeActions: EngineActions {
     func updateLatestBreath() -> ChainStep { .failed(flash: "✕ no breaths on this stage") }
 }
 
+/// A recognizer the test drives by hand: `hear` is a volatile word,
+/// `settle` a final one. It never touches a microphone.
+final class FakeSpeech: SpeechSession {
+    var isAvailable = true
+    private(set) var listens = 0
+    private(set) var pauses = 0
+    private(set) var resumes = 0
+    private(set) var stops = 0
+    /// How many sessions were opened and never stopped: every listen
+    /// must be matched by a stop, or a microphone stays on.
+    var openSessions: Int { listens - stops }
+    private var onState: ((SpeechState) -> Void)?
+    private var onLevel: ((Float) -> Void)?
+    private var onVolatile: ((String) -> Void)?
+    private var onSettled: ((String) -> Void)?
+    /// The session before this one, the way a real recognizer's late
+    /// results still reach the closures it was given.
+    private var previousSettled: ((String) -> Void)?
+    /// Whether `stop` settles the standing ghost before completing, the
+    /// way a real finalization does.
+    var settlesOnStop = true
+    /// Hold the listening state back, the way a model download or the
+    /// first-run microphone prompt does; `ready()` releases it.
+    var slowToListen = false
+    /// Hold `stop`'s completion back, the way finalization does; `finish()`
+    /// releases it.
+    var slowToStop = false
+    private var pendingStop: (() -> Void)?
+    private var ghost: String?
+
+    func warm(input: String?) {}
+    private(set) var lastInput: String?
+    func listen(words: [String], input: String?, onState: @escaping (SpeechState) -> Void,
+                onLevel: @escaping (Float) -> Void,
+                onVolatile: @escaping (String) -> Void, onSettled: @escaping (String) -> Void) {
+        listens += 1
+        lastInput = input
+        previousSettled = self.onSettled
+        self.onState = onState; self.onLevel = onLevel
+        self.onVolatile = onVolatile; self.onSettled = onSettled
+        if !slowToListen { onState(.listening(input: "Stage Microphone")) }
+    }
+    func ready() { onState?(.listening(input: "Stage Microphone")) }
+    func pause() { pauses += 1 }
+    func resume() { resumes += 1 }
+    func stop(completion: @escaping () -> Void) {
+        stops += 1
+        if slowToStop {
+            // Finalization takes a moment: the ghost settles when it ends.
+            pendingStop = completion
+            return
+        }
+        if settlesOnStop, let ghost { onSettled?(ghost) }
+        ghost = nil
+        completion()
+    }
+    func finish() {
+        if settlesOnStop, let ghost { onSettled?(ghost) }
+        ghost = nil
+        pendingStop?()
+        pendingStop = nil
+    }
+    func feed(file: URL) -> Bool { false }
+    func level(_ value: Float) { onLevel?(value) }
+    /// A final from the session before this one, arriving late.
+    func settleFromPreviousSession(_ text: String) { previousSettled?(text) }
+    func hear(_ text: String) { ghost = text; onVolatile?(text) }
+    func settle(_ text: String) { ghost = nil; onSettled?(text) }
+}
+
 /// A bar that knows only whether it is up.
 final class FakeBar: SearcherSurface, WebBarSurface {
     private(set) var isVisible = false
@@ -108,6 +178,16 @@ final class Stage {
     let searcher = FakeBar()
     let webBar = FakeBar()
     let commandsBar = FakeBar()
+    let speech = FakeSpeech()
+    let draft: DraftController
+    /// Every keystroke the draft posted to the system (⌘V, ⌘A).
+    var posted: [(key: String, flags: CGEventFlags)] = []
+    /// Every pasteboard write the draft made.
+    var pasteboard: [String] = []
+    /// What the stage's focused field holds, for the draft to pull.
+    var field: DraftController.Field?
+    /// Every input chosen on the register line (nil = system default).
+    var chosenInputs: [String?] = []
     let observations: ObservationStore
     let scroller: ScrollController
     /// Every wheel delta scroll mode posted, caught before the window
@@ -161,11 +241,12 @@ final class Stage {
         let clipboard = ClipboardController(
             store: ClipboardStore(root: directory.appendingPathComponent("clipboard")))
         scroller = ScrollController(model: model)
+        draft = DraftController(speech: speech, clock: clock.clock)
         engine = HotkeyEngine(config: config, actions: actions, hud: hud,
                               searcher: searcher, webBar: webBar, commandsBar: commandsBar,
                               scroller: scroller,
                               select: SelectController(model: model),
-                              clipboard: clipboard, clock: clock.clock)
+                              clipboard: clipboard, draft: draft, clock: clock.clock)
         engine.observations = observations
 
         coach = CoachController(clock: clock.clock)
@@ -179,6 +260,19 @@ final class Stage {
         }
         actions.coachBoundary = { [unowned self] app in self.coach.noteBoundary(app: app) }
         scroller.sink = { [unowned self] dx, dy in self.wheel.append((dx, dy)) }
+        draft.observations = observations
+        draft.flash = { [unowned self] text in self.hud.flash(text) }
+        draft.frontmost = { [unowned self] in
+            self.actions.focused.map { DraftController.Destination(pid: $0.pid, name: $0.name, bundleID: nil) }
+        }
+        draft.writePasteboard = { [unowned self] text in self.pasteboard.append(text) }
+        draft.postKey = { [unowned self] key, flags in self.posted.append((key, flags)) }
+        draft.readField = { [unowned self] _, _ in self.field }
+        draft.selectAll = { _ in true }
+        draft.readPasteboard = { [unowned self] in self.pasteboard.last }
+        draft.inputDevices = { ["Stage Microphone", "Other Microphone"] }
+        draft.systemInput = { "Stage Microphone" }
+        draft.chooseInput = { [unowned self] name in self.chosenInputs.append(name) }
 
         SurfaceWiring.wire(engine: engine, hud: hud, coach: coach,
                            voices: voices, clock: clock.clock)
@@ -260,6 +354,42 @@ final class Stage {
         return swallowed
     }
 
+    /// A key-down repeating, the way a held key does, with lode already up.
+    @discardableResult
+    func pressRepeat(_ name: String) -> Bool {
+        let code = Self.keycode(name)
+        let ev = event(type: .keyDown, keycode: code, flags: [], posted: false)
+        ev.setIntegerValueField(.keyboardEventAutorepeat, value: 1)
+        return send(ev)
+    }
+
+    /// A ⌃ chord with lode up: the field chords in the draft's insert mode.
+    @discardableResult
+    func controlPress(_ name: String) -> Bool {
+        let code = Self.keycode(name)
+        let swallowed = send(event(type: .keyDown, keycode: code, flags: .maskControl, posted: false))
+        send(event(type: .keyUp, keycode: code, flags: .maskControl, posted: false))
+        return swallowed
+    }
+
+    /// An ⌥ chord with lode up: ⌥⌫ in the draft.
+    @discardableResult
+    func optionPress(_ name: String) -> Bool {
+        let code = Self.keycode(name)
+        let swallowed = send(event(type: .keyDown, keycode: code, flags: .maskAlternate, posted: false))
+        send(event(type: .keyUp, keycode: code, flags: .maskAlternate, posted: false))
+        return swallowed
+    }
+
+    /// A ⌘ chord with lode up — what the draft lets through or takes.
+    @discardableResult
+    func commandPress(_ name: String) -> Bool {
+        let code = Self.keycode(name)
+        let swallowed = send(event(type: .keyDown, keycode: code, flags: .maskCommand, posted: false))
+        send(event(type: .keyUp, keycode: code, flags: .maskCommand, posted: false))
+        return swallowed
+    }
+
     /// A key goes down and stays down — a held direction in scroll mode.
     @discardableResult
     func keyDown(_ name: String, shift: Bool = false) -> Bool {
@@ -333,6 +463,19 @@ final class Stage {
 
     /// The ledger's line for the stage's offer, once anything has been
     /// written about it.
+    /// The last draft record the store wrote, read back off the disk the
+    /// way the analysis would read it.
+    var lastDraft: ObservationEvent? {
+        observations.flush()
+        return observations.log.recent(days: 30, now: clock.now.addingTimeInterval(1))
+            .last { $0.kind == .draft }
+    }
+
+    var eventsFile: URL {
+        observations.flush()
+        return directory.appendingPathComponent("events.jsonl")
+    }
+
     var ledger: Observations.LedgerEntry? {
         observations.observations.ledger.first {
             $0.id == "\(Self.offer.kind.rawValue):\(Self.offer.target)"

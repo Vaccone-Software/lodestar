@@ -653,6 +653,41 @@ func runObservations(clear: Bool, engine: Bool) -> Never {
         print("")
     }
 
+    // The draft, as counts: how often each door opens, how it ends, how
+    // much was said, and the two waits — to the first word, to the first
+    // key. Never the text; there is none in the record to print.
+    let cutoff = Date().addingTimeInterval(-28 * 86_400)
+    let drafts = events.filter { $0.kind == .draft && $0.t >= cutoff && $0.action != "empty" }
+    if !drafts.isEmpty {
+        let days = max(1, Set(drafts.map { Calendar.current.startOfDay(for: $0.t) }).count)
+        let spoke = drafts.filter { $0.source == "speak" }.count
+        let pasted = drafts.filter { $0.action == "pasted" || $0.action == "replaced" }.count
+        let copied = drafts.filter { $0.action == "copied" }.count
+        let cancelled = drafts.filter { $0.action == "cancelled" }.count
+        let words = drafts.reduce(0) { $0 + ($1.words ?? 0) }
+        let typed = drafts.reduce(0) { $0 + ($1.typed ?? 0) }
+        var line = pad("draft", 10)
+        line += pad(String(format: "%.1f/day", Double(drafts.count) / Double(days)), 10)
+        line += pad("\(spoke) spoken · \(drafts.count - spoke) edited", 24)
+        line += pad("\(pasted) pasted", 12)
+        if copied > 0 { line += pad("\(copied) copied", 11) }
+        if cancelled > 0 { line += pad("\(cancelled) cancelled", 14) }
+        print(line)
+        var detail = pad("", 10)
+        detail += pad(String(format: "%.0f words/day", Double(words) / Double(days)), 16)
+        detail += pad("\(typed) typed", 12)
+        let firstWords = drafts.compactMap(\.firstWord).sorted()
+        if !firstWords.isEmpty {
+            detail += pad(String(format: "%.1fs to the first word", firstWords[firstWords.count / 2]), 26)
+        }
+        let seconds = drafts.compactMap(\.seconds).sorted()
+        if !seconds.isEmpty {
+            detail += String(format: "%.0fs a draft", seconds[seconds.count / 2])
+        }
+        print(detail)
+        print("")
+    }
+
     // The hands' pulse, described and never judged: the mirror's whole
     // grammar. Four weeks, because a trend needs a baseline and a month
     // is the shortest span a rhythm shows in.

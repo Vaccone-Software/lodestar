@@ -19,6 +19,21 @@ public enum ControlVerb: Equatable {
     /// What is on screen right now, as data. The one verb that changes
     /// nothing, and the only way to see the parked half of the world.
     case state
+    /// Drive the draft the way the keys do: the doors, the two exits, the
+    /// keys themselves, and an audio file in place of the microphone —
+    /// the last is how a machine with no live mic tests dictation end to
+    /// end against the shipped binary.
+    case draft(DraftVerb)
+}
+
+public enum DraftVerb: Equatable {
+    case open(Draft.Door)
+    case close
+    case commit
+    case state
+    case type(String)
+    case key(String, shift: Bool)
+    case audio(String)
 }
 
 public enum LayoutVerb: Equatable {
@@ -117,6 +132,33 @@ public enum ControlParse {
 
         case "state":
             return .success(.state)
+
+        case "draft":
+            guard let head = args.first else {
+                return .failure(ControlError("draft needs speak, edit, close, commit, state, type, key, or audio"))
+            }
+            let rest = Array(args.dropFirst())
+            switch head {
+            case "speak": return .success(.draft(.open(.speak)))
+            case "edit": return .success(.draft(.open(.edit)))
+            case "close": return .success(.draft(.close))
+            case "commit": return .success(.draft(.commit))
+            case "state": return .success(.draft(.state))
+            case "type":
+                guard !rest.isEmpty else { return .failure(ControlError("draft type needs text")) }
+                return .success(.draft(.type(rest.joined(separator: " "))))
+            case "key":
+                let shift = rest.contains("--shift")
+                guard let name = rest.first(where: { !$0.hasPrefix("--") }) else {
+                    return .failure(ControlError("draft key needs a key name"))
+                }
+                return .success(.draft(.key(name, shift: shift)))
+            case "audio":
+                guard let path = rest.first else { return .failure(ControlError("draft audio needs a file")) }
+                return .success(.draft(.audio(path)))
+            default:
+                return .failure(ControlError("unknown draft verb '\(head)'"))
+            }
 
         default:
             return .failure(ControlError("unknown verb '\(verb)'"))

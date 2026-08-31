@@ -48,6 +48,13 @@ public enum EngineEffect: Equatable {
     case showSearcher
     case showWebBar
     case showCommandsBar
+    /// Open the draft through one of its doors. Speak listens in insert
+    /// mode; edit opens silent in normal mode with the field pulled in.
+    case showDraft(door: Draft.Door)
+    /// The draft is already up: the same keys set its posture instead —
+    /// idempotent, so `.` always means "I am about to speak" whatever
+    /// was true a moment ago. A toggle would need reading first.
+    case draftPosture(door: Draft.Door)
     case openWindowChooser
     case maximizeFocused(beside: Bool)
     case enterScroll
@@ -108,7 +115,7 @@ public extension EngineEffect {
     /// a second.
     var claimsSurface: Bool {
         switch self {
-        case .showSearcher, .showWebBar, .showCommandsBar, .openWindowChooser,
+        case .showSearcher, .showWebBar, .showCommandsBar, .showDraft, .openWindowChooser,
              .enterPaste, .toggleCheat, .showGuide, .scrollGuide, .hideBars,
              .hideGuide:
             return true
@@ -168,6 +175,8 @@ public protocol EngineWorld: AnyObject {
     var searcherVisible: Bool { get }
     var webBarVisible: Bool { get }
     var commandsBarVisible: Bool { get }
+    /// The draft is up, so its door keys set posture rather than reopen.
+    var draftVisible: Bool { get }
     var cheatVisible: Bool { get }
     var hasFocusedApp: Bool { get }
 }
@@ -234,6 +243,8 @@ public struct EngineCore {
     public init() {}
 
     public var isIdle: Bool { state == .idle }
+    /// A graph or breath chain is in flight.
+    public var isChain: Bool { if case .chain = state { return true } else { return false } }
 
     /// Abandon whatever is in flight and return to idle, naming the
     /// surfaces that have to come down with it.
@@ -374,6 +385,22 @@ public struct EngineCore {
             effects.append(.hideBars)
             if !wasVisible { effects.append(.showWebBar) }
         case ".":
+            // The draft: `.` speaks, `⇧.` (`>`, the prompt glyph) edits.
+            // The period took the frequent verb by measurement — commands,
+            // which held it since 0.9.0, ran 2.6 times a day; the pool
+            // dictation draws from is an order of magnitude larger, and the
+            // ring finger's key goes to the hand that uses it most.
+            let door: Draft.Door = shift ? .edit : .speak
+            if world.draftVisible {
+                effects.append(.draftPosture(door: door))
+            } else {
+                effects.append(contentsOf: [.hideBars, .showDraft(door: door)])
+            }
+        case "-":
+            // Commands moved off . in 0.26: measured at 2.6 uses a day, it
+            // had nothing to unlearn, and the period is freed for the text
+            // bar, whose pool is an order of magnitude larger. The dash is
+            // the flag character, the app's own verbs.
             let wasVisible = world.commandsBarVisible
             effects.append(.hideBars)
             if !wasVisible { effects.append(.showCommandsBar) }

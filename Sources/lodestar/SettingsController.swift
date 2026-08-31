@@ -557,6 +557,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         case .calendars: return ["meetings", "calendars", key]
         case .excludeApps: return ["clipboard", "exclude-apps", key]
         case .excludePatterns: return ["clipboard", "exclude", key]
+        case .draftWords: return ["draft", "words", key]
         case .keyRemaps: return ["keys", key]
         }
     }
@@ -1162,6 +1163,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             "links": .links, "routes": .routes,
             "calendars": .calendars, "excludeApps": .excludeApps,
             "excludePatterns": .excludePatterns, "keyRemaps": .keyRemaps,
+            "draftWords": .draftWords,
         ][parts[0]]
         if let kind { removeEntry(kind: kind, key: parts[1]) }
     }
@@ -1262,6 +1264,10 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             let pattern = field("Text", width: 170)
             bar.addArrangedSubview(pattern)
             addInputs[addKey(kind)] = pattern
+        case .draftWords:
+            let word = field("Word", width: 170)
+            bar.addArrangedSubview(word)
+            addInputs[addKey(kind)] = word
         case .keyRemaps:
             let code = field("Keycode", width: 80)
             let name = popup(Set(Keys.ansi.values).sorted(), width: 90)
@@ -1354,6 +1360,10 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             let pattern = fieldText("excludePatterns")
             guard !pattern.isEmpty else { return }
             writeEntries(set: [(entryPath(.excludePatterns, pattern), .bool(true))])
+        case "draftWords":
+            let word = fieldText("draftWords").trimmingCharacters(in: .whitespaces)
+            guard !word.isEmpty else { return }
+            writeEntries(set: [(entryPath(.draftWords, word), .bool(true))])
         case "keyRemaps":
             let code = fieldText("keyRemaps")
             let name = popupChoice("keys.name")

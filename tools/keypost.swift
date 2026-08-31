@@ -14,6 +14,8 @@ let codes: [String: CGKeyCode] = [
     "k": 40, "n": 45, "m": 46,
     "return": 36, "tab": 48, "space": 49, "delete": 51, "escape": 53, "/": 44,
     ";": 41,
+    // Named, because "." and "-" collide with the prefix grammar above.
+    "period": 47, "minus": 27, "comma": 43, "left": 123, "right": 124, "down": 125, "up": 126,
 ]
 
 let rightCmdBit: UInt64 = 0x0010
@@ -45,10 +47,14 @@ for token in CommandLine.arguments.dropFirst() {
     var shift = false
     var plain = false
     var command = false
-    while name.hasPrefix("+") || name.hasPrefix(".") || name.hasPrefix("^") {
+    var meh = false
+    while name.hasPrefix("+") || name.hasPrefix(".") || name.hasPrefix("^") || name.hasPrefix("%") {
         if name.hasPrefix("+") { shift = true }
         if name.hasPrefix(".") { plain = true }
         if name.hasPrefix("^") { command = true; plain = true }
+        // "%" = the meh chord (⌘⌥⌃, left-side device bits), the way a
+        // firmware hyper key arrives; "%+" adds shift for the hyper chord.
+        if name.hasPrefix("%") { meh = true; plain = true }
         name.removeFirst()
     }
     guard let code = codes[name] else {
@@ -61,6 +67,10 @@ for token in CommandLine.arguments.dropFirst() {
         flags = CGEventFlags(rawValue: flags.rawValue | rightCmdBit)
     }
     if command { flags.insert(.maskCommand) }
+    if meh {
+        flags.insert([.maskCommand, .maskAlternate, .maskControl])
+        flags = CGEventFlags(rawValue: flags.rawValue | 0x1 | 0x8 | 0x20)
+    }
     if shift { flags.insert(.maskShift) }
 
     let source = CGEventSource(stateID: .hidSystemState)

@@ -22,6 +22,13 @@ public struct GuideFade: Equatable {
     public static let minimumDelay: TimeInterval = 0.2
     /// How long a stumble keeps the map immediate for its prefix.
     public static let stumbleHold: TimeInterval = 3600
+    /// Disuse past this begins to forfeit the fade: retrieval strength
+    /// decays even when the skill's motor half survives, so an address the
+    /// hand has not summoned in a month starts earning its map back — the
+    /// scaffold returns *before* the stumble, not after it. The forfeit is
+    /// a ramp, not a cliff, and a second horizon of quiet erases the fade
+    /// entirely.
+    public static let decayHorizon: TimeInterval = 28 * 86_400
 
     /// Prefix key → when the hand last stumbled there (wrong key, or an
     /// abandoned chain). Session-scoped on purpose: yesterday's stumble is
@@ -62,8 +69,18 @@ public struct GuideFade: Equatable {
         }
         var weakest = 1.0
         for chain in leaves {
-            let samples = observations.addresses[Observations.key(chain)]?.trigger.n ?? 0
-            weakest = min(weakest, Double(samples) / Double(Coach.bentCompletions))
+            let record = observations.addresses[Observations.key(chain)]
+            let samples = record?.trigger.n ?? 0
+            var strength = Double(samples) / Double(Coach.bentCompletions)
+            // The decay watch: a leaf past its horizon of disuse counts as
+            // partially unlearned, however bent its curve once was.
+            if let last = record?.lastUsed, last != .distantPast {
+                let idle = now.timeIntervalSince(last) - Self.decayHorizon
+                if idle > 0 {
+                    strength *= max(0, 1 - idle / Self.decayHorizon)
+                }
+            }
+            weakest = min(weakest, strength)
         }
         let delay = Self.maxSeconds * weakest
         return delay >= Self.minimumDelay ? delay : 0

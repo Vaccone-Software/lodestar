@@ -104,6 +104,16 @@ final class SelectController {
     /// arbiter — the mode never reads the situation, which is what buried
     /// the first auto-copy.
     var copyOnComplete = false
+    /// select.commit-on-unique: a search narrowed to one match picks it
+    /// without the capital. Anchor door only — at the click door a pick is
+    /// a click, and an action must never fire itself on uniqueness.
+    var commitOnUnique = false
+    /// The end word's unclaimed tail behind a span that completed itself.
+    /// The mode is over, but the hand may still be finishing the word it
+    /// planned — those letters are confirmation, absorbed here so they
+    /// cannot land in the app beneath the highlight. The first letter
+    /// that is not the word's next one flows through untouched.
+    private var ghostContinuation: SelectCore.Continuation?
 
     /// Which door the mode was entered through: `lode /` anchors on a
     /// pick, `lode ;` clicks on one. Same sensor, same grammar — the
@@ -293,7 +303,10 @@ final class SelectController {
         pendingKeys = []
         guard core != nil else { return }
         for entry in queued {
-            if case .updated = core!.key(entry.key, shift: false) {
+            // Auto-anchor stays off through the replay: these keys were
+            // typed against a screen the sensor had not finished reading,
+            // and a match unique in a partial world is not a pick.
+            if case .updated = core!.key(entry.key, shift: false, allowAutoAnchor: false) {
                 typedInMode += 1
             }
         }
@@ -340,6 +353,10 @@ final class SelectController {
         lastMatchCount = core!.totalMatches
         switch effect {
         case .selected(let pieces):
+            // A span that completed itself may have been committed
+            // mid-word; the end word's tail is absorbed while the
+            // highlight stands, so it cannot type into the app beneath.
+            ghostContinuation = core?.lastAutoContinuation
             commit(pieces: pieces)
             return .done
         case .anchored:
@@ -505,6 +522,20 @@ final class SelectController {
     /// Returns whether the key was consumed. First line is the fast path:
     /// this runs for every keystroke on the machine.
     func ghostHandleKey(key: String, held: Bool, flags: CGEventFlags) -> Bool {
+        // The end word's tail first, ghost or no ghost — a native
+        // selection holds no ghost, and there the stray letters would
+        // replace the selected text itself. A chord, a held key, or a
+        // capital is intent and ends the absorption on the spot.
+        if ghostContinuation != nil {
+            let plain = !flags.contains(.maskCommand) && !flags.contains(.maskControl)
+                && !flags.contains(.maskAlternate) && !flags.contains(.maskShift)
+            if !held, plain, let character = SelectCore.searchCharacter(for: key),
+               ghostContinuation!.consume(character) {
+                if ghostContinuation!.exhausted { ghostContinuation = nil }
+                return true
+            }
+            ghostContinuation = nil
+        }
         guard let ghost else { return false }
         if held {
             dissolveGhost()
@@ -539,6 +570,10 @@ final class SelectController {
     }
 
     private func dissolveGhost() {
+        // The tail dies with the highlight it was protecting. It is NOT
+        // cleared in exit(): like the ghost, it outlives the mode by
+        // design — exit runs a beat after the committing pick.
+        ghostContinuation = nil
         if let monitor = ghostClickMonitor { NSEvent.removeMonitor(monitor) }
         ghostClickMonitor = nil
         guard ghost != nil else { return }
@@ -801,7 +836,7 @@ final class SelectController {
                 SelectCore.Element(id: $0.offset, text: $0.element.run.text,
                                    frame: $0.element.frame)
             },
-            alphabet: letters)
+            alphabet: letters, autoAnchor: commitOnUnique && door == .anchor)
         if !query.isEmpty { rebuilt.seed(query: query) }
         core = rebuilt
         replayPendingKeys()
@@ -1054,7 +1089,7 @@ final class SelectController {
                 SelectCore.Element(id: $0.offset, text: $0.element.run.text,
                                    frame: $0.element.frame)
             },
-            alphabet: letters)
+            alphabet: letters, autoAnchor: commitOnUnique && door == .anchor)
         if !query.isEmpty { rebuilt.seed(query: query) }
         core = rebuilt
         replayPendingKeys()

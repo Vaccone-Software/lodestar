@@ -330,7 +330,13 @@ final class CoachController {
             thisStoodFull: entry?.lastShowingStood ?? false,
             engineQuiet: engineQuiet(), cameraRunning: cameraRunning(),
             present: present(humanIdle()),
-            inputWasHuman: inputWasHuman())
+            inputWasHuman: inputWasHuman(),
+            // Track record buying airtime: a kind with bent curves behind
+            // it waits out shorter channel quiets. A rehearsal reads the
+            // book rate, like the rest of its ledger.
+            pacingScale: isDemo ? 1.0 : (observations.map {
+                Coach.pacingScale(observations: $0.observations, kind: rec.kind, now: now)
+            } ?? 1.0))
     }
 
     private func considerShowing(cueApp: String?, cueHost: String?) {

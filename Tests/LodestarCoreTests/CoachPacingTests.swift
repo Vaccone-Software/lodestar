@@ -175,4 +175,81 @@ final class CoachPacingTests: XCTestCase {
         XCTAssertEqual(entry?.ignores, 1, "the count is history and survives")
         XCTAssertEqual(entry?.offers, 2)
     }
+
+    // MARK: - Track record buying airtime
+
+    /// The two channel quiets scale with the kind's record. Only those
+    /// two: the evidence gates and the per-suggestion retry leash keep
+    /// the book rate, because they price different things.
+    func testAProvenKindWaitsOutShorterQuiets() {
+        var moment = Coach.Moment(sinceAnswered: 2 * 86_400)
+        XCTAssertEqual(Coach.hold(moment), .answerQuiet, "book rate: three days of quiet")
+        moment.pacingScale = 0.5
+        XCTAssertEqual(Coach.hold(moment), .speak,
+                       "a proven kind is through in a day and a half")
+    }
+
+    func testALosingKindWaitsLonger() {
+        var moment = Coach.Moment(sinceAnswered: 3.5 * 86_400)
+        XCTAssertEqual(Coach.hold(moment), .speak)
+        moment.pacingScale = 1.5
+        XCTAssertEqual(Coach.hold(moment), .answerQuiet,
+                       "the coach's response to no is to get quieter, not louder")
+    }
+
+    func testPacingScaleReadsTheLedger() {
+        // Untried: the two-trial prior alone, so the book rate holds.
+        XCTAssertEqual(Coach.pacingScale(observations: observations([]),
+                                         kind: .shorten, now: start), 1.0, accuracy: 0.001)
+        // A "never" is a loss; the kind waits longer for its next ask.
+        let never = Observations.LedgerEntry(
+            id: "shorten:b x", kind: "shorten", target: "b x",
+            predictedSecondsPerWeek: 40, firstOfferedWeek: 0,
+            lastOfferedWeek: 0, offers: 1, status: "never", neverWeek: 0)
+        XCTAssertGreaterThan(Coach.pacingScale(observations: observations([never]),
+                                               kind: .shorten, now: start), 1.0)
+        // An accept whose curve bent is a win; the kind earns airtime.
+        var o = observations([Observations.LedgerEntry(
+            id: "shorten:b x", kind: "shorten", target: "b x", chain: "x",
+            predictedSecondsPerWeek: 40, firstOfferedWeek: 0,
+            lastOfferedWeek: 0, offers: 1, status: "accepted",
+            acceptedWeek: Observations.week(start))])
+        for i in 0..<Coach.bentCompletions {
+            var event = ObservationEvent(t: start.addingTimeInterval(Double(i)),
+                                         kind: .chain)
+            event.chain = ["x"]
+            event.gaps = [0.3]
+            o.apply(event)
+        }
+        XCTAssertLessThan(Coach.pacingScale(observations: o, kind: .shorten, now: start),
+                          1.0)
+    }
+
+    /// The report's clock and the moment gate read the same scale, so the
+    /// two can never disagree about when a proven kind may speak.
+    func testShowingWaitScalesWithTheKindsRecord() {
+        var o = observations([Observations.LedgerEntry(
+            id: "shorten:b x", kind: "shorten", target: "b x", chain: "x",
+            predictedSecondsPerWeek: 40, firstOfferedWeek: 0,
+            lastOfferedWeek: 0, offers: 1, status: "accepted",
+            acceptedWeek: Observations.week(start),
+            lastAnsweredAt: start.addingTimeInterval(-2 * 86_400))])
+        for i in 0..<Coach.bentCompletions {
+            var event = ObservationEvent(t: start.addingTimeInterval(Double(i)),
+                                         kind: .chain)
+            event.chain = ["x"]
+            event.gaps = [0.3]
+            o.apply(event)
+        }
+        let proven = Coach.showingWait(observations: o,
+                                       rec: shortenRec("e p", seconds: 171), now: start)
+        let untried = Coach.showingWait(
+            observations: o,
+            rec: Recommendation(kind: .route, target: "github.com", detail: "",
+                                secondsPerWeek: 40, probability: 0.95, evidence: [],
+                                edit: .addRoute(pattern: "github.com", profileKey: "work")),
+            now: start)
+        XCTAssertLessThan(proven, untried,
+                          "the kind with a bent curve behind it waits out less of the quiet")
+    }
 }

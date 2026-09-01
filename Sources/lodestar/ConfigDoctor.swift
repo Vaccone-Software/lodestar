@@ -745,6 +745,49 @@ func runObservations(clear: Bool, engine: Bool) -> Never {
         print("")
     }
 
+    // The product's own score: actual input cost against its computed
+    // floor, per channel. A channel at 1.0 has nothing left to give;
+    // everything above it is backlog. "measured" lines were timed by the
+    // instrument; the others are counts priced by KLM constants at this
+    // hand's own inter-key gap.
+    let overheadHealth = Health.summary(events: events, days: 28)
+    let overheadClicks = Health.clicks(events: events, days: 28)
+    let overheadLatency = LatencyModel.fit(
+        samples: LatencyModel.samples(from: context.events))
+    let overhead = Overhead.compute(events: events, latency: overheadLatency,
+                                    health: overheadHealth, clicks: overheadClicks)
+    if !overhead.channels.isEmpty {
+        func daily(_ secondsPerDay: Double) -> String {
+            secondsPerDay >= 120
+                ? String(format: "%.1fm/day", secondsPerDay / 60)
+                : String(format: "%.0fs/day", secondsPerDay)
+        }
+        print("overhead · actual ÷ computed floor · 1.0 has nothing left to give")
+        for channel in overhead.channels {
+            var line = pad("  " + channel.name, 14)
+            line += pad(String(format: "%.0f/day", channel.actsPerDay), 10)
+            line += pad(daily(channel.actualSecondsPerDay), 12)
+            line += pad("floor " + daily(channel.floorSecondsPerDay), 18)
+            if let ratio = channel.ratio {
+                line += pad(String(format: "%.1f×", ratio), 8)
+            }
+            line += channel.measured ? "measured" : "priced from counts"
+            print(line)
+        }
+        if let overheadClicks {
+            let pool = Overhead.pointingBacklog(clicks: overheadClicks)
+            if !pool.isEmpty {
+                print("  pointing pool · ranked by cost · what the keyboard could learn next")
+                for entry in pool {
+                    print(pad("    \(entry.app) · \(entry.role)", 34)
+                        + pad(String(format: "%.0f/day", entry.clicksPerDay), 10)
+                        + "≈" + daily(entry.secondsPerDay))
+                }
+            }
+        }
+        print("")
+    }
+
     // The instrument observing itself: what its own warmups cost, so a
     // regression in the instrument surfaces the way one in the hand does.
     let warmups = events.filter { $0.kind == .latency }

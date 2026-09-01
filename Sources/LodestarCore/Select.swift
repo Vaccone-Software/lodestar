@@ -73,6 +73,35 @@ public struct SelectCore {
     /// point of saying "many".
     static let countCap = 200
 
+    /// The tail of a word an auto-pick claimed before the hand finished
+    /// typing it. A pick on uniqueness lands mid-word — the hand planned
+    /// the whole word and is not watching the chips — so the letters that
+    /// keep arriving are confirmation of the word already taken, not new
+    /// intent, and they are absorbed until the first letter that could not
+    /// be. Folded the way the search folds, so a keystroke confirms
+    /// exactly what a search for it would have found.
+    public struct Continuation: Equatable {
+        private var rest: String
+
+        init(text: NSString, matchEnd: Int, wordEnd: Int) {
+            let range = NSRange(location: matchEnd, length: max(0, wordEnd - matchEnd))
+            rest = SelectCore.confusionFolded(text.substring(with: range)).lowercased()
+        }
+
+        /// True when the character is the word's next letter, consumed as
+        /// confirmation. False consumes nothing — the caller decides what
+        /// the letter starts instead.
+        public mutating func consume(_ character: String) -> Bool {
+            let folded = SelectCore.confusionFolded(character).lowercased()
+            guard !folded.isEmpty, rest.hasPrefix(folded) else { return false }
+            rest.removeFirst(folded.count)
+            return true
+        }
+
+        /// The word has been typed out; nothing is left to confirm.
+        public var exhausted: Bool { rest.isEmpty }
+    }
+
     public private(set) var query = ""
     public private(set) var typedLabel = ""
     public private(set) var matches: [Match] = []
@@ -84,9 +113,25 @@ public struct SelectCore {
     /// a "+" — below it the total is exact, and "45+" claims matches
     /// that do not exist.
     public var countCapped: Bool { totalMatches >= Self.countCap }
+    /// The unfinished word of the start anchor an auto-pick placed; the
+    /// keys that finish it are absorbed here instead of starting the far
+    /// end's search.
+    private var continuation: Continuation?
+    /// The unfinished end word of a span that completed itself. The mode
+    /// is over the moment the span lands, so the core cannot absorb these
+    /// keys — the shell reads this after `.selected` and swallows the
+    /// word's tail while the highlight stands.
+    public private(set) var lastAutoContinuation: Continuation?
 
     let elements: [Element]
     let alphabet: String
+    /// Commit-on-unique: when the typed search narrows to exactly one
+    /// match on screen, the pick happens without the capital — a keystroke
+    /// whose only legal meaning is confirmation carries no information,
+    /// so the grammar stops charging for it. Off by default because one
+    /// door must never have it: at the click door a pick is a click, and
+    /// an action may never fire itself on uniqueness.
+    let autoAnchor: Bool
     /// Element id → its place in reading order, so a match can be put
     /// before or after another without scanning.
     private let order: [Int: Int]
@@ -96,9 +141,10 @@ public struct SelectCore {
     /// keystroke.
     private let folded: [NSString]
 
-    public init(elements: [Element], alphabet: String) {
+    public init(elements: [Element], alphabet: String, autoAnchor: Bool = false) {
         self.elements = elements
         self.alphabet = alphabet
+        self.autoAnchor = autoAnchor
         // First occurrence wins: ids come from the harvest, which this
         // layer does not control, and a duplicate is a reading-order tie —
         // never a reason to trap.
@@ -144,6 +190,13 @@ public struct SelectCore {
         character(for: key, shift: false) != nil
     }
 
+    /// The character an unshifted key would type — the shell's door to
+    /// the same table, for judging keystrokes it holds after the mode has
+    /// already ended (the end word's tail behind a self-completed span).
+    public static func searchCharacter(for key: String) -> String? {
+        character(for: key, shift: false)
+    }
+
     /// Shifted punctuation and digits are search characters — labels are
     /// letters only, so `⇧4` can never be a pick and `$100` types as seen.
     /// That is the one rule this mode adds; what a key types is
@@ -157,8 +210,18 @@ public struct SelectCore {
     // MARK: - Keys
 
     public mutating func key(_ key: String, shift: Bool) -> Effect {
+        self.key(key, shift: shift, allowAutoAnchor: true)
+    }
+
+    /// `allowAutoAnchor: false` is the replay door: keys buffered while
+    /// the sensor was still reading are fed against the first world, which
+    /// may be a partial one — a match unique in it is not yet unique on
+    /// the screen, so replayed aiming never commits anything by itself.
+    public mutating func key(_ key: String, shift: Bool, allowAutoAnchor: Bool) -> Effect {
         let isLetter = key.count == 1 && (key.first?.isLetter ?? false)
+        lastAutoContinuation = nil
         if shift, isLetter {
+            continuation = nil
             return pick(letter: key)
         }
         // Shift opens the pick; it does not have to be held for the rest.
@@ -168,26 +231,45 @@ public struct SelectCore {
         // pure tax. A symbol abandons the pick back to searching; ⌫ walks
         // it back a letter at a time.
         if isLetter, !typedLabel.isEmpty {
+            continuation = nil
             return pick(letter: key)
         }
         guard let character = Self.character(for: key, shift: shift) else { return .none }
+        if continuation != nil {
+            if continuation!.consume(character) {
+                if continuation!.exhausted { continuation = nil }
+                return .updated
+            }
+            // The first letter that is not the word's next one is new
+            // intent: the far end's search starts with it.
+            continuation = nil
+        }
         query += character
         typedLabel = ""
         recompute()
+        if autoAnchor, allowAutoAnchor, totalMatches == 1, let sole = matches.first {
+            return autoPick(sole)
+        }
         return .updated
     }
 
     /// Adopt a query wholesale — how a richer harvest pass hands the
-    /// user's typing to a rebuilt core without replaying keys.
+    /// user's typing to a rebuilt core without replaying keys. Never
+    /// auto-picks: a world that just changed shape is exactly the moment
+    /// a momentary uniqueness means the least.
     public mutating func seed(query: String) {
         self.query = query
         typedLabel = ""
+        continuation = nil
         recompute()
     }
 
     /// ⌫ walks back: the label prefix first, then the query, and from an
     /// empty second stage all the way back to re-placing the start anchor.
+    /// A pending continuation is invisible bookkeeping, not typed text —
+    /// ⌫ discards it and acts on what the eye can see.
     public mutating func backspace() -> Effect {
+        continuation = nil
         if !typedLabel.isEmpty {
             typedLabel.removeLast()
             return .updated
@@ -228,6 +310,34 @@ public struct SelectCore {
         case .none:
             return .none
         }
+    }
+
+    /// The pick uniqueness makes by itself — the same landing a capital
+    /// would have bought, minus the capital. The hand is usually mid-word
+    /// when this fires, so each stage leaves behind the word's unclaimed
+    /// tail: the start anchor keeps it here and absorbs the letters as
+    /// they arrive; a completed span hands it out through
+    /// `lastAutoContinuation`, because the mode ends with the span and
+    /// the shell is what still holds the keys.
+    private mutating func autoPick(_ match: Match) -> Effect {
+        typedLabel = ""
+        let text = order[match.element].map { elements[$0].text as NSString }
+        let word = text.map { Self.wordSnapped(match.range, in: $0) } ?? match.range
+        func tail() -> Continuation? {
+            guard let text else { return nil }
+            let left = Continuation(text: text, matchEnd: NSMaxRange(match.range),
+                                    wordEnd: NSMaxRange(word))
+            return left.exhausted ? nil : left
+        }
+        if let anchor {
+            lastAutoContinuation = tail()
+            return .selected(pieces: span(from: anchor, to: match))
+        }
+        anchor = snapped(match)
+        continuation = tail()
+        query = ""
+        recompute()
+        return .anchored
     }
 
     /// A match grown to the word it sits inside.

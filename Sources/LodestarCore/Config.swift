@@ -44,6 +44,12 @@ public struct Config {
     /// so copying there arbitrates nothing; the config line is the arbiter,
     /// decided once, never at the moment of use.
     public var selectCopyOnComplete = false
+    /// A select search narrowed to exactly one match picks it without the
+    /// capital. The capital there could only confirm — a keystroke with
+    /// one legal meaning carries no information, so the grammar stops
+    /// charging for it. The word's unfinished tail is absorbed, not
+    /// misread: letters that keep arriving extend nothing.
+    public var selectCommitOnUnique = true
     /// Double-tap modifier bindings: modifier → verb. Custom triggers only.
     /// Keys freed by gestures: toggles — they pass through to the app.
     public var disabledGestures: Set<String> = []
@@ -174,6 +180,7 @@ public struct Config {
         ], description: "Scroll mode."),
         "select": .table([
             "copy-on-complete": .boolean(description: "Copy a completed span to the clipboard the moment its second anchor lands."),
+            "commit-on-unique": .boolean(description: "A search narrowed to one match picks it without the capital."),
         ], description: "Select mode."),
         "meetings": .table([
             "enabled": .boolean(description: "Offer the calendar's next meeting as a chip."),
@@ -348,6 +355,9 @@ public struct Config {
         }
         if let copy = effective.value(at: ["select", "copy-on-complete"])?.bool {
             config.selectCopyOnComplete = copy
+        }
+        if let commit = effective.value(at: ["select", "commit-on-unique"])?.bool {
+            config.selectCommitOnUnique = commit
         }
         if let enabled = effective.value(at: ["clipboard", "enabled"])?.bool {
             config.clipboardEnabled = enabled

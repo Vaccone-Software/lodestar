@@ -54,6 +54,8 @@ public struct Recommendation: Codable, Equatable {
         case rebind
         /// A deep chain frequent enough to earn a shorter one.
         case shorten
+        /// A chain whose starts keep failing — depth read as the defect.
+        case flatten
         /// Bound, and never once typed.
         case retire
         /// The address exists; the launcher keeps winning anyway.
@@ -74,7 +76,7 @@ public struct Recommendation: Codable, Equatable {
         /// what it said and what became of it, so nothing has to be stored
         /// beside the config or in it.
         public var supersedes: Bool {
-            self == .shorten || self == .rebind
+            self == .shorten || self == .rebind || self == .flatten
         }
     }
 
@@ -228,6 +230,7 @@ public enum Advisor {
         candidates += bindCandidates(context, latency: latency, learningCost: learningCost)
         candidates += rebindCandidates(context)
         candidates += shortenCandidates(context, latency: latency, learningCost: learningCost)
+        candidates += flattenCandidates(context, latency: latency, learningCost: learningCost)
         candidates += retireCandidates(context)
         candidates += nudgeCandidates(context, latency: latency)
         candidates += breathCandidates(context)
@@ -321,6 +324,24 @@ public enum Advisor {
         }
         var seen = Set<String>()
         return letters.filter { seen.insert($0).inserted }
+    }
+
+    /// The free alphabet in reach order — home row first, top row next,
+    /// the bottom row last — for promotions whose mnemonics are all
+    /// taken. An arbitrary bare key compiles fine (a fresh one has been
+    /// measured outrunning a chain with thousands of uses behind it), but
+    /// a stretch is a stretch on every press forever, so reach breaks the
+    /// tie.
+    static let reachOrderedLetters: [String] =
+        "asdfghjklqwertyuiopzxcvbnm".map(String.init)
+
+    /// The letter a promotion lands on: the target's own mnemonics first,
+    /// then anything free by reach. Nil only when the alphabet is truly
+    /// spent.
+    static func promotionSlot(app: String, record: Observations.AppRecord?,
+                              free: Set<String>) -> String? {
+        (mnemonicLetters(app: app, record: record) + reachOrderedLetters)
+            .first(where: { free.contains($0) })
     }
 
     /// P(net benefit > 0) by parametric bootstrap over the uncertain
@@ -601,10 +622,15 @@ public enum Advisor {
                   let latency else { continue }
             let weeks = Double(o.observedWeeks(address: leaf.chain, now: context.now))
             let weekly = Double(record.completions) / weeks
-            guard weekly >= 10 else { continue }
-            guard let slot = mnemonicLetters(app: leaf.label,
-                                             record: o.apps[leaf.label.lowercased()])
-                .first(where: { free.contains($0) }) else { continue }
+            // A demand floor, not the economics: the priced gates below
+            // (the offer floor, the probability gate) already reject a
+            // chain too cold to repay its relearning. The old floor of
+            // ten a week mostly restated the seconds floor and silenced
+            // every mid-frequency chain the pricing would have passed.
+            guard weekly >= 3 else { continue }
+            guard let slot = promotionSlot(app: leaf.label,
+                                           record: o.apps[leaf.label.lowercased()],
+                                           free: free) else { continue }
             let current = latency.chainSeconds(leaf.chain, address: key)
             let proposed = latency.chainSeconds([slot])
             let saved = current - proposed
@@ -649,6 +675,104 @@ public enum Advisor {
                 edit: .supersede(old: leaf.chain, new: [slot], target: leaf.value)),
                 p: 1 - value.probability,
                 offerable: value.probability >= probabilityGate))
+        }
+        return out
+    }
+
+    /// The failure gradient read as a proposal. Bare keys misfire at
+    /// essentially zero while prefixed chains measurably do not (0% bare
+    /// against 8–41% under prefixes, in the audit that motivated this),
+    /// and every misfire is a recovery the address taxes forever. Where a
+    /// leaf's starts keep failing — its own wrong keys and abandons, plus
+    /// its completion-weighted share of the stumbles on the prefixes
+    /// above it — the depth itself is the defect, and the offer is the
+    /// same supersede a shorten performs: the leaf moves to a free
+    /// letter, the old chain redirects until the new curve bends.
+    ///
+    /// Distinct from a rebind, which needs the wrong keys to agree on one
+    /// letter — a hand with a different address in its head. This fires
+    /// on diffuse failure, where no single belief is wrong but the
+    /// address keeps costing. A leaf may clear both this and the shorten
+    /// gate; that is one finding wearing two kinds of evidence, and the
+    /// coach offers one chip at a time either way.
+    static let flattenRecoverySeconds = 1.5
+
+    static func flattenCandidates(_ context: Context, latency: LatencyModel?,
+                                  learningCost: Double) -> [Candidate] {
+        let o = context.observations
+        guard let latency else { return [] }
+        let free = freeLetters(context)
+        var out: [Candidate] = []
+        for leaf in context.leaves where leaf.chain.count >= 2 {
+            let key = Observations.key(leaf.chain)
+            guard let record = o.addresses[key], record.completions >= 10 else { continue }
+            var failures = Double(record.wrongKeys + record.abandons)
+            // A prefix's stumbles belong to every leaf beneath it; this
+            // leaf's share is its share of the subtree's completions.
+            for depth in 1..<leaf.chain.count {
+                let prefixKey = Observations.key(Array(leaf.chain.prefix(depth)))
+                guard let prefix = o.addresses[prefixKey],
+                      prefix.wrongKeys + prefix.abandons > 0 else { continue }
+                var subtree = 0
+                for (address, entry) in o.addresses
+                    where address == prefixKey || address.hasPrefix(prefixKey + " ") {
+                    subtree += entry.completions
+                }
+                guard subtree > 0 else { continue }
+                failures += Double(prefix.wrongKeys + prefix.abandons)
+                    * Double(record.completions) / Double(subtree)
+            }
+            let failed = Int(failures.rounded())
+            let attempts = record.completions + failed
+            guard failed > 0, attempts >= 20 else { continue }
+            let rate = Double(failed) / Double(attempts)
+            // The null: this chain misfires at the bare-key baseline,
+            // which is near zero. A persistent excess is what needs
+            // explaining. Tested whenever the attempts exist; the rate
+            // and Wilson floors gate the offer, never the family.
+            let p = Maths.binomialTail(atLeast: failed, n: attempts, p: 0.02)
+            let lower = Maths.wilsonLower(successes: failed, trials: attempts)
+            let weeks = Double(o.observedWeeks(addressKey: key, now: context.now))
+            let weekly = Double(attempts) / weeks
+            let slot = promotionSlot(app: leaf.label,
+                                     record: o.apps[leaf.label.lowercased()],
+                                     free: free)
+            let current = latency.chainSeconds(leaf.chain, address: key)
+            let proposed = latency.chainSeconds([slot ?? "j"])
+            // Every attempt pays the chain; the failed share also pays
+            // its recovery. Both end at a bare letter.
+            let saved = max(0, current - proposed) + rate * Self.flattenRecoverySeconds
+            let currentSD = current * latency.residualSD
+                / Double(max(1, record.completions)).squareRoot()
+            let proposedSD = proposed * latency.residualSD
+            let savedSD = (currentSD * currentSD + proposedSD * proposedSD).squareRoot()
+            let value = netBenefit(perUseSavedMean: saved, perUseSavedSD: savedSD,
+                                   usesPerWeek: weekly,
+                                   usesPerWeekSE: (weekly / weeks).squareRoot(),
+                                   oneOffCost: learningCost,
+                                   seed: seed("flatten " + key))
+            let shown = "lode " + leaf.chain.map { $0.uppercased() }.joined(separator: " ")
+            let detail: String
+            if let slot {
+                detail = "\(shown) misfires \(Int((rate * 100).rounded()))% of its starts · "
+                    + "lode \(slot.uppercased()) would end the stumbles"
+            } else {
+                detail = "\(shown) misfires \(Int((rate * 100).rounded()))% of its starts · "
+                    + "no letter is free to move it to"
+            }
+            out.append(Candidate(rec: Recommendation(
+                kind: .flatten, target: key,
+                detail: detail,
+                secondsPerWeek: value.secondsPerWeek, probability: value.probability,
+                evidence: [
+                    "\(failed) failed starts across \(attempts), with the prefix's share counted",
+                    String(format: "%.2fs now vs %.2fs at a bare key", current, proposed),
+                ],
+                display: leaf.label,
+                edit: slot.map { .supersede(old: leaf.chain, new: [$0], target: leaf.value) }),
+                p: p,
+                offerable: rate >= 0.08 && lower > 0.04
+                    && value.probability >= probabilityGate))
         }
         return out
     }

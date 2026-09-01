@@ -215,6 +215,10 @@ public enum Coach {
         public var cameraRunning: Bool
         public var present: Bool
         public var inputWasHuman: Bool
+        /// `Coach.pacingScale` for the standing suggestion's kind: the
+        /// track-record multiplier on the two channel quiets. 1 is the
+        /// book rate.
+        public var pacingScale: Double
 
         public init(enabled: Bool = true, chipVisible: Bool = false,
                     offerSpent: Bool = false, sinceLastShown: TimeInterval = 3600,
@@ -224,7 +228,8 @@ public enum Coach {
                     channelOffers: Int = 0, thisOffers: Int = 0,
                     thisStoodFull: Bool = false,
                     engineQuiet: Bool = true, cameraRunning: Bool = false,
-                    present: Bool = true, inputWasHuman: Bool = true) {
+                    present: Bool = true, inputWasHuman: Bool = true,
+                    pacingScale: Double = 1.0) {
             self.enabled = enabled
             self.chipVisible = chipVisible
             self.offerSpent = offerSpent
@@ -239,6 +244,7 @@ public enum Coach {
             self.cameraRunning = cameraRunning
             self.present = present
             self.inputWasHuman = inputWasHuman
+            self.pacingScale = pacingScale
         }
     }
 
@@ -279,8 +285,12 @@ public enum Coach {
         if moment.chipVisible { return .chipUp }
         if moment.offerSpent { return .offerSpent }
         if moment.sinceLastShown < reshowSeconds { return .tooSoon }
-        if moment.sinceAnswered < answerQuietDays * 86_400 { return .answerQuiet }
-        if moment.sinceOffered < offerQuietDays * 86_400 { return .offerQuiet }
+        if moment.sinceAnswered < answerQuietDays * moment.pacingScale * 86_400 {
+            return .answerQuiet
+        }
+        if moment.sinceOffered < offerQuietDays * moment.pacingScale * 86_400 {
+            return .offerQuiet
+        }
         if moment.thisOffers > 0,
            moment.sinceThisOffered < retryDays(channelOffers: moment.channelOffers,
                                                thisOffers: moment.thisOffers,
@@ -300,12 +310,13 @@ public enum Coach {
     public static func showingWait(observations: Observations,
                                    rec: Recommendation, now: Date) -> TimeInterval {
         let ledger = observations.ledger
+        let scale = pacingScale(observations: observations, kind: rec.kind, now: now)
         var wait: TimeInterval = 0
         if let answered = ledger.compactMap(\.lastAnsweredAt).max() {
-            wait = max(wait, answerQuietDays * 86_400 - now.timeIntervalSince(answered))
+            wait = max(wait, answerQuietDays * scale * 86_400 - now.timeIntervalSince(answered))
         }
         if let offered = ledger.map(\.lastOfferedAt).filter({ $0 != .distantPast }).max() {
-            wait = max(wait, offerQuietDays * 86_400 - now.timeIntervalSince(offered))
+            wait = max(wait, offerQuietDays * scale * 86_400 - now.timeIntervalSince(offered))
         }
         if let entry = ledger.first(where: { $0.id == "\(rec.kind.rawValue):\(rec.target)" }),
            entry.offers > 0, entry.lastOfferedAt != .distantPast {
@@ -328,10 +339,12 @@ public enum Coach {
     /// an edit that needs no learning. A "never" is a trial with no win. An
     /// accept still young enough to be learning is neither — it must not
     /// count against a kind for being recent. The result multiplies the
-    /// *ranking* only, never the gates: evidence decides what may be
-    /// offered; history decides what is offered first. Bounded in
-    /// (0.5, 1.5) with a two-trial prior, so one bad accept cannot silence
-    /// a kind and one good one cannot crown it.
+    /// ranking and, through `pacingScale`, the channel's quiet clocks —
+    /// never the evidence gates: evidence decides what may be offered;
+    /// track record decides what is offered first, and how often the
+    /// asking may happen. Bounded in (0.5, 1.5) with a two-trial prior,
+    /// so one bad accept cannot silence a kind and one good one cannot
+    /// crown it.
     public static func kindWeight(observations: Observations,
                                   kind: Recommendation.Kind, now: Date = Date()) -> Double {
         var trials = 0
@@ -362,6 +375,20 @@ public enum Coach {
             }
         }
         return 0.5 + (Double(wins) + 1) / (Double(trials) + 2)
+    }
+
+    /// Track record buying airtime: the multiplier on the channel's two
+    /// quiet clocks (`answerQuietDays`, `offerQuietDays`) for a suggestion
+    /// of this kind. A kind whose accepts demonstrably bend curves earns
+    /// shorter quiets — down to half — and a kind that keeps losing waits
+    /// longer, up to half again; the untried kind keeps the book rate.
+    /// This is pacing, never permission: the evidence gates (the
+    /// probability floor, the seconds floors, the FDR family) are
+    /// untouched, and so is the per-suggestion retry leash, which prices
+    /// the user's attention rather than the kind's credibility.
+    public static func pacingScale(observations: Observations,
+                                   kind: Recommendation.Kind, now: Date = Date()) -> Double {
+        min(1.5, max(0.5, 2.0 - kindWeight(observations: observations, kind: kind, now: now)))
     }
 
     /// The one suggestion worth standing behind right now, or nil — and
@@ -477,6 +504,7 @@ public enum Coach {
         kind == Recommendation.Kind.bind.rawValue
             || kind == Recommendation.Kind.shorten.rawValue
             || kind == Recommendation.Kind.rebind.rawValue
+            || kind == Recommendation.Kind.flatten.rawValue
     }
 
     /// Where this suggestion lands best, if it has such a place. The cue
@@ -485,7 +513,7 @@ public enum Coach {
     public static func cue(for rec: Recommendation) -> Cue? {
         switch rec.kind {
         case .bind, .nudge: return .app(rec.target)
-        case .shorten, .rebind:
+        case .shorten, .rebind, .flatten:
             // A rebind's felt cost is the stumble, and the stumble ends at
             // the destination — so the chip lands seconds after arriving
             // there, when the wrong press is still in the fingers.
@@ -511,6 +539,7 @@ public enum Coach {
         switch rec.kind {
         case .nudge,
              .rebind where rec.edit == nil,
+             .flatten where rec.edit == nil,
              .breath where rec.edit == nil:
             // Report-only findings: the chip can only offer what it can
             // commit, so these point at the report instead.
@@ -525,8 +554,8 @@ public enum Coach {
                 headline = rec.target
             }
             accept = "tap lode twice to save them side by side"
-        case .bind, .shorten, .rebind:
-            // Both land on "the address you will type next", which for a
+        case .bind, .shorten, .rebind, .flatten:
+            // All land on "the address you will type next", which for a
             // supersede is the new chain rather than the one being given
             // up — the chip names the gain, not the loss.
             let landing: (chain: [String], target: String)?
@@ -567,6 +596,23 @@ public enum Coach {
                 let shownOld = rec.target.split(separator: " ")
                     .map { $0.uppercased() }.joined(separator: " ")
                 evidence = "lode \(shownOld) has fired \(record.completions) times"
+                    + secondsClause(rec.secondsPerWeek)
+            } else if rec.kind == .flatten {
+                // The stumbles live on the leaf and the prefixes above
+                // it — usually the prefixes, which is the whole finding.
+                // The road's raw counts, because every clause must be a
+                // count the user could verify; the pricing's completion
+                // weighting stays in the pricing.
+                let letters = rec.target.split(separator: " ").map(String.init)
+                var stumbles = 0
+                for depth in 1...max(1, letters.count) {
+                    let key = Observations.key(Array(letters.prefix(depth)))
+                    if let road = observations.addresses[key] {
+                        stumbles += road.wrongKeys + road.abandons
+                    }
+                }
+                let shownOld = letters.map { $0.uppercased() }.joined(separator: " ")
+                evidence = "the road to lode \(shownOld) has misfired \(stumbles) times"
                     + secondsClause(rec.secondsPerWeek)
             }
         case .retire:

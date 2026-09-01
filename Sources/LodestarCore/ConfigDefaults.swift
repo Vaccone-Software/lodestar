@@ -191,6 +191,7 @@ public enum ConfigDefaults {
         ]),
         "select": .table([
             "copy-on-complete": .bool(false),
+            "commit-on-unique": .bool(true),
         ]),
         "draft": .table([
             "input": .string(""),

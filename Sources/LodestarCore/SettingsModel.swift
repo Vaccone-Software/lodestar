@@ -331,6 +331,12 @@ public enum SettingsModel {
                 detail: "A completed span is copied the moment its second "
                     + "anchor lands.",
                 isDefault: !config.selectCopyOnComplete),
+            Row(title: "Commit on unique", path: "select.commit-on-unique",
+                control: .toggle(config.selectCommitOnUnique),
+                detail: "A search narrowed to one match picks it without "
+                    + "the capital. Letters that finish the word extend "
+                    + "nothing.",
+                isDefault: config.selectCommitOnUnique),
             Row(title: "Guide fade", path: "guide.fade",
                 control: .toggle(config.guideFade),
                 detail: "The chain guide waits longer to appear as a "

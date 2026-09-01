@@ -581,4 +581,88 @@ final class AnalysisTests: XCTestCase {
         XCTAssertNil(RecallMixture.fit(observations: o),
                      "no separation, no mixture — the blind rate is the measure")
     }
+
+    // MARK: - The failure gradient
+
+    /// Bare keys misfire at essentially zero; a chain whose starts keep
+    /// failing carries the depth itself as the defect, and the wrong keys
+    /// live on the *prefix* where the hand stumbled, never the leaf.
+    private func flattenWorld(stumbles: Int) -> (Advisor.Context, Observations) {
+        var o = Observations()
+        var events: [ObservationEvent] = []
+        var noise = Noise(seed: 17)
+        // Latency material: a fast bare key.
+        for i in 0..<50 {
+            var event = ObservationEvent(t: start.addingTimeInterval(Double(i) * 600),
+                                         kind: .chain)
+            event.chain = ["g"]
+            event.gaps = [exp(log(0.15) + noise.normal(sd: 0.1))]
+            events.append(event)
+            o.apply(event)
+        }
+        // The deep chain, completed often enough to have real evidence.
+        for i in 0..<30 {
+            var event = ObservationEvent(t: start.addingTimeInterval(Double(i) * 900),
+                                         kind: .chain)
+            event.chain = ["v", "z"]
+            event.gaps = [exp(log(0.30) + noise.normal(sd: 0.1)),
+                          exp(log(0.50) + noise.normal(sd: 0.1))]
+            events.append(event)
+            o.apply(event)
+        }
+        // And the gradient: stumbles at the prefix, scattered across
+        // letters so no single wrong belief exists for a rebind to read.
+        let scatter = ["q", "w", "e"]
+        for i in 0..<stumbles {
+            var event = ObservationEvent(t: start.addingTimeInterval(Double(i) * 1000),
+                                         kind: .wrongKey)
+            event.chain = ["v"]
+            event.pressed = scatter[i % scatter.count]
+            events.append(event)
+            o.apply(event)
+        }
+        let context = Advisor.Context(
+            observations: o, events: events,
+            leaves: [.init(chain: ["g"], label: "Ghostty", value: "Ghostty"),
+                     .init(chain: ["v", "z"], label: "Zoom", value: "Zoom")],
+            webRoutes: [:],
+            now: start.addingTimeInterval(3 * 86_400))
+        return (context, o)
+    }
+
+    func testFlattenReadsTheFailureGradient() {
+        let (context, o) = flattenWorld(stumbles: 12)
+        let flatten = Advisor.recommend(context).first { $0.kind == .flatten }
+        XCTAssertNotNil(flatten, "a road that misfires a quarter of the time is the defect")
+        XCTAssertEqual(flatten?.edit,
+                       .supersede(old: ["v", "z"], new: ["z"], target: "Zoom"),
+                       "the same supersede a shorten performs, to the mnemonic letter")
+        XCTAssertEqual(flatten?.display, "Zoom")
+        XCTAssertGreaterThanOrEqual(flatten?.probability ?? 0, 0.9, "gated, not guessed")
+        // The chip the offer would wear: the landing named, the road's
+        // misfires counted, the supersede verb telling the truth.
+        guard let flatten else { return }
+        let chip = Coach.chip(for: flatten, observations: o)
+        XCTAssertTrue(chip.headline.contains("lode Z → Zoom"), chip.headline)
+        XCTAssertTrue(chip.evidence.contains("misfired 12 times"), chip.evidence)
+        XCTAssertTrue(chip.footer.contains("move it"),
+                      "the old address stops working, and the verb says so")
+    }
+
+    func testACleanChainRaisesNoFlatten() {
+        let (context, _) = flattenWorld(stumbles: 0)
+        XCTAssertNil(Advisor.recommend(context).first { $0.kind == .flatten },
+                     "no failures, no finding — frequency alone is the shorten's job")
+    }
+
+    func testPromotionSlotPrefersMnemonicsThenReach() {
+        XCTAssertEqual(Advisor.promotionSlot(app: "Brave", record: nil,
+                                             free: Set(["b", "a"])), "b",
+                       "the mnemonic wins while it is free")
+        XCTAssertEqual(Advisor.promotionSlot(app: "Brave", record: nil,
+                                             free: Set(["q", "z", "a"])), "a",
+                       "mnemonics all taken: the home row by reach")
+        XCTAssertNil(Advisor.promotionSlot(app: "Brave", record: nil, free: []),
+                     "a truly spent alphabet offers nothing")
+    }
 }

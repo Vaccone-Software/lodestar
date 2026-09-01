@@ -90,4 +90,32 @@ final class GuideFadeTests: XCTestCase {
         XCTAssertEqual(fade.delay(prefix: ["b"], leaves: [["b", "g"]],
                                   observations: o, now: start), 0)
     }
+
+    // MARK: - The decay watch
+
+    func testFreshUseKeepsTheEarnedWait() {
+        let o = learned(["b", "g"], times: Coach.bentCompletions)
+        let fade = GuideFade()
+        let delay = fade.delay(prefix: ["b"], leaves: [["b", "g"]], observations: o,
+                               now: start.addingTimeInterval(GuideFade.decayHorizon - 86_400))
+        XCTAssertEqual(delay, GuideFade.maxSeconds, accuracy: 0.001,
+                       "inside the horizon, disuse forfeits nothing")
+    }
+
+    func testDisuseForfeitsHalfTheFadeHalfwayDownTheRamp() {
+        let o = learned(["b", "g"], times: Coach.bentCompletions)
+        let fade = GuideFade()
+        let delay = fade.delay(prefix: ["b"], leaves: [["b", "g"]], observations: o,
+                               now: start.addingTimeInterval(GuideFade.decayHorizon * 1.5))
+        XCTAssertEqual(delay, GuideFade.maxSeconds / 2, accuracy: 0.01,
+                       "a ramp, not a cliff: half the extra horizon costs half the wait")
+    }
+
+    func testALongQuietBringsTheMapAllTheWayBack() {
+        let o = learned(["b", "g"], times: Coach.bentCompletions)
+        let fade = GuideFade()
+        XCTAssertEqual(fade.delay(prefix: ["b"], leaves: [["b", "g"]], observations: o,
+                                  now: start.addingTimeInterval(GuideFade.decayHorizon * 2.5)),
+                       0, "two horizons of quiet and the scaffold is back before the stumble")
+    }
 }

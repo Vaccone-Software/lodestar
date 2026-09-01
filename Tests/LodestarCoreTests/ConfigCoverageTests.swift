@@ -41,6 +41,7 @@ final class ConfigCoverageTests: XCTestCase {
         Probe(path: ["scroll", "speed"], value: .int(2500)) { $0.scrollSpeed == 2500 },
         Probe(path: ["scroll", "step"], value: .int(120)) { $0.scrollStep == 120 },
         Probe(path: ["select", "copy-on-complete"], value: .bool(true)) { $0.selectCopyOnComplete },
+        Probe(path: ["select", "commit-on-unique"], value: .bool(false)) { !$0.selectCommitOnUnique },
 
         Probe(path: ["clipboard", "enabled"], value: .bool(false)) { !$0.clipboardEnabled },
         Probe(path: ["clipboard", "max-size-mb"], value: .int(42)) { $0.clipboardMaxBytes == 42_000_000 },

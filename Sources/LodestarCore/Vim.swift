@@ -56,7 +56,12 @@ public struct Vim {
     /// absent, `j` and `k` walk logical lines. Only bare navigation
     /// asks: an operator's `j` stays a logical line, so `dj` keeps
     /// meaning what vim's `dj` means.
-    public var visualLine: ((Int, Bool) -> Int?)?
+    ///
+    /// The buffer travels into the closure by value. The shell must not
+    /// reach for its own stored buffer here: this runs inside `key`,
+    /// which holds that buffer `inout`, and a second access aborts the
+    /// process — the exact crash v0.26.7 shipped on every `j`.
+    public var visualLine: ((Draft.Buffer, Int, Bool) -> Int?)?
 
     /// The find kind (`f`, `t`, `F`, `T`) whose target character is being
     /// awaited, so the panel can light the reachable letters while the
@@ -573,14 +578,14 @@ public struct Vim {
             guard cursor < limit || (op != nil && cursor < buffer.lineEnd(from: cursor)) else { return nil }
             return Target(index: min(cursor + 1, buffer.lineEnd(from: cursor)))
         case .lineUp:
-            if op == nil, let landed = visualLine?(cursor, false), landed != cursor {
+            if op == nil, let landed = visualLine?(buffer, cursor, false), landed != cursor {
                 return Target(index: landed, linewise: true)
             }
             var copy = buffer; copy.setCursor(cursor); copy.moveUp()
             guard buffer.lineStart(from: cursor) > 0 else { return nil }
             return Target(index: copy.cursor, linewise: true)
         case .lineDown:
-            if op == nil, let landed = visualLine?(cursor, true), landed != cursor {
+            if op == nil, let landed = visualLine?(buffer, cursor, true), landed != cursor {
                 return Target(index: landed, linewise: true)
             }
             guard buffer.lineEnd(from: cursor) < chars.count else { return nil }

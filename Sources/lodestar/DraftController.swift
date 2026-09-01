@@ -46,6 +46,11 @@ final class DraftController {
     /// Music steps aside while the mic is open on a shared Bluetooth
     /// radio; the draft only reports its edges.
     var playback: PlaybackPause?
+    /// Where the in-flight words go, half a second behind the hand, and
+    /// nil at close: a crash mid-draft then strands at most a moment,
+    /// and the next boot returns the rest via the pasteboard.
+    var stash: ((String?) -> Void)?
+    private var stashWork: DispatchWorkItem?
     let clock: Clock
 
     struct Destination: Equatable {
@@ -199,10 +204,12 @@ final class DraftController {
         buffer = Draft.Buffer()
         vim = Vim()
         // `j` and `k` walk the lines the eye sees; the panel's layout is
-        // the only honest source of where those lines break.
-        vim.visualLine = { [weak self] index, down in
-            guard let self else { return nil }
-            return self.panel.visualMove(from: index, down: down, in: self.buffer)
+        // the only honest source of where those lines break. The buffer
+        // arrives by value from the editor — reading `self.buffer` here
+        // would collide with the `inout` hold `vim.key` has on it and
+        // abort the process.
+        vim.visualLine = { [weak self] buffer, index, down in
+            self?.panel.visualMove(from: index, down: down, in: buffer)
         }
         speechState = nil
         listening = false
@@ -705,6 +712,9 @@ final class DraftController {
 
     private func close() {
         isOpen = false
+        stashWork?.cancel()
+        stashWork = nil
+        stash?(nil)
         playback?.dictationEnded()
         listening = false
         sessionStarted = false
@@ -733,6 +743,16 @@ final class DraftController {
 
     private func render() {
         guard isOpen else { return }
+        if stash != nil {
+            stashWork?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                guard let self, self.isOpen else { return }
+                let ghost = self.buffer.ghost
+                self.stash?(self.buffer.text + (ghost.isEmpty ? "" : " " + ghost))
+            }
+            stashWork = work
+            clock.after(0.5, work)
+        }
         let front = frontmost()
         panel.show(DraftView(
             buffer: buffer, mode: mode, editor: vim.mode, selection: vim.selection(in: buffer),

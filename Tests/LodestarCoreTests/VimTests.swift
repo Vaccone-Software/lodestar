@@ -409,7 +409,7 @@ final class VimTests: XCTestCase {
     func testJAndKWalkTheEyesLinesWhenTheShellProvidesThem() {
         load("abcdef")
         // A fake layout that wraps every three characters.
-        vim.visualLine = { index, down in
+        vim.visualLine = { _, index, down in
             let landed = down ? index + 3 : index - 3
             return (0..<6).contains(landed) ? landed : nil
         }

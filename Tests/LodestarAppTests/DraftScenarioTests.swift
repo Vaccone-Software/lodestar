@@ -617,4 +617,39 @@ final class DraftScenarioTests: XCTestCase {
         XCTAssertEqual(stage.pasteboard, ["Ship it as now please"],
                        "a second utterance lands after the typing, in spoken order")
     }
+    /// v0.26.7 crashed on every `j`: the layout seam read the
+    /// controller's buffer while the editor held it inout, and Swift's
+    /// exclusivity check aborted the process. This walks the real path —
+    /// controller, editor, panel layout — so that class of crash kills
+    /// the test run instead of the app.
+    func testVisualJAndKThroughTheRealPanel() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.settle("one two three")
+        cmd(stage, "return", shift: true)
+        stage.speech.settle("four five")
+        cmd(stage, "escape")
+        _ = stage.press("k")
+        XCTAssertLessThan(stage.draft.buffer.cursor, 14, "k walks up to the first rendered line")
+        _ = stage.press("j")
+        XCTAssertGreaterThan(stage.draft.buffer.cursor, 13, "j walks back down")
+        XCTAssertTrue(stage.draft.isOpen)
+    }
+    /// The stash trails the draft by half a second and a clean close
+    /// clears it, so anything found at boot is a crash's leavings.
+    func testTheStashFollowsTheDraftAndClearsAtClose() {
+        let stage = Stage()
+        var stashed: [String?] = []
+        stage.draft.stash = { stashed.append($0) }
+        stage.lode(".")
+        stage.speech.settle("keep me safe")
+        stage.clock.advance(by: 0.6)
+        XCTAssertEqual(stashed.last ?? nil, "keep me safe")
+        stage.speech.hear("and the ghost")
+        stage.clock.advance(by: 0.6)
+        XCTAssertEqual(stashed.last ?? nil, "keep me safe and the ghost",
+                       "words still volatile are worth recovering too")
+        cmd(stage, "return")
+        XCTAssertEqual(stashed.last ?? nil, nil, "a clean close leaves nothing to recover")
+    }
 }

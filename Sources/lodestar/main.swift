@@ -98,6 +98,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Log.info("Lodestar \(Lodestar.version) starting (pid \(ProcessInfo.processInfo.processIdentifier))")
         takeOverPidFile()
 
+        // The unclean-exit marker: written now, removed only by a graceful
+        // shutdown. Found still standing once the takeover has settled,
+        // the previous run died without one — say so in the log, and any
+        // draft it stranded goes back to the user further down, once the
+        // surfaces exist to say that too.
+        crashedLastRun = Self.uncleanExitMarkerStands()
+        if crashedLastRun { Log.error("the previous run ended uncleanly — recovering") }
+        try? "\(ProcessInfo.processInfo.processIdentifier)".write(
+            to: Self.runMarker, atomically: true, encoding: .utf8)
+        // AppKit exceptions abort the process; the log at least says why.
+        NSSetUncaughtExceptionHandler { exception in
+            Log.error("uncaught-exception", [
+                "name": exception.name.rawValue,
+                "reason": exception.reason ?? "",
+                "stack": exception.callStackSymbols.prefix(12).joined(separator: " | "),
+            ])
+        }
+
         // One hung app must never freeze the switcher.
         setGlobalAXTimeout(1.0)
 
@@ -235,6 +253,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         draft.words = config.draftWords
         draft.inputDevice = config.draftInput.isEmpty ? nil : config.draftInput
         draft.playback = PlaybackPause()
+        // The in-flight stash: a crash mid-draft costs at most the last
+        // half second of words, recovered to the pasteboard right here at
+        // the next boot. A clean close always clears it.
+        let stashFile = Paths.data.appendingPathComponent("draft-in-flight")
+        draft.stash = { text in
+            if let text, !text.isEmpty {
+                try? text.write(to: stashFile, atomically: true, encoding: .utf8)
+            } else {
+                try? FileManager.default.removeItem(at: stashFile)
+            }
+        }
+        if crashedLastRun, let stranded = try? String(contentsOf: stashFile, encoding: .utf8),
+           !stranded.isEmpty {
+            draft.writePasteboard(stranded)
+            hud.flash("⌂ recovered your draft to the clipboard")
+            Log.info("draft", ["recovered": stranded.count])
+        }
+        try? FileManager.default.removeItem(at: stashFile)
         draft.chooseInput = { [weak self] name in
             guard let self else { return }
             let flash = name.map { "✓ microphone: \($0)" } ?? "✓ microphone: system default"
@@ -539,6 +575,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
            Int32(text.trimmingCharacters(in: .whitespacesAndNewlines))
                == ProcessInfo.processInfo.processIdentifier {
             try? FileManager.default.removeItem(at: Self.pidFile)
+        }
+        if let text = try? String(contentsOf: Self.runMarker, encoding: .utf8),
+           Int32(text.trimmingCharacters(in: .whitespacesAndNewlines))
+               == ProcessInfo.processInfo.processIdentifier {
+            try? FileManager.default.removeItem(at: Self.runMarker)
         }
     }
 
@@ -1687,11 +1728,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     Log.error("login-item", ["write-failed": "\(error)"])
                 }
             }
+            readoptIfUnsupervised(agent: agent)
         } else if !config.startAtLogin && exists {
             // Delete the plist without unloading: the running session
             // continues; nothing loads at the next login.
             try? FileManager.default.removeItem(at: agent)
             Log.info("login-item", ["action": "removed"])
+        }
+    }
+
+    /// launchd's view of the agent job: nil when the label is not loaded
+    /// in this session, 0 when loaded and idle, else the pid it runs.
+    private func agentJobPid() -> pid_t? {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        task.arguments = ["list", "com.vaccone.lodestar"]
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        task.standardError = Pipe()
+        guard (try? task.run()) != nil else { return nil }
+        task.waitUntilExit()
+        guard task.terminationStatus == 0 else { return nil }
+        let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        for line in out.split(separator: "\n") where line.contains("\"PID\"") {
+            if let pid = Int32(line.filter(\.isNumber)) { return pid }
+        }
+        return 0
+    }
+
+    /// A lodestar launched by the updater, Finder, or a rollback runs as
+    /// an application job with no supervisor, so a crash removes the
+    /// navigator from the machine until someone notices — which is how a
+    /// crash on `j` once left the keyboard ownerless. Whenever the agent
+    /// exists and is not the one running us, the session goes back to
+    /// launchd: the instance it starts takes over through the pid file,
+    /// this one bows out, and the resident lodestar is always the one
+    /// that comes back on its own within ten seconds of dying.
+    private func readoptIfUnsupervised(agent: URL) {
+        let me = ProcessInfo.processInfo.processIdentifier
+        switch agentJobPid() {
+        case .some(let pid) where pid == me:
+            return
+        case .some(let pid):
+            Log.info("login-item", ["action": "readopting", "agent-pid": pid])
+            runLaunchctl(["kickstart", "gui/\(getuid())/com.vaccone.lodestar"])
+        case .none:
+            Log.info("login-item", ["action": "bootstrapping the agent"])
+            runLaunchctl(["bootstrap", "gui/\(getuid())", agent.path])
+        }
+    }
+
+    private func runLaunchctl(_ arguments: [String]) {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        task.arguments = arguments
+        task.standardOutput = Pipe()
+        task.standardError = Pipe()
+        guard (try? task.run()) != nil else {
+            Log.error("login-item", ["launchctl": "could not run"])
+            return
+        }
+        task.waitUntilExit()
+        if task.terminationStatus != 0 {
+            Log.error("login-item", ["launchctl \(arguments.first ?? "")": "exit \(task.terminationStatus)"])
         }
     }
 
@@ -1739,6 +1838,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: - Process management
 
     private static let pidFile = Paths.pidFile
+    /// Present while a run is alive, removed by a graceful shutdown: the
+    /// difference between "quit" and "died", readable at the next boot.
+    private static let runMarker = Paths.data.appendingPathComponent("last-run")
+    private var crashedLastRun = false
+
+    private static func uncleanExitMarkerStands() -> Bool {
+        guard let text = try? String(contentsOf: runMarker, encoding: .utf8),
+              let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)) else { return false }
+        // A live pid is an instance still on its way out, not a crash.
+        return kill(pid, 0) != 0
+    }
 
     private func takeOverPidFile() {
         if let text = try? String(contentsOf: Self.pidFile, encoding: .utf8),

@@ -59,13 +59,59 @@ final class VimTests: XCTestCase {
         type("W"); XCTAssertEqual(buffer.cursor, 4)
     }
 
-    func testFindAndRepeat() {
-        load("a.b.c.d")
-        type("f."); XCTAssertEqual(buffer.cursor, 1)
-        type(";"); XCTAssertEqual(buffer.cursor, 3)
-        type(","); XCTAssertEqual(buffer.cursor, 1)
-        type("t."); XCTAssertEqual(buffer.cursor, 2)
-        type("Fa"); XCTAssertEqual(buffer.cursor, 0)
+    func testFindsCrossLinesAndHighlightTheirMatch() {
+        load("a.\nb.\nc.")
+        type("f.")
+        XCTAssertEqual(buffer.cursor, 1)
+        XCTAssertEqual(vim.findHighlight, 1..<2)
+        type(";")
+        XCTAssertEqual(buffer.cursor, 4, "repeat keeps scanning through line breaks")
+        XCTAssertEqual(vim.findHighlight, 4..<5)
+        type(";")
+        XCTAssertEqual(buffer.cursor, 7)
+        XCTAssertEqual(vim.findHighlight, 7..<8)
+        type("F.")
+        XCTAssertEqual(buffer.cursor, 4, "backward find crosses a line break")
+        XCTAssertEqual(vim.findHighlight, 4..<5)
+        type(",")
+        XCTAssertEqual(buffer.cursor, 7, "reverse repeat also crosses a line break")
+        XCTAssertEqual(vim.findHighlight, 7..<8)
+        type("T.")
+        XCTAssertEqual(buffer.cursor, 6, "backward till crosses a line break")
+        XCTAssertEqual(vim.findHighlight, 4..<5, "T highlights the character named, not its landing spot")
+        type("F.")
+        type("h")
+        XCTAssertEqual(buffer.cursor, 3)
+        type("t.")
+        XCTAssertEqual(buffer.cursor, 6, "forward till crosses a line break")
+        XCTAssertEqual(vim.findHighlight, 7..<8, "t highlights the character named, not its landing spot")
+        type("f.")
+        XCTAssertEqual(buffer.cursor, 7)
+        type("f.")
+        XCTAssertEqual(buffer.cursor, 7, "find stops at the end of the draft instead of wrapping")
+    }
+
+    func testFindHighlightPersistsUntilNavigationOrEdit() {
+        load("a.b.c")
+        type("f.")
+        XCTAssertEqual(vim.findHighlight, 1..<2)
+        type("v")
+        XCTAssertEqual(vim.findHighlight, 1..<2, "changing mode alone does not navigate or edit")
+        type("l")
+        XCTAssertNil(vim.findHighlight, "the next successful motion clears the indication")
+        type("f.")
+        XCTAssertEqual(vim.findHighlight, 3..<4)
+        type("d")
+        XCTAssertNil(vim.findHighlight, "starting an edit clears the indication")
+    }
+
+    func testFindMotionsComposeAcrossLinesWithOperators() {
+        load("one X\ntwo\nthree", cursor: 10)
+        type("dFX")
+        XCTAssertEqual(buffer.text, "one three", "F is a document-wide backward operator motion")
+        load("one\ntwo X\nthree", cursor: 0)
+        type("dtX")
+        XCTAssertEqual(buffer.text, "X\nthree", "t is a document-wide forward operator motion")
     }
 
     func testPercentMatchesBrackets() {

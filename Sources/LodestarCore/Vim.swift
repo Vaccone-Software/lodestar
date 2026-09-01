@@ -50,6 +50,10 @@ public struct Vim {
     private var pendingG = false
     private var pendingObject: Character?
     private var lastFind: (key: Character, target: Character)?
+    /// The character named by the most recent successful find.  This is
+    /// deliberately the match rather than the cursor position: `t` and `T`
+    /// stop beside their match, but the match is what the hand named.
+    public private(set) var findHighlight: Range<Int>?
     private var visualAnchor = 0
 
     // History.
@@ -100,6 +104,7 @@ public struct Vim {
     /// is put where a normal-mode cursor can be, on a character.
     public mutating func enterNormal(_ buffer: inout Draft.Buffer) {
         mode = .normal
+        findHighlight = nil
         insertOpen = false
         inserted = []
         recording = []
@@ -112,6 +117,7 @@ public struct Vim {
     public mutating func startInsert() {
         guard mode != .insert else { return }
         mode = .insert
+        findHighlight = nil
         insertOpen = false
         inserted = []
         recording = []
@@ -119,11 +125,13 @@ public struct Vim {
 
     public mutating func typed(_ text: String) {
         guard mode == .insert, !replaying else { return }
+        if !text.isEmpty { findHighlight = nil }
         for character in text { inserted.append(.char(character)) }
     }
 
     public mutating func insertBackspace() {
         guard mode == .insert, !replaying else { return }
+        findHighlight = nil
         if case .char = inserted.last { inserted.removeLast() } else { inserted.append(.delete) }
     }
 
@@ -229,6 +237,9 @@ public struct Vim {
             op = c
             opCount = count
             count = nil
+            // A delete or change has begun, even though it still awaits a
+            // motion. A yank is neither an edit nor a cursor motion yet.
+            if c != "y" { findHighlight = nil }
             return []
         }
         if let pending = op, pending == c {
@@ -321,6 +332,7 @@ public struct Vim {
         case "Y":
             return operate("y", .toLineEnd, &buffer, pasteboard: pasteboard)
         case "r":
+            findHighlight = nil
             awaiting = "r"; count = n == 1 ? nil : n; return []
         case "~":
             snapshot(buffer)
@@ -454,6 +466,9 @@ public struct Vim {
         let index: Int
         var inclusive = false
         var linewise = false
+        /// The matched character for an `f`/`F`/`t`/`T` motion. Unlike the
+        /// cursor, this remains meaningful for `t` and `T`.
+        var findMatch: Range<Int>? = nil
     }
 
     private mutating func applyMotion(_ motion: Motion, _ buffer: inout Draft.Buffer, pasteboard: () -> String?) -> [Effect] {
@@ -471,8 +486,8 @@ public struct Vim {
             if op != nil { clearPending() }
             return []
         }
-        landed = Target(index: landed.index, inclusive: landed.inclusive, linewise: landed.linewise)
         if let pending = op {
+            findHighlight = nil
             op = nil; opCount = nil
             // `cw` on a word acts like `ce`: vim's one special case.
             if pending == "c", case .wordForward(let big) = motion, buffer.cursor < buffer.count,
@@ -500,6 +515,9 @@ public struct Vim {
         }
         buffer.setCursor(landed.index)
         if mode == .normal { clampNormal(&buffer) }
+        // A successful motion supersedes the old find indication. A find
+        // installs its own match; every other motion clears it.
+        findHighlight = landed.findMatch
         return []
     }
 
@@ -567,21 +585,30 @@ public struct Vim {
             let start = buffer.lineStart(from: chars.count)
             return Target(index: firstNonBlank(buffer, from: start), linewise: true)
         case .find(let kind, let c):
-            let lineStart = buffer.lineStart(from: cursor), lineEnd = buffer.lineEnd(from: cursor)
             switch kind {
             case "f", "t":
                 var i = cursor + 1
                 if kind == "t" { i += 1 }
-                while i < lineEnd {
-                    if chars[i] == c { return Target(index: kind == "t" ? i - 1 : i, inclusive: true) }
+                while i < chars.count {
+                    if chars[i] == c {
+                        let destination = kind == "t" ? navigableBefore(i, after: cursor, chars) : i
+                        if let destination {
+                            return Target(index: destination, inclusive: true, findMatch: i..<i + 1)
+                        }
+                    }
                     i += 1
                 }
                 return nil
             default:
                 var i = cursor - 1
                 if kind == "T" { i -= 1 }
-                while i >= lineStart {
-                    if chars[i] == c { return Target(index: kind == "T" ? i + 1 : i) }
+                while i >= 0 {
+                    if chars[i] == c {
+                        let destination = kind == "T" ? navigableAfter(i, before: cursor, chars) : i
+                        if let destination {
+                            return Target(index: destination, findMatch: i..<i + 1)
+                        }
+                    }
                     i -= 1
                 }
                 return nil
@@ -679,6 +706,22 @@ public struct Vim {
         let end = buffer.lineEnd(from: index)
         while i < end, buffer.characters[i].isWhitespace { i += 1 }
         return i
+    }
+
+    /// `t` and `T` may now cross a line break, while a normal-mode cursor
+    /// may not rest on one. Skip line breaks to the first visible destination
+    /// on the appropriate side; if there is none before the original cursor,
+    /// that match cannot be navigated to and the scan continues.
+    private func navigableBefore(_ index: Int, after cursor: Int, _ chars: [Character]) -> Int? {
+        var i = index - 1
+        while i > cursor, chars[i] == "\n" { i -= 1 }
+        return i > cursor ? i : nil
+    }
+
+    private func navigableAfter(_ index: Int, before cursor: Int, _ chars: [Character]) -> Int? {
+        var i = index + 1
+        while i < cursor, chars[i] == "\n" { i += 1 }
+        return i < cursor ? i : nil
     }
 
     // MARK: - Awaited characters
@@ -943,6 +986,7 @@ public struct Vim {
     private var visualInsertOpen = false
 
     private mutating func enterInsert(_ buffer: inout Draft.Buffer, snapshotTaken: Bool = false) -> [Effect] {
+        findHighlight = nil
         if !snapshotTaken { snapshot(buffer) }
         if !replaying {
             visualInsertOpen = inVisualChange
@@ -965,6 +1009,7 @@ public struct Vim {
 
     private mutating func undo(_ buffer: inout Draft.Buffer) -> [Effect] {
         guard let last = undoStack.popLast() else { return [.flash("⌂ nothing to undo")] }
+        findHighlight = nil
         redoStack.append(Snapshot(characters: buffer.characters, cursor: buffer.cursor))
         buffer.restore(characters: last.characters, cursor: last.cursor)
         clampNormal(&buffer)
@@ -973,6 +1018,7 @@ public struct Vim {
 
     private mutating func redo(_ buffer: inout Draft.Buffer) -> [Effect] {
         guard let next = redoStack.popLast() else { return [.flash("⌂ nothing to redo")] }
+        findHighlight = nil
         undoStack.append(Snapshot(characters: buffer.characters, cursor: buffer.cursor))
         buffer.restore(characters: next.characters, cursor: next.cursor)
         clampNormal(&buffer)
@@ -981,6 +1027,7 @@ public struct Vim {
 
     private mutating func noteChange() {
         changed = true
+        findHighlight = nil
         guard !replaying else { return }
         if inVisualChange {
             lastChange = []

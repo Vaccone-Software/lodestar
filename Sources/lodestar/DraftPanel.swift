@@ -9,6 +9,9 @@ struct DraftView {
     /// and say so on the register line.
     var editor: Vim.Mode = .normal
     var selection: Range<Int>? = nil
+    /// The matched character from the last find motion. It stays visible
+    /// until another navigation or edit supersedes it.
+    var findHighlight: Range<Int>? = nil
     /// A command is half typed (an operator, a count, a find).
     var pending = false
     /// The recognizer's state while the speak door is open; nil when the
@@ -184,6 +187,15 @@ final class DraftPanel {
             let upper = (String(view.buffer.characters[..<selection.upperBound]) as NSString).length
             attributed.addAttribute(.backgroundColor,
                                     value: NSColor.labelColor.withAlphaComponent(0.22),
+                                    range: NSRange(location: lower, length: max(0, upper - lower)))
+        }
+        if let match = view.findHighlight, !match.isEmpty, match.upperBound <= view.buffer.count {
+            let lower = (String(view.buffer.characters[..<match.lowerBound]) as NSString).length
+            let upper = (String(view.buffer.characters[..<match.upperBound]) as NSString).length
+            // The match, not the `t`/`T` landing position, is what the hand
+            // named. Draw it last so it remains legible inside a visual span.
+            attributed.addAttribute(.backgroundColor,
+                                    value: NSColor.controlAccentColor.withAlphaComponent(0.38),
                                     range: NSRange(location: lower, length: max(0, upper - lower)))
         }
         textView.textStorage?.setAttributedString(attributed)

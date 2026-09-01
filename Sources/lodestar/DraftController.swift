@@ -714,6 +714,7 @@ final class DraftController {
         let front = frontmost()
         panel.show(DraftView(
             buffer: buffer, mode: mode, editor: vim.mode, selection: vim.selection(in: buffer),
+            findHighlight: vim.findHighlight,
             pending: vim.isPending, speech: speechState, input: inputName, level: level,
             inputs: inputs, systemInput: systemInputName, chosenInput: inputDevice,
             micOn: micWanted,

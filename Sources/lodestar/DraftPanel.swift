@@ -9,11 +9,8 @@ struct DraftView {
     /// and say so on the register line.
     var editor: Vim.Mode = .normal
     var selection: Range<Int>? = nil
-    /// The matched character from the last find motion. It stays visible
-    /// until another navigation or edit supersedes it.
-    var findHighlight: Range<Int>? = nil
     /// The letters a pending find could land on, lit while the hand
-    /// decides which one to name.
+    /// decides which one to name; the lights go out the moment it acts.
     var findTargets: [Int] = []
     /// A command is half typed (an operator, a count, a find).
     var pending = false
@@ -77,10 +74,15 @@ final class DraftPanel {
     private static let footerHeight: CGFloat = 26
     private static let minTextHeight: CGFloat = 58
     private static let meterCount = 5
-    private static let font = NSFont.systemFont(ofSize: 17, weight: .regular)
+    /// The system's mono face: a block cursor in a proportional face is
+    /// a fresh width on every character, `j` and `k` walk columns that
+    /// lie, and a lit letter's semibold reflows the line. Mono makes all
+    /// three constant — the advance survives the weight by design.
+    private static let font = NSFont.monospacedSystemFont(ofSize: 16, weight: .regular)
     /// The find lights' weight: heavier than the text so a lit letter
-    /// reads at a glance, same size so nothing reflows.
-    private static let accentFont = NSFont.systemFont(ofSize: 17, weight: .semibold)
+    /// reads at a glance, and in the mono face the same width, so
+    /// nothing reflows.
+    private static let accentFont = NSFont.monospacedSystemFont(ofSize: 16, weight: .semibold)
     /// macOS paints "the microphone is on" orange, in the menu bar and in
     /// Control Center; the panel says it in the same color.
     private static let live = NSColor.systemOrange
@@ -167,6 +169,30 @@ final class DraftPanel {
 
     func hide() { panel.orderOut(nil) }
 
+    /// Where one visual line up or down from character `index` lands, by
+    /// the same layout the screen shows — the eye's lines, not the
+    /// file's. nil at the layout's edges, and while a ghost stands (its
+    /// inserted text shifts every position after the cursor).
+    func visualMove(from index: Int, down: Bool, in buffer: Draft.Buffer) -> Int? {
+        guard buffer.ghost.isEmpty,
+              let layout = textView.layoutManager, let container = textView.textContainer,
+              let storage = textView.textStorage, storage.length > 0 else { return nil }
+        let text = storage.string as NSString
+        let utf16 = (String(buffer.characters[..<min(index, buffer.count)]) as NSString).length
+        let glyph = layout.glyphIndexForCharacter(at: min(utf16, max(0, text.length - 1)))
+        var fragmentRange = NSRange()
+        _ = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: &fragmentRange)
+        let x = layout.location(forGlyphAt: glyph).x
+        let neighborGlyph = down ? NSMaxRange(fragmentRange) : fragmentRange.location - 1
+        guard neighborGlyph >= 0, neighborGlyph < layout.numberOfGlyphs else { return nil }
+        var neighborRange = NSRange()
+        let neighbor = layout.lineFragmentRect(forGlyphAt: neighborGlyph, effectiveRange: &neighborRange)
+        let landingGlyph = layout.glyphIndex(for: NSPoint(x: x, y: neighbor.midY), in: container)
+        let landingUTF16 = layout.characterIndexForGlyph(at: landingGlyph)
+        // Back from UTF-16 to character space.
+        return text.substring(to: min(landingUTF16, text.length)).count
+    }
+
     func show(_ view: DraftView) {
         let screen = ActivePolicy.presentationFrame
         let width = min(Self.width, screen.width - Self.margin * 2)
@@ -216,11 +242,6 @@ final class DraftPanel {
             }
             for target in view.findTargets where target < view.buffer.count {
                 attributed.addAttributes(accent, range: characterRange(target..<target + 1))
-            }
-            if let match = view.findHighlight, !match.isEmpty, match.upperBound <= view.buffer.count {
-                // The match, not the `t`/`T` landing position, is what the
-                // hand named; it stays lit for `;` and `,` to be read.
-                attributed.addAttributes(accent, range: characterRange(match))
             }
         }
         textView.textStorage?.setAttributedString(attributed)

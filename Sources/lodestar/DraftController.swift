@@ -198,6 +198,12 @@ final class DraftController {
         self.door = door
         buffer = Draft.Buffer()
         vim = Vim()
+        // `j` and `k` walk the lines the eye sees; the panel's layout is
+        // the only honest source of where those lines break.
+        vim.visualLine = { [weak self] index, down in
+            guard let self else { return nil }
+            return self.panel.visualMove(from: index, down: down, in: self.buffer)
+        }
         speechState = nil
         listening = false
         provisional = nil
@@ -356,7 +362,10 @@ final class DraftController {
             self.level = level
             self.panel.setLevel(level)
         }, onVolatile: { [weak self] text in
-            guard let self, self.isOpen, self.session == mine, self.mode == .insert, self.micWanted else { return }
+            guard let self, self.isOpen, self.session == mine, self.mode == .insert, self.micWanted,
+                  // Reserved words await their final; a cumulative volatile
+                  // would show them twice. The final revises them in place.
+                  self.provisional == nil else { return }
             if self.firstWordAt == nil {
                 self.firstWordAt = self.clock.now()
                 self.observations?.latency(surface: "draft-first-word",
@@ -459,6 +468,7 @@ final class DraftController {
                     // Through the editor, so it is one undo step and `.` knows it.
                     _ = vim.key(.char("p"), buffer: &buffer, pasteboard: readPasteboard)
                 } else if let text = readPasteboard() {
+                    settleGhostAsSeen()
                     buffer.type(text); vim.typed(text); typedCharacters += text.count
                 }
                 render()
@@ -491,6 +501,18 @@ final class DraftController {
     }
 
     private func insertKey(_ key: String, shift: Bool, option: Bool, control: Bool) -> Bool {
+        // Words still a ghost when the hand starts writing become text
+        // on the spot, reserved where they stand: dictate, type, dictate
+        // lands in the order it happened, and the final that arrives
+        // later revises the reserved words in place (`provisional`), not
+        // at the cursor. Moves and the commit leave the ghost to its own
+        // rules.
+        if !buffer.ghost.isEmpty {
+            let moves = ["escape", "left", "right", "up", "down"]
+            let editingControl = control && ["h", "w", "u", "k"].contains(key)
+            let editingKey = !control && !moves.contains(key) && !(key == "return" && !shift)
+            if editingControl || editingKey { settleGhostAsSeen() }
+        }
         // The control chords every macOS field answers: line ends, a word
         // or a line back, the rest of the line forward.
         if control {
@@ -714,7 +736,6 @@ final class DraftController {
         let front = frontmost()
         panel.show(DraftView(
             buffer: buffer, mode: mode, editor: vim.mode, selection: vim.selection(in: buffer),
-            findHighlight: vim.findHighlight,
             findTargets: vim.pendingFind.map { Vim.findTargets(kind: $0, in: buffer) } ?? [],
             pending: vim.isPending, speech: speechState, input: inputName, level: level,
             inputs: inputs, systemInput: systemInputName, chosenInput: inputDevice,

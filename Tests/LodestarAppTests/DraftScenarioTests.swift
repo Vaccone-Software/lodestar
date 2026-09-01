@@ -593,4 +593,28 @@ final class DraftScenarioTests: XCTestCase {
         XCTAssertEqual(stage.draft.state["open"] as? Bool, false)
         XCTAssertEqual(stage.pasteboard, ["h"])
     }
+    /// Dictate, type, dictate: words still a ghost when the hand starts
+    /// typing are reserved where they stand, the typed characters land
+    /// after them, and the final that arrives later revises the reserved
+    /// words in place — the order is the order it happened.
+    func testTypingWhileWordsAreStillGhostKeepsTheOrder() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.hear("ship as")
+        XCTAssertEqual(stage.draft.buffer.ghost, "ship as")
+        cmd(stage, "space"); cmd(stage, "n"); cmd(stage, "o"); cmd(stage, "w")
+        XCTAssertEqual(stage.draft.buffer.text, "ship as now",
+                       "the ghost became reserved text and the typing landed after it")
+        stage.speech.hear("ship it as")
+        XCTAssertEqual(stage.draft.buffer.ghost, "",
+                       "a cumulative volatile never doubles the reserved words")
+        stage.speech.settle("Ship it as")
+        XCTAssertEqual(stage.draft.buffer.text, "Ship it as now",
+                       "the final revised the reserved words in place, not at the cursor")
+        stage.speech.hear("please")
+        stage.speech.settle("please")
+        cmd(stage, "return")
+        XCTAssertEqual(stage.pasteboard, ["Ship it as now please"],
+                       "a second utterance lands after the typing, in spoken order")
+    }
 }

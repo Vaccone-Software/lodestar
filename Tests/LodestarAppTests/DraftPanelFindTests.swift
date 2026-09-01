@@ -28,9 +28,8 @@ final class DraftPanelFindTests: XCTestCase {
         var view = DraftView(buffer: buffer, mode: .normal, speech: nil,
                              destination: nil, replacing: false)
         view.findTargets = [1, 6]
-        view.findHighlight = 8..<9
         panel.show(view)
-        XCTAssertEqual(litPositions(panel), [1, 6, 8],
+        XCTAssertEqual(litPositions(panel), [1, 6],
                        "the letters the screen shows are the ones recolored")
         panel.hide()
     }
@@ -46,6 +45,22 @@ final class DraftPanelFindTests: XCTestCase {
         panel.show(view)
         XCTAssertTrue(litPositions(panel).isEmpty,
                       "the ghost shifts every position, so nothing may be painted over it")
+        panel.hide()
+    }
+    /// The layout oracle behind visual `j`/`k`: it answers from the same
+    /// line fragments the screen draws.
+    func testVisualMoveWalksTheRenderedLines() {
+        let panel = DraftPanel()
+        var buffer = Draft.Buffer(text: "one\ntwo")
+        buffer.setCursor(0)
+        let view = DraftView(buffer: buffer, mode: .normal, speech: nil,
+                             destination: nil, replacing: false)
+        panel.show(view)
+        let down = panel.visualMove(from: 0, down: true, in: buffer)
+        XCTAssertEqual(down, 4, "one visual line down from o lands on t")
+        XCTAssertNil(panel.visualMove(from: 5, down: true, in: buffer),
+                     "below the last line the layout has no answer")
+        XCTAssertEqual(panel.visualMove(from: 4, down: false, in: buffer), 0)
         panel.hide()
     }
 }

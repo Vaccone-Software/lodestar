@@ -715,6 +715,7 @@ final class DraftController {
         panel.show(DraftView(
             buffer: buffer, mode: mode, editor: vim.mode, selection: vim.selection(in: buffer),
             findHighlight: vim.findHighlight,
+            findTargets: vim.pendingFind.map { Vim.findTargets(kind: $0, in: buffer) } ?? [],
             pending: vim.isPending, speech: speechState, input: inputName, level: level,
             inputs: inputs, systemInput: systemInputName, chosenInput: inputDevice,
             micOn: micWanted,

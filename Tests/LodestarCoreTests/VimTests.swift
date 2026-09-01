@@ -389,4 +389,41 @@ final class VimTests: XCTestCase {
         insert("q")
         XCTAssertEqual(buffer.text, "q baz")
     }
+    // MARK: - Find lights
+
+    func testFindTargetsLightTheFirstInstanceOfEachCharacterAcrossLines() {
+        var buffer = Draft.Buffer(text: "ab a\nba c")
+        buffer.setCursor(0)
+        XCTAssertEqual(Vim.findTargets(kind: "f", in: buffer), [1, 3, 8],
+                       "b at 1, the second a at 3, c at 8; whitespace and repeats unlit")
+    }
+
+    func testFindTargetsForTStartOneFurtherLikeTheMotion() {
+        var buffer = Draft.Buffer(text: "abc")
+        buffer.setCursor(0)
+        XCTAssertEqual(Vim.findTargets(kind: "t", in: buffer), [2],
+                       "tb cannot move, so b at 1 is not a target; c at 2 is")
+    }
+
+    func testFindTargetsScanBackwardForCapitals() {
+        var buffer = Draft.Buffer(text: "ab a\nba c")
+        buffer.setCursor(8)
+        XCTAssertEqual(Vim.findTargets(kind: "F", in: buffer), [6, 5],
+                       "the nearest instance of each character behind the cursor; repeats unlit")
+        XCTAssertEqual(Vim.findTargets(kind: "T", in: buffer), [6, 5],
+                       "Ta lands beside the a at 6, so it is lit; only a match against the cursor is out of reach")
+    }
+
+    func testPendingFindAppearsWithTheKeyAndClearsWithTheTarget() {
+        var vim = Vim()
+        var buffer = Draft.Buffer(text: "alpha")
+        buffer.setCursor(0)
+        vim.enterNormal(&buffer)
+        XCTAssertNil(vim.pendingFind)
+        _ = vim.key(.char("f"), buffer: &buffer, pasteboard: { nil })
+        XCTAssertEqual(vim.pendingFind, "f")
+        _ = vim.key(.char("h"), buffer: &buffer, pasteboard: { nil })
+        XCTAssertNil(vim.pendingFind)
+        XCTAssertEqual(buffer.cursor, 3)
+    }
 }

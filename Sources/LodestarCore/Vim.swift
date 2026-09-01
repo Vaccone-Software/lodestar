@@ -54,6 +54,39 @@ public struct Vim {
     /// deliberately the match rather than the cursor position: `t` and `T`
     /// stop beside their match, but the match is what the hand named.
     public private(set) var findHighlight: Range<Int>?
+    /// The find kind (`f`, `t`, `F`, `T`) whose target character is being
+    /// awaited, so the panel can light the reachable letters while the
+    /// hand decides which one to name.
+    public var pendingFind: Character? {
+        guard let awaiting, "ftFT".contains(awaiting) else { return nil }
+        return awaiting
+    }
+
+    /// The letters a pending find could land on: the first instance of
+    /// each distinct character in the motion's direction, scanned the way
+    /// the motion itself scans (`t` and `T` start one further). Whitespace
+    /// is jumpable but never painted.
+    public static func findTargets(kind: Character, in buffer: Draft.Buffer) -> [Int] {
+        let chars = buffer.characters
+        var seen = Set<Character>()
+        var positions: [Int] = []
+        if kind == "f" || kind == "t" {
+            var i = buffer.cursor + (kind == "t" ? 2 : 1)
+            while i < chars.count {
+                let c = chars[i]
+                if !c.isWhitespace, seen.insert(c).inserted { positions.append(i) }
+                i += 1
+            }
+        } else {
+            var i = buffer.cursor - (kind == "T" ? 2 : 1)
+            while i >= 0 {
+                let c = chars[i]
+                if !c.isWhitespace, seen.insert(c).inserted { positions.append(i) }
+                i -= 1
+            }
+        }
+        return positions
+    }
     private var visualAnchor = 0
 
     // History.

@@ -12,6 +12,9 @@ struct DraftView {
     /// The matched character from the last find motion. It stays visible
     /// until another navigation or edit supersedes it.
     var findHighlight: Range<Int>? = nil
+    /// The letters a pending find could land on, lit while the hand
+    /// decides which one to name.
+    var findTargets: [Int] = []
     /// A command is half typed (an operator, a count, a find).
     var pending = false
     /// The recognizer's state while the speak door is open; nil when the
@@ -52,7 +55,11 @@ final class DraftPanel {
     private var meterBars: [NSView] = []
     private let micButton = HandButton(frame: .zero)
 
-    private let textView = NSTextView()
+    /// Internal so the tests can read the storage the screen reads: the
+    /// find lights once shipped as background washes that vibrancy ate,
+    /// and only a test against the rendered attributes catches that class
+    /// of nothing-appears bug.
+    let textView = NSTextView()
     private let scroll = NSScrollView()
     private let caret = NSView()
     private let footer = NSTextField(labelWithString: "")
@@ -71,6 +78,9 @@ final class DraftPanel {
     private static let minTextHeight: CGFloat = 58
     private static let meterCount = 5
     private static let font = NSFont.systemFont(ofSize: 17, weight: .regular)
+    /// The find lights' weight: heavier than the text so a lit letter
+    /// reads at a glance, same size so nothing reflows.
+    private static let accentFont = NSFont.systemFont(ofSize: 17, weight: .semibold)
     /// macOS paints "the microphone is on" orange, in the menu bar and in
     /// Control Center; the panel says it in the same color.
     private static let live = NSColor.systemOrange
@@ -189,14 +199,29 @@ final class DraftPanel {
                                     value: NSColor.labelColor.withAlphaComponent(0.22),
                                     range: NSRange(location: lower, length: max(0, upper - lower)))
         }
-        if let match = view.findHighlight, !match.isEmpty, match.upperBound <= view.buffer.count {
-            let lower = (String(view.buffer.characters[..<match.lowerBound]) as NSString).length
-            let upper = (String(view.buffer.characters[..<match.upperBound]) as NSString).length
-            // The match, not the `t`/`T` landing position, is what the hand
-            // named. Draw it last so it remains legible inside a visual span.
-            attributed.addAttribute(.backgroundColor,
-                                    value: NSColor.controlAccentColor.withAlphaComponent(0.38),
-                                    range: NSRange(location: lower, length: max(0, upper - lower)))
+        // The find lights recolor the letters themselves — nothing is
+        // drawn behind them, because a background wash under this glass
+        // is composited by vibrancy and can vanish entirely (the first
+        // build of this feature shipped invisible that way). Painted only
+        // with no ghost standing, like the selection: the ghost shifts
+        // every position after the cursor.
+        if view.buffer.ghost.isEmpty {
+            let accent: [NSAttributedString.Key: Any] = [
+                .foregroundColor: NSColor.controlAccentColor, .font: Self.accentFont,
+            ]
+            let characterRange = { (range: Range<Int>) -> NSRange in
+                let lower = (String(view.buffer.characters[..<range.lowerBound]) as NSString).length
+                let upper = (String(view.buffer.characters[..<range.upperBound]) as NSString).length
+                return NSRange(location: lower, length: max(0, upper - lower))
+            }
+            for target in view.findTargets where target < view.buffer.count {
+                attributed.addAttributes(accent, range: characterRange(target..<target + 1))
+            }
+            if let match = view.findHighlight, !match.isEmpty, match.upperBound <= view.buffer.count {
+                // The match, not the `t`/`T` landing position, is what the
+                // hand named; it stays lit for `;` and `,` to be read.
+                attributed.addAttributes(accent, range: characterRange(match))
+            }
         }
         textView.textStorage?.setAttributedString(attributed)
         textView.frame.size.width = textWidth

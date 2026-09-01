@@ -460,4 +460,94 @@ final class VimTests: XCTestCase {
         type("diB")
         XCTAssertEqual(buffer.text, "a {} c", "B keeps vim's braces")
     }
+    // MARK: - Surround (mini.surround's sa, sd, sr)
+
+    func testSurroundAddWrapsAnObject() {
+        load("say hello there", cursor: 6)
+        type("saiwq")
+        XCTAssertEqual(buffer.text, "say \"hello\" there")
+        XCTAssertEqual(buffer.cursor, 4, "the cursor rests on the opening delimiter")
+    }
+
+    func testSurroundAddSpacedOpenAndPlainClose() {
+        load("word", cursor: 0)
+        type("saiw(")
+        XCTAssertEqual(buffer.text, "( word )", "an opening character pads")
+        load("word", cursor: 0)
+        type("saiw)")
+        XCTAssertEqual(buffer.text, "(word)", "a closing character does not")
+    }
+
+    func testSurroundAddTakesAMotionAndALine() {
+        load("one two", cursor: 0)
+        type("saw`")
+        XCTAssertEqual(buffer.text, "`one `two", "a motion span, exactly what w covers")
+        load("first\nsecond", cursor: 2)
+        type("sas]")
+        XCTAssertEqual(buffer.text, "[first]\nsecond", "the doubled key wraps the line")
+    }
+
+    func testSurroundAddWrapsTheVisualSelection() {
+        load("pick these words", cursor: 5)
+        type("vesab")
+        XCTAssertEqual(buffer.text, "pick (these) words")
+    }
+
+    func testSurroundDeleteUnwrapsByFinderOrKind() {
+        load("say \"quoted\" here", cursor: 6)
+        type("sdq")
+        XCTAssertEqual(buffer.text, "say quoted here", "q finds whichever quote kind covers")
+        load("say [deep] here", cursor: 6)
+        type("sdb")
+        XCTAssertEqual(buffer.text, "say deep here", "b finds whichever bracket kind covers")
+        load("f(x)", cursor: 2)
+        type("sd)")
+        XCTAssertEqual(buffer.text, "fx")
+    }
+
+    func testSurroundReplaceSwapsDelimiters() {
+        load("say 'word' here", cursor: 6)
+        type("srq")
+        XCTAssertEqual(buffer.text, "say 'word' here", "half a replace changes nothing yet")
+        type("]")
+        XCTAssertEqual(buffer.text, "say [word] here", "any quote in, brackets out")
+        type("sr]\"")
+        XCTAssertEqual(buffer.text, "say \"word\" here")
+    }
+
+    func testSurroundIsPendingAndEscapeAbandonsIt() {
+        load("word", cursor: 0)
+        type("s")
+        XCTAssertTrue(vim.isPending)
+        type("\u{1B}")
+        XCTAssertFalse(vim.isPending)
+        XCTAssertEqual(buffer.text, "word", "an abandoned surround changes nothing")
+        type("sr'")
+        type("\u{1B}")
+        type("saiw")
+        type("\u{1B}")
+        XCTAssertEqual(buffer.text, "word")
+    }
+
+    func testSurroundIsOneUndoStep() {
+        load("plain", cursor: 0)
+        type("saiw\"")
+        XCTAssertEqual(buffer.text, "\"plain\"")
+        type("u")
+        XCTAssertEqual(buffer.text, "plain")
+    }
+    /// Found by the seeded storms while surround landed, but older than
+    /// either: any visual command on an empty draft reached for a line
+    /// index that does not exist.
+    func testVisualCommandsOnAnEmptyBufferCollapseToNormal() {
+        load("")
+        type("vy")
+        XCTAssertEqual(vim.mode, .normal)
+        load("")
+        type("vd")
+        XCTAssertEqual(buffer.text, "")
+        load("")
+        type("Vsaq")
+        XCTAssertEqual(buffer.text, "", "even a surround finds nothing to wrap")
+    }
 }

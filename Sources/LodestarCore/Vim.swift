@@ -49,6 +49,11 @@ public struct Vim {
     private var awaiting: Character?
     private var pendingG = false
     private var pendingObject: Character?
+    /// mini.surround's half-typed states: `s` awaiting its verb, `sd`
+    /// or `sr` awaiting delimiters, and a span waiting for its wrap.
+    private var surround: Character?
+    private var surroundFrom: Character?
+    private var wrapRange: Range<Int>?
     private var lastFind: (key: Character, target: Character)?
     /// The shell's view of soft wrapping: where one visual line up
     /// (false) or down (true) from `index` lands, or nil where the eye's
@@ -127,6 +132,7 @@ public struct Vim {
     /// its character. Escape clears it rather than closing anything.
     public var isPending: Bool {
         count != nil || op != nil || awaiting != nil || pendingG || pendingObject != nil
+            || surround != nil || wrapRange != nil
     }
 
     /// The visual selection, when there is one, in document order and
@@ -226,6 +232,10 @@ public struct Vim {
             self.awaiting = nil
             guard case .char(let c) = key else { clearPending(); return [] }
             return resolveAwaited(awaiting, c, &buffer)
+        }
+        if surround != nil || wrapRange != nil {
+            guard case .char(let c) = key else { clearPending(); return [] }
+            return resolveSurround(c, &buffer)
         }
         if pendingObject != nil {
             guard case .char(let c) = key else { clearPending(); return [] }
@@ -357,7 +367,12 @@ public struct Vim {
         case "X":
             return operate("d", .charsBack(n), &buffer, pasteboard: pasteboard)
         case "s":
-            return operate("c", .chars(n), &buffer, pasteboard: pasteboard)
+            // mini.surround's prefix, the user's own trade: vim's
+            // substitute is only `cl`, and a wrap grammar is worth more
+            // than a synonym. `sa` takes a span (motion, object, or the
+            // visual selection), `sd` unwraps, `sr` swaps delimiters.
+            surround = "s"
+            return []
         case "S":
             return operate("c", .lines(n), &buffer, pasteboard: pasteboard)
         case "D":
@@ -405,7 +420,22 @@ public struct Vim {
     private mutating func visualCommand(_ c: Character, _ buffer: inout Draft.Buffer, pasteboard: () -> String?) -> [Effect] {
         guard let range = selection(in: buffer), case .visual(let line) = mode else { return [] }
         count = nil
-        if "dxDXcsyYpP~uUJ".contains(c), !replaying {
+        // An empty buffer has nothing to select: every visual command on
+        // one collapses to normal mode rather than reaching for a line
+        // index that does not exist. (Found by the seeded storms — this
+        // predates them: `v` then `y` in an empty draft was a crash.)
+        guard buffer.count > 0 else {
+            mode = .normal
+            clampNormal(&buffer)
+            return []
+        }
+        // The surround prefix reaches into visual mode too: `sa` wraps
+        // the selection. Vim's visual `s` was `c` by another name.
+        if c == "s" {
+            surround = "s"
+            return []
+        }
+        if "dxDXcyYpP~uUJ".contains(c), !replaying {
             let lines = buffer.lineIndex(of: max(range.lowerBound, range.upperBound - 1)) - buffer.lineIndex(of: range.lowerBound) + 1
             lastVisual = (c, line ? lines : range.count, line)
             lastVisualInsert = []
@@ -430,7 +460,7 @@ public struct Vim {
             clampNormal(&buffer)
             noteChange()
             return []
-        case "c", "s":
+        case "c":
             snapshot(buffer)
             let target = line ? lineRange(covering: range, buffer, keepNewline: true) : range
             buffer.replace(target, with: "")
@@ -985,6 +1015,12 @@ public struct Vim {
             linewise = true
             range = r
         }
+        // A surround add: the span is kept, nothing moves, and the next
+        // character wraps it.
+        if op == "s" {
+            wrapRange = range
+            return []
+        }
         if range.isEmpty, !linewise, op != "c" { return [] }
 
         switch op {
@@ -1182,10 +1218,122 @@ public struct Vim {
         return effects.filter { $0 != .enterInsert }
     }
 
+    // MARK: - Surround (mini.surround's sa, sd, sr)
+
+    private mutating func resolveSurround(_ c: Character, _ buffer: inout Draft.Buffer) -> [Effect] {
+        if let range = wrapRange {
+            wrapRange = nil
+            wrap(range, with: c, &buffer)
+            return []
+        }
+        switch surround {
+        case "s":
+            surround = nil
+            switch c {
+            case "a":
+                // The span: the visual selection when one stands, else
+                // the next motion or text object, through the operator
+                // machinery under the sentinel op.
+                if case .visual = mode, let selection = selection(in: buffer) {
+                    mode = .normal
+                    wrapRange = selection
+                } else {
+                    op = "s"
+                }
+            case "d", "r":
+                surround = c
+            default:
+                clearPending()
+            }
+        case "d":
+            surround = nil
+            deleteSurround(c, &buffer)
+        case "r" where surroundFrom == nil:
+            surroundFrom = c
+        case "r":
+            let from = surroundFrom!
+            surroundFrom = nil
+            surround = nil
+            replaceSurround(from, with: c, &buffer)
+        default:
+            clearPending()
+        }
+        return []
+    }
+
+    /// What a surround character adds: mini.surround's rule, an opening
+    /// character pads with spaces and a closing one does not; `b` and
+    /// `B` are the bracket shorthands, `q` writes plain quotes.
+    private static func delimiters(for c: Character) -> (open: String, close: String)? {
+        switch c {
+        case "(": return ("( ", " )")
+        case ")", "b": return ("(", ")")
+        case "[": return ("[ ", " ]")
+        case "]": return ("[", "]")
+        case "{": return ("{ ", " }")
+        case "}", "B": return ("{", "}")
+        case "<", ">": return ("<", ">")
+        case "\"", "q": return ("\"", "\"")
+        case "'": return ("'", "'")
+        case "`": return ("`", "`")
+        case " ": return (" ", " ")
+        default: return nil
+        }
+    }
+
+    /// The text-object key that finds a surround character's pair, so
+    /// `sd` and `sr` see exactly what `di` would see — `q` any quote,
+    /// `b` any bracket, the rest their own kind.
+    private static func objectKey(for c: Character) -> Character? {
+        switch c {
+        case "(", ")": return "("
+        case "[", "]": return "["
+        case "{", "}", "B": return "{"
+        case "<", ">": return "<"
+        case "\"", "'", "`", "q", "b": return c
+        default: return nil
+        }
+    }
+
+    private mutating func wrap(_ range: Range<Int>, with c: Character, _ buffer: inout Draft.Buffer) {
+        guard let (open, close) = Self.delimiters(for: c),
+              range.lowerBound >= 0, range.upperBound <= buffer.count else { clearPending(); return }
+        snapshot(buffer)
+        buffer.replace(range.upperBound..<range.upperBound, with: close)
+        buffer.replace(range.lowerBound..<range.lowerBound, with: open)
+        buffer.setCursor(range.lowerBound)
+        clampNormal(&buffer)
+        noteChange()
+    }
+
+    private mutating func deleteSurround(_ c: Character, _ buffer: inout Draft.Buffer) {
+        guard let key = Self.objectKey(for: c),
+              let range = textObject(key, inner: false, buffer), range.count >= 2 else { return }
+        snapshot(buffer)
+        buffer.replace(range.upperBound - 1..<range.upperBound, with: "")
+        buffer.replace(range.lowerBound..<range.lowerBound + 1, with: "")
+        buffer.setCursor(range.lowerBound)
+        clampNormal(&buffer)
+        noteChange()
+    }
+
+    private mutating func replaceSurround(_ from: Character, with to: Character, _ buffer: inout Draft.Buffer) {
+        guard let key = Self.objectKey(for: from),
+              let (open, close) = Self.delimiters(for: to),
+              let range = textObject(key, inner: false, buffer), range.count >= 2 else { return }
+        snapshot(buffer)
+        buffer.replace(range.upperBound - 1..<range.upperBound, with: close)
+        buffer.replace(range.lowerBound..<range.lowerBound + 1, with: open)
+        buffer.setCursor(range.lowerBound)
+        clampNormal(&buffer)
+        noteChange()
+    }
+
     // MARK: - Helpers
 
     private mutating func clearPending() {
         count = nil; op = nil; opCount = nil; awaiting = nil; pendingG = false; pendingObject = nil
+        surround = nil; surroundFrom = nil; wrapRange = nil
         recording = []
     }
 

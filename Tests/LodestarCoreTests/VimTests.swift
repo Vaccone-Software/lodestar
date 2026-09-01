@@ -419,4 +419,45 @@ final class VimTests: XCTestCase {
         type("dj")
         XCTAssertEqual(buffer.text, "abcdef", "an operator's j stays logical: one line has no line below")
     }
+    // MARK: - Any-quote and any-bracket (mini.ai's q and b)
+
+    func testAnyQuoteFindsTheCoveringPairAcrossKinds() {
+        load("say \"the 'inner' word\" end", cursor: 12)
+        type("diq")
+        XCTAssertEqual(buffer.text, "say \"the '' word\" end", "the innermost covering kind wins")
+        load("say \"the word\" end", cursor: 7)
+        type("daq")
+        XCTAssertEqual(buffer.text, "say  end")
+    }
+
+    func testAnyQuoteReachesAheadWhenNothingCovers() {
+        load("plain then `quoted` here", cursor: 0)
+        type("diq")
+        XCTAssertEqual(buffer.text, "plain then `` here")
+    }
+
+    func testAnyBracketPicksTheInnermostCoveringKind() {
+        load("a (b [c] d) e", cursor: 6)
+        type("dib")
+        XCTAssertEqual(buffer.text, "a (b [] d) e")
+        type("dib")
+        XCTAssertEqual(buffer.text, "a () e", "the next covering kind out")
+    }
+
+    func testAnyBracketReachesAheadWhenNotEnclosed() {
+        load("before {curly} after", cursor: 0)
+        type("dab")
+        XCTAssertEqual(buffer.text, "before  after")
+    }
+
+    func testStockPairsStillAnswerByTheirOwnCharacters() {
+        load("f(x[y]{z})", cursor: 4)
+        type("di[")
+        XCTAssertEqual(buffer.text, "f(x[]{z})")
+        type("di(")
+        XCTAssertEqual(buffer.text, "f()")
+        load("a {b} c", cursor: 3)
+        type("diB")
+        XCTAssertEqual(buffer.text, "a {} c", "B keeps vim's braces")
+    }
 }

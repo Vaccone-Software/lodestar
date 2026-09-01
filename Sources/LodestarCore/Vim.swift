@@ -843,53 +843,116 @@ public struct Vim {
             }
             return a..<end
         case "\"", "'", "`":
-            let line = buffer.lineStart(from: cursor)..<buffer.lineEnd(from: cursor)
-            let quotes = line.filter { chars[$0] == c }
-            guard quotes.count >= 2 else { return nil }
-            var open: Int?, close: Int?
-            for pair in stride(from: 0, to: quotes.count - 1, by: 2) {
-                if quotes[pair] <= cursor && cursor <= quotes[pair + 1] { open = quotes[pair]; close = quotes[pair + 1] }
+            return quotePair(c, inner: inner, buffer, at: cursor)
+        case "q":
+            // mini.ai's any-quote, straight from the editor this draft is
+            // drifting toward: of the three quote kinds, a pair covering
+            // the cursor wins (innermost first), else the nearest ahead.
+            let kinds: [Character] = ["\"", "'", "`"]
+            return nearestObject(of: kinds.compactMap { quotePair($0, inner: inner, buffer, at: cursor) },
+                                 to: cursor)
+        case "b":
+            // mini.ai's any-bracket, deliberately over vim's ib = parens:
+            // of ( ), [ ], and { }, the covering pair wins innermost,
+            // else the nearest pair opening ahead.
+            let pairs: [(Character, Character)] = [("(", ")"), ("[", "]"), ("{", "}")]
+            let enclosing = pairs.compactMap {
+                enclosingPair(open: $0.0, close: $0.1, inner: inner, chars, at: cursor)
             }
-            if open == nil, let first = quotes.first(where: { $0 > cursor }),
-               let index = quotes.firstIndex(of: first), index + 1 < quotes.count {
-                open = quotes[index]; close = quotes[index + 1]
-            }
-            guard let o = open, let k = close else { return nil }
-            return inner ? o + 1..<k : o..<k + 1
-        case "(", ")", "b", "[", "]", "{", "}", "B", "<", ">":
+            if let best = nearestObject(of: enclosing, to: cursor) { return best }
+            return nearestObject(of: pairs.compactMap {
+                aheadPair(open: $0.0, close: $0.1, inner: inner, chars, from: cursor)
+            }, to: cursor)
+        case "(", ")", "[", "]", "{", "}", "B", "<", ">":
             let (openChar, closeChar): (Character, Character)
             switch c {
-            case "(", ")", "b": (openChar, closeChar) = ("(", ")")
+            case "(", ")": (openChar, closeChar) = ("(", ")")
             case "[", "]": (openChar, closeChar) = ("[", "]")
             case "{", "}", "B": (openChar, closeChar) = ("{", "}")
             default: (openChar, closeChar) = ("<", ">")
             }
-            var depth = 0
-            var o: Int?
-            var i = cursor
-            while i >= 0 {
-                if chars[i] == closeChar, i != cursor { depth += 1 }
-                if chars[i] == openChar {
-                    if depth == 0 { o = i; break }
-                    depth -= 1
-                }
-                i -= 1
-            }
-            guard let open = o else { return nil }
-            depth = 0
-            var k: Int?
-            for j in open + 1..<chars.count {
-                if chars[j] == openChar { depth += 1 }
-                if chars[j] == closeChar {
-                    if depth == 0 { k = j; break }
-                    depth -= 1
-                }
-            }
-            guard let close = k else { return nil }
-            return inner ? open + 1..<close : open..<close + 1
+            return enclosingPair(open: openChar, close: closeChar, inner: inner, chars, at: cursor)
         default:
             return nil
         }
+    }
+
+    /// A quote pair of one kind on the cursor's line: the pair covering
+    /// the cursor, else the nearest pair ahead. Line-scoped the way
+    /// vim's quote objects are; a quoted phrase in a message rarely
+    /// crosses a line, and one that does can be reached from inside it.
+    private func quotePair(_ quote: Character, inner: Bool, _ buffer: Draft.Buffer, at cursor: Int) -> Range<Int>? {
+        let chars = buffer.characters
+        let line = buffer.lineStart(from: cursor)..<buffer.lineEnd(from: cursor)
+        let quotes = line.filter { chars[$0] == quote }
+        guard quotes.count >= 2 else { return nil }
+        var open: Int?, close: Int?
+        for pair in stride(from: 0, to: quotes.count - 1, by: 2) {
+            if quotes[pair] <= cursor && cursor <= quotes[pair + 1] { open = quotes[pair]; close = quotes[pair + 1] }
+        }
+        if open == nil, let first = quotes.first(where: { $0 > cursor }),
+           let index = quotes.firstIndex(of: first), index + 1 < quotes.count {
+            open = quotes[index]; close = quotes[index + 1]
+        }
+        guard let o = open, let k = close else { return nil }
+        return inner ? o + 1..<k : o..<k + 1
+    }
+
+    /// The innermost pair of one kind enclosing the cursor, balanced.
+    private func enclosingPair(open openChar: Character, close closeChar: Character,
+                               inner: Bool, _ chars: [Character], at cursor: Int) -> Range<Int>? {
+        var depth = 0
+        var o: Int?
+        var i = cursor
+        while i >= 0 {
+            if chars[i] == closeChar, i != cursor { depth += 1 }
+            if chars[i] == openChar {
+                if depth == 0 { o = i; break }
+                depth -= 1
+            }
+            i -= 1
+        }
+        guard let open = o else { return nil }
+        depth = 0
+        var k: Int?
+        for j in open + 1..<chars.count {
+            if chars[j] == openChar { depth += 1 }
+            if chars[j] == closeChar {
+                if depth == 0 { k = j; break }
+                depth -= 1
+            }
+        }
+        guard let close = k else { return nil }
+        return inner ? open + 1..<close : open..<close + 1
+    }
+
+    /// The first pair of one kind opening at or after the cursor.
+    private func aheadPair(open openChar: Character, close closeChar: Character,
+                           inner: Bool, _ chars: [Character], from cursor: Int) -> Range<Int>? {
+        guard cursor < chars.count,
+              let o = (cursor..<chars.count).first(where: { chars[$0] == openChar }) else { return nil }
+        var depth = 0
+        for j in (o + 1)..<chars.count {
+            if chars[j] == openChar { depth += 1 }
+            if chars[j] == closeChar {
+                if depth == 0 { return inner ? o + 1..<j : o..<j + 1 }
+                depth -= 1
+            }
+        }
+        return nil
+    }
+
+    /// mini.ai's choice among candidates: covering wins, innermost
+    /// first; with none covering, the nearest starting ahead. An empty
+    /// interior — the cursor on the bracket of a pair already emptied —
+    /// ranks last: an object that selects nothing is a wasted keypress
+    /// when a wider pair stands around it.
+    private func nearestObject(of candidates: [Range<Int>], to cursor: Int) -> Range<Int>? {
+        let covering = candidates.filter { $0.lowerBound <= cursor && cursor < max($0.upperBound, $0.lowerBound + 1) }
+        if let best = covering.filter({ !$0.isEmpty }).min(by: { $0.count < $1.count }) { return best }
+        return candidates.filter { $0.lowerBound > cursor }.min { $0.lowerBound < $1.lowerBound }
+            ?? covering.first
+            ?? candidates.first
     }
 
     // MARK: - Operators

@@ -415,4 +415,39 @@ final class ObservationsTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - Roads and redirects
+
+    func testFocusRoadsAreTallied() {
+        var o = Observations()
+        for (app, road) in [("slack", "graph"), ("brave", "cmd-tab"),
+                            ("slack", "cmd-tab"), ("ghostty", "click")] {
+            var event = ObservationEvent(t: start, kind: .focus)
+            event.app = app
+            event.route = road
+            o.apply(event)
+        }
+        XCTAssertEqual(o.focusRoads?["cmd-tab"], 2)
+        XCTAssertEqual(o.focusRoads?["graph"], 1)
+        XCTAssertEqual(o.focusRoads?["click"], 1)
+        var unnamed = ObservationEvent(t: start, kind: .focus)
+        unnamed.app = "music"
+        o.apply(unnamed)
+        XCTAssertEqual(o.focusRoads?.values.reduce(0, +), 4,
+                       "a focus with no road named is not a road")
+    }
+
+    func testAMoveWritesTheRedirectTable() {
+        var o = Observations()
+        var moved = ObservationEvent(t: start, kind: .epoch)
+        moved.address = "b x"
+        moved.change = "moved"
+        moved.chain = ["x"]
+        moved.epoch = 1
+        o.apply(moved)
+        XCTAssertEqual(o.redirects?["b x"]?.chain, "x")
+        XCTAssertEqual(o.redirects?["b x"]?.week, Observations.week(start))
+        XCTAssertEqual(Observations.rebuild(from: [moved]), o,
+                       "a view over the log, rebuildable like everything else")
+    }
 }

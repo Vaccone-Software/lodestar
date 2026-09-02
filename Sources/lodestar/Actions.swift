@@ -20,6 +20,11 @@ final class Actions {
     /// same seam that records one.
     var walkPick: (() -> Void)?
     private let hud: HUD
+    /// Stamped before every summon, asked at every focus change: which
+    /// road the change took.
+    var roads: RoadTracker?
+    /// Learns from every focus change and warms the apps likely next.
+    var prewarmer: Prewarmer?
 
     private var intents = IntentQueue()
     /// True while a placement is mid-flight — the reentrancy latch above.
@@ -65,10 +70,13 @@ final class Actions {
             // road — Lodestar's or the system's. App names only; the
             // observation layer decays and caps the matrix.
             if let window = self.model.windows[id] {
-                self.observations?.focused(app: window.appName)
+                self.observations?.focused(app: window.appName,
+                                           road: self.roads?.road(at: Date()))
                 // Wake the app's accessibility tree the moment it first
                 // matters — hints and select both harvest warmer for it.
                 AXWarmer.warm(window.pid)
+                // And the trees of the apps likely to matter next.
+                self.prewarmer?.focused(app: window.appName)
             }
         }
         model.onCreated = { [weak self] id in self?.windowAppeared(id) }
@@ -94,6 +102,7 @@ final class Actions {
     /// the coach reads this table to decide what is worth binding, and a
     /// reach nobody navigated would argue for a shortcut nobody uses.
     func summon(_ target: GraphTarget, beside: Bool, via route: Observations.Route = .graph) {
+        roads?.summoned(via: route)
         observations?.reached(target.label, via: route)
         coachBoundary?(target.label.lowercased())
         switch target {
@@ -254,6 +263,7 @@ final class Actions {
             revealLodestar?()
             return
         }
+        roads?.summoned(via: .searcher)
         observations?.reached(entry.name, via: .searcher, cost: cost)
         coachBoundary?(entry.name.lowercased())
         walkPick?()
@@ -355,6 +365,7 @@ final class Actions {
 
     /// Summon a specific window by id (the window chooser's verb).
     func summonWindow(_ id: CGWindowID, beside: Bool) {
+        roads?.summoned(via: .chooser)
         guard let window = model.window(id), model.verify(id) else {
             hud.flash("✕ that window is gone")
             return

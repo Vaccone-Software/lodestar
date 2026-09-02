@@ -353,10 +353,7 @@ public enum Coach {
             switch entry.status {
             case "accepted":
                 if requiresLearning(entry.kind) {
-                    let bent = entry.chain
-                        .map { (observations.addresses[$0]?.trigger.n ?? 0)
-                            >= bentCompletions } ?? false
-                    if bent {
+                    if bent(observations: observations, entry: entry) {
                         trials += 1
                         wins += 1
                     } else if let accepted = entry.acceptedWeek,
@@ -463,18 +460,32 @@ public enum Coach {
     public static func supersededBy(observations: Observations, letters: [String],
                                     now: Date = Date()) -> String? {
         let key = Observations.key(letters)
-        guard let entry = observations.ledger.first(where: {
+        func standing(chain: String, since accepted: Int?) -> String? {
+            // The hand arrived: the same bent curve the slot waits on.
+            let completions = observations.addresses[chain]?.trigger.n ?? 0
+            if completions >= bentCompletions { return nil }
+            // Or it never will. An undated accept cannot be aged, and
+            // absence of a date is not grounds for silence — the curve
+            // still governs.
+            if let accepted, Observations.week(now) - accepted >= supersedeCutoffWeeks {
+                return nil
+            }
+            return chain.split(separator: " ").map { $0.uppercased() }.joined(separator: " ")
+        }
+        if let entry = observations.ledger.first(where: {
             $0.target == key && $0.status == "accepted"
                 && Recommendation.Kind(rawValue: $0.kind)?.supersedes == true
-        }), let chain = entry.chain, !chain.isEmpty else { return nil }
-        // The hand arrived: the same bent curve the slot waits on.
-        let completions = observations.addresses[chain]?.trigger.n ?? 0
-        if completions >= bentCompletions { return nil }
-        // Or it never will. An undated accept cannot be aged, and absence
-        // of a date is not grounds for silence — the curve still governs.
-        if let accepted = entry.acceptedWeek,
-           Observations.week(now) - accepted >= supersedeCutoffWeeks { return nil }
-        return chain.split(separator: " ").map { $0.uppercased() }.joined(separator: " ")
+        }), let chain = entry.chain, !chain.isEmpty {
+            return standing(chain: chain, since: entry.acceptedWeek)
+        }
+        // The user's own moves, read off the epoch log: a hand edit, a ⌘K
+        // retarget, a settings change. The same signpost by the same
+        // rules, because a gesture the hand owns deserves the same
+        // courtesy whoever moved it — the universal redirect.
+        if let redirect = observations.redirects?[key], !redirect.chain.isEmpty {
+            return standing(chain: redirect.chain, since: redirect.week)
+        }
+        return nil
     }
 
     /// One learning habit at a time. A habit occupies the slot from
@@ -493,9 +504,8 @@ public enum Coach {
                 continue
             }
             guard week - startedWeek < stallWeeks else { continue }
-            guard let chain = entry.chain else { continue }
-            let completions = observations.addresses[chain]?.trigger.n ?? 0
-            if completions < bentCompletions { return true }
+            guard entry.chain != nil else { continue }
+            if !bent(observations: observations, entry: entry) { return true }
         }
         return false
     }
@@ -505,6 +515,46 @@ public enum Coach {
             || kind == Recommendation.Kind.shorten.rawValue
             || kind == Recommendation.Kind.rebind.rawValue
             || kind == Recommendation.Kind.flatten.rawValue
+            || kind == Recommendation.Kind.nudge.rawValue
+    }
+
+    /// Has the habit an accepted entry asked for demonstrably taken? For
+    /// a new or moved address, `bentCompletions` trigger samples this
+    /// epoch. For a closed road the address already existed and its
+    /// lifetime samples say nothing about the transition, so the measure
+    /// is completions *since* the acceptance, off the week ring.
+    static func bent(observations: Observations, entry: Observations.LedgerEntry) -> Bool {
+        guard let chain = entry.chain else { return false }
+        if entry.kind == Recommendation.Kind.nudge.rawValue {
+            return completions(observations: observations, chain: chain,
+                               sinceWeek: entry.acceptedWeek) >= bentCompletions
+        }
+        return (observations.addresses[chain]?.trigger.n ?? 0) >= bentCompletions
+    }
+
+    static func completions(observations: Observations, chain: String,
+                            sinceWeek: Int?) -> Int {
+        guard let record = observations.addresses[chain] else { return 0 }
+        guard let since = sinceWeek else { return record.completions }
+        return record.weeks.filter { $0.key >= since }.values.reduce(0, +)
+    }
+
+    /// The address whose launcher road is closed for this app: an
+    /// accepted nudge whose habit has not yet bent, inside the same
+    /// cutoff every supersede redirect obeys. Nil means the launcher opens
+    /// the app as it always did. A view over the ledger, like the
+    /// redirect: nothing is stored beside it.
+    public static func roadClosed(observations: Observations, app: String,
+                                  now: Date = Date()) -> [String]? {
+        let name = app.lowercased()
+        guard let entry = observations.ledger.first(where: {
+            $0.kind == Recommendation.Kind.nudge.rawValue && $0.target == name
+                && $0.status == "accepted"
+        }), let chain = entry.chain, !chain.isEmpty else { return nil }
+        if bent(observations: observations, entry: entry) { return nil }
+        if let accepted = entry.acceptedWeek,
+           Observations.week(now) - accepted >= supersedeCutoffWeeks { return nil }
+        return chain.split(separator: " ").map(String.init)
     }
 
     /// Where this suggestion lands best, if it has such a place. The cue
@@ -537,7 +587,7 @@ public enum Coach {
         let headline: String
         var evidence = rec.detail
         switch rec.kind {
-        case .nudge,
+        case .nudge where rec.edit == nil,
              .rebind where rec.edit == nil,
              .flatten where rec.edit == nil,
              .breath where rec.edit == nil:
@@ -545,6 +595,22 @@ public enum Coach {
             // commit, so these point at the report instead.
             headline = rec.target
             accept = "see lodestar observations"
+        case .nudge:
+            // The address exists; the accept closes the road around it.
+            // The chip names the address the hand will type, and the
+            // verb says what the launcher will do afterwards.
+            if case .closeRoad(_, let chain)? = rec.edit {
+                let shown = chain.map { $0.uppercased() }.joined(separator: " ")
+                headline = "lode \(shown) → \(rec.display ?? rec.target)"
+            } else {
+                headline = rec.target
+            }
+            if let record = observations.apps[rec.target.lowercased()],
+               let share = observations.routeShare(rec.target) {
+                evidence = "\(Int(share * 100))% of \(record.reaches) reaches went through the launcher"
+                    + secondsClause(rec.secondsPerWeek)
+            }
+            accept = "tap lode twice to close the launcher road until the hand learns it"
         case .breath:
             // The one accept that composes rather than writes: the apps
             // arrange side by side and the layout saves at the address.

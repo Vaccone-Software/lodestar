@@ -315,3 +315,75 @@ final class LodeTapTests: XCTestCase {
                        "firing consumes both taps — no chaining a third into a second fire")
     }
 }
+
+/// The closed road: an accepted nudge puts a toll on the launcher's road
+/// to an app that has an address, until the address's curve bends —
+/// completions since the acceptance, because the address existed before
+/// it and its lifetime says nothing about the transition.
+final class ClosedRoadTests: XCTestCase {
+    private let start = Date(timeIntervalSince1970: 1_700_000_000)
+    private func later(_ weeks: Int = 0, _ seconds: TimeInterval = 0) -> Date {
+        start.addingTimeInterval(Double(weeks) * 604_800 + seconds)
+    }
+
+    private func closedRoad(app: String = "slack", chain: String = "s",
+                            acceptedWeek: Int) -> Observations {
+        var o = Observations()
+        o.ledger = [Observations.LedgerEntry(
+            id: "nudge:\(app)", kind: "nudge", target: app, chain: chain,
+            predictedSecondsPerWeek: 60, firstOfferedWeek: acceptedWeek,
+            lastOfferedWeek: acceptedWeek, offers: 1, status: "accepted",
+            acceptedWeek: acceptedWeek)]
+        return o
+    }
+
+    private func complete(_ o: inout Observations, _ chain: [String], times: Int, from: Date) {
+        for i in 0..<times {
+            var event = ObservationEvent(t: from.addingTimeInterval(Double(i) * 60), kind: .chain)
+            event.chain = chain
+            event.gaps = [0.3]
+            o.apply(event)
+        }
+    }
+
+    func testAnAcceptedNudgeClosesTheLauncherRoad() {
+        let o = closedRoad(acceptedWeek: Observations.week(start))
+        XCTAssertEqual(Coach.roadClosed(observations: o, app: "Slack", now: start), ["s"])
+        XCTAssertNil(Coach.roadClosed(observations: o, app: "brave", now: start))
+    }
+
+    func testTheRoadReopensWhenTheHandHasLearnedTheAddress() {
+        var o = closedRoad(acceptedWeek: Observations.week(start))
+        complete(&o, ["s"], times: Coach.bentCompletions, from: start)
+        XCTAssertNil(Coach.roadClosed(observations: o, app: "slack", now: later(0, 3600)))
+    }
+
+    func testCompletionsBeforeTheClosureDoNotCount() {
+        var o = closedRoad(acceptedWeek: Observations.week(start) + 2)
+        complete(&o, ["s"], times: Coach.bentCompletions, from: start)
+        XCTAssertEqual(Coach.roadClosed(observations: o, app: "slack", now: later(2)), ["s"],
+                       "a lifetime of use before the closure is not the transition")
+        XCTAssertTrue(Coach.slotBusy(observations: o, now: later(2)),
+                      "and the slot waits for the same curve")
+    }
+
+    func testTheRoadReopensAtTheCutoff() {
+        let o = closedRoad(acceptedWeek: Observations.week(start))
+        XCTAssertNil(Coach.roadClosed(observations: o, app: "slack",
+                                      now: later(Coach.supersedeCutoffWeeks)))
+    }
+
+    func testTheCloseRoadChipNamesTheAddressAndTheToll() {
+        let rec = Recommendation(kind: .nudge, target: "slack", detail: "d",
+                                 secondsPerWeek: 60, probability: 0.9, evidence: [],
+                                 display: "Slack",
+                                 edit: .closeRoad(app: "slack", chain: ["s"]))
+        let chip = Coach.chip(for: rec, observations: Observations())
+        XCTAssertEqual(chip.headline, "lode S → Slack")
+        XCTAssertTrue(chip.footer.contains("close the launcher road"), chip.footer)
+        XCTAssertEqual(Coach.cue(for: rec), .app("slack"))
+        XCTAssertNotNil(Coach.standingOffer(observations: Observations(),
+                                            recommendations: [rec], now: start),
+                        "with an edit to commit, the nudge can stand")
+    }
+}

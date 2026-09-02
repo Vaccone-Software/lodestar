@@ -230,4 +230,55 @@ final class ClickPulseTests: XCTestCase {
         XCTAssertNil(Health.clicks(events: events, days: 28, now: start.addingTimeInterval(40 * 86_400)),
                      "outside the window there is nothing to show")
     }
+
+    // MARK: - Backspace runs
+
+    /// Still only the one named key — counted in bursts. A single is a
+    /// typo, a run is a sentence being retaken, and they are different
+    /// budgets.
+    func testBackspaceRunsAreBucketedByLength() {
+        var pulse = HealthPulse()
+        var t = start
+        func key(_ backspace: Bool) {
+            _ = pulse.key(at: t, backspace: backspace)
+            t = t.addingTimeInterval(0.2)
+        }
+        key(false); key(true); key(false) // a single
+        for _ in 0..<3 { key(true) }
+        key(false) // a run of three
+        for _ in 0..<6 { key(true) } // six, still open at the flush
+        let event = pulse.flush(now: t)
+        XCTAssertEqual(event?.bsRuns, [1, 1, 1])
+        XCTAssertEqual(event?.bsRunKeys, [1, 3, 6])
+        XCTAssertEqual(event?.backspaces, 10, "the named key's own count is unchanged")
+    }
+
+    func testAClickEndsARun() {
+        var pulse = HealthPulse()
+        _ = pulse.key(at: start, backspace: true)
+        _ = pulse.key(at: start.addingTimeInterval(0.2), backspace: true)
+        _ = pulse.click(at: start.addingTimeInterval(0.4))
+        _ = pulse.key(at: start.addingTimeInterval(0.6), backspace: true)
+        let event = pulse.flush(now: start.addingTimeInterval(1))
+        XCTAssertEqual(event?.bsRuns, [1, 1, 0], "two, a click, then one: two runs")
+    }
+
+    func testSummarySplitsTheCorrectionBudget() {
+        var a = ObservationEvent(t: start, kind: .pulse)
+        a.keys = 100
+        a.backspaces = 10
+        a.bsRuns = [4, 1, 1]
+        a.bsRunKeys = [4, 3, 3]
+        var b = ObservationEvent(t: start.addingTimeInterval(900), kind: .pulse)
+        b.keys = 100
+        b.backspaces = 10
+        b.bsRuns = [2, 0, 1]
+        b.bsRunKeys = [2, 0, 8]
+        let summary = Health.summary(events: [a, b], days: 28,
+                                     now: start.addingTimeInterval(3600))
+        XCTAssertEqual(summary?.backspaceRunKeys, [6, 3, 11])
+        XCTAssertEqual(summary?.typoShare ?? 0, 6.0 / 20.0, accuracy: 0.001)
+        XCTAssertEqual(summary?.revisionShare ?? 0, 11.0 / 20.0, accuracy: 0.001,
+                       "the share dictation could claim")
+    }
 }

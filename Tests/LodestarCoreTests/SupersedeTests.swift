@@ -287,4 +287,55 @@ final class SupersedeTests: XCTestCase {
         XCTAssertEqual(o.ledger.first?.chain, "x",
                        "the chain is the address being learned, never the one retired")
     }
+
+    // MARK: - The universal redirect
+
+    /// The user moved the binding by hand — a config edit, a ⌘K retarget,
+    /// a settings change — and the epoch diff saw a move.
+    private func handMoved(old: String, new: String, at date: Date) -> Observations {
+        var o = Observations()
+        var event = ObservationEvent(t: date, kind: .epoch)
+        event.address = old
+        event.change = "moved"
+        event.chain = new.split(separator: " ").map(String.init)
+        event.epoch = 1
+        o.apply(event)
+        return o
+    }
+
+    func testAHandMoveSaysWhereTheAddressWent() {
+        let o = handMoved(old: "b x", new: "x", at: acceptedAt)
+        XCTAssertEqual(Coach.supersededBy(observations: o, letters: ["b", "x"], now: acceptedAt),
+                       "X", "a hand edit earns the same signpost an accepted chip does")
+    }
+
+    func testAHandMoveRedirectExpiresWhenTheNewCurveBends() {
+        var o = handMoved(old: "b x", new: "x", at: acceptedAt)
+        for i in 0..<Coach.bentCompletions {
+            var event = ObservationEvent(t: acceptedAt.addingTimeInterval(Double(i)),
+                                         kind: .chain)
+            event.chain = ["x"]
+            event.gaps = [0.3]
+            o.apply(event)
+        }
+        XCTAssertNil(Coach.supersededBy(observations: o, letters: ["b", "x"], now: acceptedAt))
+    }
+
+    func testAHandMoveRedirectExpiresAtTheCutoff() {
+        let o = handMoved(old: "b x", new: "x", at: acceptedAt)
+        XCTAssertNil(Coach.supersededBy(observations: o, letters: ["b", "x"],
+                                        now: weekStart(2955 + Coach.supersedeCutoffWeeks)))
+    }
+
+    func testTheLedgerOutranksTheTable() {
+        var o = accepted(old: "b x", new: "x")
+        var event = ObservationEvent(t: acceptedAt, kind: .epoch)
+        event.address = "b x"
+        event.change = "moved"
+        event.chain = ["w"]
+        event.epoch = 1
+        o.apply(event)
+        XCTAssertEqual(Coach.supersededBy(observations: o, letters: ["b", "x"], now: acceptedAt),
+                       "X", "the coach's own record of where it sent the address answers first")
+    }
 }

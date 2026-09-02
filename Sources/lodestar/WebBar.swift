@@ -153,10 +153,16 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         if panel.isVisible { hide() } else { show() }
     }
 
+    /// How long the footer waits before painting — `SurfaceFade`'s
+    /// verdict for this bar, set by the engine before each show.
+    var footerDelay: () -> TimeInterval = { 0 }
+    private let footerFade = FooterFade()
+
     func show() {
         closeMenu()
         field.stringValue = ""
         requery()
+        footerFade.apply(to: footer, delay: footerDelay())
         panel.makeKeyAndOrderFront(nil)
         panel.orderFrontRegardless()
         panel.makeFirstResponder(field)

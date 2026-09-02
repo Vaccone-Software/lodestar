@@ -71,11 +71,20 @@ final class DraftController {
         /// The field itself, so a replacement can check it is still the
         /// one focused and not a neighbor in the same app.
         var token: AnyHashable?
+        /// The field said how long it is before it was asked for its
+        /// value, and it is past `pullCap`: the value was never pulled.
+        var tooLong = false
     }
 
     // MARK: State
 
     private let panel = DraftPanel()
+    /// The panel's footer fade, exposed for the wiring that owns the
+    /// observations.
+    var footerDelay: () -> TimeInterval {
+        get { panel.footerDelay }
+        set { panel.footerDelay = newValue }
+    }
     private let speech: SpeechSession
     private(set) var isOpen = false
     private(set) var buffer = Draft.Buffer()
@@ -101,6 +110,14 @@ final class DraftController {
     private var origin: Origin?
     private var closing = false
     private var pendingSettle: (() -> Void)?
+    /// The landing that runs if the recognizer never says it stopped:
+    /// while `closing` stands every key is swallowed, so a stop that
+    /// hangs would take the keyboard with it.
+    private var landBackstop: DispatchWorkItem?
+    /// How long `⏎` waits for the recognizer's last words before landing
+    /// what it has. The session's own finalize is bounded at 0.7s; this
+    /// is the bound on the bound.
+    static let landBackstopSeconds: TimeInterval = 2.0
     /// Words that were still a ghost when insert mode ended were settled
     /// on the spot, as seen; the recognizer's final for them, if it still
     /// comes, replaces exactly that text and nothing else.
@@ -131,8 +148,29 @@ final class DraftController {
     private var firstWordAt: Date?
     private var wasWarm = false
 
-    /// Pulled text past this is refused: a draft is a message, not a document.
+    /// Pulled or pasted text past this is refused: a draft is a message,
+    /// not a document, and the panel lays the whole text out on every
+    /// key.
     static let pullCap = 20_000
+    /// A paste was refused for its size; the next flash says so instead
+    /// of the editor's "nothing to paste".
+    private var pasteRefused = false
+
+    /// The pasteboard as the draft will take it: whole when it fits,
+    /// nil past the cap — `p` and ⌘V both read through here.
+    private func pasteboardForDraft() -> String? {
+        guard let text = readPasteboard() else { return nil }
+        guard text.count <= Self.pullCap else {
+            pasteRefused = true
+            return nil
+        }
+        return text
+    }
+
+    private func flashPasteVerdict(_ text: String) {
+        flash?(pasteRefused ? "✕ too much text to paste here" : text)
+        pasteRefused = false
+    }
 
     init(speech: SpeechSession, clock: Clock = .live) {
         self.speech = speech
@@ -229,6 +267,8 @@ final class DraftController {
             if let selection = field.selection, !selection.isEmpty {
                 buffer = Draft.Buffer(text: selection)
                 pulled = true
+            } else if door == .edit, field.tooLong {
+                flash?("✕ too much text to edit here")
             } else if door == .edit, let value = field.value, !value.isEmpty {
                 if value.count > Self.pullCap {
                     flash?("✕ too much text to edit here")
@@ -454,11 +494,12 @@ final class DraftController {
         // While the last words settle, keys are swallowed, not passed on: a
         // held ⏎ would reach the app ahead of the paste and send.
         if closing { return true }
+        pasteRefused = false
         if command {
             // In normal mode the chords are the editor's own verbs, so
             // they are one undo step each and `.` knows them.
             if mode == .normal, let keys = Self.normalModeChord(key, shift: shift) {
-                for k in keys { _ = vim.key(k, buffer: &buffer, pasteboard: readPasteboard) }
+                for k in keys { _ = vim.key(k, buffer: &buffer, pasteboard: pasteboardForDraft) }
                 render()
                 return true
             }
@@ -473,10 +514,13 @@ final class DraftController {
             case "v":
                 if mode == .normal {
                     // Through the editor, so it is one undo step and `.` knows it.
-                    _ = vim.key(.char("p"), buffer: &buffer, pasteboard: readPasteboard)
-                } else if let text = readPasteboard() {
+                    let effects = vim.key(.char("p"), buffer: &buffer, pasteboard: pasteboardForDraft)
+                    for case .flash(let text) in effects { flashPasteVerdict(text) }
+                } else if let text = pasteboardForDraft() {
                     settleGhostAsSeen()
                     buffer.type(text); vim.typed(text); typedCharacters += text.count
+                } else if pasteRefused {
+                    flashPasteVerdict("")
                 }
                 render()
                 return true
@@ -596,7 +640,7 @@ final class DraftController {
             guard let typed = Keys.character(for: key, shift: shift), let c = typed.first else { return true }
             vimKey = control ? .control(c) : .char(c)
         }
-        let effects = vim.key(vimKey, buffer: &buffer, pasteboard: readPasteboard)
+        let effects = vim.key(vimKey, buffer: &buffer, pasteboard: pasteboardForDraft)
         for effect in effects {
             switch effect {
             case .enterInsert:
@@ -605,7 +649,7 @@ final class DraftController {
                 writePasteboard(text)
                 flash?("⌂ copied")
             case .flash(let text):
-                flash?(text)
+                flashPasteVerdict(text)
             case .unhandled:
                 if vimKey == .escape { cancel(reason: "escape"); return true }
             }
@@ -640,6 +684,19 @@ final class DraftController {
                 if !self.buffer.ghost.isEmpty { self.settle(self.buffer.ghost) }
                 finish()
             }
+            // The recognizer's stop is bounded, but a bound that is never
+            // reached — a wedged analyzer, a task that never resumes —
+            // would leave `closing` standing and every key swallowed.
+            // Past this, the ghost lands as seen and the draft closes.
+            let backstop = DispatchWorkItem { [weak self] in
+                guard let self, !landed else { return }
+                landed = true
+                Log.info("draft", ["commit": "landed by backstop", "ghost": !self.buffer.ghost.isEmpty])
+                if !self.buffer.ghost.isEmpty { self.settle(self.buffer.ghost) }
+                finish()
+            }
+            landBackstop = backstop
+            clock.after(Self.landBackstopSeconds, backstop)
         } else {
             if sessionStarted { speech.stop {} }
             finish()
@@ -712,6 +769,8 @@ final class DraftController {
 
     private func close() {
         isOpen = false
+        landBackstop?.cancel()
+        landBackstop = nil
         stashWork?.cancel()
         stashWork = nil
         stash?(nil)
@@ -794,9 +853,18 @@ final class DraftController {
         }
     }
 
+    /// Every AX call here blocks the main thread on the app's event
+    /// loop, and the tap lives on that thread: the process-wide timeout
+    /// is a second per call, five calls deep here, so the draft's own
+    /// elements get a shorter one. A hung app fails the first call and
+    /// the rest are never made.
+    private static let axTimeout: Float = 0.3
+
     private static func readFieldAX(pid: pid_t, wholeValue: Bool) -> Field? {
         let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, axTimeout)
         guard let focused = AX.element(app, kAXFocusedUIElementAttribute) else { return nil }
+        AXUIElementSetMessagingTimeout(focused, axTimeout)
         var field = Field()
         field.token = focused
         field.selection = AX.string(focused, kAXSelectedTextAttribute)
@@ -804,6 +872,13 @@ final class DraftController {
             var settable: DarwinBoolean = false
             if AXUIElementIsAttributeSettable(focused, kAXValueAttribute as CFString, &settable) == .success,
                settable.boolValue {
+                // The length first, where the field reports one: a
+                // document's worth of value is refused before it is
+                // copied across the process boundary, not after.
+                if let length = AX.int(focused, kAXNumberOfCharactersAttribute as String), length > pullCap {
+                    field.tooLong = true
+                    return field
+                }
                 field.value = AX.string(focused, kAXValueAttribute)
                 // The insertion point, in UTF-16 units the way AX counts,
                 // converted to characters the way the buffer counts.
@@ -823,8 +898,10 @@ final class DraftController {
 
     private static func selectAllAX(pid: pid_t) -> Bool {
         let app = AXUIElementCreateApplication(pid)
-        guard let focused = AX.element(app, kAXFocusedUIElementAttribute),
-              let value = AX.string(focused, kAXValueAttribute) else { return false }
+        AXUIElementSetMessagingTimeout(app, axTimeout)
+        guard let focused = AX.element(app, kAXFocusedUIElementAttribute) else { return false }
+        AXUIElementSetMessagingTimeout(focused, axTimeout)
+        guard let value = AX.string(focused, kAXValueAttribute) else { return false }
         var range = CFRange(location: 0, length: (value as NSString).length)
         guard let boxed = AXValueCreate(.cfRange, &range) else { return false }
         return AXUIElementSetAttributeValue(focused, kAXSelectedTextRangeAttribute as CFString, boxed) == .success

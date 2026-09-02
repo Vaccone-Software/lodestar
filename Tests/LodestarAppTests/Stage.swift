@@ -289,7 +289,7 @@ final class Stage {
         draft.systemInput = { "Stage Microphone" }
         draft.chooseInput = { [unowned self] name in self.chosenInputs.append(name) }
         draft.playback = PlaybackPause(world: PlaybackPause.World(
-            sharedRoute: { [unowned self] _ in self.sharedRoute },
+            sharedRoute: { [unowned self] _, done in done(self.sharedRoute) },
             pausePlaying: { [unowned self] done in
                 let playing = self.playing.sorted()
                 self.pausedPlayers.append(contentsOf: playing)

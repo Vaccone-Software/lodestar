@@ -40,8 +40,12 @@ final class PlaybackPause {
     /// inline.
     struct World {
         /// Whether `input` (nil = the system default) and the current
-        /// default output are the same Bluetooth radio.
-        var sharedRoute: (String?) -> Bool
+        /// default output are the same Bluetooth radio. Off the main
+        /// thread, completing on main: the question is asked the moment
+        /// the microphone opens, which is the moment the radio is busy
+        /// flipping profiles, and CoreAudio answers a device roll call
+        /// slowly while it is.
+        var sharedRoute: (String?, @escaping (Bool) -> Void) -> Void
         /// Off the main thread: pause every running player that says
         /// "playing", and complete on main with who was paused.
         var pausePlaying: (@escaping ([String]) -> Void) -> Void
@@ -58,7 +62,12 @@ final class PlaybackPause {
         static let live: World = {
             let queue = DispatchQueue(label: "com.vaccone.lodestar.playback")
             return World(
-                sharedRoute: SystemAudio.sharedBluetoothRoute,
+                sharedRoute: { input, done in
+                    queue.async {
+                        let shared = SystemAudio.sharedBluetoothRoute(input: input)
+                        DispatchQueue.main.async { done(shared) }
+                    }
+                },
                 pausePlaying: { done in
                     queue.async {
                         let playing = Players.playing()
@@ -87,7 +96,8 @@ final class PlaybackPause {
 
     private enum State {
         case idle
-        /// The players are being asked, off the main thread.
+        /// The route, then the players, are being asked, off the main
+        /// thread.
         case asking
         /// These players said "playing" and were paused; they are owed
         /// a resume.
@@ -120,13 +130,19 @@ final class PlaybackPause {
         case .asking:
             break
         case .idle:
-            guard world.sharedRoute(input) else {
-                Log.info("draft", ["playback": "no shared radio"])
-                return
-            }
             state = .asking
-            world.pausePlaying { [weak self] paused in self?.pausedPlayers(paused) }
+            world.sharedRoute(input) { [weak self] shared in self?.routeAnswered(shared) }
         }
+    }
+
+    private func routeAnswered(_ shared: Bool) {
+        guard case .asking = state else { return }
+        guard shared else {
+            state = .idle
+            Log.info("draft", ["playback": "no shared radio"])
+            return
+        }
+        world.pausePlaying { [weak self] paused in self?.pausedPlayers(paused) }
     }
 
     /// The draft closed, whatever the ending. An ask still in flight

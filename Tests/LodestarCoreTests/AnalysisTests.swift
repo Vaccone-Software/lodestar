@@ -665,4 +665,35 @@ final class AnalysisTests: XCTestCase {
         XCTAssertNil(Advisor.promotionSlot(app: "Brave", record: nil, free: []),
                      "a truly spent alphabet offers nothing")
     }
+
+    // MARK: - The closed road
+
+    func testANudgeOffersToCloseTheLauncherRoad() {
+        var o = Observations()
+        var events: [ObservationEvent] = []
+        for i in 0..<12 {
+            var event = ObservationEvent(t: start.addingTimeInterval(Double(i) * 3600),
+                                         kind: .reach)
+            event.app = "slack"
+            event.route = i < 11 ? "searcher" : "graph"
+            if i < 11 {
+                event.openToCommit = 2.5
+                event.typed = 3
+                event.queryPrefix = "sl"
+                event.rank = 0
+                event.listLength = 4
+            }
+            events.append(event)
+            o.apply(event)
+        }
+        let context = Advisor.Context(
+            observations: o, events: events,
+            leaves: [.init(chain: ["s"], label: "Slack", value: "Slack")],
+            webRoutes: [:], now: start.addingTimeInterval(2 * 86_400))
+        let nudge = Advisor.recommend(context).first { $0.kind == .nudge }
+        XCTAssertNotNil(nudge, "an address the launcher keeps beating is a road to close")
+        XCTAssertEqual(nudge?.edit, .closeRoad(app: "slack", chain: ["s"]),
+                       "the accept is the toll, not a config line")
+        XCTAssertEqual(nudge?.display, "Slack")
+    }
 }

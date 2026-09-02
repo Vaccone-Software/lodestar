@@ -325,9 +325,35 @@ public struct Observations: Codable, Equatable {
         }
     }
 
+    /// Where an address went when the *user* moved it — a hand edit, a
+    /// ⌘K retarget, a settings change — read off the epoch log the way a
+    /// coach accept's redirect is read off the ledger. The universal
+    /// redirect: no road to a binding change may change a gesture cold.
+    public struct Redirect: Codable, Equatable {
+        /// The new chain's key.
+        public var chain: String
+        /// The week the move was seen, for the same cutoff every
+        /// supersede redirect obeys.
+        public var week: Int
+
+        public init(chain: String, week: Int) {
+            self.chain = chain
+            self.week = week
+        }
+    }
+
     // MARK: - State
 
     public var version = Observations.currentVersion
+    /// Focus changes by the road they took — Lodestar's own routes, the
+    /// system's ⌘⇥, a click, or nothing the tap could name. Optional so
+    /// stores written before the field decode unchanged.
+    public var focusRoads: [String: Int]?
+    /// Old address key → where the user moved it. See `Redirect`.
+    public var redirects: [String: Redirect]?
+    /// Verb → when it was last used, so a surface's fade can decay with
+    /// disuse the way an address's does.
+    public var verbsLastUsed: [String: Date]?
     /// Addresses keyed by their chain, lowercased and space separated.
     public var addresses: [String: AddressRecord] = [:]
     /// Apps keyed by lowercased name, which the graph and config already use.
@@ -479,6 +505,9 @@ public struct Observations: Codable, Equatable {
             guard let verb = event.verb, !verb.isEmpty else { return }
             touch(now)
             verbs[verb, default: 0] += 1
+            var stamps = verbsLastUsed ?? [:]
+            stamps[verb] = now
+            verbsLastUsed = stamps
 
         case .web:
             touch(now)
@@ -510,6 +539,14 @@ public struct Observations: Codable, Equatable {
         case .focus:
             guard let app = event.app?.lowercased(), !app.isEmpty else { return }
             touch(now)
+            // The road, when the shell could name one. Tallied before the
+            // same-app guard below: a road is a fact about the act, not
+            // about whether the app changed.
+            if let road = event.route, !road.isEmpty {
+                var roads = focusRoads ?? [:]
+                roads[road, default: 0] += 1
+                focusRoads = roads
+            }
             defer { lastApp = app }
             guard let previous = lastApp, previous != app else { return }
             decayTransitions(to: now)
@@ -531,6 +568,16 @@ public struct Observations: Codable, Equatable {
             touch(now)
             epoch = max(epoch, event.epoch ?? epoch + 1)
             guard let address = event.address else { return }
+            if event.change == "moved" {
+                // A move is a fact about the old address only: where it
+                // went. The added and removed events that travel with it
+                // do the curve and adoption work.
+                guard let to = event.chain, !to.isEmpty else { return }
+                var table = redirects ?? [:]
+                table[address] = Redirect(chain: Self.key(to), week: Self.week(now))
+                redirects = table
+                return
+            }
             var record = addresses[address] ?? AddressRecord()
             // A changed binding restarts its learning curve: the fluency of
             // the old letters says nothing about the new ones.

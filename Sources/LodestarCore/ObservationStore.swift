@@ -210,9 +210,11 @@ public final class ObservationStore {
     }
 
     /// Focus landed on an app, by any road — Lodestar's or the system's.
-    public func focused(app: String, at now: Date = Date()) {
+    public func focused(app: String, road: String? = nil, at now: Date = Date()) {
         var event = ObservationEvent(t: now, kind: .focus)
         event.app = app.lowercased()
+        // The road, when the shell could name one (`FocusRoads`).
+        event.route = road
         record(event)
     }
 
@@ -230,10 +232,14 @@ public final class ObservationStore {
 
     /// A graph binding changed at config reload. Every edit is a natural
     /// experiment; the epoch stamp is what makes it readable as one.
-    public func epochBumped(address letters: [String], change: String, at now: Date = Date()) {
+    public func epochBumped(address letters: [String], change: String,
+                            to: [String]? = nil, at now: Date = Date()) {
         var event = ObservationEvent(t: now, kind: .epoch)
         event.address = Observations.key(letters)
         event.change = change
+        // A move carries where the address went; the redirect table is
+        // a view over exactly this.
+        if let to { event.chain = to.map { $0.lowercased() } }
         event.epoch = observations.epoch + 1
         record(event)
     }
@@ -260,6 +266,10 @@ public final class ObservationStore {
             // The breath's letters, keyed like any address; nothing reads
             // it as a learning slot — a breath needs no curve to bend.
             event.address = Observations.key(path.map(String.init))
+        case .closeRoad(_, let chain):
+            // The address the closed road is teaching: the slot watches
+            // its completions since the acceptance.
+            event.address = Observations.key(chain)
         case .addRoute, .enableMeetings, nil:
             break
         }

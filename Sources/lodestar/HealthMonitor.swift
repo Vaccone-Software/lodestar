@@ -38,6 +38,9 @@ final class HealthMonitor {
     /// from the tap's.
     private var lastKeyAt: Date?
     private var lastMouseAt: Date?
+    /// A click is a road a focus change can take; the tracker hears
+    /// about it here, from the same tap that prices it.
+    var roads: RoadTracker?
 
     /// A click with its target's class resolved: the pid the element
     /// belongs to and its accessibility role. Nothing else about the
@@ -214,6 +217,7 @@ final class HealthMonitor {
                 pendingScrolls[pendingScrolls.count - 1] = now
             }
         default:
+            roads?.clicked(at: now)
             let location = event.location
             lookup.async { [weak self] in
                 guard let self else { return }

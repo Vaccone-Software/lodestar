@@ -87,6 +87,16 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     /// commit, the rank picked, the list length. Measured here because
     /// this is the only place the clock and the rows exist together.
     var observations: ObservationStore?
+    /// How long the footer waits before painting — `SurfaceFade`'s
+    /// verdict for the launcher, set by the engine before each show.
+    var footerDelay: () -> TimeInterval = { 0 }
+    private let footerFade = FooterFade()
+    /// The bar was escaped with typing in it: a stumble, which brings the
+    /// footer straight back for a while.
+    var onAbandon: () -> Void = {}
+    /// The app whose closed road has been confirmed once this session —
+    /// the second ↵ opens it.
+    private var confirmedRoad: String?
     private var openedAt: Date?
     private var firstKeyAt: Date?
     private var rows: [Row] = []
@@ -200,7 +210,9 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         field.stringValue = ""
         openedAt = Date()
         firstKeyAt = nil
+        confirmedRoad = nil
         requery()
+        footerFade.apply(to: footer, delay: footerDelay())
         present()
     }
 
@@ -379,6 +391,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
                 // know about.
                 if case .apps = mode, !field.stringValue.isEmpty {
                     observations?.launcherAbandoned(typed: field.stringValue.count)
+                    onAbandon()
                 }
                 openedAt = nil
                 firstKeyAt = nil
@@ -419,6 +432,21 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     private func pick(beside: Bool) {
         guard rows.indices.contains(selected) else { return }
         let row = rows[selected]
+        // A closed road. The app has an address the coach was asked to
+        // teach, so the launcher asks once more before opening it — the
+        // toll Grossman measured moving hands where a chip alone did not.
+        // One deliberate ↵ pays it; the closure expires on its own when
+        // the address's curve bends.
+        if case .app(let entry) = row, let observations,
+           let chain = Coach.roadClosed(observations: observations.observations,
+                                        app: entry.name),
+           confirmedRoad != entry.name.lowercased() {
+            confirmedRoad = entry.name.lowercased()
+            let shown = "lode " + chain.map { $0.uppercased() }.joined(separator: " ")
+            footer.alphaValue = 1
+            footer.stringValue = "\(shown) reaches \(entry.name)    ↵ again to open it anyway"
+            return
+        }
         let now = Date()
         hide()
         // What the search actually cost, measured rather than assumed:

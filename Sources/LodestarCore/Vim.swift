@@ -127,6 +127,11 @@ public struct Vim {
     public init() {}
 
     static let countCap = 9999
+    /// Past this many characters a counted put or repeat stops early: a
+    /// draft is a message, and the panel lays the whole text out on
+    /// every key, so a `9999p` of a long clip must not build a document
+    /// the hand then cannot type into.
+    public static let sizeCap = 20_000
 
     /// A command is half typed: an operator, a count, a find waiting for
     /// its character. Escape clears it rather than closing anything.
@@ -401,7 +406,10 @@ public struct Vim {
         case "p", "P":
             guard let text = pasteboard(), !text.isEmpty else { return [.flash("⌂ nothing to paste")] }
             snapshot(buffer)
-            for _ in 0..<n { put(text, after: c == "p", &buffer) }
+            for _ in 0..<n {
+                put(text, after: c == "p", &buffer)
+                if buffer.count >= Self.sizeCap { break }
+            }
             noteChange()
             return []
         case "u":
@@ -1174,6 +1182,7 @@ public struct Vim {
             defer { replaying = false; recording = [] }
             var effects: [Effect] = []
             for _ in 0..<times {
+                if buffer.count >= Self.sizeCap { break }
                 mode = .visual(line: visual.line)
                 visualAnchor = buffer.cursor
                 if visual.line {
@@ -1201,6 +1210,7 @@ public struct Vim {
         defer { replaying = false; recording = [] }
         var effects: [Effect] = []
         for _ in 0..<times {
+            if buffer.count >= Self.sizeCap { break }
             for k in keys {
                 if mode == .insert {
                     switch k {

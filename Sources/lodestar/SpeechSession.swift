@@ -20,7 +20,10 @@ enum SpeechState: Equatable {
 /// The recognizer behind the draft's speak door: one session per draft,
 /// results on the main thread, and a pause that keeps the audio engine
 /// warm (creating one costs a second; starting a kept one costs 70ms —
-/// `probe speech --cycle` measured both).
+/// `probe speech --cycle` measured both). The engine itself lives on its
+/// own queue: the main thread hosts the event tap, and a start that
+/// waits out a Bluetooth profile flip held it long enough for macOS to
+/// disable the tap — three times in one day's log.
 protocol SpeechSession: AnyObject {
     var isAvailable: Bool { get }
     /// Load the model and build the audio engine without touching the
@@ -51,9 +54,9 @@ protocol SpeechSession: AnyObject {
 final class AnalyzerSpeechSession: SpeechSession {
     fileprivate var box: Any?
     /// One microphone for the process: creating an engine costs a second,
-    /// starting a kept one costs 70ms. Every call on it happens on the
-    /// main thread, in order — two sessions overlapping on one bus was a
-    /// crash inside `installTapOnBus`.
+    /// starting a kept one costs 70ms. Every call on it lands on its one
+    /// serial queue, in the order it was made — two sessions overlapping
+    /// on one bus was a crash inside `installTapOnBus`.
     private let microphone = AudioInput()
 
     var isAvailable: Bool {
@@ -97,8 +100,8 @@ final class AnalyzerSpeechSession: SpeechSession {
     func stop(completion: @escaping () -> Void) {
         guard #available(macOS 26, *), let box = box as? AnalyzerBox else { completion(); return }
         self.box = nil
-        // The tap comes off now, on this thread, before anything async:
-        // the next session may open before the recognizer has finished.
+        // The tap comes off first: queued now, ahead of anything the next
+        // session queues, which may be before the recognizer has finished.
         microphone.stop()
         Task {
             await box.stop()
@@ -115,9 +118,18 @@ extension AnalyzerSpeechSession {
     }
 }
 
-/// The process's one audio engine and the tap on its input. Main thread
-/// only; the actor that consumes the buffers never touches it directly.
-final class AudioInput {
+/// The process's one audio engine and the tap on its input. Everything
+/// here runs on one serial queue, never the main thread: building an
+/// engine costs a second, and a start inside a Bluetooth profile flip
+/// fails slowly (-10868 after 400–800ms, measured) before it succeeds.
+/// The main thread hosts the event tap, and macOS disables a tap whose
+/// thread stops answering — every keystroke on the machine went dead
+/// until the watchdog brought it back. The actor that consumes the
+/// buffers never touches the engine directly.
+final class AudioInput: @unchecked Sendable {
+    /// The engine's queue. Calls made from the main thread keep their
+    /// order here, so a stop queued before a start still lands first.
+    private let queue = DispatchQueue(label: "com.vaccone.lodestar.audio", qos: .userInitiated)
     private var engine: AVAudioEngine?
     /// The device the engine was built for, and the format it had then.
     /// An engine's input node fixes its formats to what it first saw;
@@ -129,12 +141,18 @@ final class AudioInput {
     private var engineFormat: (rate: Double, channels: UInt32)?
     private var tapInstalled = false
     private var observer: NSObjectProtocol?
+    /// The configuration-change notification, delivered on `queue`.
+    private let delivery = OperationQueue()
 
     init() {
         // AVFoundation says so when the hardware under an engine changes;
         // the engine stops itself, and this one is not trusted again.
+        // Delivered on the engine's own queue: the restart inside is the
+        // same slow start as any other, and it used to run on main.
+        delivery.underlyingQueue = queue
+        delivery.maxConcurrentOperationCount = 1
         observer = NotificationCenter.default.addObserver(
-            forName: .AVAudioEngineConfigurationChange, object: nil, queue: .main
+            forName: .AVAudioEngineConfigurationChange, object: nil, queue: delivery
         ) { [weak self] note in
             guard let self, let engine = self.engine, (note.object as AnyObject?) === engine else { return }
             // Mid-session the engine may already be running again on its
@@ -160,6 +178,7 @@ final class AudioInput {
     }
 
     private func discard() {
+        dispatchPrecondition(condition: .onQueue(queue))
         if let engine {
             if tapInstalled { engine.inputNode.removeTap(onBus: 0) }
             engine.stop()
@@ -171,6 +190,7 @@ final class AudioInput {
     }
 
     private func build(for target: AudioDeviceID?) -> AVAudioEngine {
+        dispatchPrecondition(condition: .onQueue(queue))
         let fresh = AVAudioEngine()
         // The device goes in before the node reports a format, so the
         // formats it fixes are this device's.
@@ -255,14 +275,21 @@ final class AudioInput {
     /// name when one is configured and found, the system default
     /// otherwise — set explicitly each time, so a kept engine follows a
     /// default that changed since. `sink` runs on the audio thread with
-    /// each buffer in the input's native format. Returns the format and
-    /// the name of the device actually read. Throws when the input
-    /// reports no usable format, which is what an unplugged or
-    /// exclusively held device looks like.
-    func start(device: String?, sink: @escaping (AVAudioPCMBuffer) -> Void) throws
+    /// each buffer in the input's native format. `completion` runs on
+    /// the engine's queue with the format and the name of the device
+    /// actually read, or the error: no usable format is what an
+    /// unplugged or exclusively held device looks like.
+    func start(device: String?, sink: @escaping (AVAudioPCMBuffer) -> Void,
+               completion: @escaping (Result<(format: AVAudioFormat, name: String?), Error>) -> Void) {
+        queue.async {
+            completion(Result { try self.startNow(device: device, sink: sink) })
+        }
+    }
+
+    private func startNow(device: String?, sink: @escaping (AVAudioPCMBuffer) -> Void) throws
         -> (format: AVAudioFormat, name: String?) {
-        dispatchPrecondition(condition: .onQueue(.main))
-        stop()
+        dispatchPrecondition(condition: .onQueue(queue))
+        stopNow()
         let wanted = device.flatMap { name in Self.inputDevices().first { $0.name == name }?.id }
         if device != nil, wanted == nil {
             Log.info("draft", ["speech": "input not found", "wanted": device ?? ""])
@@ -314,23 +341,24 @@ final class AudioInput {
     }
 
     func pause() {
-        dispatchPrecondition(condition: .onQueue(.main))
-        engine?.pause()
+        queue.async { self.engine?.pause() }
     }
 
     func resume() {
-        dispatchPrecondition(condition: .onQueue(.main))
-        guard tapInstalled, let engine else { return }
-        try? engine.start()
+        queue.async {
+            guard self.tapInstalled, let engine = self.engine else { return }
+            try? engine.start()
+        }
     }
 
     /// Build the engine for the device the next session will read, without
     /// starting it: creation is the second-long part, starting is 70ms.
     func prepare(device: String?) {
-        dispatchPrecondition(condition: .onQueue(.main))
-        guard engine == nil else { return }
-        let wanted = device.flatMap { name in Self.inputDevices().first { $0.name == name }?.id }
-        _ = build(for: wanted ?? Self.defaultInput())
+        queue.async {
+            guard self.engine == nil else { return }
+            let wanted = device.flatMap { name in Self.inputDevices().first { $0.name == name }?.id }
+            _ = self.build(for: wanted ?? Self.defaultInput())
+        }
     }
 
     /// Take the tap off and stop the engine fully, so the next start can
@@ -338,7 +366,11 @@ final class AudioInput {
     /// Idempotent. The engine object is kept; starting it again is the
     /// 70ms path, creating one is the second.
     func stop() {
-        dispatchPrecondition(condition: .onQueue(.main))
+        queue.async { self.stopNow() }
+    }
+
+    private func stopNow() {
+        dispatchPrecondition(condition: .onQueue(queue))
         guard let engine else { return }
         if tapInstalled {
             engine.inputNode.removeTap(onBus: 0)
@@ -493,12 +525,8 @@ private actor AnalyzerBox {
                 guard !stopped else { return }
             }
             do {
-                started = try await MainActor.run { () throws -> (format: AVAudioFormat, name: String?) in
-                    // The session may have been stopped while this was queued:
-                    // a draft closed during prepare must not start the mic.
-                    guard stillWanted() else { throw CancellationError() }
-                    return try microphone.start(device: wanted) { buffer in feed.push(buffer) }
-                }
+                started = try await Self.startMicrophone(microphone, device: wanted,
+                                                         stillWanted: stillWanted) { buffer in feed.push(buffer) }
                 break
             } catch is CancellationError {
                 return
@@ -514,8 +542,26 @@ private actor AnalyzerBox {
         Log.info("draft", ["speech": "audio", "input": input ?? "unknown",
                            "hz": Int(started.format.sampleRate),
                            "channels": Int(started.format.channelCount)])
-        guard !stopped else { await MainActor.run { microphone.stop() }; return }
+        guard !stopped else { microphone.stop(); return }
         say(.listening(input: input))
+    }
+
+    /// The microphone starts on its own queue. The ask passes through
+    /// the main thread only to check the session is still the wanted
+    /// one — a draft closed during prepare must not start the mic — and
+    /// because `stop` is queued from main too, a session superseded
+    /// after that check still has its start queued ahead of the
+    /// successor's stop, which then takes the tap off again.
+    private static func startMicrophone(_ microphone: AudioInput, device: String?,
+                                        stillWanted: @escaping @MainActor () -> Bool,
+                                        sink: @escaping (AVAudioPCMBuffer) -> Void) async throws
+        -> (format: AVAudioFormat, name: String?) {
+        try await withCheckedThrowingContinuation { continuation in
+            Task { @MainActor in
+                guard stillWanted() else { continuation.resume(throwing: CancellationError()); return }
+                microphone.start(device: device, sink: sink) { continuation.resume(with: $0) }
+            }
+        }
     }
 
     /// A file's audio, in 100ms slices at real-time pace, through the same

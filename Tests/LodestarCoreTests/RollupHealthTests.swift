@@ -168,4 +168,18 @@ final class RollupHealthTests: XCTestCase {
             .union(month.transitions.values.flatMap(\.keys))
         XCTAssertLessThanOrEqual(apps.count, Rollup.transitionAppCap)
     }
+
+    func testBackspaceRunsFoldIntoMonthAndWeek() {
+        var a = pulse(at: july)
+        a.bsRuns = [3, 1, 1]
+        a.bsRunKeys = [3, 2, 7]
+        var b = pulse(at: july.addingTimeInterval(900))
+        b.bsRuns = [1, 0, 0]
+        b.bsRunKeys = [1, 0, 0]
+        let months = Rollup.build(events: [a, b], now: now)
+        let month = months[Rollup.monthKey(july)]
+        XCTAssertEqual(month?.health.backspaceRuns, [4, 1, 1])
+        XCTAssertEqual(month?.health.backspaceRunKeys, [4, 2, 7])
+        XCTAssertEqual(month?.weeks["\(Observations.week(july))"]?.backspaceRunKeys, [4, 2, 7])
+    }
 }

@@ -629,6 +629,17 @@ func runObservations(clear: Bool, engine: Bool) -> Never {
         print("")
     }
 
+    // How focus moved: Lodestar's own routes against the system's roads.
+    // The split the transition matrix could never make on its own.
+    if let roads = o.focusRoads, !roads.isEmpty {
+        let total = max(1, roads.values.reduce(0, +))
+        let list = roads.sorted { $0.value > $1.value || ($0.value == $1.value && $0.key < $1.key) }
+            .map { "\($0.key) \($0.value * 100 / total)%" }
+        print("roads · how focus moved · \(total) change\(total == 1 ? "" : "s")")
+        print("  " + list.joined(separator: " · "))
+        print("")
+    }
+
     if !o.verbs.isEmpty {
         let list = o.verbs.sorted { $0.value > $1.value }.map { "\($0.key) \($0.value)" }
         print("verbs")
@@ -706,6 +717,18 @@ func runObservations(clear: Bool, engine: Bool) -> Never {
             input += String(format: "pointer share %d%%", Int(pointer * 100))
         }
         print(input)
+        // The correction key by burst: a single is a typo, a run of five
+        // or more is a sentence being retaken. Different budgets — only
+        // the second is anything a product should try to claim.
+        if health.backspaceRunKeys.reduce(0, +) > 0,
+           let typo = health.typoShare, let revision = health.revisionShare {
+            var runs = pad("  backspace", 10)
+            runs += pad(String(format: "%.0f%% single", typo * 100), 16)
+            runs += pad(String(format: "%.0f%% in runs of 2 to 4", max(0, 1 - typo - revision) * 100), 26)
+            runs += String(format: "%.0f%% in runs of 5 or more · revision, not typo",
+                           revision * 100)
+            print(runs)
+        }
         var rhythm = pad("  rhythm", 10)
         rhythm += pad(String(format: "%.1fh active/day",
                              Double(health.activeMinutes) / 60 / Double(max(1, health.days))), 18)
@@ -964,6 +987,28 @@ func runObservationsEngine(_ context: Advisor.Context) -> Never {
             print(String(format: "  %@  (weight %.0f)",
                          cluster.apps.joined(separator: " + "), cluster.weight))
         }
+        print("")
+    }
+
+    // Which app comes next, every strategy scored in shadow over the real
+    // focus stream — the table predicted warming picks its model from.
+    let tuneBegan = Date()
+    let tuning = NextApp.tune(events: context.events)
+    let tuneSeconds = Date().timeIntervalSince(tuneBegan)
+    let scoreBegan = Date()
+    let nextApp = NextApp.evaluate(events: context.events, tuning: tuning)
+    let scoreSeconds = Date().timeIntervalSince(scoreBegan)
+    if let switches = nextApp.first?.switches {
+        print("next app (hit rate of the top 1 · 2 · 3 predictions, over \(switches) switches)")
+        for score in nextApp {
+            print("  " + pad(score.strategy.rawValue, 10)
+                + score.hits.map { String(format: "%3.0f%%", $0 * 100) }.joined(separator: "  "))
+        }
+        print(String(format: "  tuned: chain weight %.1f · recency decay %.2f · %@ · tuned in %.2fs, scored in %.2fs",
+                     tuning.weight, tuning.decay,
+                     tuning.secondOrder ? "second order" : "first order",
+                     tuneSeconds, scoreSeconds))
+        print("  warmer uses \(NextApp.best(nextApp).rawValue)")
         print("")
     }
 

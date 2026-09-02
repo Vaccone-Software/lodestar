@@ -111,6 +111,12 @@ public struct ObservationEvent: Codable, Equatable {
     public var seconds: Double?
     public var keys: Int?
     public var backspaces: Int?
+    /// Backspace runs by length — single, two to four, five and more —
+    /// as run counts and as the backspaces inside them. Still only the
+    /// one named key, now counted in bursts: a run is a revision of
+    /// thought, a single is a typo, and the two are different budgets.
+    public var bsRuns: [Int]?
+    public var bsRunKeys: [Int]?
     public var clicks: Int?
     public var scrolls: Int?
     public var activeMinutes: Int?

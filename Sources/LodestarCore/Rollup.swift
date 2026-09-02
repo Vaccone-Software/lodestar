@@ -130,6 +130,10 @@ public struct Rollup: Codable, Equatable {
         /// The mouse by app: clicks, hand trips, and role classes. The
         /// same line as the events it folds — never a label or a title.
         public var clicksByApp: [String: ClickMonth] = [:]
+        /// Backspace runs by length (single, two to four, five and
+        /// more): run counts, and the backspaces inside them.
+        public var backspaceRuns = [Int](repeating: 0, count: 3)
+        public var backspaceRunKeys = [Int](repeating: 0, count: 3)
 
         public init() {}
 
@@ -150,6 +154,10 @@ public struct Rollup: Codable, Equatable {
             stretchMinutes = try c.decodeIfPresent(Stat.self, forKey: .stretchMinutes) ?? Stat()
             breakMinutes = try c.decodeIfPresent(Stat.self, forKey: .breakMinutes) ?? Stat()
             clicksByApp = try c.decodeIfPresent([String: ClickMonth].self, forKey: .clicksByApp) ?? [:]
+            backspaceRuns = try c.decodeIfPresent([Int].self, forKey: .backspaceRuns)
+                ?? [Int](repeating: 0, count: 3)
+            backspaceRunKeys = try c.decodeIfPresent([Int].self, forKey: .backspaceRunKeys)
+                ?? [Int](repeating: 0, count: 3)
         }
 
         var isEmpty: Bool { self == HealthMonth() }
@@ -179,6 +187,10 @@ public struct Rollup: Codable, Equatable {
         public var interKey = Stat()
         /// Log-seconds spent in an app before the next switch.
         public var dwell = Stat()
+        /// Backspace runs by length, as in the month. Optional so weeks
+        /// archived before the column decode unchanged.
+        public var backspaceRuns: [Int]?
+        public var backspaceRunKeys: [Int]?
 
         public init() {}
     }
@@ -538,9 +550,21 @@ public struct Rollup: Codable, Equatable {
             month.health.activeHours[min(23, max(0, hour))] += active
             let weekday = Calendar.current.component(.weekday, from: event.t) - 1
             month.health.weekdays[min(6, max(0, weekday))] += active
+            if let runs = event.bsRuns, runs.count == 3 {
+                for i in 0..<3 { month.health.backspaceRuns[i] += runs[i] }
+            }
+            if let runKeys = event.bsRunKeys, runKeys.count == 3 {
+                for i in 0..<3 { month.health.backspaceRunKeys[i] += runKeys[i] }
+            }
             var weekly = month.weeks[week] ?? WeekHealth()
             weekly.keys += event.keys ?? 0
             weekly.backspaces += event.backspaces ?? 0
+            if let runs = event.bsRuns, runs.count == 3 {
+                weekly.backspaceRuns = zip(weekly.backspaceRuns ?? [0, 0, 0], runs).map(+)
+            }
+            if let runKeys = event.bsRunKeys, runKeys.count == 3 {
+                weekly.backspaceRunKeys = zip(weekly.backspaceRunKeys ?? [0, 0, 0], runKeys).map(+)
+            }
             weekly.clicks += event.clicks ?? 0
             weekly.scrolls += event.scrolls ?? 0
             weekly.activeMinutes += active

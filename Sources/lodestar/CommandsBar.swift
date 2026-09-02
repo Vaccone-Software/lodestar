@@ -99,8 +99,14 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
 
     private var harvestGeneration = 0
 
+    /// How long the footer waits before painting — `SurfaceFade`'s
+    /// verdict for this bar, set by the engine before each show.
+    var footerDelay: () -> TimeInterval = { 0 }
+    private let footerFade = FooterFade()
+
     func show() {
         guard let app = NSWorkspace.shared.frontmostApplication else { return }
+        footerFade.apply(to: footer, delay: footerDelay())
         // The panel appears immediately; the AX walk of the menu tree runs
         // off the main thread — a hung app can never freeze lodestar here.
         harvestGeneration += 1

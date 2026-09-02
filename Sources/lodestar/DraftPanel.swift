@@ -402,8 +402,18 @@ final class DraftPanel {
         CATransaction.commit()
         NSAnimationContext.endGrouping()
 
-        if !panel.isVisible { panel.orderFrontRegardless() }
+        if !panel.isVisible {
+            // The footer fades on the way in, once per opening: the mode
+            // legend is a recallable answer like any bar's.
+            footerFade.apply(to: footer, delay: footerDelay())
+            panel.orderFrontRegardless()
+        }
     }
+
+    /// How long the footer waits before painting — `SurfaceFade`'s
+    /// verdict for the draft, asked at each opening.
+    var footerDelay: () -> TimeInterval = { 0 }
+    private let footerFade = FooterFade()
 
     /// Move the meter without a re-layout: it arrives ten times a second.
     func setLevel(_ level: Float, live: Bool? = nil) {

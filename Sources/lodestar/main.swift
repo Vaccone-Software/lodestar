@@ -81,6 +81,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let control = ControlSocket()
     private let settings = SettingsController()
     private let health = HealthMonitor()
+    /// Which road each focus change took — stamped by the summon path,
+    /// the main tap (⌘⇥), and the mouse tap (clicks); read by the focus
+    /// observer. See `FocusRoads`.
+    private let roads = RoadTracker()
+    /// Predicted warming: the apps likely next get their accessibility
+    /// trees asked for before the switch. See `Prewarmer`.
+    private let prewarmer = Prewarmer()
+    /// The fade, generalized to the bars' footers: each asks how long its
+    /// legend should wait, keyed by the verb the observation layer counts.
+    private var surfaceFade = SurfaceFade()
+
+    private func footerDelay(_ surface: String) -> TimeInterval {
+        observationStore.map {
+            surfaceFade.delay(surface: surface, observations: $0.observations)
+        } ?? 0
+    }
 
     /// Links clicked in other apps land here. Deliberately the shortest path
     /// in the app: it needs the config and nothing else — not the window
@@ -186,9 +202,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                           appIndex: appIndex, store: store, hud: hud)
         actions.attach()
         actions.observations = observationStore
+        actions.roads = roads
+        prewarmer.observations = observationStore
+        prewarmer.runningApps = { [weak self] in
+            guard let self else { return [:] }
+            var apps: [String: pid_t] = [:]
+            for window in self.model.windows.values where window.isAlive {
+                apps[window.appName.lowercased()] = window.pid
+            }
+            return apps
+        }
+        actions.prewarmer = prewarmer
+        prewarmer.boot()
         model.onTrace = { Log.info("model: \($0)") }
         searcher = SearcherController(appIndex: appIndex, actions: actions, model: model)
         searcher.observations = observationStore
+        searcher.footerDelay = { [weak self] in self?.footerDelay("launcher") ?? 0 }
+        searcher.onAbandon = { [weak self] in self?.surfaceFade.stumbled(surface: "launcher") }
         rebuildGraphAddresses()
         searcher.graphAddress = { [weak self] name in self?.graphAddressByApp[name] }
         searcher.graphChains = { [weak self] name in self?.graphChains(for: name) ?? [] }
@@ -218,6 +248,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         clipboardController.setEnabled(config.clipboardEnabled)
 
         webBar = WebBarController()
+        webBar.footerDelay = { [weak self] in self?.footerDelay("web") ?? 0 }
         webBar.config = config
         webBar.mostRecentProfile = { [weak self] in self?.mostRecentBrowserProfile() }
         webBar.perform = { [weak self] url, profile, beside, row in
@@ -248,6 +279,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.observationStore?.latency(surface: surface, seconds: seconds)
         }
         let draft = DraftController(speech: AnalyzerSpeechSession())
+        draft.footerDelay = { [weak self] in self?.footerDelay("draft") ?? 0 }
         draft.flash = { [weak self] text in self?.hud.flash(text) }
         draft.observations = observationStore
         draft.words = config.draftWords
@@ -257,11 +289,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // half second of words, recovered to the pasteboard right here at
         // the next boot. A clean close always clears it.
         let stashFile = Paths.data.appendingPathComponent("draft-in-flight")
+        // Written off the main thread, in order: the tap lives on main,
+        // and a disk that pauses must never hold a keystroke.
+        let stashQueue = DispatchQueue(label: "com.vaccone.lodestar.draft-stash", qos: .utility)
         draft.stash = { text in
-            if let text, !text.isEmpty {
-                try? text.write(to: stashFile, atomically: true, encoding: .utf8)
-            } else {
-                try? FileManager.default.removeItem(at: stashFile)
+            stashQueue.async {
+                if let text, !text.isEmpty {
+                    try? text.write(to: stashFile, atomically: true, encoding: .utf8)
+                } else {
+                    try? FileManager.default.removeItem(at: stashFile)
+                }
             }
         }
         if crashedLastRun, let stranded = try? String(contentsOf: stashFile, encoding: .utf8),
@@ -292,20 +329,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak draft] in draft?.warmSpeech() }
         }
         draftController = draft
+        let commandsBar = CommandsBarController()
+        commandsBar.footerDelay = { [weak self] in self?.footerDelay("menu") ?? 0 }
         engine = HotkeyEngine(config: config, actions: actions, hud: hud, searcher: searcher,
-                              webBar: webBar, commandsBar: CommandsBarController(),
+                              webBar: webBar, commandsBar: commandsBar,
                               scroller: scroller,
                               select: selectController,
                               clipboard: clipboardController,
                               draft: draft)
 
         engine.observations = observationStore
+        engine.roads = roads
 
         // The hands' pulse: keys from the main tap, clicks and scroll
         // bursts from its own listen-only tap. Gated by both switches —
         // health watches more than Lodestar's gestures, so it answers to
         // its own config line as well as the master.
         health.observations = observationStore
+        health.roads = roads
         engine.onHumanKey = { [weak self] backspace in
             self?.health.noteKey(backspace: backspace)
         }
@@ -354,6 +395,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 // the layout saves at the address. The flash it earns is
                 // its own — nothing here reloads the config.
                 return self.actions.composeBreath(apps: apps, path: path)
+            case .closeRoad(let app, let chain):
+                // A ledger fact, not a write: the accepted entry the coach
+                // records next is the closure, and `Coach.roadClosed`
+                // reads it back until the address's curve bends.
+                let shown = "lode " + chain.map { $0.uppercased() }.joined(separator: " ")
+                self.hud.flash("✓ the launcher asks twice for \(app) until \(shown) is learned")
+                return nil
             }
         }
         // Everything the engine, the glass, and the coach say to each other
@@ -1615,17 +1663,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         let newLeaves = leafMap(new)
         epochGraphBaseline = newLeaves
-        for (key, label) in newLeaves {
-            let chain = key.split(separator: " ").map(String.init)
-            if oldLeaves[key] == nil {
-                store.epochBumped(address: chain, change: "added")
-            } else if oldLeaves[key] != label {
-                store.epochBumped(address: chain, change: "retargeted")
-            }
-        }
-        for (key, _) in oldLeaves where newLeaves[key] == nil {
-            store.epochBumped(address: key.split(separator: " ").map(String.init),
-                              change: "removed")
+        // The diff is core's (`GraphEpochs`), so a move — one binding
+        // removed and its target added at exactly one new address — is
+        // the same fact whichever road changed the config, and the old
+        // gesture gets the same signpost an accepted chip's would.
+        for change in GraphEpochs.diff(old: oldLeaves, new: newLeaves) {
+            store.epochBumped(address: change.address, change: change.change, to: change.to)
         }
     }
 

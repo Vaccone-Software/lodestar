@@ -15,6 +15,9 @@ final class HotkeyEngine {
     /// Where observations land. Nil until the app wires one, so the engine
     /// works identically with nobody watching.
     var observations: ObservationStore?
+    /// ⌘⇥ is the system's own road to a window; the tap sees it go by and
+    /// says so, so the focus change that follows is charged to it.
+    var roads: RoadTracker?
     /// The walk listens here for the real gestures its steps wait on. One
     /// closure, fed at the same seams observations are — the walk's card is
     /// never key and swallows nothing, so this is its only sense. (The old
@@ -432,6 +435,12 @@ final class HotkeyEngine {
             return Unmanaged.passUnretained(event)
         }
         let (held, shift) = classify(event.flags)
+
+        // ⌘⇥ with the ordinary ⌘, not lode: the app switcher's road. Noted
+        // and passed through untouched — the switcher is the system's.
+        if !held, key == "tab", event.flags.contains(.maskCommand) {
+            roads?.cmdTabbed(at: clock.now())
+        }
 
         // A held lode+letter autorepeats like any key, and every repeat
         // used to arrive as a fresh gesture: another summon, another

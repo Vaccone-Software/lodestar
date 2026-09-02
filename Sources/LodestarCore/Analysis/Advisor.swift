@@ -37,6 +37,14 @@ public enum ConfigEdit: Codable, Equatable {
     /// here: the subsystem, finding itself enabled but unauthorized, runs
     /// its own prime-then-prompt — so this edit stays exactly one line.
     case enableMeetings
+    /// Close the launcher road to an app that already has an address:
+    /// until the address's curve bends, a launcher pick of that app asks
+    /// once more. Not a config line — a ledger fact, read the way a
+    /// supersede's redirect is read — because the closure is a
+    /// transition aid with an expiry, and config has no expiry. Grossman
+    /// et al. (CHI 2007): closing the old path is what moves hands; the
+    /// chip alone tests below doing nothing.
+    case closeRoad(app: String, chain: [String])
     /// Arrange these apps side by side right now and save the layout as a
     /// breath at `path`. The one accept that is state rather than a config
     /// line — a breath has no line to write — settled deliberately: one
@@ -867,12 +875,16 @@ public enum Advisor {
             if rescued > 0 {
                 evidence.append("\(rescued) abandoned chains were rescued by the launcher")
             }
+            // The accept closes the launcher road: the address exists and
+            // the hand keeps taking the long way, so the long way gets a
+            // toll until the short one is learned.
             out.append(Candidate(rec: Recommendation(
                 kind: .nudge, target: app,
                 detail: "\(app) has \(shown) and you search for it anyway · "
                     + String(format: "each search pays %.1fs over the chain", saved),
                 secondsPerWeek: saved * weekly, probability: lower,
-                evidence: evidence), p: p,
+                evidence: evidence, display: leaf.label,
+                edit: .closeRoad(app: app, chain: leaf.chain)), p: p,
                 offerable: share > 0.6 && lower > 0.5))
         }
         return out

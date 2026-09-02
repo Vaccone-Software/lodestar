@@ -652,4 +652,45 @@ final class DraftScenarioTests: XCTestCase {
         cmd(stage, "return")
         XCTAssertEqual(stashed.last ?? nil, nil, "a clean close leaves nothing to recover")
     }
+
+    /// A stop the recognizer never completes used to leave the draft
+    /// closing forever, swallowing every key on the machine. The backstop
+    /// lands what the draft has, ghost included, and the late completion
+    /// lands nothing twice.
+    func testCommitLandsByBackstopWhenTheRecognizerNeverStops() {
+        let stage = Stage()
+        stage.speech.slowToStop = true
+        stage.lode(".")
+        stage.speech.settle("send this")
+        stage.speech.hear("and this")
+        cmd(stage, "return")
+        XCTAssertTrue(stage.draft.isOpen, "closing, waiting on a stop that never completes")
+        XCTAssertTrue(stage.press("return"), "swallowed meanwhile")
+        stage.clock.advance(by: DraftController.landBackstopSeconds)
+        XCTAssertFalse(stage.draft.isOpen, "the backstop lands what it has")
+        XCTAssertEqual(stage.pasteboard.last, "send this and this", "the ghost landed as seen")
+        XCTAssertEqual(stage.posted.map(\.key), ["v"])
+        XCTAssertFalse(stage.press("x"), "keys reach the app again")
+        stage.speech.finish()
+        XCTAssertEqual(stage.posted.map(\.key), ["v"], "the late completion lands nothing twice")
+        XCTAssertEqual(stage.speech.openSessions, 0)
+    }
+
+    /// A pasteboard past the pull cap is refused at both doors into the
+    /// buffer: the panel lays the whole text out on every key, and a
+    /// document's worth would stall each one.
+    func testAPasteboardPastTheCapIsRefused() {
+        let stage = Stage()
+        stage.pasteboard = [String(repeating: "x", count: DraftController.pullCap + 1)]
+        stage.lode(".", shift: true)
+        XCTAssertTrue(stage.commandPress("v"), "swallowed, not passed to the app")
+        XCTAssertEqual(stage.draft.buffer.text, "", "insert-mode ⌘V refuses a document")
+        cmd(stage, "escape")
+        cmd(stage, "p")
+        XCTAssertEqual(stage.draft.buffer.text, "", "so does the editor's p")
+        stage.pasteboard = ["fits"]
+        cmd(stage, "p")
+        XCTAssertEqual(stage.draft.buffer.text, "fits", "and a clip that fits still lands")
+        XCTAssertTrue(stage.draft.isOpen)
+    }
 }

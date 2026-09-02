@@ -36,6 +36,14 @@ public struct HealthPulse: Equatable {
     var ikSumSq = 0.0
     var lastKeyAt: Date?
     var lastScrollAt: Date?
+    /// The backspace run in flight, and the closed runs by length —
+    /// single, two to four, five and more — as run counts and as the
+    /// backspaces inside them. A run is a revision of thought; a single
+    /// is a typo; the two are different budgets and only the second is
+    /// anyone's business to shrink.
+    var runLength = 0
+    var runCounts = [0, 0, 0]
+    var runKeys = [0, 0, 0]
 
     public init() {}
 
@@ -44,7 +52,12 @@ public struct HealthPulse: Equatable {
     public mutating func key(at now: Date, backspace: Bool) -> ObservationEvent? {
         let flushed = rollIfDue(now: now)
         keys += 1
-        if backspace { backspaces += 1 }
+        if backspace {
+            backspaces += 1
+            runLength += 1
+        } else {
+            closeRun()
+        }
         if let last = lastKeyAt {
             let gap = now.timeIntervalSince(last)
             if gap > 0, gap <= Self.interKeyCeiling {
@@ -61,6 +74,7 @@ public struct HealthPulse: Equatable {
     public mutating func click(at now: Date) -> ObservationEvent? {
         let flushed = rollIfDue(now: now)
         clicks += 1
+        closeRun()
         touch(now)
         return flushed
     }
@@ -72,6 +86,7 @@ public struct HealthPulse: Equatable {
             scrolls += 1
         }
         lastScrollAt = now
+        closeRun()
         touch(now)
         return flushed
     }
@@ -82,6 +97,7 @@ public struct HealthPulse: Equatable {
             reset(windowStart: nil)
             return nil
         }
+        closeRun()
         let pulse = build()
         reset(windowStart: nil)
         return pulse
@@ -94,9 +110,20 @@ public struct HealthPulse: Equatable {
         minutes.insert(Int(now.timeIntervalSince1970 / 60))
     }
 
+    /// The run in flight ends: any input that is not a backspace, a
+    /// window rolling, or the flush. Bucketed by length on the way out.
+    private mutating func closeRun() {
+        guard runLength > 0 else { return }
+        let bucket = runLength == 1 ? 0 : (runLength <= 4 ? 1 : 2)
+        runCounts[bucket] += 1
+        runKeys[bucket] += runLength
+        runLength = 0
+    }
+
     private mutating func rollIfDue(now: Date) -> ObservationEvent? {
         guard let start = windowStart,
               now.timeIntervalSince(start) >= Self.windowSeconds else { return nil }
+        closeRun()
         let pulse = build()
         reset(windowStart: now)
         return pulse
@@ -114,6 +141,8 @@ public struct HealthPulse: Equatable {
         event.ikN = ikN
         event.ikSum = ikSum
         event.ikSumSq = ikSumSq
+        event.bsRuns = runCounts
+        event.bsRunKeys = runKeys
         return event
     }
 
@@ -127,6 +156,9 @@ public struct HealthPulse: Equatable {
         ikN = 0
         ikSum = 0.0
         ikSumSq = 0.0
+        runLength = 0
+        runCounts = [0, 0, 0]
+        runKeys = [0, 0, 0]
         // The inter-key clock survives the roll: two keystrokes that
         // straddle a window boundary are still one gap of typing.
     }
@@ -152,9 +184,25 @@ public enum Health {
         public var weekdayMinutes = [Int](repeating: 0, count: 7)
         /// Longest continuous active stretch, minutes.
         public var longestStretchMinutes = 0
+        /// Backspace runs by length — single, two to four, five and more —
+        /// as run counts and as the backspaces inside them.
+        public var backspaceRuns = [0, 0, 0]
+        public var backspaceRunKeys = [0, 0, 0]
 
         public var correctionRate: Double? {
             keys > 0 ? Double(backspaces) / Double(keys) : nil
+        }
+
+        /// The share of backspaces that were single corrections — the
+        /// typo budget, which no product should try to train away.
+        public var typoShare: Double? {
+            backspaces > 0 ? Double(backspaceRunKeys[0]) / Double(backspaces) : nil
+        }
+
+        /// The share of backspaces spent in runs of five or more — the
+        /// revision-of-thought budget, the one dictation can claim.
+        public var revisionShare: Double? {
+            backspaces > 0 ? Double(backspaceRunKeys[2]) / Double(backspaces) : nil
         }
 
         /// Clicks and scroll-bursts against keystrokes: the share of input
@@ -192,6 +240,12 @@ public enum Health {
             ikN += pulse.ikN ?? 0
             ikSum += pulse.ikSum ?? 0
             ikSumSq += pulse.ikSumSq ?? 0
+            if let runs = pulse.bsRuns, runs.count == 3 {
+                for i in 0..<3 { out.backspaceRuns[i] += runs[i] }
+            }
+            if let runKeys = pulse.bsRunKeys, runKeys.count == 3 {
+                for i in 0..<3 { out.backspaceRunKeys[i] += runKeys[i] }
+            }
             dayOrdinals.insert(Int(pulse.t.timeIntervalSince1970 / 86_400))
             let hour = calendar.component(.hour, from: pulse.t)
             out.hourMinutes[min(23, max(0, hour))] += active

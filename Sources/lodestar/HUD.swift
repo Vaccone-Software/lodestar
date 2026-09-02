@@ -16,15 +16,19 @@ struct GuideRow {
     /// not a set of controls, and giving them a pointer would promise an
     /// interaction the surface does not have.
     let action: (() -> Void)?
+    /// Drawn quiet: a gesture the hand has not fired in a season, on the
+    /// cheat sheet, with the line that would retire it in its label.
+    let dimmed: Bool
 
     var key: String { keys.joined(separator: " ") }
 
     init(key: String, label: String, icon: NSImage? = nil,
-         action: (() -> Void)? = nil) {
+         action: (() -> Void)? = nil, dimmed: Bool = false) {
         self.keys = [key]
         self.label = label
         self.icon = icon
         self.action = action
+        self.dimmed = dimmed
     }
 
     init(keys: [String], label: String, icon: NSImage? = nil,
@@ -33,6 +37,7 @@ struct GuideRow {
         self.label = label
         self.icon = icon
         self.action = action
+        self.dimmed = false
     }
 }
 

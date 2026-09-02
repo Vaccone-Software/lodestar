@@ -392,4 +392,30 @@ final class LayoutControllerTests: XCTestCase {
                           "window \(set.id) landed outside the new bounds: \(set.frame)")
         }
     }
+
+    func testACoalescedStepUndoesTheWholePhrase() {
+        model.addWindow(10)
+        model.addWindow(20)
+        model.addWindow(30)
+        layout.replace(with: 30, on: 1)
+        layout.replace(with: 10, on: 1)
+        layout.coalesceNextStep = true
+        layout.add(20, on: 1)
+        XCTAssertEqual(layout.members(on: 1), [10, 20])
+        XCTAssertFalse(layout.coalesceNextStep, "consumed by the record it joined")
+        _ = layout.undo()
+        XCTAssertEqual(layout.members(on: 1), [30], "one undo restores the stage before the phrase")
+        XCTAssertFalse(parking.isParked(30))
+    }
+
+    func testAStrayCoalesceFlagCannotFoldTwoGestures() {
+        model.addWindow(10)
+        model.addWindow(20)
+        layout.coalesceNextStep = true
+        layout.replace(with: 10, on: 1)
+        XCTAssertFalse(layout.coalesceNextStep, "with nothing to join, the flag is spent and the step stands alone")
+        layout.replace(with: 20, on: 1)
+        _ = layout.undo()
+        XCTAssertEqual(layout.members(on: 1), [10])
+    }
 }

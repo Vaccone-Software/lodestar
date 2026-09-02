@@ -108,6 +108,20 @@ final class Actions {
     /// taken with lode lode never counts as a chain the fingers walked —
     /// the coach reads this table to decide what is worth binding, and a
     /// reach nobody navigated would argue for a shortcut nobody uses.
+    /// The next placement is a letter joining a chord phrase: its undo
+    /// rides the step the phrase's first letter made, so one `lode ←`
+    /// restores the whole stage, and the split it makes is counted until
+    /// a replace collapses it — the number that says whether composing
+    /// became a habit or a churn.
+    private var joiningUntil: Date?
+    private var chordAt: Date?
+    private var chordSummons: Int?
+
+    /// Good for a few seconds: a summon that launches places when the
+    /// window appears, and one that fails must not fold the next
+    /// unrelated gesture's undo into a phrase that never happened.
+    func joinNextPlacement() { joiningUntil = Date().addingTimeInterval(3) }
+
     func summon(_ target: GraphTarget, beside: Bool, via route: Observations.Route = .graph) {
         roads?.summoned(via: route)
         observations?.reached(target.label, via: route)
@@ -414,6 +428,15 @@ final class Actions {
     // MARK: - Layout verbs
 
     func undoLayout() {
+        // A chord undone at once is a correction under one hold — the
+        // habit that argues against the chord, if it turns out common.
+        if let at = chordAt, Date().timeIntervalSince(at) < 2 {
+            Log.info("chord", ["undoneWithin": 2])
+        }
+        // Whatever the timing, an undo takes the split down; the next
+        // replace is not its collapse.
+        chordAt = nil
+        chordSummons = nil
         if let display = layout.undo() {
             focusFirst(on: display)
             hud.flash("⟲ layout")
@@ -865,6 +888,20 @@ final class Actions {
                                       activeDisplay: active.id)
         Log.info("place", ["window": window.id, "app": window.appName,
                            "action": "\(action)", "display": active.id])
+        let joining = joiningUntil.map { Date() < $0 } ?? false
+        joiningUntil = nil
+        if joining {
+            layout.coalesceNextStep = true
+            chordAt = Date()
+            chordSummons = 0
+        } else if let since = chordSummons {
+            if action == .replace {
+                Log.info("chord", ["collapsedAfter": since])
+                chordSummons = nil
+            } else {
+                chordSummons = since + 1
+            }
+        }
         sessionClaimed.insert(window.id)
         switch action {
         case .add:

@@ -76,7 +76,10 @@ public enum EngineEffect: Equatable {
     case indexJump(Int)
     case reorder(Int)
     case moveDisplay(direction: Int, beside: Bool)
-    case summonGraph(letters: [String], beside: Bool)
+    /// `chord`: this summon joined a phrase — a second or later letter
+    /// under one lode hold — so the shell can count it and ride its undo
+    /// on the phrase's first step.
+    case summonGraph(letters: [String], beside: Bool, chord: Bool = false)
     case flash(String)
     case showGuide(kind: ChainKind, letters: [String], deleting: Bool, note: String?)
     case hideGuide
@@ -243,6 +246,24 @@ public struct EngineCore {
     public init() {}
 
     public var isIdle: Bool { state == .idle }
+
+    /// The chord: letters under one lode hold compose. The first letter
+    /// takes the stage as any summon does; every letter after it, while
+    /// lode stays down, joins beside — `lode G B` is Ghostty beside
+    /// Brave, `lode G B S` three columns, and lifting lode ends the
+    /// phrase. The state it reads is the hand's own thumb, the way shift
+    /// is, so nothing about it depends on what is on screen. Digits and
+    /// breaths keep their meaning under a hold; only graph summons join.
+    private var lodeHeld = false
+    private var phraseSummoned = false
+
+    /// Lode came up: the phrase, if one was open, is over. The shell
+    /// stamps this from the flags change; a sticky chain finishing after
+    /// the lift is a plain summon.
+    public mutating func lodeReleased() {
+        lodeHeld = false
+        phraseSummoned = false
+    }
     /// A graph or breath chain is in flight.
     public var isChain: Bool { if case .chain = state { return true } else { return false } }
 
@@ -256,6 +277,7 @@ public struct EngineCore {
     /// the engine waits forever and swallows everything after it.
     public mutating func reset() -> [EngineEffect] {
         var effects: [EngineEffect] = []
+        phraseSummoned = false
         switch state {
         case .idle: return []
         case .chain: effects = [.hideGuide]
@@ -322,6 +344,8 @@ public struct EngineCore {
                                  command: Bool = false, option: Bool = false,
                                  control: Bool = false,
                                  world: EngineWorld) -> [EngineEffect] {
+        lodeHeld = held
+        if !held { phraseSummoned = false }
         switch state {
         case .idle:
             // Escape closes a visible cheat sheet, lode or not — the
@@ -515,7 +539,10 @@ public struct EngineCore {
         switch world.resolveGraph(letters) {
         case .leaf:
             state = .idle
-            effects.append(contentsOf: [.hideGuide, .summonGraph(letters: letters, beside: shift)])
+            let joining = lodeHeld && phraseSummoned
+            if lodeHeld { phraseSummoned = true }
+            effects.append(contentsOf: [.hideGuide, .summonGraph(letters: letters, beside: shift || joining,
+                                                                 chord: joining)])
         case .deeper:
             state = .chain(kind: .graph, letters: letters, deleting: false)
             effects.append(.showGuide(kind: .graph, letters: letters, deleting: false, note: nil))

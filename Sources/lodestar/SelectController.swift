@@ -99,11 +99,29 @@ final class SelectController {
     private var modeEnteredAt = Date.distantPast
     private var typedInMode = 0
     private var committedOutcome: String?
-    /// Whether the pointer rested over the window read at entry. The eye
-    /// is often on a neighbor of the focused window; the split between
-    /// abandons with the pointer on and off it is the measurement that
-    /// decides whether select should read the window under the pointer.
+    /// Whether the pointer rested on the display that was read. Pixels
+    /// are captured for the whole display the focused window is on; the
+    /// active display for every other verb is the one under the pointer.
+    /// The split between abandons with the pointer on and off it is the
+    /// measurement that decides whether select should read the display
+    /// under the pointer instead.
     private var pointerOnWindow: Bool?
+    /// The captured frame, kept for the mode's life so a span can be
+    /// read a second time before it leaves the clipboard.
+    private var frozen: CGImage?
+    /// The focused window's frame at entry: the drag-and-copy presses
+    /// only inside it, because a press in a neighbor would move focus
+    /// there, and a copy must never change where the hand is.
+    private var focusedFrame = CGRect.zero
+    /// What the grounding said about the last gathered span, for the log.
+    private var groundingNote = ""
+    /// One per verified copy, so a verdict arriving after the next mode
+    /// entry lands nowhere.
+    private var copyGeneration = 0
+    /// Stamped on every event of Lodestar's own drag-and-copy, so the tap
+    /// passes them to the app untouched: the ghost's ⌘C would otherwise
+    /// take the synthetic ⌘C as the hand's.
+    static let ownMark: Int64 = 0x4C4F_4445
     /// select.copy-on-complete: a completed span serves the pasteboard at
     /// the grammar's full stop, every ending alike. The config line is the
     /// arbiter — the mode never reads the situation, which is what buried
@@ -183,11 +201,15 @@ final class SelectController {
         core = nil
         units = []
         windowFrame = window.frame
+        focusedFrame = window.frame
         appName = window.appName
         let mouse = NSEvent.mouseLocation
         let primaryHeight = NSScreen.screens.first?.frame.maxY ?? 0
-        pointerOnWindow = window.frame.contains(CGPoint(x: mouse.x, y: primaryHeight - mouse.y))
+        let read = Displays.display(containing: window.frame)?.bounds ?? window.frame
+        pointerOnWindow = read.contains(CGPoint(x: mouse.x, y: primaryHeight - mouse.y))
         generation += 1
+        copyGeneration += 1
+        frozen = nil
         lastPassLeaves = -1
         ocrAdopted = false
         focusedPid = window.pid
@@ -253,6 +275,7 @@ final class SelectController {
                 self.flash("⌖ grant Screen Recording to select in every window · using accessibility for now")
             }
             if captured != nil { self.windowFrame = display }
+            self.frozen = captured
             self.overlay.showScanning(over: self.windowFrame, appName: window.appName,
                                       mode: self.door == .click ? "click" : "select")
             if let captured {
@@ -282,6 +305,7 @@ final class SelectController {
         // a commit in those first beats would be "repaired" against
         // whatever window the mode last visited.
         units = []
+        frozen = nil
         grounding = OCRSense.Grounding([])
         entryTargets = []
         entryLabels = []
@@ -554,9 +578,10 @@ final class SelectController {
             && !flags.contains(.maskAlternate) && !flags.contains(.maskControl)
             && !flags.contains(.maskShift)
         if key == "c", plainCommand {
-            serve(ghost.text)
             Log.info("select", ["outcome": "ghost-copied", "chars": (ghost.text as NSString).length])
+            let span = (text: ghost.text, rects: ghost.rects)
             dissolveGhost()
+            serveVerified(span)
             return true
         }
         if key == "escape" {
@@ -573,7 +598,10 @@ final class SelectController {
         guard ghostClickMonitor == nil else { return }
         ghostClickMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
-        ) { [weak self] _ in
+        ) { [weak self] event in
+            // Lodestar's own drag-and-copy presses too; the highlight it
+            // is verifying must not dissolve under it.
+            guard event.cgEvent?.getIntegerValueField(.eventSourceUserData) != Self.ownMark else { return }
             DispatchQueue.main.async { self?.dissolveGhost() }
         }
     }
@@ -600,6 +628,7 @@ final class SelectController {
     private func gather(_ pieces: [SelectCore.Match]) -> (text: String, rects: [CGRect]) {
         var parts: [String] = []
         var rects: [CGRect] = []
+        var confirmed = 0, repaired = 0, declined = 0, axRead = 0
         for piece in pieces {
             guard units.indices.contains(piece.element) else { continue }
             let unit = units[piece.element]
@@ -607,12 +636,20 @@ final class SelectController {
             // Pixel-sensed text is repaired against the accessibility walk
             // piece by piece: recognition's rare single-glyph confusions
             // must never reach a pasteboard when the truth was readable.
-            if case .ocr = unit.geometry, let repaired = grounding.repair(text) {
-                text = repaired
+            if case .ocr = unit.geometry {
+                if let truth = grounding.repair(text) {
+                    if truth == text { confirmed += 1 } else { repaired += 1 }
+                    text = truth
+                } else {
+                    declined += 1
+                }
+            } else {
+                axRead += 1
             }
             parts.append(text)
             rects.append(contentsOf: boundsRects(unit: unit, range: piece.range))
         }
+        groundingNote = "confirmed=\(confirmed) repaired=\(repaired) declined=\(declined) ax=\(axRead)"
         return (parts.joined(separator: "\n"), rects)
     }
 
@@ -669,14 +706,217 @@ final class SelectController {
             return
         }
         Log.info("select", ["outcome": "held",
-                            "chars": (span.text as NSString).length, "pieces": pieces])
+                            "chars": (span.text as NSString).length, "pieces": pieces,
+                            "grounding": groundingNote])
         committedOutcome = "held"
-        if copyOnComplete { serve(span.text) }
         // The receipt rides the band, quiet and in place: a copy is an
         // invisible state change, and the highlight alone does not say it
         // happened.
         holdGhost(text: span.text, rects: span.rects,
                   note: copyOnComplete ? "⌖ copied" : nil)
+        if copyOnComplete { serveVerified(span) }
+    }
+
+    // MARK: - The verified copy
+
+    /// The pasteboard write for a pixel-sensed span, made deliberate.
+    ///
+    /// The pixels are served at once, so a ⌘V is never early. Then two
+    /// second readings correct them. The app is asked to select the
+    /// same span by a synthetic drag and to copy it; when its text agrees
+    /// with the pixels up to the confusable glyphs, the app's copy is the
+    /// truth, and the mode ends natively — the app's own highlight the
+    /// ending, Lodestar's dissolved. And the span is read again from the
+    /// frozen frame, cropped and upscaled with the recognizer's
+    /// alternatives consulted, which serves when the app could not. The
+    /// drag never lands on a control: a press on a button is a press,
+    /// so both ends are checked by role first. Aiming stays fast and
+    /// stays pixels; only what leaves the clipboard is read twice.
+    private func serveVerified(_ span: (text: String, rects: [CGRect])) {
+        let pixel = span.text
+        serve(pixel)
+        copyGeneration += 1
+        let token = copyGeneration
+        let began = Date()
+        let attempt = VerifiedCopy(pixel: pixel)
+
+        // The second reading, off the main thread, structure-preserving:
+        // it may fix glyphs and never line breaks, so the promise the
+        // highlight made is the text that lands.
+        if let frame = frozen {
+            let rects = span.rects, frameRect = windowFrame
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let lines = rects.compactMap { OCRSense.reread(image: frame, rect: $0, windowFrame: frameRect) }
+                let text = lines.joined(separator: "\n")
+                // Glyphs may change; the shape may not. The reading is
+                // laid over the pixels' own spacing, and refused when it
+                // does not fit glyph for glyph or does not agree.
+                let laid = lines.isEmpty ? nil : OCRSense.overlay(reading: text, onto: pixel)
+                let usable = laid.map { OCRSense.agrees(pixel, $0) } ?? false
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.copyGeneration == token else { return }
+                    attempt.reread = usable ? laid : nil
+                    attempt.rereadDone = true
+                    self.settleCopy(attempt, token: token, began: began)
+                }
+            }
+        } else {
+            attempt.rereadDone = true
+        }
+
+        guard dragSelect(span.rects) else {
+            attempt.appDone = true
+            attempt.appText = nil
+            settleCopy(attempt, token: token, began: began)
+            return
+        }
+        let before = NSPasteboard.general.changeCount
+        // ⌘C once the app has taken the mouse-up, then a short watch for
+        // the pasteboard to move.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.09) { [weak self] in
+            guard let self, self.copyGeneration == token else { return }
+            Self.postCopy()
+            self.awaitAppCopy(attempt, token: token, before: before, polls: 0, began: began)
+        }
+    }
+
+    private final class VerifiedCopy {
+        let pixel: String
+        var reread: String?
+        var rereadDone = false
+        var appText: String?
+        var appDone = false
+        var settled = false
+        init(pixel: String) { self.pixel = pixel }
+    }
+
+    private func awaitAppCopy(_ attempt: VerifiedCopy, token: Int, before: Int, polls: Int, began: Date) {
+        guard copyGeneration == token else { return }
+        let board = NSPasteboard.general
+        if board.changeCount != before {
+            attempt.appText = board.string(forType: .string)
+            attempt.appDone = true
+            settleCopy(attempt, token: token, began: began)
+            return
+        }
+        guard polls < 8 else {
+            attempt.appDone = true
+            settleCopy(attempt, token: token, began: began)
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.awaitAppCopy(attempt, token: token, before: before, polls: polls + 1, began: began)
+        }
+    }
+
+    /// Both readings in: decide what stands on the pasteboard, and how
+    /// the mode ends.
+    private func settleCopy(_ attempt: VerifiedCopy, token: Int, began: Date) {
+        guard copyGeneration == token, !attempt.settled else { return }
+        let elapsed = Int(Date().timeIntervalSince(began) * 1000)
+        if attempt.appDone, let app = attempt.appText {
+            // The app's glyphs, cut to the pixels' extent: a drag's ends
+            // land a character off, and the period it grabbed is not
+            // part of the promise.
+            if let truth = OCRSense.reconcile(pixel: attempt.pixel, app: app) {
+                attempt.settled = true
+                committedOutcome = "dragged"
+                if truth != app { serve(truth) }
+                // Counts only, never the text: glyphs say whether the
+                // app restored a space the pixels dropped or a glyph.
+                Log.info("select", ["copy": "app", "chars": (truth as NSString).length,
+                                    "pixelChars": (attempt.pixel as NSString).length,
+                                    "changed": truth != attempt.pixel, "trimmed": truth != app,
+                                    "ms": elapsed])
+                // The app's own selection is the ending now.
+                dissolveGhost()
+                return
+            }
+            // The app selected something else: what it put on the
+            // pasteboard is not what the highlight promised.
+            Log.info("select", ["copy": "app disagreed", "appChars": (app as NSString).length,
+                                "pixelChars": (attempt.pixel as NSString).length])
+            attempt.appText = nil
+            guard attempt.rereadDone else {
+                serve(attempt.pixel)
+                return
+            }
+        }
+        guard attempt.appDone, attempt.rereadDone else { return }
+        attempt.settled = true
+        let final = attempt.reread ?? attempt.pixel
+        if final != attempt.pixel || NSPasteboard.general.string(forType: .string) != final {
+            serve(final)
+        }
+        Log.info("select", ["copy": attempt.reread == nil ? "pixel" : "reread",
+                            "changed": final != attempt.pixel, "ms": elapsed])
+    }
+
+    /// Roles a press can land on without pressing anything: text and the
+    /// containers text lives in. A button, a link, a control of any kind
+    /// refuses the drag, and the pixels stand.
+    private static let dragSafeRoles: Set<String> = [
+        "AXStaticText", "AXTextArea", "AXTextField", "AXWebArea", "AXGroup", "AXScrollArea",
+        "AXCell", "AXRow", "AXTable", "AXOutline", "AXList", "AXLayoutArea", "AXLayoutItem",
+        "AXSplitGroup", "AXWindow", "AXHeading", "AXGenericElement", "AXParagraph",
+    ]
+
+    private static func textLike(at point: CGPoint) -> Bool {
+        let system = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(system, 0.25)
+        var element: AXUIElement?
+        guard AXUIElementCopyElementAtPosition(system, Float(point.x), Float(point.y), &element) == .success,
+              let element else { return false }
+        AXUIElementSetMessagingTimeout(element, 0.25)
+        guard let role = AX.string(element, kAXRoleAttribute) else { return false }
+        return dragSafeRoles.contains(role)
+    }
+
+    /// Ask the app to select the span: a press inside the first glyph, a
+    /// drag to inside the last, a release. The pointer goes back where it
+    /// was a beat later. False when either end is a control, or the span
+    /// is too narrow to press inside.
+    private func dragSelect(_ rects: [CGRect]) -> Bool {
+        guard let first = rects.first, let last = rects.last,
+              first.width > 4, last.width > 4 else { return false }
+        let start = CGPoint(x: first.minX + 2, y: first.midY)
+        let end = CGPoint(x: last.maxX - 2, y: last.midY)
+        guard focusedFrame.contains(start), focusedFrame.contains(end) else {
+            Log.info("select", ["copy": "drag refused", "reason": "outside the focused window"])
+            return false
+        }
+        guard Self.textLike(at: start), Self.textLike(at: end) else {
+            Log.info("select", ["copy": "drag refused", "reason": "control under an end"])
+            return false
+        }
+        let mouse = NSEvent.mouseLocation
+        let primaryHeight = NSScreen.screens.first?.frame.maxY ?? 0
+        let origin = CGPoint(x: mouse.x, y: primaryHeight - mouse.y)
+        func post(_ type: CGEventType, _ point: CGPoint) {
+            guard let event = CGEvent(mouseEventSource: nil, mouseType: type,
+                                      mouseCursorPosition: point, mouseButton: .left) else { return }
+            event.setIntegerValueField(.eventSourceUserData, value: Self.ownMark)
+            event.post(tap: .cghidEventTap)
+        }
+        let mid = CGPoint(x: (start.x + end.x) / 2, y: (start.y + end.y) / 2)
+        post(.leftMouseDown, start)
+        post(.leftMouseDragged, mid)
+        post(.leftMouseDragged, end)
+        post(.leftMouseUp, end)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { CGWarpMouseCursorPosition(origin) }
+        return true
+    }
+
+    private static func postCopy() {
+        guard let source = CGEventSource(stateID: .combinedSessionState),
+              let code = Keys.codes["c"] else { return }
+        for down in [true, false] {
+            guard let event = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(code),
+                                      keyDown: down) else { continue }
+            event.flags = .maskCommand
+            event.setIntegerValueField(.eventSourceUserData, value: ownMark)
+            event.post(tap: .cghidEventTap)
+        }
     }
 
     /// The one pasteboard write, shared by every copying verb.

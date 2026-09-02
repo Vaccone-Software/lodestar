@@ -125,7 +125,11 @@ final class CheatSheet {
 
         let text = NSTextField(labelWithString: row.label)
         text.font = BarTheme.rowLabelFont
-        text.textColor = .labelColor
+        // A dormant gesture draws quiet, cap and all: the eye reads the
+        // sheet for what it uses, and a row it never uses recedes.
+        text.textColor = row.dimmed ? .tertiaryLabelColor : .labelColor
+        keycap.textColor = row.dimmed ? .tertiaryLabelColor : .labelColor
+        if row.dimmed { chip.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.04).cgColor }
         text.lineBreakMode = .byTruncatingTail
 
         container.addArrangedSubview(chip)

@@ -599,6 +599,37 @@ final class AnalysisTests: XCTestCase {
         XCTAssertTrue(breath?.detail.contains("40 pulled into view") ?? false)
     }
 
+    func testAGestureQuietForASeasonIsNamedNeverActed() {
+        var o = Observations()
+        o.since = start.addingTimeInterval(-200 * 86_400)
+        o.verbsLastUsed = ["scroll": start.addingTimeInterval(-100 * 86_400),
+                           "select": start.addingTimeInterval(-3 * 86_400)]
+        let dormant = Advisor.dormantGestures(o, disabled: [], now: start)
+        XCTAssertEqual(dormant.map(\.name), ["launcher", "web-bar", "commands", "draft", "hints",
+                                              "maximize", "index-jump", "flip-orientation",
+                                              "layout-undo", "display-move", "scroll"].sorted { a, b in
+            // never fired since the record began (200 days) sort before scroll (100)
+            let days = { (n: String) -> Int in n == "scroll" ? 100 : 200 }
+            return days(a) > days(b) || (days(a) == days(b) && a < b)
+        }, "every counted gesture unfired for ninety days, quietest first; select fired last week")
+        let context = Advisor.Context(observations: o, events: [], leaves: [],
+                                      webRoutes: [:], disabledGestures: ["scroll"], now: start)
+        let recs = Advisor.recommend(context).filter { $0.kind == .dormant }
+        XCTAssertFalse(recs.contains { $0.target == "scroll" }, "already off is not an offer")
+        XCTAssertFalse(recs.contains { $0.target == "select" })
+        XCTAssertTrue(recs.allSatisfy { $0.edit == nil && $0.secondsPerWeek == 0 },
+                      "report-only and unpriced: no chip can ever carry it")
+        XCTAssertTrue(recs.first { $0.target == "draft" }?.detail.contains("gestures.draft false") ?? false)
+    }
+
+    func testAFreshRecordSaysNothingIsDormant() {
+        var o = Observations()
+        o.since = start.addingTimeInterval(-10 * 86_400)
+        XCTAssertTrue(Advisor.dormantGestures(o, disabled: [], now: start).isEmpty)
+        XCTAssertTrue(Advisor.dormantGestures(Observations(), disabled: [], now: start).isEmpty,
+                      "no record at all is no evidence")
+    }
+
     func testMixtureStaysSilentOnUnimodalData() {
         // A fluent user's day has no reconstruction mode; splitting one
         // cloud into center and tails would fabricate ownership numbers.

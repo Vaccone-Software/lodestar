@@ -52,6 +52,8 @@ final class FakeActions: EngineActions {
     var coachBoundary: ((String?) -> Void)?
 
     func focusedAppInfo() -> (pid: pid_t, name: String)? { focused }
+    private(set) var joins = 0
+    func joinNextPlacement() { joins += 1 }
     func summon(_ target: GraphTarget, beside: Bool, via route: Observations.Route) {
         summoned.append((target: target, beside: beside))
         coachBoundary?(target.label.lowercased())

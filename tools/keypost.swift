@@ -26,6 +26,20 @@ for token in CommandLine.arguments.dropFirst() {
         delayMs = UInt32(token.dropFirst(6)) ?? delayMs
         continue
     }
+    // "hold-on" / "hold-off": lode goes down and stays, or comes up — the
+    // flagsChanged a real thumb sends. Letters between the two are a
+    // chord phrase: `keypost hold-on g b hold-off`.
+    if token == "hold-on" || token == "hold-off" {
+        let source = CGEventSource(stateID: .hidSystemState)
+        if let event = CGEvent(keyboardEventSource: source, virtualKey: 54, keyDown: token == "hold-on") {
+            event.type = .flagsChanged
+            event.flags = token == "hold-on"
+                ? CGEventFlags(rawValue: CGEventFlags.maskCommand.rawValue | rightCmdBit) : []
+            event.post(tap: .cgSessionEventTap)
+        }
+        usleep(120_000)
+        continue
+    }
     // "hold": a bare lode press sustained 1.6s — long enough to cross the
     // peek threshold. Run in the background and capture mid-hold.
     if token == "hold" {

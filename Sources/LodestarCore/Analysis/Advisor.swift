@@ -74,6 +74,12 @@ public struct Recommendation: Codable, Equatable {
         case route
         /// Meetings joined by hand that the chip could hand over.
         case meetings
+        /// A gesture unfired for a season, its keys owed back to the app.
+        /// Report-only by design: it saves no seconds, so no chip prices
+        /// it; the report and the cheat sheet say it, and the accept is
+        /// the one config line they name. Software that gets smaller with
+        /// mastery, offered and never done on its own.
+        case dormant
 
         /// Does accepting this replace one address with another?
         ///
@@ -152,6 +158,9 @@ public enum Advisor {
         public var meetingsEnabled: Bool
         /// Saved breath paths, so a breath offer can name a free letter.
         public var breathPaths: [String]
+        /// Gestures already switched off, by roster name: a dormant offer
+        /// for one of those would be offering what is already done.
+        public var disabledGestures: Set<String>
         public var now: Date
 
         public init(observations: Observations, events: [ObservationEvent],
@@ -159,7 +168,8 @@ public enum Advisor {
                     webRoutes: [String: String] = [:],
                     profileKeys: [String: String] = [:],
                     meetingsEnabled: Bool = false,
-                    breathPaths: [String] = [], now: Date = Date()) {
+                    breathPaths: [String] = [],
+                    disabledGestures: Set<String> = [], now: Date = Date()) {
             self.observations = observations
             self.events = events
             self.leaves = leaves
@@ -167,6 +177,7 @@ public enum Advisor {
             self.profileKeys = profileKeys
             self.meetingsEnabled = meetingsEnabled
             self.breathPaths = breathPaths
+            self.disabledGestures = disabledGestures
             self.now = now
         }
     }
@@ -244,6 +255,7 @@ public enum Advisor {
         candidates += breathCandidates(context)
         candidates += routeCandidates(context)
         candidates += meetingsCandidates(context)
+        candidates += dormantCandidates(context)
 
         // One gate across everything *tested* at once: the report's
         // credibility is a budget, spent by every claim it makes, and the
@@ -258,6 +270,53 @@ public enum Advisor {
                 && (candidates[$0].p == nil || cleared.contains($0)) }
             .map { candidates[$0].rec }
             .sorted { $0.secondsPerWeek * $0.probability > $1.secondsPerWeek * $1.probability }
+    }
+
+    // MARK: - Dormant gestures
+
+    /// Gesture name → the verb the observation record counts it under.
+    /// Gestures with no verb of their own — settings, the chooser, the
+    /// breaths, the graph itself — are never called dormant: silence
+    /// there is not evidence, and the graph is the spine.
+    static let gestureVerbs: [String: String] = [
+        "launcher": "launcher", "web-bar": "web", "commands": "menu", "draft": "draft",
+        "scroll": "scroll", "hints": "hints", "maximize": "maximize", "index-jump": "index",
+        "flip-orientation": "orientation", "layout-undo": "undo", "display-move": "displays",
+        "select": "select",
+    ]
+
+    /// How long a gesture must go unfired before the report says so. A
+    /// threshold for saying, never for doing.
+    public static let dormantDays = 90
+
+    /// Gestures the hand has not fired in `dormantDays`, with how long
+    /// each has been quiet. A gesture never fired counts from the day
+    /// the record began, so a fresh install says nothing for a season.
+    public static func dormantGestures(_ observations: Observations, disabled: Set<String>,
+                                       now: Date) -> [(name: String, days: Int)] {
+        guard observations.since != .distantPast else { return [] }
+        var out: [(name: String, days: Int)] = []
+        for verb in Gestures.roster {
+            guard let counted = gestureVerbs[verb.name], !disabled.contains(verb.name) else { continue }
+            let last = observations.verbsLastUsed?[counted] ?? observations.since
+            let days = Int(now.timeIntervalSince(last) / 86_400)
+            if days >= dormantDays { out.append((verb.name, days)) }
+        }
+        return out.sorted { $0.days > $1.days || ($0.days == $1.days && $0.name < $1.name) }
+    }
+
+    static func dormantCandidates(_ context: Context) -> [Candidate] {
+        let about = Dictionary(uniqueKeysWithValues: Gestures.roster.map { ($0.name, $0.about) })
+        return dormantGestures(context.observations, disabled: context.disabledGestures,
+                               now: context.now).map { item in
+            Candidate(rec: Recommendation(
+                kind: .dormant, target: item.name,
+                detail: "\(about[item.name] ?? item.name) has not fired in \(item.days) days"
+                    + " · gestures.\(item.name) false gives its keys back to the app",
+                secondsPerWeek: 0, probability: 1,
+                evidence: ["quiet for \(item.days) days"],
+                edit: nil), p: nil, offerable: true)
+        }
     }
 
     // MARK: - Shared

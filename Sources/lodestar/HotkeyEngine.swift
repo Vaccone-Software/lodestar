@@ -330,6 +330,11 @@ final class HotkeyEngine {
             let keycode = event.getIntegerValueField(.keyboardEventKeycode)
             Log.info("tap: type=\(type.rawValue) key=\(keycode) flags=\(String(event.flags.rawValue, radix: 16))")
         }
+        // Lodestar's own drag-and-copy, marked at the post: not input, and
+        // it must reach the app untouched.
+        if event.getIntegerValueField(.eventSourceUserData) == SelectController.ownMark {
+            return Unmanaged.passUnretained(event)
+        }
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             // The tap dropped events while it was off, so a chain in
             // flight is now missing letters it will wait for forever.
@@ -565,7 +570,7 @@ final class HotkeyEngine {
                 observations.verbUsed(verb, at: now)
             }
             switch effect {
-            case .summonGraph(let letters, _):
+            case .summonGraph(let letters, _, _):
                 chainStamps.append(now)
                 // Every pause counts, including the ones where the guide
                 // appeared. Excluding those was the second mistake in this
@@ -795,8 +800,15 @@ final class HotkeyEngine {
                 actions.reorderFocused(toDigit: digit)
             case .moveDisplay(let direction, let beside):
                 actions.moveFocusedDisplay(direction: direction, beside: beside)
-            case .summonGraph(let letters, let beside):
+            case .summonGraph(let letters, let beside, let chord):
                 if case .leaf(let target) = config.graph.resolve(letters) {
+                    if chord {
+                        // A letter joining a phrase: counted, logged, and
+                        // its undo ridden on the phrase's first step.
+                        observations?.verbUsed("chord", at: clock.now())
+                        Log.info("chord", ["letters": letters.joined()])
+                        actions.joinNextPlacement()
+                    }
                     actions.summon(target, beside: beside, via: .graph)
                     walkSignal?(.graphSummon)
                 }
@@ -843,6 +855,9 @@ final class HotkeyEngine {
         let (held, _) = classify(event.flags)
         let wasHeld = lodeWasHeld
         lodeWasHeld = held
+        // The phrase ends with the thumb: letters after this are single
+        // summons again.
+        if !held, wasHeld { core.lodeReleased() }
         // Shift is live while a direction key is held: pressing it mid-glide
         // sprints, releasing it settles, without lifting the key.
         if case .scroll = core.state {
@@ -977,27 +992,43 @@ final class HotkeyEngine {
 
     /// Everything on one sheet, from live config and state.
     private func cheatSections() -> [CheatSheet.Section] {
+        // A gesture the hand has not fired in a season draws quiet and
+        // names the line that would retire it. The sheet says it; nothing
+        // turns off on its own.
+        let disabled = Set(Gestures.roster
+            .filter { !$0.keys.isEmpty && Set($0.keys).isSubset(of: config.disabledGestures) }
+            .map(\.name))
+        let dormant = observations.map {
+            Dictionary(uniqueKeysWithValues: Advisor.dormantGestures(
+                $0.observations, disabled: disabled, now: clock.now()).map { ($0.name, $0.days) })
+        } ?? [:]
+        func row(_ key: String, _ label: String, gesture: String? = nil) -> GuideRow {
+            guard let gesture, let days = dormant[gesture] else { return GuideRow(key: key, label: label) }
+            return GuideRow(key: key, label: label + " · unused \(days) days · gestures.\(gesture) false frees it",
+                            dimmed: true)
+        }
         let verbs: [GuideRow] = [
-            GuideRow(key: "␣", label: "launcher"),
-            GuideRow(key: "⏎", label: "ask: links · domains · search"),
-            GuideRow(key: ".", label: "draft: speak, ⏎ pastes · ⇧. edits the field"),
-            GuideRow(key: "-", label: "commands: the frontmost app's menus"),
-            GuideRow(key: "⇥", label: "windows of the focused app"),
-            GuideRow(key: "1…9", label: "jump to window by position"),
-            GuideRow(key: "0", label: "the focused window fills the display · ⇧0 beside"),
-            GuideRow(key: "\\", label: "flip layout orientation"),
-            GuideRow(key: "`", label: "scroll mode: j/k · h/l · d/u · gg/G · ⇧ for more"),
-            GuideRow(key: ";", label: "click hints: ⇧; chains · ⇧label right-clicks"),
-            GuideRow(key: "/", label: "select text: ⇧letter anchors · ⌘C takes that word"),
-            GuideRow(key: "← →", label: "undo · redo the layout"),
-            GuideRow(key: "⇧1…9", label: "slide the focused window to that position"),
-            GuideRow(key: "[ ]", label: "move window to prev/next display · ⇧ beside"),
-            GuideRow(key: "'", label: "breaths: ' ' updates latest"),
-            GuideRow(key: "hold", label: "peek the graph + window indexes"),
-            GuideRow(key: ",", label: "settings"),
-            GuideRow(key: "?", label: "this sheet, whenever you forget"),
-            GuideRow(key: "⇧⌘V", label: "clipboard: label pastes · ⇧ as copied · ⌘ actions · / search"),
-            GuideRow(key: "esc", label: "clear a chain"),
+            row("␣", "launcher", gesture: "launcher"),
+            row("⏎", "ask: links · domains · search", gesture: "web-bar"),
+            row(".", "draft: speak, ⏎ pastes · ⇧. edits the field", gesture: "draft"),
+            row("-", "commands: the frontmost app's menus", gesture: "commands"),
+            row("⇥", "windows of the focused app"),
+            row("1…9", "jump to window by position", gesture: "index-jump"),
+            row("0", "the focused window fills the display · ⇧0 beside", gesture: "maximize"),
+            row("\\", "flip layout orientation", gesture: "flip-orientation"),
+            row("`", "scroll mode: j/k · h/l · d/u · gg/G · ⇧ for more", gesture: "scroll"),
+            row(";", "click hints: ⇧; chains · ⇧label right-clicks", gesture: "hints"),
+            row("/", "select text: ⇧letter anchors · ⌘C takes that word", gesture: "select"),
+            row("← →", "undo · redo the layout", gesture: "layout-undo"),
+            row("⇧1…9", "slide the focused window to that position"),
+            row("[ ]", "move window to prev/next display · ⇧ beside", gesture: "display-move"),
+            row("'", "breaths: ' ' updates latest"),
+            row("hold", "peek the graph + window indexes"),
+            row("G B", "two letters under one hold: side by side · three make columns"),
+            row(",", "settings"),
+            row("?", "this sheet, whenever you forget"),
+            row("⇧⌘V", "clipboard: label pastes · ⇧ as copied · ⌘ actions · / search"),
+            row("esc", "clear a chain"),
         ]
         return [
             .init(header: "verbs", rows: verbs),

@@ -13,6 +13,9 @@ import LodestarCore
 protocol EngineActions: AnyObject {
     func focusedAppInfo() -> (pid: pid_t, name: String)?
     func summon(_ target: GraphTarget, beside: Bool, via route: Observations.Route)
+    /// The next placement is a chord's later letter: its undo rides the
+    /// phrase's first step.
+    func joinNextPlacement()
     func maximizeFocused(beside: Bool)
     func flipOrientation()
     func undoLayout()

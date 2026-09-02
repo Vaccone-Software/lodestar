@@ -50,6 +50,11 @@ public final class LayoutController {
     /// its source and its destination, so one undo restores both.
     private var undoStack: [Step] = []
     private var redoStack: [Step] = []
+    /// The next recorded step joins the one before it: a chord's second
+    /// letter is the same gesture as its first, and one `lode ←` must
+    /// restore the stage the whole phrase changed. Consumed by the next
+    /// record, so a stray flag can never fold two real gestures.
+    public var coalesceNextStep = false
     private var retileGenerations: [CGDirectDisplayID: Int] = [:]
     private var dormant: [String: DormantLayout] = [:]
     private var knownUUIDs: [CGDirectDisplayID: String] = [:]
@@ -357,6 +362,22 @@ public final class LayoutController {
     private func recordUndo(_ displays: [CGDirectDisplayID],
                             unparking: [CGWindowID] = []) {
         let step = Step(snapshots: displays.map(current), unpark: unparking)
+        if coalesceNextStep, !undoStack.isEmpty {
+            coalesceNextStep = false
+            // The phrase's first step already holds the stage as it stood
+            // before the phrase; a display this letter touches that the
+            // first did not is snapshotted now, which is still before it.
+            var joined = undoStack.removeLast()
+            for snapshot in step.snapshots
+                where !joined.snapshots.contains(where: { $0.display == snapshot.display }) {
+                joined.snapshots.append(snapshot)
+            }
+            joined.unpark += unparking
+            undoStack.append(joined)
+            redoStack.removeAll()
+            return
+        }
+        coalesceNextStep = false
         if undoStack.last == step { return }
         undoStack.append(step)
         if undoStack.count > 20 { undoStack.removeFirst() }

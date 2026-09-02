@@ -551,4 +551,50 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(effects, [.scrollExit, .hideGuide, .hideBars, .enterScroll, .scrollGuide])
         XCTAssertEqual(core.state, .scroll, "backtick exits and immediately re-enters — a toggle")
     }
+
+    // MARK: - The chord
+
+    func testLettersUnderOneHoldJoinBeside() {
+        world.graph = ["g": .leaf, "b": .leaf, "s": .leaf]
+        XCTAssertEqual(press("g"), [.hideGuide, .summonGraph(letters: ["g"], beside: false)])
+        XCTAssertEqual(press("b"), [.hideGuide, .summonGraph(letters: ["b"], beside: true, chord: true)],
+                       "the second letter under the same hold joins beside")
+        XCTAssertEqual(press("s"), [.hideGuide, .summonGraph(letters: ["s"], beside: true, chord: true)],
+                       "and a third makes a third column")
+        core.lodeReleased()
+        XCTAssertEqual(press("b"), [.hideGuide, .summonGraph(letters: ["b"], beside: false)],
+                       "lifting lode ends the phrase")
+    }
+
+    func testAChainCompletesInsideThePhrase() {
+        world.graph = ["g": .leaf, "e": .deeper, "eo": .leaf]
+        _ = press("g")
+        XCTAssertEqual(press("e"), [.showGuide(kind: .graph, letters: ["e"], deleting: false, note: nil)])
+        XCTAssertEqual(press("o"), [.hideGuide, .summonGraph(letters: ["e", "o"], beside: true, chord: true)])
+    }
+
+    func testAStickyChainAfterTheLiftIsASingleSummon() {
+        world.graph = ["g": .leaf, "e": .deeper, "eo": .leaf]
+        _ = press("g")
+        _ = press("e")
+        core.lodeReleased()
+        let effects = core.keyDown(key: "o", held: false, shift: false, world: world)
+        XCTAssertEqual(effects, [.hideGuide, .summonGraph(letters: ["e", "o"], beside: false)],
+                       "the phrase never crosses a lift")
+    }
+
+    func testDigitsKeepTheirMeaningUnderAHold() {
+        world.graph = ["g": .leaf]
+        _ = press("g")
+        XCTAssertEqual(press("2"), [.indexJump(2)], "moving inside the split is the digits' job")
+        XCTAssertEqual(press("g"), [.hideGuide, .summonGraph(letters: ["g"], beside: true, chord: true)],
+                       "a digit does not end the phrase")
+    }
+
+    func testAResetEndsThePhrase() {
+        world.graph = ["g": .leaf, "b": .leaf]
+        _ = press("g")
+        _ = core.reset()
+        XCTAssertEqual(press("b"), [.hideGuide, .summonGraph(letters: ["b"], beside: false)])
+    }
 }

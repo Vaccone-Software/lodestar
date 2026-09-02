@@ -576,7 +576,7 @@ public enum Coach {
             return nil
         case .route: return .host(rec.target)
         case .meetings: return .meeting
-        case .retire, .breath: return nil
+        case .retire, .breath, .dormant: return nil
         }
     }
 
@@ -707,6 +707,12 @@ public enum Coach {
             headline = "meetings at the door"
             evidence = rec.detail + secondsClause(rec.secondsPerWeek)
             accept = "tap lode twice to turn it on"
+        case .dormant:
+            // Never shown: report-only by construction. Spelled out so the
+            // chip stays exhaustive over every kind.
+            headline = "gestures.\(rec.target) false"
+            evidence = rec.detail
+            accept = "in the config"
         }
         return Chip(headline: headline, evidence: evidence,
                     footer: "\(accept) · lode ⌫ not this one · fades on its own")

@@ -62,11 +62,22 @@ final class Presenting {
         timer = nil
     }
 
-    private func sample() {
-        let clock = Date()
-        let calendar = meetingInProgress()
+    /// The microphone read is a CoreAudio property call, and while a
+    /// Bluetooth radio flips profiles the HAL answers it late. The main
+    /// thread hosts the event tap, so the read happens here and only the
+    /// verdict comes back.
+    private static let senses = DispatchQueue(label: "com.vaccone.lodestar.presenting", qos: .utility)
 
-        let open = Microphone.isInUse()
+    private func sample() {
+        let calendar = meetingInProgress()
+        Self.senses.async { [weak self] in
+            let open = Microphone.isInUse()
+            DispatchQueue.main.async { self?.apply(calendar: calendar, microphoneOpen: open) }
+        }
+    }
+
+    private func apply(calendar: Bool, microphoneOpen open: Bool) {
+        let clock = Date()
         if open {
             microphoneSince = microphoneSince ?? clock
         } else {

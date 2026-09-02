@@ -101,9 +101,9 @@ enum StripPreview {
             sheet.toggle(sections: {
                 [CheatSheet.Section(header: "verbs", rows: [
                     GuideRow(key: "␣", label: "launcher"),
-                    GuideRow(key: "⏎", label: "ask — links · domains · search"),
+                    GuideRow(key: "⏎", label: "ask: links · domains · search"),
                     GuideRow(key: "1…9", label: "jump to window by position"),
-                    GuideRow(key: "⇧⌘V", label: "clipboard — label pastes · ⌘ actions"),
+                    GuideRow(key: "⇧⌘V", label: "clipboard: label pastes · ⌘ actions"),
                 ]),
                  CheatSheet.Section(header: "motion", rows: [
                     GuideRow(key: "J K", label: "down · up"),

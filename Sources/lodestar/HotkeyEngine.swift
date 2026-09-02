@@ -290,7 +290,7 @@ final class HotkeyEngine {
         guard !tapWasDead else { return }
         tapWasDead = true
         Log.error("hotkeys: no event tap — gestures are inert until accessibility is granted")
-        hud.flash("⚠ Lodestar lost its keyboard access — re-grant it in Privacy & Security", seconds: 10)
+        hud.flash("⚠ Lodestar lost its keyboard access, re-grant it in Privacy & Security", seconds: 10)
     }
 
     /// Drop any chain, peek, or mode in flight and go quiet.
@@ -979,24 +979,24 @@ final class HotkeyEngine {
     private func cheatSections() -> [CheatSheet.Section] {
         let verbs: [GuideRow] = [
             GuideRow(key: "␣", label: "launcher"),
-            GuideRow(key: "⏎", label: "ask — links · domains · search"),
-            GuideRow(key: ".", label: "draft — speak, ⏎ pastes · ⇧. edits the field"),
-            GuideRow(key: "-", label: "commands — the frontmost app's menus"),
+            GuideRow(key: "⏎", label: "ask: links · domains · search"),
+            GuideRow(key: ".", label: "draft: speak, ⏎ pastes · ⇧. edits the field"),
+            GuideRow(key: "-", label: "commands: the frontmost app's menus"),
             GuideRow(key: "⇥", label: "windows of the focused app"),
             GuideRow(key: "1…9", label: "jump to window by position"),
-            GuideRow(key: "0", label: "the focused window fills the display — ⇧0 beside"),
+            GuideRow(key: "0", label: "the focused window fills the display · ⇧0 beside"),
             GuideRow(key: "\\", label: "flip layout orientation"),
-            GuideRow(key: "`", label: "scroll mode — j/k · h/l · d/u · gg/G · ⇧ for more"),
-            GuideRow(key: ";", label: "click hints — ⇧; chains · ⇧label right-clicks"),
-            GuideRow(key: "/", label: "select text — ⇧letter anchors · ⌘C takes that word"),
+            GuideRow(key: "`", label: "scroll mode: j/k · h/l · d/u · gg/G · ⇧ for more"),
+            GuideRow(key: ";", label: "click hints: ⇧; chains · ⇧label right-clicks"),
+            GuideRow(key: "/", label: "select text: ⇧letter anchors · ⌘C takes that word"),
             GuideRow(key: "← →", label: "undo · redo the layout"),
             GuideRow(key: "⇧1…9", label: "slide the focused window to that position"),
-            GuideRow(key: "[ ]", label: "move window to prev/next display — ⇧ beside"),
-            GuideRow(key: "'", label: "breaths — ' ' updates latest"),
+            GuideRow(key: "[ ]", label: "move window to prev/next display · ⇧ beside"),
+            GuideRow(key: "'", label: "breaths: ' ' updates latest"),
             GuideRow(key: "hold", label: "peek the graph + window indexes"),
             GuideRow(key: ",", label: "settings"),
-            GuideRow(key: "?", label: "this sheet — whenever you forget"),
-            GuideRow(key: "⇧⌘V", label: "clipboard — label pastes · ⇧ as copied · ⌘ actions · / search"),
+            GuideRow(key: "?", label: "this sheet, whenever you forget"),
+            GuideRow(key: "⇧⌘V", label: "clipboard: label pastes · ⇧ as copied · ⌘ actions · / search"),
             GuideRow(key: "esc", label: "clear a chain"),
         ]
         return [

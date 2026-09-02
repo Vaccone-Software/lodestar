@@ -76,7 +76,7 @@ final class ClipboardStore {
         guard let decoded = try? JSONDecoder().decode(Index.self, from: data) else {
             let quarantine = Quarantine.setAside(indexFile)
             Log.error("clipboard: index did not decode — quarantined at \(quarantine.lastPathComponent)")
-            bootWarning = "clipboard history could not be read — the old index is kept beside it"
+            bootWarning = "clipboard history could not be read, the old index is kept beside it"
             return
         }
         index = decoded

@@ -285,8 +285,7 @@ final class Stage {
         draft.readField = { [unowned self] _, _ in self.field }
         draft.selectAll = { _ in true }
         draft.readPasteboard = { [unowned self] in self.pasteboard.last }
-        draft.inputDevices = { ["Stage Microphone", "Other Microphone"] }
-        draft.systemInput = { "Stage Microphone" }
+        draft.enumerateInputs = { done in done(["Stage Microphone", "Other Microphone"], "Stage Microphone") }
         draft.chooseInput = { [unowned self] name in self.chosenInputs.append(name) }
         draft.playback = PlaybackPause(world: PlaybackPause.World(
             sharedRoute: { [unowned self] _, done in done(self.sharedRoute) },
@@ -304,7 +303,7 @@ final class Stage {
                 }
                 done(played)
             },
-            outputRate: { [unowned self] in self.outputRate },
+            outputRate: { [unowned self] done in done(self.outputRate) },
             watchRate: { [unowned self] onChange in
                 self.rateWatcher = onChange
                 return { [weak self] in self?.rateWatcher = nil }

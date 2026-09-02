@@ -54,8 +54,10 @@ final class PlaybackPause {
         /// debt, and a player quit meanwhile is left quit. Completes on
         /// main with who was actually played.
         var resumePlayers: ([String], @escaping ([String]) -> Void) -> Void
-        /// The default output's nominal sample rate right now.
-        var outputRate: () -> Double
+        /// The default output's nominal sample rate right now, off the
+        /// main thread and completing on main: read at the draft's close,
+        /// which is when the radio flips back and the HAL answers late.
+        var outputRate: (@escaping (Double) -> Void) -> Void
         /// Watch that rate; the closure returned stops watching.
         var watchRate: (@escaping (Double) -> Void) -> () -> Void
 
@@ -82,7 +84,12 @@ final class PlaybackPause {
                         DispatchQueue.main.async { done(played) }
                     }
                 },
-                outputRate: { SystemAudio.outputRate() ?? 0 },
+                outputRate: { done in
+                    queue.async {
+                        let rate = SystemAudio.outputRate() ?? 0
+                        DispatchQueue.main.async { done(rate) }
+                    }
+                },
                 watchRate: SystemAudio.watchOutputRate)
         }()
     }
@@ -170,14 +177,20 @@ final class PlaybackPause {
     /// still-flipped profile would put the first seconds of music
     /// through the telephone band.
     private func beginResume() {
-        if world.outputRate() >= Self.musicRate { resume(); return }
-        stopWatching = world.watchRate { [weak self] rate in
-            guard rate >= Self.musicRate else { return }
-            self?.resume()
+        world.outputRate { [weak self] rate in
+            // A draft that opened while the rate was being read keeps the
+            // quiet; its own end asks again.
+            guard let self, case .paused = self.state, !self.draftOpen else { return }
+            if rate >= Self.musicRate { self.resume(); return }
+            self.cancelResume()
+            self.stopWatching = self.world.watchRate { [weak self] rate in
+                guard rate >= Self.musicRate else { return }
+                self?.resume()
+            }
+            let work = DispatchWorkItem { [weak self] in self?.resume() }
+            self.backstop = work
+            self.clock.after(Self.resumeBackstop, work)
         }
-        let work = DispatchWorkItem { [weak self] in self?.resume() }
-        backstop = work
-        clock.after(Self.resumeBackstop, work)
     }
 
     private func resume() {
@@ -330,19 +343,41 @@ enum SystemAudio {
         return readDouble(output, address(kAudioDevicePropertyNominalSampleRate))
     }
 
+    /// The watch's own queue: the device lookup, the listener, and every
+    /// read inside it are HAL calls, and the main thread hosts the event
+    /// tap. `onChange` still arrives on main.
+    private static let listenerQueue = DispatchQueue(label: "com.vaccone.lodestar.playback-rate",
+                                                     qos: .utility)
+
     /// Watch the default output's nominal sample rate — the profile
     /// flip made visible: 44100 falls to 16000 when hands-free takes
     /// the radio, and rises when music gets it back. Returns a cancel.
     static func watchOutputRate(_ onChange: @escaping (Double) -> Void) -> () -> Void {
-        guard let device = defaultOutput() else { return {} }
-        var listenAddress = address(kAudioDevicePropertyNominalSampleRate)
-        let block: AudioObjectPropertyListenerBlock = { _, _ in
-            onChange(readDouble(device, address(kAudioDevicePropertyNominalSampleRate)) ?? 0)
+        final class Watch {
+            var device: AudioDeviceID?
+            var block: AudioObjectPropertyListenerBlock?
+            var cancelled = false
         }
-        AudioObjectAddPropertyListenerBlock(device, &listenAddress, .main, block)
+        let watch = Watch() // touched only on listenerQueue
+        listenerQueue.async {
+            guard !watch.cancelled, let device = defaultOutput() else { return }
+            var listenAddress = address(kAudioDevicePropertyNominalSampleRate)
+            let block: AudioObjectPropertyListenerBlock = { _, _ in
+                let rate = readDouble(device, address(kAudioDevicePropertyNominalSampleRate)) ?? 0
+                DispatchQueue.main.async { onChange(rate) }
+            }
+            AudioObjectAddPropertyListenerBlock(device, &listenAddress, listenerQueue, block)
+            watch.device = device
+            watch.block = block
+        }
         return {
-            var removeAddress = address(kAudioDevicePropertyNominalSampleRate)
-            AudioObjectRemovePropertyListenerBlock(device, &removeAddress, .main, block)
+            listenerQueue.async {
+                watch.cancelled = true
+                guard let device = watch.device, let block = watch.block else { return }
+                var removeAddress = address(kAudioDevicePropertyNominalSampleRate)
+                AudioObjectRemovePropertyListenerBlock(device, &removeAddress, listenerQueue, block)
+                watch.block = nil
+            }
         }
     }
 }

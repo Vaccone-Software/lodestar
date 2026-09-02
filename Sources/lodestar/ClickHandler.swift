@@ -110,7 +110,7 @@ final class ClickHandler {
         guard let application = browserURL() else {
             // Nothing installed to hand it to at all. Say so rather than
             // swallowing a click.
-            flash("✕ no browser to open that link — set web.clicks.browser")
+            flash("✕ no browser to open that link, set web.clicks.browser")
             Log.error("click", ["handoff": "no browser"])
             return
         }
@@ -118,7 +118,7 @@ final class ClickHandler {
         // to come forward is never the one blamed.
         guard loopGuard.admit(url.absoluteString,
                               at: Date().timeIntervalSinceReferenceDate) else {
-            flash("✕ that link keeps coming back — check web.clicks.browser")
+            flash("✕ that link keeps coming back, check web.clicks.browser")
             Log.error("click", ["handoff": "refused, the same link kept returning",
                                 "target": application.lastPathComponent])
             return

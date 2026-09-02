@@ -39,4 +39,16 @@ final class RoadsTests: XCTestCase {
         roads.clicked(at: start.addingTimeInterval(5))
         XCTAssertEqual(roads.road(at: start), FocusRoads.other)
     }
+
+    func testAPlacementSaysWhetherItPulled() {
+        var roads = FocusRoads()
+        roads.summoned(via: .graph, at: start)
+        XCTAssertFalse(roads.pulled(at: start.addingTimeInterval(0.1)), "a summon not yet placed pulled nothing")
+        roads.placed(pulled: true, at: start.addingTimeInterval(0.2))
+        XCTAssertTrue(roads.pulled(at: start.addingTimeInterval(0.3)))
+        XCTAssertEqual(roads.road(at: start.addingTimeInterval(0.3)), "graph", "the placement keeps the road")
+        roads.clicked(at: start.addingTimeInterval(1))
+        XCTAssertFalse(roads.pulled(at: start.addingTimeInterval(1.1)), "a click is the system's road")
+        XCTAssertFalse(FocusRoads().pulled(at: start))
+    }
 }

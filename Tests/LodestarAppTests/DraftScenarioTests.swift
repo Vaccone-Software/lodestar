@@ -693,4 +693,51 @@ final class DraftScenarioTests: XCTestCase {
         XCTAssertEqual(stage.draft.buffer.text, "fits", "and a clip that fits still lands")
         XCTAssertTrue(stage.draft.isOpen)
     }
+
+    /// Insert mode speaks the macOS dialect, and every field answers ⌘Z:
+    /// the insert run so far comes back, in insert mode, mic untouched.
+    func testCommandZInInsertModeUndoesTheInsertRun() {
+        let stage = Stage()
+        stage.field = DraftController.Field(selection: nil, value: "one", cursor: 3)
+        stage.lode(".", shift: true)
+        cmd(stage, "space"); cmd(stage, "t"); cmd(stage, "w"); cmd(stage, "o")
+        XCTAssertEqual(stage.draft.buffer.text, "one two")
+        XCTAssertTrue(stage.commandPress("z"), "swallowed, not passed to the app")
+        XCTAssertEqual(stage.draft.buffer.text, "one", "the insert run is undone")
+        XCTAssertEqual(stage.draft.mode, .insert, "and the mode stays")
+        cmd(stage, "x")
+        XCTAssertEqual(stage.draft.buffer.text.hasSuffix("x"), true, "typing continues in insert mode")
+    }
+
+    func testCommandAInInsertModeSelectsTheWholeBuffer() {
+        let stage = Stage()
+        stage.field = DraftController.Field(selection: nil, value: "one two", cursor: 3)
+        stage.lode(".", shift: true)
+        XCTAssertTrue(stage.commandPress("a"))
+        XCTAssertEqual(stage.draft.mode, .normal, "the selection lives in the editor")
+        XCTAssertEqual(stage.draft.vim.selection(in: stage.draft.buffer), 0..<7)
+        cmd(stage, "d")
+        XCTAssertEqual(stage.draft.buffer.text, "", "and the editor's verbs act on it")
+    }
+
+    /// A session that never reports listening is stopped and named, so
+    /// the register line cannot say "opening the microphone" forever, and
+    /// the door starts a fresh session.
+    func testASilentSessionIsNamedAndTheDoorRetries() {
+        let stage = Stage()
+        stage.speech.slowToListen = true
+        stage.lode(".")
+        XCTAssertEqual(stage.speech.listens, 1)
+        stage.clock.advance(by: DraftController.landBackstopSeconds)
+        XCTAssertEqual(stage.speech.stops, 0, "eight seconds is the leash, not two")
+        stage.clock.advance(by: DraftController.listenWatchdogSeconds)
+        XCTAssertEqual(stage.speech.stops, 1, "the silent session is stopped")
+        XCTAssertTrue(stage.draft.isOpen, "the draft stays, typing still works")
+        XCTAssertEqual(stage.draft.state["listening"] as? Bool, false)
+        stage.lode(".")
+        XCTAssertEqual(stage.speech.listens, 2, "the door starts a fresh session")
+        stage.speech.ready()
+        XCTAssertEqual(stage.draft.state["listening"] as? Bool, true)
+        XCTAssertEqual(stage.speech.openSessions, 1)
+    }
 }

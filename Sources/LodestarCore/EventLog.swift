@@ -128,6 +128,12 @@ public struct ObservationEvent: Codable, Equatable {
     public var words: Int?
     public var switches: Int?
     public var firstWord: Double?
+    /// A focus event: the switch brought its window into view — placed
+    /// from parked, minimized, or hidden — rather than focusing one that
+    /// already stood on screen.
+    public var pulled: Bool?
+    /// A select event: the pointer rested over the window that was read.
+    public var pointerOn: Bool?
     public var warm: Bool?
 
     public init(t: Date, kind: Kind) {

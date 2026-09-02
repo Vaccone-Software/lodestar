@@ -1101,9 +1101,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 withBundleIdentifier: config.webClickBrowser) != nil
         if !onFile {
             Log.error("click", ["browser": config.webClickBrowser.isEmpty
-                                    ? "none on file — falling back to discovery"
+                                    ? "none on file, falling back to discovery"
                                     : "not installed: \(config.webClickBrowser)"])
-            hud.flash("⚠ Lodestar is your browser but no browser is set — see web.clicks.browser",
+            hud.flash("⚠ Lodestar is your browser but no browser is set, see web.clicks.browser",
                       seconds: 8)
         }
     }
@@ -1212,7 +1212,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if browser.isEmpty {
             guard let discovered = ClickHandler.discoverBrowser(),
                   let bundleID = Bundle(url: discovered)?.bundleIdentifier else {
-                hud.flash("⚠ Lodestar is your default browser but no browser is set — see web.clicks.browser", seconds: 8)
+                hud.flash("⚠ Lodestar is your default browser but no browser is set, see web.clicks.browser", seconds: 8)
                 Log.error("click", ["adopt": "no browser to hand off to"])
                 return
             }
@@ -1377,7 +1377,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             case .leaf(let target):
                 return "lode \(shown) is \(target.label)"
             case .deeper:
-                if depth == letters.count { return "lode \(shown) leads deeper — add a letter" }
+                if depth == letters.count { return "lode \(shown) leads deeper, add a letter" }
             case .miss:
                 return nil
             }
@@ -1400,7 +1400,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         } catch {
             Log.error("clipboard", ["exclude-failed": "\(error)"])
-            hud.flash("⚠ could not save that — \(error)", seconds: 5)
+            hud.flash("⚠ could not save that. \(error)", seconds: 5)
             return
         }
         Log.info("clipboard", ["excluded-app": bundleID])

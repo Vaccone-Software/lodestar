@@ -64,7 +64,7 @@ final class CheatSheet {
             columns.addArrangedSubview(column)
         }
 
-        let footer = NSTextField(labelWithString: "lode ? closes · everything here is live — bind more and it grows")
+        let footer = NSTextField(labelWithString: "lode ? closes · everything here is live, bind more and it grows")
         footer.font = .systemFont(ofSize: 11)
         footer.textColor = .secondaryLabelColor
 

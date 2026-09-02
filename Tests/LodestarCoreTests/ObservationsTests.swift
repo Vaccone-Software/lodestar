@@ -450,4 +450,25 @@ final class ObservationsTests: XCTestCase {
         XCTAssertEqual(Observations.rebuild(from: [moved]), o,
                        "a view over the log, rebuildable like everything else")
     }
+
+    func testPulledSwitchesKeepTheirOwnTable() {
+        var o = Observations()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        func focus(_ app: String, pulled: Bool?, at offset: TimeInterval) {
+            var event = ObservationEvent(t: start.addingTimeInterval(offset), kind: .focus)
+            event.app = app
+            event.pulled = pulled
+            o.apply(event)
+        }
+        focus("ghostty", pulled: nil, at: 0)
+        focus("brave", pulled: nil, at: 1)
+        XCTAssertNil(o.transitionPulls, "nothing could say either way yet")
+        focus("ghostty", pulled: false, at: 2)
+        XCTAssertEqual(o.transitionPulls?.isEmpty, true, "the first verdict marks the table kept")
+        focus("brave", pulled: true, at: 3)
+        focus("ghostty", pulled: false, at: 4)
+        XCTAssertEqual(o.transitions["ghostty"]?["brave"] ?? 0, 2, accuracy: 0.0001)
+        XCTAssertEqual(o.transitionPulls?["ghostty"]?["brave"] ?? 0, 1, accuracy: 0.0001)
+        XCTAssertNil(o.transitionPulls?["brave"]?["ghostty"], "a switch to a visible window is not a pull")
+    }
 }

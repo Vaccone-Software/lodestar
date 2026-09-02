@@ -15,6 +15,18 @@ final class RoadTracker {
         lock.unlock()
     }
 
+    func placed(pulled: Bool, at now: Date = Date()) {
+        lock.lock()
+        roads.placed(pulled: pulled, at: now)
+        lock.unlock()
+    }
+
+    func pulled(at now: Date = Date()) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return roads.pulled(at: now)
+    }
+
     func cmdTabbed(at now: Date = Date()) {
         lock.lock()
         roads.cmdTabbed(at: now)

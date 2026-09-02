@@ -59,19 +59,26 @@ final class Actions {
             // external focus can find the window still parked; without
             // this, a swept window's app could stand frontmost with its
             // window a sliver in the corner.
+            var unparked = false
             if self.parking.isParked(id), let window = self.model.windows[id],
                window.isAlive {
                 if self.parking.unpark(window) {
                     self.store.setParked(self.parking.snapshot())
                     Log.info("unpark", ["window": id, "via": "external focus"])
+                    unparked = true
                 }
             }
             // The transition structure: which app follows which, by any
             // road — Lodestar's or the system's. App names only; the
-            // observation layer decays and caps the matrix.
+            // observation layer decays and caps the matrix. `pulled` says
+            // whether the switch had to bring the window into view — a
+            // summon that placed a hidden one, or this unpark — because a
+            // pair already side by side has nothing a breath can save.
             if let window = self.model.windows[id] {
+                let now = Date()
                 self.observations?.focused(app: window.appName,
-                                           road: self.roads?.road(at: Date()))
+                                           road: self.roads?.road(at: now),
+                                           pulled: unparked || (self.roads?.pulled(at: now) ?? false))
                 // Wake the app's accessibility tree the moment it first
                 // matters — hints and select both harvest warmer for it.
                 AXWarmer.warm(window.pid)
@@ -840,6 +847,11 @@ final class Actions {
                                 "ms": Int(Date().timeIntervalSince(began) * 1000)])
         }
         store.touchUsage(window.bundleID)
+        // Was the window on screen before this placement? A focus alone
+        // reaches a visible one; a parked, minimized, or hidden window had
+        // to be pulled into view. The focus event that follows carries it.
+        let hidden = NSRunningApplication(processIdentifier: window.pid)?.isHidden ?? false
+        roads?.placed(pulled: window.isMinimized || parking.isParked(window.id) || hidden)
         parking.claim(window.id)
         if window.isMinimized {
             AXWindow(element: window.element)?.setMinimized(false)

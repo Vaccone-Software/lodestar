@@ -229,6 +229,12 @@ public struct Observations: Codable, Equatable {
         public var ax = 0
         public var native = 0
         public var held = 0
+        /// Sessions where the pointer rested off the window that was read,
+        /// and how many of those were abandoned: the eye is often on a
+        /// neighbor of the focused window, and this split is what decides
+        /// whether select should read the window under the pointer.
+        public var pointerOff: Int?
+        public var pointerOffAbandoned: Int?
         /// Query characters per session — the road's price in keys.
         public var typed = Moments()
         /// Seconds per session — the road's price in time.
@@ -367,6 +373,12 @@ public struct Observations: Codable, Equatable {
     /// App → app decayed transition counts: the co-use structure breaths
     /// are recommended from. Halved weekly so it stays present-tense.
     public var transitions: [String: [String: Double]] = [:]
+    /// The switches in `transitions` that pulled a window into view —
+    /// placed from parked, minimized, or hidden — decayed and capped with
+    /// it. nil until a focus event could say either way; then a pair
+    /// with nothing pulled is a pair already side by side, and a breath
+    /// can save it nothing.
+    public var transitionPulls: [String: [String: Double]]?
     var transitionsDecayedAt = Date.distantPast
     var lastApp: String?
     public var launcherAbandons = 0
@@ -563,6 +575,16 @@ public struct Observations: Codable, Equatable {
                 if need > 0, known.count + need > Self.transitionAppCap { return }
             }
             transitions[previous, default: [:]][app, default: 0] += 1
+            if event.pulled == true {
+                var pulls = transitionPulls ?? [:]
+                pulls[previous, default: [:]][app, default: 0] += 1
+                transitionPulls = pulls
+            } else if event.pulled == false, transitionPulls == nil {
+                // The first focus that could say marks the table kept, so
+                // a pair every switch of which stood in view prices at
+                // zero rather than at the old blind count.
+                transitionPulls = [:]
+            }
 
         case .epoch:
             touch(now)
@@ -600,6 +622,12 @@ public struct Observations: Codable, Equatable {
             if event.source == "ocr" { record.ocr += 1 } else { record.ax += 1 }
             if event.row == "native" || event.row == "grounded" { record.native += 1 }
             if event.row == "held" { record.held += 1 }
+            if event.pointerOn == false {
+                record.pointerOff = (record.pointerOff ?? 0) + 1
+                if action != "completed" {
+                    record.pointerOffAbandoned = (record.pointerOffAbandoned ?? 0) + 1
+                }
+            }
             if let typed = event.typed, typed >= 0 { record.typed.add(Double(typed)) }
             if let seconds = event.seconds, seconds > 0, seconds < 120 {
                 record.seconds.add(seconds)
@@ -835,6 +863,14 @@ public struct Observations: Codable, Equatable {
             if decayed.isEmpty { transitions.removeValue(forKey: from) } else {
                 transitions[from] = decayed
             }
+        }
+        if let pulls = transitionPulls {
+            var kept: [String: [String: Double]] = [:]
+            for (from, row) in pulls {
+                let decayed = row.mapValues { $0 * factor }.filter { $0.value > 0.01 }
+                if !decayed.isEmpty { kept[from] = decayed }
+            }
+            transitionPulls = kept
         }
         transitionsDecayedAt = now
     }

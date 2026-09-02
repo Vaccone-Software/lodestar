@@ -155,8 +155,10 @@ public final class ObservationStore {
     public func selected(app: String, action: String, source: String,
                          outcome: String?, typed: Int, seconds: TimeInterval,
                          matches: Int? = nil, firstKey: TimeInterval? = nil,
-                         entryChips: Int? = nil, at now: Date = Date()) {
+                         entryChips: Int? = nil, pointerOn: Bool? = nil,
+                         at now: Date = Date()) {
         var event = ObservationEvent(t: now, kind: .select)
+        event.pointerOn = pointerOn
         event.app = app.lowercased()
         event.action = action
         event.source = source
@@ -210,11 +212,14 @@ public final class ObservationStore {
     }
 
     /// Focus landed on an app, by any road — Lodestar's or the system's.
-    public func focused(app: String, road: String? = nil, at now: Date = Date()) {
+    public func focused(app: String, road: String? = nil, pulled: Bool? = nil,
+                        at now: Date = Date()) {
         var event = ObservationEvent(t: now, kind: .focus)
         event.app = app.lowercased()
-        // The road, when the shell could name one (`FocusRoads`).
+        // The road, when the shell could name one (`FocusRoads`), and
+        // whether the switch pulled its window into view.
         event.route = road
+        event.pulled = pulled
         record(event)
     }
 

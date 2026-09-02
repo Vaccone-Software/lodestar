@@ -137,7 +137,7 @@ final class UpdateController {
             try? version.write(to: Self.refusedFile, atomically: true, encoding: .utf8)
             Log.error("update rolled back: \(version) never took the pid file — refusing it until a newer release ships")
             DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [flash] in
-                flash("⚠ update to \(version) failed — rolled back, still on \(Lodestar.version)", 8)
+                flash("⚠ update to \(version) failed, rolled back, still on \(Lodestar.version)", 8)
             }
         }
     }
@@ -182,7 +182,7 @@ final class UpdateController {
         network.dataTask(with: request) { [weak self] data, _, error in
             guard let self else { return }
             guard let data, error == nil, let release = Updater.parseFeed(data) else {
-                self.finishCheck(force: force, note: "✕ update check failed — see log",
+                self.finishCheck(force: force, note: "✕ update check failed, see the log",
                                  log: "feed unreadable (\(error.map(String.init(describing:)) ?? "no release with a zip"))")
                 return
             }
@@ -193,7 +193,7 @@ final class UpdateController {
             }
             guard Updater.shouldOffer(release, refusedTag: self.refusedTag) else {
                 self.finishCheck(force: force,
-                                 note: "⌖ \(release.tag) already failed to start — waiting for a newer release",
+                                 note: "⌖ \(release.tag) already failed to start, waiting for a newer release",
                                  log: "refusing \(release.tag): it was rolled back once")
                 return
             }
@@ -206,12 +206,12 @@ final class UpdateController {
         let parent = installURL.deletingLastPathComponent()
         guard FileManager.default.isWritableFile(atPath: parent.path) else {
             Log.error("update: \(parent.path) is not writable — leaving the manual lanes to it")
-            if force { flash("✕ update: install location not writable — see log", 4) }
+            if force { flash("✕ update: install location not writable, see the log", 4) }
             return false
         }
         guard FileManager.default.fileExists(atPath: installURL.path) else {
             Log.error("update: nothing at \(installURL.path) — standing down")
-            if force { flash("✕ update: the install is missing — see log", 4) }
+            if force { flash("✕ update: the install is missing, see the log", 4) }
             return false
         }
         return true
@@ -227,12 +227,12 @@ final class UpdateController {
 
     private func download(_ release: Updater.Release, force: Bool) {
         guard let url = URL(string: release.zipURL) else {
-            finishCheck(force: force, note: "✕ update check failed — see log", log: "bad asset url")
+            finishCheck(force: force, note: "✕ update check failed, see the log", log: "bad asset url")
             return
         }
         Log.info("update", ["phase": "downloading", "asset": release.zipName])
         if force {
-            DispatchQueue.main.async { self.flash("⌖ \(release.tag) found — downloading…", 3) }
+            DispatchQueue.main.async { self.flash("⌖ \(release.tag) found, downloading…", 3) }
         }
         let semaphore = DispatchSemaphore(value: 0)
         var fetched: URL?
@@ -248,7 +248,7 @@ final class UpdateController {
         }.resume()
         semaphore.wait()
         guard let zip = fetched else {
-            finishCheck(force: force, note: "✕ update download failed — see log", log: "download failed")
+            finishCheck(force: force, note: "✕ update download failed, see the log", log: "download failed")
             return
         }
         stage(zip: zip, release: release, force: force)
@@ -295,7 +295,7 @@ final class UpdateController {
         clearStaging()
         DispatchQueue.main.async {
             self.phase = .idle
-            if force { self.flash("✕ update failed verification — see log", 4) }
+            if force { self.flash("✕ update failed verification, see the log", 4) }
         }
     }
 
@@ -341,12 +341,12 @@ final class UpdateController {
         let previous = parent.appendingPathComponent("lodestar.app.previous")
         guard !FileManager.default.fileExists(atPath: previous.path) else {
             Log.info("update", ["phase": "deferred", "reason": "an earlier swap is still unresolved"])
-            if force { flash("⌖ an earlier update is still settling — retrying shortly", 4) }
+            if force { flash("⌖ an earlier update is still settling, retrying shortly", 4) }
             return
         }
 
         phase = .applying(version: version)
-        if force { flash("⌖ updating to \(version) — the new build takes over shortly", 4) }
+        if force { flash("⌖ updating to \(version), the new build takes over shortly", 4) }
         Log.info("update", ["phase": "applying", "to": version])
 
         do {
@@ -359,7 +359,7 @@ final class UpdateController {
                 try? FileManager.default.moveItem(at: previous, to: installURL)
             }
             Log.error("update swap failed: \(error)")
-            standDown(force: force, note: "✕ update failed — see log")
+            standDown(force: force, note: "✕ update failed, see the log")
             return
         }
 

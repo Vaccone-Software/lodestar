@@ -566,6 +566,39 @@ final class AnalysisTests: XCTestCase {
         XCTAssertTrue(breath?.target.contains("ghostty") ?? false)
     }
 
+    func testBreathIsSilentWhenEverySwitchStoodInView() {
+        // The pulled table exists and holds nothing for the pair: every
+        // switch reached a window already on screen, which a breath
+        // cannot make cheaper. Still tested, never offered.
+        var o = Observations()
+        o.transitions = [
+            "ghostty": ["brave": 100, "slack": 35],
+            "brave": ["ghostty": 90, "slack": 20],
+            "slack": ["ghostty": 40, "brave": 15],
+        ]
+        o.transitionPulls = [:]
+        let context = Advisor.Context(observations: o, events: [], leaves: [],
+                                      webRoutes: [:], now: start)
+        XCTAssertNil(Advisor.recommend(context).first { $0.kind == .breath },
+                     "a pair already side by side has nothing a breath can save")
+    }
+
+    func testBreathPricesThePullsNotTheSwitches() {
+        var o = Observations()
+        o.transitions = [
+            "ghostty": ["brave": 100, "slack": 35],
+            "brave": ["ghostty": 90, "slack": 20],
+            "slack": ["ghostty": 40, "brave": 15],
+        ]
+        o.transitionPulls = ["ghostty": ["brave": 30], "brave": ["ghostty": 10]]
+        let context = Advisor.Context(observations: o, events: [], leaves: [],
+                                      webRoutes: [:], now: start)
+        let breath = Advisor.recommend(context).first { $0.kind == .breath }
+        XCTAssertEqual(breath?.secondsPerWeek ?? 0, 40, accuracy: 0.001,
+                       "both directions of pulls, at two seconds each")
+        XCTAssertTrue(breath?.detail.contains("40 pulled into view") ?? false)
+    }
+
     func testMixtureStaysSilentOnUnimodalData() {
         // A fluent user's day has no reconstruction mode; splitting one
         // cloud into center and tails would fabricate ownership numbers.

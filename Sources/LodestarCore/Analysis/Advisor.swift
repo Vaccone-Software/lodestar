@@ -898,6 +898,12 @@ public enum Advisor {
     /// sanity floor.
     static func breathCandidates(_ context: Context) -> [Candidate] {
         let pairs = Transitions.strongPairs(context.observations.transitions)
+        // The switches that pulled a window into view, both directions:
+        // what a breath actually saves. A pair already side by side is
+        // switched by focus alone, and the old count priced those too —
+        // the top finding on the machine this was built on promised
+        // eighteen minutes a week for a breath that already existed.
+        let pulls = context.observations.transitionPulls
         var out: [Candidate] = []
         // Directional pairs, undirected suggestion: A→B and B→A are one
         // finding, kept at the stronger direction's evidence.
@@ -913,9 +919,11 @@ public enum Advisor {
             let z = (pair.count - expected) / max(1, expected).squareRoot()
             let p = 1 - Maths.normalCDF(z)
             let probability = min(0.95, Maths.normalCDF(z))
+            let pulled = pulls.map { ($0[pair.from]?[pair.to] ?? 0) + ($0[pair.to]?[pair.from] ?? 0) }
             // The lift floor is a sanity gate, not the test (see the
-            // z-score note above); the cap is presentation.
-            let offerable = pair.lift >= 1.3 && offered < 3
+            // z-score note above); the cap is presentation. Nothing pulled
+            // means nothing to save: not offerable, still in the family.
+            let offerable = pair.lift >= 1.3 && offered < 3 && (pulled ?? 1) > 0
             if offerable { offered += 1 }
             // The accept: compose the pair side by side and save it at a
             // free breath letter. No free letter, no edit — the finding
@@ -926,11 +934,14 @@ public enum Advisor {
             out.append(Candidate(rec: Recommendation(
                 kind: .breath, target: "\(pair.from) + \(pair.to)",
                 detail: "\(pair.from) and \(pair.to) travel together "
-                    + String(format: "%.0f× at lift %.1f · a breath would pin them side by side",
-                             pair.count, pair.lift),
+                    + String(format: "%.0f× at lift %.1f", pair.count, pair.lift)
+                    + (pulled.map { String(format: " · %.0f pulled into view", $0) } ?? "")
+                    + " · a breath would pin them side by side",
                 // A weekly-halved mass is ~a two-week window, so the rate
-                // is half of it — at two seconds a transition, the count.
-                secondsPerWeek: pair.count,
+                // is half of it — at two seconds a transition, the count:
+                // the pulled count where the table exists, since a switch
+                // between two visible windows costs a breath nothing.
+                secondsPerWeek: pulled ?? pair.count,
                 probability: probability,
                 evidence: [String(format: "lift %.1f over independent use", pair.lift)],
                 display: "\(pair.from) + \(pair.to)",

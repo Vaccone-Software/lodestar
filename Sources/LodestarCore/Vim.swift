@@ -174,6 +174,51 @@ public struct Vim {
         recording = []
     }
 
+    /// Insert mode entered from outside the grammar — the draft's doors —
+    /// with the buffer as it stands, so the run has a snapshot to undo to.
+    /// `i` and its kin take their own; this is for the door that opens
+    /// insert without a normal-mode command before it. No-op when insert
+    /// is already the mode.
+    public mutating func startInsert(_ buffer: Draft.Buffer) {
+        guard mode != .insert else { return }
+        snapshot(buffer)
+        startInsert()
+    }
+
+    /// ⌘Z in insert mode: the run so far comes back, the mode stays, and
+    /// the cursor returns to where the run began — the macOS field's undo,
+    /// spoken by the editor's own history. `redo` is ⌘⇧Z. A snapshot that
+    /// equals the buffer is a run that typed nothing and is skipped, so a
+    /// second ⌘Z reaches the change before it, as vim's `u` would.
+    public mutating func undoInsertRun(_ buffer: inout Draft.Buffer, redo: Bool = false) -> [Effect] {
+        guard mode == .insert else { return [] }
+        let here = Snapshot(characters: buffer.characters, cursor: buffer.cursor)
+        if redo {
+            guard let next = redoStack.popLast() else { return [.flash("⌂ nothing to redo")] }
+            undoStack.append(here)
+            buffer.restore(characters: next.characters, cursor: next.cursor)
+        } else {
+            var target: Snapshot?
+            while let last = undoStack.popLast() {
+                if last.characters == here.characters, last.cursor == here.cursor { continue }
+                target = last
+                break
+            }
+            guard let target else { return [.flash("⌂ nothing to undo")] }
+            redoStack.append(here)
+            buffer.restore(characters: target.characters, cursor: target.cursor)
+        }
+        // What stands now is where the next run begins: its own snapshot,
+        // so esc then u still has a step to take. The undone keys are not
+        // a change for `.` to repeat.
+        undoStack.append(Snapshot(characters: buffer.characters, cursor: buffer.cursor))
+        if undoStack.count > Self.historyCap { undoStack.removeFirst() }
+        insertOpen = false
+        inserted = []
+        recording = []
+        return []
+    }
+
     public mutating func typed(_ text: String) {
         guard mode == .insert, !replaying else { return }
         for character in text { inserted.append(.char(character)) }

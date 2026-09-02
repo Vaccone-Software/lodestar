@@ -439,7 +439,14 @@ final class DraftPanel {
         case .listening:
             if !view.micOn { return "microphone off" }
             return view.mode == .insert ? "" : "microphone waits for insert mode"
-        case .paused, nil: return ""
+        case .paused: return ""
+        case nil:
+            // Between the door and the recognizer's first word about
+            // itself the line used to be blank, and the only cue that the
+            // mic was not yet open was the glyph's tint. On a Bluetooth
+            // headset that gap is one to three seconds, and words spoken
+            // into it are gone.
+            return view.micOn ? "opening the microphone" : ""
         }
     }
 }

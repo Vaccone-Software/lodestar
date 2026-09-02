@@ -255,7 +255,7 @@ final class ClipboardController {
         // field would swallow the paste in silence. The clip is on the
         // pasteboard either way — hand off rather than fail.
         if IsSecureEventInputEnabled() {
-            flash("⌘V to paste — this field blocks synthetic input")
+            flash("press ⌘V to paste, this field blocks synthetic input")
             return
         }
         // Only when the file could not be written does the last keystroke go
@@ -265,7 +265,7 @@ final class ClipboardController {
             kind: clip.kind,
             frontmostBundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         ), !handedOverAsFile {
-            flash("⌃V to paste — that image could not be written to a file")
+            flash("press ⌃V to paste, that image could not be written to a file")
             return
         }
         synthesizePaste()

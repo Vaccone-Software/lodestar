@@ -37,9 +37,14 @@ final class DraftController {
     var readPasteboard: () -> String?
     /// Settled speech is activity too, for the engine's idle clock.
     var onActivity: (() -> Void)?
-    /// The machine's inputs, by name, and the one the system calls default.
-    var inputDevices: () -> [String]
-    var systemInput: () -> String?
+    /// The machine's inputs, by name, and the one the system calls
+    /// default, delivered on the main thread. Off it in the app: the
+    /// enumeration is a CoreAudio roll call, which waits on the HAL while
+    /// a Bluetooth radio flips profiles — the moment one draft closes and
+    /// the next opens — and the main thread hosts the event tap.
+    var enumerateInputs: (@escaping ([String], String?) -> Void) -> Void
+    private static let inputQueue = DispatchQueue(label: "com.vaccone.lodestar.draft-inputs",
+                                                  qos: .userInitiated)
     /// The user picked an input on the register line; the app writes the
     /// config line (`draft.input`), nil meaning the system default.
     var chooseInput: ((String?) -> Void)?
@@ -110,6 +115,13 @@ final class DraftController {
     private var origin: Origin?
     private var closing = false
     private var pendingSettle: (() -> Void)?
+    /// The word that runs if the recognizer never says it is listening:
+    /// the register line would otherwise say "opening the microphone"
+    /// forever, and the hand would talk into nothing. Past this the
+    /// session is stopped and named failed, and `lode .` or the mic
+    /// glyph starts a fresh one.
+    private var listenWatchdog: DispatchWorkItem?
+    static let listenWatchdogSeconds: TimeInterval = 8
     /// The landing that runs if the recognizer never says it stopped:
     /// while `closing` stands every key is swallowed, so a stop that
     /// hangs would take the keyboard with it.
@@ -185,8 +197,13 @@ final class DraftController {
         readField = Self.readFieldAX
         selectAll = Self.selectAllAX
         readPasteboard = { NSPasteboard.general.string(forType: .string) }
-        inputDevices = { AudioInput.inputDevices().map(\.name) }
-        systemInput = { AudioInput.defaultInputName }
+        enumerateInputs = { done in
+            Self.inputQueue.async {
+                let names = AudioInput.inputDevices().map(\.name)
+                let system = AudioInput.defaultInputName
+                DispatchQueue.main.async { done(names, system) }
+            }
+        }
         panel.onToggleMic = { [weak self] in self?.toggleMic() }
         panel.onChooseInput = { [weak self] name in self?.selectInput(name) }
         // The destination follows focus; the register line follows it.
@@ -282,14 +299,13 @@ final class DraftController {
             }
         }
         origin = front.map { Origin(pid: $0.pid, pulled: pulled, wholeField: whole, token: fieldToken) }
-        inputs = inputDevices()
-        systemInputName = systemInput()
+        refreshInputs()
 
         // Both doors open in insert mode — the difference is the mic and
         // what comes along: speak listens into an empty buffer, edit is
         // silent with the field pulled in. Vim is one esc away either way.
         mode = .insert
-        vim.startInsert()
+        vim.startInsert(buffer)
         switch door {
         case .speak:
             micWanted = true
@@ -336,7 +352,7 @@ final class DraftController {
         if next == .normal { settleGhostAsSeen() }
         // The editor and the mic agree on which mode this is.
         switch next {
-        case .insert: vim.startInsert()
+        case .insert: vim.startInsert(buffer)
         case .normal: vim.leaveInsert(&buffer)
         }
         guard mode != next else { return }
@@ -367,8 +383,7 @@ final class DraftController {
     func selectInput(_ name: String?) {
         inputDevice = name
         chooseInput?(name)
-        inputs = inputDevices()
-        systemInputName = systemInput()
+        refreshInputs()
         guard isOpen, !closing, sessionStarted else { render(); return }
         speech.stop {}
         listening = false
@@ -376,6 +391,17 @@ final class DraftController {
         inputName = nil
         startListening()
         render()
+    }
+
+    /// The inputs, enumerated off the main thread; the register line
+    /// redraws when they land.
+    private func refreshInputs() {
+        enumerateInputs { [weak self] names, system in
+            guard let self, self.isOpen else { return }
+            self.inputs = names
+            self.systemInputName = system
+            self.render()
+        }
     }
 
     // MARK: - Speech
@@ -427,6 +453,22 @@ final class DraftController {
             self.pendingSettle?()
             self.pendingSettle = nil
         })
+        listenWatchdog?.cancel()
+        let watchdog = DispatchWorkItem { [weak self] in
+            // Preparing (a model download) reports itself and is not a
+            // silence; anything else this long is a session that will
+            // never speak — v0.28.0's wedged audio queue looked exactly
+            // like this from the register line.
+            guard let self, self.isOpen, self.session == mine, !self.listening,
+                  self.speechState == nil else { return }
+            Log.info("draft", ["speech": "no listening state", "seconds": Int(Self.listenWatchdogSeconds)])
+            self.speechState = .failed("the microphone did not start")
+            self.speech.stop {}
+            self.sessionStarted = false
+            self.render()
+        }
+        listenWatchdog = watchdog
+        clock.after(Self.listenWatchdogSeconds, watchdog)
     }
 
     private func settle(_ text: String) {
@@ -526,8 +568,29 @@ final class DraftController {
                 return true
             case "c":
                 writePasteboard(buffer.text); flash?("⌂ draft copied"); return true
-            case "a", "z", "x":
-                return true // swallowed in insert mode: no selection or undo there
+            case "z":
+                // Insert mode speaks the dialect every macOS field speaks,
+                // and every field answers ⌘Z: here it is the editor's undo
+                // of the insert run so far, without leaving the mode or
+                // silencing the mic. ⌘⇧Z is its redo.
+                settleGhostAsSeen()
+                let effects = vim.undoInsertRun(&buffer, redo: shift)
+                for case .flash(let text) in effects { flash?(text) }
+                render()
+                return true
+            case "a":
+                // Select all: the whole buffer as the editor's selection,
+                // which is what d, c, y and ⌘C then act on.
+                setMode(.normal)
+                for k in [Vim.Key.char("g"), .char("g"), .char("V"), .char("G")] {
+                    _ = vim.key(k, buffer: &buffer, pasteboard: pasteboardForDraft)
+                }
+                render()
+                return true
+            case "x":
+                // Nothing is selected in insert mode; say what would be.
+                flash?("nothing selected, ⌘A selects all")
+                return true
             default:
                 return false
             }
@@ -724,7 +787,7 @@ final class DraftController {
                 flash?("⌂ copied, nothing to paste into")
                 action = "copied"; row = "clipboard"
             case _ where secure:
-                flash?("⌘V to paste — this field blocks synthetic input")
+                flash?("press ⌘V to paste, this field blocks synthetic input")
                 action = "copied"; row = "secure"
             case .replace where origin?.wholeField == true
                 && origin.flatMap({ readField($0.pid, false) })?.token != origin?.token:
@@ -771,6 +834,8 @@ final class DraftController {
         isOpen = false
         landBackstop?.cancel()
         landBackstop = nil
+        listenWatchdog?.cancel()
+        listenWatchdog = nil
         stashWork?.cancel()
         stashWork = nil
         stash?(nil)

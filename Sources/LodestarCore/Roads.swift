@@ -22,6 +22,7 @@ public struct FocusRoads: Equatable {
 
     private var summonAt = Date.distantPast
     private var summonRoute = ""
+    private var summonPulled = false
     private var cmdTabAt = Date.distantPast
     private var clickAt = Date.distantPast
 
@@ -30,6 +31,16 @@ public struct FocusRoads: Equatable {
     public mutating func summoned(via route: Observations.Route, at now: Date) {
         summonAt = now
         summonRoute = route.rawValue
+        summonPulled = false
+    }
+
+    /// The summon in flight placed its window. `pulled` when the window
+    /// was not on screen before — parked, minimized, hidden — and false
+    /// when it stood visible and a focus alone would have reached it.
+    /// Stamped from the placement, which is when the shell knows.
+    public mutating func placed(pulled: Bool, at now: Date) {
+        summonAt = now
+        summonPulled = pulled
     }
 
     public mutating func cmdTabbed(at now: Date) {
@@ -44,17 +55,26 @@ public struct FocusRoads: Equatable {
     /// recent act inside the window, or `other` when nothing the tap
     /// could name preceded it — a URL another app opened, a notification
     /// clicked, an app activating itself.
-    public func road(at now: Date) -> String {
+    public func road(at now: Date) -> String { freshest(at: now).road }
+
+    /// Whether the focus change at `now` brought its window into view: a
+    /// summon that placed a window not on screen. The system's roads
+    /// answer false here; the shell says separately whether it unparked
+    /// for one.
+    public func pulled(at now: Date) -> Bool { freshest(at: now).pulled }
+
+    private func freshest(at now: Date) -> (road: String, pulled: Bool) {
         func fresh(_ at: Date) -> Bool {
             guard at != .distantPast else { return false }
             let age = now.timeIntervalSince(at)
             return age >= 0 && age <= Self.window
         }
-        var best: (at: Date, road: String)?
-        for (at, road) in [(summonAt, summonRoute), (cmdTabAt, Self.cmdTab), (clickAt, Self.click)]
+        var best: (at: Date, road: String, pulled: Bool)?
+        for (at, road, pulled) in [(summonAt, summonRoute, summonPulled),
+                                   (cmdTabAt, Self.cmdTab, false), (clickAt, Self.click, false)]
             where fresh(at) && !road.isEmpty {
-            if best == nil || at > best!.at { best = (at, road) }
+            if best == nil || at > best!.at { best = (at, road, pulled) }
         }
-        return best?.road ?? Self.other
+        return (best?.road ?? Self.other, best?.pulled ?? false)
     }
 }

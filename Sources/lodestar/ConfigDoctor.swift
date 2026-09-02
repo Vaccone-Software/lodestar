@@ -621,10 +621,14 @@ func runObservations(clear: Bool, engine: Bool) -> Never {
 
     let pairs = Transitions.strongPairs(o.transitions).prefix(5)
     if !pairs.isEmpty {
-        print("moves")
+        print("moves" + (o.transitionPulls == nil ? "" : " · pulled = brought into view, what a breath saves"))
         for pair in pairs {
-            print("  " + pad("\(pair.from) → \(pair.to)", 34)
-                + String(format: "%.0f× · lift %.1f", pair.count, pair.lift))
+            var line = "  " + pad("\(pair.from) → \(pair.to)", 34)
+                + String(format: "%.0f× · lift %.1f", pair.count, pair.lift)
+            if let pulls = o.transitionPulls {
+                line += String(format: " · %.0f pulled", pulls[pair.from]?[pair.to] ?? 0)
+            }
+            print(line)
         }
         print("")
     }
@@ -654,6 +658,9 @@ func runObservations(clear: Bool, engine: Bool) -> Never {
             var line = pad("  " + name, 26)
             line += pad("\(record.completed) selected", 14)
             if record.abandoned > 0 { line += pad("\(record.abandoned) abandoned", 14) }
+            if let off = record.pointerOffAbandoned, off > 0 {
+                line += pad("\(off) pointer elsewhere", 22)
+            }
             let total = max(1, record.ocr + record.ax)
             line += pad("\(Int(Double(record.ocr) / Double(total) * 100))% pixels", 12)
             if let seconds = record.seconds.mean {

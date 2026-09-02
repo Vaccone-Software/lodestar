@@ -141,44 +141,123 @@ final class AudioInput: @unchecked Sendable {
     private var engineFormat: (rate: Double, channels: UInt32)?
     private var tapInstalled = false
     private var observer: NSObjectProtocol?
-    /// The configuration-change notification, delivered on `queue`.
-    private let delivery = OperationQueue()
+    /// The session in flight — the device asked for and the sink — kept
+    /// so a configuration change can rebuild it. nil between sessions.
+    private var inFlight: (device: String?, sink: (AVAudioPCMBuffer) -> Void)?
+    /// Rebuilds this session has spent: a radio that keeps flipping must
+    /// not rebuild forever.
+    private var rebuilds = 0
+    private var rebuildPending = false
+    static let rebuildCap = 6
+    /// Which engine a configuration-change notice was about: each build
+    /// stamps the next number and observes its own engine by object, so
+    /// a notice from an engine already discarded is dropped by number.
+    private var engineGeneration = 0
 
-    init() {
-        // AVFoundation says so when the hardware under an engine changes;
-        // the engine stops itself, and this one is not trusted again.
-        // Delivered on the engine's own queue: the restart inside is the
-        // same slow start as any other, and it used to run on main.
-        delivery.underlyingQueue = queue
-        delivery.maxConcurrentOperationCount = 1
+    init() {}
+
+    /// Watch `fresh` for the hardware under it changing.
+    ///
+    /// Nothing happens inside the notification: the center posts it from
+    /// the engine's own IO-unit queue and WAITS for the observer to
+    /// return, and any engine call from inside — prepare, start, stop —
+    /// dispatches synchronously onto that same waiting queue. v0.28.0 did
+    /// exactly that from the audio queue and deadlocked: every later
+    /// draft's start queued behind it and the microphone never opened
+    /// again until relaunch. So the block only hops. And it never touches
+    /// the notification's object: the center also posts while an engine
+    /// is being torn down, and retaining that object crashed the first
+    /// build of 0.28.1 on release. Observed by object, the center does the
+    /// matching; `discard` unregisters before the engine goes.
+    private func observe(_ fresh: AVAudioEngine) {
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+        engineGeneration += 1
+        let generation = engineGeneration
         observer = NotificationCenter.default.addObserver(
-            forName: .AVAudioEngineConfigurationChange, object: nil, queue: delivery
-        ) { [weak self] note in
-            guard let self, let engine = self.engine, (note.object as AnyObject?) === engine else { return }
-            // Mid-session the engine may already be running again on its
-            // own, or may have stopped: restart it in place, and keep the
-            // tap. Idle, the engine is simply not trusted any more.
-            if self.tapInstalled {
-                if engine.isRunning {
-                    Log.info("draft", ["speech": "audio configuration changed", "running": true])
-                    return
-                }
-                engine.prepare()
-                do {
-                    try engine.start()
-                    Log.info("draft", ["speech": "audio configuration changed", "restarted": true])
-                } catch {
-                    Log.info("draft", ["speech": "audio configuration changed", "restart failed": error.localizedDescription])
-                }
+            forName: .AVAudioEngineConfigurationChange, object: fresh, queue: nil
+        ) { [weak self] _ in
+            self?.queue.async { self?.configurationChanged(generation: generation) }
+        }
+    }
+
+    /// The hardware under the engine moved. Mid-session the engine is
+    /// restarted in place, tap and all — the path that delivered a
+    /// thousand buffers a session on 0.27.0 — and a start caught inside
+    /// the flip (-10868) is retried a beat later rather than abandoned,
+    /// which is what left 0.27.0's failed restarts silent. Rebuilding on
+    /// every change was tried first and cycled: each fresh engine drew a
+    /// fresh change, and the tap came down every second. A rebuild is now
+    /// the fallback when restarts keep failing. Idle, the engine is
+    /// simply not trusted any more.
+    private func configurationChanged(generation: Int) {
+        dispatchPrecondition(condition: .onQueue(queue))
+        guard let engine, generation == engineGeneration else { return }
+        guard inFlight != nil else {
+            Log.info("draft", ["speech": "audio configuration changed", "idle": true])
+            discard()
+            return
+        }
+        if engine.isRunning {
+            Log.info("draft", ["speech": "audio configuration changed", "running": true])
+            return
+        }
+        guard !rebuildPending else { return }
+        rebuildPending = true
+        restart(attempt: 1)
+    }
+
+    private func restart(attempt: Int) {
+        dispatchPrecondition(condition: .onQueue(queue))
+        guard inFlight != nil, let engine else { rebuildPending = false; return }
+        if engine.isRunning { rebuildPending = false; return }
+        engine.prepare()
+        do {
+            try engine.start()
+            rebuildPending = false
+            Log.info("draft", ["speech": "audio configuration changed", "restarted": true, "attempt": attempt])
+        } catch {
+            Log.info("draft", ["speech": "audio configuration changed",
+                               "restart failed": error.localizedDescription, "attempt": attempt])
+            guard attempt < 4 else {
+                rebuildPending = false
+                rebuild(attempt: 1)
                 return
             }
-            Log.info("draft", ["speech": "audio configuration changed", "idle": true])
-            self.discard()
+            queue.asyncAfter(deadline: .now() + 0.65) { [weak self] in self?.restart(attempt: attempt + 1) }
+        }
+    }
+
+    /// The fallback: a fresh engine for the session in flight, on the
+    /// same sink, when the kept one will not start again. Bounded twice:
+    /// attempts per change, rebuilds per session.
+    private func rebuild(attempt: Int) {
+        dispatchPrecondition(condition: .onQueue(queue))
+        guard let inFlight else { return } // the session ended while this waited
+        guard rebuilds < Self.rebuildCap else {
+            Log.info("draft", ["speech": "audio configuration changed", "rebuilds": rebuilds, "gaveUp": true])
+            return
+        }
+        rebuilds += 1
+        do {
+            let started = try startNow(device: inFlight.device, sink: inFlight.sink, fresh: true)
+            Log.info("draft", ["speech": "audio configuration changed", "rebuilt": true,
+                               "attempt": attempt, "inHz": Int(started.format.sampleRate)])
+        } catch {
+            Log.info("draft", ["speech": "audio configuration changed",
+                               "rebuild failed": error.localizedDescription, "attempt": attempt])
+            guard attempt < 4 else { return }
+            queue.asyncAfter(deadline: .now() + 0.65) { [weak self] in self?.rebuild(attempt: attempt + 1) }
         }
     }
 
     private func discard() {
         dispatchPrecondition(condition: .onQueue(queue))
+        // Unregistered first: a teardown posts the same notice, and no
+        // block of ours may run for an engine on its way out.
+        if let observer {
+            NotificationCenter.default.removeObserver(observer)
+            self.observer = nil
+        }
         if let engine {
             if tapInstalled { engine.inputNode.removeTap(onBus: 0) }
             engine.stop()
@@ -196,6 +275,7 @@ final class AudioInput: @unchecked Sendable {
         // formats it fixes are this device's.
         if let target, let unit = fresh.inputNode.audioUnit { _ = Self.use(target, on: unit) }
         let format = fresh.inputNode.inputFormat(forBus: 0)
+        observe(fresh)
         engine = fresh
         engineDevice = target
         engineFormat = (format.sampleRate, format.channelCount)
@@ -282,14 +362,21 @@ final class AudioInput: @unchecked Sendable {
     func start(device: String?, sink: @escaping (AVAudioPCMBuffer) -> Void,
                completion: @escaping (Result<(format: AVAudioFormat, name: String?), Error>) -> Void) {
         queue.async {
+            self.rebuilds = 0
             completion(Result { try self.startNow(device: device, sink: sink) })
         }
     }
 
-    private func startNow(device: String?, sink: @escaping (AVAudioPCMBuffer) -> Void) throws
+    /// `fresh` discards the kept engine first: a rebuild after a
+    /// configuration change must not trust the node's own report of its
+    /// format, which is what the stale check below reads.
+    private func startNow(device: String?, sink: @escaping (AVAudioPCMBuffer) -> Void,
+                          fresh: Bool = false) throws
         -> (format: AVAudioFormat, name: String?) {
         dispatchPrecondition(condition: .onQueue(queue))
         stopNow()
+        inFlight = (device, sink)
+        if fresh { discard() }
         let wanted = device.flatMap { name in Self.inputDevices().first { $0.name == name }?.id }
         if device != nil, wanted == nil {
             Log.info("draft", ["speech": "input not found", "wanted": device ?? ""])
@@ -371,6 +458,7 @@ final class AudioInput: @unchecked Sendable {
 
     private func stopNow() {
         dispatchPrecondition(condition: .onQueue(queue))
+        inFlight = nil
         guard let engine else { return }
         if tapInstalled {
             engine.inputNode.removeTap(onBus: 0)

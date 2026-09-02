@@ -99,6 +99,11 @@ final class SelectController {
     private var modeEnteredAt = Date.distantPast
     private var typedInMode = 0
     private var committedOutcome: String?
+    /// Whether the pointer rested over the window read at entry. The eye
+    /// is often on a neighbor of the focused window; the split between
+    /// abandons with the pointer on and off it is the measurement that
+    /// decides whether select should read the window under the pointer.
+    private var pointerOnWindow: Bool?
     /// select.copy-on-complete: a completed span serves the pasteboard at
     /// the grammar's full stop, every ending alike. The config line is the
     /// arbiter — the mode never reads the situation, which is what buried
@@ -179,6 +184,9 @@ final class SelectController {
         units = []
         windowFrame = window.frame
         appName = window.appName
+        let mouse = NSEvent.mouseLocation
+        let primaryHeight = NSScreen.screens.first?.frame.maxY ?? 0
+        pointerOnWindow = window.frame.contains(CGPoint(x: mouse.x, y: primaryHeight - mouse.y))
         generation += 1
         lastPassLeaves = -1
         ocrAdopted = false
@@ -285,7 +293,8 @@ final class SelectController {
                 typed: typedInMode, seconds: Date().timeIntervalSince(modeEnteredAt),
                 matches: lastMatchCount,
                 firstKey: firstKeyAt.map { $0.timeIntervalSince(modeEnteredAt) },
-                entryChips: door == .click ? entryChipsAtEntry : nil)
+                entryChips: door == .click ? entryChipsAtEntry : nil,
+                pointerOn: pointerOnWindow)
             modeEnteredAt = .distantPast
         }
     }
@@ -682,7 +691,7 @@ final class SelectController {
     /// word needs, and most of what anyone reaches for is one word.
     func copySelection() -> SelectStep {
         guard let anchor = core?.anchor, units.indices.contains(anchor.element) else {
-            flash("⌖ ⇧letter first — then ⌘C takes that word")
+            flash("⌖ ⇧letter first, then ⌘C takes that word")
             return .pending
         }
         let span = gather([anchor])

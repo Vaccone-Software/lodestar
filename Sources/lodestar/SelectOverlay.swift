@@ -240,8 +240,11 @@ final class SelectOverlay {
         }
         quiet("⌖ ")
         if state.query.isEmpty {
+            // The window being read is named while the hand decides: a
+            // read of the wrong window used to look like a read of
+            // nothing.
             quiet(state.stage == .start
-                ? "type what you see"
+                ? "\(state.appName) · type what you see"
                 : "now the far end · ⌘C copies the anchor · ⌫ re-opens the start")
         } else {
             loud(state.query)

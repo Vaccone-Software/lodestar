@@ -357,9 +357,14 @@ final class CoachController {
         }
         // A cue-having suggestion holds out for its cue for a few days;
         // after that, or for suggestions with no cue, any quiet boundary
-        // will do. Proactive either way — nothing waits forever.
+        // will do. Proactive either way — nothing waits forever, and a
+        // channel with a run of accepts behind it waits less: the same
+        // scale that shortens its quiets shortens this.
+        let scale = isDemo ? 1.0 : (observations.map {
+            Coach.pacingScale(observations: $0.observations, kind: rec.kind, now: clock.now())
+        } ?? 1.0)
         if let cue = Coach.cue(for: rec),
-           clock.now().timeIntervalSince(standingSince) < Self.cueWaitDays * 86_400 {
+           clock.now().timeIntervalSince(standingSince) < Self.cueWaitDays * scale * 86_400 {
             switch cue {
             case .app(let name): guard cueApp == name.lowercased() else { return }
             case .host(let host): guard cueHost == host.lowercased() else { return }

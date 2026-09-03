@@ -10,7 +10,14 @@ public final class ParkingLot {
     private let mover: WindowMoving
     private let bounds: () -> [CGRect]
 
-    public init(mover: WindowMoving = AXMover(), bounds: @escaping () -> [CGRect] = Displays.allBounds) {
+    /// The lane the writes travel on — the same serial queue the layout's
+    /// frame moves use, so a park queued before a move lands before it.
+    /// Nil runs them inline, which is the tests' world.
+    private let moveQueue: DispatchQueue?
+
+    public init(mover: WindowMoving = AXMover(), bounds: @escaping () -> [CGRect] = Displays.allBounds,
+                moveQueue: DispatchQueue? = nil) {
+        self.moveQueue = moveQueue
         self.mover = mover
         self.bounds = bounds
     }
@@ -42,12 +49,39 @@ public final class ParkingLot {
         }
         // Through the mover, never AX directly — its wrapped setters
         // suppress the enhanced-UI move animation (a park must snap, not
-        // glide into the corner).
-        guard mover.setPosition(window, Self.parkPosition(on: display)) else {
-            return false
+        // glide into the corner). On the move lane, off the tap: a park
+        // was a synchronous accessibility write inside the gesture, and a
+        // wedged app answered it a second late — the tap's whole budget —
+        // while the keyboard waited. The spot is recorded as the intent
+        // and forgotten again if the write comes back refused.
+        let target = Self.parkPosition(on: display)
+        let original = window.frame
+        spots[window.id] = original
+        let id = window.id
+        let ok = write({ [mover] in mover.setPosition(window, target) }) { [weak self] in
+            guard let self, self.spots[id] == original else { return }
+            self.spots.removeValue(forKey: id)
         }
-        spots[window.id] = window.frame
+        if !ok { spots.removeValue(forKey: id) }
+        return ok
+    }
+
+    /// One write on the lane. Inline it answers honestly; queued it
+    /// answers "queued" and reports a refusal on the main thread later,
+    /// which is the only shape a write off the tap can have.
+    private func write(_ work: @escaping () -> Bool, onFailure: @escaping () -> Void) -> Bool {
+        guard let moveQueue else { return work() }
+        moveQueue.async {
+            if !work() { DispatchQueue.main.async(execute: onFailure) }
+        }
         return true
+    }
+
+    /// Every write queued so far has landed. The shutdown path restores
+    /// the parked windows and then exits, and an exit with parks still in
+    /// the lane would strand them in the corner.
+    public func waitForWrites() {
+        moveQueue?.sync {}
     }
 
     /// Restore a parked window to its remembered frame (size-position-size,
@@ -59,9 +93,11 @@ public final class ParkingLot {
             spots.removeValue(forKey: window.id)
             return false
         }
-        let ok = mover.setFrame(window, restorable(original))
         spots.removeValue(forKey: window.id)
-        return ok
+        let frame = restorable(original)
+        return write({ [mover] in mover.setFrame(window, frame) }) {
+            Log.error("unpark: the app refused the frame", ["window": window.id])
+        }
     }
 
     /// The remembered frame, made reachable on the displays that exist now.

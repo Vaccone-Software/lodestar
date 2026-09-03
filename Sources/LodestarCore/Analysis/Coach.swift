@@ -385,7 +385,35 @@ public enum Coach {
     /// the user's attention rather than the kind's credibility.
     public static func pacingScale(observations: Observations,
                                    kind: Recommendation.Kind, now: Date = Date()) -> Double {
-        min(1.5, max(0.5, 2.0 - kindWeight(observations: observations, kind: kind, now: now)))
+        let record = 2.0 - kindWeight(observations: observations, kind: kind, now: now)
+        return min(1.5, max(0.125, record * streakScale(observations: observations)))
+    }
+
+    /// The channel's run of accepts: answers in a row, newest first,
+    /// across every kind, until the first no. A ledger written before
+    /// answers carried a date contributes nothing here — an undated
+    /// accept cannot be placed in the run.
+    public static func acceptStreak(observations: Observations) -> Int {
+        let answers = observations.ledger.compactMap { entry -> (Date, String)? in
+            guard let at = entry.lastAnsweredAt,
+                  entry.status == "accepted" || entry.status == "never" else { return nil }
+            return (at, entry.status)
+        }.sorted { $0.0 > $1.0 }
+        var streak = 0
+        for (_, status) in answers {
+            guard status == "accepted" else { break }
+            streak += 1
+        }
+        return streak
+    }
+
+    /// Acceptance buying airtime, on top of the kind's record: each accept
+    /// in a row halves the channel's quiets, to an eighth after three, and
+    /// one no puts the book rate back at once. Two offers in seventeen
+    /// days, both taken, while ten findings stood — the coach was quiet
+    /// for a record that had earned the opposite.
+    public static func streakScale(observations: Observations) -> Double {
+        pow(0.5, Double(min(3, acceptStreak(observations: observations))))
     }
 
     /// The one suggestion worth standing behind right now, or nil — and

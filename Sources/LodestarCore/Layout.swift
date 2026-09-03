@@ -456,6 +456,15 @@ public final class LayoutController {
         }
     }
 
+    /// Accessibility work that belongs in the move lane: run after every
+    /// write queued ahead of it, on the lane's own thread — inline when
+    /// there is no lane. A raise or an un-minimize made this way waits
+    /// behind the moves it follows instead of blocking the keyboard.
+    public func onMoveLane(_ work: @escaping () -> Void) {
+        guard let moveQueue else { return work() }
+        moveQueue.async(execute: work)
+    }
+
     /// Run a batch of frame writes, then `completion` on the main thread.
     /// Inline when no queue was given — the tests' world, where the moves
     /// must land before the assertion. Ordering across batches holds

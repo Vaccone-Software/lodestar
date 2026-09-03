@@ -806,6 +806,9 @@ final class Actions {
                 parking.forget(id)
             }
         }
+        // The writes are queued; the exit that follows this must not
+        // outrun them.
+        parking.waitForWrites()
         store.setParked(parking.snapshot())
         hud.flash("⤺ restored \(count) parked window\(count == 1 ? "" : "s")")
     }
@@ -877,7 +880,9 @@ final class Actions {
         roads?.placed(pulled: window.isMinimized || parking.isParked(window.id) || hidden)
         parking.claim(window.id)
         if window.isMinimized {
-            AXWindow(element: window.element)?.setMinimized(false)
+            // On the lane, ahead of the moves that follow: an un-minimize
+            // is an accessibility write like any other.
+            layout.onMoveLane { AXWindow(element: window.element)?.setMinimized(false) }
         }
         guard let active = layout.activeDisplay() else {
             raise(window)
@@ -940,15 +945,24 @@ final class Actions {
             })
     }
 
+    /// The raise rides the move lane, behind every move queued ahead of
+    /// it: two accessibility calls into an app that may be wedged, which
+    /// used to run inside the gesture and take the tap down with them
+    /// (placements ran 17 ms at the median and 1.2 s at the worst, and
+    /// the worst is what the tap's watchdog kept reviving). Activation is
+    /// AppKit's and stays on the main thread, after.
     private func raise(_ window: WindowModel.Window) {
-        let ax = AXWindow(element: window.element)
-        ax?.makeMain()
-        ax?.raise()
-        if let app = NSRunningApplication(processIdentifier: window.pid) {
-            if #available(macOS 14.0, *) {
-                app.activate()
-            } else {
-                app.activate(options: [.activateIgnoringOtherApps])
+        layout.onMoveLane {
+            let ax = AXWindow(element: window.element)
+            ax?.makeMain()
+            ax?.raise()
+            DispatchQueue.main.async {
+                guard let app = NSRunningApplication(processIdentifier: window.pid) else { return }
+                if #available(macOS 14.0, *) {
+                    app.activate()
+                } else {
+                    app.activate(options: [.activateIgnoringOtherApps])
+                }
             }
         }
     }

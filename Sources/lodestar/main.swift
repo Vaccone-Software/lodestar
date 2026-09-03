@@ -125,7 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // surfaces exist to say that too.
         crashedLastRun = Self.uncleanExitMarkerStands()
         if crashedLastRun { Log.error("the previous run ended uncleanly — recovering") }
-        try? "\(ProcessInfo.processInfo.processIdentifier)".write(
+        try? RunMarker.alive(pid: ProcessInfo.processInfo.processIdentifier).write(
             to: Self.runMarker, atomically: true, encoding: .utf8)
         // AppKit exceptions abort the process; the log at least says why.
         NSSetUncaughtExceptionHandler { exception in
@@ -167,12 +167,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         installClickHandler()
 
         model = WindowModel()
-        parking = ParkingLot()
         // The serial queue is what takes the AX conversation off the tap's
         // run loop: a wedged app now stalls a retile, never the keyboard.
-        layout = LayoutController(model: model, parking: parking,
-                                  moveQueue: DispatchQueue(label: "lodestar.moves",
-                                                           qos: .userInteractive))
+        // One lane for parks, moves, raises and un-minimizes alike, so
+        // everything a gesture asked for lands in the order it asked.
+        let moves = DispatchQueue(label: "lodestar.moves", qos: .userInteractive)
+        parking = ParkingLot(moveQueue: moves)
+        layout = LayoutController(model: model, parking: parking, moveQueue: moves)
         appIndex = AppIndex()
         store = StateStore()
         observationStore = ObservationStore()
@@ -599,6 +600,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // Quitting is not dying. The marker turns into a note that a
+        // graceful shutdown began, before the unbounded work below: a
+        // logout that kills the restore half-way used to read as a crash
+        // at the next boot and run the recovery for nothing.
+        if let text = try? String(contentsOf: Self.runMarker, encoding: .utf8),
+           RunMarker.pid(in: text) == ProcessInfo.processInfo.processIdentifier {
+            try? RunMarker.quitting(pid: ProcessInfo.processInfo.processIdentifier).write(
+                to: Self.runMarker, atomically: true, encoding: .utf8)
+        }
         // A draft still open keeps its text on the pasteboard, as every
         // other exit does.
         draftController?.cancel(reason: "quit")
@@ -629,8 +639,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             try? FileManager.default.removeItem(at: Self.pidFile)
         }
         if let text = try? String(contentsOf: Self.runMarker, encoding: .utf8),
-           Int32(text.trimmingCharacters(in: .whitespacesAndNewlines))
-               == ProcessInfo.processInfo.processIdentifier {
+           RunMarker.pid(in: text) == ProcessInfo.processInfo.processIdentifier {
             try? FileManager.default.removeItem(at: Self.runMarker)
         }
     }
@@ -1891,10 +1900,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var crashedLastRun = false
 
     private static func uncleanExitMarkerStands() -> Bool {
-        guard let text = try? String(contentsOf: runMarker, encoding: .utf8),
-              let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)) else { return false }
-        // A live pid is an instance still on its way out, not a crash.
-        return kill(pid, 0) != 0
+        guard let text = try? String(contentsOf: runMarker, encoding: .utf8) else { return false }
+        return RunMarker.diedUncleanly(contents: text, isAlive: { kill($0, 0) == 0 })
     }
 
     private func takeOverPidFile() {

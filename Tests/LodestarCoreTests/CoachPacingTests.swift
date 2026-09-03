@@ -233,7 +233,10 @@ final class CoachPacingTests: XCTestCase {
             predictedSecondsPerWeek: 40, firstOfferedWeek: 0,
             lastOfferedWeek: 0, offers: 1, status: "accepted",
             acceptedWeek: Observations.week(start),
-            lastAnsweredAt: start.addingTimeInterval(-2 * 86_400))])
+            // A day ago, not two: that one accept also opens a run, which
+            // halves every quiet, and the proven kind's must still be
+            // running for the comparison to say anything.
+            lastAnsweredAt: start.addingTimeInterval(-1 * 86_400))])
         for i in 0..<Coach.bentCompletions {
             var event = ObservationEvent(t: start.addingTimeInterval(Double(i)),
                                          kind: .chain)
@@ -251,5 +254,61 @@ final class CoachPacingTests: XCTestCase {
             now: start)
         XCTAssertLessThan(proven, untried,
                           "the kind with a bent curve behind it waits out less of the quiet")
+    }
+
+    // MARK: - Acceptance buys airtime
+
+    private func answered(_ id: String, kind: String, status: String, at: Date) -> Observations.LedgerEntry {
+        var entry = Observations.LedgerEntry(
+            id: id, kind: kind, target: String(id.split(separator: ":").last ?? ""),
+            predictedSecondsPerWeek: 40, firstOfferedWeek: Observations.week(at),
+            lastOfferedWeek: Observations.week(at), offers: 1, status: status,
+            acceptedWeek: status == "accepted" ? Observations.week(at) : nil,
+            neverWeek: status == "never" ? Observations.week(at) : nil)
+        entry.lastAnsweredAt = at
+        return entry
+    }
+
+    func testEachAcceptInARowHalvesTheQuiets() {
+        let day = 86_400.0
+        let two = observations([
+            answered("breath:a + b", kind: "breath", status: "accepted", at: start.addingTimeInterval(-3 * day)),
+            answered("breath:c + d", kind: "breath", status: "accepted", at: start.addingTimeInterval(-1 * day)),
+        ])
+        XCTAssertEqual(Coach.acceptStreak(observations: two), 2)
+        XCTAssertEqual(Coach.pacingScale(observations: two, kind: .shorten, now: start),
+                       0.25, accuracy: 0.001, "two accepts: a quarter of the book rate")
+        let three = observations([
+            answered("breath:a + b", kind: "breath", status: "accepted", at: start.addingTimeInterval(-3 * day)),
+            answered("breath:c + d", kind: "breath", status: "accepted", at: start.addingTimeInterval(-2 * day)),
+            answered("breath:e + f", kind: "breath", status: "accepted", at: start.addingTimeInterval(-1 * day)),
+            answered("breath:g + h", kind: "breath", status: "accepted", at: start.addingTimeInterval(-0.5 * day)),
+        ])
+        XCTAssertEqual(Coach.pacingScale(observations: three, kind: .shorten, now: start),
+                       0.125, accuracy: 0.001, "an eighth is the floor, however long the run")
+    }
+
+    func testOneNoPutsTheBookRateBack() {
+        let day = 86_400.0
+        let o = observations([
+            answered("breath:a + b", kind: "breath", status: "accepted", at: start.addingTimeInterval(-3 * day)),
+            answered("breath:c + d", kind: "breath", status: "accepted", at: start.addingTimeInterval(-2 * day)),
+            answered("shorten:b x", kind: "shorten", status: "never", at: start.addingTimeInterval(-1 * day)),
+        ])
+        XCTAssertEqual(Coach.acceptStreak(observations: o), 0, "the newest answer was a no")
+        // The kind's own record still buys what it bought; only the run's
+        // halving is gone.
+        XCTAssertEqual(Coach.pacingScale(observations: o, kind: .breath, now: start),
+                       2.0 - Coach.kindWeight(observations: o, kind: .breath, now: start),
+                       accuracy: 0.001)
+        XCTAssertEqual(Coach.streakScale(observations: o), 1.0)
+    }
+
+    func testUndatedAnswersDoNotCountInTheRun() {
+        let undated = Observations.LedgerEntry(
+            id: "breath:a + b", kind: "breath", target: "a + b",
+            predictedSecondsPerWeek: 40, firstOfferedWeek: 0, lastOfferedWeek: 0,
+            offers: 1, status: "accepted", acceptedWeek: 0)
+        XCTAssertEqual(Coach.acceptStreak(observations: observations([undated])), 0)
     }
 }

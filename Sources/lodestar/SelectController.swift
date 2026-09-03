@@ -908,10 +908,23 @@ final class SelectController {
         return dragSafeRoles.contains(role)
     }
 
-    /// Ask the app to select the span: a press inside the first glyph, a
-    /// drag to inside the last, a release. The pointer goes back where it
-    /// was a beat later. False when either end is a control, or the span
-    /// is too narrow to press inside.
+    /// Ask the app to select the span: the pointer walked to the first
+    /// glyph, a press there, a drag to inside the last, a release. The
+    /// pointer goes back where it was a beat later — walked back, not
+    /// warped, so the app is told. False when either end is a control, or
+    /// the span is too narrow to press inside.
+    ///
+    /// The walk before the press is load-bearing. Ghostty hands libghostty
+    /// a press with no position at all; the position is whatever the last
+    /// moved or dragged event carried. A bare press therefore started the
+    /// selection wherever the pointer had last moved inside the window —
+    /// the app's copy came back 985 characters for an 800-character span
+    /// — and after a warp back, which sends nothing, its remembered
+    /// position stayed at the previous span's end, so the next select of
+    /// the same span selected nothing and no app copy arrived. That was
+    /// the select that had to be done twice, the first time to put the
+    /// pointer in place. Apps that read the position off the press itself
+    /// see one extra move and nothing else.
     private func dragSelect(_ rects: [CGRect]) -> Bool {
         guard let first = rects.first, let last = rects.last,
               first.width > 4, last.width > 4 else { return false }
@@ -935,11 +948,12 @@ final class SelectController {
             event.post(tap: .cghidEventTap)
         }
         let mid = CGPoint(x: (start.x + end.x) / 2, y: (start.y + end.y) / 2)
+        post(.mouseMoved, start)
         post(.leftMouseDown, start)
         post(.leftMouseDragged, mid)
         post(.leftMouseDragged, end)
         post(.leftMouseUp, end)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { CGWarpMouseCursorPosition(origin) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { post(.mouseMoved, origin) }
         return true
     }
 

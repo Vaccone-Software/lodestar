@@ -72,6 +72,15 @@ public struct SelectCore {
     /// Counting every match in a large document is wasted work past the
     /// point of saying "many".
     static let countCap = 200
+    /// The shortest query uniqueness may commit on. A one-character query
+    /// matches standalone tokens only, and app chrome is full of icons the
+    /// recognizer reads as lone letters — "F Report", "O Autofill" — so a
+    /// single character's uniqueness belongs to the screen's stray glyphs,
+    /// not to the hand's intent. Measured on live pages: typing every
+    /// visible word anchored on the wrong word or ran away into a span
+    /// one time in five, every one of them fired on one character, and
+    /// two characters took both to zero.
+    public static let autoMinimum = 2
 
     /// The tail of a word an auto-pick claimed before the hand finished
     /// typing it. A pick on uniqueness lands mid-word — the hand planned
@@ -100,6 +109,16 @@ public struct SelectCore {
 
         /// The word has been typed out; nothing is left to confirm.
         public var exhausted: Bool { rest.isEmpty }
+
+        /// A capital arriving while the tail is still pending is the pick
+        /// the hand had planned before uniqueness made it: consumed once,
+        /// and the tail ends with it. Once the word is typed out a capital
+        /// is new intent and nothing here claims it.
+        public mutating func consumePlannedPick() -> Bool {
+            guard !exhausted else { return false }
+            rest = ""
+            return true
+        }
     }
 
     public private(set) var query = ""
@@ -161,7 +180,7 @@ public struct SelectCore {
     /// rn↔m is a real confusion but a length-changing one, and a matcher
     /// that lies about ranges corrupts every highlight downstream, so it
     /// stays out.
-    static func confusionFolded(_ text: String) -> String {
+    public static func confusionFolded(_ text: String) -> String {
         let source = text as NSString
         guard source.length > 0 else { return text }
         var units = [unichar](repeating: 0, count: source.length)
@@ -247,21 +266,38 @@ public struct SelectCore {
         query += character
         typedLabel = ""
         recompute()
-        if autoAnchor, allowAutoAnchor, totalMatches == 1, let sole = matches.first {
+        if allowAutoAnchor, let sole = uniquePick {
             return autoPick(sole)
         }
         return .updated
     }
 
+    /// The match uniqueness would commit, if it may: auto on, exactly one
+    /// match, and a query at least `autoMinimum` long.
+    private var uniquePick: Match? {
+        guard autoAnchor, totalMatches == 1,
+              (query as NSString).length >= Self.autoMinimum else { return nil }
+        return matches.first
+    }
+
     /// Adopt a query wholesale — how a richer harvest pass hands the
-    /// user's typing to a rebuilt core without replaying keys. Never
-    /// auto-picks: a world that just changed shape is exactly the moment
-    /// a momentary uniqueness means the least.
-    public mutating func seed(query: String) {
+    /// user's typing to a rebuilt core without replaying keys. A partial
+    /// world never auto-picks: a world that just changed shape is exactly
+    /// the moment a momentary uniqueness means the least. The settled
+    /// world is the opposite case — the last shape the screen will take —
+    /// so a query already typed that is unique there lands the start
+    /// anchor the way its next keystroke would have, for the hand that
+    /// finished typing before the sensor finished reading.
+    @discardableResult
+    public mutating func seed(query: String, settled: Bool = false) -> Effect {
         self.query = query
         typedLabel = ""
         continuation = nil
         recompute()
+        if settled, anchor == nil, let sole = uniquePick {
+            return autoPick(sole)
+        }
+        return .updated
     }
 
     /// ⌫ walks back: the label prefix first, then the query, and from an

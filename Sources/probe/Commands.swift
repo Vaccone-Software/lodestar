@@ -823,3 +823,164 @@ func runOCRLive(_ args: inout [String]) {
         print("  [\(Int(line.frame.minX)),\(Int(line.frame.minY))] '\(line.text.prefix(60))'")
     }
 }
+
+// MARK: - Select bench
+
+/// Select's bench, against a live window and without touching focus: the
+/// window is captured by id, read by both recognition passes, stitched
+/// the way the controller stitches, and then every visible word is typed
+/// through the auto-anchoring grammar to see where uniqueness lands —
+/// on the word, on a wrong word, or off into a span. The numbers that
+/// set the two-character floor came from this; run it before changing
+/// anything about commit-on-unique.
+func runSelectSense(_ args: inout [String]) {
+    guard CGPreflightScreenCaptureAccess() else {
+        print("no Screen Recording permission for this shell — skipping (no prompt)")
+        return
+    }
+    let listUnits = has("--units", in: &args)
+    let appName = args.first ?? "Brave"
+    let candidates = CGWindows.list(onScreenOnly: true).filter {
+        $0.ownerName.localizedCaseInsensitiveContains(appName) && $0.layer == 0
+            && $0.bounds.width > 400 && $0.bounds.height > 300
+    }
+    guard let cg = candidates.max(by: {
+        $0.bounds.width * $0.bounds.height < $1.bounds.width * $1.bounds.height
+    }) else { print("\(appName): no on-screen window"); return }
+    guard let image = CGWindowListCreateImage(.null, .optionIncludingWindow, cg.id,
+                                              [.boundsIgnoreFraming, .bestResolution]) else {
+        print("capture failed")
+        return
+    }
+    print("\(cg.ownerName) \(fmt(cg.bounds)) · image \(image.width)×\(image.height)")
+
+    struct Unit { let run: SelectRuns.Run; let lines: [Int: OCRSense.Line]; let frame: CGRect }
+    struct World {
+        let name: String
+        let lines: [OCRSense.Line]
+        let units: [Unit]
+        var elements: [SelectCore.Element] {
+            units.enumerated().map {
+                SelectCore.Element(id: $0.offset, text: $0.element.run.text, frame: $0.element.frame)
+            }
+        }
+        func rects(_ match: SelectCore.Match) -> [CGRect] {
+            let unit = units[match.element]
+            return unit.run.slices(of: match.range).flatMap {
+                unit.lines[$0.leaf]?.rects(for: $0.localRange) ?? []
+            }
+        }
+    }
+    func build(_ lines: [OCRSense.Line], name: String) -> World {
+        var leaves = lines.enumerated().map {
+            SelectRuns.Leaf(id: $0.offset, text: $0.element.text, frame: $0.element.frame)
+        }
+        func reading(_ a: CGRect, _ b: CGRect) -> Bool {
+            let dy = a.minY - b.minY
+            if abs(dy) > SelectRuns.lineTolerance { return dy < 0 }
+            return a.minX < b.minX
+        }
+        leaves.sort { reading($0.frame, $1.frame) }
+        var units: [Unit] = []
+        for run in SelectRuns.merge(leaves, windows: [cg.bounds]) {
+            let used = Set(run.fragments.map(\.leaf))
+            let byLeaf = Dictionary(uniqueKeysWithValues: used.map { ($0, lines[$0]) })
+            units.append(Unit(run: run, lines: byLeaf,
+                              frame: byLeaf.values.reduce(CGRect.null) { $0.union($1.frame) }))
+        }
+        units.sort { reading($0.frame, $1.frame) }
+        return World(name: name, lines: lines, units: units)
+    }
+
+    var worlds: [World] = []
+    for level in [OCRSense.Level.fast, .accurate] {
+        let began = Date()
+        let lines = OCRSense.recognize(image: image, windowFrame: cg.bounds, level: level)
+        let ms = Int(Date().timeIntervalSince(began) * 1000)
+        let world = build(lines, name: level == .fast ? "fast" : "accurate")
+        worlds.append(world)
+        print("\(world.name): \(lines.count) lines → \(world.units.count) units · \(ms)ms")
+    }
+    guard let accurate = worlds.last else { return }
+    if listUnits {
+        for (index, unit) in accurate.units.enumerated() {
+            print("  \(pad(String(index), 3)) \(fmt(unit.frame)) lines=\(unit.lines.count)"
+                  + " '\(clip(unit.run.text.replacingOccurrences(of: "\n", with: "⏎"), 70))'")
+        }
+    }
+
+    // The truth: every distinct word the accurate pass can see, with the
+    // rectangles it sits in, so an anchor can be judged by where it lands.
+    struct Word { let text: String; let rects: [CGRect] }
+    var words: [Word] = []
+    var seen = Set<String>()
+    for line in accurate.lines {
+        var location = 0
+        for token in line.text.split(separator: " ", omittingEmptySubsequences: false) {
+            let length = (String(token) as NSString).length
+            defer { location += length + 1 }
+            let text = String(token)
+            guard text.count >= 3, text.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }),
+                  seen.insert(text.lowercased()).inserted else { continue }
+            words.append(Word(text: text, rects: line.rects(for: NSRange(location: location, length: length))))
+        }
+    }
+    print("\(words.count) distinct words on screen; typing each into an auto-anchoring core:")
+
+    enum Verdict: String, CaseIterable {
+        case manual = "never auto-fired (a capital would pick)"
+        case right = "anchored on the word, tail absorbed"
+        case leak = "anchored on the word, tail leaked into the far end"
+        case wrong = "anchored on a WRONG word"
+        case span = "ran away into a SPAN before the word ended"
+    }
+    for world in worlds {
+        var tally: [Verdict: Int] = [:]
+        var firedAfter: [Int: Int] = [:]
+        var samples: [Verdict: [String]] = [:]
+        for word in words {
+            var core = SelectCore(elements: world.elements, alphabet: "asdfghjkl", autoAnchor: true)
+            var verdict = Verdict.manual
+            var landed = false
+            for (index, character) in word.text.lowercased().enumerated() {
+                switch core.key(String(character), shift: false) {
+                case .anchored:
+                    firedAfter[min(index + 1, 6), default: 0] += 1
+                    let hit = core.anchor.map(world.rects) ?? []
+                    landed = hit.contains { rect in word.rects.contains { $0.intersects(rect) } }
+                    verdict = landed ? .right : .wrong
+                case .selected:
+                    verdict = .span
+                case .updated:
+                    if verdict == .right, !core.query.isEmpty { verdict = .leak }
+                case .none:
+                    break
+                }
+                if verdict == .span { break }
+            }
+            tally[verdict, default: 0] += 1
+            if verdict == .wrong || verdict == .span, samples[verdict, default: []].count < 6 {
+                samples[verdict, default: []].append(word.text)
+            }
+        }
+        print("  \(world.name) world:")
+        for verdict in Verdict.allCases {
+            let count = tally[verdict] ?? 0
+            let share = words.isEmpty ? 0 : 100 * count / words.count
+            var line = "    \(pad("\(count) (\(share)%)", 11)) \(verdict.rawValue)"
+            if let sample = samples[verdict], !sample.isEmpty { line += "  e.g. \(sample.joined(separator: ", "))" }
+            print(line)
+        }
+        let histogram = firedAfter.sorted { $0.key < $1.key }
+            .map { "\($0.key)\($0.key == 6 ? "+" : ""):\($0.value)" }.joined(separator: " ")
+        if !histogram.isEmpty { print("    fired after N characters — \(histogram)") }
+        var singles: [String: Int] = [:]
+        for unit in world.units {
+            for token in unit.run.text.split(whereSeparator: { $0.isWhitespace }) where token.count == 1 {
+                singles[SelectCore.confusionFolded(String(token)).lowercased(), default: 0] += 1
+            }
+        }
+        let lone = singles.filter { $0.value == 1 }.keys.sorted().joined(separator: " ")
+        print("    standalone single characters unique on screen: \(lone.isEmpty ? "none" : lone)")
+    }
+}

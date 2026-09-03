@@ -22,6 +22,10 @@ func usage() -> Never {
       probe watch <app> [--seconds N]  log window ids while you close/reopen windows
       probe selection [--write]        which apps expose character geometry and a settable
                                        selection, the two facts a selection mode needs
+      probe selectsense <app> [--units]
+                                       select's bench: capture a window by id, read it with both
+                                       recognition passes, type every visible word through the
+                                       auto-anchoring grammar and report where uniqueness landed
       probe speech [--seconds N] [--words a,b] [--dictation] [--cycle] [--auth]
                                        the draft's questions: latency to first word, revisions,
                                        restart cost, contextual vocabulary, which TCC grant
@@ -49,6 +53,7 @@ case "selection": runSelection(&arguments)
 case "harvest": runHarvest(&arguments)
 case "termtext": runTermtext(&arguments)
 case "selectpipe": runSelectPipe(&arguments)
+case "selectsense": runSelectSense(&arguments)
 case "ocrlive": runOCRLive(&arguments)
 case "speech": runSpeech(&arguments)
 case "help", "--help", "-h": usage()

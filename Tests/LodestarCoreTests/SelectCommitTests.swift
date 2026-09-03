@@ -120,6 +120,108 @@ final class SelectCommitTests: XCTestCase {
                      "a deliberate capital was watched; there is no tail to protect")
     }
 
+    // MARK: - The floor
+
+    func testOneCharacterNeverCommits() {
+        // A lone "S" is an icon the recognizer read as a letter; "S" is
+        // the only standalone s on the page, so the old rule anchored
+        // there the moment the hand typed the first letter of Software.
+        var c = auto(["S Sign in", "the Software page"])
+        XCTAssertEqual(c.key("s", shift: false), .updated)
+        XCTAssertNil(c.anchor, "a single character's uniqueness belongs to the screen's stray glyphs")
+        XCTAssertEqual(c.matches.count, 1, "the search itself still finds the icon")
+        XCTAssertEqual(c.key("o", shift: false), .anchored, "two characters are intent")
+        let text = "the Software page" as NSString
+        XCTAssertEqual(c.anchor.map { text.substring(with: $0.range) }, "Software")
+    }
+
+    func testTheRunawaySpanIsGone() {
+        // The old sequence: "s" anchors on the icon, "of" is a unique
+        // substring of Software, and the span ran from the icon to the
+        // word the hand was still typing.
+        var c = auto(["S Sign in", "the Software page"])
+        let effect = type(&c, "software")
+        XCTAssertEqual(effect, .updated, "the tail was absorbed, nothing completed")
+        XCTAssertEqual(c.query, "")
+        let text = "the Software page" as NSString
+        XCTAssertEqual(c.anchor.map { text.substring(with: $0.range) }, "Software")
+    }
+
+    func testTheFloorHoldsAtTheFarEndToo() {
+        var c = auto(["alpha configuration done", "bravo words zebra", "z"])
+        _ = type(&c, "co")
+        XCTAssertNotNil(c.anchor)
+        XCTAssertEqual(c.key("z", shift: false), .updated,
+                       "the lone z is unique and still not a far end")
+        guard case .selected = c.key("e", shift: false) else {
+            return XCTFail("two characters complete the span")
+        }
+    }
+
+    // MARK: - The settled world
+
+    func testSeedOnASettledWorldLandsTheAnchor() {
+        var c = auto(["the configuration file", "plain words here"])
+        let effect = c.seed(query: "conf", settled: true)
+        XCTAssertEqual(effect, .anchored,
+                       "a hand that finished typing before the sensor finished reading is not charged a capital")
+        XCTAssertNotNil(c.anchor)
+        XCTAssertEqual(c.query, "", "the far end's search starts clean")
+        // The tail the seed left behind is absorbed like any auto-pick's.
+        _ = type(&c, "igu")
+        XCTAssertEqual(c.query, "")
+    }
+
+    func testSeedOnASettledWorldKeepsTheFloor() {
+        var c = auto(["S Sign in", "the Software page"])
+        XCTAssertEqual(c.seed(query: "s", settled: true), .updated)
+        XCTAssertNil(c.anchor)
+    }
+
+    func testSeedOnASettledWorldNeedsUniqueness() {
+        var c = auto(["one alpha two alpha", "three alpha"])
+        XCTAssertEqual(c.seed(query: "alp", settled: true), .updated)
+        XCTAssertNil(c.anchor)
+        XCTAssertEqual(c.matches.count, 3)
+    }
+
+    func testAnUnsettledSeedNeverPicksEvenWithAutoOn() {
+        var c = auto(["the configuration file", "plain words here"])
+        XCTAssertEqual(c.seed(query: "conf", settled: false), .updated)
+        XCTAssertNil(c.anchor)
+    }
+
+    // MARK: - The planned capital
+
+    func testAPlannedCapitalIsConsumedWhileTheTailIsPending() {
+        var c = auto(["alpha configuration done", "bravo words zebra"])
+        _ = type(&c, "co")
+        _ = type(&c, "ze")
+        guard var tail = c.lastAutoContinuation else { return XCTFail("no tail") }
+        XCTAssertTrue(tail.consumePlannedPick(), "the capital the hand planned is swallowed once")
+        XCTAssertTrue(tail.exhausted, "and the absorption ends with it")
+        XCTAssertFalse(tail.consumePlannedPick(), "a second capital is new intent")
+    }
+
+    func testATypedOutTailClaimsNoCapital() {
+        var c = auto(["alpha configuration done", "bravo words zebra"])
+        _ = type(&c, "co")
+        _ = type(&c, "ze")
+        guard var tail = c.lastAutoContinuation else { return XCTFail("no tail") }
+        XCTAssertTrue(tail.consume("b")); XCTAssertTrue(tail.consume("r")); XCTAssertTrue(tail.consume("a"))
+        XCTAssertFalse(tail.consumePlannedPick(), "once the word is typed out a capital is the user's")
+    }
+
+    func testACapitalAfterAnAutoAnchorIsANoOpThatKeepsTheAnchor() {
+        var c = auto(["alpha configuration done", "bravo words zebra"])
+        _ = type(&c, "co")
+        XCTAssertEqual(c.key("a", shift: true), .none, "no chips stand; the planned pick lands on nothing")
+        XCTAssertNotNil(c.anchor)
+        guard case .selected = type(&c, "ze") else {
+            return XCTFail("the far end still completes after the planned capital")
+        }
+    }
+
     // MARK: - The doors that must not have it
 
     func testDefaultCoreNeverAutoAnchors() {

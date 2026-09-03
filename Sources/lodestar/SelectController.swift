@@ -86,6 +86,9 @@ final class SelectController {
     /// Pixels answered: accessibility passes stop adopting and serve only
     /// as grounding for commits.
     private var ocrAdopted = false
+    /// Which sense the standing core was built from — `ax`, `ocr-fast`,
+    /// `ocr` — so an auto-fire's log line says what world it trusted.
+    private var world = "none"
     /// The one polite ask per session, when the permission is absent.
     private var screenAccessPrompted = false
     private var focusedPid: pid_t = 0
@@ -212,6 +215,7 @@ final class SelectController {
         frozen = nil
         lastPassLeaves = -1
         ocrAdopted = false
+        world = "none"
         focusedPid = window.pid
         modeEnteredAt = Date()
         capturedAt = nil
@@ -381,8 +385,27 @@ final class SelectController {
             }
             return .pending
         }
+        let labelUnderway = !core!.typedLabel.isEmpty
+        let queryBefore = (core!.query as NSString).length
         let effect = core!.key(key, shift: shift)
-        if !shift, case .updated = effect { typedInMode += 1 }
+        // Every aiming key counts, including the one uniqueness turned into
+        // a pick: it used to count `.updated` alone, so a session that went
+        // wrong on two keys read as a session with no typing at all. A
+        // plain letter finishing a capital's label is a pick, not aiming.
+        if !shift, !labelUnderway {
+            switch effect {
+            case .updated:
+                typedInMode += 1
+            case .anchored:
+                typedInMode += 1
+                Log.info("select", ["auto": "anchor", "query": queryBefore + 1, "world": world])
+            case .selected:
+                typedInMode += 1
+                Log.info("select", ["auto": "span", "query": queryBefore + 1, "world": world])
+            case .none:
+                break
+            }
+        }
         lastMatchCount = core!.totalMatches
         switch effect {
         case .selected(let pieces):
@@ -560,12 +583,25 @@ final class SelectController {
         // replace the selected text itself. A chord, a held key, or a
         // capital is intent and ends the absorption on the spot.
         if ghostContinuation != nil {
-            let plain = !flags.contains(.maskCommand) && !flags.contains(.maskControl)
-                && !flags.contains(.maskAlternate) && !flags.contains(.maskShift)
-            if !held, plain, let character = SelectCore.searchCharacter(for: key),
-               ghostContinuation!.consume(character) {
-                if ghostContinuation!.exhausted { ghostContinuation = nil }
-                return true
+            let chord = flags.contains(.maskCommand) || flags.contains(.maskControl)
+                || flags.contains(.maskAlternate)
+            let shifted = flags.contains(.maskShift)
+            if !held, !chord, let character = SelectCore.searchCharacter(for: key) {
+                if !shifted, ghostContinuation!.consume(character) {
+                    if ghostContinuation!.exhausted { ghostContinuation = nil }
+                    return true
+                }
+                // A capital while the tail is still pending is the pick
+                // the hand had planned before uniqueness made it. Passed
+                // through, it replaced the native selection the span had
+                // just made, or typed into the page beneath the highlight.
+                // Swallowed once; the absorption ends with it.
+                if shifted, key.count == 1, key.first?.isLetter == true,
+                   ghostContinuation!.consumePlannedPick() {
+                    ghostContinuation = nil
+                    Log.info("select", ["auto": "planned-pick", "swallowed": true])
+                    return true
+                }
             }
             ghostContinuation = nil
         }
@@ -1001,7 +1037,7 @@ final class SelectController {
                         return
                     }
                     guard self.core?.anchor == nil else { return }
-                    self.adoptOCR(lines, windows: windows)
+                    self.adoptOCR(lines, windows: windows, level: level)
                     if level == .accurate {
                         self.observations?.latency(surface: "select-ocr",
                                                    seconds: Double(elapsed) / 1000)
@@ -1050,7 +1086,8 @@ final class SelectController {
                               seconds: now.timeIntervalSince(modeEnteredAt))
     }
 
-    private func adoptOCR(_ lines: [OCRSense.Line], windows: [CGRect]) {
+    private func adoptOCR(_ lines: [OCRSense.Line], windows: [CGRect],
+                          level: OCRSense.Level) {
         noteCaptured()
         ocrAdopted = true
         var leaves = lines.enumerated().map { index, line in
@@ -1080,14 +1117,27 @@ final class SelectController {
         units.sort(by: Self.readingOrder)
         let query = core?.query ?? ""
         self.units = units
+        // Uniqueness may commit only on a settled world. The fast pass is
+        // a sketch — a few lines short, rough around rare glyphs — and a
+        // match unique in a sketch is not unique on the screen; it shows
+        // chips and commits nothing. The accurate pass is the last shape
+        // the screen takes, so a query already typed that is unique there
+        // lands the anchor its next keystroke would have.
+        let settled = level == .accurate
+        world = settled ? "ocr" : "ocr-fast"
         var rebuilt = SelectCore(
             elements: units.enumerated().map {
                 SelectCore.Element(id: $0.offset, text: $0.element.run.text,
                                    frame: $0.element.frame)
             },
-            alphabet: letters, autoAnchor: commitOnUnique && door == .anchor)
-        if !query.isEmpty { rebuilt.seed(query: query) }
+            alphabet: letters, autoAnchor: commitOnUnique && door == .anchor && settled)
+        var seeded = SelectCore.Effect.none
+        if !query.isEmpty { seeded = rebuilt.seed(query: query, settled: settled) }
         core = rebuilt
+        if case .anchored = seeded {
+            Log.info("select", ["auto": "anchor", "query": (query as NSString).length,
+                                "world": world, "seeded": true])
+        }
         replayPendingKeys()
         render()
     }
@@ -1333,12 +1383,17 @@ final class SelectController {
 
         let query = core?.query ?? ""
         self.units = units
+        // The tree's uniqueness counts only where the tree is the only
+        // sensor. With a capture in hand the accurate pass is the settled
+        // world, and a tree pass — adopted a beat before the pixels land,
+        // seven units where the page has fifty — commits nothing.
+        world = "ax"
         var rebuilt = SelectCore(
             elements: units.enumerated().map {
                 SelectCore.Element(id: $0.offset, text: $0.element.run.text,
                                    frame: $0.element.frame)
             },
-            alphabet: letters, autoAnchor: commitOnUnique && door == .anchor)
+            alphabet: letters, autoAnchor: commitOnUnique && door == .anchor && frozen == nil)
         if !query.isEmpty { rebuilt.seed(query: query) }
         core = rebuilt
         replayPendingKeys()

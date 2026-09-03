@@ -548,15 +548,7 @@ final class SelectController {
     }
 
     private static func click(at point: CGPoint, right: Bool) {
-        let downType: CGEventType = right ? .rightMouseDown : .leftMouseDown
-        let upType: CGEventType = right ? .rightMouseUp : .leftMouseUp
-        let button: CGMouseButton = right ? .right : .left
-        guard let down = CGEvent(mouseEventSource: nil, mouseType: downType,
-                                 mouseCursorPosition: point, mouseButton: button),
-              let up = CGEvent(mouseEventSource: nil, mouseType: upType,
-                               mouseCursorPosition: point, mouseButton: button) else { return }
-        down.post(tap: .cghidEventTap)
-        up.post(tap: .cghidEventTap)
+        Pointer.post(SyntheticPointer.click(at: point, right: right))
     }
 
     /// Sticky `lode ⇧;` after a fire: the app may have changed — a beat,
@@ -938,22 +930,11 @@ final class SelectController {
             Log.info("select", ["copy": "drag refused", "reason": "control under an end"])
             return false
         }
-        let mouse = NSEvent.mouseLocation
-        let primaryHeight = NSScreen.screens.first?.frame.maxY ?? 0
-        let origin = CGPoint(x: mouse.x, y: primaryHeight - mouse.y)
-        func post(_ type: CGEventType, _ point: CGPoint) {
-            guard let event = CGEvent(mouseEventSource: nil, mouseType: type,
-                                      mouseCursorPosition: point, mouseButton: .left) else { return }
-            event.setIntegerValueField(.eventSourceUserData, value: Self.ownMark)
-            event.post(tap: .cghidEventTap)
+        let origin = Pointer.location()
+        Pointer.post(SyntheticPointer.drag(from: start, to: end))
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
+            Pointer.post(SyntheticPointer.home(origin))
         }
-        let mid = CGPoint(x: (start.x + end.x) / 2, y: (start.y + end.y) / 2)
-        post(.mouseMoved, start)
-        post(.leftMouseDown, start)
-        post(.leftMouseDragged, mid)
-        post(.leftMouseDragged, end)
-        post(.leftMouseUp, end)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { post(.mouseMoved, origin) }
         return true
     }
 

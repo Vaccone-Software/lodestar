@@ -984,3 +984,94 @@ func runSelectSense(_ args: inout [String]) {
         print("    standalone single characters unique on screen: \(lone.isEmpty ? "none" : lone)")
     }
 }
+
+// MARK: - Pressables
+
+/// The click door's harvest, measured: the same batched, viewport-pruned
+/// walk `HintTargets` runs, plus the one question it does not ask — which
+/// elements expose the press action outside the role list it harvests.
+/// Read-only, no focus change. The numbers decide whether harvesting by
+/// action is worth its cost, app by app.
+func runPressables(_ args: inout [String]) {
+    requireTrust()
+    let appName = args.first ?? "Brave"
+    guard let running = NSWorkspace.shared.runningApplications.first(where: {
+        ($0.localizedName ?? "").localizedCaseInsensitiveContains(appName)
+    }) else { print("\(appName): app not running"); return }
+    let app = AXUIElementCreateApplication(running.processIdentifier)
+    AXUIElementSetMessagingTimeout(app, 1.0)
+    AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+    usleep(300_000)
+    guard let window = AX.elements(app, kAXWindowsAttribute as String)?.first,
+          let position = AX.point(window, kAXPositionAttribute as String),
+          let size = AX.size(window, kAXSizeAttribute as String) else {
+        print("\(appName): no window frame")
+        return
+    }
+    let windowFrame = CGRect(origin: position, size: size)
+    let harvested: Set<String> = [
+        "AXButton", "AXLink", "AXCheckBox", "AXRadioButton", "AXPopUpButton",
+        "AXMenuButton", "AXComboBox", "AXDisclosureTriangle", "AXMenuItem",
+        "AXSegment", "AXSwitch", "AXToggle", "AXTextField", "AXTextArea", "AXSearchField",
+    ]
+    struct Tally { var total = 0; var press = 0; var textless = 0 }
+    var byRole: [String: Tally] = [:]
+    var visited = 0
+    var pruned = 0
+    let deadline = Date().addingTimeInterval(4)
+    let batch = [kAXRoleAttribute, kAXPositionAttribute, kAXSizeAttribute,
+                 kAXChildrenAttribute] as CFArray
+
+    func walk(_ element: AXUIElement, depth: Int) {
+        guard depth < 28, visited < 2800, Date() < deadline else { return }
+        visited += 1
+        var values: CFArray?
+        guard AXUIElementCopyMultipleAttributeValues(
+            element, batch, AXCopyMultipleAttributeOptions(rawValue: 0),
+            &values) == .success, let array = values as? [CFTypeRef], array.count == 4
+        else { return }
+        var frame: CGRect?
+        if CFGetTypeID(array[1]) == AXValueGetTypeID(), CFGetTypeID(array[2]) == AXValueGetTypeID() {
+            var point = CGPoint.zero, sz = CGSize.zero
+            if AXValueGetValue(array[1] as! AXValue, .cgPoint, &point),
+               AXValueGetValue(array[2] as! AXValue, .cgSize, &sz) {
+                frame = CGRect(origin: point, size: sz)
+            }
+        }
+        if let frame, frame.width > 1, frame.height > 1,
+           !frame.intersects(windowFrame.insetBy(dx: -8, dy: -8)) { pruned += 1; return }
+        if let role = array[0] as? String, let frame,
+           frame.width >= 5, frame.height >= 5, frame.intersects(windowFrame) {
+            var actions: CFArray?
+            AXUIElementCopyActionNames(element, &actions)
+            let presses = (actions as? [String] ?? []).contains(kAXPressAction as String)
+            var tally = byRole[role] ?? Tally()
+            tally.total += 1
+            if presses {
+                tally.press += 1
+                let text = (AX.string(element, kAXTitleAttribute as String) ?? "")
+                    + (AX.string(element, kAXDescriptionAttribute as String) ?? "")
+                    + (AX.string(element, kAXValueAttribute as String) ?? "")
+                if text.trimmingCharacters(in: .whitespaces).isEmpty { tally.textless += 1 }
+            }
+            byRole[role] = tally
+        }
+        guard CFGetTypeID(array[3]) == CFArrayGetTypeID(),
+              let children = array[3] as? [AXUIElement] else { return }
+        for child in children { walk(child, depth: depth + 1) }
+    }
+    let began = Date()
+    walk(window, depth: 0)
+    let ms = Int(Date().timeIntervalSince(began) * 1000)
+    print("\(running.localizedName ?? appName): \(visited) nodes · \(pruned) subtrees pruned off-window · \(ms)ms")
+    print("  \(pad("role", 22)) \(pad("total", 6)) \(pad("press", 6)) \(pad("no text", 8))")
+    for (role, tally) in byRole.sorted(by: { $0.value.press > $1.value.press })
+    where tally.press > 0 || harvested.contains(role) {
+        print("  \(pad(role, 22)) \(pad(String(tally.total), 6)) \(pad(String(tally.press), 6))"
+              + " \(pad(String(tally.textless), 8)) \(harvested.contains(role) ? "harvested" : "")")
+    }
+    let inside = byRole.filter { harvested.contains($0.key) }.values.reduce(0) { $0 + $1.total }
+    let outside = byRole.filter { !harvested.contains($0.key) }.values.reduce(0) { $0 + $1.press }
+    let textless = byRole.filter { !harvested.contains($0.key) }.values.reduce(0) { $0 + $1.textless }
+    print("  harvested by role: \(inside) · pressables outside the role list: \(outside) (\(textless) with no text to type)")
+}

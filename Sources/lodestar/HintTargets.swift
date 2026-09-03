@@ -37,13 +37,7 @@ enum HintTargets {
                 return
             }
             let point = CGPoint(x: target.frame.midX, y: target.frame.midY)
-            if let down = CGEvent(mouseEventSource: nil, mouseType: .rightMouseDown,
-                                  mouseCursorPosition: point, mouseButton: .right),
-               let up = CGEvent(mouseEventSource: nil, mouseType: .rightMouseUp,
-                                mouseCursorPosition: point, mouseButton: .right) {
-                down.post(tap: .cghidEventTap)
-                up.post(tap: .cghidEventTap)
-            }
+            Pointer.post(SyntheticPointer.click(at: point, right: true))
             Log.info("hint", ["action": "right-click"])
             return
         }
@@ -60,6 +54,15 @@ enum HintTargets {
     /// thread. Electron apps need AXManualAccessibility flipped before
     /// their tree exists; setting it is harmless everywhere else. The
     /// completion lands on main with whatever the deadline allowed.
+    ///
+    /// Two lessons carried over from select's harvest, where the browser
+    /// taught them. **Batched reads**: role, position, size, and children
+    /// come back in one round trip instead of four, so a heavy page spends
+    /// its deadline on nodes rather than on messaging. **Viewport
+    /// pruning**: a container whose frame is real and lies off the window
+    /// is skipped with its whole subtree — a Chromium page keeps its
+    /// scrolled-away content in the tree, and walking it found chips for
+    /// nothing anyone could see while the visit budget ran out on it.
     static func harvest(window: WindowModel.Window, capacity: Int,
                         completion: @escaping ([Target]) -> Void) {
         let windowElement = window.element
@@ -75,34 +78,52 @@ enum HintTargets {
             var seenFrames = Set<String>()
             var visited = 0
             let deadline = Date().addingTimeInterval(1.2)
-
-            func frame(of element: AXUIElement) -> CGRect? {
-                guard let position = AX.point(element, kAXPositionAttribute),
-                      let size = AX.size(element, kAXSizeAttribute) else { return nil }
-                return CGRect(origin: position, size: size)
-            }
+            let batch = [kAXRoleAttribute, kAXPositionAttribute, kAXSizeAttribute,
+                         kAXChildrenAttribute] as CFArray
 
             func walk(_ element: AXUIElement, depth: Int) {
                 guard depth < 28, visited < 2800, found.count < capacity,
                       Date() < deadline else { return }
                 visited += 1
 
-                if let role = AX.string(element, kAXRoleAttribute) {
+                var values: CFArray?
+                guard AXUIElementCopyMultipleAttributeValues(
+                    element, batch, AXCopyMultipleAttributeOptions(rawValue: 0),
+                    &values) == .success,
+                    let array = values as? [CFTypeRef], array.count == 4 else { return }
+
+                var frame: CGRect?
+                if CFGetTypeID(array[1]) == AXValueGetTypeID(),
+                   CFGetTypeID(array[2]) == AXValueGetTypeID() {
+                    var point = CGPoint.zero
+                    var size = CGSize.zero
+                    if AXValueGetValue(array[1] as! AXValue, .cgPoint, &point),
+                       AXValueGetValue(array[2] as! AXValue, .cgSize, &size) {
+                        frame = CGRect(origin: point, size: size)
+                    }
+                }
+                // The pruning that makes the budget go to what is visible.
+                if let frame, frame.width > 1, frame.height > 1,
+                   !frame.intersects(windowFrame.insetBy(dx: -8, dy: -8)) {
+                    return
+                }
+
+                if let role = array[0] as? String {
                     let pressable = Self.pressableRoles.contains(role)
                     let textInput = Self.textRoles.contains(role)
-                    if pressable || textInput,
-                       let elementFrame = frame(of: element),
-                       elementFrame.width >= 5, elementFrame.height >= 5,
-                       elementFrame.intersects(windowFrame) {
-                        let key = "\(Int(elementFrame.minX)):\(Int(elementFrame.minY)):\(Int(elementFrame.width))"
+                    if pressable || textInput, let frame,
+                       frame.width >= 5, frame.height >= 5,
+                       frame.intersects(windowFrame) {
+                        let key = "\(Int(frame.minX)):\(Int(frame.minY)):\(Int(frame.width))"
                         if !seenFrames.contains(key) {
                             seenFrames.insert(key)
-                            found.append(Target(element: element, frame: elementFrame,
+                            found.append(Target(element: element, frame: frame,
                                                 isTextInput: textInput && !pressable))
                         }
                     }
                 }
-                guard let children = AX.elements(element, kAXChildrenAttribute) else { return }
+                guard CFGetTypeID(array[3]) == CFArrayGetTypeID(),
+                      let children = array[3] as? [AXUIElement] else { return }
                 for child in children {
                     walk(child, depth: depth + 1)
                 }
@@ -113,10 +134,36 @@ enum HintTargets {
 
             DispatchQueue.main.async {
                 Log.info("hints", ["targets": found.count, "visited": visited,
-                                   "ms": elapsed])
+                                   "ms": elapsed, "batched": true])
                 completion(found)
             }
         }
+    }
+}
+
+/// The one place a synthetic pointer script leaves the process. Every
+/// event is stamped as Lodestar's own — the tap passes it to the app
+/// untouched, and the held highlight's click monitor lets it by — and the
+/// scripts themselves are `SyntheticPointer`'s, so the walk-before-press
+/// rule is decided once, in code a test can read.
+enum Pointer {
+    static func post(_ steps: [SyntheticPointer.Step]) {
+        for step in steps {
+            let right = step.type == .rightMouseDown || step.type == .rightMouseUp
+                || step.type == .rightMouseDragged
+            guard let event = CGEvent(mouseEventSource: nil, mouseType: step.type,
+                                      mouseCursorPosition: step.point,
+                                      mouseButton: right ? .right : .left) else { continue }
+            event.setIntegerValueField(.eventSourceUserData, value: SelectController.ownMark)
+            event.post(tap: .cghidEventTap)
+        }
+    }
+
+    /// Where the pointer rests now, in Quartz coordinates.
+    static func location() -> CGPoint {
+        let mouse = NSEvent.mouseLocation
+        let primaryHeight = NSScreen.screens.first?.frame.maxY ?? 0
+        return CGPoint(x: mouse.x, y: primaryHeight - mouse.y)
     }
 }
 

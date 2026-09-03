@@ -22,6 +22,8 @@ func usage() -> Never {
       probe watch <app> [--seconds N]  log window ids while you close/reopen windows
       probe selection [--write]        which apps expose character geometry and a settable
                                        selection, the two facts a selection mode needs
+      probe pressables <app>           the click door's harvest measured: the batched walk's node
+                                       count and time, and which elements press outside its role list
       probe selectsense <app> [--units]
                                        select's bench: capture a window by id, read it with both
                                        recognition passes, type every visible word through the
@@ -54,6 +56,7 @@ case "harvest": runHarvest(&arguments)
 case "termtext": runTermtext(&arguments)
 case "selectpipe": runSelectPipe(&arguments)
 case "selectsense": runSelectSense(&arguments)
+case "pressables": runPressables(&arguments)
 case "ocrlive": runOCRLive(&arguments)
 case "speech": runSpeech(&arguments)
 case "help", "--help", "-h": usage()

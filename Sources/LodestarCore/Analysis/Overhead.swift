@@ -23,6 +23,11 @@ public struct Overhead: Equatable {
     /// of aim and one of commit — select's own arithmetic, and a graph
     /// chain's ceiling), at the hand's measured inter-key gap.
     public static let floorKeystrokes = 3.0
+    /// A strip paste's floor: the strip opened and a label pressed.
+    public static let pasteFloorKeystrokes = 2.0
+    /// A strip open longer than this was a hunt through history, or an
+    /// interruption, not a paste.
+    static let pasteCeiling = 60.0
     /// A launcher search longer than this was an interruption, not a
     /// search; the chain gaps already carry their own ceiling.
     static let launcherCeiling = 30.0
@@ -125,6 +130,32 @@ public struct Overhead: Equatable {
                     actsPerDay: Double(sessions) / Double(selectDays),
                     actualSecondsPerDay: seconds / Double(selectDays),
                     floorSecondsPerDay: Double(sessions) * keyedFloor / Double(selectDays),
+                    measured: true))
+            }
+        }
+
+        // Clipboard: every paste from the strip at its measured seconds
+        // from open to paste, against two keystrokes at the hand's own
+        // gap — the strip and a label. Abandons are not priced: a hunt
+        // that found nothing is not a paste that took long.
+        if let interKey {
+            var pastes = 0
+            var seconds = 0.0
+            var stamps: [Date] = []
+            for event in window where event.kind == .paste && event.action == "pasted" {
+                guard let s = event.seconds, s > 0, s < pasteCeiling else { continue }
+                pastes += 1
+                seconds += s
+                stamps.append(event.t)
+            }
+            if pastes > 0 {
+                let pasteDays = max(1, activeDays(stamps))
+                channels.append(Channel(
+                    name: "clipboard",
+                    actsPerDay: Double(pastes) / Double(pasteDays),
+                    actualSecondsPerDay: seconds / Double(pasteDays),
+                    floorSecondsPerDay: Double(pastes) * pasteFloorKeystrokes * interKey
+                        / Double(pasteDays),
                     measured: true))
             }
         }

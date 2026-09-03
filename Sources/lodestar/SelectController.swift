@@ -350,6 +350,34 @@ final class SelectController {
         lastMatchCount = core!.totalMatches
     }
 
+    /// ⌘V: the pasteboard's text joins the search — the one text on the
+    /// machine the hand did not have to type, and the identifier it is
+    /// usually looking for. Folded to one line and fed whole, so a settled
+    /// world may land the anchor the way it would for a typed query; a
+    /// world that has not landed yet buffers it key by key, the way it
+    /// buffers typing.
+    func paste(_ text: String) {
+        let query = Clipboard.pastedQuery(text)
+        guard !query.isEmpty else { return }
+        if firstKeyAt == nil { firstKeyAt = Date() }
+        guard core != nil else {
+            for character in query where pendingKeys.count < 32 {
+                let key = character == " " ? "space" : String(character).lowercased()
+                if SelectCore.isSearchKey(key) { pendingKeys.append((key: key, shift: false)) }
+            }
+            return
+        }
+        let settled = world == "ocr" || (world == "ax" && frozen == nil)
+        let effect = core!.seed(query: core!.query + query, settled: settled)
+        typedInMode += query.count
+        lastMatchCount = core!.totalMatches
+        if case .anchored = effect {
+            Log.info("select", ["auto": "anchor", "query": query.count, "world": world,
+                                "pasted": true])
+        }
+        render()
+    }
+
     func backspace() {
         if door == .click, !entryTyped.isEmpty {
             entryTyped.removeLast()

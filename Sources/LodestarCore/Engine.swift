@@ -42,6 +42,9 @@ public enum EngineEffect: Equatable {
     case hintRescan
     case exitSelect
     case selectBackspace
+    /// ⌘V while select or hints is up: the pasteboard's text joins the
+    /// search, the way it would join any other input.
+    case selectPaste
     case dismissCheat
     case toggleCheat
     case hideBars
@@ -90,6 +93,8 @@ public enum EngineEffect: Equatable {
     case pasteSearchBegin
     case pasteSearchEnd
     case pasteSearchType(String)
+    /// ⌘V in the strip's search: the pasteboard's text joins the query.
+    case pasteSearchPaste
     case pasteSearchDelete(SearchDeletion)
     case pasteSearchMove(delta: Int)
     case pasteSearchCommit(action: PasteAction)
@@ -362,7 +367,7 @@ public struct EngineCore {
             return scrollPress(key: key, held: held, shift: shift, world: world)
         case .hints(let sticky):
             return hintsPress(key: key, held: held, shift: shift, control: control,
-                              sticky: sticky, world: world)
+                              command: command, option: option, sticky: sticky, world: world)
         case .select:
             return selectPress(key: key, held: held, shift: shift, command: command,
                                option: option, world: world)
@@ -658,7 +663,8 @@ public struct EngineCore {
     /// again) closes it, any other lode verb exits and executes. Plain
     /// typing belongs to the labels; everything unlabeled is swallowed.
     private mutating func hintsPress(key: String, held: Bool, shift: Bool,
-                                     control: Bool, sticky: Bool,
+                                     control: Bool, command: Bool, option: Bool,
+                                     sticky: Bool,
                                      world: EngineWorld) -> [EngineEffect] {
         if held {
             state = .idle
@@ -674,6 +680,10 @@ public struct EngineCore {
             return [.exitHints]
         case "delete":
             return [.hintBackspace]
+        case "v" where command && !shift && !option:
+            // ⌘V aims by what the pasteboard says: an identifier pasted
+            // into the search is clicked the way a typed one would be.
+            return [.selectPaste]
         default:
             // Every typable key feeds the mode — the pixel door aims by
             // typing what the screen says, and a URL or a count needs its
@@ -727,6 +737,10 @@ public struct EngineCore {
             case .pending:
                 return []
             }
+        case "v" where command && !shift && !option:
+            // ⌘V searches for what the pasteboard says — the one text on
+            // the machine the hand did not have to type.
+            return [.selectPaste]
         default:
             switch world.selectKey(key, shift: shift) {
             case .done:
@@ -785,6 +799,10 @@ public struct EngineCore {
                 return [.pasteSearchMove(delta: -1)]
             case "right":
                 return [.pasteSearchMove(delta: 1)]
+            case "v" where command && !shift && !option:
+                // ⌘V pastes into the band, as it does into every other
+                // input — the pasteboard's text joins the query.
+                return [.pasteSearchPaste]
             // ⌥ says the key is an address rather than a character. The
             // cards wear their chips the whole time you are typing, and
             // this is what makes them true: the fourth match is one
@@ -840,6 +858,12 @@ public struct EngineCore {
         // wrong is asymmetric: a swallowed ⌘W is a keystroke to repeat, a
         // forwarded one closes a window the user was only trying to get
         // back to.
+        // ⌘V with the strip up and no band open is still a paste into an
+        // input: the band opens with the pasteboard's text as its query.
+        if key == "v", command, !shift, !option {
+            state = .paste(searching: true)
+            return [.pasteSearchBegin, .pasteSearchPaste]
+        }
         if command, !world.pasteCardExists(address: key) {
             state = .idle
             return [.exitPaste]

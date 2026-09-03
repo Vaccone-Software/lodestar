@@ -245,6 +245,10 @@ public struct Rollup: Codable, Equatable {
         public var draftDoors: [String: Int] = [:]
         public var draftWords = 0
         public var draftSeconds: Double = 0
+        // v4: the clipboard strip, as counts and a sum — never a clip.
+        public var pasteActions: [String: Int] = [:]
+        public var pasteSources: [String: Int] = [:]
+        public var pasteSeconds: Double = 0
         // v2: the health pulse and the focus structure.
         public var health = HealthMonth()
         /// Focus changes by local hour, 24 buckets.
@@ -297,6 +301,11 @@ public struct Rollup: Codable, Equatable {
                                                        forKey: .draftDoors) ?? [:]
             draftWords = try container.decodeIfPresent(Int.self, forKey: .draftWords) ?? 0
             draftSeconds = try container.decodeIfPresent(Double.self, forKey: .draftSeconds) ?? 0
+            pasteActions = try container.decodeIfPresent([String: Int].self,
+                                                         forKey: .pasteActions) ?? [:]
+            pasteSources = try container.decodeIfPresent([String: Int].self,
+                                                         forKey: .pasteSources) ?? [:]
+            pasteSeconds = try container.decodeIfPresent(Double.self, forKey: .pasteSeconds) ?? 0
             health = try container.decodeIfPresent(HealthMonth.self,
                                                    forKey: .health) ?? HealthMonth()
             hours = try container.decodeIfPresent([Int].self, forKey: .hours)
@@ -634,6 +643,15 @@ public struct Rollup: Codable, Equatable {
             }
             month.draftWords += event.words ?? 0
             month.draftSeconds += event.seconds ?? 0
+
+        case .paste:
+            if let action = event.action {
+                month.pasteActions[action, default: 0] += 1
+            }
+            if let source = event.source {
+                month.pasteSources[source, default: 0] += 1
+            }
+            month.pasteSeconds += event.seconds ?? 0
         }
     }
 

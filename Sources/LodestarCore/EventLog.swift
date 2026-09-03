@@ -80,6 +80,14 @@ public struct ObservationEvent: Codable, Equatable {
         /// `firstWord` the two hesitations, `warm` whether the model was
         /// already loaded. Never the text.
         case draft
+        /// The clipboard strip closed: `action` (pasted | acted |
+        /// abandoned), `source` how the card was addressed (label | pin |
+        /// search), `row` the paste's form (plain | native) or the panel
+        /// verb (pin | delete | save | exclude), `rank` the card's position
+        /// or the pin's slot, `typed` search characters, `seconds` open,
+        /// `openToFirstKey` the hesitation, `app` where the paste landed.
+        /// Never the clip.
+        case paste
     }
 
     public var t: Date

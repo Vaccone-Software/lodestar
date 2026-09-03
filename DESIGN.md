@@ -86,11 +86,15 @@ Test it passes: the gesture is fixed (`lode ⏎`, type, `↵`), and the profile 
 
 ## The clipboard (added after the four)
 
-`⇧⌘V` puts history on screen: recents along the bottom labelled by the home row, pins climbing the left edge numbered 1–3. Both meet at one corner, so the two things you are most likely to want — a pin, or what you just copied — are one hot region rather than two ends of a wide strip.
+`⇧⌘V` puts history on screen: recents along the bottom labelled by the home row, pins climbing the left edge numbered 1–5, the column drawn through the highest slot in use and one free slot after it. Both meet at one corner, so the two things you are most likely to want — a pin, or what you just copied — are one hot region rather than two ends of a wide strip.
 
 The strip is **never key**: it reads its keys from the event tap, so the window you were typing in keeps focus and its insertion point, and the paste is a plain `⌘V` into an app that never lost the cursor. History lives in `~/.local/share`, not `~/.config`, because the config is what people commit to a dotfiles repo and clipboard history is the last thing that belongs there. `clipboard.exclude` / `exclude-apps` are how something never gets recorded in the first place.
 
 A clip is **whatever was copied**, not the first piece of it. The pasteboard carries items — three files selected in Finder are three of them — so a history that kept only the first would hand back a third of a copy while looking like it worked. And while the search band has the letters, `⌥` is what addresses a card: the chips stay on the cards and wear the modifier that makes them true, because a label you can see and cannot press is worse than no label.
+
+**A card is found by what it shows and where it came from.** An image says what it shows: the pixel sensor reads it once, off the main thread, a beat after the card exists, and the text under the size line is what the search reads — a screenshot of an error is found by the error. A browser copy carries the page it was made on, and the card wears its host beside the app's icon, searchable as a second address, because "the one from GitHub" is how a hand remembers a clip that never says so. And a restore is not a copy: a clipboard manager putting the previous contents back after a paste of its own marks them, the card is already in the history, and promoting it would reorder the list for something the hand never copied — so it stays where it was. The strip records itself the way every surface does: how the card was addressed, what the search cost, how it ended, never the clip; and pasting from it is a channel in the overhead ratio, against two keystrokes.
+
+**Every input pastes.** The launcher, the commands bar and Ask are real text fields in key panels, and AppKit routes ⌘V through the main menu's key equivalents — which an accessory app does not have until it makes one. It has one now, unseen, carrying only the editing chords. The strip's band, select and the click door read their keys off the tap, so ⌘V there is the pasteboard's text folded to one line and fed whole: into the band as query, into select as the search — an identifier pasted lands on a settled world exactly as one typed would.
 
 _(This section describes what the code does; the framing is worth your eye.)_
 

@@ -113,6 +113,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         Log.info("Lodestar \(Lodestar.version) starting (pid \(ProcessInfo.processInfo.processIdentifier))")
         takeOverPidFile()
+        // Before any panel exists: the chords a text field answers are
+        // routed through the main menu, and an accessory app has none
+        // until it makes one.
+        EditMenu.install()
 
         // The unclean-exit marker: written now, removed only by a graceful
         // shutdown. Found still standing once the takeover has settled,

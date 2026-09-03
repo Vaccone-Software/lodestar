@@ -1,5 +1,6 @@
 import XCTest
 import CoreText
+import ImageIO
 @testable import LodestarCore
 
 /// The pixel sensor against images we control: text drawn with CoreText,
@@ -216,5 +217,22 @@ final class OCRSenseTests: XCTestCase {
         let rect = CGRect(x: frame.minX + 10, y: frame.minY + second.top - 2, width: 400, height: 24)
         let text = OCRSense.reread(image: image, rect: rect, windowFrame: frame)
         XCTAssertEqual(text, "SESSION_ID = 4c9f1b", "the crop reads the one line under it, identifiers intact")
+    }
+
+    // MARK: - An image says what it shows
+
+    func testAnImageSaysWhatItShows() throws {
+        let (image, _) = render(lines: ["Fatal error: index out of range", "at main.swift line 42"])
+        let data = NSMutableData()
+        let destination = try XCTUnwrap(
+            CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, image, nil)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+        let text = try XCTUnwrap(OCRSense.readText(imageData: data as Data))
+        XCTAssertTrue(text.lowercased().contains("fatal error"), text)
+        XCTAssertTrue(text.contains("\n"), "two drawn lines, two read lines: \(text)")
+        XCTAssertNil(OCRSense.readText(imageData: Data([1, 2, 3])),
+                     "bytes that are not a picture read as nothing, and never as a crash")
+        XCTAssertNil(OCRSense.readText(imageData: Data()))
     }
 }

@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import ImageIO
 import Vision
 
 /// The pixel sensor: what select sees when it looks at a window.
@@ -77,6 +78,25 @@ public enum OCRSense {
                         candidate: candidate,
                         windowFrame: windowFrame)
         }
+    }
+
+    /// What an image says, for a clipboard card to be found by: every
+    /// line the accurate pass reads, top to bottom then left to right.
+    /// Decodes the image once, off whatever thread calls it — never the
+    /// main one — and answers nil when nothing was read or the bytes are
+    /// not a picture.
+    public static func readText(imageData: Data) -> String? {
+        guard let source = CGImageSourceCreateWithData(imageData as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+        let frame = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+        let lines = recognize(image: image, windowFrame: frame, level: .accurate)
+        guard !lines.isEmpty else { return nil }
+        let sorted = lines.sorted { a, b in
+            let dy = a.frame.minY - b.frame.minY
+            if abs(dy) > 4 { return dy < 0 }
+            return a.frame.minX < b.frame.minX
+        }
+        return sorted.map(\.text).joined(separator: "\n")
     }
 
     /// Whitespace-collapsed form, for grounding an OCR span against

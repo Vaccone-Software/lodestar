@@ -21,7 +21,9 @@ public enum Clipboard {
         public let sourceBundleID: String?
         public let sourceAppName: String?
         /// Rendered on the card and searched against — never the whole clip.
-        public let preview: String
+        /// A var, because an image's caption grows once its text has been
+        /// read, a beat after the card exists.
+        public var preview: String
         /// Bytes on disk across every representation, for the size cap.
         public let bytes: Int
         /// The first item's pasteboard types, stored alongside its plain
@@ -39,12 +41,17 @@ public enum Clipboard {
         public let otherItemTypes: [[String]]?
         /// nil when the clip is not pinned; otherwise its permanent slot.
         public var pinnedSlot: Int?
+        /// The page a browser copy came from, host only — the address a
+        /// hand remembers a clip by, "the one from GitHub" — read from the
+        /// source-url type Chromium puts beside every copy. Never the path,
+        /// and absent for every clip that did not come from a page.
+        public var sourceHost: String?
 
         public init(id: String, kind: Kind, created: Date,
                     sourceBundleID: String?, sourceAppName: String?,
                     preview: String, bytes: Int,
                     nativeTypes: [String] = [], otherItemTypes: [[String]] = [],
-                    pinnedSlot: Int? = nil) {
+                    pinnedSlot: Int? = nil, sourceHost: String? = nil) {
             self.id = id
             self.kind = kind
             self.created = created
@@ -52,6 +59,7 @@ public enum Clipboard {
             self.sourceAppName = sourceAppName
             self.preview = preview
             self.bytes = bytes
+            self.sourceHost = sourceHost
             self.nativeTypes = nativeTypes
             // Absent rather than empty for the single-item copy, which is
             // almost every copy: the index is rewritten on a timer for the
@@ -157,6 +165,71 @@ public enum Clipboard {
             return .empty
         }
         return nil
+    }
+
+    // MARK: - A restore is not a copy
+
+    /// Types a clipboard manager stamps on the previous contents when it
+    /// puts them back after a paste of its own. The bytes are not a new
+    /// copy — the card is already in the history — so the list must not
+    /// reorder for them: copies reorder, pastes do not, and neither does
+    /// a restore. A restore of something the history never saw is still
+    /// recorded, because then it is news.
+    public static let restoreTypes: Set<String> = ["com.raycast.RestoredType"]
+
+    public static func isRestore(types: [String]) -> Bool {
+        types.contains { restoreTypes.contains($0) }
+    }
+
+    // MARK: - Where a copy came from
+
+    /// The pasteboard type Chromium browsers put beside a copy, carrying
+    /// the page it was made on.
+    public static let sourceURLType = "org.chromium.source-url"
+
+    /// The host of a page, as the card shows it and the search reads it:
+    /// lowercased, the leading www dropped. Nil for anything that is not
+    /// a URL with a host — a path, a fragment, an empty string.
+    public static func sourceHost(fromURL string: String?) -> String? {
+        guard let string,
+              let url = URL(string: string.trimmingCharacters(in: .whitespacesAndNewlines)),
+              var host = url.host?.lowercased(), !host.isEmpty else { return nil }
+        if host.hasPrefix("www.") { host.removeFirst(4) }
+        return host.isEmpty ? nil : host
+    }
+
+    // MARK: - An image says what it shows
+
+    /// An image card's preview: its size, and under it every line the
+    /// recognizer read — what a screenshot of an error message is found
+    /// by. The size line stays first so a card whose text arrives a beat
+    /// later still reads as the same card.
+    public static func imagePreview(width: Int, height: Int, text: String? = nil) -> String {
+        let head = "image \(width)×\(height)"
+        guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return head }
+        return head + "\n" + preview(of: text, limit: 1500)
+    }
+
+    /// An image card's caption, arriving a beat after the card: the size
+    /// line it already had stays first, so the card is the card it was,
+    /// and the text goes under it for the search to read.
+    public static func captioned(_ preview: String, with text: String) -> String {
+        let head = preview.split(separator: "\n", maxSplits: 1,
+                                 omittingEmptySubsequences: false).first.map(String.init) ?? preview
+        let body = self.preview(of: text, limit: 1500)
+        return body.isEmpty ? head : head + "\n" + body
+    }
+
+    // MARK: - Pasting into a search
+
+    /// What ⌘V puts into a search band: the pasteboard's text with every
+    /// run of whitespace, newlines included, folded to one space, and cut
+    /// to a length a band can hold. A band is one line; a pasted paragraph
+    /// searches by its first two hundred characters.
+    public static func pastedQuery(_ text: String, limit: Int = 200) -> String {
+        let collapsed = text.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+        return String(collapsed.prefix(limit))
     }
 
     // MARK: - A copy is its items
@@ -296,6 +369,15 @@ public enum Clipboard {
         (1...slots).first { !taken.contains($0) }
     }
 
+    /// How many slots the column draws: every slot through the highest one
+    /// in use, and one free slot after it, so the next pin's number is
+    /// visible without four empty cards standing for slots nobody has
+    /// reached. Positions never move — slots stack from the corner, and a
+    /// drawn slot sits exactly where it always did.
+    public static func pinSlotsToDraw(taken: Set<Int>, slots: Int = pinSlots) -> Int {
+        min(slots, max(1, (taken.max() ?? 0) + 1))
+    }
+
     // MARK: - Retention
 
     /// What to drop, oldest first, until the store fits. Pins are exempt
@@ -433,6 +515,22 @@ public enum Clipboard {
         return false
     }
 
+    /// A host hit's score: under every literal hit in the preview, which
+    /// is what you typed sitting in the text, and above a letters-in-order
+    /// match, which is a guess.
+    static let hostRelevance = 550.0
+
+    /// How well a clip answers a query: its preview first, and then the
+    /// page it came from — "github" finds the clips copied on GitHub even
+    /// when none of them says so.
+    public static func relevance(of clip: Clip, to needle: String) -> Double? {
+        let text = relevance(of: clip.preview, to: needle)
+        if let host = clip.sourceHost, !needle.isEmpty, host.contains(needle) {
+            return max(text ?? 0, hostRelevance)
+        }
+        return text
+    }
+
     /// Newest-first among equals, so an untyped strip and a searched one
     /// order the same way and the labels stay where the eye expects them.
     public static func search(_ clips: [Clip], query: String) -> [Clip] {
@@ -441,7 +539,7 @@ public enum Clipboard {
         return recents(clips)
             .enumerated()
             .compactMap { position, clip -> (Clip, Double, Int)? in
-                guard let score = relevance(of: clip.preview, to: needle) else { return nil }
+                guard let score = relevance(of: clip, to: needle) else { return nil }
                 return (clip, score, position)
             }
             .sorted { $0.1 == $1.1 ? $0.2 < $1.2 : $0.1 > $1.1 }

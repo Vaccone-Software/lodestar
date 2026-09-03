@@ -40,6 +40,10 @@ final class ClipboardStore {
 
     var clips: [Clipboard.Clip] { index.clips }
 
+    func contains(_ id: String) -> Bool {
+        index.clips.contains { $0.id == id }
+    }
+
     init(root: URL = Paths.clipboard) {
         self.root = root
         try? FileManager.default.createDirectory(at: items, withIntermediateDirectories: true,
@@ -152,7 +156,8 @@ final class ClipboardStore {
     /// the main thread.
     func record(id: String, kind: Clipboard.Kind, items: [Item],
                 imageData: Data?, preview: String,
-                sourceBundleID: String?, sourceAppName: String?) {
+                sourceBundleID: String?, sourceAppName: String?,
+                sourceHost: String? = nil) {
         guard let first = items.first else { return }
         var bytes = 0
         for item in items {
@@ -179,16 +184,67 @@ final class ClipboardStore {
                 self.onThumbnail?()
             }
         }
+        // An image says what it shows: the recognizer reads it once, off
+        // the main thread and off the io queue — the accurate pass on a
+        // screenshot is most of a second, and the writes must not wait
+        // behind it — and the card learns its caption a beat after it
+        // exists. A screenshot of an error is found by the error.
+        if let imageData {
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                guard let text = OCRSense.readText(imageData: imageData) else { return }
+                DispatchQueue.main.async { self?.caption(id, with: text) }
+            }
+        }
 
         let clip = Clipboard.Clip(
             id: id, kind: kind, created: Date(),
             sourceBundleID: sourceBundleID, sourceAppName: sourceAppName,
             preview: preview, bytes: bytes,
             nativeTypes: first.natives.map(\.type),
-            otherItemTypes: items.dropFirst().map { $0.natives.map(\.type) }
+            otherItemTypes: items.dropFirst().map { $0.natives.map(\.type) },
+            sourceHost: sourceHost
         )
         index.clips = Clipboard.merging(index.clips, with: clip)
         saveSoon()
+    }
+
+    /// Images that were on the strip before it could read them: captioned
+    /// once, one at a time on a utility queue, so a history of screenshots
+    /// becomes searchable without the first boot after the update paying
+    /// for it all at once. Bounded per boot; a second boot takes the rest.
+    /// Only images whose preview is still the size line alone are read.
+    func captionImagesLackingText(limit: Int = 500) {
+        let pending = index.clips.filter {
+            $0.kind == .image && !$0.preview.contains("\n")
+        }.prefix(limit)
+        guard !pending.isEmpty else { return }
+        let jobs = pending.map { (id: $0.id, types: $0.itemTypes.first ?? []) }
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            var captioned = 0
+            for job in jobs {
+                guard let self else { return }
+                let offset = job.types.firstIndex {
+                    $0 == NSPasteboard.PasteboardType.png.rawValue
+                        || $0 == NSPasteboard.PasteboardType.tiff.rawValue
+                } ?? 0
+                guard let data = try? Data(contentsOf: self.itemFile(job.id, item: 0,
+                                                                     self.typeExtension(offset))),
+                      let text = OCRSense.readText(imageData: data) else { continue }
+                captioned += 1
+                DispatchQueue.main.async { self.caption(job.id, with: text) }
+            }
+            Log.info("clipboard: captioned \(captioned) of \(jobs.count) images already in the history")
+        }
+    }
+
+    /// An image's text arrived. The size line stays first, so the card is
+    /// the card it was; the text under it is what the search reads.
+    private func caption(_ id: String, with text: String) {
+        guard let position = index.clips.firstIndex(where: { $0.id == id }) else { return }
+        index.clips[position].preview = Clipboard.captioned(index.clips[position].preview,
+                                                            with: text)
+        saveSoon()
+        onThumbnail?()
     }
 
     /// A clip's dimensions, read from the file header. ImageIO answers this

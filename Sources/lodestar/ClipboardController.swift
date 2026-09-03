@@ -65,6 +65,15 @@ final class ClipboardController {
         poll = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { [weak self] _ in
             self?.capture()
         }
+        // A tenth of a second of slack lets the system fold these three
+        // wakeups a second into timers it was firing anyway; a copy is
+        // still on a card within half a second.
+        poll?.tolerance = 0.1
+        // The screenshots already in the history learn their captions
+        // once, well after boot has settled and off the main thread.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in
+            self?.store.captionImagesLackingText()
+        }
     }
 
     func stop() {
@@ -175,15 +184,31 @@ final class ClipboardController {
         guard !identity.isEmpty else { return }
         let id = ClipboardStore.identity(for: identity)
 
+        // A restore is not a copy. A clipboard manager putting the
+        // previous contents back after a paste of its own marks them, and
+        // the card is already in the history: promoting it would reorder
+        // the list for something the hand never copied.
+        if Clipboard.isRestore(types: types), store.contains(id) {
+            Log.info("clipboard", ["restore": "kept in place"])
+            return
+        }
+
         let preview = readable.isEmpty
             ? (imageData.flatMap { ClipboardStore.pixelSize(of: $0) }
-                .map { "image \(Int($0.width))×\(Int($0.height))" } ?? "clip")
+                .map { Clipboard.imagePreview(width: Int($0.width), height: Int($0.height)) }
+                ?? "clip")
             : Clipboard.preview(of: readable)
+        // The page a browser copy came from, host only — read from the
+        // type Chromium leaves beside the copy, and nothing for anything
+        // that did not come from a page.
+        let sourceHost = Clipboard.sourceHost(fromURL: boardItems[0].string(
+            forType: NSPasteboard.PasteboardType(Clipboard.sourceURLType)))
         store.record(id: id, kind: imageData != nil ? .image : .text,
                      items: items, imageData: imageData,
                      preview: preview,
                      sourceBundleID: source?.bundleIdentifier,
-                     sourceAppName: source?.localizedName)
+                     sourceAppName: source?.localizedName,
+                     sourceHost: sourceHost)
         store.trim(maxBytes: maxBytes, maxItems: maxItems)
         onCapture?()
     }

@@ -156,4 +156,32 @@ final class RollupTests: XCTestCase {
         XCTAssertTrue(outcome.added.isEmpty)
         XCTAssertEqual(try? Data(contentsOf: file), foreign, "byte-identical")
     }
+
+    // MARK: - The strip
+
+    func testPastesRollUpAsCountsAndASum() {
+        let months = Rollup.build(events: [
+            event(.paste, at: november) { $0.action = "pasted"; $0.source = "label"; $0.seconds = 2 },
+            event(.paste, at: november) { $0.action = "pasted"; $0.source = "search"; $0.seconds = 3 },
+            event(.paste, at: november) { $0.action = "abandoned"; $0.seconds = 5 },
+        ], now: january)
+        let month = months["2023-11"]
+        XCTAssertEqual(month?.pasteActions, ["pasted": 2, "abandoned": 1])
+        XCTAssertEqual(month?.pasteSources, ["label": 1, "search": 1])
+        XCTAssertEqual(month?.pasteSeconds ?? 0, 10, accuracy: 0.001)
+    }
+
+    func testAnArchiveWrittenBeforeTheStripDecodes() throws {
+        var full = Rollup.Month(firstEvent: november, lastEvent: november)
+        full.verbs = ["graph": 3]
+        var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(full)) as! [String: Any]
+        json.removeValue(forKey: "pasteActions")
+        json.removeValue(forKey: "pasteSources")
+        json.removeValue(forKey: "pasteSeconds")
+        let data = try JSONSerialization.data(withJSONObject: json)
+        let back = try JSONDecoder().decode(Rollup.Month.self, from: data)
+        XCTAssertEqual(back.pasteActions, [:])
+        XCTAssertEqual(back.pasteSeconds, 0)
+        XCTAssertEqual(back.verbs, ["graph": 3])
+    }
 }

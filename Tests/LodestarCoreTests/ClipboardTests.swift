@@ -248,11 +248,12 @@ final class PasteModeTests: XCTestCase {
 }
 
 extension PasteModeTests {
-    /// ⌘C, ⌘X, ⌘V, ⌘Z belong to the app underneath — none of them address
-    /// a card, so reaching for one ends the mode and the keystroke lands
-    /// where it was aimed.
+    /// ⌘C, ⌘X, ⌘Z belong to the app underneath — none of them address a
+    /// card, so reaching for one ends the mode and the keystroke lands
+    /// where it was aimed. ⌘V is the one exception: a paste into an input
+    /// is what ⌘V means everywhere, and the strip's input is its band.
     func testCommandShortcutsOutsideTheAlphabetLeaveTheMode() {
-        for key in ["c", "x", "v", "z"] {
+        for key in ["c", "x", "z"] {
             var core = EngineCore()
             _ = core.openPaste(world: world)
             XCTAssertFalse(Clipboard.recentLabels.contains(key), "\(key) must not be a label")
@@ -261,6 +262,12 @@ extension PasteModeTests {
                            [.exitPaste], "swallowed, not forwarded")
             XCTAssertTrue(core.isIdle, "and the strip is gone")
         }
+        var core = EngineCore()
+        _ = core.openPaste(world: world)
+        XCTAssertEqual(core.keyDown(key: "v", held: false, shift: false, command: true, world: world),
+                       [.pasteSearchBegin, .pasteSearchPaste],
+                       "⌘V opens the band with the pasteboard's text")
+        XCTAssertEqual(core.state, .paste(searching: true))
     }
 
     func testNonLabelLettersWithoutCommandAreStillSwallowed() {
@@ -825,5 +832,84 @@ extension ClipboardTests {
                                            sourceBundleID: nil, excludedApps: [],
                                            itemCount: 9_000),
             .concealed("org.nspasteboard.ConcealedType"))
+    }
+
+    // MARK: - A card is found by what it shows and where it came from
+
+    func testAnImageIsFoundByWhatItShows() {
+        var image = clip("shot", preview: Clipboard.imagePreview(width: 1200, height: 800))
+        image.preview = Clipboard.captioned(image.preview,
+                                            with: "Fatal error: index out of range\nat main.swift:42")
+        let text = clip("note", preview: "groceries")
+        XCTAssertEqual(Clipboard.search([text, image], query: "fatal").map(\.id), ["shot"])
+        XCTAssertTrue(image.preview.hasPrefix("image 1200×800\n"), "the size line stays first")
+    }
+
+    func testImagePreviewWithoutTextIsTheSizeAlone() {
+        XCTAssertEqual(Clipboard.imagePreview(width: 10, height: 20), "image 10×20")
+        XCTAssertEqual(Clipboard.imagePreview(width: 10, height: 20, text: "  \n"), "image 10×20")
+        XCTAssertEqual(Clipboard.imagePreview(width: 10, height: 20, text: "hello"), "image 10×20\nhello")
+    }
+
+    func testCaptionedReplacesAnOlderCaptionRatherThanStacking() {
+        let once = Clipboard.captioned("image 1×1", with: "first")
+        let twice = Clipboard.captioned(once, with: "second")
+        XCTAssertEqual(twice, "image 1×1\nsecond")
+        XCTAssertEqual(Clipboard.captioned("image 1×1", with: "  "), "image 1×1",
+                       "nothing read, nothing added")
+    }
+
+    func testSourceHostIsTheBareHost() {
+        XCTAssertEqual(Clipboard.sourceHost(fromURL: "https://www.github.com/x/y?z=1"), "github.com")
+        XCTAssertEqual(Clipboard.sourceHost(fromURL: "  https://Docs.Example.org/a  "), "docs.example.org")
+        XCTAssertNil(Clipboard.sourceHost(fromURL: "not a url"))
+        XCTAssertNil(Clipboard.sourceHost(fromURL: nil))
+        XCTAssertNil(Clipboard.sourceHost(fromURL: ""))
+        XCTAssertNil(Clipboard.sourceHost(fromURL: "https://www./"))
+    }
+
+    func testTheHostIsASecondAddress() {
+        var fromGitHub = clip("code", preview: "func foo() {}")
+        fromGitHub.sourceHost = "github.com"
+        let says = clip("says", preview: "github is down")
+        let other = clip("other", preview: "lunch")
+        XCTAssertEqual(Clipboard.search([other, fromGitHub, says], query: "github").map(\.id),
+                       ["says", "code"],
+                       "a literal hit in the text outranks the page; the page still answers")
+        XCTAssertEqual(Clipboard.search([other, fromGitHub], query: "hub").map(\.id), ["code"])
+    }
+
+    func testARestoreIsRecognizedByItsMarker() {
+        XCTAssertTrue(Clipboard.isRestore(types: ["public.utf8-plain-text", "com.raycast.RestoredType"]))
+        XCTAssertFalse(Clipboard.isRestore(types: ["public.utf8-plain-text"]))
+        XCTAssertFalse(Clipboard.isRestore(types: []))
+    }
+
+    func testThePinColumnDrawsThroughTheHighestSlotAndOneFree() {
+        XCTAssertEqual(Clipboard.pinSlotsToDraw(taken: []), 1)
+        XCTAssertEqual(Clipboard.pinSlotsToDraw(taken: [1]), 2)
+        XCTAssertEqual(Clipboard.pinSlotsToDraw(taken: [1, 3]), 4)
+        XCTAssertEqual(Clipboard.pinSlotsToDraw(taken: [5]), 5)
+        XCTAssertEqual(Clipboard.pinSlotsToDraw(taken: [1, 2, 3, 4, 5]), 5)
+    }
+
+    func testAPastedQueryIsOneLineAndBounded() {
+        XCTAssertEqual(Clipboard.pastedQuery("  hello\n\n  world\t!  "), "hello world !")
+        XCTAssertEqual(Clipboard.pastedQuery(""), "")
+        XCTAssertEqual(Clipboard.pastedQuery("   \n "), "")
+        XCTAssertEqual(Clipboard.pastedQuery(String(repeating: "a", count: 500)).count, 200)
+    }
+
+    func testAClipWithoutAHostStillDecodesAndEncodesWithoutTheKey() throws {
+        let old = clip("old")
+        let data = try JSONEncoder().encode(old)
+        XCTAssertFalse(String(decoding: data, as: UTF8.self).contains("sourceHost"),
+                       "absent, not null: the index is rewritten ten thousand times")
+        let back = try JSONDecoder().decode(Clipboard.Clip.self, from: data)
+        XCTAssertNil(back.sourceHost)
+        var hosted = old
+        hosted.sourceHost = "example.com"
+        let again = try JSONDecoder().decode(Clipboard.Clip.self, from: JSONEncoder().encode(hosted))
+        XCTAssertEqual(again.sourceHost, "example.com")
     }
 }

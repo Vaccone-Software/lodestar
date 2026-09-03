@@ -199,6 +199,23 @@ public final class ObservationStore {
         record(event)
     }
 
+    /// The strip closed — how the card was reached and what it cost,
+    /// never which clip it was.
+    public func pasted(app: String, action: String, source: String?, row: String?,
+                       rank: Int?, typed: Int, seconds: TimeInterval,
+                       firstKey: TimeInterval?, at now: Date = Date()) {
+        var event = ObservationEvent(t: now, kind: .paste)
+        event.app = app.lowercased()
+        event.action = action
+        event.source = source
+        event.row = row
+        event.rank = rank
+        event.typed = typed
+        event.seconds = seconds
+        event.openToFirstKey = firstKey
+        record(event)
+    }
+
     /// A destination opened in a browser profile. The host, never the URL:
     /// the path and query are the content, the host is the routing fact.
     public func webOpened(host: String?, profile: String, source: String, row: String? = nil,

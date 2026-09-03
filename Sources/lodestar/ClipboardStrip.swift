@@ -108,7 +108,11 @@ final class ClipboardStrip {
             ? min(fit, Self.labels.count)
             : max(visibleRecents.count, 1)
         let stripWidth = CGFloat(lanes) * (Self.cardWidth + Self.gap) - Self.gap
-        let pinColumnHeight = CGFloat(Clipboard.pinSlots) * (Self.cardHeight + Self.gap)
+        // Slots through the highest in use and one free one after it: the
+        // next pin's number is visible, and four empty cards do not stand
+        // for slots nobody has reached. Positions never move.
+        let drawnSlots = Clipboard.pinSlotsToDraw(taken: Set(shownPins.keys))
+        let pinColumnHeight = CGFloat(drawnSlots) * (Self.cardHeight + Self.gap)
         let height = Self.cardHeight + Self.gap + pinColumnHeight
         let width = max(stripWidth, Self.cardWidth) + Self.margin * 2
 
@@ -185,7 +189,7 @@ final class ClipboardStrip {
         // Pins: climbing from the same corner, numbered and permanent. An
         // empty slot still draws, so the numbers are always visible and a
         // freed slot reads as reserved rather than missing.
-        for slot in 1...Clipboard.pinSlots {
+        for slot in 1...drawnSlots {
             let card: NSView
             if let clip = shownPins[slot] {
                 card = makeCard(clip: clip, label: address + "\(slot)", height: Self.cardHeight,
@@ -259,11 +263,28 @@ final class ClipboardStrip {
             card.addSubview(preview)
         }
 
+        var trailing = Self.cardWidth - 11
         if let bundleID = clip.sourceBundleID, let image = sourceIcon(bundleID: bundleID) {
             let icon = NSImageView(image: image)
             icon.frame = NSRect(x: Self.cardWidth - 26, y: height - 24, width: 15, height: 15)
             icon.alphaValue = 0.7
             card.addSubview(icon)
+            trailing = Self.cardWidth - 30
+        }
+        // The page a browser copy came from, beside the app that made it:
+        // the address the hand remembers — "the one from GitHub" — and
+        // the one the search reads too.
+        if let host = clip.sourceHost {
+            let page = NSTextField(labelWithString: host)
+            page.font = .systemFont(ofSize: 10, weight: .medium)
+            page.textColor = .tertiaryLabelColor
+            page.lineBreakMode = .byTruncatingTail
+            page.alignment = .right
+            page.sizeToFit()
+            let width = min(page.frame.width, 96)
+            page.frame = NSRect(x: trailing - width, y: height - 24,
+                                width: width, height: page.frame.height)
+            card.addSubview(page)
         }
 
         let age = NSTextField(labelWithString: Clipboard.age(of: clip))

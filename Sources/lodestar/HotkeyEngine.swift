@@ -132,6 +132,16 @@ final class HotkeyEngine {
     private let draft: DraftController
     private let strip = ClipboardStrip()
     private var pasteQuery: String?
+    /// The strip's own observation: when it opened, when the hand first
+    /// moved, what it typed, and how it ended. Counts and timings, never
+    /// a clip.
+    private struct StripSession {
+        var openedAt: Date
+        var firstKeyAt: Date?
+        var typed = 0
+        var outcome: (action: String, source: String?, row: String?, rank: Int?)?
+    }
+    private var stripSession: StripSession?
     private var pasteSelection = 0
     private var panelClip: Clipboard.Clip?
     /// Live only while the strip is up; see `watchClicks`.
@@ -676,23 +686,44 @@ final class HotkeyEngine {
             case .passThrough:
                 pass = true
             case .enterPaste:
+                stripSession = StripSession(openedAt: clock.now())
+                let began = Date()
                 renderStrip()
+                observations?.latency(surface: "strip",
+                                      seconds: Date().timeIntervalSince(began))
                 walkSignal?(.clipboardOpened)
             case .exitPaste:
+                if let session = stripSession {
+                    let now = clock.now()
+                    observations?.pasted(
+                        app: NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown",
+                        action: session.outcome?.action ?? "abandoned",
+                        source: session.outcome?.source, row: session.outcome?.row,
+                        rank: session.outcome?.rank, typed: session.typed,
+                        seconds: now.timeIntervalSince(session.openedAt),
+                        firstKey: session.firstKeyAt.map { $0.timeIntervalSince(session.openedAt) },
+                        at: now)
+                    stripSession = nil
+                }
                 pasteQuery = nil
                 panelClip = nil
                 stopWatchingClicks()
                 strip.hide()
             case .pasteRecent(let label, let action):
+                noteStripKey()
                 // The label names a position, not a card — one index
                 // lookup answers it.
-                let clip = ClipboardStrip.labels.firstIndex(of: label).flatMap { index in
+                let index = ClipboardStrip.labels.firstIndex(of: label)
+                let clip = index.flatMap { index in
                     strip.shownRecents.indices.contains(index) ? strip.shownRecents[index] : nil
                 }
-                actOnClip(clip, action: action)
+                actOnClip(clip, action: action,
+                          source: pasteQuery == nil ? "label" : "search", rank: index)
             case .pastePinned(let slot, let action):
-                actOnClip(strip.shownPins[slot], action: action)
+                noteStripKey()
+                actOnClip(strip.shownPins[slot], action: action, source: "pin", rank: slot)
             case .pasteSearchBegin:
+                noteStripKey()
                 pasteQuery = ""
                 pasteSelection = 0
                 renderStrip()
@@ -700,10 +731,26 @@ final class HotkeyEngine {
                 pasteQuery = nil
                 renderStrip()
             case .pasteSearchType(let text):
+                noteStripKey()
+                stripSession?.typed += text.count
                 pasteQuery = (pasteQuery ?? "") + text
                 pasteSelection = 0
                 renderStrip()
+            case .pasteSearchPaste:
+                // ⌘V into the band: the pasteboard's text, folded to one
+                // line, joins the query the way it joins any input.
+                noteStripKey()
+                let pasted = Clipboard.pastedQuery(
+                    NSPasteboard.general.string(forType: .string) ?? "")
+                guard !pasted.isEmpty else { break }
+                stripSession?.typed += pasted.count
+                pasteQuery = (pasteQuery ?? "") + pasted
+                pasteSelection = 0
+                renderStrip()
+            case .selectPaste:
+                select.paste(NSPasteboard.general.string(forType: .string) ?? "")
             case .pasteSearchDelete(let scope):
+                noteStripKey()
                 let query = pasteQuery ?? ""
                 switch scope {
                 case .character: pasteQuery = String(query.dropLast())
@@ -713,13 +760,16 @@ final class HotkeyEngine {
                 pasteSelection = 0
                 renderStrip()
             case .pasteSearchMove(let delta):
+                noteStripKey()
                 pasteSelection = max(0, min(strip.shownRecents.count - 1, pasteSelection + delta))
                 renderStrip()
             case .pasteSearchCommit(let action):
+                noteStripKey()
                 let target = strip.shownRecents.indices.contains(pasteSelection)
                     ? strip.shownRecents[pasteSelection] : nil
-                actOnClip(target, action: action)
+                actOnClip(target, action: action, source: "search", rank: pasteSelection)
             case .pastePanelShow:
+                noteStripKey()
                 showClipPanel()
             case .pastePanelDismiss:
                 panelClip = nil
@@ -1141,8 +1191,24 @@ extension HotkeyEngine: EngineWorld {
         renderStrip()
     }
 
+    /// The strip's first key, whichever it was — the hesitation the
+    /// record keeps for every surface.
+    private func noteStripKey() {
+        guard stripSession != nil, stripSession?.firstKeyAt == nil else { return }
+        stripSession?.firstKeyAt = clock.now()
+    }
+
     private func performPanel(_ action: PanelAction) {
         guard let clip = panelClip else { return }
+        let verb: String
+        switch action {
+        case .pin: verb = clip.isPinned ? "unpin" : "pin"
+        case .delete: verb = "delete"
+        case .saveImage: verb = "save"
+        case .excludeApp: verb = "exclude"
+        }
+        let named = stripSession?.outcome
+        stripSession?.outcome = ("acted", named?.source, verb, named?.rank)
         switch action {
         // Pin and delete stay here on purpose: both are in-memory edits with
         // a debounced save behind them, and delete already unlinks its files
@@ -1169,7 +1235,8 @@ extension HotkeyEngine: EngineWorld {
 
     /// One card, one verb. A panel action leaves the strip up; a paste has
     /// already closed it by the time this runs.
-    private func actOnClip(_ clip: Clipboard.Clip?, action: PasteAction) {
+    private func actOnClip(_ clip: Clipboard.Clip?, action: PasteAction,
+                           source: String, rank: Int?) {
         guard let clip else {
             // Nothing behind that label. A paste closes the strip anyway; a
             // panel request must not strand the mode in a panel with no card.
@@ -1178,9 +1245,13 @@ extension HotkeyEngine: EngineWorld {
         }
         switch action {
         case .plain, .native:
+            stripSession?.outcome = ("pasted", source,
+                                     action == .native ? "native" : "plain", rank)
             strip.hide()
             clipboard.paste(clip, action: action)
         case .panel:
+            // The card is named now; the verb comes when the panel acts.
+            stripSession?.outcome = ("abandoned", source, nil, rank)
             panelClip = clip
         }
     }

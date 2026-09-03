@@ -76,7 +76,10 @@ Results are ranked by fuzzy match quality **plus frecency** — every summon (gr
 - **`1`…`5` reach the pins.** Slots are permanent: a new pin takes the lowest free one, and unpinning leaves a hole rather than renumbering the others, so a pin you have learned never moves. Empty slots still draw, so the numbers are always visible.
 - **`/` searches**, `↵` pastes the match, `esc` steps back to the strip. A second `esc` closes. Everything your keyboard types is a search character — hyphens, underscores, slashes, dots — because that is what file names and commands are made of.
 - **`⌥letter` pastes a match without leaving the search.** While you are typing, the letters belong to the query, so the cards wear `⌥` on their chips to say what addresses them: `⌥` and a chip pastes that card, `⌥⇧` pastes it as copied, `⌥⌘` opens its actions, and `⌥1`…`⌥5` still reach the pins. `←` `→` walk the matches for the hand that would rather not reach.
+- **`⌘V` pastes into the search.** The pasteboard's text, folded to one line, joins the query; with the strip open and no search yet, `⌘V` opens one with that text. The same `⌘V` works in the launcher, the commands bar, Ask, select and click hints.
 - Any lode gesture exits and executes, the same as scroll and hints.
+
+**Images are found by what they show.** A screenshot is read once, a beat after it lands, and the text becomes part of its card's search — a screenshot of an error message is found by the error. **Browser copies carry their page.** The card shows the host it was copied on beside the app icon, and the search reads it, so `github` finds the clips you copied on GitHub.
 
 **A copy of several things stays several things.** Three files selected in Finder go on the clipboard as three items, and they arrive in the history as one card marked `3 files` that pastes all three. The card reads by name, so the search finds them the way you would look for them. A copy past thirty two items is left alone entirely rather than kept in part.
 

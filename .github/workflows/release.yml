@@ -9,6 +9,13 @@ name: Release
 # than the previous release (the updater compares numbers, so a tag that
 # sorts backwards would strand every install).
 #
+# ship.sh gets here too, and that is the common case: `gh release create`
+# is what creates the tag, so this workflow wakes up on a release that is
+# already published. It then builds nothing — the first step after the
+# version check looks for that release and skips the whole build, secrets
+# included. The verify job still runs, so a local ship is still proved on
+# a clean runner. Nothing below the skip may run before it.
+#
 # Secrets (one-time setup, see PUBLISHING.md):
 #   MACOS_CERT_P12        Developer ID Application cert + key, base64 .p12
 #   MACOS_CERT_PASSWORD   the .p12 export password
@@ -51,11 +58,24 @@ jobs:
           [ -f "notes/v$VERSION.md" ] || { echo "✕ notes/v$VERSION.md missing — a release without notes is not a release"; exit 1; }
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
+      - name: A release already published by ship.sh is not built again
+        if: github.event_name == 'push'
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "v${{ steps.version.outputs.version }}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release v${{ steps.version.outputs.version }} already exists (shipped locally); nothing to do"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Import signing certificate
+        if: steps.existing.outputs.skip != 'true'
         env:
           CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
           CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
         run: |
+          [ -n "$CERT_P12" ] || { echo "✕ MACOS_CERT_P12 is not set — this repo has no CI signing secrets, so CI cannot build a release. Ship with ./scripts/ship.sh, or set the secrets listed in PUBLISHING.md"; exit 1; }
           KEYCHAIN="$RUNNER_TEMP/release.keychain-db"
           KEYCHAIN_PASSWORD=$(uuidgen)
           echo "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
@@ -71,6 +91,7 @@ jobs:
             || { echo "✕ no Developer ID Application identity in the imported certificate"; exit 1; }
 
       - name: Store notary credentials
+        if: steps.existing.outputs.skip != 'true'
         env:
           APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
           TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
@@ -89,17 +110,6 @@ jobs:
               --apple-id "$APPLE_ID" --team-id "$TEAM_ID" --password "$PASSWORD"
           else
             echo "✕ no notary secrets configured"; exit 1
-          fi
-
-      - name: A release already published by ship.sh is not built again
-        if: github.event_name == 'push'
-        id: existing
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if gh release view "v${{ steps.version.outputs.version }}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "release v${{ steps.version.outputs.version }} already exists (shipped locally); nothing to do"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Test, build, sign, notarize, staple
@@ -176,10 +186,29 @@ jobs:
 
       - name: Cask points at this release
         run: |
+          # ship.sh bumps the cask *after* `gh release create`, and that
+          # create is what fired this run — so the tap can be a few seconds
+          # behind us. Poll rather than lose the race. Read through the API,
+          # not raw.githubusercontent.com, whose CDN would serve us the
+          # pre-bump file for minutes after the push landed.
           SHA=$(shasum -a 256 "dist/lodestar-$VERSION.zip" | cut -d' ' -f1)
-          CASK=$(curl -fsSL "https://raw.githubusercontent.com/Vaccone-Software/homebrew-tap/main/Casks/lodestar.rb")
-          echo "$CASK" | grep -q "version \"$VERSION\"" || { echo "✕ cask version is not $VERSION"; exit 1; }
-          echo "$CASK" | grep -q "sha256 \"$SHA\"" || { echo "✕ cask sha does not match the published zip"; exit 1; }
+          cask() {
+            gh api repos/Vaccone-Software/homebrew-tap/contents/Casks/lodestar.rb \
+              -H 'Accept: application/vnd.github.raw' 2>/dev/null \
+              || curl -fsSL "https://raw.githubusercontent.com/Vaccone-Software/homebrew-tap/main/Casks/lodestar.rb"
+          }
+          for attempt in $(seq 1 12); do
+            CASK=$(cask || true)
+            if echo "$CASK" | grep -q "version \"$VERSION\"" && echo "$CASK" | grep -q "sha256 \"$SHA\""; then
+              echo "✓ cask → $VERSION ($SHA)"
+              exit 0
+            fi
+            echo "cask not bumped yet (attempt $attempt/12); waiting 10s"
+            sleep 10
+          done
+          echo "✕ cask still does not point at $VERSION / $SHA after two minutes; it says:"
+          echo "$CASK" | grep -E 'version |sha256 ' || echo "  (could not read the cask at all)"
+          exit 1
 
       - name: Numerically newer than the previous release
         run: |

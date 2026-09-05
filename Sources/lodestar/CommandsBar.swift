@@ -44,7 +44,7 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
 
         symbol.image = NSImage(systemSymbolName: "filemenu.and.selection", accessibilityDescription: "menus")
         symbol.symbolConfiguration = BarTheme.inputSymbol
-        symbol.contentTintColor = .secondaryLabelColor
+        symbol.contentTintColor = BarTheme.secondaryColor
         symbol.translatesAutoresizingMaskIntoConstraints = false
 
         field.isBordered = false
@@ -64,7 +64,7 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
         rowsStack.translatesAutoresizingMaskIntoConstraints = false
 
         footer.font = BarTheme.footerFont
-        footer.textColor = .secondaryLabelColor
+        footer.textColor = BarTheme.secondaryColor
         footer.alignment = .center
         footer.translatesAutoresizingMaskIntoConstraints = false
 
@@ -367,9 +367,9 @@ private final class CommandsRowView: NSView {
     private func restyle() {
         layer?.backgroundColor = selectedState ? NSColor.controlAccentColor.cgColor : nil
         title.textColor = selectedState ? .white : .labelColor
-        crumb.textColor = selectedState ? NSColor.white.withAlphaComponent(0.75) : .secondaryLabelColor
+        crumb.textColor = selectedState ? NSColor.white.withAlphaComponent(0.75) : BarTheme.secondaryColor
         for label in [chipLabel, sourceLabel] {
-            label.textColor = selectedState ? .white : .secondaryLabelColor
+            label.textColor = selectedState ? .white : BarTheme.secondaryColor
         }
         for box in [chip, sourceChip] {
             box.layer?.backgroundColor = selectedState

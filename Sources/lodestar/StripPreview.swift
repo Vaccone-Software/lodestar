@@ -38,7 +38,13 @@ enum StripPreview {
     static func run(_ variant: Int) {
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
-        if ProcessInfo.processInfo.environment["LODESTAR_STAGE"] != nil {
+        if let ground = ProcessInfo.processInfo.environment["LODESTAR_STAGE"] {
+            // `light` is the whole process in the light appearance: the
+            // tone the surfaces read, the colours the labels resolve, and
+            // a paper ground, so light mode can be measured without
+            // flipping the machine.
+            StageView.light = ground == "light"
+            if StageView.light { app.appearance = NSAppearance(named: .aqua) }
             // After the run loop is up: windows made before the app finishes
             // launching never reach the window server, and take the panel with
             // them.
@@ -275,10 +281,12 @@ enum StripPreview {
 /// with a trace of light so the glass has an edge to catch. Anything more
 /// colourful competes with the one accent the page is allowed.
 private final class StageView: NSView {
+    static var light = false
     override func draw(_ dirtyRect: NSRect) {
         // srgbRed, not calibratedRed: Generic RGB converts lighter, and the
         // whole point is a ground the page cannot be told apart from.
-        NSColor(srgbRed: 10 / 255, green: 10 / 255, blue: 11 / 255, alpha: 1).setFill()
+        (Self.light ? NSColor(srgbRed: 246 / 255, green: 246 / 255, blue: 247 / 255, alpha: 1)
+                    : NSColor(srgbRed: 10 / 255, green: 10 / 255, blue: 11 / 255, alpha: 1)).setFill()
         bounds.fill()
         // Flat, deliberately. Any light in the ground shows up as a visible
         // rectangle where the shot meets the page, and the panel carries its

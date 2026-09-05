@@ -240,7 +240,7 @@ final class SelectOverlay {
         let line = NSMutableAttributedString()
         func quiet(_ text: String) {
             line.append(NSAttributedString(string: text, attributes: [
-                .font: BarTheme.secondaryFont, .foregroundColor: NSColor.secondaryLabelColor,
+                .font: BarTheme.secondaryFont, .foregroundColor: BarTheme.secondaryColor,
             ]))
         }
         func say(_ text: String) {
@@ -248,7 +248,7 @@ final class SelectOverlay {
                 .font: BarTheme.bodyFont, .foregroundColor: NSColor.labelColor,
             ]))
         }
-        func loud(_ text: String, color: NSColor = .controlAccentColor) {
+        func loud(_ text: String, color: NSColor = BarTheme.readableAccent) {
             line.append(NSAttributedString(string: text, attributes: [
                 .font: NSFont.monospacedSystemFont(ofSize: BarTheme.Scale.title, weight: .bold),
                 .foregroundColor: color,

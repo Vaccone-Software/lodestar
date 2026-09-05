@@ -103,7 +103,7 @@ final class DraftPanel {
     /// The panel's ground, for the glyph a block cursor inverts: the
     /// equalizer scrim keeps every panel charcoal, whatever the material
     /// decided, so the ground is a known dark rather than a query.
-    static let ground = NSColor(white: 0.1, alpha: 1)
+    static var ground: NSColor { BarTheme.ground }
 
     var isVisible: Bool { panel.isVisible }
 
@@ -119,10 +119,10 @@ final class DraftPanel {
         registerName.textColor = .labelColor
         registerName.lineBreakMode = .byTruncatingTail
         registerNote.font = BarTheme.secondaryFont
-        registerNote.textColor = .secondaryLabelColor
+        registerNote.textColor = BarTheme.secondaryColor
         registerNote.lineBreakMode = .byTruncatingTail
         modeLabel.font = BarTheme.chipFont
-        modeLabel.textColor = .secondaryLabelColor
+        modeLabel.textColor = BarTheme.secondaryColor
 
         inputPopup.isBordered = false
         inputPopup.font = BarTheme.secondaryFont
@@ -170,7 +170,7 @@ final class DraftPanel {
         caret.layer?.cornerRadius = 1
 
         footer.font = BarTheme.footerFont
-        footer.textColor = .secondaryLabelColor
+        footer.textColor = BarTheme.secondaryColor
 
         // The caret sits under the text: a block cursor is a solid plate
         // with the glyph inverted over it, the way every terminal draws
@@ -252,7 +252,7 @@ final class DraftPanel {
             .font: Self.font, .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph,
         ]
         let ghostAttributes: [NSAttributedString.Key: Any] = [
-            .font: Self.font, .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: paragraph,
+            .font: Self.font, .foregroundColor: BarTheme.secondaryColor, .paragraphStyle: paragraph,
         ]
         let before = String(view.buffer.characters[..<view.buffer.cursor])
         let after = String(view.buffer.characters[view.buffer.cursor...])
@@ -278,7 +278,7 @@ final class DraftPanel {
         // every position after the cursor.
         if view.buffer.ghost.isEmpty {
             let accent: [NSAttributedString.Key: Any] = [
-                .foregroundColor: NSColor.controlAccentColor, .font: Self.accentFont,
+                .foregroundColor: BarTheme.readableAccent, .font: Self.accentFont,
             ]
             let characterRange = { (range: Range<Int>) -> NSRange in
                 let lower = (String(view.buffer.characters[..<range.lowerBound]) as NSString).length
@@ -343,7 +343,7 @@ final class DraftPanel {
             // there is no destination, since nothing here pastes.
             registerIcon.image = card.icon ?? NSImage(systemSymbolName: "doc.on.clipboard",
                                                       accessibilityDescription: "clipboard")
-            registerIcon.contentTintColor = card.icon == nil ? .secondaryLabelColor : nil
+            registerIcon.contentTintColor = card.icon == nil ? BarTheme.secondaryColor : nil
             registerName.stringValue = card.name
         } else if let destination = view.destination {
             registerIcon.image = destination.icon
@@ -352,7 +352,7 @@ final class DraftPanel {
         } else {
             registerIcon.image = NSImage(systemSymbolName: "doc.on.clipboard",
                                          accessibilityDescription: "clipboard")
-            registerIcon.contentTintColor = .secondaryLabelColor
+            registerIcon.contentTintColor = BarTheme.secondaryColor
             registerName.stringValue = "Clipboard"
         }
         place(registerIcon, x: x, width: 18, height: 18)
@@ -380,7 +380,7 @@ final class DraftPanel {
         micButton.image = NSImage(systemSymbolName: view.micOn ? "mic.fill" : "mic.slash.fill",
                                   accessibilityDescription: view.micOn ? "microphone on" : "microphone off")?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 14, weight: .medium))
-        micButton.contentTintColor = micLive ? Self.live : .secondaryLabelColor
+        micButton.contentTintColor = micLive ? Self.live : BarTheme.secondaryColor
         // The clip door has no microphone, and draws none: a glyph that
         // could be clicked would promise what the door refuses.
         let noMic = view.card != nil
@@ -467,7 +467,7 @@ final class DraftPanel {
             // A solid plate in normal mode; the system's own insertion
             // colour for the bar, which is what every field on the Mac
             // teaches the eye to look for.
-            caret.layer?.backgroundColor = (block ? NSColor.labelColor : NSColor.controlAccentColor).cgColor
+            caret.layer?.backgroundColor = (block ? NSColor.labelColor : BarTheme.readableAccent).cgColor
         }
 
         let commit = noMic ? "⏎ save to the card" : "⏎ paste"
@@ -500,7 +500,7 @@ final class DraftPanel {
     func setLevel(_ level: Float, live: Bool? = nil) {
         let lit = Int((level * Float(Self.meterCount)).rounded(.up))
         let isLive = live ?? (micButton.contentTintColor == Self.live)
-        let color = isLive ? Self.live : NSColor.secondaryLabelColor
+        let color = isLive ? Self.live : BarTheme.secondaryColor
         for (i, bar) in meterBars.enumerated() {
             bar.layer?.backgroundColor = (i < lit
                 ? color.withAlphaComponent(0.95)

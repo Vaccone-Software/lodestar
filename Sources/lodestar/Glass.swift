@@ -1,4 +1,5 @@
 import AppKit
+import LodestarCore
 
 /// The app's tone: the system's choice, and nothing else. Liquid Glass
 /// would rather adapt per panel to whatever sits behind it — that is how
@@ -10,6 +11,17 @@ enum Tone {
         // `shared`, not `NSApp`: a chip made before the application object
         // exists — the tests' world — must still have an answer.
         NSApplication.shared.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    }
+}
+
+/// The system's accessibility settings, as the surfaces read them. Each
+/// is a closure so a test can set the switch the way a person would.
+enum Accessibility {
+    static var reduceTransparency: () -> Bool = {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+    }
+    static var increaseContrast: () -> Bool = {
+        NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
     }
 }
 
@@ -28,6 +40,7 @@ class EqualizerScrim: NSView {
     var lightBase: CGFloat = 0.42
 
     private var themeObserver: NSObjectProtocol?
+    private var accessibilityObserver: NSObjectProtocol?
 
     override var wantsUpdateLayer: Bool { true }
 
@@ -56,16 +69,34 @@ class EqualizerScrim: NSView {
         ) { [weak self] _ in
             DispatchQueue.main.async { self?.needsDisplay = true }
         }
+        // Reduce Transparency flipped while a panel stands: the veil
+        // answers at once, not at the next opening.
+        accessibilityObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in self?.needsDisplay = true }
     }
 
     deinit {
         if let themeObserver {
             DistributedNotificationCenter.default().removeObserver(themeObserver)
         }
+        if let accessibilityObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(accessibilityObserver)
+        }
     }
+
+    /// The veil when a person has asked for no transparency at all: the
+    /// glass stays for its edge and its shadow, and the frost is gone.
+    static let opaque: CGFloat = 0.95
 
     override func updateLayer() {
         let materialDark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        if Accessibility.reduceTransparency() {
+            layer?.backgroundColor = (Tone.systemDark ? NSColor.black : NSColor.white)
+                .withAlphaComponent(Self.opaque).cgColor
+            return
+        }
         if Tone.systemDark {
             layer?.backgroundColor = NSColor.black
                 .withAlphaComponent(materialDark ? darkBase : max(darkBase, 0.72)).cgColor
@@ -273,6 +304,39 @@ enum BarTheme {
     /// size, regular weight, the secondary label colour. Weight is not a
     /// second style; a caption that needs emphasis is a caption too long.
     static let secondaryFont = NSFont.systemFont(ofSize: Scale.meta, weight: .regular)
+    /// The one colour for secondary text — and the label colour itself
+    /// when a person has asked the system for more contrast. On the
+    /// paper side the system's secondary grey measured 3.9 to 1 against
+    /// the veil, under the 4.5 that reading needs, so light mode sets
+    /// its captions a shade darker than the system would; charcoal's
+    /// secondary measured 6.2 and stays the system's own.
+    static var secondaryColor: NSColor {
+        if Accessibility.increaseContrast() { return .labelColor }
+        return Tone.systemDark ? .secondaryLabelColor : NSColor(white: 0, alpha: 0.66)
+    }
+
+    /// The panels' ground, for anything that must be judged against it:
+    /// the equalizer keeps every panel charcoal in dark and paper in
+    /// light, so the ground is a known tone rather than a query.
+    static var ground: NSColor {
+        Tone.systemDark ? NSColor(white: 0.1, alpha: 1) : NSColor(white: 0.92, alpha: 1)
+    }
+
+    /// The accent the person chose, as a closure so a test can choose one.
+    static var accentColor: () -> NSColor = { .controlAccentColor }
+
+    /// The accent for a mark the eye must find — the insert bar, a lit
+    /// letter, the echoed query. The accent is the person's choice, and
+    /// graphite or a deep blue can sit nearly on the ground; below the
+    /// floor it falls back to the text's own colour, which is never lost.
+    static var readableAccent: NSColor {
+        let accent = accentColor()
+        guard let a = accent.usingColorSpace(.sRGB), let g = ground.usingColorSpace(.sRGB) else { return accent }
+        let ratio = Readability.contrast(
+            Readability.luminance(red: a.redComponent, green: a.greenComponent, blue: a.blueComponent),
+            Readability.luminance(red: g.redComponent, green: g.greenComponent, blue: g.blueComponent))
+        return ratio >= Readability.markFloor ? accent : .labelColor
+    }
     /// What a key's row says it does — the reading size, not a caption.
     static let rowLabelFont = NSFont.systemFont(ofSize: Scale.body, weight: .regular)
     static let bodyFont = NSFont.systemFont(ofSize: Scale.body, weight: .regular)
@@ -498,7 +562,7 @@ enum Keycaps {
     static func cap(_ text: String) -> CapView {
         let letter = NSTextField(labelWithString: text)
         letter.font = BarTheme.chipFont
-        letter.textColor = .secondaryLabelColor
+        letter.textColor = BarTheme.secondaryColor
         letter.alignment = .center
         letter.translatesAutoresizingMaskIntoConstraints = false
 
@@ -554,7 +618,7 @@ enum Keycaps {
                     add(capView, spacingBefore: index > 0 && position == 0 ? 10 : nil)
                 }
             }
-            add(word(gesture.verb, color: .secondaryLabelColor), spacingBefore: 7)
+            add(word(gesture.verb, color: BarTheme.secondaryColor), spacingBefore: 7)
         }
         return row
     }

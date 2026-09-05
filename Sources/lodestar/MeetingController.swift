@@ -395,7 +395,7 @@ final class MeetingController: NSObject {
         var title = occurrence.title
         if title.count > 40 { title = String(title.prefix(39)) + "…" }
         stack.addArrangedSubview(label("⌖ meeting", size: 10.5, weight: .medium,
-                                       color: .secondaryLabelColor))
+                                       color: BarTheme.secondaryColor))
         stack.addArrangedSubview(label(title, size: 14, weight: .semibold,
                                        color: .labelColor))
 
@@ -409,7 +409,7 @@ final class MeetingController: NSObject {
             ? occurrence.link.provider.rawValue
             : "\(resolved.profileLabel) · \(resolved.deciderLabel)"
         stack.addArrangedSubview(label("\(phase) · \(destination)", size: 12,
-                                       weight: .regular, color: .secondaryLabelColor))
+                                       weight: .regular, color: BarTheme.secondaryColor))
         stack.setCustomSpacing(9, after: stack.arrangedSubviews.last!)
         stack.addArrangedSubview(Keycaps.line([
             .init(["lode", "lode"], "joins", action: { [weak self] in _ = self?.join() }),
@@ -455,7 +455,7 @@ final class MeetingController: NSObject {
             + "or browser profile.\n\nmacOS asks you to allow calendar "
             + "access first. Nothing about your events leaves your Mac.")
         body.font = BarTheme.bodyFont
-        body.textColor = .secondaryLabelColor
+        body.textColor = BarTheme.secondaryColor
         body.alignment = .center
         body.isSelectable = false
         body.preferredMaxLayoutWidth = Self.primeWidth - 52
@@ -472,7 +472,7 @@ final class MeetingController: NSObject {
         let notNow = HandButton(title: "not now", target: self, action: #selector(notNowButton))
         notNow.isBordered = false
         notNow.font = BarTheme.secondaryFont
-        notNow.contentTintColor = .secondaryLabelColor
+        notNow.contentTintColor = BarTheme.secondaryColor
         stack.addArrangedSubview(notNow)
 
         primeRoot.addSubview(stack)

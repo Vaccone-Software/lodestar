@@ -100,7 +100,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
         globe.image = NSImage(systemSymbolName: "globe", accessibilityDescription: "web")
         globe.symbolConfiguration = BarTheme.inputSymbol
-        globe.contentTintColor = .secondaryLabelColor
+        globe.contentTintColor = BarTheme.secondaryColor
         globe.translatesAutoresizingMaskIntoConstraints = false
 
         field.isBordered = false
@@ -120,7 +120,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         rowsStack.translatesAutoresizingMaskIntoConstraints = false
 
         footer.font = BarTheme.footerFont
-        footer.textColor = .secondaryLabelColor
+        footer.textColor = BarTheme.secondaryColor
         footer.alignment = .center
         footer.translatesAutoresizingMaskIntoConstraints = false
 
@@ -574,9 +574,9 @@ private final class WebRowView: NSView {
 
     private func restyle() {
         layer?.backgroundColor = selectedState ? NSColor.controlAccentColor.cgColor : nil
-        icon.contentTintColor = selectedState ? .white : .secondaryLabelColor
+        icon.contentTintColor = selectedState ? .white : BarTheme.secondaryColor
         title.textColor = selectedState ? .white : .labelColor
-        chipLabel.textColor = selectedState ? .white : .secondaryLabelColor
+        chipLabel.textColor = selectedState ? .white : BarTheme.secondaryColor
         chip.layer?.backgroundColor = selectedState
             ? NSColor.white.withAlphaComponent(0.22).cgColor
             : NSColor.labelColor.withAlphaComponent(0.08).cgColor

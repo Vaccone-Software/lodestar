@@ -44,7 +44,9 @@ final class SurfaceScenarioTests: XCTestCase {
 
         XCTAssertEqual(stage.hud.owner, .flash)
         XCTAssertFalse(stage.coach.chipVisible)
-        stage.clock.advance(by: 1.5)
+        // A flash stays as long as its words take to read; the ceiling is
+        // four seconds, and past it every flash is gone.
+        stage.clock.advance(by: 4.1)
         XCTAssertEqual(stage.hud.owner, .none, "a flash fades on its own")
         XCTAssertTrue(stage.actions.summoned.isEmpty)
     }

@@ -88,8 +88,10 @@ final class HUD {
         present()
     }
 
-    /// A transient message, optionally wearing the app it acted on.
-    func flash(_ text: String, icon: NSImage? = nil, seconds: TimeInterval = 1.4) {
+    /// A transient message, optionally wearing the app it acted on. It
+    /// stays as long as it takes to read unless a caller says otherwise.
+    func flash(_ text: String, icon: NSImage? = nil, seconds: TimeInterval? = nil) {
+        let seconds = seconds ?? Readability.flashSeconds(for: text)
         handOver(to: .flash)
         build(title: text, titleIcon: icon, rows: [], footer: nil)
         present()
@@ -166,7 +168,7 @@ final class HUD {
         if let footer {
             let footerLabel = NSTextField(labelWithString: footer)
             footerLabel.font = BarTheme.footerFont
-            footerLabel.textColor = .secondaryLabelColor
+            footerLabel.textColor = BarTheme.secondaryColor
             if let last = stack.arrangedSubviews.last {
                 stack.setCustomSpacing(10, after: last)
             }

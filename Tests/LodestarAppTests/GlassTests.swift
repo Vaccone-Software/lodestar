@@ -100,3 +100,74 @@ final class GlassTests: XCTestCase {
         stage.press("escape")
     }
 }
+
+/// The system's accessibility settings, honoured: no transparency means
+/// an opaque veil, more contrast means captions in the label colour,
+/// and a mark's accent never sits on its ground.
+final class AccessibilitySettingsTests: XCTestCase {
+    override func tearDown() {
+        Accessibility.reduceTransparency = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency }
+        Accessibility.increaseContrast = { NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast }
+        BarTheme.accentColor = { .controlAccentColor }
+    }
+
+    private func veilAlpha(reduce: Bool) -> CGFloat {
+        Accessibility.reduceTransparency = { reduce }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        let scrim = EqualizerScrim()
+        scrim.wantsLayer = true
+        scrim.frame = NSRect(x: 0, y: 0, width: 10, height: 10)
+        window.contentView?.addSubview(scrim)
+        scrim.displayIfNeeded()
+        return scrim.layer?.backgroundColor.flatMap(NSColor.init(cgColor:))?.alphaComponent ?? 0
+    }
+
+    func testReduceTransparencyMakesTheVeilOpaque() {
+        XCTAssertEqual(veilAlpha(reduce: true), EqualizerScrim.opaque, accuracy: 0.01)
+        XCTAssertLessThan(veilAlpha(reduce: false), 0.8, "and the frost is back when it is off")
+    }
+
+    func testIncreaseContrastSetsCaptionsInTheLabelColour() {
+        Accessibility.increaseContrast = { true }
+        XCTAssertEqual(BarTheme.secondaryColor, .labelColor)
+        Accessibility.increaseContrast = { false }
+        XCTAssertNotEqual(BarTheme.secondaryColor, .labelColor)
+        if Tone.systemDark { XCTAssertEqual(BarTheme.secondaryColor, .secondaryLabelColor) }
+    }
+
+    func testAnAccentOnItsGroundFallsBackToTheLabelColour() {
+        BarTheme.accentColor = { BarTheme.ground }
+        XCTAssertEqual(BarTheme.readableAccent, .labelColor, "no contrast at all")
+        BarTheme.accentColor = { .systemOrange }
+        if Tone.systemDark {
+            XCTAssertEqual(BarTheme.readableAccent, .systemOrange, "orange clears charcoal")
+        } else {
+            XCTAssertEqual(BarTheme.readableAccent, .labelColor, "orange does not clear paper")
+        }
+        BarTheme.accentColor = { Tone.systemDark ? .white : .black }
+        XCTAssertNotEqual(BarTheme.readableAccent, .labelColor, "a strong accent is kept as chosen")
+    }
+
+    func testTheInsertBarWearsTheReadableAccent() {
+        BarTheme.accentColor = { BarTheme.ground }
+        let panel = DraftPanel()
+        defer { panel.hide() }
+        panel.show(DraftView(buffer: Draft.Buffer(text: "x", cursor: 0), mode: .insert, editor: .insert,
+                             speech: nil, destination: ("Notes", nil), replacing: false))
+        XCTAssertEqual(panel.caretColor?.usingColorSpace(.sRGB), NSColor.labelColor.usingColorSpace(.sRGB),
+                       "a bar the eye could not find is drawn in the text's colour instead")
+    }
+
+    func testAFlashStaysLongEnoughToRead() {
+        let stage = Stage()
+        stage.hud.flash("press ⌘V to paste, this field blocks synthetic input")
+        stage.clock.advance(by: 1.5)
+        XCTAssertEqual(stage.hud.owner, .flash, "still up past the old fixed 1.4 seconds")
+        stage.clock.advance(by: 1.6)
+        XCTAssertNotEqual(stage.hud.owner, .flash, "gone once it has been read")
+        stage.hud.flash("⌂ saved")
+        stage.clock.advance(by: 1.5)
+        XCTAssertNotEqual(stage.hud.owner, .flash, "a short flash still gets the floor")
+    }
+}

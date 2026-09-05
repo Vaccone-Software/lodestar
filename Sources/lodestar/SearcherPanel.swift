@@ -149,7 +149,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
             accessibilityDescription: "search"
         )
         magnifier.symbolConfiguration = BarTheme.inputSymbol
-        magnifier.contentTintColor = .secondaryLabelColor
+        magnifier.contentTintColor = BarTheme.secondaryColor
         magnifier.translatesAutoresizingMaskIntoConstraints = false
 
         field.isBordered = false
@@ -169,7 +169,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         rowsStack.translatesAutoresizingMaskIntoConstraints = false
 
         footer.font = BarTheme.footerFont
-        footer.textColor = .secondaryLabelColor
+        footer.textColor = BarTheme.secondaryColor
         footer.alignment = .center
         footer.translatesAutoresizingMaskIntoConstraints = false
 
@@ -953,7 +953,7 @@ private final class SearcherRowView: NSView {
         layer?.backgroundColor = selectedState ? NSColor.controlAccentColor.cgColor : nil
         name.textColor = selectedState ? .white : .labelColor
         for label in chipLabels {
-            label.textColor = selectedState ? .white : .secondaryLabelColor
+            label.textColor = selectedState ? .white : BarTheme.secondaryColor
         }
         for box in chipBoxes {
             box.layer?.backgroundColor = selectedState

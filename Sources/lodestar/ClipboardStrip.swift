@@ -239,7 +239,7 @@ final class ClipboardStrip {
             card.frame = NSRect(x: 0, y: y, width: stripWidth, height: Self.cardHeight)
             let label = NSTextField(labelWithString: "No matches")
             label.font = BarTheme.bodyFont
-            label.textColor = .secondaryLabelColor
+            label.textColor = BarTheme.secondaryColor
             label.alignment = .center
             label.sizeToFit()
             label.frame = NSRect(x: 0, y: (Self.cardHeight - label.frame.height) / 2,
@@ -292,7 +292,7 @@ final class ClipboardStrip {
         if let items = clip.itemsLabel {
             let count = NSTextField(labelWithString: items)
             count.font = BarTheme.secondaryFont
-            count.textColor = .secondaryLabelColor
+            count.textColor = BarTheme.secondaryColor
             count.sizeToFit()
             count.frame.origin = NSPoint(x: chip.frame.maxX + 6,
                                          y: height - count.frame.height - 10)
@@ -315,7 +315,7 @@ final class ClipboardStrip {
             // tell clips apart, and the extra line it buys is worth more
             // than the point of size it costs.
             preview.font = BarTheme.bodyFont
-            preview.textColor = .secondaryLabelColor
+            preview.textColor = BarTheme.secondaryColor
             // Wrap to the card, ellipsize only the last line. Assigning
             // .byTruncatingTail here collapses the field to a single line
             // whatever the line limit says — the ellipsis has to come from
@@ -343,7 +343,7 @@ final class ClipboardStrip {
         if let origin = clip.sourceHost ?? clip.sourceAppName {
             let source = NSTextField(labelWithString: origin)
             source.font = BarTheme.secondaryFont
-            source.textColor = .secondaryLabelColor
+            source.textColor = BarTheme.secondaryColor
             source.lineBreakMode = .byTruncatingTail
             source.alignment = .right
             source.sizeToFit()
@@ -365,7 +365,7 @@ final class ClipboardStrip {
         shownCaptions[clip.id] = caption
         let foot = NSTextField(labelWithString: caption)
         foot.font = BarTheme.secondaryFont
-        foot.textColor = .secondaryLabelColor
+        foot.textColor = BarTheme.secondaryColor
         foot.sizeToFit()
         foot.frame.origin = NSPoint(x: Self.cardWidth - foot.frame.width - 11, y: 8)
         card.addSubview(foot)
@@ -519,7 +519,7 @@ final class ClipboardStrip {
             chip.layer?.cornerRadius = BarTheme.chipRadius
             let key = NSTextField(labelWithString: action.key.uppercased())
             key.font = BarTheme.chipFont
-            key.textColor = .secondaryLabelColor
+            key.textColor = BarTheme.secondaryColor
             key.alignment = .center
             key.sizeToFit()
             key.frame = NSRect(x: 0, y: (Self.actionChip.height - key.frame.height) / 2,
@@ -545,14 +545,14 @@ final class ClipboardStrip {
             systemSymbolName: "magnifyingglass",
             accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: 15, weight: .medium)) ?? NSImage())
-        symbol.contentTintColor = .secondaryLabelColor
+        symbol.contentTintColor = BarTheme.secondaryColor
         symbol.frame = NSRect(x: 18, y: (Self.searchHeight - 18) / 2, width: 18, height: 18)
         plate.addSubview(symbol)
 
         let font = NSFont.systemFont(ofSize: 19, weight: .regular)
         let field = NSTextField(labelWithString: query.isEmpty ? "Search clips" : query)
         field.font = font
-        field.textColor = query.isEmpty ? .secondaryLabelColor : .labelColor
+        field.textColor = query.isEmpty ? BarTheme.secondaryColor : .labelColor
         field.lineBreakMode = .byTruncatingHead
         field.sizeToFit()
         field.frame = NSRect(x: 46, y: (Self.searchHeight - field.frame.height) / 2,

@@ -281,7 +281,36 @@ final class OnAccentTests: XCTestCase {
 
 /// The settings' switches are Lodestar's own, drawn in the accent.
 final class AccentSwitchTests: XCTestCase {
-    override func tearDown() { BarTheme.accentColor = { .controlAccentColor } }
+    override func tearDown() {
+        BarTheme.accentColor = { .controlAccentColor }
+        Accessibility.reduceMotion = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+    }
+
+    /// A switch on screen, the way the settings window holds one: layers
+    /// animate only inside a hosted tree.
+    private func hosted() -> (NSWindow, AccentSwitch) {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 60, height: 40),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        let toggle = AccentSwitch(frame: .zero)
+        window.contentView?.addSubview(toggle)
+        window.contentView?.layoutSubtreeIfNeeded()
+        return (window, toggle)
+    }
+
+    func testAFlipSlidesTheKnobUnlessMotionIsReduced() {
+        Accessibility.reduceMotion = { false }
+        let (window, toggle) = hosted()
+        _ = toggle.accessibilityPerformPress()
+        let knob = toggle.layer!.sublayers![1]
+        XCTAssertNotNil(knob.animation(forKey: "slide"), "the knob crosses the track")
+        XCTAssertNotNil(toggle.layer!.sublayers![0].animation(forKey: "tint"), "and the track's colour crosses with it")
+        Accessibility.reduceMotion = { true }
+        let (window2, still) = hosted()
+        _ = still.accessibilityPerformPress()
+        let stillKnob = still.layer!.sublayers![1]
+        XCTAssertNil(stillKnob.animation(forKey: "slide"), "it simply arrives")
+        _ = (window, window2)
+    }
 
     private func trackColor(_ toggle: AccentSwitch) -> NSColor? {
         toggle.layoutSubtreeIfNeeded()
@@ -323,9 +352,11 @@ final class AccentSwitchTests: XCTestCase {
         XCTAssertEqual(toggle.accessibilityValue() as? Int, 1)
     }
 
-    func testTheSwatchIsTheColourItNames() {
+    func testTheSwatchIsTheColourItNamesWithRoomAfterIt() {
         let swatch = BarTheme.swatch(.systemGreen, diameter: 12)
-        XCTAssertEqual(swatch.size, NSSize(width: 12, height: 12))
+        XCTAssertEqual(swatch.size, NSSize(width: 19, height: 12), "the dot, then clear room before the title")
+        let bits = NSBitmapImageRep(data: swatch.tiffRepresentation!)!
+        XCTAssertEqual(bits.colorAt(x: 16, y: 6)?.alphaComponent ?? 1, 0, accuracy: 0.01, "the room is clear")
         let rep = NSBitmapImageRep(data: swatch.tiffRepresentation!)!
         let center = rep.colorAt(x: 6, y: 6)?.usingColorSpace(.sRGB)
         let green = NSColor.systemGreen.usingColorSpace(.sRGB)!

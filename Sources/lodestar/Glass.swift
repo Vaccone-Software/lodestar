@@ -23,6 +23,9 @@ enum Accessibility {
     static var increaseContrast: () -> Bool = {
         NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
     }
+    static var reduceMotion: () -> Bool = {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
 }
 
 /// The quiet layer between glass and text that guarantees the two agree.
@@ -674,6 +677,8 @@ final class AccentSwitch: NSControl {
     var state: NSControl.StateValue = .off {
         didSet { paint() }
     }
+    /// How long the knob takes to cross, when motion is welcome.
+    static let slide: TimeInterval = 0.18
 
     override init(frame frameRect: NSRect) {
         super.init(frame: NSRect(origin: frameRect.origin, size: Self.size))
@@ -705,13 +710,39 @@ final class AccentSwitch: NSControl {
         paint()
     }
 
-    private func paint() {
+    /// The knob slides and the track's colour crosses with it, unless a
+    /// person has asked the system for less motion, in which case both
+    /// simply arrive. A layout pass never animates: the switch drawn
+    /// into place must not slide into it.
+    private func paint(animated: Bool = false) {
         let on = state == .on
-        track.frame = bounds
-        track.backgroundColor = (on ? BarTheme.accent : NSColor.labelColor.withAlphaComponent(0.22)).cgColor
+        let tint = (on ? BarTheme.accent : NSColor.labelColor.withAlphaComponent(0.22)).cgColor
         let knobSize = Self.size.height - 4
-        knob.frame = NSRect(x: on ? bounds.width - knobSize - 2 : 2, y: 2, width: knobSize, height: knobSize)
+        let knobFrame = NSRect(x: on ? bounds.width - knobSize - 2 : 2, y: 2, width: knobSize, height: knobSize)
+        let fromPosition = knob.presentation()?.position ?? knob.position
+        let fromTint = track.presentation()?.backgroundColor ?? track.backgroundColor
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        track.frame = bounds
+        track.backgroundColor = tint
+        knob.frame = knobFrame
         layer?.opacity = isEnabled ? 1 : 0.45
+        CATransaction.commit()
+        knob.removeAnimation(forKey: "slide")
+        track.removeAnimation(forKey: "tint")
+        if animated, !Accessibility.reduceMotion() {
+            let slide = CABasicAnimation(keyPath: "position")
+            slide.fromValue = NSValue(point: fromPosition)
+            slide.toValue = NSValue(point: knob.position)
+            slide.duration = Self.slide
+            slide.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            knob.add(slide, forKey: "slide")
+            let cross = CABasicAnimation(keyPath: "backgroundColor")
+            cross.fromValue = fromTint
+            cross.toValue = tint
+            cross.duration = Self.slide
+            track.add(cross, forKey: "tint")
+        }
         setAccessibilityValue(on ? 1 : 0)
     }
 
@@ -719,7 +750,10 @@ final class AccentSwitch: NSControl {
 
     private func flip() {
         guard isEnabled else { return }
-        state = state == .on ? .off : .on
+        let next: NSControl.StateValue = state == .on ? .off : .on
+        // Set without the observer's plain repaint, then paint with motion.
+        state = next
+        paint(animated: true)
         sendAction(action, to: target)
     }
 
@@ -740,13 +774,16 @@ final class AccentSwitch: NSControl {
 
 extension BarTheme {
     /// A round swatch of a colour, for a menu that offers colours: the
-    /// choice is compared by eye, not by name.
-    static func swatch(_ color: NSColor, diameter: CGFloat = 12) -> NSImage {
-        let image = NSImage(size: NSSize(width: diameter, height: diameter), flipped: false) { rect in
+    /// choice is compared by eye, not by name. The canvas carries clear
+    /// room after the dot, because a popup sets its image hard against
+    /// its title and a dot touching a word reads as a bullet.
+    static func swatch(_ color: NSColor, diameter: CGFloat = 12, trailing: CGFloat = 7) -> NSImage {
+        let image = NSImage(size: NSSize(width: diameter + trailing, height: diameter), flipped: false) { rect in
+            let dot = NSRect(x: rect.minX, y: rect.minY, width: diameter, height: diameter).insetBy(dx: 0.5, dy: 0.5)
             color.setFill()
-            NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5)).fill()
+            NSBezierPath(ovalIn: dot).fill()
             NSColor.labelColor.withAlphaComponent(0.18).setStroke()
-            let rim = NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5))
+            let rim = NSBezierPath(ovalIn: dot)
             rim.lineWidth = 1
             rim.stroke()
             return true

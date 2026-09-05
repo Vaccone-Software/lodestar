@@ -74,6 +74,15 @@ public enum ConfigDefaults {
             lode["trigger"] = .string("right-command")
             out["lode"] = .table(lode)
         }
+        // Retired in 0.30.9: commit-on-unique and the guide's fade became
+        // the doctrine rather than switches. A file that set either was
+        // following the app's own Settings, and must not now report an
+        // unknown key for having done so.
+        if case .table(var select)? = out["select"],
+           select.removeValue(forKey: "commit-on-unique") != nil {
+            out["select"] = .table(select)
+        }
+        out.removeValue(forKey: "guide")
         out = withoutProfileRegistry(out)
         return out
     }
@@ -191,7 +200,9 @@ public enum ConfigDefaults {
         ]),
         "select": .table([
             "copy-on-complete": .bool(false),
-            "commit-on-unique": .bool(true),
+        ]),
+        "appearance": .table([
+            "accent": .string("system"),
         ]),
         "draft": .table([
             "input": .string(""),
@@ -206,9 +217,6 @@ public enum ConfigDefaults {
         "observations": .table([
             "enabled": .bool(true),
             "health": .bool(true),
-        ]),
-        "guide": .table([
-            "fade": .bool(true),
         ]),
         "meetings": .table([
             "enabled": .bool(false),

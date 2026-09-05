@@ -193,3 +193,22 @@ final class StripShadowTests: XCTestCase {
         stage.press("escape")
     }
 }
+
+/// The chip's words and Lodestar's own accent, as the app draws them.
+final class AccentAndChipWordsTests: XCTestCase {
+    func testTheOrangeAccentIsMeasuredForTheCurrentGround() {
+        BarTheme.accentColor = { BarTheme.accent(for: .orange) }
+        defer { BarTheme.accentColor = { .controlAccentColor } }
+        XCTAssertEqual(BarTheme.readableAccent.usingColorSpace(.sRGB),
+                       BarTheme.accent(for: .orange).usingColorSpace(.sRGB),
+                       "the pair clears the floor on its own ground, so no fallback")
+        XCTAssertEqual(BarTheme.accent(for: .system), .controlAccentColor)
+    }
+
+    func testTheChipCountsMinutesThenSecondsThenNow() {
+        XCTAssertEqual(MeetingController.phrase(.upcoming(minutes: 4)), "in 4 min")
+        XCTAssertEqual(MeetingController.phrase(.soon(seconds: 45)), "in 45s")
+        XCTAssertEqual(MeetingController.phrase(.now), "now")
+        XCTAssertEqual(MeetingController.phrase(.inProgress(minutes: 10)), "10 min in")
+    }
+}

@@ -250,6 +250,13 @@ public enum SettingsModel {
                                  current: config.activeDisplayMode == .focus ? "focus" : "pointer"),
                 detail: "Which display summoned windows land on.",
                 isDefault: config.activeDisplayMode == .pointer),
+            Row(title: "Accent", path: "appearance.accent",
+                control: .choice(options: ["system", "orange"],
+                                 labels: ["the Mac's accent", "international orange"],
+                                 current: config.accent.rawValue),
+                detail: "The cursor, lit letters, and the echoed query. Orange "
+                    + "is set deeper in light mode so it stays readable.",
+                isDefault: config.accent == .system),
         ]))
 
         // 2 · Permissions — reads the machine, never the config.
@@ -331,18 +338,6 @@ public enum SettingsModel {
                 detail: "A completed span is copied the moment its second "
                     + "anchor lands.",
                 isDefault: !config.selectCopyOnComplete),
-            Row(title: "Commit on unique", path: "select.commit-on-unique",
-                control: .toggle(config.selectCommitOnUnique),
-                detail: "A search narrowed to one match picks it without "
-                    + "the capital. Letters that finish the word extend "
-                    + "nothing.",
-                isDefault: config.selectCommitOnUnique),
-            Row(title: "Guide fade", path: "guide.fade",
-                control: .toggle(config.guideFade),
-                detail: "The chain guide waits longer to appear as a "
-                    + "subtree is learned, so recall gets its chance "
-                    + "first. A stumble brings it back immediately.",
-                isDefault: config.guideFade),
         ] + draftRows))
 
         // 5 · Clipboard

@@ -325,6 +325,16 @@ enum BarTheme {
     /// The accent the person chose, as a closure so a test can choose one.
     static var accentColor: () -> NSColor = { .controlAccentColor }
 
+    /// The accent a config asks for: the Mac's, or Lodestar's own pair.
+    static func accent(for choice: Config.Accent) -> NSColor {
+        switch choice {
+        case .system: return .controlAccentColor
+        case .orange:
+            let pair = Tone.systemDark ? Readability.orangeOnCharcoal : Readability.orangeOnPaper
+            return NSColor(srgbRed: pair.red, green: pair.green, blue: pair.blue, alpha: 1)
+        }
+    }
+
     /// The accent for a mark the eye must find — the insert bar, a lit
     /// letter, the echoed query. The accent is the person's choice, and
     /// graphite or a deep blue can sit nearly on the ground; below the

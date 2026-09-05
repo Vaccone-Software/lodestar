@@ -35,4 +35,18 @@ final class ReadabilityRuleTests: XCTestCase {
         XCTAssertEqual(Readability.flashSeconds(for: String(repeating: "x", count: 400)), 4.0, "and never lingers")
         XCTAssertEqual(Readability.flashSeconds(for: ""), 1.4)
     }
+
+    /// Lodestar's own accent ships as a measured pair: each side clears
+    /// the mark floor on its own ground.
+    func testTheOrangePairClearsTheFloorOnBothGrounds() {
+        XCTAssertGreaterThanOrEqual(
+            Readability.contrast(Readability.orangeOnCharcoal.luminance, Readability.charcoal.luminance),
+            Readability.markFloor)
+        XCTAssertGreaterThanOrEqual(
+            Readability.contrast(Readability.orangeOnPaper.luminance, Readability.paper.luminance),
+            Readability.markFloor)
+        XCTAssertLessThan(
+            Readability.contrast(Readability.orangeOnCharcoal.luminance, Readability.paper.luminance),
+            Readability.markFloor, "which is why the true colour cannot serve on paper")
+    }
 }

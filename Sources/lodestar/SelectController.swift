@@ -130,7 +130,11 @@ final class SelectController {
     /// arbiter — the mode never reads the situation, which is what buried
     /// the first auto-copy.
     var copyOnComplete = false
-    /// select.commit-on-unique: a search narrowed to one match picks it
+    /// A search narrowed to one match picks it — the doctrine, not a
+    /// switch; the config's value is always true, and a test may set this
+    /// false to read the grammar without the auto-anchor.
+    ///
+    /// Once select.commit-on-unique: a search narrowed to one match picks it
     /// without the capital. Anchor door only — at the click door a pick is
     /// a click, and an action must never fire itself on uniqueness.
     var commitOnUnique = false

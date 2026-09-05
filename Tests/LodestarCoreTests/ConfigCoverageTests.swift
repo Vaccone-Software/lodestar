@@ -41,7 +41,7 @@ final class ConfigCoverageTests: XCTestCase {
         Probe(path: ["scroll", "speed"], value: .int(2500)) { $0.scrollSpeed == 2500 },
         Probe(path: ["scroll", "step"], value: .int(120)) { $0.scrollStep == 120 },
         Probe(path: ["select", "copy-on-complete"], value: .bool(true)) { $0.selectCopyOnComplete },
-        Probe(path: ["select", "commit-on-unique"], value: .bool(false)) { !$0.selectCommitOnUnique },
+        Probe(path: ["appearance", "accent"], value: .string("orange")) { $0.accent == .orange },
 
         Probe(path: ["clipboard", "enabled"], value: .bool(false)) { !$0.clipboardEnabled },
         Probe(path: ["clipboard", "max-size-mb"], value: .int(42)) { $0.clipboardMaxBytes == 42_000_000 },
@@ -60,7 +60,6 @@ final class ConfigCoverageTests: XCTestCase {
 
         Probe(path: ["observations", "enabled"], value: .bool(false)) { !$0.observationsEnabled },
         Probe(path: ["observations", "health"], value: .bool(false)) { !$0.observationsHealth },
-        Probe(path: ["guide", "fade"], value: .bool(false)) { !$0.guideFade },
         Probe(path: ["coach", "enabled"], value: .bool(false)) { !$0.coachEnabled },
 
         Probe(path: ["keys", "50"], value: .string("-")) { $0.keyOverrides[50] == "-" },

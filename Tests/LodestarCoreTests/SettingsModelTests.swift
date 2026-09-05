@@ -158,4 +158,28 @@ enum SchemaWalk {
             out.insert(path.joined(separator: "."))
         }
     }
+
+    func testTheAccentIsTheOneAppearanceSettingAndLivesUnderGeneral() {
+        let sections = SettingsModel.catalog(config: Config(), machine: .init())
+        let general = sections.first { $0.name == "General" }!
+        let accent = general.rows.first { $0.path == "appearance.accent" }
+        XCTAssertNotNil(accent)
+        if case .choice(let options, let labels, let current)? = accent?.control {
+            XCTAssertEqual(options, ["system", "orange"])
+            XCTAssertEqual(labels.count, 2)
+            XCTAssertEqual(current, "system")
+        } else {
+            XCTFail("a choice of two")
+        }
+        let paths = sections.flatMap { $0.rows }.compactMap { $0.path }
+        XCTAssertEqual(paths.filter { $0.hasPrefix("appearance.") }, ["appearance.accent"],
+                       "nothing else on the appearance side has passed the sentence")
+    }
+
+    func testTheRetiredInteractionSwitchesAreGone() {
+        let sections = SettingsModel.catalog(config: Config(), machine: .init())
+        let paths = sections.flatMap { $0.rows }.compactMap { $0.path }
+        XCTAssertFalse(paths.contains("select.commit-on-unique"))
+        XCTAssertFalse(paths.contains("guide.fade"))
+    }
 }

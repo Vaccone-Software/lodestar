@@ -513,6 +513,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
         }
         if config.showMenuBar { createStatusItem() }
+        BarTheme.accentColor = { [accent = config.accent] in BarTheme.accent(for: accent) }
+        Log.info("appearance", ["accent": config.accent.rawValue])
         actions.revealLodestar = { [weak self] in self?.revealMenuBar() }
         engine.onExcludeApp = { [weak self] bundleID in self?.excludeAppFromClipboard(bundleID) }
         installSignalHandler()
@@ -1591,6 +1593,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Keys.apply(overrides: loaded.keyOverrides)
         ActivePolicy.mode = loaded.activeDisplayMode
         engine.config = loaded
+        BarTheme.accentColor = { [accent = loaded.accent] in BarTheme.accent(for: accent) }
         webBar.config = loaded
         updater.enabled = loaded.autoUpdate
         clipboardController.excludedApps = loaded.clipboardExcludedApps

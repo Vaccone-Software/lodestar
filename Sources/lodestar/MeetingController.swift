@@ -44,6 +44,10 @@ final class MeetingController: NSObject {
     private let store = EKEventStore()
     private var storeObserver: NSObjectProtocol?
     private var tick: Timer?
+    /// The chip's clock: once a second, the phase is re-read from the
+    /// occurrence already on screen and the chip redraws only when the
+    /// words change — the calendar itself is asked every thirty seconds.
+    private var countdown: Timer?
     private var occurrences: [Meetings.Occurrence] = []
     /// Occurrences whose chip has been offered, for the observation that
     /// is recorded once per instance rather than once per redraw.
@@ -204,13 +208,34 @@ final class MeetingController: NSObject {
         tick = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             self?.refresh()
         }
+        countdown = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            self?.advanceCountdown()
+        }
+        countdown?.tolerance = 0.1
         refresh()
+    }
+
+    /// The seconds tick without touching the calendar or the spent set:
+    /// the standing occurrence's phase is recomputed, and the chip redraws
+    /// only when its words would differ. A meeting that has ended, or
+    /// one whose window has passed, hands back to the full evaluation.
+    private func advanceCountdown() {
+        guard let standing = current else { return }
+        let now = Date()
+        guard now < standing.occurrence.end else { evaluate(); return }
+        let phase = Meetings.phase(untilStart: standing.occurrence.start.timeIntervalSince(now))
+        guard phase != standing.phase else { return }
+        let updated = Meetings.Candidate(occurrence: standing.occurrence, phase: phase)
+        current = updated
+        guard !suppressed() else { return }
+        render(updated)
     }
 
     private func stop() {
         if let storeObserver { NotificationCenter.default.removeObserver(storeObserver) }
         storeObserver = nil
         tick?.invalidate(); tick = nil
+        countdown?.invalidate(); countdown = nil
         pendingRefresh?.cancel(); pendingRefresh = nil
         grantPoll?.invalidate(); grantPoll = nil
         occurrences = []
@@ -399,12 +424,7 @@ final class MeetingController: NSObject {
         stack.addArrangedSubview(label(title, size: 14, weight: .semibold,
                                        color: .labelColor))
 
-        let phase: String
-        switch candidate.phase {
-        case .upcoming(let minutes): phase = "in \(minutes) min"
-        case .now: phase = "now"
-        case .inProgress(let minutes): phase = "\(minutes) min in"
-        }
+        let phase = Self.phrase(candidate.phase)
         let destination = Meetings.nativeJoin(for: occurrence.link) != nil
             ? occurrence.link.provider.rawValue
             : "\(resolved.profileLabel) · \(resolved.deciderLabel)"
@@ -580,4 +600,16 @@ final class MeetingController: NSObject {
 
     private static var previewHost: NSPanel?
     #endif
+}
+
+extension MeetingController {
+    /// The chip's words for a phase, one caption fragment.
+    static func phrase(_ phase: Meetings.Phase) -> String {
+        switch phase {
+        case .upcoming(let minutes): return "in \(minutes) min"
+        case .soon(let seconds): return "in \(seconds)s"
+        case .now: return "now"
+        case .inProgress(let minutes): return "\(minutes) min in"
+        }
+    }
 }

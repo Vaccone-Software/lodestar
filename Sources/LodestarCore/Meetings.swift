@@ -199,7 +199,12 @@ public enum Meetings {
     /// What the chip says about time: counting down, at the door, or how
     /// far in — late joining is the reason the chip lives the meeting out.
     public enum Phase: Equatable {
+        /// Whole minutes left, counted down — three at 3:59, the way a
+        /// hand counts a wait. Rounding said two at 1:31, which read as
+        /// a clock running fast.
         case upcoming(minutes: Int)
+        /// Under a minute out: the seconds, counted down.
+        case soon(seconds: Int)
         case now
         case inProgress(minutes: Int)
     }
@@ -207,6 +212,10 @@ public enum Meetings {
     public struct Candidate: Equatable {
         public let occurrence: Occurrence
         public let phase: Phase
+        public init(occurrence: Occurrence, phase: Phase) {
+            self.occurrence = occurrence
+            self.phase = phase
+        }
     }
 
     /// The one occurrence worth a chip right now: inside its window
@@ -224,15 +233,21 @@ public enum Meetings {
         }
         guard let soonest = live.min(by: { $0.start < $1.start }) else { return nil }
         let untilStart = soonest.start.timeIntervalSince(now)
-        let phase: Phase
-        if untilStart > 30 {
-            phase = .upcoming(minutes: max(1, Int((untilStart / 60).rounded())))
+        return Candidate(occurrence: soonest, phase: phase(untilStart: untilStart))
+    }
+
+    /// What the chip says for a start this many seconds away (negative
+    /// once it has begun).
+    public static func phase(untilStart: TimeInterval) -> Phase {
+        if untilStart > 60 {
+            return .upcoming(minutes: Int(untilStart / 60))
+        } else if untilStart > 0 {
+            return .soon(seconds: max(1, Int(untilStart.rounded(.up))))
         } else if untilStart > -90 {
-            phase = .now
+            return .now
         } else {
-            phase = .inProgress(minutes: max(1, Int((-untilStart / 60).rounded())))
+            return .inProgress(minutes: max(1, Int(-untilStart / 60)))
         }
-        return Candidate(occurrence: soonest, phase: phase)
     }
 
     /// Is a meeting happening right now?

@@ -33,6 +33,12 @@ public struct Config {
     public var showMenuBar = true
     /// How the active display is chosen: pointer | focus.
     public var activeDisplayMode = ActivePolicy.Mode.pointer
+    /// The one appearance setting: the Mac's accent, or Lodestar's own
+    /// international orange. An appearance setting may change how
+    /// Lodestar looks to you, never what it asks of you; this is the
+    /// only one that has passed that sentence.
+    public enum Accent: String, Equatable, Sendable { case system, orange }
+    public var accent = Accent.system
     /// Pixels per j/k/h/l press in scroll mode when smooth is off.
     public var scrollStep: CGFloat = 60
     /// Constant velocity while a direction key is held; instant stop on release.
@@ -49,7 +55,10 @@ public struct Config {
     /// one legal meaning carries no information, so the grammar stops
     /// charging for it. The word's unfinished tail is absorbed, not
     /// misread: letters that keep arriving extend nothing.
-    public var selectCommitOnUnique = true
+    /// A search narrowed to one match picks it: the doctrine since
+    /// 0.27, and no longer a switch — a setting that asks a person to
+    /// choose between two reads of the same screen is a fresh decision.
+    public var selectCommitOnUnique: Bool { true }
     /// Double-tap modifier bindings: modifier → verb. Custom triggers only.
     /// Keys freed by gestures: toggles — they pass through to the app.
     public var disabledGestures: Set<String> = []
@@ -107,8 +116,8 @@ public struct Config {
     public var observationsHealth = true
     public var coachEnabled = true
     /// The chain guide fades as a subtree is learned: the map waits for
-    /// recall before it appears. False paints it immediately, always.
-    public var guideFade = true
+    /// recall before it appears. The coach's doctrine, not a switch.
+    public var guideFade: Bool { true }
     /// Keycode → key-name overlays on the built-in ANSI table.
     public var keyOverrides: [Int64: String] = [:]
     public var graph: GraphNode = GraphNode()
@@ -154,6 +163,10 @@ public struct Config {
             "show-menu-bar": .boolean(description: "Show the status item permanently; false hides it until lodestar is picked in the launcher."),
             "active-display": .string(allowed: ["pointer", "focus"], description: "How the active display is chosen."),
         ], description: "App behavior."),
+        "appearance": .table([
+            "accent": .string(allowed: ["system", "orange"],
+                              description: "The colour of the cursor, lit letters, and the echoed query: the Mac's accent, or Lodestar's international orange, set deeper in light mode so it stays readable."),
+        ], description: "How Lodestar looks. Never what it asks of you."),
         "gestures": .table(
             Dictionary(uniqueKeysWithValues: Gestures.roster.map {
                 ($0.name, SchemaNode.boolean(description: $0.about))
@@ -180,7 +193,6 @@ public struct Config {
         ], description: "Scroll mode."),
         "select": .table([
             "copy-on-complete": .boolean(description: "Copy a completed span to the clipboard the moment its second anchor lands."),
-            "commit-on-unique": .boolean(description: "A search narrowed to one match picks it without the capital."),
         ], description: "Select mode."),
         "meetings": .table([
             "enabled": .boolean(description: "Offer the calendar's next meeting as a chip."),
@@ -207,9 +219,6 @@ public struct Config {
             "enabled": .boolean(description: "Watch how you reach things, on this machine only, to suggest improvements later."),
             "health": .boolean(description: "Also keep the hands' pulse: input counts, typing rhythm moments, active minutes. Counts only, never which keys or what was typed."),
         ], description: "Local observations. How you got places, never what you were doing there; nothing leaves the machine."),
-        "guide": .table([
-            "fade": .boolean(description: "The chain guide waits longer to appear as a subtree is learned, so recall gets its chance first. False paints it immediately."),
-        ], description: "The chain guide."),
         "coach": .table([
             "enabled": .boolean(description: "Let Lodestar offer one improvement at a time, in quiet moments, priced in seconds."),
         ], description: "The coach: rare, evidence-backed suggestions drawn from the observations."),
@@ -356,9 +365,6 @@ public struct Config {
         if let copy = effective.value(at: ["select", "copy-on-complete"])?.bool {
             config.selectCopyOnComplete = copy
         }
-        if let commit = effective.value(at: ["select", "commit-on-unique"])?.bool {
-            config.selectCommitOnUnique = commit
-        }
         if let enabled = effective.value(at: ["clipboard", "enabled"])?.bool {
             config.clipboardEnabled = enabled
         }
@@ -471,8 +477,12 @@ public struct Config {
         if let enabled = effective.value(at: ["coach", "enabled"])?.bool {
             config.coachEnabled = enabled
         }
-        if let fade = effective.value(at: ["guide", "fade"])?.bool {
-            config.guideFade = fade
+        if let accent = effective.value(at: ["appearance", "accent"])?.string {
+            if let chosen = Config.Accent(rawValue: accent) {
+                config.accent = chosen
+            } else {
+                problems.append("unknown appearance.accent '\(accent)' — using system")
+            }
         }
         if let enabled = effective.value(at: ["web", "clicks", "enabled"])?.bool {
             config.webHandleClicks = enabled

@@ -16,6 +16,27 @@ public enum Readability {
         return (light + 0.05) / (dark + 0.05)
     }
 
+    /// One colour in sRGB, components in 0...1.
+    public struct RGB: Equatable, Sendable {
+        public let red: Double, green: Double, blue: Double
+        public init(red: Double, green: Double, blue: Double) {
+            self.red = red; self.green = green; self.blue = blue
+        }
+        public var luminance: Double { Readability.luminance(red: red, green: green, blue: blue) }
+    }
+
+    /// The panels' grounds, as the equalizer keeps them: charcoal in
+    /// dark, paper in light.
+    public static let charcoal = RGB(red: 0.1, green: 0.1, blue: 0.1)
+    public static let paper = RGB(red: 0.92, green: 0.92, blue: 0.92)
+
+    /// Lodestar's own accent: international orange on charcoal, where it
+    /// clears the mark floor with room to spare, and a deeper orange on
+    /// paper, where the true colour sits under it. A pair, measured,
+    /// never a colour derived at runtime.
+    public static let orangeOnCharcoal = RGB(red: 1.0, green: 0.31, blue: 0.0)
+    public static let orangeOnPaper = RGB(red: 0.82, green: 0.26, blue: 0.0)
+
     /// The least contrast a mark the eye must find — a cursor, a lit
     /// letter — may have against its ground before it falls back to the
     /// text's own colour.

@@ -217,4 +217,45 @@ final class ConfigBuildTests: XCTestCase {
         XCTAssertEqual(config.webClickBrowser, "com.brave.Browser")
         XCTAssertEqual(problems, [])
     }
+
+    // MARK: - Appearance
+
+    func testTheAccentIsSystemUnlessAskedOtherwise() throws {
+        let (config, problems) = try build("{}")
+        XCTAssertEqual(config.accent, .system)
+        XCTAssertTrue(problems.isEmpty)
+        let (orange, _) = try build(#"{"appearance": {"accent": "orange"}}"#)
+        XCTAssertEqual(orange.accent, .orange)
+    }
+
+    func testAnUnknownAccentIsReportedAndFallsBackToSystem() throws {
+        let (config, problems) = try build(#"{"appearance": {"accent": "teal"}}"#)
+        XCTAssertEqual(config.accent, .system)
+        // The schema walk and the parse both speak; either is enough.
+        XCTAssertFalse(problems.isEmpty)
+        XCTAssertTrue(problems.allSatisfy { $0.contains("accent") }, "\(problems)")
+    }
+
+    // MARK: - Doctrines, not switches
+
+    /// Commit-on-unique and the guide's fade were once switches the app's
+    /// own Settings wrote into the file. They are the doctrine now, and a
+    /// file that set either must load clean rather than report a key it
+    /// was told to write.
+    func testRetiredInteractionSwitchesAreStrippedQuietly() throws {
+        let root = try Json.parse(#"{"select": {"commit-on-unique": false, "copy-on-complete": true}, "guide": {"fade": false}}"#)
+        let normalized = ConfigDefaults.normalized(root)
+        XCTAssertNil(normalized["guide"], "the guide table is gone with its only key")
+        if case .table(let select)? = normalized["select"] {
+            XCTAssertNil(select["commit-on-unique"])
+            XCTAssertEqual(select["copy-on-complete"], .bool(true), "its neighbour survives")
+        } else {
+            XCTFail("the select table survives")
+        }
+        var problems: [String] = []
+        let config = Config.build(from: normalized, problems: &problems)
+        XCTAssertTrue(problems.isEmpty, "\(problems)")
+        XCTAssertTrue(config.selectCommitOnUnique, "the doctrine holds whatever the file said")
+        XCTAssertTrue(config.guideFade)
+    }
 }

@@ -223,4 +223,34 @@ final class MeetingsTests: XCTestCase {
         let pruned = Meetings.prune(spent: [live.key, "gone@123"], keeping: [live])
         XCTAssertEqual(pruned, [live.key])
     }
+
+    // MARK: - The countdown
+
+    /// Whole minutes count down the way a hand counts a wait: three at
+    /// 3:59. Rounding said two at 1:31, which read as a clock running fast.
+    func testMinutesAreCountedDownNotRounded() {
+        XCTAssertEqual(Meetings.phase(untilStart: 4 * 60), .upcoming(minutes: 4))
+        XCTAssertEqual(Meetings.phase(untilStart: 3 * 60 + 59), .upcoming(minutes: 3))
+        XCTAssertEqual(Meetings.phase(untilStart: 91), .upcoming(minutes: 1))
+        XCTAssertEqual(Meetings.phase(untilStart: 61), .upcoming(minutes: 1))
+    }
+
+    func testUnderAMinuteTheSecondsCountDown() {
+        XCTAssertEqual(Meetings.phase(untilStart: 60), .soon(seconds: 60))
+        XCTAssertEqual(Meetings.phase(untilStart: 45.2), .soon(seconds: 46), "rounded up, so it never says 0")
+        XCTAssertEqual(Meetings.phase(untilStart: 0.4), .soon(seconds: 1))
+    }
+
+    func testAtTheDoorItSaysNowAndThenCountsIn() {
+        XCTAssertEqual(Meetings.phase(untilStart: 0), .now)
+        XCTAssertEqual(Meetings.phase(untilStart: -89), .now)
+        XCTAssertEqual(Meetings.phase(untilStart: -90), .inProgress(minutes: 1))
+        XCTAssertEqual(Meetings.phase(untilStart: -10 * 60 - 30), .inProgress(minutes: 10))
+    }
+
+    func testTheCandidateCarriesTheSamePhaseRule() {
+        let soon = occurrence("a", startsIn: 0.5)
+        let candidate = Meetings.candidate(occurrences: [soon], now: now, leadMinutes: 5, spent: [])
+        XCTAssertEqual(candidate?.phase, .soon(seconds: 30))
+    }
 }

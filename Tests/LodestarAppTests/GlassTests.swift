@@ -363,3 +363,34 @@ final class AccentSwitchTests: XCTestCase {
         XCTAssertEqual(center?.greenComponent ?? 0, green.greenComponent, accuracy: 0.05)
     }
 }
+
+/// A switch survives the pane's rebuild, so its slide is seen.
+final class SettingsSwitchSurvivalTests: XCTestCase {
+    func testTheSameSwitchStandsAcrossRenders() {
+        let controller = SettingsController.preview(0)
+        controller.rerender()
+        let first = controller.switchView(for: "app.auto-update")
+        XCTAssertNotNil(first)
+        controller.rerender()
+        let second = controller.switchView(for: "app.auto-update")
+        XCTAssertTrue(first === second, "rebuilt controls would arrive at rest before the eye saw them move")
+        XCTAssertNotNil(second?.superview, "and it is on the pane")
+    }
+
+    /// The slide a press started is still running after the write's
+    /// render re-hosts the switch — which is the whole point of keeping it.
+    func testASlideOutlivesTheRenderAWriteCauses() {
+        Accessibility.reduceMotion = { false }
+        defer { Accessibility.reduceMotion = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion } }
+        let controller = SettingsController.preview(0)
+        controller.rerender()
+        let toggle = controller.switchView(for: "app.auto-update")!
+        let before = toggle.state
+        toggle.set(before == .on ? .off : .on, animated: true)
+        controller.rerender()
+        let kept = controller.switchView(for: "app.auto-update")!
+        XCTAssertTrue(kept === toggle)
+        XCTAssertNotNil(kept.layer?.sublayers?[1].animation(forKey: "slide"), "the slide is still attached")
+        XCTAssertNotNil(kept.superview)
+    }
+}

@@ -44,6 +44,12 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     private var rowViews: [Int: NSView] = [:]
     private var fields: [Int: NSTextField] = [:]
     private var popups: [Int: NSPopUpButton] = [:]
+    /// The switches, kept across renders by their config path. A render
+    /// rebuilds every control, and a switch rebuilt mid-slide arrived at
+    /// rest before the eye saw it move; the same view survives instead,
+    /// and only its state is told.
+    private var switches: [String: AccentSwitch] = [:]
+    private var recycledSwitches: [String: AccentSwitch] = [:]
     /// Every editable field on screen, for first-responder tracking: a
     /// field entered by mouse must enter the editing layer exactly as one
     /// entered by letter does, or arrows die in it.
@@ -636,6 +642,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         }
         sections = SettingsModel.catalog(config: config, machine: machine,
                                          problems: findings)
+        recycledSwitches = switches
+        switches = [:]
         // End any editing before the views under it go away — a field
         // editor serving a removed field is how ghost text gets drawn.
         if let responder = panel.firstResponder as? NSView,
@@ -964,8 +972,16 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     private func buildControl(_ row: SettingsModel.Row, index: Int) -> NSView {
         switch row.control {
         case .toggle(let value):
-            let toggle = AccentSwitch(frame: .zero)
-            toggle.state = value ? .on : .off
+            let toggle: AccentSwitch
+            if let kept = recycledSwitches[row.path] {
+                kept.removeFromSuperview()
+                kept.set(value ? .on : .off, animated: true)
+                toggle = kept
+            } else {
+                toggle = AccentSwitch(frame: .zero)
+                toggle.state = value ? .on : .off
+            }
+            switches[row.path] = toggle
             toggle.isEnabled = !row.dimmed
             toggle.target = self
             toggle.action = #selector(togglePressed(_:))
@@ -1564,4 +1580,11 @@ private final class FlippedView: NSView {
         ])
         return view
     }
+}
+
+extension SettingsController {
+    /// For the tests: the switch standing for a config path right now.
+    func switchView(for path: String) -> AccentSwitch? { switches[path] }
+    /// For the tests: a render, the way a config write causes one.
+    func rerender() { render() }
 }

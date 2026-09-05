@@ -728,9 +728,11 @@ final class AccentSwitch: NSControl {
         knob.frame = knobFrame
         layer?.opacity = isEnabled ? 1 : 0.45
         CATransaction.commit()
-        knob.removeAnimation(forKey: "slide")
-        track.removeAnimation(forKey: "tint")
+        // A layout pass leaves a running slide alone; only a new slide
+        // replaces one.
         if animated, !Accessibility.reduceMotion() {
+            knob.removeAnimation(forKey: "slide")
+            track.removeAnimation(forKey: "tint")
             let slide = CABasicAnimation(keyPath: "position")
             slide.fromValue = NSValue(point: fromPosition)
             slide.toValue = NSValue(point: knob.position)
@@ -750,11 +752,16 @@ final class AccentSwitch: NSControl {
 
     private func flip() {
         guard isEnabled else { return }
-        let next: NSControl.StateValue = state == .on ? .off : .on
-        // Set without the observer's plain repaint, then paint with motion.
-        state = next
-        paint(animated: true)
+        set(state == .on ? .off : .on, animated: true)
         sendAction(action, to: target)
+    }
+
+    /// A state arriving from outside — the config re-read after a write
+    /// — that differs from what is shown slides the same way a press does.
+    func set(_ next: NSControl.StateValue, animated: Bool) {
+        guard next != state else { return }
+        state = next
+        if animated { paint(animated: true) }
     }
 
     override func mouseDown(with event: NSEvent) { flip() }

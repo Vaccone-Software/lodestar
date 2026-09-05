@@ -112,7 +112,7 @@ final class StripLayoutTests: XCTestCase {
         XCTAssertEqual(instruction?.color, .labelColor)
         let app = parts.first { $0.text.contains("Brave Browser") }
         XCTAssertEqual(app?.font.pointSize, BarTheme.Scale.meta)
-        XCTAssertEqual(app?.color, .secondaryLabelColor)
+        XCTAssertEqual(app?.color, BarTheme.secondaryColor, "the caption colour, whichever side the runner is on")
         XCTAssertTrue(line.string.hasSuffix(" · esc"))
         XCTAssertFalse(app!.font.fontName.lowercased().contains("mono"), "words, not a status line")
     }

@@ -6,6 +6,13 @@ import XCTest
 /// One glass. Every panel, card, and chip is the launcher's backdrop,
 /// and the scrim inside it never keeps a cold first guess.
 final class GlassTests: XCTestCase {
+    /// The veil these tests read is the frost's, not the opaque one a
+    /// runner with Reduce Transparency on would draw.
+    override func setUp() { Accessibility.reduceTransparency = { false } }
+    override func tearDown() {
+        Accessibility.reduceTransparency = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency }
+    }
+
     /// The veil's alpha as the layer holds it, once the view has drawn.
     private func alpha(_ scrim: EqualizerScrim) -> CGFloat? {
         scrim.displayIfNeeded()

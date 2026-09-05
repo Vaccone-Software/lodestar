@@ -853,6 +853,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         walk.markCompleted = { [weak self] in
             self?.store.markWalkCompleted(version: Lodestar.version)
         }
+        // The curriculum: the coach asks, at a quiet boundary with nothing
+        // standing, whether a lesson is due; the record answers from the
+        // day Lodestar first ran and the verbs the hand has fired. The
+        // card is the walk's own, so the floor rules are already right:
+        // a lesson up silences the coach, as the walk does.
+        walk.lessonCompleted = { [weak self] lesson in
+            guard let self else { return }
+            self.store.setCurriculumRecord(
+                Curriculum.completed(self.store.curriculumRecords[lesson], at: Date()), for: lesson)
+        }
+        walk.lessonPassed = { _ in }
+        coach.lessonDue = { [weak self] in
+            guard let self else { return nil }
+            let record = self.observationStore.observations
+            return Curriculum.next(now: Date(), since: record.since,
+                                   verbsLastUsed: record.verbsLastUsed ?? [:],
+                                   records: self.store.curriculumRecords,
+                                   walkDone: self.store.walkCompletedVersion != nil)
+        }
+        coach.showLesson = { [weak self] lesson in
+            guard let self else { return }
+            self.store.setCurriculumRecord(
+                Curriculum.offered(self.store.curriculumRecords[lesson], at: Date()), for: lesson)
+            self.walk.showLesson(lesson)
+        }
 
         // Once, until it is finished: an unfinished walk resumes on the
         // next boot rather than restarting, and a completed one never comes

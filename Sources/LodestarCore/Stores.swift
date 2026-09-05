@@ -72,6 +72,9 @@ public struct PersistedState: Codable {
     /// promises a cue-having suggestion goes out eventually had never once
     /// opened. An auto-update alone is enough to reset it.
     public var coachStandingSince: [String: Date]?
+    /// The curriculum's record, by lesson: offers made, when, and whether
+    /// the hand completed it. Machine owned, like the walk's step.
+    public var curriculum: [String: Curriculum.Record]?
 }
 
 /// The corruption ritual, shared by every store that keeps user data:
@@ -234,6 +237,23 @@ public final class StateStore {
     public func markWalkCompleted(version: String) {
         state.walkCompletedVersion = version
         save()
+    }
+
+    // MARK: - The curriculum
+
+    public var curriculumRecords: [Curriculum.Lesson: Curriculum.Record] {
+        var out: [Curriculum.Lesson: Curriculum.Record] = [:]
+        for (key, record) in state.curriculum ?? [:] {
+            if let lesson = Curriculum.Lesson(rawValue: key) { out[lesson] = record }
+        }
+        return out
+    }
+
+    public func setCurriculumRecord(_ record: Curriculum.Record, for lesson: Curriculum.Lesson) {
+        var map = state.curriculum ?? [:]
+        map[lesson.rawValue] = record
+        state.curriculum = map
+        saveSoon()
     }
 
     // MARK: - Meetings

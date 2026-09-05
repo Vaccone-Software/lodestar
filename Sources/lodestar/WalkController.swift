@@ -24,8 +24,16 @@ final class WalkController: NSObject {
     var acceptGraph: ([StarterGraph.Proposal]) -> String? = { _ in "the graph is unavailable" }
     var persistStep: ((Int) -> Void)?
     var markCompleted: (() -> Void)?
+    /// The curriculum's answers, wired to its record.
+    var lessonCompleted: ((Curriculum.Lesson) -> Void)?
+    var lessonPassed: ((Curriculum.Lesson) -> Void)?
 
     private var walk: Walk?
+    /// A lesson standing on the card, after the walk is done. The card is
+    /// the same one; the sequence is the curriculum's.
+    private var lesson: Curriculum.Lesson?
+    private var lessonDone = false
+    private var lessonHide: DispatchWorkItem?
 
     // MARK: - Windows
 
@@ -140,11 +148,64 @@ final class WalkController: NSObject {
         settingsIsOurs = false
         door.orderOut(nil)
         card.orderOut(nil)
+        lesson = nil
+        lessonDone = false
+        lessonHide?.cancel(); lessonHide = nil
+    }
+
+    // MARK: - Lessons (the curriculum's cards)
+
+    /// Show one lesson. Only when nothing else of the walk's is up.
+    func showLesson(_ lesson: Curriculum.Lesson) {
+        guard !isUp else { return }
+        self.lesson = lesson
+        lessonDone = false
+        renderCard()
+        Log.info("walk", ["lesson": lesson.rawValue])
+    }
+
+    private func noticeLesson(_ lesson: Curriculum.Lesson, _ signal: Walk.Signal) {
+        guard !lessonDone, signal == Self.completion(of: lesson) else { return }
+        lessonDone = true
+        lessonCompleted?(lesson)
+        Log.info("walk", ["lesson": lesson.rawValue, "completed": true])
+        renderCard()
+        // The finished card is seen, then goes: unlike the walk's close it
+        // has no decision on it, and a card that outstays its gesture is
+        // clutter.
+        let work = DispatchWorkItem { [weak self] in self?.hideLesson() }
+        lessonHide = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.5, execute: work)
+    }
+
+    private func hideLesson() {
+        lessonHide?.cancel(); lessonHide = nil
+        lesson = nil
+        lessonDone = false
+        card.orderOut(nil)
+    }
+
+    /// The real gesture that proves each lesson.
+    static func completion(of lesson: Curriculum.Lesson) -> Walk.Signal {
+        switch lesson {
+        case .inside: return .hintsEnded
+        case .web: return .webBarOpened
+        case .clipboard: return .clipboardOpened
+        case .sheet: return .cheatOpened
+        case .draft: return .draftOpened
+        case .select: return .selectEnded
+        case .commands: return .commandsOpened
+        case .scroll: return .scrollEnded
+        }
     }
 
     // MARK: - Signals (the companion's only sense)
 
     func notice(_ signal: Walk.Signal) {
+        if let lesson, cardVisible {
+            noticeLesson(lesson, signal)
+            return
+        }
         guard cardVisible, walk != nil, walk?.isDone != true else { return }
         let effects = walk!.handle(signal)
         guard !effects.isEmpty else { return }
@@ -201,6 +262,13 @@ final class WalkController: NSObject {
     /// The card persists until the walk is done, by decision. On the
     /// finished card the same gesture is the close.
     func pass() -> Bool {
+        if let lesson, cardVisible {
+            // "Not this one": the lesson retries days later, then parks.
+            // On a finished lesson the same gesture is the close.
+            if !lessonDone { lessonPassed?(lesson) }
+            hideLesson()
+            return true
+        }
         guard cardVisible, let walk else { return false }
         if walk.isDone {
             hideAll()
@@ -468,6 +536,23 @@ final class WalkController: NSObject {
                     + "the core of Lodestar. The letters become muscle "
                     + "memory, and navigation disappears.",
                 illustration: choiceList(options))
+        case .done:
+            return CardContent(
+                title: "You are ready",
+                body: "The launcher when you need to search. Letters when "
+                    + "you do not. That is the whole first day.\n\nThe rest "
+                    + "arrives one lesson at a time, on this card, as you "
+                    + "are ready for it. Press lode ? whenever you need a "
+                    + "reminder.",
+                keys: [KeyRow("lode ⌫", "close this card",
+                              action: { [weak self] in _ = self?.pass() })])
+        }
+    }
+
+    /// The curriculum's cards: one gesture each, proved by the real
+    /// gesture happening.
+    private func lessonContent(_ lesson: Curriculum.Lesson) -> CardContent {
+        switch lesson {
         case .inside:
             return CardContent(
                 title: "Inside the app",
@@ -475,9 +560,7 @@ final class WalkController: NSObject {
                     + "press ; and every button and link wears a letter. "
                     + "Press a letter to click it, or press escape to put "
                     + "the letters away. Try it now.",
-                illustration: capsRow([("lode", false), (";", true)]),
-                keys: [KeyRow("lode -", "search the menus of the app you are in"),
-                       KeyRow("lode `", "scroll from the keyboard")])
+                illustration: capsRow([("lode", false), (";", true)]))
         case .web:
             return CardContent(
                 title: "The web",
@@ -507,24 +590,78 @@ final class WalkController: NSObject {
                     + "once. The sheet holds everything, whenever you need "
                     + "it.",
                 illustration: capsRow([("lode", false), ("?", true)]))
-        case .done:
+        case .draft:
             return CardContent(
-                title: "You are ready",
-                body: "The launcher when you need to search. Letters when "
-                    + "you do not. Lodestar offers the rest one suggestion "
-                    + "at a time, as it learns how you work.\n\nPress "
-                    + "lode ? whenever you need a reminder.",
-                keys: [KeyRow("lode ⌫", "close this card",
-                              action: { [weak self] in _ = self?.pass() })])
+                title: "The draft",
+                body: "Hold lode and press period. Speak, and the words "
+                    + "appear at the foot of the screen; type into the same "
+                    + "sentence. Return puts it where your cursor was. "
+                    + "Nothing you say leaves your Mac. Open it now.",
+                illustration: capsRow([("lode", false), (".", true)]),
+                keys: [KeyRow("lode ⇧.", "edit what a field already holds"),
+                       KeyRow("esc", "fix a word from the keys")])
+        case .select:
+            return CardContent(
+                title: "Text on screen",
+                body: "Hold lode and press slash, then type a few characters "
+                    + "of anything you can see. Every match wears a letter. "
+                    + "The shifted letter marks the start; type again and "
+                    + "the shifted letter marks the end. Try it now, on any "
+                    + "word.",
+                illustration: capsRow([("lode", false), ("/", true)]),
+                keys: [KeyRow("⌘C", "copies the highlight")])
+        case .commands:
+            return CardContent(
+                title: "Commands",
+                body: "Hold lode and press minus. Every item in this app's "
+                    + "menus, under one search. Type part of a command and "
+                    + "return runs it. Each row wears the app's own "
+                    + "shortcut. Open it now.",
+                illustration: capsRow([("lode", false), ("-", true)]))
+        case .scroll:
+            return CardContent(
+                title: "Scroll from the keys",
+                body: "Hold lode and press the backtick. Then hold j to "
+                    + "scroll down and k to scroll up; release, and it "
+                    + "stops. Escape leaves. Try it on this window.",
+                illustration: capsRow([("lode", false), ("`", true)]),
+                keys: [KeyRow("d u", "half a page"),
+                       KeyRow("⇥", "the next pane")])
         }
+    }
+
+    /// The card a proven lesson shows for a moment before it goes.
+    private func doneContent(for lesson: Curriculum.Lesson) -> CardContent {
+        let (position, total) = Curriculum.position(of: lesson)
+        return CardContent(
+            title: "That is the gesture",
+            body: position < total
+                ? "It is yours now. The next lesson arrives in a few days."
+                : "It is yours now, and that was the last lesson.")
     }
 
     // MARK: - Companion drawing
 
     private func renderCard() {
-        guard let walk else { return }
+        let content: CardContent
+        let header: String?
+        let footer: (title: String, action: Selector)
+        if let lesson {
+            content = lessonDone ? doneContent(for: lesson) : lessonContent(lesson)
+            let (position, total) = Curriculum.position(of: lesson)
+            header = "⌖ a lesson · \(position) of \(total)"
+            footer = lessonDone ? ("done", #selector(skipPressed)) : ("later", #selector(skipPressed))
+        } else {
+            guard let walk else { return }
+            content = self.content(for: walk.step)
+            let progress = walk.progress
+            header = walk.step == .done ? nil
+                : "⌖ the walk · \(progress.position) of \(progress.total)"
+            footer = walk.step == .done
+                ? ("done", #selector(donePressed))
+                : ("skip this step", #selector(skipPressed))
+        }
         for view in cardRoot.subviews where view is NSStackView { view.removeFromSuperview() }
-        let content = content(for: walk.step)
 
         let stack = NSStackView()
         stack.orientation = .vertical
@@ -532,11 +669,9 @@ final class WalkController: NSObject {
         stack.spacing = 8
         stack.translatesAutoresizingMaskIntoConstraints = false
 
-        if walk.step != .done {
-            let progress = walk.progress
-            stack.addArrangedSubview(label(
-                "⌖ the walk · \(progress.position) of \(progress.total)", size: BarTheme.Scale.meta,
-                weight: .medium, color: BarTheme.secondaryColor))
+        if let header {
+            stack.addArrangedSubview(label(header, size: BarTheme.Scale.meta,
+                                           weight: .medium, color: BarTheme.secondaryColor))
         }
         stack.addArrangedSubview(label(content.title, size: BarTheme.Scale.title, weight: .semibold,
                                        color: .labelColor))
@@ -556,12 +691,10 @@ final class WalkController: NSObject {
         // The footer: skipping is per step and the walk cannot be
         // dismissed. The click target exists because lode ⌫ requires the
         // very key the first card is still teaching. The finished card
-        // trades it for a close, and is never on a clock.
+        // trades it for a close, and is never on a clock. A lesson's
+        // footer says "later", which is what passing one means.
         stack.setCustomSpacing(12, after: stack.arrangedSubviews.last!)
-        let link = walk.step == .done
-            ? smallLink("done", action: #selector(donePressed))
-            : smallLink("skip this step", action: #selector(skipPressed))
-        stack.addArrangedSubview(link)
+        stack.addArrangedSubview(smallLink(footer.title, action: footer.action))
 
         cardRoot.addSubview(stack)
         NSLayoutConstraint.activate([
@@ -778,8 +911,18 @@ final class WalkController: NSObject {
             case 2:
                 controller.renderDoor(waiting: false)
                 controller.door.makeKeyAndOrderFront(nil)
-            default:
+            case 3...7:
                 controller.beginWalk(at: index - 3)
+            default:
+                // 8…15: the curriculum's cards, in order; 16 the proven card.
+                let lessons = Curriculum.order.map(\.lesson)
+                if index - 8 < lessons.count {
+                    controller.showLesson(lessons[index - 8])
+                } else {
+                    controller.lesson = lessons[0]
+                    controller.lessonDone = true
+                    controller.renderCard()
+                }
             }
         }
         return controller

@@ -36,17 +36,9 @@ public struct Walk: Equatable {
         case graphOffer([StarterGraph.Proposal])
         /// Use any letter of the graph, chosen from a few of their own.
         case graphGo(options: [GraphChoice])
-        /// Working inside the window: hints, completed when the mode ends,
-        /// by a press or by escape. Entry alone proved nothing was seen.
-        case inside
-        /// Ask, shown by opening it once.
-        case web
-        /// The clipboard history, shown by opening it once. The one gesture
-        /// living outside lode, which is exactly why nobody would find it.
-        case clipboard
-        /// Open the cheat sheet once, so it becomes a place they have been.
-        case sheet
-        /// The closing card. It stays until the user closes it.
+        /// The closing card. It stays until the user closes it. Everything
+        /// past the letters is taught later, one lesson at a time, by the
+        /// curriculum (`Curriculum`), on the same card.
         case done
     }
 
@@ -59,10 +51,16 @@ public struct Walk: Equatable {
         case assent
         case pass
         case graphSummon
+        // The lessons' signals. The walk itself waits on none of these;
+        // the curriculum's cards do, one each.
         case hintsEnded
         case webBarOpened
         case clipboardOpened
         case cheatOpened
+        case draftOpened
+        case selectEnded
+        case commandsOpened
+        case scrollEnded
     }
 
     public enum Effect: Equatable {
@@ -87,11 +85,7 @@ public struct Walk: Equatable {
         case .launcher: return 1
         case .graphOffer: return 2
         case .graphGo: return 3
-        case .inside: return 4
-        case .web: return 5
-        case .clipboard: return 6
-        case .sheet: return 7
-        case .done: return 8
+        case .done: return 4
         }
     }
 
@@ -101,7 +95,6 @@ public struct Walk: Equatable {
         var indices = [0, 1]
         if !proposals.isEmpty { indices.append(2) }
         if !existing.isEmpty || !proposals.isEmpty { indices.append(3) }
-        indices.append(contentsOf: [4, 5, 6, 7])
         let position = indices.filter { $0 < stepIndex }.count + 1
         return (min(position, indices.count), indices.count)
     }
@@ -127,11 +120,7 @@ public struct Walk: Equatable {
         case 2 where !proposals.isEmpty: return .graphOffer(proposals)
         case 2, 3:
             let options = existing.isEmpty ? Self.choices(from: proposals) : existing
-            return options.isEmpty ? .inside : .graphGo(options: options)
-        case 4: return .inside
-        case 5: return .web
-        case 6: return .clipboard
-        case 7: return .sheet
+            return options.isEmpty ? .done : .graphGo(options: options)
         default: return .done
         }
     }
@@ -154,14 +143,6 @@ public struct Walk: Equatable {
             return [.acceptProposals(offered), .stepChanged]
         case (.graphGo, .graphSummon):
             return advance()
-        case (.inside, .hintsEnded):
-            return advance()
-        case (.web, .webBarOpened):
-            return advance()
-        case (.clipboard, .clipboardOpened):
-            return advance()
-        case (.sheet, .cheatOpened):
-            return advance()
         default:
             return []
         }
@@ -177,17 +158,14 @@ public struct Walk: Equatable {
         case .launcher:
             step = Self.resolve(index: 2, proposals: proposals, existing: existing)
         case .graphOffer:
-            // Declined: only their own graph can carry the next step.
-            step = existing.isEmpty ? .inside : .graphGo(options: existing)
+            // Declined: only their own graph can carry the next step, and
+            // with none the walk is over.
+            if existing.isEmpty {
+                step = .done
+                return [.stepChanged, .completed]
+            }
+            step = .graphGo(options: existing)
         case .graphGo:
-            step = .inside
-        case .inside:
-            step = .web
-        case .web:
-            step = .clipboard
-        case .clipboard:
-            step = .sheet
-        case .sheet:
             step = .done
             return [.stepChanged, .completed]
         case .done:

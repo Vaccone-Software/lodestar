@@ -133,6 +133,11 @@ final class CoachController {
     /// behaviour — correct for a controller nobody has wired a store to.
     var standingSinceFor: (String) -> Date = { _ in Date() }
     var flash: (String) -> Void = { _ in }
+    /// The curriculum: a lesson due now, if any, when no suggestion
+    /// stands. Nil by default; an unwired coach teaches nothing.
+    var lessonDue: () -> Curriculum.Lesson? = { nil }
+    /// Put a lesson on the companion card.
+    var showLesson: (Curriculum.Lesson) -> Void = { _ in }
     /// The parked offer changed; the menu item re-reads it.
     var onParkedChange: () -> Void = {}
     /// The two probes that read the machine rather than the app, held as
@@ -342,8 +347,14 @@ final class CoachController {
     private func considerShowing(cueApp: String?, cueHost: String?) {
         // Nothing standing is the common answer, and the only one worth
         // short-circuiting: the probes below are reached a handful of times
-        // a week, not a handful of times a minute.
-        guard let rec = standing, !suppressed() else { return }
+        // a week, not a handful of times a minute. A lesson takes the
+        // quiet boundary only when no suggestion is waiting for it: the
+        // coach's evidence outranks the calendar's.
+        guard !suppressed() else { return }
+        guard let rec = standing else {
+            considerLesson()
+            return
+        }
         let hold = Coach.hold(moment(for: rec))
         guard hold == .speak else {
             // Once per hold kind per standing suggestion, so a machine
@@ -377,6 +388,25 @@ final class CoachController {
             }
         }
         armSettle(rec)
+    }
+
+    /// A lesson rides the same quiet the chip does: the engine still, no
+    /// camera, a person present, the last input human, and the hand
+    /// settled for the same few seconds after the boundary.
+    private func considerLesson() {
+        guard enabled, !chipVisible, !isDemo, let lesson = lessonDue() else { return }
+        guard engineQuiet(), !cameraRunning(), present(humanIdle()), inputWasHuman() else { return }
+        cancelSettle()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.settleWork = nil
+            guard self.enabled, !self.suppressed(), self.standing == nil, !self.chipVisible,
+                  self.engineQuiet(), !self.cameraRunning(), self.present(self.humanIdle()),
+                  let due = self.lessonDue(), due == lesson else { return }
+            self.showLesson(due)
+        }
+        settleWork = work
+        clock.after(Coach.settleSeconds, work)
     }
 
     /// The boundary passed every gate; now the hand has to prove it has

@@ -825,6 +825,7 @@ final class HotkeyEngine {
                 walkSignal?(.hintsEnded)
             case .exitSelect:
                 select.exit()
+                walkSignal?(.selectEnded)
             case .selectBackspace:
                 select.backspace()
             case .hintBackspace:
@@ -848,8 +849,10 @@ final class HotkeyEngine {
                 walkSignal?(.webBarOpened)
             case .showCommandsBar:
                 commandsBar.show()
+                walkSignal?(.commandsOpened)
             case .showDraft(let door):
                 draft.open(door: door)
+                walkSignal?(.draftOpened)
             case .draftPosture(let door):
                 draft.posture(door: door)
             case .openWindowChooser:
@@ -864,6 +867,7 @@ final class HotkeyEngine {
                 showScrollGuide()
             case .scrollExit:
                 scroller.exit()
+                walkSignal?(.scrollEnded)
             case .scrollDirectionDown(let key, let fast):
                 scroller.directionKeyDown(key, fast: fast)
             case .scrollDirectionUp(let key):

@@ -278,3 +278,57 @@ final class OnAccentTests: XCTestCase {
         }
     }
 }
+
+/// The settings' switches are Lodestar's own, drawn in the accent.
+final class AccentSwitchTests: XCTestCase {
+    override func tearDown() { BarTheme.accentColor = { .controlAccentColor } }
+
+    private func trackColor(_ toggle: AccentSwitch) -> NSColor? {
+        toggle.layoutSubtreeIfNeeded()
+        return (toggle.layer?.sublayers?.first?.backgroundColor).flatMap(NSColor.init(cgColor:))
+    }
+
+    func testOnWearsTheAccentAndOffDoesNot() {
+        let orange = BarTheme.accent(for: .orange)
+        BarTheme.accentColor = { orange }
+        let toggle = AccentSwitch(frame: .zero)
+        toggle.state = .on
+        XCTAssertEqual(trackColor(toggle)?.usingColorSpace(.sRGB), orange.usingColorSpace(.sRGB))
+        toggle.state = .off
+        XCTAssertNotEqual(trackColor(toggle)?.usingColorSpace(.sRGB), orange.usingColorSpace(.sRGB))
+    }
+
+    func testAPressFlipsItAndFiresTheAction() {
+        final class Sink: NSObject {
+            var fired = 0
+            @objc func pressed(_ sender: Any?) { fired += 1 }
+        }
+        let sink = Sink()
+        let toggle = AccentSwitch(frame: .zero)
+        toggle.target = sink
+        toggle.action = #selector(Sink.pressed(_:))
+        XCTAssertTrue(toggle.accessibilityPerformPress())
+        XCTAssertEqual(toggle.state, .on)
+        XCTAssertEqual(sink.fired, 1)
+        toggle.isEnabled = false
+        _ = toggle.accessibilityPerformPress()
+        XCTAssertEqual(toggle.state, .on, "a dimmed switch does not move")
+        XCTAssertEqual(sink.fired, 1)
+    }
+
+    func testItSpeaksAsACheckBox() {
+        let toggle = AccentSwitch(frame: .zero)
+        XCTAssertEqual(toggle.accessibilityRole(), .checkBox)
+        toggle.state = .on
+        XCTAssertEqual(toggle.accessibilityValue() as? Int, 1)
+    }
+
+    func testTheSwatchIsTheColourItNames() {
+        let swatch = BarTheme.swatch(.systemGreen, diameter: 12)
+        XCTAssertEqual(swatch.size, NSSize(width: 12, height: 12))
+        let rep = NSBitmapImageRep(data: swatch.tiffRepresentation!)!
+        let center = rep.colorAt(x: 6, y: 6)?.usingColorSpace(.sRGB)
+        let green = NSColor.systemGreen.usingColorSpace(.sRGB)!
+        XCTAssertEqual(center?.greenComponent ?? 0, green.greenComponent, accuracy: 0.05)
+    }
+}

@@ -520,7 +520,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         write(dotted, value)
     }
 
-    @objc private func togglePressed(_ sender: NSSwitch) {
+    @objc private func togglePressed(_ sender: AccentSwitch) {
         guard let index = owningRow(of: sender) else { return }
         let row = sections[pane].rows[index]
         if case .toggle(let value) = row.control, !row.dimmed {
@@ -703,14 +703,6 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     }
 
     private final class KeyPopUp: NSPopUpButton {
-        override var acceptsFirstResponder: Bool { true }
-        override var canBecomeKeyView: Bool { true }
-        override func resetCursorRects() {
-            addCursorRect(bounds, cursor: .pointingHand)
-        }
-    }
-
-    private final class KeySwitch: NSSwitch {
         override var acceptsFirstResponder: Bool { true }
         override var canBecomeKeyView: Bool { true }
         override func resetCursorRects() {
@@ -972,18 +964,25 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     private func buildControl(_ row: SettingsModel.Row, index: Int) -> NSView {
         switch row.control {
         case .toggle(let value):
-            let toggle = KeySwitch()
+            let toggle = AccentSwitch(frame: .zero)
             toggle.state = value ? .on : .off
-            toggle.controlSize = .small
             toggle.isEnabled = !row.dimmed
             toggle.target = self
             toggle.action = #selector(togglePressed(_:))
             return toggle
-        case .choice(_, let labels, let current):
+        case .choice(let options, let labels, let current):
             let popup = KeyPopUp()
             popup.addItems(withTitles: labels)
-            if case .choice(let options, _, _) = row.control,
-               let at = options.firstIndex(of: current) {
+            // A choice of colours wears the colours, so the two can be
+            // compared by eye where they are chosen.
+            if row.path == "appearance.accent" {
+                for (item, option) in zip(popup.itemArray, options) {
+                    if let accent = Config.Accent(rawValue: option) {
+                        item.image = BarTheme.swatch(BarTheme.accent(for: accent))
+                    }
+                }
+            }
+            if let at = options.firstIndex(of: current) {
                 popup.selectItem(at: at)
             }
             popup.font = .systemFont(ofSize: BarTheme.Scale.meta)

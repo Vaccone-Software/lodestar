@@ -659,3 +659,99 @@ enum Keycaps {
         return field
     }
 }
+
+/// A switch drawn in Lodestar's accent. macOS's own switch takes its tint
+/// from the system accent and offers no way to say otherwise, so a
+/// person who chose International Orange saw the settings' switches in
+/// the Mac's colour. This one is the same gesture — click, space, the
+/// screen reader's press — drawn by the theme. The knob slides; nothing
+/// else moves.
+final class AccentSwitch: NSControl {
+    private let track = CALayer()
+    private let knob = CALayer()
+    static let size = NSSize(width: 30, height: 17)
+
+    var state: NSControl.StateValue = .off {
+        didSet { paint() }
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: NSRect(origin: frameRect.origin, size: Self.size))
+        wantsLayer = true
+        layer?.masksToBounds = false
+        track.cornerRadius = Self.size.height / 2
+        knob.cornerRadius = (Self.size.height - 4) / 2
+        knob.backgroundColor = NSColor.white.cgColor
+        knob.shadowColor = NSColor.black.withAlphaComponent(0.35).cgColor
+        knob.shadowOpacity = 1
+        knob.shadowRadius = 1.5
+        knob.shadowOffset = CGSize(width: 0, height: -0.5)
+        layer?.addSublayer(track)
+        layer?.addSublayer(knob)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.checkBox)
+        paint()
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override var intrinsicContentSize: NSSize { Self.size }
+    override var acceptsFirstResponder: Bool { isEnabled }
+    override var canBecomeKeyView: Bool { isEnabled }
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
+
+    override func layout() {
+        super.layout()
+        paint()
+    }
+
+    private func paint() {
+        let on = state == .on
+        track.frame = bounds
+        track.backgroundColor = (on ? BarTheme.accent : NSColor.labelColor.withAlphaComponent(0.22)).cgColor
+        let knobSize = Self.size.height - 4
+        knob.frame = NSRect(x: on ? bounds.width - knobSize - 2 : 2, y: 2, width: knobSize, height: knobSize)
+        layer?.opacity = isEnabled ? 1 : 0.45
+        setAccessibilityValue(on ? 1 : 0)
+    }
+
+    override var isEnabled: Bool { didSet { paint() } }
+
+    private func flip() {
+        guard isEnabled else { return }
+        state = state == .on ? .off : .on
+        sendAction(action, to: target)
+    }
+
+    override func mouseDown(with event: NSEvent) { flip() }
+
+    override func keyDown(with event: NSEvent) {
+        if event.charactersIgnoringModifiers == " " { flip() } else { super.keyDown(with: event) }
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        flip()
+        return true
+    }
+
+    override func drawFocusRingMask() { NSBezierPath(roundedRect: bounds, xRadius: bounds.height / 2, yRadius: bounds.height / 2).fill() }
+    override var focusRingMaskBounds: NSRect { bounds }
+}
+
+extension BarTheme {
+    /// A round swatch of a colour, for a menu that offers colours: the
+    /// choice is compared by eye, not by name.
+    static func swatch(_ color: NSColor, diameter: CGFloat = 12) -> NSImage {
+        let image = NSImage(size: NSSize(width: diameter, height: diameter), flipped: false) { rect in
+            color.setFill()
+            NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5)).fill()
+            NSColor.labelColor.withAlphaComponent(0.18).setStroke()
+            let rim = NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5))
+            rim.lineWidth = 1
+            rim.stroke()
+            return true
+        }
+        image.isTemplate = false
+        return image
+    }
+}

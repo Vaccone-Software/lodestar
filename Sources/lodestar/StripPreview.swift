@@ -189,6 +189,14 @@ enum StripPreview {
             app.run()
         }
 
+        // 90…98 the settings window, one pane per variant: the draft holds
+        // 70…72, so the first three panes are reachable here.
+        if (90...98).contains(variant) {
+            let held = SettingsController.preview(variant - 90)
+            _ = held
+            app.run()
+        }
+
         // 70: the draft, speaking, with a ghost standing; 71 the edit door
         // in normal mode over a pulled field; 72 the website's photograph.
         // The panel is the real one.

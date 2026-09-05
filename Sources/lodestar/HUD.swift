@@ -153,7 +153,7 @@ final class HUD {
             titleRow.addArrangedSubview(iconView)
         }
         let titleLabel = NSTextField(labelWithString: title)
-        titleLabel.font = .monospacedSystemFont(ofSize: 14, weight: .semibold)
+        titleLabel.font = .monospacedSystemFont(ofSize: BarTheme.Scale.body, weight: .semibold)
         titleLabel.textColor = .labelColor
         titleRow.addArrangedSubview(titleLabel)
         stack.addArrangedSubview(titleRow)
@@ -165,7 +165,7 @@ final class HUD {
 
         if let footer {
             let footerLabel = NSTextField(labelWithString: footer)
-            footerLabel.font = .systemFont(ofSize: 11, weight: .regular)
+            footerLabel.font = BarTheme.footerFont
             footerLabel.textColor = .secondaryLabelColor
             if let last = stack.arrangedSubviews.last {
                 stack.setCustomSpacing(10, after: last)

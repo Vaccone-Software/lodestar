@@ -193,6 +193,10 @@ This is the only mechanism that composes multiplicity, and it does so in the mom
 - **Close behavior**: closing a window in a multi-window layout retiles the survivors to equal-sized. This preserves index order, which protects the muscle memory built on it.
 - **Orientation**: commands to flip a layout between all-horizontal and all-vertical.
 
+## Readability
+
+Every word Lodestar draws is set on one scale, and the scale has a floor. Nine sizes chosen one at a time, from 10 to 23, had drifted in over a year, and the smallest sat below what a hand that lives at a screen should be asked to read: a card's caption at 10 point in tertiary grey measured 2.2 to 1 against its glass, less than half the 4.5 that reading needs. Now there are three sizes and one for the launcher's field — meta at 13 for captions, keys and footers; body at 16 for what a row, a card, or the draft says, which is the size a terminal is set to; title at 18 for a bar's name — and the same three on the settings window and the walk, since an eye is one eye. Tertiary grey is kept for what is decoration or absence (an empty pin slot, a separator, a placeholder) and retired for anything read; secondary measures 6 to 1 on the panels' charcoal, the label colour 13. The block cursor is a solid plate with the glyph cut out of it, the inversion every terminal draws, and the insert bar is the system's own insertion colour at three points, because the cursor is the thing the eye hunts most. A card says "3m ago" rather than "3m", one word that makes the letter mean a time to someone who has never seen the card, and names beside its icon the page it was copied on or the app that made it. The ratios are read from screenshots over the harness's fixed ground, not from the eye; the one rule deliberately not adopted is opacity by dwell time — a surface the eye rests on could stand on a heavier scrim than one it glances at, and in practice that is a glitch, and inconsistency is worse than the measure.
+
 ## Technical approach
 
 - **Language**: Swift. Binding directly against the C Accessibility APIs, no bridge tax.

@@ -95,8 +95,8 @@ final class LinkChip {
         stack.spacing = 5
         stack.translatesAutoresizingMaskIntoConstraints = false
 
-        stack.addArrangedSubview(label("⌖ link", size: 10.5, weight: .medium,
-                                       color: .tertiaryLabelColor))
+        stack.addArrangedSubview(label("⌖ link", size: BarTheme.Scale.meta, weight: .medium,
+                                       color: .secondaryLabelColor))
 
         let title = NSStackView()
         title.orientation = .horizontal
@@ -111,7 +111,7 @@ final class LinkChip {
             ])
             title.addArrangedSubview(view)
         }
-        title.addArrangedSubview(label(destination, size: 14, weight: .semibold,
+        title.addArrangedSubview(label(destination, size: BarTheme.Scale.body, weight: .semibold,
                                        color: .labelColor))
         stack.addArrangedSubview(title)
 

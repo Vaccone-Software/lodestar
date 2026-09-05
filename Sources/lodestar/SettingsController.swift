@@ -737,7 +737,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             row.alignment = .centerY
             row.spacing = 10
             row.addArrangedSubview(chip(String(index + 1), lit: index == pane))
-            row.addArrangedSubview(label(section.name, size: 14,
+            row.addArrangedSubview(label(section.name, size: BarTheme.Scale.body,
                                          weight: index == pane ? .semibold : .regular,
                                          color: index == pane ? .labelColor : .secondaryLabelColor))
             let click = NSClickGestureRecognizer(target: self,
@@ -750,13 +750,13 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         let changed = HandButton(title: "● changed from default", target: self,
                                  action: #selector(changedPressed))
         changed.isBordered = false
-        changed.font = .systemFont(ofSize: 10.5)
-        changed.contentTintColor = .tertiaryLabelColor
+        changed.font = .systemFont(ofSize: BarTheme.Scale.meta)
+        changed.contentTintColor = .secondaryLabelColor
         rail.addArrangedSubview(changed)
-        rail.addArrangedSubview(label("/ search", size: 10.5,
-                                      weight: .regular, color: .tertiaryLabelColor))
-        rail.addArrangedSubview(label("esc closes", size: 10.5,
-                                      weight: .regular, color: .tertiaryLabelColor))
+        rail.addArrangedSubview(label("/ search", size: BarTheme.Scale.meta,
+                                      weight: .regular, color: .secondaryLabelColor))
+        rail.addArrangedSubview(label("esc closes", size: BarTheme.Scale.meta,
+                                      weight: .regular, color: .secondaryLabelColor))
         return rail
     }
 
@@ -767,16 +767,16 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         list.spacing = 20
         list.translatesAutoresizingMaskIntoConstraints = false
 
-        list.addArrangedSubview(label(sections[pane].name.uppercased(), size: 11.5,
-                                      weight: .semibold, color: .tertiaryLabelColor))
+        list.addArrangedSubview(label(sections[pane].name.uppercased(), size: BarTheme.Scale.meta,
+                                      weight: .semibold, color: .secondaryLabelColor))
 
         let rows = sections[pane].rows
         var letters = SettingsModel.labels(for: rows.count).makeIterator()
         var lastGroup: String?
         for (index, row) in rows.enumerated() {
             if let group = row.group, group != lastGroup {
-                let header = label(group.uppercased(), size: 10.5, weight: .semibold,
-                                   color: .tertiaryLabelColor)
+                let header = label(group.uppercased(), size: BarTheme.Scale.meta, weight: .semibold,
+                                   color: .secondaryLabelColor)
                 if let last = list.arrangedSubviews.last {
                     list.setCustomSpacing(24, after: last)
                 }
@@ -828,26 +828,26 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         list.alignment = .leading
         list.spacing = 20
         list.translatesAutoresizingMaskIntoConstraints = false
-        list.addArrangedSubview(label("CHANGED FROM DEFAULT", size: 11.5,
-                                      weight: .semibold, color: .tertiaryLabelColor))
+        list.addArrangedSubview(label("CHANGED FROM DEFAULT", size: BarTheme.Scale.meta,
+                                      weight: .semibold, color: .secondaryLabelColor))
         var any = false
         for (sectionIndex, section) in sections.enumerated() {
             let changed = section.rows.enumerated().filter { !$0.element.isDefault
                 && !$0.element.path.isEmpty }
             guard !changed.isEmpty else { continue }
             any = true
-            let header = label(section.name.uppercased(), size: 10.5, weight: .semibold,
-                               color: .tertiaryLabelColor)
+            let header = label(section.name.uppercased(), size: BarTheme.Scale.meta, weight: .semibold,
+                               color: .secondaryLabelColor)
             list.addArrangedSubview(header)
             for (rowIndex, row) in changed {
                 let line = HandStack()
                 line.orientation = .horizontal
                 line.alignment = .centerY
                 line.spacing = 9
-                line.addArrangedSubview(label(row.title, size: 13, weight: .regular,
+                line.addArrangedSubview(label(row.title, size: BarTheme.Scale.body, weight: .regular,
                                               color: .labelColor))
-                line.addArrangedSubview(label(row.path, size: 10.5, weight: .regular,
-                                              color: .tertiaryLabelColor, mono: true))
+                line.addArrangedSubview(label(row.path, size: BarTheme.Scale.meta, weight: .regular,
+                                              color: .secondaryLabelColor, mono: true))
                 let go = NSClickGestureRecognizer(target: self,
                                                   action: #selector(changedRowClicked(_:)))
                 line.addGestureRecognizer(go)
@@ -856,11 +856,11 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             }
         }
         if !any {
-            list.addArrangedSubview(label("Everything is at its default.", size: 12.5,
+            list.addArrangedSubview(label("Everything is at its default.", size: BarTheme.Scale.body,
                                           weight: .regular, color: .secondaryLabelColor))
         }
-        list.addArrangedSubview(label("esc returns", size: 10.5, weight: .regular,
-                                      color: .tertiaryLabelColor))
+        list.addArrangedSubview(label("esc returns", size: BarTheme.Scale.meta, weight: .regular,
+                                      color: .secondaryLabelColor))
         let scroll = NSScrollView()
         scroll.translatesAutoresizingMaskIntoConstraints = false
         scroll.drawsBackground = false
@@ -896,7 +896,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         titleRow.orientation = .horizontal
         titleRow.alignment = .centerY
         titleRow.spacing = 7
-        titleRow.addArrangedSubview(label(row.title, size: 13.5, weight: .regular,
+        titleRow.addArrangedSubview(label(row.title, size: BarTheme.Scale.body, weight: .regular,
                                           color: .labelColor))
         for cap in row.keycaps {
             titleRow.addArrangedSubview(keycap(cap))
@@ -910,8 +910,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                                        action: #selector(resetPressed(_:)))
                 reset.bezelStyle = .inline
                 reset.controlSize = .regular
-                reset.font = .systemFont(ofSize: 10.5, weight: .medium)
-                reset.contentTintColor = .tertiaryLabelColor
+                reset.font = .systemFont(ofSize: BarTheme.Scale.meta, weight: .medium)
+                reset.contentTintColor = .secondaryLabelColor
                 reset.identifier = NSUserInterfaceItemIdentifier(row.path)
                 titleRow.addArrangedSubview(reset)
             default:
@@ -920,12 +920,12 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         }
         text.addArrangedSubview(titleRow)
         if !row.path.isEmpty {
-            text.addArrangedSubview(label(row.path, size: 10.5, weight: .regular,
-                                          color: .tertiaryLabelColor, mono: true))
+            text.addArrangedSubview(label(row.path, size: BarTheme.Scale.meta, weight: .regular,
+                                          color: .secondaryLabelColor, mono: true))
         }
         if let detail = row.detail {
             let wrapped = NSTextField(wrappingLabelWithString: detail)
-            wrapped.font = .systemFont(ofSize: 11.5)
+            wrapped.font = .systemFont(ofSize: BarTheme.Scale.meta)
             wrapped.textColor = .secondaryLabelColor
             wrapped.isSelectable = false
             wrapped.preferredMaxLayoutWidth = 400
@@ -933,7 +933,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         }
         if let problem = row.problem {
             let flagged = NSTextField(wrappingLabelWithString: problem)
-            flagged.font = .systemFont(ofSize: 11.5)
+            flagged.font = .systemFont(ofSize: BarTheme.Scale.meta)
             flagged.textColor = .systemOrange
             flagged.isSelectable = false
             flagged.preferredMaxLayoutWidth = 400
@@ -950,7 +950,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                                             action: #selector(presetPressed(_:)))
                     button.bezelStyle = .inline
                     button.controlSize = .regular
-                    button.font = .systemFont(ofSize: 12, weight: .medium)
+                    button.font = .systemFont(ofSize: BarTheme.Scale.meta, weight: .medium)
                     button.identifier = NSUserInterfaceItemIdentifier(
                         "preset|\(row.path)|\(preset.value)")
                     presetRow.addArrangedSubview(button)
@@ -986,7 +986,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                let at = options.firstIndex(of: current) {
                 popup.selectItem(at: at)
             }
-            popup.font = .systemFont(ofSize: 12)
+            popup.font = .systemFont(ofSize: BarTheme.Scale.meta)
             popup.target = self
             popup.action = #selector(choicePressed(_:))
             popups[index] = popup
@@ -1001,7 +1001,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             fields[index] = field
             holder.addArrangedSubview(field)
             if let unit {
-                holder.addArrangedSubview(label(unit, size: 11.5, weight: .regular,
+                holder.addArrangedSubview(label(unit, size: BarTheme.Scale.meta, weight: .regular,
                                                 color: .secondaryLabelColor))
             }
             return holder
@@ -1017,15 +1017,15 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             column.alignment = .trailing
             column.spacing = 3
             let read = NSTextField(wrappingLabelWithString: value)
-            read.font = .systemFont(ofSize: 12.5)
+            read.font = .systemFont(ofSize: BarTheme.Scale.body)
             read.textColor = .secondaryLabelColor
             read.alignment = .right
             read.isSelectable = false
             read.preferredMaxLayoutWidth = 230
             column.addArrangedSubview(read)
             if let sub {
-                column.addArrangedSubview(label(sub, size: 10.5, weight: .regular,
-                                                color: .tertiaryLabelColor, mono: true))
+                column.addArrangedSubview(label(sub, size: BarTheme.Scale.meta, weight: .regular,
+                                                color: .secondaryLabelColor, mono: true))
             }
             return column
         case .table:
@@ -1047,7 +1047,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         var lastHeader: String?
         for (entryIndex, entry) in entries.enumerated() {
             if let header = entry.header, header != lastHeader {
-                let title = label(header, size: 11, weight: .semibold,
+                let title = label(header, size: BarTheme.Scale.meta, weight: .semibold,
                                   color: .secondaryLabelColor)
                 if let last = column.arrangedSubviews.last {
                     column.setCustomSpacing(10, after: last)
@@ -1072,12 +1072,12 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                     sub = entry.key
                 }
             }
-            let name = label(display, size: 12.5, weight: .regular, color: .labelColor)
+            let name = label(display, size: BarTheme.Scale.body, weight: .regular, color: .labelColor)
             row.addArrangedSubview(name)
             var subLabel: NSTextField?
             if let sub {
-                let mono = label(sub, size: 10.5, weight: .regular,
-                                 color: .tertiaryLabelColor, mono: true)
+                let mono = label(sub, size: BarTheme.Scale.meta, weight: .regular,
+                                 color: .secondaryLabelColor, mono: true)
                 subLabel = mono
                 row.addArrangedSubview(mono)
             }
@@ -1096,7 +1096,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                                     action: #selector(removePressed(_:)))
             button.bezelStyle = .rounded
             button.controlSize = .regular
-            button.font = .systemFont(ofSize: 12.5)
+            button.font = .systemFont(ofSize: BarTheme.Scale.body)
             button.identifier = NSUserInterfaceItemIdentifier("\(addKey(kind))|\(entry.key)")
             row.addArrangedSubview(button)
             if let focus = listFocus, focus.row == paneRow, focus.entry == entryIndex {
@@ -1180,7 +1180,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         }
         let popup = KeyPopUp()
         popup.addItems(withTitles: labels.isEmpty ? ["none found"] : labels)
-        popup.font = .systemFont(ofSize: 11.5)
+        popup.font = .systemFont(ofSize: BarTheme.Scale.meta)
         popup.widthAnchor.constraint(lessThanOrEqualToConstant: width + 40).isActive = true
         return (popup, tokens)
     }
@@ -1224,7 +1224,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         func popup(_ titles: [String], width: CGFloat = 130) -> NSPopUpButton {
             let popup = KeyPopUp()
             popup.addItems(withTitles: titles.isEmpty ? ["none found"] : titles)
-            popup.font = .systemFont(ofSize: 11.5)
+            popup.font = .systemFont(ofSize: BarTheme.Scale.meta)
             popup.widthAnchor.constraint(lessThanOrEqualToConstant: width + 40).isActive = true
             return popup
         }
@@ -1280,7 +1280,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                                 action: #selector(addPressed(_:)))
         commit.bezelStyle = .rounded
         commit.controlSize = .regular
-        commit.font = .systemFont(ofSize: 12.5)
+        commit.font = .systemFont(ofSize: BarTheme.Scale.body)
         commit.identifier = NSUserInterfaceItemIdentifier(addKey(kind))
         guard inline else {
             bar.addArrangedSubview(commit)
@@ -1293,7 +1293,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                                 action: #selector(cancelInlinePressed(_:)))
         cancel.bezelStyle = .rounded
         cancel.controlSize = .regular
-        cancel.font = .systemFont(ofSize: 12.5)
+        cancel.font = .systemFont(ofSize: BarTheme.Scale.body)
         let verbs = NSStackView(views: [commit, cancel])
         verbs.orientation = .horizontal
         verbs.spacing = 7
@@ -1384,7 +1384,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         list.translatesAutoresizingMaskIntoConstraints = false
         let field = NSTextField()
         field.placeholderString = "Search settings"
-        field.font = .systemFont(ofSize: 15)
+        field.font = .systemFont(ofSize: BarTheme.Scale.body)
         field.delegate = self
         field.widthAnchor.constraint(equalToConstant: 380).isActive = true
         searchField = field
@@ -1409,13 +1409,13 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         for (index, hit) in hits.prefix(12).enumerated() {
             let selected = index == hitSelection
             hitsStack.addArrangedSubview(
-                label("\(hit.sectionName)  ·  \(hit.title)", size: 13,
+                label("\(hit.sectionName)  ·  \(hit.title)", size: BarTheme.Scale.body,
                       weight: selected ? .semibold : .regular,
                       color: selected ? .labelColor : .secondaryLabelColor))
         }
         if hits.isEmpty, searchField?.stringValue.isEmpty == false {
-            hitsStack.addArrangedSubview(label("nothing matches", size: 12.5,
-                                               weight: .regular, color: .tertiaryLabelColor))
+            hitsStack.addArrangedSubview(label("nothing matches", size: BarTheme.Scale.body,
+                                               weight: .regular, color: .secondaryLabelColor))
         }
     }
 
@@ -1437,7 +1437,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
 
     private func editableField(_ value: String, width: CGFloat) -> NSTextField {
         let field = NSTextField(string: value)
-        field.font = .systemFont(ofSize: 12)
+        field.font = .systemFont(ofSize: BarTheme.Scale.meta)
         field.delegate = self
         // No target/action on purpose: an action fires on *every* end of
         // editing, so a re-render or a tab committed half-typed values.
@@ -1449,8 +1449,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
 
     private func chip(_ text: String, lit: Bool) -> NSView {
         let cap = NSTextField(labelWithString: text)
-        cap.font = .systemFont(ofSize: 11, weight: .medium)
-        cap.textColor = lit ? .controlAccentColor : .tertiaryLabelColor
+        cap.font = .systemFont(ofSize: BarTheme.Scale.meta, weight: .medium)
+        cap.textColor = lit ? .controlAccentColor : .secondaryLabelColor
         cap.alignment = .center
         cap.translatesAutoresizingMaskIntoConstraints = false
         let box = NSView()
@@ -1473,7 +1473,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     /// The keycap the walk draws, at settings scale.
     private func keycap(_ text: String) -> NSView {
         let cap = NSTextField(labelWithString: text)
-        cap.font = .systemFont(ofSize: 10.5, weight: .medium)
+        cap.font = .systemFont(ofSize: BarTheme.Scale.meta, weight: .medium)
         cap.textColor = .secondaryLabelColor
         cap.alignment = .center
         cap.translatesAutoresizingMaskIntoConstraints = false

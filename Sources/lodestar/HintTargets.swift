@@ -174,8 +174,8 @@ enum Pointer {
 /// an opposite-color halo, lifted by a soft shadow. (See the readability
 /// saga in the project memory before changing any of this.)
 enum GlassChip {
-    static let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .bold)
-    static let height: CGFloat = 18
+    static let font = NSFont.monospacedSystemFont(ofSize: BarTheme.Scale.meta, weight: .bold)
+    static let height: CGFloat = 20
 
     static func make(_ text: String) -> (chip: NSView, label: NSTextField) {
         let dark = Tone.systemDark

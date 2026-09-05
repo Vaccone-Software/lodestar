@@ -64,7 +64,7 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
         rowsStack.translatesAutoresizingMaskIntoConstraints = false
 
         footer.font = BarTheme.footerFont
-        footer.textColor = .tertiaryLabelColor
+        footer.textColor = .secondaryLabelColor
         footer.alignment = .center
         footer.translatesAutoresizingMaskIntoConstraints = false
 

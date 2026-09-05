@@ -52,8 +52,8 @@ final class SelectOverlay {
     /// overlay landed on and whether the Dock is along its bottom.
     private var statusBottom: NSLayoutConstraint!
 
-    private static let chipFont = NSFont.monospacedSystemFont(ofSize: 12, weight: .bold)
-    private static let chipHeight: CGFloat = 18
+    private static let chipFont = NSFont.monospacedSystemFont(ofSize: BarTheme.Scale.meta, weight: .bold)
+    private static let chipHeight: CGFloat = 20
     /// Clear water between the band and the bottom of the usable screen.
     private static let bandGap: CGFloat = 10
 
@@ -78,7 +78,7 @@ final class SelectOverlay {
         statusChip.translatesAutoresizingMaskIntoConstraints = false
         Glass.installBackdrop(in: statusChip, cornerRadius: 10)
         Self.lift(statusChip)
-        status.font = .monospacedSystemFont(ofSize: 11.5, weight: .medium)
+        status.font = .monospacedSystemFont(ofSize: BarTheme.Scale.meta, weight: .medium)
         status.textColor = .labelColor
         status.translatesAutoresizingMaskIntoConstraints = false
         statusChip.addSubview(status)
@@ -228,13 +228,13 @@ final class SelectOverlay {
         let line = NSMutableAttributedString()
         func quiet(_ text: String) {
             line.append(NSAttributedString(string: text, attributes: [
-                .font: NSFont.monospacedSystemFont(ofSize: 11.5, weight: .medium),
+                .font: NSFont.monospacedSystemFont(ofSize: BarTheme.Scale.meta, weight: .medium),
                 .foregroundColor: NSColor.secondaryLabelColor,
             ]))
         }
         func loud(_ text: String, color: NSColor = .controlAccentColor) {
             line.append(NSAttributedString(string: text, attributes: [
-                .font: NSFont.monospacedSystemFont(ofSize: 15, weight: .bold),
+                .font: NSFont.monospacedSystemFont(ofSize: BarTheme.Scale.title, weight: .bold),
                 .foregroundColor: color,
             ]))
         }

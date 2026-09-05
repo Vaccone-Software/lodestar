@@ -328,11 +328,11 @@ extension ClipboardTests {
             Clipboard.Clip(id: "x", kind: .text, created: base.addingTimeInterval(-seconds),
                            sourceBundleID: nil, sourceAppName: nil, preview: "", bytes: 0)
         }
-        XCTAssertEqual(Clipboard.age(of: clipAged(5), now: base), "now")
-        XCTAssertEqual(Clipboard.age(of: clipAged(300), now: base), "5m")
-        XCTAssertEqual(Clipboard.age(of: clipAged(7200), now: base), "2h")
-        XCTAssertEqual(Clipboard.age(of: clipAged(3 * 86_400), now: base), "3d")
-        XCTAssertEqual(Clipboard.age(of: clipAged(-10), now: base), "now", "clock skew is not negative time")
+        XCTAssertEqual(Clipboard.age(of: clipAged(5), now: base), "just now")
+        XCTAssertEqual(Clipboard.age(of: clipAged(300), now: base), "5m ago")
+        XCTAssertEqual(Clipboard.age(of: clipAged(7200), now: base), "2h ago")
+        XCTAssertEqual(Clipboard.age(of: clipAged(3 * 86_400), now: base), "3d ago")
+        XCTAssertEqual(Clipboard.age(of: clipAged(-10), now: base), "just now", "clock skew is not negative time")
     }
 }
 

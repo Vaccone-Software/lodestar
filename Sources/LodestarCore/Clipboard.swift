@@ -418,13 +418,15 @@ public enum Clipboard {
 
     /// How long ago, in the shortest honest form. You reach for old clips
     /// temporally — "the one from this morning" — and a preview alone
-    /// cannot say that.
+    /// cannot say that. "Ago" is the word that makes the letter mean
+    /// something to a hand that has never seen the card: "3m" could be
+    /// a size; "3m ago" is a time.
     public static func age(of clip: Clip, now: Date = Date()) -> String {
         let seconds = max(0, now.timeIntervalSince(clip.created))
-        if seconds < 45 { return "now" }
-        if seconds < 3600 { return "\(Int(seconds / 60))m" }
-        if seconds < 86_400 { return "\(Int(seconds / 3600))h" }
-        return "\(Int(seconds / 86_400))d"
+        if seconds < 45 { return "just now" }
+        if seconds < 3600 { return "\(Int(seconds / 60))m ago" }
+        if seconds < 86_400 { return "\(Int(seconds / 3600))h ago" }
+        return "\(Int(seconds / 86_400))d ago"
     }
 
     /// The recents alphabet: home row, left to right, so the keys under

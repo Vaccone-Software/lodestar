@@ -53,12 +53,12 @@ final class ClipboardStrip {
     private let panel: NSPanel
     private let root = NSView()
 
-    private static let cardWidth: CGFloat = 186
+    private static let cardWidth: CGFloat = 208
     /// One card size for both zones. A pin needs less preview than a recent
     /// — you already know what slot 2 holds — but a column of stubby cards
     /// beside full ones reads as a mistake, and the strip is something you
     /// look at every day.
-    private static let cardHeight: CGFloat = 124
+    private static let cardHeight: CGFloat = 158
     private static let gap: CGFloat = 10
     private static let searchHeight: CGFloat = 54
     private static let margin: CGFloat = 22
@@ -72,9 +72,14 @@ final class ClipboardStrip {
     /// The pin column stepped aside for the clip door, since nothing in
     /// it can be pressed while the door stands.
     private(set) var pinsHidden = false
-    /// What each card said about its length, by clip id — the tests read
-    /// the badge the screen shows.
+    /// What each card said about its length, and where it came from, by
+    /// clip id — the tests read what the screen shows.
     private(set) var shownBadges: [String: String] = [:]
+    private(set) var shownSources: [String: String] = [:]
+    /// The card's rows: the chip line at the top, the caption line at the
+    /// foot, and the preview between them.
+    private static let cardHead: CGFloat = 34
+    private static let cardFoot: CGFloat = 26
 
     init() {
         panel = Glass.makePanel(level: .statusBar)
@@ -96,6 +101,7 @@ final class ClipboardStrip {
         let screen = ActivePolicy.presentationFrame
         self.pinsHidden = pinsHidden
         shownBadges = [:]
+        shownSources = [:]
 
         // As many cards as the display can hold at a readable size, never
         // more than the alphabet — the guide panel already adapts this way.
@@ -187,8 +193,8 @@ final class ClipboardStrip {
             let card = glassPlate(radius: BarTheme.rowRadius, weight: .empty)
             card.frame = NSRect(x: 0, y: y, width: stripWidth, height: Self.cardHeight)
             let label = NSTextField(labelWithString: "No matches")
-            label.font = .systemFont(ofSize: 13, weight: .regular)
-            label.textColor = .tertiaryLabelColor
+            label.font = BarTheme.bodyFont
+            label.textColor = .secondaryLabelColor
             label.alignment = .center
             label.sizeToFit()
             label.frame = NSRect(x: 0, y: (Self.cardHeight - label.frame.height) / 2,
@@ -239,18 +245,19 @@ final class ClipboardStrip {
         // like the first of them until they are pasted.
         if let items = clip.itemsLabel {
             let count = NSTextField(labelWithString: items)
-            count.font = .systemFont(ofSize: 10, weight: .medium)
-            count.textColor = .tertiaryLabelColor
+            count.font = BarTheme.metaFont
+            count.textColor = .secondaryLabelColor
             count.sizeToFit()
             count.frame.origin = NSPoint(x: chip.frame.maxX + 6,
-                                         y: height - count.frame.height - 11)
+                                         y: height - count.frame.height - 10)
             card.addSubview(count)
         }
 
         if let thumbnail {
             let view = NSImageView(image: thumbnail)
             view.imageScaling = .scaleProportionallyUpOrDown
-            view.frame = NSRect(x: 11, y: 9, width: Self.cardWidth - 22, height: height - 36)
+            view.frame = NSRect(x: 11, y: Self.cardFoot, width: Self.cardWidth - 22,
+                                height: height - Self.cardHead - Self.cardFoot)
             card.addSubview(view)
         } else {
             let preview = NSTextField(wrappingLabelWithString: String(clip.preview.prefix(220)))
@@ -261,7 +268,7 @@ final class ClipboardStrip {
             // A point below the menus' 13: a card is read at a glance to
             // tell clips apart, and the extra line it buys is worth more
             // than the point of size it costs.
-            preview.font = .systemFont(ofSize: 12, weight: .regular)
+            preview.font = BarTheme.bodyFont
             preview.textColor = .secondaryLabelColor
             // Wrap to the card, ellipsize only the last line. Assigning
             // .byTruncatingTail here collapses the field to a single line
@@ -270,37 +277,41 @@ final class ClipboardStrip {
             preview.lineBreakMode = .byWordWrapping
             preview.maximumNumberOfLines = 5
             preview.cell?.truncatesLastVisibleLine = true
-            preview.frame = NSRect(x: 11, y: 9, width: Self.cardWidth - 22, height: height - 38)
+            preview.frame = NSRect(x: 11, y: Self.cardFoot, width: Self.cardWidth - 22,
+                                   height: height - Self.cardHead - Self.cardFoot)
             card.addSubview(preview)
         }
 
+        // Where it came from, beside the icon that says so: the page a
+        // browser copy was made on — the address the hand remembers, "the
+        // one from GitHub", and the one the search reads — or, for any
+        // other copy, the app's name. One line, one rule.
         var trailing = Self.cardWidth - 11
         if let bundleID = clip.sourceBundleID, let image = sourceIcon(bundleID: bundleID) {
             let icon = NSImageView(image: image)
-            icon.frame = NSRect(x: Self.cardWidth - 26, y: height - 24, width: 15, height: 15)
-            icon.alphaValue = 0.7
+            icon.frame = NSRect(x: Self.cardWidth - 28, y: height - 27, width: 17, height: 17)
+            icon.alphaValue = 0.85
             card.addSubview(icon)
-            trailing = Self.cardWidth - 30
+            trailing = Self.cardWidth - 33
         }
-        // The page a browser copy came from, beside the app that made it:
-        // the address the hand remembers — "the one from GitHub" — and
-        // the one the search reads too.
-        if let host = clip.sourceHost {
-            let page = NSTextField(labelWithString: host)
-            page.font = .systemFont(ofSize: 10, weight: .medium)
-            page.textColor = .tertiaryLabelColor
-            page.lineBreakMode = .byTruncatingTail
-            page.alignment = .right
-            page.sizeToFit()
-            let width = min(page.frame.width, 96)
-            page.frame = NSRect(x: trailing - width, y: height - 24,
-                                width: width, height: page.frame.height)
-            card.addSubview(page)
+        if let origin = clip.sourceHost ?? clip.sourceAppName {
+            let source = NSTextField(labelWithString: origin)
+            source.font = BarTheme.metaFont
+            source.textColor = .secondaryLabelColor
+            source.lineBreakMode = .byTruncatingTail
+            source.alignment = .right
+            source.sizeToFit()
+            // The room to the right of the chip and its item count.
+            let width = min(source.frame.width, trailing - 64)
+            source.frame = NSRect(x: trailing - width, y: height - 26,
+                                  width: max(0, width), height: source.frame.height)
+            card.addSubview(source)
+            shownSources[clip.id] = origin
         }
 
         let age = NSTextField(labelWithString: Clipboard.age(of: clip))
-        age.font = .systemFont(ofSize: 10, weight: .medium)
-        age.textColor = .tertiaryLabelColor
+        age.font = BarTheme.metaFont
+        age.textColor = .secondaryLabelColor
         age.sizeToFit()
         age.frame.origin = NSPoint(x: Self.cardWidth - age.frame.width - 11, y: 8)
         card.addSubview(age)
@@ -311,8 +322,8 @@ final class ClipboardStrip {
         if let badge = Clipboard.lengthBadge(for: clip) {
             shownBadges[clip.id] = badge
             let length = NSTextField(labelWithString: badge)
-            length.font = .systemFont(ofSize: 10, weight: .medium)
-            length.textColor = .tertiaryLabelColor
+            length.font = BarTheme.metaFont
+            length.textColor = .secondaryLabelColor
             length.sizeToFit()
             length.frame.origin = NSPoint(x: 11, y: 8)
             card.addSubview(length)
@@ -500,7 +511,7 @@ final class ClipboardStrip {
         let font = NSFont.systemFont(ofSize: 19, weight: .regular)
         let field = NSTextField(labelWithString: query.isEmpty ? "Search clips" : query)
         field.font = font
-        field.textColor = query.isEmpty ? .tertiaryLabelColor : .labelColor
+        field.textColor = query.isEmpty ? .secondaryLabelColor : .labelColor
         field.lineBreakMode = .byTruncatingHead
         field.sizeToFit()
         field.frame = NSRect(x: 46, y: (Self.searchHeight - field.frame.height) / 2,

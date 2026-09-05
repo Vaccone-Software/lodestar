@@ -197,8 +197,8 @@ enum BarTheme {
     /// chain guide, the cheat sheet, and the clipboard's actions menu. Left
     /// to themselves they drifted into three chip shapes, three keycap
     /// sizes and three icon sizes; this is the one set.
-    static let chipMinWidth: CGFloat = 30
-    static let chipHeight: CGFloat = 20
+    static let chipMinWidth: CGFloat = 34
+    static let chipHeight: CGFloat = 22
     static let chipPadX: CGFloat = 6
     static let rowGap: CGFloat = 9
     static let rowIcon: CGFloat = 17
@@ -206,14 +206,35 @@ enum BarTheme {
     /// never read as one run of text.
     static let rowKeyGap: CGFloat = 28
 
-    static let inputFont = NSFont.systemFont(ofSize: 23, weight: .regular)
+    /// The type scale: three sizes for every word Lodestar draws, and one
+    /// for the launcher's field. Nine sizes chosen one at a time, from 10
+    /// to 23, had drifted in over a year, and the smallest sat below the
+    /// floor a hand that lives at a screen should be asked to read. Meta
+    /// is the caption, the key, the footer; body is what a row, a card,
+    /// or the draft says — the size the eye rests on, which is the size a
+    /// terminal is set to; title is a bar's name. The same scale on the
+    /// settings window and the walk, since an eye is one eye.
+    enum Scale {
+        static let meta: CGFloat = 13
+        static let body: CGFloat = 16
+        static let title: CGFloat = 18
+        static let input: CGFloat = 23
+    }
+
+    static let inputFont = NSFont.systemFont(ofSize: Scale.input, weight: .regular)
     static let inputSymbol = NSImage.SymbolConfiguration(pointSize: 19, weight: .medium)
-    static let titleFont = NSFont.systemFont(ofSize: 16, weight: .regular)
-    static let secondaryFont = NSFont.systemFont(ofSize: 11.5, weight: .regular)
+    static let titleFont = NSFont.systemFont(ofSize: Scale.title, weight: .regular)
+    static let secondaryFont = NSFont.systemFont(ofSize: Scale.meta, weight: .regular)
     /// What a key's row says it does — the reading size, not a caption.
-    static let rowLabelFont = NSFont.systemFont(ofSize: 13, weight: .regular)
-    static let chipFont = NSFont.monospacedSystemFont(ofSize: 11.5, weight: .semibold)
-    static let footerFont = NSFont.systemFont(ofSize: 11, weight: .regular)
+    static let rowLabelFont = NSFont.systemFont(ofSize: Scale.body, weight: .regular)
+    static let bodyFont = NSFont.systemFont(ofSize: Scale.body, weight: .regular)
+    /// A card's caption line: where it came from, how old it is, how long.
+    static let metaFont = NSFont.systemFont(ofSize: Scale.meta, weight: .medium)
+    static let chipFont = NSFont.monospacedSystemFont(ofSize: Scale.meta, weight: .semibold)
+    static let footerFont = NSFont.systemFont(ofSize: Scale.meta, weight: .regular)
+    /// The draft's face, and any other mono text the eye rests on.
+    static let readingMono = NSFont.monospacedSystemFont(ofSize: Scale.body, weight: .regular)
+    static let readingMonoAccent = NSFont.monospacedSystemFont(ofSize: Scale.body, weight: .semibold)
 }
 
 /// Chips you can move, and put back by ignoring.
@@ -487,14 +508,14 @@ enum Keycaps {
                     add(capView, spacingBefore: index > 0 && position == 0 ? 10 : nil)
                 }
             }
-            add(word(gesture.verb, color: .tertiaryLabelColor), spacingBefore: 7)
+            add(word(gesture.verb, color: .secondaryLabelColor), spacingBefore: 7)
         }
         return row
     }
 
     private static func word(_ text: String, color: NSColor) -> NSTextField {
         let field = NSTextField(labelWithString: text)
-        field.font = .systemFont(ofSize: 10.5, weight: .regular)
+        field.font = BarTheme.metaFont
         field.textColor = color
         field.lineBreakMode = .byTruncatingTail
         return field

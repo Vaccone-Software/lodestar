@@ -170,14 +170,14 @@ final class OptionsCard {
                                                color: .labelColor))
             }
             if let note = menu.note {
-                let noteLabel = label(note, font: BarTheme.secondaryFont, color: .tertiaryLabelColor)
+                let noteLabel = label(note, font: BarTheme.secondaryFont, color: .secondaryLabelColor)
                 noteLabel.lineBreakMode = .byTruncatingTail
                 noteLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 340).isActive = true
                 stack.addArrangedSubview(noteLabel)
             }
             if let footer = menu.footer {
                 stack.addArrangedSubview(label(footer, font: BarTheme.footerFont,
-                                               color: .tertiaryLabelColor))
+                                               color: .secondaryLabelColor))
             }
 
         case .typing(let typing):
@@ -190,7 +190,7 @@ final class OptionsCard {
             case .keys(let letters):
                 if letters.isEmpty {
                     bodyRow.addArrangedSubview(label("type letters", font: BarTheme.titleFont,
-                                                     color: .tertiaryLabelColor))
+                                                     color: .secondaryLabelColor))
                 } else {
                     bodyRow.addArrangedSubview(label("lode", font: BarTheme.chipFont,
                                                      color: .secondaryLabelColor))
@@ -203,7 +203,7 @@ final class OptionsCard {
                 // shown as that word — keycaps would claim it is a chord.
                 bodyRow.addArrangedSubview(label(text.isEmpty ? placeholder : text,
                                                  font: BarTheme.titleFont,
-                                                 color: text.isEmpty ? .tertiaryLabelColor : .labelColor))
+                                                 color: text.isEmpty ? .secondaryLabelColor : .labelColor))
             }
             stack.addArrangedSubview(bodyRow)
             let verdictLabel = label("\(typing.problem ? "✕" : "↵") \(typing.verdict)",
@@ -219,13 +219,13 @@ final class OptionsCard {
             }
             if let detail = typing.detail {
                 let detailLabel = label(detail, font: BarTheme.secondaryFont,
-                                        color: .tertiaryLabelColor)
+                                        color: .secondaryLabelColor)
                 detailLabel.lineBreakMode = .byTruncatingTail
                 detailLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 340).isActive = true
                 stack.addArrangedSubview(detailLabel)
             }
             stack.addArrangedSubview(label(typing.footer, font: BarTheme.footerFont,
-                                           color: .tertiaryLabelColor))
+                                           color: .secondaryLabelColor))
         }
 
         root.addSubview(stack)
@@ -304,7 +304,7 @@ final class OptionsCard {
         let cap = NSTextField(labelWithString: caps ? text.uppercased() : text)
         cap.font = BarTheme.chipFont
         cap.alignment = .center
-        cap.textColor = quiet ? .tertiaryLabelColor : .secondaryLabelColor
+        cap.textColor = quiet ? .secondaryLabelColor : .labelColor
         cap.translatesAutoresizingMaskIntoConstraints = false
 
         let box = NSView()

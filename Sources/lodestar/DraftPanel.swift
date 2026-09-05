@@ -92,14 +92,18 @@ final class DraftPanel {
     /// a fresh width on every character, `j` and `k` walk columns that
     /// lie, and a lit letter's semibold reflows the line. Mono makes all
     /// three constant — the advance survives the weight by design.
-    private static let font = NSFont.monospacedSystemFont(ofSize: 16, weight: .regular)
+    private static let font = BarTheme.readingMono
     /// The find lights' weight: heavier than the text so a lit letter
     /// reads at a glance, and in the mono face the same width, so
     /// nothing reflows.
-    private static let accentFont = NSFont.monospacedSystemFont(ofSize: 16, weight: .semibold)
+    private static let accentFont = BarTheme.readingMonoAccent
     /// macOS paints "the microphone is on" orange, in the menu bar and in
     /// Control Center; the panel says it in the same color.
     private static let live = NSColor.systemOrange
+    /// The panel's ground, for the glyph a block cursor inverts: the
+    /// equalizer scrim keeps every panel charcoal, whatever the material
+    /// decided, so the ground is a known dark rather than a query.
+    static let ground = NSColor(white: 0.1, alpha: 1)
 
     var isVisible: Bool { panel.isVisible }
 
@@ -168,8 +172,11 @@ final class DraftPanel {
         footer.font = BarTheme.footerFont
         footer.textColor = .secondaryLabelColor
 
+        // The caret sits under the text: a block cursor is a solid plate
+        // with the glyph inverted over it, the way every terminal draws
+        // one, and the plate has to be behind the glyph for that.
         for view in [registerIcon, registerName, registerNote, inputPopup, modeLabel, micButton,
-                     scroll, caret, footer] + meterBars {
+                     caret, scroll, footer] + meterBars {
             root.addSubview(view)
         }
     }
@@ -185,6 +192,8 @@ final class DraftPanel {
 
     /// Where the panel stands and what its lines say, for the tests.
     var frame: NSRect { panel.frame }
+    var caretFrame: NSRect { caret.frame }
+    var caretColor: NSColor? { caret.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)) }
     var registerText: String { registerName.stringValue }
     var registerDetail: String { registerNote.stringValue }
     var footerText: String { footer.stringValue }
@@ -243,7 +252,7 @@ final class DraftPanel {
             .font: Self.font, .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph,
         ]
         let ghostAttributes: [NSAttributedString.Key: Any] = [
-            .font: Self.font, .foregroundColor: NSColor.tertiaryLabelColor, .paragraphStyle: paragraph,
+            .font: Self.font, .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: paragraph,
         ]
         let before = String(view.buffer.characters[..<view.buffer.cursor])
         let after = String(view.buffer.characters[view.buffer.cursor...])
@@ -258,7 +267,7 @@ final class DraftPanel {
             let lower = (String(view.buffer.characters[..<selection.lowerBound]) as NSString).length
             let upper = (String(view.buffer.characters[..<selection.upperBound]) as NSString).length
             attributed.addAttribute(.backgroundColor,
-                                    value: NSColor.labelColor.withAlphaComponent(0.22),
+                                    value: NSColor.labelColor.withAlphaComponent(0.3),
                                     range: NSRange(location: lower, length: max(0, upper - lower)))
         }
         // The find lights recolor the letters themselves — nothing is
@@ -279,6 +288,18 @@ final class DraftPanel {
             for target in view.findTargets where target < view.buffer.count {
                 attributed.addAttributes(accent, range: characterRange(target..<target + 1))
             }
+        }
+        // The glyph under a block cursor is drawn in the panel's ground,
+        // so the block reads as a solid plate with the letter cut out of
+        // it — the inversion terminals use, and the highest contrast a
+        // cursor can have. A thin bar in insert mode needs no inversion.
+        if view.editor != .insert, view.buffer.ghost.isEmpty,
+           view.buffer.cursor < view.buffer.count,
+           view.buffer.characters[view.buffer.cursor] != "\n" {
+            let lower = (String(view.buffer.characters[..<view.buffer.cursor]) as NSString).length
+            let upper = (String(view.buffer.characters[...view.buffer.cursor]) as NSString).length
+            attributed.addAttribute(.foregroundColor, value: Self.ground,
+                                    range: NSRange(location: lower, length: max(0, upper - lower)))
         }
         textView.textStorage?.setAttributedString(attributed)
         textView.frame.size.width = textWidth
@@ -419,31 +440,34 @@ final class DraftPanel {
             // A thin bar between characters in insert mode; a block over the
             // character under the cursor otherwise, the width of that glyph.
             let block = view.editor != .insert
+            let bar: CGFloat = 3
             var rect: NSRect
             if attributed.length == 0 {
-                rect = NSRect(x: 0, y: 0, width: block ? 8 : 2, height: lineHeight)
+                rect = NSRect(x: 0, y: 0, width: block ? 8 : bar, height: lineHeight)
             } else if cursorUTF16 >= attributed.length {
                 let last = layout.lineFragmentRect(forGlyphAt: max(0, glyph - 1), effectiveRange: nil)
                 let lastLoc = layout.location(forGlyphAt: max(0, glyph - 1))
                 let lastWidth = layout.boundingRect(forGlyphRange: NSRange(location: max(0, glyph - 1), length: 1), in: container).width
                 let endsWithNewline = attributed.string.hasSuffix("\n")
                 rect = endsWithNewline
-                    ? NSRect(x: 0, y: last.maxY, width: block ? 8 : 2, height: lineHeight)
-                    : NSRect(x: lastLoc.x + lastWidth, y: last.minY, width: block ? 8 : 2, height: last.height)
+                    ? NSRect(x: 0, y: last.maxY, width: block ? 8 : bar, height: lineHeight)
+                    : NSRect(x: lastLoc.x + lastWidth, y: last.minY, width: block ? 8 : bar, height: last.height)
             } else {
                 let line = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
                 let loc = layout.location(forGlyphAt: glyph)
                 let glyphWidth = layout.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: container).width
                 let underCursor: Character = view.buffer.cursor < view.buffer.count
                     ? view.buffer.characters[view.buffer.cursor] : " "
-                let width = block ? (underCursor == "\n" ? 8 : max(4, glyphWidth)) : 2
+                let width = block ? (underCursor == "\n" ? 8 : max(4, glyphWidth)) : bar
                 rect = NSRect(x: loc.x, y: line.minY, width: width, height: line.height)
             }
             // Text view coordinates are flipped; the root is not.
             let converted = textView.convert(rect, to: root)
-            caret.frame = converted.insetBy(dx: 0, dy: 2)
-            caret.layer?.backgroundColor = (block
-                ? NSColor.labelColor.withAlphaComponent(0.35) : NSColor.labelColor).cgColor
+            caret.frame = converted.insetBy(dx: 0, dy: 1)
+            // A solid plate in normal mode; the system's own insertion
+            // colour for the bar, which is what every field on the Mac
+            // teaches the eye to look for.
+            caret.layer?.backgroundColor = (block ? NSColor.labelColor : NSColor.controlAccentColor).cgColor
         }
 
         let commit = noMic ? "⏎ save to the card" : "⏎ paste"

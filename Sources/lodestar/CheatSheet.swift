@@ -47,7 +47,7 @@ final class CheatSheet {
             column.spacing = 6
 
             let header = NSTextField(labelWithString: section.header.uppercased())
-            header.font = .systemFont(ofSize: 11, weight: .semibold)
+            header.font = .systemFont(ofSize: BarTheme.Scale.meta, weight: .semibold)
             header.textColor = .secondaryLabelColor
             column.addArrangedSubview(header)
             column.setCustomSpacing(9, after: header)
@@ -57,15 +57,15 @@ final class CheatSheet {
             }
             if section.rows.count > 14 {
                 let more = NSTextField(labelWithString: "+\(section.rows.count - 14) more")
-                more.font = .systemFont(ofSize: 11)
-                more.textColor = .tertiaryLabelColor
+                more.font = BarTheme.footerFont
+                more.textColor = .secondaryLabelColor
                 column.addArrangedSubview(more)
             }
             columns.addArrangedSubview(column)
         }
 
         let footer = NSTextField(labelWithString: "lode ? closes · everything here is live, bind more and it grows")
-        footer.font = .systemFont(ofSize: 11)
+        footer.font = BarTheme.footerFont
         footer.textColor = .secondaryLabelColor
 
         let stack = NSStackView()
@@ -127,8 +127,8 @@ final class CheatSheet {
         text.font = BarTheme.rowLabelFont
         // A dormant gesture draws quiet, cap and all: the eye reads the
         // sheet for what it uses, and a row it never uses recedes.
-        text.textColor = row.dimmed ? .tertiaryLabelColor : .labelColor
-        keycap.textColor = row.dimmed ? .tertiaryLabelColor : .labelColor
+        text.textColor = row.dimmed ? .secondaryLabelColor : .labelColor
+        keycap.textColor = row.dimmed ? .secondaryLabelColor : .labelColor
         if row.dimmed { chip.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.04).cgColor }
         text.lineBreakMode = .byTruncatingTail
 

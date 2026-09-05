@@ -395,7 +395,7 @@ final class MeetingController: NSObject {
         var title = occurrence.title
         if title.count > 40 { title = String(title.prefix(39)) + "…" }
         stack.addArrangedSubview(label("⌖ meeting", size: 10.5, weight: .medium,
-                                       color: .tertiaryLabelColor))
+                                       color: .secondaryLabelColor))
         stack.addArrangedSubview(label(title, size: 14, weight: .semibold,
                                        color: .labelColor))
 
@@ -454,7 +454,7 @@ final class MeetingController: NSObject {
             + "starts. Tap lode twice and you are in it, in the right app "
             + "or browser profile.\n\nmacOS asks you to allow calendar "
             + "access first. Nothing about your events leaves your Mac.")
-        body.font = .systemFont(ofSize: 13)
+        body.font = BarTheme.bodyFont
         body.textColor = .secondaryLabelColor
         body.alignment = .center
         body.isSelectable = false
@@ -471,8 +471,8 @@ final class MeetingController: NSObject {
         stack.addArrangedSubview(allow)
         let notNow = HandButton(title: "not now", target: self, action: #selector(notNowButton))
         notNow.isBordered = false
-        notNow.font = .systemFont(ofSize: 11.5)
-        notNow.contentTintColor = .tertiaryLabelColor
+        notNow.font = BarTheme.secondaryFont
+        notNow.contentTintColor = .secondaryLabelColor
         stack.addArrangedSubview(notNow)
 
         primeRoot.addSubview(stack)

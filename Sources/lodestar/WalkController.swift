@@ -347,17 +347,17 @@ final class WalkController: NSObject {
         stack.addArrangedSubview(label("Lodestar", size: 26, weight: .semibold, color: .labelColor))
         stack.addArrangedSubview(wrapped(
             "Every app you use gets a permanent key.\nPress it and you are there.",
-            size: 15, color: .labelColor, alignment: .center, width: Self.doorText))
+            size: BarTheme.Scale.body, color: .labelColor, alignment: .center, width: Self.doorText))
         stack.setCustomSpacing(20, after: stack.arrangedSubviews.last!)
 
         if waiting {
             stack.addArrangedSubview(wrapped(
                 "In System Settings: Privacy & Security → Accessibility → "
                 + "switch Lodestar on.",
-                size: 13, color: .secondaryLabelColor, alignment: .center, width: Self.doorText))
+                size: BarTheme.Scale.body, color: .secondaryLabelColor, alignment: .center, width: Self.doorText))
             stack.addArrangedSubview(wrapped(
                 "This card waits with you. It notices the moment the grant lands.",
-                size: 12, color: .tertiaryLabelColor, alignment: .center, width: Self.doorText))
+                size: BarTheme.Scale.meta, color: .secondaryLabelColor, alignment: .center, width: Self.doorText))
             stack.setCustomSpacing(16, after: stack.arrangedSubviews.last!)
             stack.addArrangedSubview(smallLink("cancel", action: #selector(notNowPressed)))
         } else if trusted {
@@ -365,7 +365,7 @@ final class WalkController: NSObject {
                 "Accessibility is granted. The walk takes about a minute, "
                 + "on your own apps. A few small steps, each one a gesture "
                 + "your hand keeps.",
-                size: 13, color: .secondaryLabelColor, alignment: .center, width: Self.doorText))
+                size: BarTheme.Scale.body, color: .secondaryLabelColor, alignment: .center, width: Self.doorText))
             stack.setCustomSpacing(16, after: stack.arrangedSubviews.last!)
             stack.addArrangedSubview(bigButton("Begin", action: #selector(beginPressed)))
             stack.addArrangedSubview(smallLink("not now", action: #selector(notNowPressed)))
@@ -376,7 +376,7 @@ final class WalkController: NSObject {
                 + "permission exists. Screen Recording, for selecting text "
                 + "you can see. Lodestar asks the first time you use that "
                 + "feature, never before.",
-                size: 13, color: .secondaryLabelColor, alignment: .center, width: Self.doorText))
+                size: BarTheme.Scale.body, color: .secondaryLabelColor, alignment: .center, width: Self.doorText))
             stack.setCustomSpacing(16, after: stack.arrangedSubviews.last!)
             stack.addArrangedSubview(bigButton(prompted ? "Open System Settings" : "Grant Access",
                                                action: #selector(grantPressed)))
@@ -535,12 +535,12 @@ final class WalkController: NSObject {
         if walk.step != .done {
             let progress = walk.progress
             stack.addArrangedSubview(label(
-                "⌖ the walk · \(progress.position) of \(progress.total)", size: 11,
-                weight: .medium, color: .tertiaryLabelColor))
+                "⌖ the walk · \(progress.position) of \(progress.total)", size: BarTheme.Scale.meta,
+                weight: .medium, color: .secondaryLabelColor))
         }
-        stack.addArrangedSubview(label(content.title, size: 17, weight: .semibold,
+        stack.addArrangedSubview(label(content.title, size: BarTheme.Scale.title, weight: .semibold,
                                        color: .labelColor))
-        stack.addArrangedSubview(wrapped(content.body, size: 12.5,
+        stack.addArrangedSubview(wrapped(content.body, size: BarTheme.Scale.body,
                                          color: .secondaryLabelColor, alignment: .left,
                                          width: Self.cardText))
         if let illustration = content.illustration {
@@ -618,14 +618,14 @@ final class WalkController: NSObject {
     private func smallLink(_ title: String, action: Selector) -> NSButton {
         let button = HandButton(title: title, target: self, action: action)
         button.isBordered = false
-        button.font = .systemFont(ofSize: 11.5, weight: .regular)
-        button.contentTintColor = .tertiaryLabelColor
+        button.font = BarTheme.secondaryFont
+        button.contentTintColor = .secondaryLabelColor
         return button
     }
 
     private func keycap(_ text: String, lit: Bool = false, wide: Bool = false) -> NSView {
         let cap = NSTextField(labelWithString: text)
-        cap.font = .systemFont(ofSize: 12, weight: .medium)
+        cap.font = BarTheme.metaFont
         cap.textColor = lit ? .controlAccentColor : .labelColor
         cap.alignment = .center
         cap.translatesAutoresizingMaskIntoConstraints = false
@@ -685,8 +685,8 @@ final class WalkController: NSObject {
         row.addArrangedSubview(keycap("⌘", lit: true))
         row.addArrangedSubview(keycap("⌥"))
         column.addArrangedSubview(row)
-        column.addArrangedSubview(label("the right ⌘ is lode", size: 11,
-                                        weight: .regular, color: .tertiaryLabelColor))
+        column.addArrangedSubview(label("the right ⌘ is lode", size: BarTheme.Scale.meta,
+                                        weight: .regular, color: .secondaryLabelColor))
         return column
     }
 
@@ -703,7 +703,7 @@ final class WalkController: NSObject {
             for letter in option.path.split(separator: " ") {
                 row.addArrangedSubview(keycap(String(letter).uppercased(), lit: true))
             }
-            row.addArrangedSubview(label(option.label, size: 12.5, weight: .regular,
+            row.addArrangedSubview(label(option.label, size: BarTheme.Scale.body, weight: .regular,
                                          color: .labelColor))
             column.addArrangedSubview(row)
         }
@@ -721,7 +721,7 @@ final class WalkController: NSObject {
             row.spacing = 8
             row.setContentHuggingPriority(.required, for: .horizontal)
             row.addArrangedSubview(keycap(proposal.letter.uppercased(), lit: true))
-            row.addArrangedSubview(label(proposal.app, size: 12.5, weight: .regular,
+            row.addArrangedSubview(label(proposal.app, size: BarTheme.Scale.body, weight: .regular,
                                          color: .labelColor))
             column.addArrangedSubview(row)
         }
@@ -746,7 +746,7 @@ final class WalkController: NSObject {
         } else {
             row.addArrangedSubview(box)
         }
-        row.addArrangedSubview(label(meaning, size: 11.5, weight: .regular,
+        row.addArrangedSubview(label(meaning, size: BarTheme.Scale.meta, weight: .regular,
                                      color: .secondaryLabelColor))
         return row
     }

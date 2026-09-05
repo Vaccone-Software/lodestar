@@ -120,7 +120,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         rowsStack.translatesAutoresizingMaskIntoConstraints = false
 
         footer.font = BarTheme.footerFont
-        footer.textColor = .tertiaryLabelColor
+        footer.textColor = .secondaryLabelColor
         footer.alignment = .center
         footer.translatesAutoresizingMaskIntoConstraints = false
 

@@ -973,8 +973,7 @@ final class DraftController {
         }
         let front = frontmost()
         let card: DraftView.Card? = clipOrigin.map { origin in
-            let detail = [origin.clip.sourceHost, Clipboard.age(of: origin.clip)]
-                .compactMap { $0 }.joined(separator: " · ")
+            let detail = Caption.line([origin.clip.sourceHost, Clipboard.age(of: origin.clip)])
             return DraftView.Card(name: origin.clip.sourceAppName ?? "Clipboard",
                                   icon: origin.clip.sourceBundleID.flatMap(Self.appIcon),
                                   detail: detail)

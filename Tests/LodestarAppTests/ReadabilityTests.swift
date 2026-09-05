@@ -71,7 +71,7 @@ final class ReadabilityTests: XCTestCase {
         XCTAssertLessThan(BarTheme.Scale.meta, BarTheme.Scale.body)
         XCTAssertLessThan(BarTheme.Scale.body, BarTheme.Scale.title)
         XCTAssertLessThan(BarTheme.Scale.title, BarTheme.Scale.input)
-        for font in [BarTheme.secondaryFont, BarTheme.footerFont, BarTheme.chipFont, BarTheme.metaFont] {
+        for font in [BarTheme.secondaryFont, BarTheme.footerFont, BarTheme.chipFont] {
             XCTAssertEqual(font.pointSize, BarTheme.Scale.meta, font.fontName)
         }
         for font in [BarTheme.rowLabelFont, BarTheme.bodyFont] {

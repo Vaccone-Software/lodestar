@@ -625,7 +625,7 @@ final class WalkController: NSObject {
 
     private func keycap(_ text: String, lit: Bool = false, wide: Bool = false) -> NSView {
         let cap = NSTextField(labelWithString: text)
-        cap.font = BarTheme.metaFont
+        cap.font = BarTheme.secondaryFont
         cap.textColor = lit ? .controlAccentColor : .labelColor
         cap.alignment = .center
         cap.translatesAutoresizingMaskIntoConstraints = false

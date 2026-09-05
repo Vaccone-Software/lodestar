@@ -269,12 +269,13 @@ enum BarTheme {
     static let inputFont = NSFont.systemFont(ofSize: Scale.input, weight: .regular)
     static let inputSymbol = NSImage.SymbolConfiguration(pointSize: 19, weight: .medium)
     static let titleFont = NSFont.systemFont(ofSize: Scale.title, weight: .regular)
+    /// The one look for secondary text — captions, legends, notes: meta
+    /// size, regular weight, the secondary label colour. Weight is not a
+    /// second style; a caption that needs emphasis is a caption too long.
     static let secondaryFont = NSFont.systemFont(ofSize: Scale.meta, weight: .regular)
     /// What a key's row says it does — the reading size, not a caption.
     static let rowLabelFont = NSFont.systemFont(ofSize: Scale.body, weight: .regular)
     static let bodyFont = NSFont.systemFont(ofSize: Scale.body, weight: .regular)
-    /// A card's caption line: where it came from, how old it is, how long.
-    static let metaFont = NSFont.systemFont(ofSize: Scale.meta, weight: .medium)
     static let chipFont = NSFont.monospacedSystemFont(ofSize: Scale.meta, weight: .semibold)
     static let footerFont = NSFont.systemFont(ofSize: Scale.meta, weight: .regular)
     /// The draft's face, and any other mono text the eye rests on.
@@ -560,7 +561,7 @@ enum Keycaps {
 
     private static func word(_ text: String, color: NSColor) -> NSTextField {
         let field = NSTextField(labelWithString: text)
-        field.font = BarTheme.metaFont
+        field.font = BarTheme.secondaryFont
         field.textColor = color
         field.lineBreakMode = .byTruncatingTail
         return field

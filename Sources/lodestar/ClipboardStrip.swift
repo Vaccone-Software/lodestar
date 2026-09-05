@@ -65,6 +65,39 @@ final class ClipboardStrip {
     /// What stands above the row of recents: the clip door's floor.
     static let rowHeight: CGFloat = cardHeight + gap
 
+    /// Where the pin column stands and how wide the band may be, decided
+    /// from the screen alone so a test can ask about any screen. The
+    /// column is centered on the screen's left edge, its own zone rather
+    /// than an extension of the row; on a short screen it comes down no
+    /// further than the row above the recents, where the band lives, and
+    /// then the band keeps clear of it by starting to its right. The
+    /// column is always drawn, one free slot past the highest in use:
+    /// it is how a hand that has never pinned learns that it can.
+    struct Layout: Equatable {
+        /// Panel-relative y of the lowest drawn slot's bottom edge.
+        var columnBottom: CGFloat
+        /// Where the search band starts: zero when the column is clear of it.
+        var bandLeft: CGFloat
+        /// The panel's content height, before its outer margin.
+        var height: CGFloat
+    }
+
+    static func layout(screenHeight: CGFloat, drawnSlots: Int) -> Layout {
+        let row = cardHeight + gap
+        let column = drawnSlots > 0 ? CGFloat(drawnSlots) * (cardHeight + gap) - gap : 0
+        // The panel's origin sits one margin above the screen's bottom.
+        let centered = screenHeight / 2 - margin - column / 2
+        let bottom = drawnSlots > 0 ? max(row, centered) : row
+        let clear = drawnSlots == 0 || bottom >= row + searchHeight + gap
+        return Layout(columnBottom: bottom,
+                      bandLeft: clear ? 0 : cardWidth + gap,
+                      height: max(row + searchHeight, drawnSlots > 0 ? bottom + column : 0))
+    }
+    /// The frame the band last took, and where the column stood, for the
+    /// tests and for the actions menu beside a pin.
+    private(set) var bandFrame: NSRect?
+    private var columnBottom: CGFloat = 0
+
     var isVisible: Bool { panel.isVisible }
     /// Which label each visible recent card answers to, in order.
     private(set) var shownRecents: [Clipboard.Clip] = []
@@ -76,6 +109,7 @@ final class ClipboardStrip {
     /// clip id — the tests read what the screen shows.
     private(set) var shownBadges: [String: String] = [:]
     private(set) var shownSources: [String: String] = [:]
+    private(set) var shownCaptions: [String: String] = [:]
     /// Every plate's veil, in the order the cards were made — the tests
     /// read that a lit card is raised and the rest are the launcher's.
     private(set) var shownWeights: [Glass.Weight] = []
@@ -107,6 +141,7 @@ final class ClipboardStrip {
         self.pinsHidden = pinsHidden
         shownBadges = [:]
         shownSources = [:]
+        shownCaptions = [:]
         shownWeights = []
         shownCards = [:]
 
@@ -136,8 +171,10 @@ final class ClipboardStrip {
         // next pin's number is visible, and four empty cards do not stand
         // for slots nobody has reached. Positions never move.
         let drawnSlots = pinsHidden ? 0 : Clipboard.pinSlotsToDraw(taken: Set(shownPins.keys))
-        let pinColumnHeight = CGFloat(drawnSlots) * (Self.cardHeight + Self.gap)
-        let height = Self.cardHeight + Self.gap + pinColumnHeight
+        let placed = Self.layout(screenHeight: screen.height, drawnSlots: drawnSlots)
+        columnBottom = placed.columnBottom
+        bandFrame = nil
+        let height = placed.height
         let width = max(stripWidth, Self.cardWidth) + Self.margin * 2
 
         let frame = NSRect(x: screen.minX + Self.margin,
@@ -168,13 +205,14 @@ final class ClipboardStrip {
         case .none:
             break
         case .search(let query):
-            // The band fills space the one-card-wide pin column already
-            // leaves empty, so nothing moves and nothing disappears.
-            let bandLeft = Self.cardWidth + Self.gap
-            addSearchField(query: query,
-                           frame: NSRect(x: bandLeft, y: Self.cardHeight + Self.gap,
-                                         width: max(Self.cardWidth, stripWidth - bandLeft),
-                                         height: Self.searchHeight))
+            // The full width when the column is clear of this row; on a
+            // short screen the column comes down to it, and the band
+            // starts to the column's right instead.
+            let frame = NSRect(x: placed.bandLeft, y: Self.cardHeight + Self.gap,
+                               width: max(Self.cardWidth, stripWidth - placed.bandLeft),
+                               height: Self.searchHeight)
+            bandFrame = frame
+            addSearchField(query: query, frame: frame)
         case .actions(let actions):
             let size = actionSize(actions)
             addActionCard(actions, frame: actionFrame(for: actingOn, size: size,
@@ -210,9 +248,10 @@ final class ClipboardStrip {
             root.addSubview(card)
         }
 
-        // Pins: climbing from the same corner, numbered and permanent. An
-        // empty slot still draws, so the numbers are always visible and a
-        // freed slot reads as reserved rather than missing.
+        // Pins: their own column, centered on the screen's left edge,
+        // numbered and permanent. An empty slot still draws, so the
+        // numbers are always visible and a freed slot reads as reserved
+        // rather than missing.
         for slot in stride(from: 1, through: drawnSlots, by: 1) {
             let card: NSView
             if let clip = shownPins[slot] {
@@ -223,8 +262,7 @@ final class ClipboardStrip {
                 card = makeEmptyPin(slot: slot)
             }
             card.frame = NSRect(x: 0,
-                                y: y + Self.cardHeight + Self.gap
-                                    + CGFloat(slot - 1) * (Self.cardHeight + Self.gap),
+                                y: placed.columnBottom + CGFloat(slot - 1) * (Self.cardHeight + Self.gap),
                                 width: Self.cardWidth, height: Self.cardHeight)
             root.addSubview(card)
         }
@@ -253,7 +291,7 @@ final class ClipboardStrip {
         // like the first of them until they are pasted.
         if let items = clip.itemsLabel {
             let count = NSTextField(labelWithString: items)
-            count.font = BarTheme.metaFont
+            count.font = BarTheme.secondaryFont
             count.textColor = .secondaryLabelColor
             count.sizeToFit()
             count.frame.origin = NSPoint(x: chip.frame.maxX + 6,
@@ -304,7 +342,7 @@ final class ClipboardStrip {
         }
         if let origin = clip.sourceHost ?? clip.sourceAppName {
             let source = NSTextField(labelWithString: origin)
-            source.font = BarTheme.metaFont
+            source.font = BarTheme.secondaryFont
             source.textColor = .secondaryLabelColor
             source.lineBreakMode = .byTruncatingTail
             source.alignment = .right
@@ -317,25 +355,20 @@ final class ClipboardStrip {
             shownSources[clip.id] = origin
         }
 
-        let age = NSTextField(labelWithString: Clipboard.age(of: clip))
-        age.font = BarTheme.metaFont
-        age.textColor = .secondaryLabelColor
-        age.sizeToFit()
-        age.frame.origin = NSPoint(x: Self.cardWidth - age.frame.width - 11, y: 8)
-        card.addSubview(age)
-
-        // A card that holds more than it shows says so, in the corner
-        // opposite the age, so the hand knows a card is worth opening
-        // before it opens it. A card that shows all of itself stays bare.
-        if let badge = Clipboard.lengthBadge(for: clip) {
-            shownBadges[clip.id] = badge
-            let length = NSTextField(labelWithString: badge)
-            length.font = BarTheme.metaFont
-            length.textColor = .secondaryLabelColor
-            length.sizeToFit()
-            length.frame.origin = NSPoint(x: 11, y: 8)
-            card.addSubview(length)
-        }
+        // The foot is one caption: how long, then how old. A card that
+        // holds more than it shows says so, so the hand knows a card is
+        // worth opening before it opens it; a card that shows all of
+        // itself says only its age.
+        let badge = Clipboard.lengthBadge(for: clip)
+        if let badge { shownBadges[clip.id] = badge }
+        let caption = Caption.line([badge, Clipboard.age(of: clip)])
+        shownCaptions[clip.id] = caption
+        let foot = NSTextField(labelWithString: caption)
+        foot.font = BarTheme.secondaryFont
+        foot.textColor = .secondaryLabelColor
+        foot.sizeToFit()
+        foot.frame.origin = NSPoint(x: Self.cardWidth - foot.frame.width - 11, y: 8)
+        card.addSubview(foot)
         return card
     }
 
@@ -416,7 +449,7 @@ final class ClipboardStrip {
         var origin = NSPoint(x: column, y: row)
 
         if let id, let slot = shownPins.first(where: { $0.value.id == id })?.key {
-            let pinTop = row + CGFloat(slot - 1) * row + Self.cardHeight
+            let pinTop = columnBottom + CGFloat(slot - 1) * row + Self.cardHeight
             origin = NSPoint(x: column, y: pinTop - size.height)
         } else if let id, let index = shownRecents.firstIndex(where: { $0.id == id }) {
             origin = NSPoint(x: CGFloat(max(index, 1)) * column, y: row)

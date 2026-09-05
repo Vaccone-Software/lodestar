@@ -86,10 +86,10 @@ final class SelectOverlay {
         statusBottom = statusChip.bottomAnchor.constraint(equalTo: root.bottomAnchor,
                                                           constant: -Self.bandGap)
         NSLayoutConstraint.activate([
-            status.leadingAnchor.constraint(equalTo: statusChip.leadingAnchor, constant: 9),
-            status.trailingAnchor.constraint(equalTo: statusChip.trailingAnchor, constant: -9),
-            status.topAnchor.constraint(equalTo: statusChip.topAnchor, constant: 4),
-            status.bottomAnchor.constraint(equalTo: statusChip.bottomAnchor, constant: -4),
+            status.leadingAnchor.constraint(equalTo: statusChip.leadingAnchor, constant: 14),
+            status.trailingAnchor.constraint(equalTo: statusChip.trailingAnchor, constant: -14),
+            status.topAnchor.constraint(equalTo: statusChip.topAnchor, constant: 7),
+            status.bottomAnchor.constraint(equalTo: statusChip.bottomAnchor, constant: -7),
             statusChip.centerXAnchor.constraint(equalTo: root.centerXAnchor),
             statusBottom,
         ])
@@ -230,12 +230,22 @@ final class SelectOverlay {
     /// "your typed prefix" on a narrowing hint chip — while everything
     /// around it recedes to quiet secondary text. One field, mixed sizes,
     /// baseline-aligned; no new surfaces, no ornament.
+    /// The band's words. Three voices, each the app's own: the caption
+    /// voice for the facts (which window, how many, esc), the body voice
+    /// in the label colour for the one thing the hand is being asked to
+    /// do, and the mono voice for the query, which is the hand's own
+    /// letters echoed back. The band was all mono once, at caption size,
+    /// and the instruction read like a status line rather than a sentence.
     static func bandLine(state: State, empty: Bool) -> NSAttributedString {
         let line = NSMutableAttributedString()
         func quiet(_ text: String) {
             line.append(NSAttributedString(string: text, attributes: [
-                .font: NSFont.monospacedSystemFont(ofSize: BarTheme.Scale.meta, weight: .medium),
-                .foregroundColor: NSColor.secondaryLabelColor,
+                .font: BarTheme.secondaryFont, .foregroundColor: NSColor.secondaryLabelColor,
+            ]))
+        }
+        func say(_ text: String) {
+            line.append(NSAttributedString(string: text, attributes: [
+                .font: BarTheme.bodyFont, .foregroundColor: NSColor.labelColor,
             ]))
         }
         func loud(_ text: String, color: NSColor = .controlAccentColor) {
@@ -249,20 +259,24 @@ final class SelectOverlay {
             // The window being read is named while the hand decides: a
             // read of the wrong window used to look like a read of
             // nothing.
-            quiet(state.stage == .start
-                ? "\(state.appName) · type what you see"
-                : "now the far end · ⌘C copies the anchor · ⌫ re-opens the start")
+            if state.stage == .start {
+                quiet(state.appName + Caption.separator)
+                say("type what you see")
+            } else {
+                say("now the far end")
+                quiet(Caption.separator + "⌘C copies the anchor" + Caption.separator + "⌫ re-opens the start")
+            }
         } else {
             loud(state.query)
             if !state.typedLabel.isEmpty {
                 loud(" " + state.typedLabel.uppercased() + "…", color: .labelColor)
             }
-            quiet(state.shown == state.total
-                ? "  ·  \(state.shown)"
-                : "  ·  \(state.shown) of \(state.total)\(state.capped ? "+" : "")")
-            quiet("  ·  ⇧letter " + state.verb)
+            quiet(Caption.separator + (state.shown == state.total
+                ? "\(state.shown)"
+                : "\(state.shown) of \(state.total)\(state.capped ? "+" : "")"))
+            quiet(Caption.separator + "⇧letter " + state.verb)
         }
-        quiet("  ·  esc")
+        quiet(Caption.separator + "esc")
         return line
     }
 

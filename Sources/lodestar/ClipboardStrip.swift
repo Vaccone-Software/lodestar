@@ -99,6 +99,8 @@ final class ClipboardStrip {
     private var columnBottom: CGFloat = 0
 
     var isVisible: Bool { panel.isVisible }
+    /// For the tests: the window casts no shadow of its own.
+    var castsWindowShadow: Bool { panel.hasShadow }
     /// Which label each visible recent card answers to, in order.
     private(set) var shownRecents: [Clipboard.Clip] = []
     private(set) var shownPins: [Int: Clipboard.Clip] = [:]
@@ -124,6 +126,12 @@ final class ClipboardStrip {
         panel = Glass.makePanel(level: .statusBar)
         panel.ignoresMouseEvents = true
         panel.contentView = root
+        // The strip is separate cards in one window. A window shadow is
+        // cut from the union of what is opaque, and on a pale ground its
+        // rim drew a hairline around that union, bridging the gaps
+        // between the column, the row, and a menu. Each plate casts its
+        // own shadow instead; the window casts none.
+        panel.hasShadow = false
     }
 
     func hide() { panel.orderOut(nil) }
@@ -466,7 +474,8 @@ final class ClipboardStrip {
         // own. The strip's cards wear a scrim because they sit in a grid you
         // read across; a menu floats above everything and belongs to the
         // family of floating panels instead.
-        let plate = NSView(frame: frame)
+        let plate = Plate(radius: BarTheme.glassRadius)
+        plate.frame = frame
         _ = Glass.installBackdrop(in: plate, cornerRadius: BarTheme.glassRadius)
 
         let rule = separatorIndex(actions)
@@ -591,7 +600,7 @@ final class ClipboardStrip {
     /// its own subtree, and a labelColor caught in there can resolve
     /// against the wrong tone.
     private func glassPlate(radius: CGFloat, weight: Weight = .normal) -> NSView {
-        let plate = NSView()
+        let plate = Plate(radius: radius)
         let veil: Glass.Weight
         switch weight {
         case .normal: veil = .normal
@@ -601,5 +610,33 @@ final class ClipboardStrip {
         Glass.installBackdrop(in: plate, cornerRadius: radius, weight: veil)
         shownWeights.append(veil)
         return plate
+    }
+}
+
+/// A card's plate: it casts the shadow the strip's window does not,
+/// shaped to its own rounded rectangle rather than to whatever the
+/// glass composites, so the shadow is there whatever the material
+/// decides to draw.
+final class Plate: NSView {
+    let radius: CGFloat
+
+    init(radius: CGFloat) {
+        self.radius = radius
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.masksToBounds = false
+        layer?.shadowColor = NSColor.black.withAlphaComponent(0.35).cgColor
+        layer?.shadowOpacity = 1
+        layer?.shadowRadius = 6
+        layer?.shadowOffset = CGSize(width: 0, height: -2)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override var frame: NSRect {
+        didSet {
+            layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: radius,
+                                       cornerHeight: radius, transform: nil)
+        }
     }
 }

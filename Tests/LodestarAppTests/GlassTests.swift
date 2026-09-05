@@ -178,3 +178,18 @@ final class AccessibilitySettingsTests: XCTestCase {
         XCTAssertNotEqual(stage.hud.owner, .flash, "a short flash still gets the floor")
     }
 }
+
+/// The strip's shadows: the window casts none, every plate casts its own.
+final class StripShadowTests: XCTestCase {
+    func testTheWindowCastsNoShadowAndEveryCardDoes() {
+        let stage = Stage()
+        stage.seedClip("one")
+        stage.openStrip()
+        XCTAssertFalse(stage.engine.strip.castsWindowShadow)
+        for card in stage.engine.strip.shownCards.values {
+            XCTAssertNotNil(card.layer?.shadowPath, "shaped to the card, not to what the glass draws")
+            XCTAssertEqual(card.layer?.shadowOpacity, 1)
+        }
+        stage.press("escape")
+    }
+}

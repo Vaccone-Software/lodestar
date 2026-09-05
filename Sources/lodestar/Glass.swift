@@ -7,7 +7,9 @@ import AppKit
 /// vanished. We keep the frost and take away the material's vote.
 enum Tone {
     static var systemDark: Bool {
-        NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        // `shared`, not `NSApp`: a chip made before the application object
+        // exists — the tests' world — must still have an answer.
+        NSApplication.shared.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     }
 }
 
@@ -19,7 +21,7 @@ enum Tone {
 /// already agrees (the frost stays the star), a heavy one when the
 /// backdrop pulled it the other way. Live, so theme switches and
 /// backdrop changes both re-resolve.
-final class EqualizerScrim: NSView {
+class EqualizerScrim: NSView {
     /// Veil strength when the material agrees with the system tone.
     /// Callers tune these; the opposed-material weights are fixed.
     var darkBase: CGFloat = 0.32
@@ -29,8 +31,21 @@ final class EqualizerScrim: NSView {
 
     override var wantsUpdateLayer: Bool { true }
 
+    /// The material stamps its adapted tone onto this view after it has
+    /// sensed its backdrop, which on a cold panel is after the first
+    /// draw. A scrim that read the stamp once kept its first guess for
+    /// the life of the view — the clipboard's cards opened see-through
+    /// the first time and right every time after, because the second
+    /// opening rebuilt them over a panel that had been on screen. So the
+    /// veil re-reads whenever the stamp changes.
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        needsDisplay = true
         guard window != nil, themeObserver == nil else { return }
         // The material's stamp does not change when the user switches
         // themes (it tracks the backdrop), so a long-lived scrim would
@@ -64,9 +79,38 @@ final class EqualizerScrim: NSView {
 /// Liquid Glass where the OS provides it (macOS 26+), vibrancy fallback
 /// everywhere else. The backdrop is installed as a sibling pinned under the
 /// content, so both paths behave identically.
+///
+/// One recipe for every panel, card, and chip. The clipboard's cards and
+/// the hint chips once wore a second one — clear glass under a heavier
+/// scrim — and clear glass has no frost, so its opacity was entirely the
+/// scrim's, and a scrim caught cold made a see-through card. Regular
+/// glass carries most of its opacity in the frost; the scrim is a
+/// correction, and a wrong first guess is a shade, not a hole.
 enum Glass {
+    /// How heavy the veil is. The material is the same; this is state —
+    /// a lit card, an empty slot — never a second style.
+    enum Weight: Equatable {
+        case normal, raised, faint
+        var bases: (dark: CGFloat, light: CGFloat) {
+            switch self {
+            case .normal: return (0.32, 0.42)
+            case .raised: return (0.50, 0.60)
+            case .faint: return (0.20, 0.28)
+            }
+        }
+    }
+
+    /// The scrim inside a backdrop this made, for the tests.
+    static func scrim(in backdrop: NSView) -> EqualizerScrim? {
+        if #available(macOS 26.0, *), let glass = backdrop as? NSGlassEffectView {
+            return glass.contentView as? EqualizerScrim
+        }
+        return backdrop.subviews.compactMap { $0 as? EqualizerScrim }.first
+    }
+
     @discardableResult
-    static func installBackdrop(in root: NSView, cornerRadius: CGFloat) -> NSView {
+    static func installBackdrop(in root: NSView, cornerRadius: CGFloat,
+                                weight: Weight = .normal) -> NSView {
         let backdrop: NSView
         if #available(macOS 26.0, *) {
             // Regular glass, deliberately: the frost is the panel's beauty
@@ -75,6 +119,7 @@ enum Glass {
             let glass = NSGlassEffectView()
             glass.cornerRadius = cornerRadius
             let scrim = EqualizerScrim()
+            (scrim.darkBase, scrim.lightBase) = weight.bases
             scrim.wantsLayer = true
             scrim.layer?.cornerRadius = cornerRadius
             scrim.autoresizingMask = [.width, .height]

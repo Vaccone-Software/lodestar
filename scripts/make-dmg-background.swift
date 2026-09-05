@@ -115,6 +115,18 @@ func draw() {
                                     width: size, height: size)).fill()
     }
 
+    // Finder sets an icon's label in the system's label colour whatever
+    // the picture behind it — black, on this ground, and nothing in the
+    // view options says otherwise. Two pale plates under the two labels,
+    // sized to the words, so the names read as names.
+    let labelFont = NSFont.systemFont(ofSize: 12)
+    for (name, x) in [("lodestar.app", CGFloat(165)), ("Applications", CGFloat(495))] {
+        let textWidth = (name as NSString).size(withAttributes: [.font: labelFont]).width
+        let plate = NSRect(x: x - (textWidth + 18) / 2, y: 163 - 10, width: textWidth + 18, height: 20)
+        NSColor(calibratedWhite: 0.94, alpha: 0.96).setFill()
+        NSBezierPath(roundedRect: plate, xRadius: 6, yRadius: 6).fill()
+    }
+
     // The header is set, not drawn. The compass mark belongs to the app
     // icon standing right below it; repeating it here put two white stars
     // in one composition, each weakening the other. Rules flanking the

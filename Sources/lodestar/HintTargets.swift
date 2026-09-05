@@ -170,9 +170,11 @@ enum Pointer {
 
 /// The one chip design, shared by every overlay that labels the screen —
 /// hints and select draw literally the same object, so the styles cannot
-/// drift. Clear liquid glass over a quiet scrim, 12pt bold mono caps with
-/// an opposite-color halo, lifted by a soft shadow. (See the readability
-/// saga in the project memory before changing any of this.)
+/// drift. The launcher's glass, small: the one backdrop recipe, bold mono
+/// caps on top of it, lifted by a soft shadow because a chip sits on
+/// someone else's content with no edge of its own to meet. It once wore
+/// clear glass with a halo around the letters to survive what showed
+/// through; frost is what makes the halo unnecessary.
 enum GlassChip {
     static let font = NSFont.monospacedSystemFont(ofSize: BarTheme.Scale.meta, weight: .bold)
     static let height: CGFloat = 20
@@ -187,35 +189,13 @@ enum GlassChip {
         // tone, which is the invisible-text bug in one line.
         label.textColor = dark ? .white : NSColor(white: 0.12, alpha: 1)
         label.alignment = .center
-        let halo = NSShadow()
-        halo.shadowColor = dark
-            ? NSColor.black.withAlphaComponent(0.7)
-            : NSColor.white.withAlphaComponent(0.85)
-        halo.shadowBlurRadius = 2
-        halo.shadowOffset = .zero
-        label.shadow = halo
         label.sizeToFit()
 
-        let chip: NSView
-        if #available(macOS 26.0, *) {
-            let glass = NSGlassEffectView()
-            glass.cornerRadius = 4.5
-            glass.style = .clear
-            let scrim = EqualizerScrim()
-            scrim.darkBase = 0.45
-            scrim.lightBase = 0.55
-            scrim.wantsLayer = true
-            scrim.layer?.cornerRadius = 4.5
-            scrim.autoresizingMask = [.width, .height]
-            scrim.addSubview(label)
-            glass.contentView = scrim
-            chip = glass
-        } else {
-            let fallback = NSView()
-            Glass.installBackdrop(in: fallback, cornerRadius: 4.5)
-            fallback.addSubview(label)
-            chip = fallback
-        }
+        // The label rides on the chip above the material, never inside
+        // it, for the reason the cards give.
+        let chip = NSView()
+        Glass.installBackdrop(in: chip, cornerRadius: 4.5)
+        chip.addSubview(label)
         lift(chip)
         return (chip, label)
     }

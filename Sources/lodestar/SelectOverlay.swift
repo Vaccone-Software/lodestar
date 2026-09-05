@@ -112,6 +112,12 @@ final class SelectOverlay {
     }
 
     func show(chips: [Chip], anchor: [CGRect], over windowFrame: CGRect, state: State) {
+        // Dozens of frosted chips at once: the instrument times itself.
+        let began = Date()
+        defer {
+            Log.info("chips", ["count": chips.count,
+                               "ms": Int(Date().timeIntervalSince(began) * 1000)])
+        }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         NSAnimationContext.beginGrouping()

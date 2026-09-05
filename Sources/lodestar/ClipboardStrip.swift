@@ -76,6 +76,11 @@ final class ClipboardStrip {
     /// clip id — the tests read what the screen shows.
     private(set) var shownBadges: [String: String] = [:]
     private(set) var shownSources: [String: String] = [:]
+    /// Every plate's veil, in the order the cards were made — the tests
+    /// read that a lit card is raised and the rest are the launcher's.
+    private(set) var shownWeights: [Glass.Weight] = []
+    /// The plates themselves, by clip id, so a test can look inside one.
+    private(set) var shownCards: [String: NSView] = [:]
     /// The card's rows: the chip line at the top, the caption line at the
     /// foot, and the preview between them.
     private static let cardHead: CGFloat = 34
@@ -102,6 +107,8 @@ final class ClipboardStrip {
         self.pinsHidden = pinsHidden
         shownBadges = [:]
         shownSources = [:]
+        shownWeights = []
+        shownCards = [:]
 
         // As many cards as the display can hold at a readable size, never
         // more than the alphabet — the guide panel already adapts this way.
@@ -232,6 +239,7 @@ final class ClipboardStrip {
     private func makeCard(clip: Clipboard.Clip, label: String, height: CGFloat,
                           thumbnail: NSImage?, highlighted: Bool) -> NSView {
         let card = glassPlate(radius: BarTheme.rowRadius, weight: highlighted ? .highlighted : .normal)
+        shownCards[clip.id] = card
 
         let chip = NSTextField(labelWithString: label.uppercased())
         chip.font = BarTheme.chipFont
@@ -543,41 +551,22 @@ final class ClipboardStrip {
         case empty
     }
 
-    /// The locked recipe: clear liquid glass over a scrim of our own, never
-    /// a tint — tinting flashes, because the glass animates it internally
-    /// beyond a transaction's reach.
+    /// A card is the launcher's glass, small: the one backdrop recipe,
+    /// with the veil's weight saying whether the card is lit or waiting.
+    /// The card's content rides on the plate ABOVE the material, never
+    /// inside it: the glass stamps its backdrop-adapted appearance onto
+    /// its own subtree, and a labelColor caught in there can resolve
+    /// against the wrong tone.
     private func glassPlate(radius: CGFloat, weight: Weight = .normal) -> NSView {
-        let scrim = EqualizerScrim()
-        switch weight {
-        case .normal: (scrim.darkBase, scrim.lightBase) = (0.45, 0.55)
-        case .highlighted: (scrim.darkBase, scrim.lightBase) = (0.62, 0.72)
-        case .empty: (scrim.darkBase, scrim.lightBase) = (0.28, 0.34)
-        }
-        scrim.wantsLayer = true
-        scrim.layer?.cornerRadius = radius
-        scrim.autoresizingMask = [.width, .height]
-
-        // The card's content rides on a plain wrapper ABOVE the material,
-        // never inside it: the glass stamps its backdrop-adapted appearance
-        // onto its own subtree, and a labelColor caught in there can
-        // resolve against the system tone the scrim equalizes toward.
         let plate = NSView()
-        let backdrop: NSView
-        if #available(macOS 26.0, *) {
-            let glass = NSGlassEffectView()
-            glass.cornerRadius = radius
-            glass.style = .clear
-            glass.contentView = scrim
-            backdrop = glass
-        } else {
-            let fallback = NSView()
-            Glass.installBackdrop(in: fallback, cornerRadius: radius)
-            fallback.addSubview(scrim)
-            backdrop = fallback
+        let veil: Glass.Weight
+        switch weight {
+        case .normal: veil = .normal
+        case .highlighted: veil = .raised
+        case .empty: veil = .faint
         }
-        backdrop.frame = plate.bounds
-        backdrop.autoresizingMask = [.width, .height]
-        plate.addSubview(backdrop)
+        Glass.installBackdrop(in: plate, cornerRadius: radius, weight: veil)
+        shownWeights.append(veil)
         return plate
     }
 }

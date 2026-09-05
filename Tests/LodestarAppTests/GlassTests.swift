@@ -238,3 +238,43 @@ final class AccentDriftTests: XCTestCase {
         XCTAssertEqual(BarTheme.accent, .controlAccentColor)
     }
 }
+
+/// Text over the accent fill is chosen by measure, so a selected row
+/// reads on any accent a person picks.
+final class OnAccentTests: XCTestCase {
+    override func tearDown() { BarTheme.accentColor = { .controlAccentColor } }
+
+    private func contrast(_ text: NSColor, on fill: NSColor) -> Double {
+        let t = text.usingColorSpace(.sRGB)!, f = fill.usingColorSpace(.sRGB)!
+        return Readability.contrast(
+            Readability.luminance(red: t.redComponent, green: t.greenComponent, blue: t.blueComponent),
+            Readability.luminance(red: f.redComponent, green: f.greenComponent, blue: f.blueComponent))
+    }
+
+    func testInternationalOrangeOnCharcoalTakesInkNotWhite() {
+        let orange = NSColor(srgbRed: Readability.orangeOnCharcoal.red, green: Readability.orangeOnCharcoal.green,
+                             blue: Readability.orangeOnCharcoal.blue, alpha: 1)
+        BarTheme.accentColor = { orange }
+        XCTAssertNotEqual(BarTheme.onAccent, .white, "white on this orange is 3.3 to 1")
+        XCTAssertGreaterThanOrEqual(contrast(BarTheme.onAccent, on: orange), 4.5, "reading text on a fill")
+    }
+
+    func testTheDeeperOrangeAndADeepBlueTakeWhite() {
+        let deep = NSColor(srgbRed: Readability.orangeOnPaper.red, green: Readability.orangeOnPaper.green,
+                           blue: Readability.orangeOnPaper.blue, alpha: 1)
+        BarTheme.accentColor = { deep }
+        XCTAssertEqual(BarTheme.onAccent, .white)
+        XCTAssertGreaterThanOrEqual(contrast(.white, on: deep), 4.5)
+        BarTheme.accentColor = { NSColor(srgbRed: 0.0, green: 0.3, blue: 0.8, alpha: 1) }
+        XCTAssertEqual(BarTheme.onAccent, .white)
+    }
+
+    func testWhicheverReadsBetterWins() {
+        for fill in [NSColor.systemPurple, .systemGreen, .systemYellow, .systemBlue, .systemRed] {
+            BarTheme.accentColor = { fill }
+            let chosen = contrast(BarTheme.onAccent, on: fill)
+            let other = contrast(BarTheme.onAccent == .white ? NSColor(white: 0.08, alpha: 1) : .white, on: fill)
+            XCTAssertGreaterThanOrEqual(chosen, other, "\(fill)")
+        }
+    }
+}

@@ -365,15 +365,16 @@ private final class CommandsRowView: NSView {
     }
 
     private func restyle() {
+        let onAccent = BarTheme.onAccent
         layer?.backgroundColor = selectedState ? BarTheme.accent.cgColor : nil
-        title.textColor = selectedState ? .white : .labelColor
-        crumb.textColor = selectedState ? NSColor.white.withAlphaComponent(0.75) : BarTheme.secondaryColor
+        title.textColor = selectedState ? onAccent : .labelColor
+        crumb.textColor = selectedState ? onAccent.withAlphaComponent(0.75) : BarTheme.secondaryColor
         for label in [chipLabel, sourceLabel] {
-            label.textColor = selectedState ? .white : BarTheme.secondaryColor
+            label.textColor = selectedState ? onAccent : BarTheme.secondaryColor
         }
         for box in [chip, sourceChip] {
             box.layer?.backgroundColor = selectedState
-                ? NSColor.white.withAlphaComponent(0.22).cgColor
+                ? onAccent.withAlphaComponent(0.22).cgColor
                 : NSColor.labelColor.withAlphaComponent(0.08).cgColor
         }
     }

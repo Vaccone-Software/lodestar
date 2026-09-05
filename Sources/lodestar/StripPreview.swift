@@ -45,6 +45,10 @@ enum StripPreview {
             // flipping the machine.
             StageView.light = ground == "light"
             if StageView.light { app.appearance = NSAppearance(named: .aqua) }
+            // `LODESTAR_ACCENT=orange` stages Lodestar's own accent.
+            if ProcessInfo.processInfo.environment["LODESTAR_ACCENT"] == "orange" {
+                BarTheme.accentColor = { BarTheme.accent(for: .orange) }
+            }
             // After the run loop is up: windows made before the app finishes
             // launching never reach the window server, and take the panel with
             // them.

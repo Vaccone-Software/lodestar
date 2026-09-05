@@ -573,12 +573,13 @@ private final class WebRowView: NSView {
     }
 
     private func restyle() {
+        let onAccent = BarTheme.onAccent
         layer?.backgroundColor = selectedState ? BarTheme.accent.cgColor : nil
-        icon.contentTintColor = selectedState ? .white : BarTheme.secondaryColor
-        title.textColor = selectedState ? .white : .labelColor
-        chipLabel.textColor = selectedState ? .white : BarTheme.secondaryColor
+        icon.contentTintColor = selectedState ? onAccent : BarTheme.secondaryColor
+        title.textColor = selectedState ? onAccent : .labelColor
+        chipLabel.textColor = selectedState ? onAccent : BarTheme.secondaryColor
         chip.layer?.backgroundColor = selectedState
-            ? NSColor.white.withAlphaComponent(0.22).cgColor
+            ? onAccent.withAlphaComponent(0.22).cgColor
             : NSColor.labelColor.withAlphaComponent(0.08).cgColor
     }
 }

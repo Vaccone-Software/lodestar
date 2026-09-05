@@ -331,6 +331,18 @@ enum BarTheme {
     /// the sources for that — so the setting cannot drift.
     static var accent: NSColor { accentColor() }
 
+    /// Text drawn over the accent as a fill — a selected row, a lit chip.
+    /// White reads on a deep blue and fails on International Orange, so
+    /// the choice is made by measure: whichever of white and near-black
+    /// contrasts more with the fill, decided from the fill itself.
+    static var onAccent: NSColor {
+        guard let fill = accent.usingColorSpace(.sRGB) else { return .white }
+        let ground = Readability.luminance(red: fill.redComponent, green: fill.greenComponent, blue: fill.blueComponent)
+        let white = Readability.contrast(1, ground)
+        let ink = Readability.contrast(Readability.luminance(red: 0.08, green: 0.08, blue: 0.08), ground)
+        return white >= ink ? .white : NSColor(white: 0.08, alpha: 1)
+    }
+
     /// The accent a config asks for: the Mac's, or Lodestar's own pair.
     static func accent(for choice: Config.Accent) -> NSColor {
         switch choice {

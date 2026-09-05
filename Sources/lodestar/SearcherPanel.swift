@@ -950,17 +950,18 @@ private final class SearcherRowView: NSView {
     }
 
     private func restyle() {
+        let onAccent = BarTheme.onAccent
         layer?.backgroundColor = selectedState ? BarTheme.accent.cgColor : nil
-        name.textColor = selectedState ? .white : .labelColor
+        name.textColor = selectedState ? onAccent : .labelColor
         for label in chipLabels {
-            label.textColor = selectedState ? .white : BarTheme.secondaryColor
+            label.textColor = selectedState ? onAccent : BarTheme.secondaryColor
         }
         for box in chipBoxes {
             box.layer?.backgroundColor = selectedState
-                ? NSColor.white.withAlphaComponent(0.22).cgColor
+                ? onAccent.withAlphaComponent(0.22).cgColor
                 : NSColor.labelColor.withAlphaComponent(0.09).cgColor
         }
-        dot?.textColor = selectedState ? NSColor.white.withAlphaComponent(0.85) : BarTheme.accent
+        dot?.textColor = selectedState ? onAccent.withAlphaComponent(0.85) : BarTheme.accent
     }
 
     private static func makeChip(_ text: String) -> (NSView, NSTextField) {

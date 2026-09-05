@@ -157,7 +157,7 @@ final class ClipboardStore {
     func record(id: String, kind: Clipboard.Kind, items: [Item],
                 imageData: Data?, preview: String,
                 sourceBundleID: String?, sourceAppName: String?,
-                sourceHost: String? = nil) {
+                sourceHost: String? = nil, lines: Int? = nil, characters: Int? = nil) {
         guard let first = items.first else { return }
         var bytes = 0
         for item in items {
@@ -202,10 +202,107 @@ final class ClipboardStore {
             preview: preview, bytes: bytes,
             nativeTypes: first.natives.map(\.type),
             otherItemTypes: items.dropFirst().map { $0.natives.map(\.type) },
-            sourceHost: sourceHost
+            sourceHost: sourceHost, lines: lines, characters: characters
         )
         index.clips = Clipboard.merging(index.clips, with: clip)
         saveSoon()
+    }
+
+    // MARK: - Editing a card
+
+    /// A text card's whole text, for the clip door — the preview is cut
+    /// at its cap, and the door shows all of it.
+    func plainText(_ id: String) -> String? {
+        plainData(id).flatMap { String(data: $0, encoding: .utf8) }
+    }
+
+    /// The card replaced in place with new text: same position, same pin
+    /// slot, same age, a new id since the id is the content. Plain text
+    /// only — the original's richer forms described text that is gone.
+    /// The plain file is written before the index changes, synchronously:
+    /// the strip redraws from the index at once and a paste a keystroke
+    /// later reads the file, so the file cannot still be in flight.
+    /// Returns the card as it now stands, or nil when the card is gone
+    /// or the file could not be written.
+    @discardableResult
+    func replace(_ clip: Clipboard.Clip, withText text: String) -> Clipboard.Clip? {
+        guard let position = index.clips.firstIndex(where: { $0.id == clip.id }) else { return nil }
+        // The card as the index holds it now, not as the caller last saw
+        // it: a pin made since is the card's, and stays.
+        let live = index.clips[position]
+        let data = Data(text.utf8)
+        let newID = Self.identity(for: data)
+        guard newID != live.id else { return live }
+        do {
+            try data.write(to: itemFile(newID, item: 0, "plain"), options: .atomic)
+        } catch {
+            Log.error("clipboard: could not write the edited card (\(error))")
+            return nil
+        }
+        let counted = Clipboard.counts(of: text)
+        let replacement = Clipboard.Clip(
+            id: newID, kind: .text, created: live.created,
+            sourceBundleID: live.sourceBundleID, sourceAppName: live.sourceAppName,
+            preview: Clipboard.preview(of: text), bytes: data.count,
+            pinnedSlot: live.pinnedSlot, sourceHost: live.sourceHost,
+            lines: counted.lines, characters: counted.characters)
+        index.clips = Clipboard.replacing(index.clips, id: live.id, with: replacement)
+        removeFiles(of: live.id)
+        saveSoon()
+        return index.clips[position]
+    }
+
+    /// An edit kept as a new card at the top, the original left alone:
+    /// the escape ending. It carries the original's source, since that
+    /// is where the text came from. Nothing touches the pasteboard.
+    @discardableResult
+    func fileEdit(from clip: Clipboard.Clip, text: String) -> Clipboard.Clip? {
+        let data = Data(text.utf8)
+        guard !data.isEmpty else { return nil }
+        let newID = Self.identity(for: data)
+        do {
+            try data.write(to: itemFile(newID, item: 0, "plain"), options: .atomic)
+        } catch {
+            Log.error("clipboard: could not write the kept edit (\(error))")
+            return nil
+        }
+        let counted = Clipboard.counts(of: text)
+        let kept = Clipboard.Clip(
+            id: newID, kind: .text, created: Date(),
+            sourceBundleID: clip.sourceBundleID, sourceAppName: clip.sourceAppName,
+            preview: Clipboard.preview(of: text), bytes: data.count,
+            sourceHost: clip.sourceHost,
+            lines: counted.lines, characters: counted.characters)
+        index.clips = Clipboard.merging(index.clips, with: kept)
+        saveSoon()
+        return kept
+    }
+
+    /// Text cards recorded before the counts existed learn them once,
+    /// off the main thread, so every card can say when it is long.
+    func backfillCounts(limit: Int = 2000, completion: (() -> Void)? = nil) {
+        let ids = index.clips.filter { $0.kind == .text && $0.lines == nil }.prefix(limit).map(\.id)
+        guard !ids.isEmpty else { completion?(); return }
+        io.async { [weak self] in
+            guard let self else { return }
+            var counted: [String: (lines: Int, characters: Int)] = [:]
+            for id in ids {
+                guard let text = self.plainText(id) else { continue }
+                counted[id] = Clipboard.counts(of: text)
+            }
+            DispatchQueue.main.async {
+                for (position, clip) in self.index.clips.enumerated() {
+                    guard let counts = counted[clip.id] else { continue }
+                    self.index.clips[position].lines = counts.lines
+                    self.index.clips[position].characters = counts.characters
+                }
+                if !counted.isEmpty {
+                    Log.info("clipboard: counted \(counted.count) cards")
+                    self.saveSoon()
+                }
+                completion?()
+            }
+        }
     }
 
     /// Images that were on the strip before it could read them: captioned
@@ -348,6 +445,16 @@ final class ClipboardStore {
 
     func delete(_ id: String) {
         index.clips.removeAll { $0.id == id }
+        removeFiles(of: id)
+        saveSoon()
+    }
+
+    /// Wait for every file write queued so far — the tests' seam, so a
+    /// card seeded a moment ago is on disk before the door reads it.
+    func flushIO() { io.sync {} }
+
+    /// Every file a clip left behind, off the main thread.
+    private func removeFiles(of id: String) {
         thumbnails[id] = nil
         thumbnailOrder.removeAll { $0 == id }
         io.async { [items, thumbs] in
@@ -358,7 +465,6 @@ final class ClipboardStore {
             }
             try? fm.removeItem(at: thumbs.appendingPathComponent("\(id).png"))
         }
-        saveSoon()
     }
 
     /// True once, if a CLI clear happened while this process was running.

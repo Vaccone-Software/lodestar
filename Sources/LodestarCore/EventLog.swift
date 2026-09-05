@@ -136,6 +136,14 @@ public struct ObservationEvent: Codable, Equatable {
     public var words: Int?
     public var switches: Int?
     public var firstWord: Double?
+    /// The strip's search, measured at exit: how many cards answered the
+    /// query, how many recents were on show, how many exist, and — for a
+    /// paste from the search — how far down the history the card was.
+    /// Never the query.
+    public var matches: Int?
+    public var visible: Int?
+    public var recents: Int?
+    public var depth: Int?
     /// A focus event: the switch brought its window into view — placed
     /// from parked, minimized, or hidden — rather than focusing one that
     /// already stood on screen.

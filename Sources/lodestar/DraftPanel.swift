@@ -31,6 +31,20 @@ struct DraftView {
     let destination: (name: String, icon: NSImage?)?
     /// The origin field's text was pulled in, so ⏎ replaces it there.
     let replacing: Bool
+    /// The clip door: the card being edited stands on the register line
+    /// where the destination would, and there is no microphone.
+    struct Card {
+        let name: String
+        let icon: NSImage?
+        let detail: String
+    }
+    var card: Card? = nil
+    /// The panel's width, chosen once at open from the text; nil is the
+    /// draft's own.
+    var width: CGFloat? = nil
+    /// What the panel stands above — the strip's row of recents, while a
+    /// card is open over it.
+    var standsAbove: CGFloat = 0
 }
 
 /// The draft's glass: bottom center, fixed in place, growing upward with
@@ -169,6 +183,28 @@ final class DraftPanel {
 
     func hide() { panel.orderOut(nil) }
 
+    /// Where the panel stands and what its lines say, for the tests.
+    var frame: NSRect { panel.frame }
+    var registerText: String { registerName.stringValue }
+    var registerDetail: String { registerNote.stringValue }
+    var footerText: String { footer.stringValue }
+    var micVisible: Bool { !micButton.isHidden }
+
+    /// The width a text asks for: its longest line in the panel's face,
+    /// between the draft's own width and the screen. Prose stays at
+    /// reading width, code gets its columns. Measured once, at open, so
+    /// typing never resizes the panel.
+    func width(for text: String) -> CGFloat {
+        let screen = ActivePolicy.presentationFrame
+        var longest: CGFloat = 0
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            let measured = (String(line) as NSString).size(withAttributes: [.font: Self.font]).width
+            longest = max(longest, measured)
+        }
+        let asked = (longest + Self.padX * 2 + 8).rounded(.up)
+        return min(max(Self.width, asked), screen.width - Self.margin * 2)
+    }
+
     /// Where one visual line up or down from character `index` lands, by
     /// the same layout the screen shows — the eye's lines, not the
     /// file's. nil at the layout's edges, and while a ghost stands (its
@@ -195,7 +231,7 @@ final class DraftPanel {
 
     func show(_ view: DraftView) {
         let screen = ActivePolicy.presentationFrame
-        let width = min(Self.width, screen.width - Self.margin * 2)
+        let width = min(view.width ?? Self.width, screen.width - Self.margin * 2)
         let textWidth = width - Self.padX * 2
 
         // The text: settled before the cursor, the ghost dimmed at the
@@ -250,13 +286,19 @@ final class DraftPanel {
         textView.layoutManager?.ensureLayout(for: textView.textContainer!)
         let used = textView.layoutManager?.usedRect(for: textView.textContainer!).height ?? 0
         let lineHeight = textView.layoutManager?.defaultLineHeight(for: Self.font) ?? 22
-        let maxTextHeight = max(Self.minTextHeight, screen.height * 0.4)
+        // The text grows the panel to the display's visible height and
+        // scrolls past it — one rule for every door. A card opened to be
+        // read wants all of itself on screen, and a long dictation is no
+        // worse for the room.
+        let chrome = Self.registerHeight + Self.footerHeight + 14
+        let maxTextHeight = max(Self.minTextHeight,
+                                screen.height - view.standsAbove - Self.margin * 2 - chrome)
         let textHeight = min(maxTextHeight, max(Self.minTextHeight, used + lineHeight * 0.4))
         scroll.hasVerticalScroller = used > maxTextHeight
 
-        let height = Self.registerHeight + textHeight + Self.footerHeight + 14
+        let height = chrome + textHeight
         let frame = NSRect(x: screen.midX - width / 2,
-                           y: screen.minY + Self.margin,
+                           y: screen.minY + Self.margin + view.standsAbove,
                            width: width, height: height)
 
         NSAnimationContext.beginGrouping()
@@ -275,7 +317,14 @@ final class DraftPanel {
             v.frame = NSRect(x: x.rounded(), y: (centerY - h / 2).rounded(), width: w, height: h)
         }
         var x = Self.padX
-        if let destination = view.destination {
+        if let card = view.card {
+            // The card being edited, where the destination would stand:
+            // there is no destination, since nothing here pastes.
+            registerIcon.image = card.icon ?? NSImage(systemSymbolName: "doc.on.clipboard",
+                                                      accessibilityDescription: "clipboard")
+            registerIcon.contentTintColor = card.icon == nil ? .secondaryLabelColor : nil
+            registerName.stringValue = card.name
+        } else if let destination = view.destination {
             registerIcon.image = destination.icon
             registerIcon.contentTintColor = nil
             registerName.stringValue = destination.name
@@ -311,14 +360,20 @@ final class DraftPanel {
                                   accessibilityDescription: view.micOn ? "microphone on" : "microphone off")?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 14, weight: .medium))
         micButton.contentTintColor = micLive ? Self.live : .secondaryLabelColor
-        place(micButton, x: trailing - 20, width: 20, height: 20)
-        trailing -= 28
+        // The clip door has no microphone, and draws none: a glyph that
+        // could be clicked would promise what the door refuses.
+        let noMic = view.card != nil
+        micButton.isHidden = noMic
+        if !noMic {
+            place(micButton, x: trailing - 20, width: 20, height: 20)
+            trailing -= 28
+        }
         for (i, bar) in meterBars.enumerated() {
             let h = bar.frame.height
-            bar.isHidden = !listening
+            bar.isHidden = !listening || noMic
             place(bar, x: trailing - 3 - CGFloat(Self.meterCount - 1 - i) * 5, width: 3, height: h)
         }
-        if listening { trailing -= CGFloat(Self.meterCount) * 5 + 10 }
+        if listening, !noMic { trailing -= CGFloat(Self.meterCount) * 5 + 10 }
         setLevel(listening ? view.level : 0, live: micLive)
 
         // The input menu beside the meter it feeds, then whatever the
@@ -332,7 +387,7 @@ final class DraftPanel {
         }
         let chosenIndex = view.chosenInput.flatMap { view.inputs.firstIndex(of: $0) }.map { $0 + 1 } ?? 0
         if inputPopup.indexOfSelectedItem != chosenIndex { inputPopup.selectItem(at: chosenIndex) }
-        inputPopup.isHidden = view.speech == nil && !view.micOn
+        inputPopup.isHidden = (view.speech == nil && !view.micOn) || noMic
         // Sized to the title on show, not the longest item: the arrow
         // sits beside the name, not at the end of the widest device.
         let titleWidth = (inputPopup.titleOfSelectedItem ?? "").size(withAttributes: [.font: BarTheme.secondaryFont]).width
@@ -342,7 +397,7 @@ final class DraftPanel {
             trailing -= popupWidth + 8
         }
 
-        registerNote.stringValue = Self.note(for: view)
+        registerNote.stringValue = view.card?.detail ?? Self.note(for: view)
         registerNote.isHidden = registerNote.stringValue.isEmpty
         registerNote.sizeToFit()
         place(registerNote, x: x, width: max(0, min(registerNote.frame.width, trailing - x)), height: 15)
@@ -391,10 +446,12 @@ final class DraftPanel {
                 ? NSColor.labelColor.withAlphaComponent(0.35) : NSColor.labelColor).cgColor
         }
 
+        let commit = noMic ? "⏎ save to the card" : "⏎ paste"
+        let leave = noMic ? "esc back to the clipboard" : "esc close, kept in the clipboard"
         switch view.editor {
-        case .insert: footer.stringValue = "⏎ paste    ⇧⏎ new line    esc normal mode"
-        case .normal: footer.stringValue = "⏎ paste    i insert    esc close, kept in the clipboard"
-        case .visual: footer.stringValue = "⏎ paste    d c y on the selection    esc normal mode"
+        case .insert: footer.stringValue = "\(commit)    ⇧⏎ new line    esc normal mode"
+        case .normal: footer.stringValue = "\(commit)    i insert    \(leave)"
+        case .visual: footer.stringValue = "\(commit)    d c y on the selection    esc normal mode"
         }
         footer.sizeToFit()
         footer.frame = NSRect(x: Self.padX, y: 8, width: width - Self.padX * 2, height: 15)

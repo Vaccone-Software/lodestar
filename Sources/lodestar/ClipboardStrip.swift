@@ -62,11 +62,19 @@ final class ClipboardStrip {
     private static let gap: CGFloat = 10
     private static let searchHeight: CGFloat = 54
     private static let margin: CGFloat = 22
+    /// What stands above the row of recents: the clip door's floor.
+    static let rowHeight: CGFloat = cardHeight + gap
 
     var isVisible: Bool { panel.isVisible }
     /// Which label each visible recent card answers to, in order.
     private(set) var shownRecents: [Clipboard.Clip] = []
     private(set) var shownPins: [Int: Clipboard.Clip] = [:]
+    /// The pin column stepped aside for the clip door, since nothing in
+    /// it can be pressed while the door stands.
+    private(set) var pinsHidden = false
+    /// What each card said about its length, by clip id — the tests read
+    /// the badge the screen shows.
+    private(set) var shownBadges: [String: String] = [:]
 
     init() {
         panel = Glass.makePanel(level: .statusBar)
@@ -81,10 +89,13 @@ final class ClipboardStrip {
     /// thumbnails are already decoded.
     func show(recents: [Clipboard.Clip], pins: [Clipboard.Clip],
               thumbnail: (String) -> NSImage?,
-              band: Band, selection: Int, actingOn: String? = nil) {
+              band: Band, selection: Int, actingOn: String? = nil,
+              pinsHidden: Bool = false) {
         let query: String?
         if case .search(let text) = band { query = text } else { query = nil }
         let screen = ActivePolicy.presentationFrame
+        self.pinsHidden = pinsHidden
+        shownBadges = [:]
 
         // As many cards as the display can hold at a readable size, never
         // more than the alphabet — the guide panel already adapts this way.
@@ -111,7 +122,7 @@ final class ClipboardStrip {
         // Slots through the highest in use and one free one after it: the
         // next pin's number is visible, and four empty cards do not stand
         // for slots nobody has reached. Positions never move.
-        let drawnSlots = Clipboard.pinSlotsToDraw(taken: Set(shownPins.keys))
+        let drawnSlots = pinsHidden ? 0 : Clipboard.pinSlotsToDraw(taken: Set(shownPins.keys))
         let pinColumnHeight = CGFloat(drawnSlots) * (Self.cardHeight + Self.gap)
         let height = Self.cardHeight + Self.gap + pinColumnHeight
         let width = max(stripWidth, Self.cardWidth) + Self.margin * 2
@@ -189,7 +200,7 @@ final class ClipboardStrip {
         // Pins: climbing from the same corner, numbered and permanent. An
         // empty slot still draws, so the numbers are always visible and a
         // freed slot reads as reserved rather than missing.
-        for slot in 1...drawnSlots {
+        for slot in stride(from: 1, through: drawnSlots, by: 1) {
             let card: NSView
             if let clip = shownPins[slot] {
                 card = makeCard(clip: clip, label: address + "\(slot)", height: Self.cardHeight,
@@ -293,6 +304,19 @@ final class ClipboardStrip {
         age.sizeToFit()
         age.frame.origin = NSPoint(x: Self.cardWidth - age.frame.width - 11, y: 8)
         card.addSubview(age)
+
+        // A card that holds more than it shows says so, in the corner
+        // opposite the age, so the hand knows a card is worth opening
+        // before it opens it. A card that shows all of itself stays bare.
+        if let badge = Clipboard.lengthBadge(for: clip) {
+            shownBadges[clip.id] = badge
+            let length = NSTextField(labelWithString: badge)
+            length.font = .systemFont(ofSize: 10, weight: .medium)
+            length.textColor = .tertiaryLabelColor
+            length.sizeToFit()
+            length.frame.origin = NSPoint(x: 11, y: 8)
+            card.addSubview(length)
+        }
         return card
     }
 

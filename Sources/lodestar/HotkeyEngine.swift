@@ -130,20 +130,32 @@ final class HotkeyEngine {
     private let select: SelectController
     private let clipboard: ClipboardController
     private let draft: DraftController
-    private let strip = ClipboardStrip()
+    /// Internal for the tests, which read what the strip shows.
+    let strip = ClipboardStrip()
+    /// The grammar's state, for the tests.
+    var grammarState: EngineCore.State { core.state }
     private var pasteQuery: String?
     /// The strip's own observation: when it opened, when the hand first
     /// moved, what it typed, and how it ended. Counts and timings, never
-    /// a clip.
+    /// a clip. The search is measured too: how many cards answered the
+    /// last query, how many recents were on show, how many exist, and
+    /// how far down the history a card pasted from the search was —
+    /// which is what says whether search fails to find or fails to show.
     private struct StripSession {
         var openedAt: Date
         var firstKeyAt: Date?
         var typed = 0
         var outcome: (action: String, source: String?, row: String?, rank: Int?)?
+        var matches: Int?
+        var visible = 0
+        var recents = 0
+        var depth: Int?
     }
     private var stripSession: StripSession?
     private var pasteSelection = 0
     private var panelClip: Clipboard.Clip?
+    /// The card open in the clip door, lit on the strip beneath it.
+    private var doorClip: Clipboard.Clip?
     /// Live only while the strip is up; see `watchClicks`.
     private var clickMonitor: Any?
     private let badges = IndexBadges()
@@ -176,6 +188,10 @@ final class HotkeyEngine {
             guard let self else { return }
             self.lastActivityAt = self.clock.now()
         }
+        // The clip door's endings land in the history, never the pasteboard.
+        draft.replaceClip = { [weak self] clip, text in self?.clipboard.replaceText(of: clip, with: text) }
+        draft.fileClip = { [weak self] clip, text in self?.clipboard.fileEdit(of: clip, text: text) }
+        draft.onClipDoorClosed = { [weak self] in self?.clipDoorClosed() }
         applyGrammarConfig()
     }
 
@@ -491,6 +507,27 @@ final class HotkeyEngine {
             // stays up rather than being hidden with the other bars.
             return dispatch(core.openPaste(world: self), event: event)
         }
+        // The clip door: every unheld key is the draft's, and the strip
+        // beneath waits. A ⌘ chord the draft does not take is the strip's
+        // rule — the door closes with the edit kept, and the strip goes
+        // with it — and anything else it declines is swallowed, since it
+        // was aimed at a card under glass.
+        if case .pasteDoor = core.state, !held {
+            guard draft.isOpen else {
+                // The door failed to open and nobody said so: back to the strip.
+                clipDoorClosed()
+                return nil
+            }
+            lastActivityAt = clock.now()
+            let taken = draft.handleKey(key, shift: shift,
+                                        command: event.flags.contains(.maskCommand),
+                                        option: event.flags.contains(.maskAlternate),
+                                        control: event.flags.contains(.maskControl))
+            if !taken, event.flags.contains(.maskCommand) {
+                _ = apply(core.leaveDoor(reason: "command"), event: nil)
+            }
+            return nil
+        }
         // The draft reads its keys here, the way the strip does: never key,
         // so the app underneath keeps its cursor. Lode gestures pass on to
         // the engine untouched — `lode s` mid-draft summons Slack and the
@@ -702,6 +739,8 @@ final class HotkeyEngine {
                         rank: session.outcome?.rank, typed: session.typed,
                         seconds: now.timeIntervalSince(session.openedAt),
                         firstKey: session.firstKeyAt.map { $0.timeIntervalSince(session.openedAt) },
+                        matches: session.matches, visible: session.visible,
+                        recents: session.recents, depth: session.depth,
                         at: now)
                     stripSession = nil
                 }
@@ -776,6 +815,9 @@ final class HotkeyEngine {
                 if case .paste = core.state { renderStrip() }
             case .pastePanelAct(let panelAction):
                 performPanel(panelAction)
+            case .pasteDoorClose(let reason):
+                // Ended from outside its own two keys: as escape would.
+                draft.cancel(reason: reason)
             case .exitHints:
                 select.exit()
                 // The walk's inside step completes when the mode ends, by
@@ -1103,6 +1145,8 @@ final class HotkeyEngine {
             return "paste\(searching ? "(searching)" : "")"
         case .pastePanel:
             return "paste(panel)"
+        case .pasteDoor:
+            return "paste(door)"
         }
     }
 }
@@ -1135,7 +1179,7 @@ extension HotkeyEngine: EngineWorld {
     /// open and the new clip is simply the first one.
     private func refreshStripIfOpen() {
         switch core.state {
-        case .paste, .pastePanel: renderStrip()
+        case .paste, .pastePanel, .pasteDoor: renderStrip()
         default: break
         }
     }
@@ -1158,7 +1202,14 @@ extension HotkeyEngine: EngineWorld {
         }
         strip.show(recents: recents, pins: Clipboard.pins(all),
                    thumbnail: { [clipboard] id in clipboard.history.thumbnail(for: id) },
-                   band: band, selection: pasteSelection, actingOn: panelClip?.id)
+                   band: band, selection: pasteSelection,
+                   actingOn: panelClip?.id ?? doorClip?.id,
+                   pinsHidden: doorClip != nil)
+        // The search, measured: the last query's answer count stands
+        // until the strip closes, whichever way the band went.
+        if pasteQuery != nil { stripSession?.matches = recents.count }
+        stripSession?.visible = strip.shownRecents.count
+        stripSession?.recents = Clipboard.recents(all).count
     }
 
     /// The rare half of a card's life. The strip draws these beside the
@@ -1174,6 +1225,11 @@ extension HotkeyEngine: EngineWorld {
             label: clip.isPinned ? "Unpin" : "Pin",
             symbol: clip.isPinned ? "pin.slash" : "pin"
         )]
+        // Text cards open in the draft; a copy of files carries paths as
+        // its text, and an image has none.
+        if clip.isEditable {
+            actions.append(.init(key: "E", label: "Edit", symbol: "square.and.pencil"))
+        }
         if clip.kind == .image {
             actions.append(.init(key: "S", label: "Save to Downloads",
                                  symbol: "square.and.arrow.down"))
@@ -1206,6 +1262,7 @@ extension HotkeyEngine: EngineWorld {
         case .delete: verb = "delete"
         case .saveImage: verb = "save"
         case .excludeApp: verb = "exclude"
+        case .edit: verb = "edit"
         }
         let named = stripSession?.outcome
         stripSession?.outcome = ("acted", named?.source, verb, named?.rank)
@@ -1229,12 +1286,45 @@ extension HotkeyEngine: EngineWorld {
                 clipboard.excludedApps.insert(bundleID)
                 OffTap.run { [weak self] in self?.onExcludeApp?(bundleID) }
             }
+        case .edit:
+            openClipDoor(clip)
         }
         panelClip = nil
     }
 
     /// One card, one verb. A panel action leaves the strip up; a paste has
     /// already closed it by the time this runs.
+    /// The clip door: the card's whole text in the draft, standing above
+    /// the strip with the card lit beneath it and the pin column stepped
+    /// aside. What cannot open says why and leaves the strip as it was.
+    private func openClipDoor(_ clip: Clipboard.Clip) {
+        panelClip = nil
+        guard !draft.isOpen else {
+            hud.flash("✕ the draft is already open")
+            clipDoorClosed(); return
+        }
+        guard clip.isEditable, let text = clipboard.plainText(of: clip) else {
+            hud.flash("✕ that card cannot be opened here")
+            clipDoorClosed(); return
+        }
+        guard text.count <= DraftController.clipCap else {
+            hud.flash("✕ too much text to open here")
+            clipDoorClosed(); return
+        }
+        doorClip = clip
+        renderStrip()
+        draft.openClip(clip, text: text, standsAbove: ClipboardStrip.rowHeight)
+        Log.info("strip", ["door": "clip", "characters": text.count])
+    }
+
+    /// The door closed on its own keys, or never opened: the strip is
+    /// what the hand is looking at again, its search band as it was.
+    private func clipDoorClosed() {
+        doorClip = nil
+        core.doorClosed()
+        if case .paste = core.state { renderStrip() }
+    }
+
     private func actOnClip(_ clip: Clipboard.Clip?, action: PasteAction,
                            source: String, rank: Int?) {
         guard let clip else {
@@ -1247,6 +1337,12 @@ extension HotkeyEngine: EngineWorld {
         case .plain, .native:
             stripSession?.outcome = ("pasted", source,
                                      action == .native ? "native" : "plain", rank)
+            // A paste from the search says how deep the card was: the
+            // measure of what the nine visible recents could not show.
+            if source == "search" {
+                stripSession?.depth = Clipboard.recents(clipboard.history.clips)
+                    .firstIndex { $0.id == clip.id }
+            }
             strip.hide()
             clipboard.paste(clip, action: action)
         case .panel:

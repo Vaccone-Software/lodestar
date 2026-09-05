@@ -101,6 +101,11 @@ public enum EngineEffect: Equatable {
     case pastePanelShow
     case pastePanelDismiss
     case pastePanelAct(PanelAction)
+    /// The clip door closes from outside its own two keys — a lode verb,
+    /// a ⌘ chord, a click elsewhere, the strip's toggle. The shell ends
+    /// it the way escape would: changed text is kept as a new card. The
+    /// reason is for the record.
+    case pasteDoorClose(reason: String)
 }
 
 public extension EngineEffect {
@@ -141,6 +146,9 @@ public enum SearchDeletion: Equatable {
 /// The rare half of a card's life, kept off the hot path deliberately.
 public enum PanelAction: Equatable {
     case pin, delete, saveImage, excludeApp
+    /// Open the card's text in the draft, silent: read it large, edit it,
+    /// `⏎` saves it to the card and `esc` steps back to the strip.
+    case edit
 }
 
 /// The world as the grammar sees it: queries about what is visible, and
@@ -201,6 +209,17 @@ public struct EngineCore {
         /// flag carries where to return — closing a panel opened mid-search
         /// must not silently drop you out of the search.
         case pastePanel(searching: Bool)
+        /// A card is open in the draft above the strip. Every unheld key
+        /// is the draft's, fed by the shell before the grammar sees it;
+        /// the grammar keeps only the held keys and the way back.
+        case pasteDoor(searching: Bool)
+    }
+
+    /// The clip door closed on its own two keys — `⏎` saved, `esc`
+    /// stepped back — and the strip is what the hand is looking at again,
+    /// with the search band as it was. A no-op from any other state.
+    public mutating func doorClosed() {
+        if case .pasteDoor(let searching) = state { state = .paste(searching: searching) }
     }
 
     /// The shell found no card behind the label ⌘ named. Without this the
@@ -221,6 +240,9 @@ public struct EngineCore {
             // would silently reset the search the panel rode in on.
             state = .idle
             return [.exitPaste]
+        case .pasteDoor:
+            state = .idle
+            return [.pasteDoorClose(reason: "toggle"), .exitPaste]
         default:
             break
         }
@@ -237,9 +259,22 @@ public struct EngineCore {
         case .paste, .pastePanel:
             state = .idle
             return [.pastePanelDismiss, .exitPaste]
+        case .pasteDoor:
+            return leaveDoor(reason: "click")
         default:
             return []
         }
+    }
+
+    /// The clip door ended from outside its own two keys — a click
+    /// elsewhere, or a ⌘ chord the draft did not take, which is the
+    /// strip's own rule: reaching for the app's shortcut says the strip
+    /// is no longer what you are working in. The door closes with the
+    /// edit kept, and the strip goes with it.
+    public mutating func leaveDoor(reason: String) -> [EngineEffect] {
+        guard case .pasteDoor = state else { return [] }
+        state = .idle
+        return [.pasteDoorClose(reason: reason), .pastePanelDismiss, .exitPaste]
     }
 
     public private(set) var state: State = .idle
@@ -290,6 +325,7 @@ public struct EngineCore {
         case .hints: effects = [.exitHints]
         case .select: effects = [.exitSelect]
         case .paste, .pastePanel: effects = [.exitPaste]
+        case .pasteDoor: effects = [.pasteDoorClose(reason: "reset"), .exitPaste]
         }
         state = .idle
         return effects
@@ -377,6 +413,8 @@ public struct EngineCore {
         case .pastePanel(let searching):
             return pastePanelPress(key: key, held: held, shift: shift,
                                    searching: searching, world: world)
+        case .pasteDoor:
+            return pasteDoorPress(key: key, held: held, shift: shift, world: world)
         }
     }
 
@@ -927,10 +965,37 @@ public struct EngineCore {
         case "d": action = .delete
         case "s": action = .saveImage
         case "x": action = .excludeApp
+        case "e":
+            // The door stands above the strip, and the strip waits: the
+            // shell feeds the draft until it closes and then says so
+            // (`doorClosed`), which is what brings the search band back
+            // exactly as it was.
+            state = .pasteDoor(searching: searching)
+            return [.pastePanelAct(.edit), .pastePanelDismiss]
         default: return []
         }
         state = .paste(searching: searching)
         return [.pastePanelAct(action!), .pastePanelDismiss]
+    }
+
+    /// The clip door: the draft owns every unheld key, so only held ones
+    /// reach the grammar. `lode .` would open the microphone in any
+    /// other draft; this one has none, and says so rather than doing
+    /// nothing. Any other lode verb ends the door the way escape would,
+    /// takes the strip down with it, and executes — the bargain the
+    /// strip already makes.
+    private mutating func pasteDoorPress(key: String, held: Bool, shift: Bool,
+                                         world: EngineWorld) -> [EngineEffect] {
+        guard held else { return [] } // the draft's; swallowed if it reaches here
+        if key == "." {
+            return shift ? [] : [.flash("the clipboard view has no microphone")]
+        }
+        state = .idle
+        var effects: [EngineEffect] = [.pasteDoorClose(reason: "lode"), .exitPaste]
+        if key != "escape" {
+            effects.append(contentsOf: idlePress(key: key, shift: shift, world: world))
+        }
+        return effects
     }
 
     // MARK: - Small helpers

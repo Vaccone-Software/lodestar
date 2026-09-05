@@ -182,6 +182,10 @@ final class Stage {
     let commandsBar = FakeBar()
     let speech = FakeSpeech()
     let draft: DraftController
+    /// The real clipboard history, on a store in the stage's own directory.
+    let clipboard: ClipboardController
+    /// Every paste the strip landed: the keystroke, never the system.
+    private(set) var stripPastes = 0
     /// Every keystroke the draft posted to the system (⌘V, ⌘A).
     var posted: [(key: String, flags: CGEventFlags)] = []
     /// Every pasteboard write the draft made.
@@ -257,6 +261,11 @@ final class Stage {
         let model = WindowModel()
         let clipboard = ClipboardController(
             store: ClipboardStore(root: directory.appendingPathComponent("clipboard")))
+        // A private board and a counted keystroke: a test that pasted into
+        // the general pasteboard and posted ⌘V would type into whatever
+        // the machine had focused.
+        clipboard.pasteboard = NSPasteboard(name: NSPasteboard.Name("lodestar-stage-\(UUID().uuidString)"))
+        self.clipboard = clipboard
         scroller = ScrollController(model: model)
         draft = DraftController(speech: speech, clock: clock.clock)
         engine = HotkeyEngine(config: config, actions: actions, hud: hud,
@@ -277,6 +286,8 @@ final class Stage {
         }
         actions.coachBoundary = { [unowned self] app in self.coach.noteBoundary(app: app) }
         scroller.sink = { [unowned self] dx, dy in self.wheel.append((dx, dy)) }
+        clipboard.postPaste = { [unowned self] in self.stripPastes += 1 }
+        clipboard.flash = { [unowned self] text in self.hud.flash(text) }
         draft.observations = observations
         draft.flash = { [unowned self] text in self.hud.flash(text) }
         draft.frontmost = { [unowned self] in
@@ -416,6 +427,47 @@ final class Stage {
         let swallowed = send(event(type: .keyDown, keycode: code, flags: .maskAlternate, posted: false))
         send(event(type: .keyUp, keycode: code, flags: .maskAlternate, posted: false))
         return swallowed
+    }
+
+    /// A key under any modifiers, lode up: ⌥⌘A addresses a card's
+    /// actions mid-search.
+    @discardableResult
+    func chord(_ name: String, _ flags: CGEventFlags) -> Bool {
+        let code = Self.keycode(name)
+        let swallowed = send(event(type: .keyDown, keycode: code, flags: flags, posted: false))
+        send(event(type: .keyUp, keycode: code, flags: flags, posted: false))
+        return swallowed
+    }
+
+    /// ⇧⌘V: the strip's own trigger, the one that lives outside lode.
+    @discardableResult
+    func openStrip() -> Bool { chord("v", [.maskShift, .maskCommand]) }
+
+    // MARK: - The clipboard
+
+    /// A text card in the history, its file on disk before the test goes
+    /// on: the door reads the file, and the store writes it off the main
+    /// thread. Newest first, as copies are.
+    @discardableResult
+    func seedClip(_ text: String, app: String? = "Example", bundle: String? = "com.example",
+                  host: String? = nil, counted: Bool = true) -> Clipboard.Clip {
+        let data = Data(text.utf8)
+        let id = ClipboardStore.identity(for: data)
+        let counts = counted ? Clipboard.counts(of: text) : nil
+        clipboard.history.record(id: id, kind: .text,
+                                 items: [.init(plain: data, natives: [])],
+                                 imageData: nil, preview: Clipboard.preview(of: text),
+                                 sourceBundleID: bundle, sourceAppName: app, sourceHost: host,
+                                 lines: counts?.lines, characters: counts?.characters)
+        clipboard.history.flushIO()
+        return clipboard.history.clips.first { $0.id == id }!
+    }
+
+    /// The last strip record the store wrote.
+    var lastPaste: ObservationEvent? {
+        observations.flush()
+        return observations.log.recent(days: 30, now: clock.now.addingTimeInterval(1))
+            .last { $0.kind == .paste }
     }
 
     /// A ⌘ chord with lode up — what the draft lets through or takes.

@@ -56,6 +56,15 @@ final class DraftController {
     /// and the next boot returns the rest via the pasteboard.
     var stash: ((String?) -> Void)?
     private var stashWork: DispatchWorkItem?
+    /// The clip door's two endings, into the history: the card replaced
+    /// in place (`⏎`), or the edit kept as a new card (`esc`, or any
+    /// other way out). The door never touches the pasteboard; the strip
+    /// is the only paste surface.
+    var replaceClip: ((Clipboard.Clip, String) -> Void)?
+    var fileClip: ((Clipboard.Clip, String) -> Void)?
+    /// The clip door closed, whichever way, and the strip is what the
+    /// hand is looking at again.
+    var onClipDoorClosed: (() -> Void)?
     let clock: Clock
 
     struct Destination: Equatable {
@@ -113,6 +122,13 @@ final class DraftController {
     /// previous draft's and never lands in this one.
     private var session = 0
     private var origin: Origin?
+    /// The card the clip door is editing, and its text as it was, so the
+    /// ending can tell an edit from a read.
+    private var clipOrigin: (clip: Clipboard.Clip, original: String)?
+    /// The clip door's geometry: the width the text asked for at open,
+    /// and what the panel stands above (the strip's row of recents).
+    private var doorWidth: CGFloat?
+    private var standsAbove: CGFloat = 0
     private var closing = false
     private var pendingSettle: (() -> Void)?
     /// The word that runs if the recognizer never says it is listening:
@@ -164,6 +180,13 @@ final class DraftController {
     /// not a document, and the panel lays the whole text out on every
     /// key.
     static let pullCap = 20_000
+    /// A card past this is refused by the clip door: the editor is a pure
+    /// machine over an array of characters and the panel lays the whole
+    /// text out, and a quarter of a megabyte is where that stops being a
+    /// beat. Three cards in a year's history are past it.
+    static let clipCap = 250_000
+    /// The card being edited, for the shell and the tests.
+    var editingClip: Clipboard.Clip? { clipOrigin?.clip }
     /// A paste was refused for its size; the next flash says so instead
     /// of the editor's "nothing to paste".
     private var pasteRefused = false
@@ -228,6 +251,7 @@ final class DraftController {
         out["cursor"] = buffer.cursor
         out["ghost"] = buffer.ghost
         out["mode"] = mode == .insert ? "insert" : "normal"
+        out["door"] = door.rawValue
         switch vim.mode {
         case .insert: out["editor"] = "insert"
         case .normal: out["editor"] = "normal"
@@ -310,22 +334,63 @@ final class DraftController {
         case .speak:
             micWanted = true
             startListening()
-        case .edit:
+        case .edit, .clip:
+            // The clip door never opens here — it has its own opening,
+            // with a card's text — but it is silent all the same.
             micWanted = false
         }
         Log.info("draft", ["open": door.rawValue, "pulled": pulled, "whole": whole])
         render()
     }
 
+    /// The clip door: a card's whole text, silent, the cursor at the top,
+    /// standing above the strip's row of recents. There is no microphone
+    /// here — opening one flips a Bluetooth headset to its telephone
+    /// profile and pauses music, and a stray `lode .` over something
+    /// being read must never do that. `⏎` saves to the card, `esc` steps
+    /// back to the strip, and neither touches the pasteboard.
+    func openClip(_ clip: Clipboard.Clip, text: String, standsAbove: CGFloat) {
+        guard !isOpen else { return }
+        isOpen = true
+        closing = false
+        door = .clip
+        clipOrigin = (clip, text)
+        buffer = Draft.Buffer(text: text, cursor: 0)
+        vim = Vim()
+        vim.visualLine = { [weak self] buffer, index, down in
+            self?.panel.visualMove(from: index, down: down, in: buffer)
+        }
+        speechState = nil
+        listening = false
+        provisional = nil
+        origin = nil
+        micWanted = false
+        self.standsAbove = standsAbove
+        doorWidth = panel.width(for: text)
+        openedAt = clock.now()
+        typedCharacters = 0; spokenWords = 0; backspaces = 0; modeSwitches = 0
+        firstKeyAt = nil; firstWordAt = nil
+        mode = .insert
+        vim.startInsert(buffer)
+        Log.info("draft", ["open": Draft.Door.clip.rawValue, "characters": text.count])
+        render()
+    }
+
     /// The door keys inside the bar set posture, idempotently.
     func posture(door: Draft.Door) {
         guard isOpen else { open(door: door); return }
+        // The clip door has no microphone to set: `lode .` says so, and
+        // `lode ⇧.` asks for the silence it already has.
+        if self.door == .clip {
+            if door == .speak { flash?("the clipboard view has no microphone") }
+            return
+        }
         switch door {
         case .speak:
             micWanted = true
             if !sessionStarted { startListening() }
             if mode != .insert { setMode(.insert) } else { resumeIfWanted() }
-        case .edit:
+        case .edit, .clip:
             // The silent posture: the mic stops writing, the mode stays.
             micWanted = false
             pauseSpeech()
@@ -730,6 +795,7 @@ final class DraftController {
     func commit() {
         guard isOpen, !closing else { return }
         closing = true
+        if clipOrigin != nil { landClip(exit: "return", commit: true); return }
         let finish = { [weak self] in self?.land() }
         if sessionStarted, listening, mode == .insert, micWanted {
             // A ghost with no final behind it settles as what it was.
@@ -819,6 +885,7 @@ final class DraftController {
     func cancel(reason: String) {
         guard isOpen, !closing else { return }
         closing = true
+        if clipOrigin != nil { landClip(exit: reason, commit: false); return }
         if sessionStarted { speech.stop {} }
         let text = buffer.text + (buffer.ghost.isEmpty ? "" : Draft.separator(after: buffer.characters, before: buffer.ghost) + buffer.ghost)
         let destination = frontmost()
@@ -830,8 +897,32 @@ final class DraftController {
         record(action: text.isEmpty ? "empty" : "cancelled", row: reason, destination: destination)
     }
 
+    /// The clip door's ending, into the history and never the pasteboard.
+    /// `⏎` with changed text replaces the card in place; any other way
+    /// out with changed text keeps the edit as a new card, because an
+    /// edit lost to a reflexive escape is the worse failure; unchanged
+    /// text writes nothing either way.
+    private func landClip(exit: String, commit: Bool) {
+        guard let origin = clipOrigin else { return }
+        let text = buffer.text
+        let outcome = Draft.clipOutcome(original: origin.original, current: text, commit: commit)
+        switch outcome {
+        case .unchanged: break
+        case .saved: replaceClip?(origin.clip, text)
+        case .kept: fileClip?(origin.clip, text)
+        case .empty: flash?("✕ an empty card is not saved, the card is unchanged")
+        }
+        close()
+        record(action: outcome.rawValue, row: exit, destination: nil)
+        Log.info("draft", ["clip": outcome.rawValue, "exit": exit])
+        onClipDoorClosed?()
+    }
+
     private func close() {
         isOpen = false
+        clipOrigin = nil
+        doorWidth = nil
+        standsAbove = 0
         landBackstop?.cancel()
         landBackstop = nil
         listenWatchdog?.cancel()
@@ -867,7 +958,10 @@ final class DraftController {
 
     private func render() {
         guard isOpen else { return }
-        if stash != nil {
+        // The clip door stashes nothing: its text is already a card, and a
+        // stash returned via the pasteboard at the next boot would put it
+        // there, which the door promises never to do.
+        if stash != nil, clipOrigin == nil {
             stashWork?.cancel()
             let work = DispatchWorkItem { [weak self] in
                 guard let self, self.isOpen else { return }
@@ -878,14 +972,28 @@ final class DraftController {
             clock.after(0.5, work)
         }
         let front = frontmost()
+        let card: DraftView.Card? = clipOrigin.map { origin in
+            let age = Clipboard.age(of: origin.clip)
+            let detail = [origin.clip.sourceHost, age == "now" ? "just now" : "\(age) ago"]
+                .compactMap { $0 }.joined(separator: " · ")
+            return DraftView.Card(name: origin.clip.sourceAppName ?? "Clipboard",
+                                  icon: origin.clip.sourceBundleID.flatMap(Self.appIcon),
+                                  detail: detail)
+        }
         panel.show(DraftView(
             buffer: buffer, mode: mode, editor: vim.mode, selection: vim.selection(in: buffer),
             findTargets: vim.pendingFind.map { Vim.findTargets(kind: $0, in: buffer) } ?? [],
             pending: vim.isPending, speech: speechState, input: inputName, level: level,
             inputs: inputs, systemInput: systemInputName, chosenInput: inputDevice,
             micOn: micWanted,
-            destination: front.map { ($0.name, $0.icon) },
-            replacing: (origin?.pulled ?? false) && front?.pid == origin?.pid))
+            destination: card == nil ? front.map { ($0.name, $0.icon) } : nil,
+            replacing: (origin?.pulled ?? false) && front?.pid == origin?.pid,
+            card: card, width: doorWidth, standsAbove: standsAbove))
+    }
+
+    private static func appIcon(_ bundleID: String) -> NSImage? {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
+            .map { NSWorkspace.shared.icon(forFile: $0.path) }
     }
 
     /// The destination follows focus; redraw when it moves.

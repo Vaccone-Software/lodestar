@@ -25,6 +25,11 @@ final class ClipboardController {
     var flash: (String) -> Void = { _ in }
     /// Fired after a clip is recorded, so an open strip can show it at once.
     var onCapture: (() -> Void)?
+    /// The board a paste writes and the keystroke that lands it — the
+    /// system's, except on the stage, where a test must never paste into
+    /// whatever window the machine has focused.
+    var pasteboard: NSPasteboard = .general
+    lazy var postPaste: () -> Void = { [weak self] in self?.synthesizePaste() }
     var excludedApps: Set<String> = []
     var excludedPatterns: [String] = []
     var maxBytes = 500_000_000
@@ -73,6 +78,7 @@ final class ClipboardController {
         // once, well after boot has settled and off the main thread.
         DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in
             self?.store.captionImagesLackingText()
+            self?.store.backfillCounts()
         }
     }
 
@@ -203,12 +209,16 @@ final class ClipboardController {
         // that did not come from a page.
         let sourceHost = Clipboard.sourceHost(fromURL: boardItems[0].string(
             forType: NSPasteboard.PasteboardType(Clipboard.sourceURLType)))
+        // How long the text is, said once at capture so the card can say
+        // when it holds more than it shows.
+        let counted = imageData == nil ? Clipboard.counts(of: readable) : nil
         store.record(id: id, kind: imageData != nil ? .image : .text,
                      items: items, imageData: imageData,
                      preview: preview,
                      sourceBundleID: source?.bundleIdentifier,
                      sourceAppName: source?.localizedName,
-                     sourceHost: sourceHost)
+                     sourceHost: sourceHost,
+                     lines: counted?.lines, characters: counted?.characters)
         store.trim(maxBytes: maxBytes, maxItems: maxItems)
         onCapture?()
     }
@@ -226,7 +236,7 @@ final class ClipboardController {
         // from `nativeData`, each paying the read again — for an image
         // near the size ceiling, tens of megabytes re-read inside the tap.
         let stored = store.itemData(clip)
-        let board = NSPasteboard.general
+        let board = pasteboard
         board.clearContents()
 
         // One board item per item copied, so three copied files arrive as
@@ -293,7 +303,7 @@ final class ClipboardController {
             flash("press ⌃V to paste, that image could not be written to a file")
             return
         }
-        synthesizePaste()
+        postPaste()
     }
 
     /// The clip as a real PNG on disk — what a terminal can paste and what
@@ -388,6 +398,30 @@ final class ClipboardController {
             flash("⌂ saved to Downloads")
         } catch {
             flash("✕ could not save the image")
+        }
+    }
+
+    /// The card's whole text, for the clip door.
+    func plainText(of clip: Clipboard.Clip) -> String? {
+        store.plainText(clip.id)
+    }
+
+    /// `⏎` in the clip door with changed text: the card replaced in place.
+    func replaceText(of clip: Clipboard.Clip, with text: String) {
+        if store.replace(clip, withText: text) != nil {
+            flash("⌂ saved to the card")
+        } else {
+            flash("✕ the card could not be saved")
+        }
+    }
+
+    /// `esc` in the clip door with changed text: kept as a new card, the
+    /// original left alone.
+    func fileEdit(of clip: Clipboard.Clip, text: String) {
+        if store.fileEdit(from: clip, text: text) != nil {
+            flash("⌂ edit kept as a new card")
+        } else {
+            flash("✕ the edit could not be kept")
         }
     }
 

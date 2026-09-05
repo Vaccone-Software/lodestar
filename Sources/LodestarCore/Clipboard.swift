@@ -46,12 +46,19 @@ public enum Clipboard {
         /// source-url type Chromium puts beside every copy. Never the path,
         /// and absent for every clip that did not come from a page.
         public var sourceHost: String?
+        /// How long the text is, in lines and characters, so a card can
+        /// say when it holds more than it shows. Optional because clips
+        /// recorded before the counts existed decode without them and are
+        /// counted once, later, off the main thread.
+        public var lines: Int?
+        public var characters: Int?
 
         public init(id: String, kind: Kind, created: Date,
                     sourceBundleID: String?, sourceAppName: String?,
                     preview: String, bytes: Int,
                     nativeTypes: [String] = [], otherItemTypes: [[String]] = [],
-                    pinnedSlot: Int? = nil, sourceHost: String? = nil) {
+                    pinnedSlot: Int? = nil, sourceHost: String? = nil,
+                    lines: Int? = nil, characters: Int? = nil) {
             self.id = id
             self.kind = kind
             self.created = created
@@ -60,6 +67,8 @@ public enum Clipboard {
             self.preview = preview
             self.bytes = bytes
             self.sourceHost = sourceHost
+            self.lines = lines
+            self.characters = characters
             self.nativeTypes = nativeTypes
             // Absent rather than empty for the single-item copy, which is
             // almost every copy: the index is rewritten on a timer for the
@@ -81,6 +90,74 @@ public enum Clipboard {
         /// of one thing. Files by name, because a copy of several things
         /// usually is files and "3 files" is what the hand remembers doing.
         public var itemsLabel: String? { Clipboard.itemsLabel(itemTypes: itemTypes) }
+        /// A card whose text can be opened in the draft and edited: one
+        /// text item that is the text itself. A copy of files carries its
+        /// paths as its plain form, and editing a path is not editing the
+        /// copy; an image has no text to edit.
+        public var isEditable: Bool {
+            kind == .text && itemCount == 1 && !nativeTypes.contains(Clipboard.fileURLType)
+        }
+    }
+
+    // MARK: - How long a clip is
+
+    /// The text's length as the card states it.
+    public static func counts(of text: String) -> (lines: Int, characters: Int) {
+        var lines = 1
+        for character in text where character == "\n" { lines += 1 }
+        return (lines, text.count)
+    }
+
+    /// What the card shows past its five lines. The card draws about 220
+    /// characters, so the badge appears only when the text runs past what
+    /// is drawn — and then it says lines for prose and code, characters
+    /// for the one long line a URL or a paragraph is. Nil for a card that
+    /// shows all of itself, which must stay unadorned: the badge is a
+    /// signal, and a signal on every card is furniture.
+    public static let cardCharacters = 220
+    public static let cardLines = 5
+
+    public static func lengthBadge(lines: Int?, characters: Int?) -> String? {
+        guard let lines, let characters else { return nil }
+        guard lines > cardLines || characters > cardCharacters else { return nil }
+        if lines > 1 { return "\(lines) lines" }
+        return "\(compact(characters)) chars"
+    }
+
+    /// The badge for a card, from its counts when it has them and from
+    /// the preview when it does not — a preview cut at the cap means the
+    /// text is at least that long, and the badge says so.
+    public static func lengthBadge(for clip: Clip) -> String? {
+        if let lines = clip.lines, let characters = clip.characters {
+            return lengthBadge(lines: lines, characters: characters)
+        }
+        guard clip.kind == .text else { return nil }
+        let counted = counts(of: clip.preview)
+        return lengthBadge(lines: counted.lines, characters: counted.characters)
+    }
+
+    static func compact(_ n: Int) -> String {
+        if n < 1000 { return "\(n)" }
+        if n < 100_000 {
+            let tenths = (Double(n) / 100).rounded() / 10
+            return tenths == tenths.rounded() ? "\(Int(tenths))k" : String(format: "%.1fk", tenths)
+        }
+        return "\(n / 1000)k"
+    }
+
+    // MARK: - Editing a card
+
+    /// A card replaced in place: the same position, the same pin slot,
+    /// the same age. The edit is the card's text, not a new copy, which
+    /// is why nothing moves — `merging` would have put it at the top.
+    /// A replacement for an id that is not there changes nothing.
+    public static func replacing(_ clips: [Clip], id: String, with replacement: Clip) -> [Clip] {
+        guard let position = clips.firstIndex(where: { $0.id == id }) else { return clips }
+        var out = clips
+        var kept = replacement
+        kept.pinnedSlot = clips[position].pinnedSlot
+        out[position] = kept
+        return out
     }
 
     // MARK: - What may be recorded

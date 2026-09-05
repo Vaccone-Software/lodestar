@@ -11,9 +11,11 @@ import Foundation
 /// draws what it holds.
 public enum Draft {
     /// Which door opened it. Speak opens listening in insert mode; edit
-    /// opens silent in normal mode with the field's text pulled in.
+    /// opens silent in insert mode with the field's text pulled in; clip
+    /// opens silent with a clipboard card's text, and ends in the card
+    /// rather than in an app.
     public enum Door: String, Equatable, Codable, Sendable {
-        case speak, edit
+        case speak, edit, clip
     }
 
     public enum Mode: Equatable, Sendable {
@@ -294,6 +296,32 @@ public enum Draft {
                               pulledFromOrigin: Bool) -> Ending {
         guard hasDestination else { return .clipboard }
         return destinationIsOrigin && pulledFromOrigin ? .replace : .paste
+    }
+
+    // MARK: - The clip door's ending
+
+    /// How the clip door ends. It never touches the pasteboard: the strip
+    /// is the only paste surface, and the door edits a card.
+    public enum ClipOutcome: String, Equatable, Sendable {
+        /// The text is as it was: nothing is written, whichever key ended it.
+        case unchanged
+        /// `⏎` with changed text: the card is replaced in place.
+        case saved
+        /// `esc` (or anything else) with changed text: the edit is filed
+        /// as a new card and the original is left alone — an edit lost to
+        /// a reflexive escape is the worse failure.
+        case kept
+        /// Everything was deleted: an empty card is not a card, so the
+        /// original stands and nothing is written.
+        case empty
+    }
+
+    public static func clipOutcome(original: String, current: String, commit: Bool) -> ClipOutcome {
+        if current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return original.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .unchanged : .empty
+        }
+        if current == original { return .unchanged }
+        return commit ? .saved : .kept
     }
 
     // MARK: - Vocabulary

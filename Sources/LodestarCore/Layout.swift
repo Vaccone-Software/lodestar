@@ -447,12 +447,39 @@ public final class LayoutController {
             moves.append((window, frame))
         }
         let members = layout.members
+        let placed = moves.map { (id: $0.0.id, slice: $0.1) }
         perform(moves: moves) { [weak self] in
             guard let self, self.retileGenerations[display] == generation else { return }
             for id in members { self.model.refreshFrame(id) }
+            self.settle(placed, on: display, generation: generation)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
                 self?.correctivePass(on: display, generation: generation)
             }
+        }
+    }
+
+    /// A member that could not fill its slice is centered in it. The
+    /// frames were just read back, so this sees what each window actually
+    /// took — System Settings clamps its width inside the size write, so
+    /// the read that follows already says so — and the position writes
+    /// ride the lane behind the moves. Runs again from the corrective
+    /// pass, which is what catches a window that answered late, either
+    /// way: one that shrank after the read is centered then, one that
+    /// grew to its edge from a centered origin is put back at the edge.
+    private func settle(_ placed: [(id: CGWindowID, slice: CGRect)],
+                        on display: CGDirectDisplayID, generation: Int) {
+        var moves: [(WindowModel.Window, CGPoint)] = []
+        for (id, slice) in placed {
+            guard let window = model.window(id), window.isAlive,
+                  let origin = Tiling.settledOrigin(of: window.frame, in: slice) else { continue }
+            moves.append((window, origin))
+        }
+        guard !moves.isEmpty else { return }
+        let ids = moves.map { $0.0.id }
+        Log.info("layout-centered", ["display": display, "windows": ids])
+        perform(positions: moves) { [weak self] in
+            guard let self, self.retileGenerations[display] == generation else { return }
+            for id in ids { self.model.refreshFrame(id) }
         }
     }
 
@@ -489,9 +516,31 @@ public final class LayoutController {
         }
     }
 
+    /// Position writes on the same lane, in the same order, as the frame
+    /// writes they follow. Not reported to `onMoves`: a settle is the
+    /// tail of a retile, not a retile, and the instrument times batches.
+    private func perform(positions: [(WindowModel.Window, CGPoint)],
+                         completion: @escaping () -> Void) {
+        guard let moveQueue else {
+            for (window, point) in positions { mover.setPosition(window, point) }
+            completion()
+            return
+        }
+        moveQueue.async { [mover] in
+            for (window, point) in positions { mover.setPosition(window, point) }
+            DispatchQueue.main.async(execute: completion)
+        }
+    }
+
+    /// The pass a retile schedules a beat after its moves, callable at
+    /// once: the tests' world has no run loop to wait on.
+    func runCorrectivePass(on display: CGDirectDisplayID) {
+        correctivePass(on: display, generation: retileGenerations[display] ?? 0)
+    }
+
     private func correctivePass(on display: CGDirectDisplayID, generation: Int) {
         guard retileGenerations[display] == generation,
-              let layout = layouts[display], layout.members.count > 1 else { return }
+              let layout = layouts[display], !layout.members.isEmpty else { return }
         for id in layout.members { model.refreshFrame(id) }
         let alive = layout.members.compactMap { model.window($0) }.filter(\.isAlive)
         guard alive.count == layout.members.count else { return }
@@ -515,10 +564,15 @@ public final class LayoutController {
                 flexibleCount += 1
             }
         }
-        guard flexibleCount > 0, flexibleCount < alive.count else { return }
         let total = horizontal ? bounds.width : bounds.height
-        let flexibleSpan = (total - stubbornTotal) / CGFloat(flexibleCount)
-        guard flexibleSpan >= 120 else { return }
+        let flexibleSpan = flexibleCount > 0 ? (total - stubbornTotal) / CGFloat(flexibleCount) : 0
+        guard flexibleCount > 0, flexibleCount < alive.count, flexibleSpan >= 120 else {
+            // Nothing to absorb: the cut stands, and whatever answered
+            // late is settled against it.
+            settle(zip(alive, requested).map { (id: $0.id, slice: $1) },
+                   on: display, generation: generation)
+            return
+        }
 
         var cursor = horizontal ? bounds.minX : bounds.minY
         var moves: [(WindowModel.Window, CGRect)] = []
@@ -531,9 +585,11 @@ public final class LayoutController {
             cursor += span
         }
         let members = layout.members
+        let corrected = moves.map { (id: $0.0.id, slice: $0.1) }
         perform(moves: moves) { [weak self] in
             guard let self, self.retileGenerations[display] == generation else { return }
             for id in members { self.model.refreshFrame(id) }
+            self.settle(corrected, on: display, generation: generation)
         }
         Log.info("layout-corrective", ["display": display, "absorbed": alive.count - flexibleCount])
     }
@@ -569,7 +625,7 @@ public final class LayoutController {
             guard let window = model.window(id), window.isAlive else { return nil }
             return (id, window.frame)
         }
-        return Tiling.indexOrder(entries)
+        return Tiling.indexOrder(entries, orientation: orientation(on: display))
     }
 
     /// All members everywhere, display by display left to right, position-

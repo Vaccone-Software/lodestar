@@ -28,17 +28,33 @@ private final class FakeWindows: WindowQuerying {
 private final class FakeMover: WindowMoving {
     let model: FakeWindows
     var frameSets: [(id: CGWindowID, frame: CGRect)] = []
+    var positionSets: [(id: CGWindowID, point: CGPoint)] = []
     var raised: [CGWindowID] = []
+    /// Windows that cannot take every size — System Settings' fixed
+    /// width, a palette's fixed frame, an editor's minimum — take what
+    /// they can of a frame write and honor the position, as AX does.
+    var maxSizes: [CGWindowID: CGSize] = [:]
+    var minSizes: [CGWindowID: CGSize] = [:]
 
     init(model: FakeWindows) { self.model = model }
 
     func setFrame(_ window: WindowModel.Window, _ frame: CGRect) -> Bool {
         frameSets.append((window.id, frame))
-        model.windows[window.id]?.frame = frame
+        var size = frame.size
+        if let cap = maxSizes[window.id] {
+            size.width = min(size.width, cap.width)
+            size.height = min(size.height, cap.height)
+        }
+        if let floor = minSizes[window.id] {
+            size.width = max(size.width, floor.width)
+            size.height = max(size.height, floor.height)
+        }
+        model.windows[window.id]?.frame = CGRect(origin: frame.origin, size: size)
         return true
     }
 
     func setPosition(_ window: WindowModel.Window, _ point: CGPoint) -> Bool {
+        positionSets.append((window.id, point))
         model.windows[window.id]?.frame.origin = point
         return true
     }
@@ -243,6 +259,96 @@ final class LayoutControllerTests: XCTestCase {
         XCTAssertTrue(layout.move(20, toDigit: 1, on: 1))
         XCTAssertEqual(model.windows[20]!.frame.minX, 0, "moved to the left slot")
         XCTAssertEqual(model.windows[10]!.frame.minX, 800)
+    }
+
+    // MARK: - Centering
+
+    /// System Settings has a fixed width. Asked for the display it takes
+    /// what it can, and the slice's origin used to pin it to the corner.
+    func testASummonThatCannotFillTheDisplayIsCentered() {
+        model.addWindow(10)
+        mover.maxSizes[10] = CGSize(width: 700, height: 500)
+        layout.replace(with: 10, on: 1)
+        XCTAssertEqual(model.windows[10]!.frame, CGRect(x: 450, y: 200, width: 700, height: 500))
+    }
+
+    func testOneShortAxisCentersOnThatAxisOnly() {
+        model.addWindow(10)
+        mover.maxSizes[10] = CGSize(width: 700, height: 10_000)
+        layout.replace(with: 10, on: 1)
+        XCTAssertEqual(model.windows[10]!.frame, CGRect(x: 450, y: 0, width: 700, height: 900))
+    }
+
+    func testAWindowThatFillsItsSliceIsNeverRepositioned() {
+        model.addWindow(10)
+        model.addWindow(20)
+        layout.replace(with: 10, on: 1)
+        layout.add(20, on: 1)
+        layout.runCorrectivePass(on: 1)
+        XCTAssertTrue(mover.positionSets.isEmpty, "a settle never writes for nothing")
+    }
+
+    func testBesideCentersInsideTheColumn() {
+        model.addWindow(10)
+        model.addWindow(20)
+        mover.maxSizes[20] = CGSize(width: 400, height: 300)
+        layout.replace(with: 10, on: 1)
+        layout.add(20, on: 1)
+        XCTAssertEqual(model.windows[10]!.frame, CGRect(x: 0, y: 0, width: 800, height: 900))
+        XCTAssertEqual(model.windows[20]!.frame, CGRect(x: 1000, y: 300, width: 400, height: 300))
+    }
+
+    /// A window wider than its column is not centered — that would push
+    /// it off screen — and the corrective pass absorbs it instead.
+    func testAWindowLargerThanItsSliceIsLeftForTheCorrectivePass() {
+        model.addWindow(10)
+        model.addWindow(20)
+        mover.minSizes[20] = CGSize(width: 1000, height: 0)
+        layout.replace(with: 10, on: 1)
+        layout.add(20, on: 1)
+        XCTAssertEqual(model.windows[20]!.frame.origin, CGPoint(x: 800, y: 0))
+        layout.runCorrectivePass(on: 1)
+        XCTAssertEqual(model.windows[10]!.frame, CGRect(x: 0, y: 0, width: 600, height: 900))
+        XCTAssertEqual(model.windows[20]!.frame, CGRect(x: 600, y: 0, width: 1000, height: 900))
+    }
+
+    /// The digits follow the stack: a narrow window centered on top has a
+    /// left edge to the right of the wide window under it, and the edge
+    /// used to be what the digits read.
+    func testDigitsFollowTheStackNotTheLeftEdge() {
+        model.addWindow(10)
+        model.addWindow(20)
+        mover.maxSizes[10] = CGSize(width: 600, height: 10_000)
+        layout.replace(with: 10, on: 1)
+        layout.add(20, on: 1)
+        layout.flipOrientation(on: 1)
+        XCTAssertEqual(model.windows[10]!.frame, CGRect(x: 500, y: 0, width: 600, height: 450))
+        XCTAssertEqual(model.windows[20]!.frame, CGRect(x: 0, y: 450, width: 1600, height: 450))
+        XCTAssertEqual(layout.orderedByPosition(on: 1), [10, 20])
+        XCTAssertEqual(layout.windowID(atDigit: 1, on: 1), 10)
+        XCTAssertEqual(layout.windowID(atDigit: 9, on: 1), 20)
+    }
+
+    /// An app that answers its size a beat late is centered by the pass
+    /// that runs a beat late.
+    func testTheCorrectivePassCentersAWindowThatSettledLate() {
+        model.addWindow(10)
+        layout.replace(with: 10, on: 1)
+        model.windows[10]!.frame.size = CGSize(width: 700, height: 500)
+        layout.runCorrectivePass(on: 1)
+        XCTAssertEqual(model.windows[10]!.frame, CGRect(x: 450, y: 200, width: 700, height: 500))
+    }
+
+    /// And one that grew to its edge from a centered origin is put back.
+    func testTheCorrectivePassReturnsAWindowThatGrewLate() {
+        model.addWindow(10)
+        mover.maxSizes[10] = CGSize(width: 700, height: 500)
+        layout.replace(with: 10, on: 1)
+        XCTAssertEqual(model.windows[10]!.frame.origin, CGPoint(x: 450, y: 200))
+        mover.maxSizes[10] = nil
+        model.windows[10]!.frame.size = main.size
+        layout.runCorrectivePass(on: 1)
+        XCTAssertEqual(model.windows[10]!.frame, main)
     }
 
     func testAdoptGroupsSpansDisplays() {

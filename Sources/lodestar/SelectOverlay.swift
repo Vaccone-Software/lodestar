@@ -143,7 +143,7 @@ final class SelectOverlay {
         for rect in anchor {
             let view = NSView()
             view.wantsLayer = true
-            view.layer?.backgroundColor = NSColor.controlAccentColor
+            view.layer?.backgroundColor = BarTheme.accent
                 .withAlphaComponent(0.45).cgColor
             view.layer?.cornerRadius = 3
             view.frame = appKitRect(rect).insetBy(dx: -1.5, dy: -1.5)
@@ -158,7 +158,7 @@ final class SelectOverlay {
                 for rect in chip.frames {
                     let highlight = NSView()
                     highlight.wantsLayer = true
-                    highlight.layer?.backgroundColor = NSColor.controlAccentColor
+                    highlight.layer?.backgroundColor = BarTheme.accent
                         .withAlphaComponent(0.22).cgColor
                     highlight.layer?.cornerRadius = 3
                     highlight.frame = appKitRect(rect).insetBy(dx: -1.5, dy: -1.5)
@@ -205,7 +205,7 @@ final class SelectOverlay {
         for rect in spans {
             let view = NSView()
             view.wantsLayer = true
-            view.layer?.backgroundColor = NSColor.controlAccentColor
+            view.layer?.backgroundColor = BarTheme.accent
                 .withAlphaComponent(0.35).cgColor
             view.layer?.cornerRadius = 3
             view.frame = NSRect(x: rect.minX - panel.frame.minX - 1.5,

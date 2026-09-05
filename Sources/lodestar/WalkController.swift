@@ -342,7 +342,7 @@ final class WalkController: NSObject {
         stack.spacing = 10
         stack.translatesAutoresizingMaskIntoConstraints = false
 
-        let star = label("✦", size: 22, weight: .medium, color: .controlAccentColor)
+        let star = label("✦", size: 22, weight: .medium, color: BarTheme.accent)
         stack.addArrangedSubview(star)
         stack.addArrangedSubview(label("Lodestar", size: 26, weight: .semibold, color: .labelColor))
         stack.addArrangedSubview(wrapped(
@@ -626,7 +626,7 @@ final class WalkController: NSObject {
     private func keycap(_ text: String, lit: Bool = false, wide: Bool = false) -> NSView {
         let cap = NSTextField(labelWithString: text)
         cap.font = BarTheme.secondaryFont
-        cap.textColor = lit ? .controlAccentColor : .labelColor
+        cap.textColor = lit ? BarTheme.accent : .labelColor
         cap.alignment = .center
         cap.translatesAutoresizingMaskIntoConstraints = false
 
@@ -637,7 +637,7 @@ final class WalkController: NSObject {
             .withAlphaComponent(lit ? 0.14 : 0.08).cgColor
         box.layer?.borderWidth = 1
         box.layer?.borderColor = (lit
-            ? NSColor.controlAccentColor.withAlphaComponent(0.7)
+            ? BarTheme.accent.withAlphaComponent(0.7)
             : NSColor.labelColor.withAlphaComponent(0.12)).cgColor
         box.translatesAutoresizingMaskIntoConstraints = false
         // A cap is exactly as wide as its key. Without this the row stack

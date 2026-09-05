@@ -212,3 +212,29 @@ final class AccentAndChipWordsTests: XCTestCase {
         XCTAssertEqual(MeetingController.phrase(.inProgress(minutes: 10)), "10 min in")
     }
 }
+
+/// The accent never drifts: the system's colour reaches a surface only
+/// through the theme, so the setting governs every place it shows.
+final class AccentDriftTests: XCTestCase {
+    func testNoSurfaceReadsTheSystemAccentDirectly() throws {
+        let sources = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/lodestar")
+        let files = try FileManager.default.contentsOfDirectory(at: sources, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "swift" && $0.lastPathComponent != "Glass.swift" }
+        XCTAssertGreaterThan(files.count, 20, "the sources were found")
+        for file in files {
+            let text = try String(contentsOf: file, encoding: .utf8)
+            XCTAssertFalse(text.contains("controlAccentColor"),
+                           "\(file.lastPathComponent) draws the system accent directly; use BarTheme.accent")
+        }
+    }
+
+    func testTheSharedAccentFollowsTheChoice() {
+        BarTheme.accentColor = { BarTheme.accent(for: .orange) }
+        defer { BarTheme.accentColor = { .controlAccentColor } }
+        XCTAssertEqual(BarTheme.accent.usingColorSpace(.sRGB), BarTheme.accent(for: .orange).usingColorSpace(.sRGB))
+        BarTheme.accentColor = { .controlAccentColor }
+        XCTAssertEqual(BarTheme.accent, .controlAccentColor)
+    }
+}

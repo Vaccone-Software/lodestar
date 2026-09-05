@@ -903,7 +903,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         }
         if !row.isDefault {
             titleRow.addArrangedSubview(label("●", size: 8, weight: .regular,
-                                              color: .controlAccentColor))
+                                              color: BarTheme.accent))
             switch row.control {
             case .choice, .number, .text:
                 let reset = HandButton(title: "reset", target: self,
@@ -1101,7 +1101,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             row.addArrangedSubview(button)
             if let focus = listFocus, focus.row == paneRow, focus.entry == entryIndex {
                 row.wantsLayer = true
-                row.layer?.backgroundColor = NSColor.controlAccentColor
+                row.layer?.backgroundColor = BarTheme.accent
                     .withAlphaComponent(0.14).cgColor
                 row.layer?.cornerRadius = 5
             }
@@ -1422,7 +1422,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     private func pulse(_ view: NSView) {
         highlightRow = nil // once; a later render must not relight it
         view.wantsLayer = true
-        view.layer?.backgroundColor = NSColor.controlAccentColor
+        view.layer?.backgroundColor = BarTheme.accent
             .withAlphaComponent(0.16).cgColor
         view.layer?.cornerRadius = 6
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak view] in
@@ -1450,7 +1450,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     private func chip(_ text: String, lit: Bool) -> NSView {
         let cap = NSTextField(labelWithString: text)
         cap.font = .systemFont(ofSize: BarTheme.Scale.meta, weight: .medium)
-        cap.textColor = lit ? .controlAccentColor : BarTheme.secondaryColor
+        cap.textColor = lit ? BarTheme.accent : BarTheme.secondaryColor
         cap.alignment = .center
         cap.translatesAutoresizingMaskIntoConstraints = false
         let box = NSView()

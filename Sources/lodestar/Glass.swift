@@ -325,6 +325,12 @@ enum BarTheme {
     /// The accent the person chose, as a closure so a test can choose one.
     static var accentColor: () -> NSColor = { .controlAccentColor }
 
+    /// The one accent every surface draws with: a row's highlight, a
+    /// wash over a match, the walk's star, the settings' dots. The
+    /// system's colour never reaches a surface directly — a test reads
+    /// the sources for that — so the setting cannot drift.
+    static var accent: NSColor { accentColor() }
+
     /// The accent a config asks for: the Mac's, or Lodestar's own pair.
     static func accent(for choice: Config.Accent) -> NSColor {
         switch choice {

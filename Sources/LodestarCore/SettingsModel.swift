@@ -252,7 +252,7 @@ public enum SettingsModel {
                 isDefault: config.activeDisplayMode == .pointer),
             Row(title: "Accent", path: "appearance.accent",
                 control: .choice(options: ["system", "orange"],
-                                 labels: ["the Mac's accent", "international orange"],
+                                 labels: ["System", "International Orange"],
                                  current: config.accent.rawValue),
                 detail: "The cursor, lit letters, and the echoed query. Orange "
                     + "is set deeper in light mode so it stays readable.",

@@ -365,7 +365,7 @@ private final class CommandsRowView: NSView {
     }
 
     private func restyle() {
-        layer?.backgroundColor = selectedState ? NSColor.controlAccentColor.cgColor : nil
+        layer?.backgroundColor = selectedState ? BarTheme.accent.cgColor : nil
         title.textColor = selectedState ? .white : .labelColor
         crumb.textColor = selectedState ? NSColor.white.withAlphaComponent(0.75) : BarTheme.secondaryColor
         for label in [chipLabel, sourceLabel] {

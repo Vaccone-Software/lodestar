@@ -166,7 +166,7 @@ enum SchemaWalk {
         XCTAssertNotNil(accent)
         if case .choice(let options, let labels, let current)? = accent?.control {
             XCTAssertEqual(options, ["system", "orange"])
-            XCTAssertEqual(labels.count, 2)
+            XCTAssertEqual(labels, ["System", "International Orange"], "names, capitalized as names are")
             XCTAssertEqual(current, "system")
         } else {
             XCTFail("a choice of two")

@@ -573,7 +573,7 @@ private final class WebRowView: NSView {
     }
 
     private func restyle() {
-        layer?.backgroundColor = selectedState ? NSColor.controlAccentColor.cgColor : nil
+        layer?.backgroundColor = selectedState ? BarTheme.accent.cgColor : nil
         icon.contentTintColor = selectedState ? .white : BarTheme.secondaryColor
         title.textColor = selectedState ? .white : .labelColor
         chipLabel.textColor = selectedState ? .white : BarTheme.secondaryColor

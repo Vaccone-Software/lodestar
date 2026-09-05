@@ -165,7 +165,7 @@ public struct Config {
         ], description: "App behavior."),
         "appearance": .table([
             "accent": .string(allowed: ["system", "orange"],
-                              description: "The colour of the cursor, lit letters, and the echoed query: the Mac's accent, or Lodestar's international orange, set deeper in light mode so it stays readable."),
+                              description: "The colour of the cursor, lit letters, and the echoed query: the Mac's accent, or Lodestar's International Orange, set deeper in light mode so it stays readable."),
         ], description: "How Lodestar looks. Never what it asks of you."),
         "gestures": .table(
             Dictionary(uniqueKeysWithValues: Gestures.roster.map {

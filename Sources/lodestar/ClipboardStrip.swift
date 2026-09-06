@@ -37,6 +37,9 @@ final class ClipboardStrip {
         /// A card's actions, drawn as a card: a row of text where a card
         /// belongs reads as a caption, not as a menu.
         case actions([Action])
+        /// A file name for an image being saved: what was typed, the
+        /// name offered when nothing is, and the folder it lands in.
+        case save(name: String, offered: String, folder: String)
     }
 
     /// One line of the actions menu. The symbol and the destructive flag are
@@ -117,6 +120,9 @@ final class ClipboardStrip {
     private(set) var shownWeights: [Glass.Weight] = []
     /// The plates themselves, by clip id, so a test can look inside one.
     private(set) var shownCards: [String: NSView] = [:]
+    /// The save band as drawn, for the tests: what the eye reads as the
+    /// name, and where it says the file goes.
+    private(set) var shownSave: (name: String, offered: String, folder: String)?
     /// The card's rows: the chip line at the top, the caption line at the
     /// foot, and the preview between them.
     private static let cardHead: CGFloat = 34
@@ -147,6 +153,7 @@ final class ClipboardStrip {
         if case .search(let text) = band { query = text } else { query = nil }
         let screen = ActivePolicy.presentationFrame
         self.pinsHidden = pinsHidden
+        shownSave = nil
         shownBadges = [:]
         shownSources = [:]
         shownCaptions = [:]
@@ -170,8 +177,11 @@ final class ClipboardStrip {
 
         // Searching holds the full width whatever the results do. Sized to
         // the matches, the field would resize on every keystroke and vanish
-        // entirely when a query matched nothing.
-        let lanes = query != nil
+        // entirely when a query matched nothing. The save band is a field
+        // too, and holds the same width for the same reason.
+        var saving = false
+        if case .save = band { saving = true }
+        let lanes = query != nil || saving
             ? min(fit, Self.labels.count)
             : max(visibleRecents.count, 1)
         let stripWidth = CGFloat(lanes) * (Self.cardWidth + Self.gap) - Self.gap
@@ -225,6 +235,13 @@ final class ClipboardStrip {
             let size = actionSize(actions)
             addActionCard(actions, frame: actionFrame(for: actingOn, size: size,
                                                       stripWidth: stripWidth))
+        case .save(let name, let offered, let folder):
+            let frame = NSRect(x: placed.bandLeft, y: Self.cardHeight + Self.gap,
+                               width: max(Self.cardWidth, stripWidth - placed.bandLeft),
+                               height: Self.searchHeight)
+            bandFrame = frame
+            shownSave = (name, offered, folder)
+            addSaveField(name: name, offered: offered, folder: folder, frame: frame)
         }
 
         for (offset, clip) in visibleRecents.enumerated() {
@@ -582,6 +599,56 @@ final class ClipboardStrip {
                                  y: (Self.searchHeight - 20) / 2, width: 1.5, height: 20)
             plate.addSubview(caret)
         }
+        root.addSubview(plate)
+    }
+
+    /// The save band: the search field's shape with a different job. The
+    /// offered name stands in the field until something is typed, so
+    /// `⏎` alone is a complete answer; the folder is named at the right,
+    /// so the hand knows where the file goes before it goes there.
+    private func addSaveField(name: String, offered: String, folder: String, frame: NSRect) {
+        let width = frame.width
+        let plate = glassPlate(radius: BarTheme.rowRadius)
+        plate.frame = frame
+
+        let symbol = NSImageView(image: NSImage(
+            systemSymbolName: "square.and.arrow.down",
+            accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 15, weight: .medium)) ?? NSImage())
+        symbol.contentTintColor = BarTheme.secondaryColor
+        symbol.frame = NSRect(x: 18, y: (Self.searchHeight - 18) / 2, width: 18, height: 18)
+        plate.addSubview(symbol)
+
+        let place = NSTextField(labelWithString: "→ " + folder)
+        place.font = BarTheme.secondaryFont
+        place.textColor = BarTheme.secondaryColor
+        place.lineBreakMode = .byTruncatingMiddle
+        place.sizeToFit()
+        let placeWidth = min(place.frame.width, width * 0.4)
+        place.frame = NSRect(x: width - 18 - placeWidth,
+                             y: (Self.searchHeight - place.frame.height) / 2,
+                             width: placeWidth, height: place.frame.height)
+        plate.addSubview(place)
+
+        let font = NSFont.systemFont(ofSize: 19, weight: .regular)
+        let field = NSTextField(labelWithString: name.isEmpty ? offered : name)
+        field.font = font
+        field.textColor = name.isEmpty ? BarTheme.secondaryColor : .labelColor
+        field.lineBreakMode = .byTruncatingHead
+        field.sizeToFit()
+        let room = place.frame.minX - 46 - 24
+        field.frame = NSRect(x: 46, y: (Self.searchHeight - field.frame.height) / 2,
+                             width: min(field.frame.width, room), height: field.frame.height)
+        plate.addSubview(field)
+
+        let shown = name.isEmpty ? offered : name
+        let glyphs = (shown as NSString).size(withAttributes: [.font: font]).width
+        let caret = NSView()
+        caret.wantsLayer = true
+        caret.layer?.backgroundColor = NSColor.tertiaryLabelColor.cgColor
+        caret.frame = NSRect(x: field.frame.minX + min(glyphs, field.frame.width) + 2,
+                             y: (Self.searchHeight - 20) / 2, width: 1.5, height: 20)
+        plate.addSubview(caret)
         root.addSubview(plate)
     }
 

@@ -156,6 +156,12 @@ final class HotkeyEngine {
     private var panelClip: Clipboard.Clip?
     /// The card open in the clip door, lit on the strip beneath it.
     private var doorClip: Clipboard.Clip?
+    /// The card open large in the image door, while it stands.
+    private var imageDoorClip: Clipboard.Clip?
+    /// The card the save band is naming a file for, and the name so far.
+    private var saveClip: Clipboard.Clip?
+    private var saveName = ""
+    let imageDoor = ImageDoor()
     /// Live only while the strip is up; see `watchClicks`.
     private var clickMonitor: Any?
     private let badges = IndexBadges()
@@ -746,6 +752,10 @@ final class HotkeyEngine {
                 }
                 pasteQuery = nil
                 panelClip = nil
+                imageDoorClip = nil
+                saveClip = nil
+                saveName = ""
+                imageDoor.hide()
                 stopWatchingClicks()
                 strip.hide()
             case .pasteRecent(let label, let action):
@@ -818,6 +828,39 @@ final class HotkeyEngine {
             case .pasteDoorClose(let reason):
                 // Ended from outside its own two keys: as escape would.
                 draft.cancel(reason: reason)
+            case .pasteImageShow:
+                noteStripKey()
+                if let clip = panelClip { openImageDoor(clip) } else { imageDoorClosed() }
+            case .pasteImageClose(let reason):
+                closeImageDoor(reason: reason)
+            case .pasteSaveBegin:
+                beginSave()
+            case .pasteSaveType(let text):
+                noteStripKey()
+                stripSession?.typed += text.count
+                saveName += text
+                renderStrip()
+            case .pasteSavePaste:
+                noteStripKey()
+                let pasted = Clipboard.pastedQuery(
+                    NSPasteboard.general.string(forType: .string) ?? "")
+                guard !pasted.isEmpty else { break }
+                stripSession?.typed += pasted.count
+                saveName += pasted
+                renderStrip()
+            case .pasteSaveDelete(let scope):
+                noteStripKey()
+                switch scope {
+                case .character: saveName = String(saveName.dropLast())
+                case .word: saveName = Clipboard.droppingLastWord(saveName)
+                case .all: saveName = ""
+                }
+                renderStrip()
+            case .pasteSaveCommit:
+                noteStripKey()
+                commitSave()
+            case .pasteSaveEnd:
+                endSave()
             case .exitHints:
                 select.exit()
                 // The walk's inside step completes when the mode ends, by
@@ -1151,6 +1194,10 @@ final class HotkeyEngine {
             return "paste(panel)"
         case .pasteDoor:
             return "paste(door)"
+        case .pasteImage:
+            return "paste(image)"
+        case .pasteSave:
+            return "paste(save)"
         }
     }
 }
@@ -1183,7 +1230,7 @@ extension HotkeyEngine: EngineWorld {
     /// open and the new clip is simply the first one.
     private func refreshStripIfOpen() {
         switch core.state {
-        case .paste, .pastePanel, .pasteDoor: renderStrip()
+        case .paste, .pastePanel, .pasteDoor, .pasteImage, .pasteSave: renderStrip()
         default: break
         }
     }
@@ -1199,6 +1246,9 @@ extension HotkeyEngine: EngineWorld {
         let band: ClipboardStrip.Band
         if let clip = panelClip {
             band = .actions(Self.panelActions(for: clip))
+        } else if let clip = saveClip {
+            band = .save(name: saveName, offered: clipboard.offeredImageName(for: clip),
+                         folder: clipboard.saveFolder)
         } else if let query = pasteQuery {
             band = .search(query)
         } else {
@@ -1207,8 +1257,8 @@ extension HotkeyEngine: EngineWorld {
         strip.show(recents: recents, pins: Clipboard.pins(all),
                    thumbnail: { [clipboard] id in clipboard.history.thumbnail(for: id) },
                    band: band, selection: pasteSelection,
-                   actingOn: panelClip?.id ?? doorClip?.id,
-                   pinsHidden: doorClip != nil)
+                   actingOn: panelClip?.id ?? doorClip?.id ?? imageDoorClip?.id ?? saveClip?.id,
+                   pinsHidden: doorClip != nil || imageDoorClip != nil)
         // The search, measured: the last query's answer count stands
         // until the strip closes, whichever way the band went.
         if pasteQuery != nil { stripSession?.matches = recents.count }
@@ -1230,12 +1280,15 @@ extension HotkeyEngine: EngineWorld {
             symbol: clip.isPinned ? "pin.slash" : "pin"
         )]
         // Text cards open in the draft; a copy of files carries paths as
-        // its text, and an image has none.
+        // its text, and an image has none — it opens large instead, and
+        // can be written to disk under a name.
         if clip.isEditable {
             actions.append(.init(key: "E", label: "Edit", symbol: "square.and.pencil"))
         }
         if clip.kind == .image {
-            actions.append(.init(key: "S", label: "Save to Downloads",
+            actions.append(.init(key: "E", label: "View",
+                                 symbol: "arrow.up.left.and.arrow.down.right"))
+            actions.append(.init(key: "S", label: "Save as",
                                  symbol: "square.and.arrow.down"))
         }
         actions.append(.init(key: "D", label: "Delete", symbol: "trash",
@@ -1264,7 +1317,6 @@ extension HotkeyEngine: EngineWorld {
         switch action {
         case .pin: verb = clip.isPinned ? "unpin" : "pin"
         case .delete: verb = "delete"
-        case .saveImage: verb = "save"
         case .excludeApp: verb = "exclude"
         case .edit: verb = "edit"
         }
@@ -1276,12 +1328,6 @@ extension HotkeyEngine: EngineWorld {
         // off the main thread.
         case .pin: clipboard.togglePin(clip)
         case .delete: clipboard.history.delete(clip.id)
-        case .saveImage:
-            // Reads the stored clip back off disk, decodes it, re-encodes a
-            // PNG and writes that — for an image near the 20MB ceiling it is
-            // hundreds of milliseconds, and every one of them would come
-            // before the tap returned its verdict.
-            OffTap.run { [clipboard] in clipboard.saveImage(clip) }
         case .excludeApp:
             if let bundleID = clipboard.excludeApp(of: clip) {
                 // The set decides the very next capture, so it is written
@@ -1329,6 +1375,92 @@ extension HotkeyEngine: EngineWorld {
         if case .paste = core.state { renderStrip() }
     }
 
+    /// The image door: the card's pixels, large, above the strip with the
+    /// card lit beneath it. The decode is off the tap — an image near the
+    /// ceiling takes hundreds of milliseconds — and the door is drawn on
+    /// the next turn; a key that arrives first finds the grammar already
+    /// in the door and is answered by it. What cannot open says why and
+    /// leaves the strip as it was.
+    private func openImageDoor(_ clip: Clipboard.Clip) {
+        panelClip = nil
+        guard let (data, pixels) = clipboard.imageBytes(of: clip) else {
+            hud.flash("✕ that image cannot be opened")
+            imageDoorClosed(); return
+        }
+        imageDoorClip = clip
+        let named = stripSession?.outcome
+        stripSession?.outcome = ("acted", named?.source, "view", named?.rank)
+        renderStrip()
+        let caption = [
+            "\(Int(pixels.width))×\(Int(pixels.height))",
+            clip.sourceAppName, clip.sourceHost, Clipboard.age(of: clip, now: clock.now()),
+        ].compactMap { $0 }.joined(separator: " · ")
+        OffTap.run { [weak self] in
+            guard let self, self.imageDoorClip?.id == clip.id else { return }
+            guard let image = NSImage(data: data) else {
+                self.hud.flash("✕ that image cannot be opened")
+                self.imageDoorClosed(); return
+            }
+            self.imageDoor.show(image: image, pixels: pixels, caption: caption,
+                                standsAbove: ClipboardStrip.rowHeight)
+            Log.info("strip", ["door": "image", "width": Int(pixels.width),
+                               "height": Int(pixels.height)])
+        }
+    }
+
+    /// The image door failed to open: back to the strip.
+    private func imageDoorClosed() {
+        imageDoorClip = nil
+        core.doorClosed()
+        if case .paste = core.state { renderStrip() }
+    }
+
+    /// The grammar closed the image door, from inside or out.
+    private func closeImageDoor(reason: String) {
+        guard imageDoorClip != nil || imageDoor.isVisible else { return }
+        imageDoor.hide()
+        imageDoorClip = nil
+        Log.info("strip", ["door": "image", "close": reason])
+        switch core.state {
+        case .paste, .pasteSave: renderStrip()
+        default: break
+        }
+    }
+
+    /// `S` on an image: the band becomes the file's name. The card is
+    /// whichever one is in hand — the panel's, or the door's.
+    private func beginSave() {
+        guard let clip = panelClip ?? imageDoorClip ?? saveClip else {
+            core.doorClosed()
+            if case .paste = core.state { renderStrip() }
+            return
+        }
+        noteStripKey()
+        saveClip = clip
+        saveName = ""
+        panelClip = nil
+        renderStrip()
+    }
+
+    /// `⏎` in the band: written off the tap, under the name typed or the
+    /// one offered.
+    private func commitSave() {
+        guard let clip = saveClip else { renderStrip(); return }
+        let typed = saveName
+        saveClip = nil
+        saveName = ""
+        let named = stripSession?.outcome
+        stripSession?.outcome = ("acted", named?.source, "save", named?.rank)
+        renderStrip()
+        OffTap.run { [clipboard] in clipboard.saveImage(clip, as: typed) }
+    }
+
+    private func endSave() {
+        saveClip = nil
+        saveName = ""
+        if case .paste = core.state { renderStrip() }
+    }
+
     private func actOnClip(_ clip: Clipboard.Clip?, action: PasteAction,
                            source: String, rank: Int?) {
         guard let clip else {
@@ -1371,6 +1503,8 @@ extension HotkeyEngine: EngineWorld {
         guard let index = ClipboardStrip.labels.firstIndex(of: address) else { return false }
         return strip.shownRecents.indices.contains(index)
     }
+
+    func pastePanelIsImage() -> Bool { panelClip?.kind == .image }
 
     /// A click means the user is looking at something else now, and the
     /// strip is a thing you read — leaving it up over the window they just

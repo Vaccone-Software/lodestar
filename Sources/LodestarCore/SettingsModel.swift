@@ -351,6 +351,12 @@ public enum SettingsModel {
                 control: .number(config.clipboardMaxBytes / 1_000_000, min: 10, max: 20_000, unit: "MB"),
                 detail: "Clips past the limit are never recorded.",
                 isDefault: config.clipboardMaxBytes == 500_000_000),
+            Row(title: "Save images to", path: "clipboard.save-to",
+                control: .text(config.clipboardSaveFolder, placeholder: "~/Downloads"),
+                detail: "Where an image saved from the strip lands. A name typed "
+                    + "with a slash, or starting with / or ~, chooses another place "
+                    + "for that one save.",
+                isDefault: config.clipboardSaveFolder == "~/Downloads"),
             Row(title: "Excluded apps", path: "clipboard.exclude-apps",
                 control: .table(kind: .excludeApps, entries: config.clipboardExcludedApps
                     .sorted().map { TableEntry(key: $0, display: $0) }),

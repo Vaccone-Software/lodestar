@@ -15,6 +15,29 @@ enum StripPreview {
     private static var stageWindows: [NSWindow] = []
     private static var heldMeeting: MeetingController?
     private static var heldDraft: DraftPanel?
+    private static var heldImageDoor: ImageDoor?
+
+    /// A screenshot that never happened: a window's worth of dark glass
+    /// with a few lines on it, so the door is photographed with pixels
+    /// that are nobody's.
+    static func sampleImage(width: Int, height: Int) -> NSImage {
+        let image = NSImage(size: NSSize(width: width, height: height))
+        image.lockFocus()
+        NSColor(srgbRed: 0.11, green: 0.11, blue: 0.13, alpha: 1).setFill()
+        NSRect(x: 0, y: 0, width: width, height: height).fill()
+        NSColor(srgbRed: 0.17, green: 0.17, blue: 0.2, alpha: 1).setFill()
+        NSRect(x: 0, y: height - 44, width: width, height: 44).fill()
+        for row in 0..<12 {
+            let y = height - 100 - row * 56
+            let w = [520, 760, 640, 900, 410, 700][row % 6]
+            NSColor(srgbRed: 0.3, green: 0.3, blue: 0.34, alpha: 1).setFill()
+            NSRect(x: 60, y: y, width: w, height: 14).fill()
+        }
+        NSColor(srgbRed: 1, green: 0.31, blue: 0, alpha: 1).setFill()
+        NSRect(x: 60, y: height - 100 - 3 * 56, width: 640, height: 14).fill()
+        image.unlockFocus()
+        return image
+    }
     private static var heldLink: LinkChip?
 
     private static func stage() {
@@ -270,6 +293,32 @@ enum StripPreview {
         var companion: [OptionsCard]?
         if variant == 15 { companion = OptionsCard.preview(1) }
         _ = companion
+
+        // 80: an image card open in its door above the strip, the card lit
+        // beneath; 81: the save band, offering a name and naming the folder.
+        if variant == 80 || variant == 81 {
+            let shot = clip("r5", "image 1600×1000\nswift build -c release",
+                            app: "com.mitchellh.ghostty", minutes: 2, kind: .image)
+            let image = sampleImage(width: 1600, height: 1000)
+            let strip = ClipboardStrip()
+            let thumbnail: (String) -> NSImage? = { $0 == "r5" ? image : nil }
+            if variant == 80 {
+                strip.show(recents: [shot] + recents, pins: pins, thumbnail: thumbnail,
+                           band: .none, selection: 0, actingOn: shot.id, pinsHidden: true)
+                DispatchQueue.main.async {
+                    heldImageDoor = ImageDoor()
+                    heldImageDoor?.show(image: image, pixels: CGSize(width: 1600, height: 1000),
+                                        caption: "1600×1000 · Ghostty · 2m ago",
+                                        standsAbove: ClipboardStrip.rowHeight)
+                }
+            } else {
+                strip.show(recents: [shot] + recents, pins: pins, thumbnail: thumbnail,
+                           band: .save(name: "", offered: "Ghostty 2026-09-06 at 12.04.31.png",
+                                       folder: "~/Downloads"),
+                           selection: 0, actingOn: shot.id)
+            }
+            app.run()
+        }
 
         let strip = ClipboardStrip()
         // 9 stages the search band instead of the menu: every chip wears ⌥,

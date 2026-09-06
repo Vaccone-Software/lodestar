@@ -250,6 +250,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         clipboardController.excludedApps = config.clipboardExcludedApps
         clipboardController.excludedPatterns = config.clipboardExcludePatterns
         clipboardController.maxBytes = config.clipboardMaxBytes
+        clipboardController.saveFolder = config.clipboardSaveFolder
         clipboardController.setEnabled(config.clipboardEnabled)
 
         webBar = WebBarController()
@@ -1626,6 +1627,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         draftController?.words = loaded.draftWords
         draftController?.inputDevice = loaded.draftInput.isEmpty ? nil : loaded.draftInput
         clipboardController.maxBytes = loaded.clipboardMaxBytes
+        clipboardController.saveFolder = loaded.clipboardSaveFolder
         clipboardController.setEnabled(loaded.clipboardEnabled)
         observationStore?.setEnabled(loaded.observationsEnabled)
         observationStore?.setHealthEnabled(loaded.observationsHealth)

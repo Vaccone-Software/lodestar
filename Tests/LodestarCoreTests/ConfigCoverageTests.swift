@@ -45,6 +45,9 @@ final class ConfigCoverageTests: XCTestCase {
 
         Probe(path: ["clipboard", "enabled"], value: .bool(false)) { !$0.clipboardEnabled },
         Probe(path: ["clipboard", "max-size-mb"], value: .int(42)) { $0.clipboardMaxBytes == 42_000_000 },
+        Probe(path: ["clipboard", "save-to"], value: .string("~/Pictures/Clips")) {
+            $0.clipboardSaveFolder == "~/Pictures/Clips"
+        },
         Probe(path: ["clipboard", "exclude-apps", "com.example.vault"], value: .bool(true)) {
             $0.clipboardExcludedApps.contains("com.example.vault")
         },

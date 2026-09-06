@@ -86,6 +86,13 @@ final class WorldStub: EngineWorld {
         return pasteCards.contains(address)
     }
 
+    /// Whether the card whose actions stand is an image.
+    var panelIsImage = false
+    func pastePanelIsImage() -> Bool {
+        calls.append("pastePanelIsImage")
+        return panelIsImage
+    }
+
     func enterHints(sticky: Bool) -> Bool {
         calls.append("enterHints\(sticky ? ":sticky" : "")")
         return hintsEnterSucceeds

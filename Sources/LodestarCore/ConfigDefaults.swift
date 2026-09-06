@@ -211,6 +211,7 @@ public enum ConfigDefaults {
         "clipboard": .table([
             "enabled": .bool(true),
             "max-size-mb": .int(500),
+            "save-to": .string("~/Downloads"),
             "exclude-apps": .table([:]),
             "exclude": .table([:]),
         ]),

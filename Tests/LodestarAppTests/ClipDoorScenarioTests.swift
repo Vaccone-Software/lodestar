@@ -289,7 +289,7 @@ final class ClipDoorScenarioTests: XCTestCase {
         }
         XCTAssertEqual(HotkeyEngine.panelActions(for: card(.text)).map(\.key), ["P", "E", "D"])
         XCTAssertEqual(HotkeyEngine.panelActions(for: card(.image, natives: ["public.png"])).map(\.key),
-                       ["P", "S", "D"])
+                       ["P", "E", "S", "D"], "an image views and saves where a text card edits")
         XCTAssertEqual(HotkeyEngine.panelActions(for: card(.text, natives: [Clipboard.fileURLType])).map(\.key),
                        ["P", "D"])
         let edit = HotkeyEngine.panelActions(for: card(.text)).first { $0.key == "E" }

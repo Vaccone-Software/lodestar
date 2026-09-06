@@ -101,6 +101,27 @@ public enum EngineEffect: Equatable {
     case pastePanelShow
     case pastePanelDismiss
     case pastePanelAct(PanelAction)
+    /// `E` on an image card: the image opens large above the strip, the
+    /// card lit beneath it, the way a text card opens in the draft.
+    case pasteImageShow
+    /// The image door closes: `esc` or `⏎` inside it, `S` on its way to
+    /// the save band, or anything from outside — a lode verb, a ⌘
+    /// chord, a click elsewhere, the strip's toggle. The reason is for
+    /// the record.
+    case pasteImageClose(reason: String)
+    /// `S` on an image card, or inside its door: the strip's band becomes
+    /// a name for the file. Typed like the search, never key.
+    case pasteSaveBegin
+    case pasteSaveType(String)
+    case pasteSaveDelete(SearchDeletion)
+    /// ⌘V in the save band: the pasteboard's text joins the name — a path
+    /// copied from somewhere is the common case.
+    case pasteSavePaste
+    /// `⏎` in the save band: the image is written under the name typed,
+    /// or the offered one when nothing was.
+    case pasteSaveCommit
+    /// `esc` in the save band: back to the strip, nothing written.
+    case pasteSaveEnd
     /// The clip door closes from outside its own two keys — a lode verb,
     /// a ⌘ chord, a click elsewhere, the strip's toggle. The shell ends
     /// it the way escape would: changed text is kept as a new card. The
@@ -145,7 +166,7 @@ public enum SearchDeletion: Equatable {
 
 /// The rare half of a card's life, kept off the hot path deliberately.
 public enum PanelAction: Equatable {
-    case pin, delete, saveImage, excludeApp
+    case pin, delete, excludeApp
     /// Open the card's text in the draft, silent: read it large, edit it,
     /// `⏎` saves it to the card and `esc` steps back to the strip.
     case edit
@@ -174,6 +195,10 @@ public protocol EngineWorld: AnyObject {
     /// the recents on show, digits the filled pin slots. Asked before ⌘ is
     /// treated as addressing the strip rather than the app underneath.
     func pasteCardExists(address: String) -> Bool
+    /// Is the card whose actions stand an image? `E` opens an image large
+    /// where it opens a text card in the draft; the grammar asks rather
+    /// than guessing, because the two doors are different machines.
+    func pastePanelIsImage() -> Bool
     /// A plain letter while hints are up — the overlay narrows or fires.
     /// Shift fires a pick; control, held with it, right-clicks instead —
     /// the system's own word for a secondary click. Which button is a
@@ -213,13 +238,25 @@ public struct EngineCore {
         /// is the draft's, fed by the shell before the grammar sees it;
         /// the grammar keeps only the held keys and the way back.
         case pasteDoor(searching: Bool)
+        /// An image card is open large above the strip. The grammar owns
+        /// every key here: `esc` and `⏎` step back, `S` goes on to the
+        /// save band, and everything else is the strip's own bargain.
+        case pasteImage(searching: Bool)
+        /// The band is a file name for an image. Typed the way the search
+        /// is; `⏎` writes, `esc` steps back.
+        case pasteSave(searching: Bool)
     }
 
     /// The clip door closed on its own two keys — `⏎` saved, `esc`
     /// stepped back — and the strip is what the hand is looking at again,
     /// with the search band as it was. A no-op from any other state.
     public mutating func doorClosed() {
-        if case .pasteDoor(let searching) = state { state = .paste(searching: searching) }
+        switch state {
+        case .pasteDoor(let searching), .pasteImage(let searching):
+            state = .paste(searching: searching)
+        default:
+            break
+        }
     }
 
     /// The shell found no card behind the label ⌘ named. Without this the
@@ -243,6 +280,12 @@ public struct EngineCore {
         case .pasteDoor:
             state = .idle
             return [.pasteDoorClose(reason: "toggle"), .exitPaste]
+        case .pasteImage:
+            state = .idle
+            return [.pasteImageClose(reason: "toggle"), .exitPaste]
+        case .pasteSave:
+            state = .idle
+            return [.pasteSaveEnd, .exitPaste]
         default:
             break
         }
@@ -259,8 +302,11 @@ public struct EngineCore {
         case .paste, .pastePanel:
             state = .idle
             return [.pastePanelDismiss, .exitPaste]
-        case .pasteDoor:
+        case .pasteDoor, .pasteImage:
             return leaveDoor(reason: "click")
+        case .pasteSave:
+            state = .idle
+            return [.pasteSaveEnd, .exitPaste]
         default:
             return []
         }
@@ -272,9 +318,16 @@ public struct EngineCore {
     /// is no longer what you are working in. The door closes with the
     /// edit kept, and the strip goes with it.
     public mutating func leaveDoor(reason: String) -> [EngineEffect] {
-        guard case .pasteDoor = state else { return [] }
-        state = .idle
-        return [.pasteDoorClose(reason: reason), .pastePanelDismiss, .exitPaste]
+        switch state {
+        case .pasteDoor:
+            state = .idle
+            return [.pasteDoorClose(reason: reason), .pastePanelDismiss, .exitPaste]
+        case .pasteImage:
+            state = .idle
+            return [.pasteImageClose(reason: reason), .pastePanelDismiss, .exitPaste]
+        default:
+            return []
+        }
     }
 
     public private(set) var state: State = .idle
@@ -326,6 +379,8 @@ public struct EngineCore {
         case .select: effects = [.exitSelect]
         case .paste, .pastePanel: effects = [.exitPaste]
         case .pasteDoor: effects = [.pasteDoorClose(reason: "reset"), .exitPaste]
+        case .pasteImage: effects = [.pasteImageClose(reason: "reset"), .exitPaste]
+        case .pasteSave: effects = [.pasteSaveEnd, .exitPaste]
         }
         state = .idle
         return effects
@@ -415,6 +470,12 @@ public struct EngineCore {
                                    searching: searching, world: world)
         case .pasteDoor:
             return pasteDoorPress(key: key, held: held, shift: shift, world: world)
+        case .pasteImage(let searching):
+            return pasteImagePress(key: key, held: held, shift: shift, command: command,
+                                   searching: searching, world: world)
+        case .pasteSave(let searching):
+            return pasteSavePress(key: key, held: held, shift: shift, command: command,
+                                  option: option, searching: searching, world: world)
         }
     }
 
@@ -963,13 +1024,24 @@ public struct EngineCore {
             return [.pastePanelDismiss]
         case "p": action = .pin
         case "d": action = .delete
-        case "s": action = .saveImage
         case "x": action = .excludeApp
+        case "s":
+            // The band becomes the file's name. The panel's card is read
+            // by the shell before the panel goes, so the order here is
+            // load-bearing.
+            state = .pasteSave(searching: searching)
+            return [.pasteSaveBegin, .pastePanelDismiss]
         case "e":
-            // The door stands above the strip, and the strip waits: the
-            // shell feeds the draft until it closes and then says so
-            // (`doorClosed`), which is what brings the search band back
-            // exactly as it was.
+            // An image opens large in its own door; the grammar keeps its
+            // keys, because there is no draft to feed. A text card opens
+            // in the draft, which stands above the strip while the strip
+            // waits: the shell feeds the draft until it closes and then
+            // says so (`doorClosed`), which is what brings the search
+            // band back exactly as it was.
+            if world.pastePanelIsImage() {
+                state = .pasteImage(searching: searching)
+                return [.pasteImageShow, .pastePanelDismiss]
+            }
             state = .pasteDoor(searching: searching)
             return [.pastePanelAct(.edit), .pastePanelDismiss]
         default: return []
@@ -996,6 +1068,78 @@ public struct EngineCore {
             effects.append(contentsOf: idlePress(key: key, shift: shift, world: world))
         }
         return effects
+    }
+
+    /// The image door: the grammar's own keys, since nothing here is
+    /// typed. `esc` and `⏎` step back to the strip; `S` goes on to the
+    /// save band with the door gone, because the band lives where the
+    /// door stood. A lode verb or a ⌘ chord ends the door and the strip
+    /// together and executes — the strip's bargain. Anything else is
+    /// swallowed: it was aimed at a card under glass.
+    private mutating func pasteImagePress(key: String, held: Bool, shift: Bool,
+                                          command: Bool, searching: Bool,
+                                          world: EngineWorld) -> [EngineEffect] {
+        if held {
+            state = .idle
+            var effects: [EngineEffect] = [.pasteImageClose(reason: "lode"), .exitPaste]
+            if key != "escape" {
+                effects.append(contentsOf: idlePress(key: key, shift: shift, world: world))
+            }
+            return effects
+        }
+        if command {
+            state = .idle
+            return [.pasteImageClose(reason: "command"), .exitPaste]
+        }
+        switch key {
+        case "escape", "return":
+            state = .paste(searching: searching)
+            return [.pasteImageClose(reason: key)]
+        case "s" where !shift:
+            // The band is read from the door's card before the door goes.
+            state = .pasteSave(searching: searching)
+            return [.pasteSaveBegin, .pasteImageClose(reason: "save")]
+        default:
+            return []
+        }
+    }
+
+    /// The save band: the search's grammar with one job. Every character
+    /// the keyboard types is part of a name — slashes and dots most of
+    /// all, since a path is made of them — `⏎` writes, `esc` steps back,
+    /// and the editing chords every macOS field has apply.
+    private mutating func pasteSavePress(key: String, held: Bool, shift: Bool,
+                                         command: Bool, option: Bool, searching: Bool,
+                                         world: EngineWorld) -> [EngineEffect] {
+        if held {
+            state = .idle
+            var effects: [EngineEffect] = [.pasteSaveEnd, .exitPaste]
+            if key != "escape" {
+                effects.append(contentsOf: idlePress(key: key, shift: shift, world: world))
+            }
+            return effects
+        }
+        switch key {
+        case "escape":
+            state = .paste(searching: searching)
+            return [.pasteSaveEnd]
+        case "return":
+            state = .paste(searching: searching)
+            return [.pasteSaveCommit]
+        case "delete":
+            if command { return [.pasteSaveDelete(.all)] }
+            if option { return [.pasteSaveDelete(.word)] }
+            return [.pasteSaveDelete(.character)]
+        case "v" where command && !shift && !option:
+            return [.pasteSavePaste]
+        default:
+            guard let typed = Keys.character(for: key, shift: shift) else { return [] }
+            if command {
+                state = .idle
+                return [.pasteSaveEnd, .exitPaste]
+            }
+            return [.pasteSaveType(typed)]
+        }
     }
 
     // MARK: - Small helpers

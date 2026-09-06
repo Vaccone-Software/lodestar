@@ -625,3 +625,86 @@ public enum Clipboard {
             .map(\.0)
     }
 }
+
+// MARK: - Saving an image
+
+public extension Clipboard {
+    /// What an image is written as, decided by the name's extension. The
+    /// three every Mac app reads; anything else is treated as part of the
+    /// name and the file is a PNG.
+    enum ImageFormat: String, Equatable {
+        case png, jpeg, tiff
+
+        public static func forExtension(_ ext: String) -> ImageFormat? {
+            switch ext.lowercased() {
+            case "png": return .png
+            case "jpg", "jpeg": return .jpeg
+            case "tif", "tiff": return .tiff
+            default: return nil
+            }
+        }
+    }
+
+    /// The name offered for an image being saved: where it came from and
+    /// when, the way macOS names a screenshot. "github.com 2026-09-06 at
+    /// 12.04.31.png" is found again by the host and sorts by time; a
+    /// stamp alone is found by nothing.
+    static func imageFileName(for clip: Clip, timeZone: TimeZone = .current) -> String {
+        let source = (clip.sourceHost ?? clip.sourceAppName ?? "Image")
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+            .trimmingCharacters(in: .whitespaces)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
+        let stamp = formatter.string(from: clip.created)
+        return "\(source.isEmpty ? "Image" : source) \(stamp).png"
+    }
+
+    /// Where a typed name lands. Nothing typed takes the offered name in
+    /// the folder; a leading `/` or `~` is an absolute path; a slash
+    /// inside the name is a subfolder of the folder; a trailing slash is
+    /// a folder that takes the offered name. A name with no image
+    /// extension gets `.png`, so "v1.2" is "v1.2.png" and never a file
+    /// nothing opens.
+    static func saveDestination(typed: String, offered: String, folder: String,
+                                home: String) -> String {
+        var name = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.isEmpty { name = offered }
+        if name.hasSuffix("/") { name += offered }
+        let expanded = expandingHome(name, home: home)
+        let path: String
+        if expanded.hasPrefix("/") {
+            path = expanded
+        } else {
+            path = expandingHome(folder, home: home) + "/" + expanded
+        }
+        var parts = path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        if let last = parts.last {
+            let ext = (last as NSString).pathExtension
+            if ImageFormat.forExtension(ext) == nil { parts[parts.count - 1] = last + ".png" }
+        }
+        return "/" + parts.joined(separator: "/")
+    }
+
+    static func expandingHome(_ path: String, home: String) -> String {
+        if path == "~" { return home }
+        if path.hasPrefix("~/") { return home + path.dropFirst() }
+        return path
+    }
+
+    /// The format a destination is written in.
+    static func saveFormat(of path: String) -> ImageFormat {
+        ImageFormat.forExtension((path as NSString).pathExtension) ?? .png
+    }
+
+    /// The folder a destination lands in, said the short way a flash can
+    /// carry: the home folder's child by name, anything deeper by its
+    /// last component.
+    static func folderName(of path: String, home: String) -> String {
+        let folder = (path as NSString).deletingLastPathComponent
+        if folder == home { return "home" }
+        return (folder as NSString).lastPathComponent
+    }
+}

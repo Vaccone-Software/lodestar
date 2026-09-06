@@ -102,6 +102,9 @@ public struct Config {
     public var clipboardMaxBytes = 500_000_000
     public var clipboardExcludedApps: Set<String> = []
     public var clipboardExcludePatterns: [String] = []
+    /// Where an image saved from the strip lands, unless the name typed
+    /// says otherwise. `~` is the home folder.
+    public var clipboardSaveFolder = "~/Downloads"
     /// `draft.words`: the user's own vocabulary, repaired into speech.
     public var draftWords: [String] = []
     /// `draft.input`: the microphone by name; empty means the system's
@@ -212,6 +215,7 @@ public struct Config {
             "max-size-mb": .number(min: 10, max: 20_000, description: "Disk the clipboard history may claim; the oldest clips are dropped to stay under it. Pins are never dropped."),
             "exclude-apps": .freeTable(value: .boolean(description: "true to never record clips copied from this app."),
                                        description: "Bundle id → true. Nothing copied in these apps is ever written to disk."),
+            "save-to": .string(allowed: nil, description: "The folder an image saved from the clipboard strip lands in. A name typed with a slash in it, or starting with / or ~, chooses another place for that save."),
             "exclude": .freeTable(value: .boolean(description: "true to never record clips containing this text."),
                                   description: "Substring → true, matched case-insensitively against the clip. The same shape web.routes uses."),
         ], description: "Clipboard history."),
@@ -373,6 +377,10 @@ public struct Config {
         }
         if let apps = effective.value(at: ["clipboard", "exclude-apps"])?.table {
             config.clipboardExcludedApps = Set(apps.filter { $0.value.bool == true }.keys.map { $0.lowercased() })
+        }
+        if let folder = effective.value(at: ["clipboard", "save-to"])?.string {
+            let trimmed = folder.trimmingCharacters(in: .whitespaces)
+            if !trimmed.isEmpty { config.clipboardSaveFolder = trimmed }
         }
         if let patterns = effective.value(at: ["clipboard", "exclude"])?.table {
             config.clipboardExcludePatterns = patterns.filter { $0.value.bool == true }.keys.sorted()

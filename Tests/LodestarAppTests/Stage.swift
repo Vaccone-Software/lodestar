@@ -463,6 +463,39 @@ final class Stage {
         return clipboard.history.clips.first { $0.id == id }!
     }
 
+    /// An image card: a small PNG nobody drew, recorded the way a copy
+    /// from the pasteboard is, with its pixels as the native form.
+    @discardableResult
+    func seedImageClip(width: Int = 320, height: Int = 200, app: String? = "Brave",
+                       bundle: String? = "com.brave.Browser", host: String? = nil) -> Clipboard.Clip {
+        let png = Stage.pngData(width: width, height: height)
+        let id = ClipboardStore.identity(for: png)
+        clipboard.history.record(id: id, kind: .image,
+                                 items: [.init(plain: nil, natives: [
+                                     (type: NSPasteboard.PasteboardType.png.rawValue, data: png),
+                                 ])],
+                                 imageData: png,
+                                 preview: Clipboard.imagePreview(width: width, height: height),
+                                 sourceBundleID: bundle, sourceAppName: app, sourceHost: host)
+        clipboard.history.flushIO()
+        return clipboard.history.clips.first { $0.id == id }!
+    }
+
+    static func pngData(width: Int, height: Int) -> Data {
+        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height,
+                                   bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                   isPlanar: false, colorSpaceName: .deviceRGB,
+                                   bytesPerRow: 0, bitsPerPixel: 0)!
+        for x in 0..<width {
+            for y in 0..<height {
+                rep.setColor(NSColor(red: CGFloat(x) / CGFloat(width),
+                                     green: CGFloat(y) / CGFloat(height), blue: 0.3, alpha: 1),
+                             atX: x, y: y)
+            }
+        }
+        return rep.representation(using: .png, properties: [:])!
+    }
+
     /// The last strip record the store wrote.
     var lastPaste: ObservationEvent? {
         observations.flush()

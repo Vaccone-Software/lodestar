@@ -33,6 +33,12 @@ final class ClipboardController {
     var excludedApps: Set<String> = []
     var excludedPatterns: [String] = []
     var maxBytes = 500_000_000
+    /// Where a saved image lands unless the typed name says otherwise.
+    var saveFolder = "~/Downloads"
+    /// The home folder `~` stands for; the stage points it elsewhere.
+    var home = NSHomeDirectory()
+    /// The last file a save wrote, for the tests.
+    private(set) var lastSavedPath: String?
     /// A guard on the design, not on the user: the index lives in memory
     /// and a byte ceiling alone does not bound how many text clips fit.
     private let maxItems = 10_000
@@ -371,34 +377,77 @@ final class ClipboardController {
 
     // MARK: - Card actions
 
-    func saveImage(_ clip: Clipboard.Clip) {
+    /// The name offered in the save band: source and time, like a
+    /// screenshot's.
+    func offeredImageName(for clip: Clipboard.Clip) -> String {
+        Clipboard.imageFileName(for: clip)
+    }
+
+    /// The image itself, for the door and for a save: the stored PNG or
+    /// TIFF, and its pixel size read from the header without a decode.
+    func imageBytes(of clip: Clipboard.Clip) -> (data: Data, pixels: CGSize)? {
+        guard clip.kind == .image else { return nil }
         let natives = store.nativeData(clip)
         // The same pick capture makes for the thumbnail — the first native
-        // can be HTML — and the extension has to be honest: undecodable
-        // bytes never go to disk wearing .png.
+        // can be HTML — and the bytes have to be honest: undecodable
+        // bytes never go to disk wearing an image's extension.
         let native = natives.first {
             $0.type == NSPasteboard.PasteboardType.png.rawValue
                 || $0.type == NSPasteboard.PasteboardType.tiff.rawValue
         } ?? natives.first
-        guard clip.kind == .image, let native else {
+        guard let native, let pixels = ClipboardStore.pixelSize(of: native.data) else { return nil }
+        return (native.data, pixels)
+    }
+
+    /// `⏎` in the save band: the image written where the name says, in
+    /// the format its extension says. Reads the stored clip back off
+    /// disk and re-encodes when the format asks — for an image near the
+    /// 20MB ceiling that is hundreds of milliseconds, so this runs off
+    /// the tap.
+    func saveImage(_ clip: Clipboard.Clip, as typed: String) {
+        guard let (data, _) = imageBytes(of: clip) else {
             flash("✕ nothing to save")
             return
         }
-        let png = native.type == NSPasteboard.PasteboardType.png.rawValue
-            ? native.data : NSImage(data: native.data)?.pngData()
-        guard let png else {
+        let path = Clipboard.saveDestination(typed: typed,
+                                             offered: offeredImageName(for: clip),
+                                             folder: saveFolder, home: home)
+        let format = Clipboard.saveFormat(of: path)
+        // Stored PNG bytes go to disk as they are; anything else is decoded
+        // and re-encoded in the format the name asks for.
+        let bytes: Data?
+        if format == .png, Self.looksLikePNG(data) {
+            bytes = data
+        } else if let image = NSImage(data: data), let tiff = image.tiffRepresentation,
+                  let rep = NSBitmapImageRep(data: tiff) {
+            switch format {
+            case .png: bytes = rep.representation(using: .png, properties: [:])
+            case .jpeg: bytes = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.9])
+            case .tiff: bytes = rep.representation(using: .tiff, properties: [:])
+            }
+        } else {
+            bytes = nil
+        }
+        guard let bytes else {
             flash("✕ could not save the image")
             return
         }
-        let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-        guard let target = downloads?.appendingPathComponent("lodestar-\(stamp).png") else { return }
+        let url = URL(fileURLWithPath: path)
         do {
-            try png.write(to: target)
-            flash("⌂ saved to Downloads")
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                    withIntermediateDirectories: true)
+            try bytes.write(to: url)
+            lastSavedPath = path
+            flash("⌂ saved \(url.lastPathComponent) to \(Clipboard.folderName(of: path, home: home))")
+            Log.info("strip", ["saved": format.rawValue, "bytes": bytes.count,
+                               "folder": Clipboard.folderName(of: path, home: home)])
         } catch {
-            flash("✕ could not save the image")
+            flash("✕ could not save to \(Clipboard.folderName(of: path, home: home))")
         }
+    }
+
+    private static func looksLikePNG(_ data: Data) -> Bool {
+        data.count > 8 && data.prefix(8) == Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
     }
 
     /// The card's whole text, for the clip door.

@@ -248,6 +248,36 @@ final class PasteModeTests: XCTestCase {
 }
 
 extension PasteModeTests {
+    /// The row's tenth key: `;` addresses a card exactly as a letter does,
+    /// bare, shifted, with ⌘, and with ⌥ inside the search.
+    func testSemicolonIsTheTenthLabel() {
+        XCTAssertEqual(Clipboard.recentLabels, Array("asdfghjkl;").map(String.init))
+        var core = EngineCore()
+        _ = core.openPaste(world: world)
+        XCTAssertEqual(core.keyDown(key: ";", held: false, shift: false, command: false, world: world),
+                       [.pasteRecent(label: ";", action: .plain), .exitPaste])
+        core = EngineCore()
+        _ = core.openPaste(world: world)
+        XCTAssertEqual(core.keyDown(key: ";", held: false, shift: true, command: false, world: world),
+                       [.pasteRecent(label: ";", action: .native), .exitPaste])
+        core = EngineCore()
+        world.pasteCards.insert(";")
+        _ = core.openPaste(world: world)
+        XCTAssertEqual(core.keyDown(key: ";", held: false, shift: false, command: true, world: world),
+                       [.pasteRecent(label: ";", action: .panel), .pastePanelShow])
+        core = EngineCore()
+        _ = core.openPaste(world: world)
+        _ = core.keyDown(key: "/", held: false, shift: false, command: false, world: world)
+        XCTAssertEqual(core.keyDown(key: ";", held: false, shift: false, command: false,
+                                    option: true, world: world),
+                       [.pasteRecent(label: ";", action: .plain), .exitPaste], "⌥; addresses mid-search")
+        core = EngineCore()
+        _ = core.openPaste(world: world)
+        _ = core.keyDown(key: "/", held: false, shift: false, command: false, world: world)
+        XCTAssertEqual(core.keyDown(key: ";", held: false, shift: false, command: false, world: world),
+                       [.pasteSearchType(";")], "bare ; still types into the query")
+    }
+
     /// ⌘C, ⌘X, ⌘Z belong to the app underneath — none of them address a
     /// card, so reaching for one ends the mode and the keystroke lands
     /// where it was aimed. ⌘V is the one exception: a paste into an input

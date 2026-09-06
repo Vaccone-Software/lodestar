@@ -42,6 +42,13 @@ final class ImageDoor {
     /// How far a pinch may go past one point per pixel; past this the
     /// picture is blocks, and blocks are not what anyone zoomed in for.
     private static let maxMagnification: CGFloat = 8
+    /// One press of `h` `j` `k` `l`, in points of the screen; shift
+    /// multiplies it by scroll mode's own factor, so a held shift moves
+    /// the picture the way it moves a page.
+    static let moveStep: CGFloat = 80
+    static let fastMultiplier: CGFloat = 3
+    /// One press of `+` or `-`.
+    static let zoomStep: CGFloat = 1.25
 
     var isVisible: Bool { panel.isVisible }
     /// What the screen shows, for the tests: the image as first drawn, in
@@ -94,7 +101,7 @@ final class ImageDoor {
         keys.font = BarTheme.footerFont
         keys.textColor = BarTheme.secondaryColor
         keys.alignment = .right
-        keys.stringValue = "pinch to zoom · S save · esc back"
+        keys.stringValue = "h j k l move · ⇧ faster · + − zoom · S save · esc back"
         root.addSubview(scroll)
         root.addSubview(caption)
         root.addSubview(keys)
@@ -273,6 +280,38 @@ extension ImageDoor {
                        floor: CGFloat, ceiling: CGFloat) -> CGFloat {
         min(ceiling, max(floor, current * (1 + factor)))
     }
+
+    /// `h` `j` `k` `l`: the picture slides a stride under the eye, the
+    /// way a page does in scroll mode — `j` brings what is below into
+    /// view, `l` what is to the right.
+    func move(_ key: String, fast: Bool) {
+        let stride = Self.moveStep * (fast ? Self.fastMultiplier : 1) / scroll.magnification
+        var origin = clip.bounds.origin
+        switch key {
+        case "h": origin.x -= stride
+        case "l": origin.x += stride
+        case "j": origin.y -= stride
+        case "k": origin.y += stride
+        default: return
+        }
+        let bounds = clip.constrainBoundsRect(NSRect(origin: origin, size: clip.bounds.size))
+        clip.scroll(to: bounds.origin)
+        scroll.reflectScrolledClipView(clip)
+    }
+
+    /// `+` and `-`: one step about the center of what is shown.
+    func zoom(in zoomIn: Bool) {
+        let factor = zoomIn ? Self.zoomStep - 1 : 1 / Self.zoomStep - 1
+        let target = Self.zoomed(scroll.magnification, by: factor,
+                                 floor: scroll.minMagnification, ceiling: scroll.maxMagnification)
+        let center = NSPoint(x: clip.bounds.midX, y: clip.bounds.midY)
+        scroll.setMagnification(target, centeredAt: center)
+        scroll.reflectScrolledClipView(clip)
+    }
+
+    /// Where the picture is scrolled to, in document points, for the
+    /// tests.
+    var visibleOrigin: NSPoint { clip.bounds.origin }
 
     private func documentPoint(at screenPoint: NSPoint) -> NSPoint {
         let inWindow = panel.convertPoint(fromScreen: screenPoint)

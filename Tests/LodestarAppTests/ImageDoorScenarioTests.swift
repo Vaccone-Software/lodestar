@@ -106,6 +106,42 @@ final class ImageDoorScenarioTests: XCTestCase {
         XCTAssertFalse(door.isVisible)
     }
 
+    func testHJKLSlideThePictureAndPlusMinusZoomIt() {
+        let (stage, _) = stageWithImage(width: 4000, height: 2500)
+        openPanel(stage)
+        stage.press("e")
+        Stage.pump()
+        let door = stage.engine.imageDoor
+        let fitted = door.magnification
+        stage.press("=")
+        XCTAssertEqual(door.magnification, fitted * ImageDoor.zoomStep, accuracy: 0.001, "= zooms in")
+        stage.press("=", shift: true)
+        XCTAssertEqual(door.magnification, fitted * ImageDoor.zoomStep * ImageDoor.zoomStep, accuracy: 0.001)
+        let before = door.visibleOrigin
+        stage.press("l")
+        let after = door.visibleOrigin
+        XCTAssertGreaterThan(after.x, before.x, "l brings the right into view")
+        XCTAssertEqual(after.x - before.x, ImageDoor.moveStep / door.magnification, accuracy: 0.5)
+        stage.press("l", shift: true)
+        XCTAssertEqual(door.visibleOrigin.x - after.x,
+                       ImageDoor.moveStep * ImageDoor.fastMultiplier / door.magnification, accuracy: 0.5,
+                       "shift is scroll mode's stride")
+        for _ in 0..<4 { stage.press("h") }
+        XCTAssertEqual(door.visibleOrigin.x, before.x, accuracy: 0.5, "four strides right, four back")
+        let mid = door.visibleOrigin
+        stage.press("j")
+        XCTAssertLessThan(door.visibleOrigin.y, mid.y, "j brings what is below into view")
+        stage.press("k")
+        XCTAssertEqual(door.visibleOrigin.y, mid.y, accuracy: 0.5)
+        stage.press("-")
+        stage.press("-")
+        XCTAssertEqual(door.magnification, fitted, accuracy: 0.001, "- zooms back out")
+        for _ in 0..<12 { stage.press("-") }
+        XCTAssertEqual(door.magnification, fitted * 0.5, accuracy: 0.001, "the floor holds")
+        XCTAssertEqual(stage.engine.grammarState, .pasteImage(searching: false))
+        stage.press("escape")
+    }
+
     func testEscapeStepsBackToTheStripWhichReturns() {
         let (stage, _) = stageWithImage()
         openPanel(stage)

@@ -833,6 +833,10 @@ final class HotkeyEngine {
                 if let clip = panelClip { openImageDoor(clip) } else { imageDoorClosed() }
             case .pasteImageClose(let reason):
                 closeImageDoor(reason: reason)
+            case .pasteImageMove(let key, let fast):
+                imageDoor.move(key, fast: fast)
+            case .pasteImageZoom(let zoomIn):
+                imageDoor.zoom(in: zoomIn)
             case .pasteSaveBegin:
                 beginSave()
             case .pasteSaveType(let text):

@@ -109,6 +109,11 @@ public enum EngineEffect: Equatable {
     /// chord, a click elsewhere, the strip's toggle. The reason is for
     /// the record.
     case pasteImageClose(reason: String)
+    /// The door's own keys: `h` `j` `k` `l` pan the picture, shifted a
+    /// stride further as in scroll mode; `+` and `-` zoom about the
+    /// center of what is shown.
+    case pasteImageMove(key: String, fast: Bool)
+    case pasteImageZoom(in: Bool)
     /// `S` on an image card, or inside its door: the strip's band becomes
     /// a name for the file. Typed like the search, never key.
     case pasteSaveBegin
@@ -913,7 +918,8 @@ public struct EngineCore {
             // obeyed. A mis-hit must not throw away the query you typed,
             // which is the one thing this mode holds that cannot be had
             // back by pressing the key again.
-            case _ where option && (Self.isLetter(key) || Self.isDigit(key)):
+            case _ where option && (Self.isLetter(key) || Self.isDigit(key)
+                                    || Clipboard.recentLabels.contains(key)):
                 guard world.pasteCardExists(address: key) else { return [] }
                 let effect: EngineEffect
                 if let slot = Int(key) {
@@ -987,9 +993,10 @@ public struct EngineCore {
             }
             state = .idle
             return [.pastePinned(slot: slot, action: action), .exitPaste]
-        case _ where Self.isLetter(key):
+        case _ where Self.isLetter(key) || Clipboard.recentLabels.contains(key):
             // A letter outside the alphabet is not a label, and with ⌘ it
-            // has already left the mode above.
+            // has already left the mode above. `;` is the row's tenth
+            // key, a label like the letters before it.
             guard Clipboard.recentLabels.contains(key) else {
                 return []
             }
@@ -1099,6 +1106,14 @@ public struct EngineCore {
             // The band is read from the door's card before the door goes.
             state = .pasteSave(searching: searching)
             return [.pasteSaveBegin, .pasteImageClose(reason: "save")]
+        case "h", "j", "k", "l":
+            return [.pasteImageMove(key: key, fast: shift)]
+        case "=":
+            // `+` is a shifted `=`; both zoom in, so the hand need not
+            // hold shift for the key it reads as plus.
+            return [.pasteImageZoom(in: true)]
+        case "-":
+            return [.pasteImageZoom(in: false)]
         default:
             return []
         }

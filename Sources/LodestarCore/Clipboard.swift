@@ -433,7 +433,9 @@ public enum Clipboard {
     /// your fingers sit in the same order as the cards under your eyes.
     /// Its own alphabet, not the hints one — hint labels are arbitrary
     /// assignments to screen positions, these are ordinal.
-    public static let recentLabels = Array("asdfghjkl").map(String.init)
+    /// The whole home row, semicolon included: ten labels, of which a
+    /// display shows as many as it has room for at a readable card.
+    public static let recentLabels = Array("asdfghjkl;").map(String.init)
 
     // MARK: - Pins
 

@@ -77,6 +77,23 @@ final class ImageDoorGrammarTests: XCTestCase {
         XCTAssertEqual(core.state, .pasteSave(searching: false))
     }
 
+    func testHJKLMoveThePictureAndShiftMovesItFaster() {
+        openDoor()
+        for key in ["h", "j", "k", "l"] {
+            XCTAssertEqual(press(key), [.pasteImageMove(key: key, fast: false)], key)
+            XCTAssertEqual(press(key, shift: true), [.pasteImageMove(key: key, fast: true)], "⇧\(key)")
+        }
+        XCTAssertEqual(core.state, .pasteImage(searching: false))
+    }
+
+    func testPlusAndMinusZoom() {
+        openDoor()
+        XCTAssertEqual(press("="), [.pasteImageZoom(in: true)], "= reads as plus without the shift")
+        XCTAssertEqual(press("=", shift: true), [.pasteImageZoom(in: true)])
+        XCTAssertEqual(press("-"), [.pasteImageZoom(in: false)])
+        XCTAssertEqual(core.state, .pasteImage(searching: false))
+    }
+
     func testOtherKeysAreSwallowedInsideTheDoor() {
         openDoor()
         for key in ["a", "1", "/", "space", "p", "d", "x"] {

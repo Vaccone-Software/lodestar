@@ -64,6 +64,7 @@ final class ImageDoorScenarioTests: XCTestCase {
                        "a small image stands at one point per pixel")
         XCTAssertEqual(stage.engine.imageDoor.shownMagnification, 1)
         XCTAssertEqual(stage.engine.imageDoor.magnification, 1)
+        XCTAssertTrue(stage.engine.imageDoor.panel.canBecomeKey, "the one surface that takes focus")
         XCTAssertTrue(stage.engine.imageDoor.shownCaption?.hasPrefix("320×200 · Brave") == true)
         XCTAssertTrue(stage.pasteboard.isEmpty, "the door never touches the pasteboard")
         XCTAssertEqual(stage.stripPastes, 0)

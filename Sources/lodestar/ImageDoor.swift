@@ -8,12 +8,21 @@ import LodestarCore
 /// visible display with the strip gone beneath it. It opens fitted, so
 /// the whole picture is seen first, and from there the trackpad does what
 /// it does to any image: a pinch zooms about the pointer, two fingers
-/// pan, and the picture never leaves its frame. No slider, no buttons —
-/// the panel takes gestures and nothing else, and never becomes key, so
-/// the app underneath keeps its cursor. The strip's grammar keeps every
-/// key: `esc` and `⏎` step back, `S` goes on to the save band.
+/// pan, and the picture never leaves its frame. No slider, no buttons.
+///
+/// It is the one surface in Lodestar that takes focus. macOS sends a
+/// pinch to the active application and nowhere else — not to the window
+/// under the pointer, not to a monitor watching from outside — so a door
+/// that stays behind another app zooms for nobody. The strip and the
+/// draft never activate because what they do lands in the app behind
+/// them; the door's result lands nowhere but the picture, so activating
+/// costs the hand nothing, and the app it took focus from gets it back
+/// the moment the door closes. The strip's grammar keeps every key:
+/// `esc` and `⏎` step back, `S` goes on to the save band.
 final class ImageDoor {
-    let panel: NSPanel
+    let panel: KeyablePanel
+    /// The app that was in front when the door opened, to be put back.
+    private(set) var returnsFocusTo: NSRunningApplication?
     private let root = NSView()
     private var backdrop: NSView?
     private let scroll = NSScrollView()
@@ -44,10 +53,22 @@ final class ImageDoor {
     var magnification: CGFloat { scroll.magnification }
 
     init() {
-        panel = Glass.makePanel(level: .statusBar)
-        // Gestures reach the picture: a pinch and a two-finger pan land
-        // in the scroll view. The panel still never becomes key.
+        // The launcher's key panel, at the strip's level: titled and
+        // hidden so the window server rounds it, able to become key so
+        // the gestures of an active app land in it.
+        panel = KeyablePanel(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+                             styleMask: [], backing: .buffered, defer: true)
+        panel.level = .statusBar
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.isReleasedWhenClosed = false
+        panel.hidesOnDeactivate = false
+        panel.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
         panel.ignoresMouseEvents = false
+        // Every key the grammar did not take arrives here; none has a
+        // meaning, and a key window that beeps at each is not quiet.
+        panel.onKeyDown = { _ in true }
         panel.contentView = root
         backdrop = Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
 
@@ -135,7 +156,14 @@ final class ImageDoor {
                                height: caption.frame.height)
 
         fitted = fit
-        panel.orderFrontRegardless()
+        // Focus, taken deliberately and remembered: the app in front is
+        // the one that gets it back.
+        let front = NSWorkspace.shared.frontmostApplication
+        if front?.processIdentifier != ProcessInfo.processInfo.processIdentifier {
+            returnsFocusTo = front
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        panel.makeKeyAndOrderFront(nil)
         CATransaction.commit()
         NSAnimationContext.endGrouping()
         watchGestures()
@@ -144,6 +172,10 @@ final class ImageDoor {
     func hide() {
         stopWatching()
         panel.orderOut(nil)
+        if let back = returnsFocusTo, !back.isTerminated {
+            back.activate()
+        }
+        returnsFocusTo = nil
         imageView.image = nil
         shownImageSize = nil
         shownMagnification = nil

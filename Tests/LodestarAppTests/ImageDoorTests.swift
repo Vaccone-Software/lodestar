@@ -25,3 +25,17 @@ final class ImageDoorTests: XCTestCase {
         XCTAssertEqual(ImageDoor.fit(pixels: CGSize(width: 10, height: 10), within: .zero), .zero)
     }
 }
+
+/// The pinch, as arithmetic: scaled by the gesture's own factor and held
+/// between the floor and the ceiling.
+final class ImageDoorZoomTests: XCTestCase {
+    func testAPinchScalesByItsFactor() {
+        XCTAssertEqual(ImageDoor.zoomed(1, by: 0.5, floor: 0.1, ceiling: 8), 1.5)
+        XCTAssertEqual(ImageDoor.zoomed(2, by: -0.25, floor: 0.1, ceiling: 8), 1.5)
+    }
+
+    func testTheFloorAndCeilingHold() {
+        XCTAssertEqual(ImageDoor.zoomed(7, by: 1, floor: 0.1, ceiling: 8), 8)
+        XCTAssertEqual(ImageDoor.zoomed(0.2, by: -0.9, floor: 0.1, ceiling: 8), 0.1)
+    }
+}

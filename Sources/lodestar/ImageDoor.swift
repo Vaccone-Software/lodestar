@@ -21,6 +21,11 @@ final class ImageDoor {
     private let imageView = NSImageView()
     private let caption = NSTextField(labelWithString: "")
     private let keys = NSTextField(labelWithString: "")
+    /// The gesture watchers, live only while the door stands.
+    private var monitors: [Any] = []
+    /// The magnification the picture opened at: what a smart zoom (two
+    /// fingers, tapped twice) returns to.
+    private var fitted: CGFloat = 1
 
     private static let margin: CGFloat = 22
     private static let pad: CGFloat = 22
@@ -129,17 +134,117 @@ final class ImageDoor {
                                width: max(0, keys.frame.minX - Self.pad * 1.5),
                                height: caption.frame.height)
 
+        fitted = fit
         panel.orderFrontRegardless()
         CATransaction.commit()
         NSAnimationContext.endGrouping()
+        watchGestures()
     }
 
     func hide() {
+        stopWatching()
         panel.orderOut(nil)
         imageView.image = nil
         shownImageSize = nil
         shownMagnification = nil
         shownCaption = nil
+    }
+}
+
+// MARK: - Gestures
+
+extension ImageDoor {
+    /// A pinch reaches the active application, and Lodestar is never
+    /// active: the event goes to whatever app is in front, and a window
+    /// that never becomes key never sees it. So the door listens the way
+    /// the strip listens for clicks — a global monitor, live only while
+    /// the door stands, reading gestures made over the door and driving
+    /// the zoom itself. A local monitor covers the one case where the
+    /// event does reach this process, and swallows it there so the scroll
+    /// view's own handler cannot apply the same pinch twice. Two-finger
+    /// scrolling goes to the window under the pointer whichever app is
+    /// active, so the scroll view pans natively; the global watcher only
+    /// steps in when a scroll was routed elsewhere.
+    private func watchGestures() {
+        guard monitors.isEmpty else { return }
+        let gestures: NSEvent.EventTypeMask = [.magnify, .smartMagnify]
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: gestures.union(.scrollWheel),
+                                                          handler: { [weak self] event in
+            self?.gesture(event)
+        }) {
+            monitors.append(global)
+        }
+        if let local = NSEvent.addLocalMonitorForEvents(matching: gestures,
+                                                        handler: { [weak self] event in
+            guard let self, self.gesture(event) else { return event }
+            return nil
+        }) {
+            monitors.append(local)
+        }
+    }
+
+    private func stopWatching() {
+        monitors.forEach { NSEvent.removeMonitor($0) }
+        monitors.removeAll()
+    }
+
+    /// True when the event was made over the door and was applied.
+    @discardableResult
+    private func gesture(_ event: NSEvent) -> Bool {
+        guard isVisible else { return false }
+        let pointer = NSEvent.mouseLocation
+        guard panel.frame.contains(pointer) else { return false }
+        switch event.type {
+        case .magnify:
+            pinch(by: event.magnification, at: pointer)
+        case .smartMagnify:
+            smartZoom(at: pointer)
+        case .scrollWheel:
+            pan(dx: event.scrollingDeltaX, dy: event.scrollingDeltaY,
+                precise: event.hasPreciseScrollingDeltas)
+        default:
+            return false
+        }
+        return true
+    }
+
+    /// One pinch: the magnification scaled by the gesture's own factor,
+    /// held between the door's floor and ceiling, about the point under
+    /// the pointer so what the fingers are on stays under them.
+    func pinch(by factor: CGFloat, at screenPoint: NSPoint) {
+        let target = Self.zoomed(scroll.magnification, by: factor,
+                                 floor: scroll.minMagnification, ceiling: scroll.maxMagnification)
+        scroll.setMagnification(target, centeredAt: documentPoint(at: screenPoint))
+        scroll.reflectScrolledClipView(clip)
+    }
+
+    /// Two fingers tapped twice: to one point per pixel from the fitted
+    /// size, back to fitted from anywhere else.
+    func smartZoom(at screenPoint: NSPoint) {
+        let target: CGFloat = abs(scroll.magnification - fitted) < 0.001 ? max(fitted, 1) : fitted
+        scroll.setMagnification(min(scroll.maxMagnification, target),
+                                centeredAt: documentPoint(at: screenPoint))
+        scroll.reflectScrolledClipView(clip)
+    }
+
+    func pan(dx: CGFloat, dy: CGFloat, precise: Bool) {
+        let step: CGFloat = precise ? 1 : 10
+        var origin = clip.bounds.origin
+        origin.x -= dx * step / scroll.magnification
+        origin.y += dy * step / scroll.magnification
+        let bounds = clip.constrainBoundsRect(NSRect(origin: origin, size: clip.bounds.size))
+        clip.scroll(to: bounds.origin)
+        scroll.reflectScrolledClipView(clip)
+    }
+
+    static func zoomed(_ current: CGFloat, by factor: CGFloat,
+                       floor: CGFloat, ceiling: CGFloat) -> CGFloat {
+        min(ceiling, max(floor, current * (1 + factor)))
+    }
+
+    private func documentPoint(at screenPoint: NSPoint) -> NSPoint {
+        let inWindow = panel.convertPoint(fromScreen: screenPoint)
+        return imageView.convert(inWindow, from: nil)
     }
 }
 

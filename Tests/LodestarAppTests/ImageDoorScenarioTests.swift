@@ -83,6 +83,28 @@ final class ImageDoorScenarioTests: XCTestCase {
         XCTAssertLessThan(door.magnification, 1)
     }
 
+    func testAPinchZoomsAboutThePointerAndAPinchBackReturns() {
+        let (stage, _) = stageWithImage(width: 4000, height: 2500)
+        openPanel(stage)
+        stage.press("e")
+        Stage.pump()
+        let door = stage.engine.imageDoor
+        let fitted = door.magnification
+        let center = NSPoint(x: door.panel.frame.midX, y: door.panel.frame.midY)
+        door.pinch(by: 1, at: center)
+        XCTAssertEqual(door.magnification, fitted * 2, accuracy: 0.001, "doubled")
+        for _ in 0..<20 { door.pinch(by: 1, at: center) }
+        XCTAssertEqual(door.magnification, 8, accuracy: 0.001, "the ceiling holds")
+        for _ in 0..<40 { door.pinch(by: -0.5, at: center) }
+        XCTAssertEqual(door.magnification, fitted * 0.5, accuracy: 0.001, "the floor holds")
+        door.smartZoom(at: center)
+        XCTAssertEqual(door.magnification, fitted, accuracy: 0.001, "a smart zoom comes home")
+        door.smartZoom(at: center)
+        XCTAssertEqual(door.magnification, 1, accuracy: 0.001, "and then to one point per pixel")
+        stage.press("escape")
+        XCTAssertFalse(door.isVisible)
+    }
+
     func testEscapeStepsBackToTheStripWhichReturns() {
         let (stage, _) = stageWithImage()
         openPanel(stage)

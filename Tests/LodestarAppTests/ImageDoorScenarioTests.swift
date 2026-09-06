@@ -21,10 +21,11 @@ final class ImageDoorScenarioTests: XCTestCase {
         super.tearDown()
     }
 
-    private func stageWithImage(host: String? = nil) -> (Stage, Clipboard.Clip) {
+    private func stageWithImage(width: Int = 320, height: Int = 200,
+                                host: String? = nil) -> (Stage, Clipboard.Clip) {
         let stage = Stage()
         stage.clipboard.saveFolder = folder.path
-        let clip = stage.seedImageClip(host: host)
+        let clip = stage.seedImageClip(width: width, height: height, host: host)
         return (stage, clip)
     }
 
@@ -50,7 +51,7 @@ final class ImageDoorScenarioTests: XCTestCase {
         XCTAssertFalse(labels.contains("Edit"), "an image has no text to edit")
     }
 
-    func testEOpensTheImageLargeAboveTheStrip() {
+    func testEOpensTheImageAcrossTheDisplayWithTheStripGone() {
         let (stage, _) = stageWithImage()
         openPanel(stage)
         stage.press("e")
@@ -58,16 +59,31 @@ final class ImageDoorScenarioTests: XCTestCase {
         Stage.pump()
         XCTAssertTrue(stage.engine.imageDoor.isVisible, "the door stands")
         XCTAssertFalse(stage.draft.isOpen, "the draft is not the image's door")
-        XCTAssertTrue(stage.engine.strip.isVisible, "the strip waits beneath")
-        XCTAssertTrue(stage.engine.strip.pinsHidden, "the pin column steps aside")
+        XCTAssertFalse(stage.engine.strip.isVisible, "the strip is gone beneath the door")
         XCTAssertEqual(stage.engine.imageDoor.shownImageSize, NSSize(width: 320, height: 200),
                        "a small image stands at one point per pixel")
+        XCTAssertEqual(stage.engine.imageDoor.shownMagnification, 1)
+        XCTAssertEqual(stage.engine.imageDoor.magnification, 1)
         XCTAssertTrue(stage.engine.imageDoor.shownCaption?.hasPrefix("320×200 · Brave") == true)
         XCTAssertTrue(stage.pasteboard.isEmpty, "the door never touches the pasteboard")
         XCTAssertEqual(stage.stripPastes, 0)
     }
 
-    func testEscapeStepsBackToTheStripWithThePinsBack() {
+    func testALargeImageOpensFittedWholeAndZoomsFromThere() {
+        let (stage, _) = stageWithImage(width: 4000, height: 2500)
+        openPanel(stage)
+        stage.press("e")
+        Stage.pump()
+        let door = stage.engine.imageDoor
+        XCTAssertTrue(door.isVisible)
+        let shown = door.shownImageSize ?? .zero
+        XCTAssertLessThan(shown.width, 4000, "fitted, not cropped")
+        XCTAssertEqual(shown.width / shown.height, 1.6, accuracy: 0.01, "the shape is kept")
+        XCTAssertEqual(door.magnification, door.shownMagnification ?? -1, accuracy: 0.001)
+        XCTAssertLessThan(door.magnification, 1)
+    }
+
+    func testEscapeStepsBackToTheStripWhichReturns() {
         let (stage, _) = stageWithImage()
         openPanel(stage)
         stage.press("e")
@@ -75,7 +91,7 @@ final class ImageDoorScenarioTests: XCTestCase {
         stage.press("escape")
         XCTAssertFalse(stage.engine.imageDoor.isVisible)
         XCTAssertEqual(stage.engine.grammarState, .paste(searching: false))
-        XCTAssertTrue(stage.engine.strip.isVisible)
+        XCTAssertTrue(stage.engine.strip.isVisible, "the strip is back")
         XCTAssertFalse(stage.engine.strip.pinsHidden)
         stage.press("escape")
         XCTAssertEqual(stage.engine.grammarState, .idle)
@@ -104,13 +120,13 @@ final class ImageDoorScenarioTests: XCTestCase {
         XCTAssertEqual(stage.engine.grammarState, .idle)
     }
 
-    func testSOnTheCardOpensTheBandWithTheOfferedName() {
+    func testSOnTheCardOpensTheBandWithTheOfferedNameAsText() {
         let (stage, clip) = stageWithImage(host: "github.com")
         openPanel(stage)
         stage.press("s")
         XCTAssertEqual(stage.engine.grammarState, .pasteSave(searching: false))
         let band = stage.engine.strip.shownSave
-        XCTAssertEqual(band?.name, "")
+        XCTAssertEqual(band?.name, Clipboard.imageFileName(for: clip), "the offered name is text, editable")
         XCTAssertEqual(band?.offered, Clipboard.imageFileName(for: clip))
         XCTAssertTrue(band?.offered.hasPrefix("github.com ") == true)
         XCTAssertEqual(band?.folder, folder.path)
@@ -136,10 +152,26 @@ final class ImageDoorScenarioTests: XCTestCase {
         XCTAssertEqual(flashed.last, "⌂ saved \(Clipboard.imageFileName(for: clip)) to \(folder.lastPathComponent)")
     }
 
+    func testTheOfferedNameIsEditedFromItsEnd() {
+        let (stage, clip) = stageWithImage()
+        openPanel(stage)
+        stage.press("s")
+        let offered = Clipboard.imageFileName(for: clip)
+        for _ in 0..<3 { stage.press("delete") }
+        type(stage, "jpg")
+        XCTAssertEqual(stage.engine.strip.shownSave?.name, String(offered.dropLast(3)) + "jpg")
+        stage.press("return")
+        Stage.pump()
+        XCTAssertEqual(stage.clipboard.lastSavedPath,
+                       folder.appendingPathComponent(String(offered.dropLast(3)) + "jpg").path)
+    }
+
     func testATypedNameWithASubfolderAndAFormatIsHonored() {
         let (stage, _) = stageWithImage()
         openPanel(stage)
         stage.press("s")
+        stage.chord("delete", .maskCommand)
+        XCTAssertEqual(stage.engine.strip.shownSave?.name, "", "⌘⌫ clears the offered name for a fresh one")
         type(stage, "reports/chart.jpg")
         XCTAssertEqual(stage.engine.strip.shownSave?.name, "reports/chart.jpg")
         stage.press("return")
@@ -155,6 +187,7 @@ final class ImageDoorScenarioTests: XCTestCase {
         let (stage, _) = stageWithImage()
         openPanel(stage)
         stage.press("s")
+        stage.chord("delete", .maskCommand)
         type(stage, "chart")
         stage.press("escape")
         Stage.pump()
@@ -168,6 +201,7 @@ final class ImageDoorScenarioTests: XCTestCase {
         let (stage, _) = stageWithImage()
         openPanel(stage)
         stage.press("s")
+        stage.chord("delete", .maskCommand)
         type(stage, "one two")
         stage.press("delete")
         XCTAssertEqual(stage.engine.strip.shownSave?.name, "one tw")

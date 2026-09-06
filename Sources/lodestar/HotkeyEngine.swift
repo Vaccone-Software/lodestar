@@ -1238,6 +1238,9 @@ extension HotkeyEngine: EngineWorld {
     /// Redraw the strip for the current query and selection. Cheap: the
     /// previews are already in memory and the thumbnails already decoded.
     private func renderStrip() {
+        // The image door covers the display; the strip is not drawn under
+        // it, and comes back the moment the door closes.
+        guard imageDoorClip == nil else { return }
         let all = clipboard.history.clips
         let recents = pasteQuery.map { Clipboard.search(all, query: $0) } ?? Clipboard.recents(all)
         pasteSelection = max(0, min(pasteSelection, max(0, recents.count - 1)))
@@ -1257,8 +1260,8 @@ extension HotkeyEngine: EngineWorld {
         strip.show(recents: recents, pins: Clipboard.pins(all),
                    thumbnail: { [clipboard] id in clipboard.history.thumbnail(for: id) },
                    band: band, selection: pasteSelection,
-                   actingOn: panelClip?.id ?? doorClip?.id ?? imageDoorClip?.id ?? saveClip?.id,
-                   pinsHidden: doorClip != nil || imageDoorClip != nil)
+                   actingOn: panelClip?.id ?? doorClip?.id ?? saveClip?.id,
+                   pinsHidden: doorClip != nil)
         // The search, measured: the last query's answer count stands
         // until the strip closes, whichever way the band went.
         if pasteQuery != nil { stripSession?.matches = recents.count }
@@ -1375,12 +1378,12 @@ extension HotkeyEngine: EngineWorld {
         if case .paste = core.state { renderStrip() }
     }
 
-    /// The image door: the card's pixels, large, above the strip with the
-    /// card lit beneath it. The decode is off the tap — an image near the
-    /// ceiling takes hundreds of milliseconds — and the door is drawn on
-    /// the next turn; a key that arrives first finds the grammar already
-    /// in the door and is answered by it. What cannot open says why and
-    /// leaves the strip as it was.
+    /// The image door: the card's pixels across the display, the strip
+    /// gone beneath it until the door closes. The decode is off the tap —
+    /// an image near the ceiling takes hundreds of milliseconds — and the
+    /// door is drawn on the next turn; a key that arrives first finds the
+    /// grammar already in the door and is answered by it. What cannot
+    /// open says why and leaves the strip as it was.
     private func openImageDoor(_ clip: Clipboard.Clip) {
         panelClip = nil
         guard let (data, pixels) = clipboard.imageBytes(of: clip) else {
@@ -1390,7 +1393,7 @@ extension HotkeyEngine: EngineWorld {
         imageDoorClip = clip
         let named = stripSession?.outcome
         stripSession?.outcome = ("acted", named?.source, "view", named?.rank)
-        renderStrip()
+        strip.hide()
         let caption = [
             "\(Int(pixels.width))×\(Int(pixels.height))",
             clip.sourceAppName, clip.sourceHost, Clipboard.age(of: clip, now: clock.now()),
@@ -1401,8 +1404,7 @@ extension HotkeyEngine: EngineWorld {
                 self.hud.flash("✕ that image cannot be opened")
                 self.imageDoorClosed(); return
             }
-            self.imageDoor.show(image: image, pixels: pixels, caption: caption,
-                                standsAbove: ClipboardStrip.rowHeight)
+            self.imageDoor.show(image: image, pixels: pixels, caption: caption)
             Log.info("strip", ["door": "image", "width": Int(pixels.width),
                                "height": Int(pixels.height)])
         }
@@ -1437,7 +1439,10 @@ extension HotkeyEngine: EngineWorld {
         }
         noteStripKey()
         saveClip = clip
-        saveName = ""
+        // The offered name is text, not a placeholder: the caret stands
+        // at its end, so a name is edited rather than retyped, and ⌘⌫
+        // clears it for a fresh one.
+        saveName = clipboard.offeredImageName(for: clip)
         panelClip = nil
         renderStrip()
     }

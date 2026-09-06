@@ -486,11 +486,19 @@ final class Stage {
                                    bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
                                    isPlanar: false, colorSpaceName: .deviceRGB,
                                    bytesPerRow: 0, bitsPerPixel: 0)!
-        for x in 0..<width {
+        // A gradient written straight into the bitmap: a per-pixel
+        // setColor on a large seed took a minute of the suite.
+        if let bytes = rep.bitmapData {
+            let stride = rep.bytesPerRow
             for y in 0..<height {
-                rep.setColor(NSColor(red: CGFloat(x) / CGFloat(width),
-                                     green: CGFloat(y) / CGFloat(height), blue: 0.3, alpha: 1),
-                             atX: x, y: y)
+                let row = bytes + y * stride
+                for x in 0..<width {
+                    let p = row + x * 4
+                    p[0] = UInt8((x * 255) / max(1, width - 1))
+                    p[1] = UInt8((y * 255) / max(1, height - 1))
+                    p[2] = 77
+                    p[3] = 255
+                }
             }
         }
         return rep.representation(using: .png, properties: [:])!

@@ -303,17 +303,15 @@ enum StripPreview {
             let strip = ClipboardStrip()
             let thumbnail: (String) -> NSImage? = { $0 == "r5" ? image : nil }
             if variant == 80 {
-                strip.show(recents: [shot] + recents, pins: pins, thumbnail: thumbnail,
-                           band: .none, selection: 0, actingOn: shot.id, pinsHidden: true)
                 DispatchQueue.main.async {
                     heldImageDoor = ImageDoor()
                     heldImageDoor?.show(image: image, pixels: CGSize(width: 1600, height: 1000),
-                                        caption: "1600×1000 · Ghostty · 2m ago",
-                                        standsAbove: ClipboardStrip.rowHeight)
+                                        caption: "1600×1000 · Ghostty · 2m ago")
                 }
             } else {
                 strip.show(recents: [shot] + recents, pins: pins, thumbnail: thumbnail,
-                           band: .save(name: "", offered: "Ghostty 2026-09-06 at 12.04.31.png",
+                           band: .save(name: "Ghostty 2026-09-06 at 12.04.31.png",
+                                       offered: "Ghostty 2026-09-06 at 12.04.31.png",
                                        folder: "~/Downloads"),
                            selection: 0, actingOn: shot.id)
             }

@@ -353,8 +353,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // its own config line as well as the master.
         health.observations = observationStore
         health.roads = roads
-        engine.onHumanKey = { [weak self] backspace in
-            self?.health.noteKey(backspace: backspace)
+        engine.onHumanKey = { [weak self] backspace, autorepeat in
+            self?.health.noteKey(backspace: backspace, autorepeat: autorepeat)
         }
         health.setEnabled(loaded.observationsEnabled && loaded.observationsHealth)
 

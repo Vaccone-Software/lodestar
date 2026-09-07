@@ -32,6 +32,15 @@ public struct Overhead: Equatable {
     /// search; the chain gaps already carry their own ceiling.
     static let launcherCeiling = 30.0
     static let selectCeiling = 120.0
+    /// A dictation draft's floor: the words it kept, spoken at a natural
+    /// continuous rate. 150 words a minute is unhurried conversational
+    /// English — the speed dictation would run at with no warmup, no
+    /// thinking pause, and no editing. Everything the actual seconds hold
+    /// above it is the channel's overhead, and a draft that kept no words
+    /// has no floor at all: its whole open time is waste.
+    public static let draftFloorWordsPerSecond = 2.5
+    /// A draft open longer than this was an interruption, not dictation.
+    static let draftCeiling = 600.0
 
     public struct Channel: Equatable {
         public let name: String
@@ -160,6 +169,37 @@ public struct Overhead: Equatable {
             }
         }
 
+        // Dictation: every spoken draft's open seconds — the ones that
+        // landed and the ones that did not — against a floor of the words
+        // that landed at a natural speaking rate. A draft that kept
+        // nothing contributes seconds and no floor, so the empty and
+        // cancelled drafts are the channel's own correction tax, exactly
+        // as the backspace loop is typing's: the ratio carries both the
+        // overhead above speech and the time that produced no words.
+        var speakDrafts = 0
+        var speakSeconds = 0.0
+        var landedWords = 0
+        var speakStamps: [Date] = []
+        for event in window where event.kind == .draft && event.source == "speak" {
+            guard let s = event.seconds, s >= 0, s < draftCeiling else { continue }
+            speakDrafts += 1
+            speakSeconds += s
+            speakStamps.append(event.t)
+            if event.action == "pasted" || event.action == "replaced" || event.action == "copied" {
+                landedWords += event.words ?? 0
+            }
+        }
+        if speakDrafts > 0, landedWords > 0 {
+            let draftDays = max(1, activeDays(speakStamps))
+            channels.append(Channel(
+                name: "dictation",
+                actsPerDay: Double(speakDrafts) / Double(draftDays),
+                actualSecondsPerDay: speakSeconds / Double(draftDays),
+                floorSecondsPerDay: Double(landedWords) / draftFloorWordsPerSecond
+                    / Double(draftDays),
+                measured: true))
+        }
+
         // Typing: counts priced at the measured inter-key gap. The floor
         // strikes the correction loop — each backspace erases a character
         // that was typed and is itself a keystroke, so two keys of every
@@ -176,21 +216,33 @@ public struct Overhead: Equatable {
                 measured: false))
         }
 
-        // Pointing: clicks priced by KLM — a hand trip pays homing, the
-        // point, and the press; an in-flow click pays point and press —
-        // against the keyed floor, which is what the same act costs once
-        // something like select has learned it.
+        // Pointing: every reach the tap timed pays its own homing,
+        // travel, settle and press; a click it did not time (older than
+        // the pointer column, or a press with no reach before it) is
+        // priced by KLM — a hand trip pays homing, the point, and the
+        // press; an in-flow click pays point and press — against the
+        // keyed floor, which is what the same act costs once something
+        // like select has learned it. The line reads as measured once
+        // most of its clicks were.
         if let clicks, let keyedFloor, clicks.clicks > 0, clicks.days > 0 {
             let clickDays = Double(clicks.days)
-            let inFlow = clicks.clicks - clicks.trips
-            let actual = Double(clicks.trips) * (homingSeconds + pointSeconds + pressSeconds)
-                + Double(inFlow) * (pointSeconds + pressSeconds)
+            let pointer = clicks.pointer
+            let timed = pointer.n
+            let untimed = max(0, clicks.clicks - timed - pointer.stationary)
+            let tripShare = clicks.tripShare ?? 0
+            let klmPerClick = tripShare * (homingSeconds + pointSeconds + pressSeconds)
+                + (1 - tripShare) * (pointSeconds + pressSeconds)
+            let presses = pointer.pressN > 0
+                ? pointer.pressSum + Double(max(0, timed + pointer.stationary - pointer.pressN)) * pressSeconds
+                : Double(timed + pointer.stationary) * pressSeconds
+            let actual = pointer.homingSum + pointer.travelSum + pointer.settleSum + presses
+                + Double(untimed) * klmPerClick
             channels.append(Channel(
                 name: "pointing",
                 actsPerDay: Double(clicks.clicks) / clickDays,
                 actualSecondsPerDay: actual / clickDays,
                 floorSecondsPerDay: Double(clicks.clicks) * keyedFloor / clickDays,
-                measured: false))
+                measured: timed * 2 >= clicks.clicks))
         }
 
         return Overhead(channels: channels)

@@ -30,6 +30,10 @@ public struct ClickPulse: Equatable {
         var clicks = 0
         var trips = 0
         var roles: [String: Int] = [:]
+        /// The reaches, presses, drags and returns, folded.
+        var pointer = PointerMoments()
+        var scrolls = 0
+        var scrollSeconds = 0.0
     }
 
     var windowStart: Date?
@@ -40,11 +44,10 @@ public struct ClickPulse: Equatable {
     /// One click landed. Returns the previous window's events (one per
     /// app) when this click opens a new window.
     public mutating func click(app: String, role: String?, trip: Bool,
+                               act: PointerTracker.Click? = nil,
                                at now: Date) -> [ObservationEvent] {
         let flushed = rollIfDue(now: now)
-        if windowStart == nil { windowStart = now }
-        var name = app.lowercased()
-        if cells[name] == nil, cells.count >= Self.appCap { name = Self.other }
+        let name = cellName(for: app, at: now)
         var cell = cells[name] ?? Cell()
         cell.clicks += 1
         if trip { cell.trips += 1 }
@@ -53,8 +56,52 @@ public struct ClickPulse: Equatable {
             roleName = Self.other
         }
         cell.roles[roleName, default: 0] += 1
+        if let act { cell.pointer.add(act) }
         cells[name] = cell
         return flushed
+    }
+
+    /// A press came up in an app: how long it was held, and the drag it
+    /// carried. Stamped by its press so it lands in the press's window.
+    public mutating func released(app: String, _ release: PointerTracker.Release,
+                                  at now: Date) -> [ObservationEvent] {
+        let flushed = rollIfDue(now: now)
+        let name = cellName(for: app, at: now)
+        var cell = cells[name] ?? Cell()
+        cell.pointer.add(release)
+        cells[name] = cell
+        return flushed
+    }
+
+    /// The hand came back to the keys after a press in an app.
+    public mutating func returned(app: String, seconds: Double,
+                                  at now: Date) -> [ObservationEvent] {
+        let flushed = rollIfDue(now: now)
+        let name = cellName(for: app, at: now)
+        var cell = cells[name] ?? Cell()
+        cell.pointer.addReturn(seconds)
+        cells[name] = cell
+        return flushed
+    }
+
+    /// One wheel burst landed in an app and ran this long.
+    public mutating func scroll(app: String, seconds: Double,
+                                at now: Date) -> [ObservationEvent] {
+        let flushed = rollIfDue(now: now)
+        let name = cellName(for: app, at: now)
+        var cell = cells[name] ?? Cell()
+        cell.scrolls += 1
+        cell.scrollSeconds += max(0, seconds)
+        cells[name] = cell
+        return flushed
+    }
+
+    /// The cell an app's acts fold into, honouring the app cap.
+    private mutating func cellName(for app: String, at now: Date) -> String {
+        if windowStart == nil { windowStart = now }
+        let name = app.lowercased()
+        if cells[name] == nil, cells.count >= Self.appCap { return Self.other }
+        return name
     }
 
     /// Close the open window unconditionally — shutdown's path.
@@ -92,6 +139,11 @@ public struct ClickPulse: Equatable {
             event.clicks = cell.clicks
             event.trips = cell.trips
             event.roles = cell.roles
+            if !cell.pointer.isEmpty { event.pointer = cell.pointer }
+            if cell.scrolls > 0 {
+                event.scrolls = cell.scrolls
+                event.scrollSeconds = cell.scrollSeconds
+            }
             return event
         }
     }
@@ -104,6 +156,9 @@ extension Health {
         public var clicks = 0
         public var trips = 0
         public var roles: [String: Int] = [:]
+        public var pointer = PointerMoments()
+        public var scrolls = 0
+        public var scrollSeconds = 0.0
         public init() {}
     }
 
@@ -112,9 +167,36 @@ extension Health {
         public var clicks = 0
         public var trips = 0
         public var apps: [String: ClickApp] = [:]
+        /// The reaches over every app, folded.
+        public var pointer = PointerMoments()
+        public var scrolls = 0
+        public var scrollSeconds = 0.0
 
+        /// Apps by wheel seconds, descending.
+        public var scrollRanked: [(app: String, seconds: Double)] {
+            apps.filter { $0.value.scrolls > 0 }
+                .sorted { $0.value.scrollSeconds > $1.value.scrollSeconds
+                    || ($0.value.scrollSeconds == $1.value.scrollSeconds && $0.key < $1.key) }
+                .map { (app: $0.key, seconds: $0.value.scrollSeconds) }
+        }
+
+        /// The share of clicks whose previous input was a keystroke.
+        ///
+        /// Superseded by `fromKeysShare`: the trip flag is a yes/no proxy
+        /// for "the hand left the keys," and the pointer's measured homing
+        /// now says the same thing and prices it. Kept for the KLM
+        /// fallback on clicks recorded before the pointer column, and for
+        /// windows with no timed reaches yet.
         public var tripShare: Double? {
             clicks > 0 ? Double(trips) / Double(clicks) : nil
+        }
+
+        /// The measured share: of the reaches the tap timed, those that
+        /// began after a keystroke — the hand coming off the keys, read
+        /// from motion rather than inferred from order. Nil until reaches
+        /// are timed, where `tripShare` still answers.
+        public var fromKeysShare: Double? {
+            pointer.n > 0 ? Double(pointer.homingN) / Double(pointer.n) : nil
         }
 
         /// Apps by click count, descending.
@@ -139,6 +221,14 @@ extension Health {
             for (role, count) in pulse.roles ?? [:] {
                 record.roles[role, default: 0] += count
             }
+            if let pointer = pulse.pointer {
+                record.pointer.merge(pointer)
+                out.pointer.merge(pointer)
+            }
+            record.scrolls += pulse.scrolls ?? 0
+            record.scrollSeconds += pulse.scrollSeconds ?? 0
+            out.scrolls += pulse.scrolls ?? 0
+            out.scrollSeconds += pulse.scrollSeconds ?? 0
             out.apps[app] = record
             out.clicks += pulse.clicks ?? 0
             out.trips += pulse.trips ?? 0

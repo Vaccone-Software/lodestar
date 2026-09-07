@@ -30,6 +30,7 @@ public struct HealthPulse: Equatable {
     var backspaces = 0
     var clicks = 0
     var scrolls = 0
+    var scrollSeconds = 0.0
     var minutes: Set<Int> = []
     var ikN = 0
     var ikSum = 0.0
@@ -49,8 +50,20 @@ public struct HealthPulse: Equatable {
 
     /// A keystroke landed. Returns the previous window's pulse when this
     /// key is the first input of a new one.
-    public mutating func key(at now: Date, backspace: Bool) -> ObservationEvent? {
+    ///
+    /// An `autorepeat` keydown is the OS repeating a held key at its
+    /// repeat rate, not a keystroke the hand made: it marks the minute
+    /// active but is counted nowhere else, so a key held down reads as
+    /// presence, never as typing at 30ms a key. The gap across a repeat
+    /// storm is dropped too — `lastKeyAt` does not advance — and the
+    /// next real key would show a gap the ceiling discards.
+    public mutating func key(at now: Date, backspace: Bool,
+                             autorepeat: Bool = false) -> ObservationEvent? {
         let flushed = rollIfDue(now: now)
+        guard !autorepeat else {
+            touch(now)
+            return flushed
+        }
         keys += 1
         if backspace {
             backspaces += 1
@@ -88,6 +101,19 @@ public struct HealthPulse: Equatable {
         lastScrollAt = now
         closeRun()
         touch(now)
+        return flushed
+    }
+
+    /// A whole burst, already coalesced at the tap: one reach for the
+    /// wheel, and how long it ran.
+    public mutating func scroll(from start: Date, to end: Date) -> ObservationEvent? {
+        let flushed = rollIfDue(now: start)
+        scrolls += 1
+        scrollSeconds += max(0, end.timeIntervalSince(start))
+        lastScrollAt = end
+        closeRun()
+        touch(start)
+        touch(end)
         return flushed
     }
 
@@ -137,6 +163,7 @@ public struct HealthPulse: Equatable {
         event.backspaces = backspaces
         event.clicks = clicks
         event.scrolls = scrolls
+        if scrollSeconds > 0 { event.scrollSeconds = scrollSeconds }
         event.activeMinutes = minutes.count
         event.ikN = ikN
         event.ikSum = ikSum
@@ -152,6 +179,7 @@ public struct HealthPulse: Equatable {
         backspaces = 0
         clicks = 0
         scrolls = 0
+        scrollSeconds = 0.0
         minutes = []
         ikN = 0
         ikSum = 0.0
@@ -174,6 +202,8 @@ public enum Health {
         public var backspaces = 0
         public var clicks = 0
         public var scrolls = 0
+        /// Seconds the wheel bursts ran, where the pulse timed them.
+        public var scrollSeconds = 0.0
         public var activeMinutes = 0
         /// Mean inter-key gap in seconds, when enough rhythm was seen.
         public var interKeyMean: Double?
@@ -235,6 +265,7 @@ public enum Health {
             out.backspaces += pulse.backspaces ?? 0
             out.clicks += pulse.clicks ?? 0
             out.scrolls += pulse.scrolls ?? 0
+            out.scrollSeconds += pulse.scrollSeconds ?? 0
             let active = pulse.activeMinutes ?? 0
             out.activeMinutes += active
             ikN += pulse.ikN ?? 0

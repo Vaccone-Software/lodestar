@@ -703,6 +703,26 @@ func runObservations(clear: Bool, engine: Bool) -> Never {
             detail += String(format: "%.0fs a draft", seconds[seconds.count / 2])
         }
         print(detail)
+        // The draft's fixed cost, split by the one thing that moves it:
+        // whether the speech model was already loaded. A cold start pays
+        // the load before the first word; a warm one does not, and the
+        // gap between the two medians is what prewarming is worth.
+        let spokenDrafts = drafts.filter { $0.source == "speak" }
+        let warmFirst = spokenDrafts.filter { $0.warm == true }.compactMap(\.firstWord).sorted()
+        let coldFirst = spokenDrafts.filter { $0.warm == false }.compactMap(\.firstWord).sorted()
+        if !warmFirst.isEmpty || !coldFirst.isEmpty {
+            var warmup = pad("", 10)
+            if !warmFirst.isEmpty {
+                warmup += pad(String(format: "warm %.1fs to first word", warmFirst[warmFirst.count / 2]), 26)
+            }
+            if !coldFirst.isEmpty {
+                warmup += pad(String(format: "cold %.1fs", coldFirst[coldFirst.count / 2]), 12)
+                warmup += String(format: "%d cold start%@", coldFirst.count, coldFirst.count == 1 ? "" : "s")
+            } else if !warmFirst.isEmpty {
+                warmup += "every start warm"
+            }
+            print(warmup)
+        }
         print("")
     }
 
@@ -759,7 +779,11 @@ func runObservations(clear: Bool, engine: Bool) -> Never {
         if let clicks = Health.clicks(events: events, days: 28), clicks.clicks > 0 {
             var line = pad("  clicks", 10)
             line += pad(String(format: "%.0f/day", Double(clicks.clicks) / Double(max(1, clicks.days))), 10)
-            if let trips = clicks.tripShare {
+            // The measured share where reaches were timed; the trip flag
+            // only until then.
+            if let fromKeys = clicks.fromKeysShare {
+                line += pad(String(format: "%d%% from the keys", Int(fromKeys * 100)), 18)
+            } else if let trips = clicks.tripShare {
                 line += pad(String(format: "%d%% hand trips", Int(trips * 100)), 18)
             }
             line += clicks.ranked.prefix(3).map { app, record in
@@ -771,6 +795,52 @@ func runObservations(clear: Bool, engine: Bool) -> Never {
                 return "\(app) \(share)%" + (roles.isEmpty ? "" : " (\(roles))")
             }.joined(separator: "  ")
             print(line)
+            // The reach, measured: the KLM's parts read off this hand
+            // instead of the literature — homing, travel, settle, press,
+            // the trip back — and how straight the pointer went.
+            let pointer = clicks.pointer
+            if let point = pointer.pointMean, let travel = pointer.travelMean,
+               let settle = pointer.settleMean {
+                var reach = pad("  reach", 10)
+                reach += pad(String(format: "point %.2fs", point), 13)
+                reach += pad(String(format: "travel %.2f · settle %.2f", travel, settle), 28)
+                if let homing = pointer.homingMean {
+                    reach += pad(String(format: "homing %.2fs", homing), 14)
+                }
+                if let press = pointer.pressMean {
+                    reach += pad(String(format: "press %.2fs", press), 13)
+                }
+                if let back = pointer.returnMean {
+                    reach += pad(String(format: "return %.2fs", back), 14)
+                }
+                if let path = pointer.pathMean, let straight = pointer.efficiency {
+                    reach += String(format: "%.0fpt a reach · %d%% straight", path, Int(straight * 100))
+                }
+                print(reach)
+                if pointer.dragN > 0 || pointer.stationary > 0 {
+                    var rest = pad("", 10)
+                    let days = Double(max(1, clicks.days))
+                    if pointer.dragN > 0, let drag = pointer.dragMean {
+                        rest += pad(String(format: "drags %.0f/day · %.2fs", Double(pointer.dragN) / days, drag), 26)
+                    }
+                    if pointer.stationary > 0 {
+                        rest += String(format: "%d%% of presses in place", pointer.stationary * 100 / max(1, clicks.clicks))
+                    }
+                    print(rest)
+                }
+            }
+            if clicks.scrolls > 0 {
+                let days = Double(max(1, clicks.days))
+                var wheel = pad("  wheel", 10)
+                wheel += pad(String(format: "%.0f bursts/day", Double(clicks.scrolls) / days), 16)
+                if clicks.scrollSeconds > 0 {
+                    wheel += pad(String(format: "%.1fm/day", clicks.scrollSeconds / 60 / days), 12)
+                    wheel += clicks.scrollRanked.prefix(3).map { app, seconds in
+                        "\(app) \(Int(seconds * 100 / max(1, clicks.scrollSeconds)))%"
+                    }.joined(separator: "  ")
+                }
+                print(wheel)
+            }
         }
         print("")
     }
@@ -814,6 +884,35 @@ func runObservations(clear: Bool, engine: Bool) -> Never {
                         + "≈" + daily(entry.secondsPerDay))
                 }
             }
+        }
+        print("")
+    }
+
+    // Where effort leaked: each surface's share of openings that ended in
+    // nothing, and the seconds they cost. Described, not judged — a high
+    // rate is a question, not a verdict; some things are meant to be
+    // opened and dismissed.
+    func perDay(_ secondsPerDay: Double) -> String {
+        secondsPerDay >= 120
+            ? String(format: "%.1fm/day", secondsPerDay / 60)
+            : String(format: "%.0fs/day", secondsPerDay)
+    }
+    let leaks = Abandonment.compute(events: events, days: 28)
+    if !leaks.surfaces.isEmpty {
+        print(String(format: "abandonment · opened and left · %@ with nothing to show",
+                     perDay(leaks.wastedSecondsPerDay)))
+        for surface in leaks.surfaces {
+            var line = pad("  " + surface.name, 14)
+            line += pad("\(surface.abandoned) of \(surface.opened)", 14)
+            if let rate = surface.rate {
+                line += pad(String(format: "%d%% left", Int(rate * 100)), 12)
+            }
+            if surface.timed, surface.secondsWasted > 0 {
+                line += "≈" + perDay(surface.secondsWasted / Double(max(1, leaks.days)))
+            } else if !surface.timed {
+                line += "untimed"
+            }
+            print(line)
         }
         print("")
     }

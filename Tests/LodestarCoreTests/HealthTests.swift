@@ -23,6 +23,23 @@ final class HealthTests: XCTestCase {
         XCTAssertEqual(event?.clicks, 1)
     }
 
+    func testAutorepeatIsPresenceNotTyping() {
+        var pulse = HealthPulse()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        _ = pulse.key(at: start, backspace: false)
+        // A key held down: forty repeats at the OS rate.
+        for i in 1...40 {
+            _ = pulse.key(at: start.addingTimeInterval(Double(i) * 0.03),
+                          backspace: false, autorepeat: true)
+        }
+        // A real key two seconds later, after the storm.
+        _ = pulse.key(at: start.addingTimeInterval(3), backspace: false)
+        let event = pulse.flush(now: start.addingTimeInterval(4))
+        XCTAssertEqual(event?.keys, 2, "the two the hand pressed, not the forty the OS repeated")
+        XCTAssertEqual(event?.ikN, 0, "no rhythm measured across a repeat storm or the gap after it")
+        XCTAssertEqual(event?.activeMinutes, 1, "a held key still means someone is there")
+    }
+
     func testInterKeyGapsObeyTheCeiling() {
         var pulse = HealthPulse()
         _ = pulse.key(at: start, backspace: false)

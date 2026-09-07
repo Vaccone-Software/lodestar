@@ -54,7 +54,7 @@ final class HotkeyEngine {
     /// A hardware keystroke passed through the tap; true when it was the
     /// correction key. The health pulse counts these — a count and one
     /// anonymous flag, never the key itself.
-    var onHumanKey: ((Bool) -> Void)?
+    var onHumanKey: ((Bool, Bool) -> Void)?
 
     /// The grammar lives in LodestarCore, pure and tested; this class is
     /// the AppKit shell that feeds it keys and executes its effects.
@@ -416,7 +416,14 @@ final class HotkeyEngine {
 
         let keycode = event.getIntegerValueField(.keyboardEventKeycode)
         let named = Keys.name(for: keycode)
-        if actingInputWasHuman { onHumanKey?(named == "delete") }
+        if actingInputWasHuman {
+            // Autorepeat keydowns are the OS's, not the hand's: holding a
+            // key emits one every ~30ms, and a pulse that counted them
+            // would read a held key as typing at the repeat rate. The
+            // pulse takes the flag and keeps the press, not the storm.
+            onHumanKey?(named == "delete",
+                        event.getIntegerValueField(.keyboardEventAutorepeat) != 0)
+        }
         // A chord carrying ⌘⌥⌃ together is a hyper-key shim's, never typing:
         // under LODESTAR_TRACE it is logged as it arrived, name or not, so
         // a chord that "does nothing" can be read back.

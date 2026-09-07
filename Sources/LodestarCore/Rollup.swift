@@ -115,6 +115,8 @@ public struct Rollup: Codable, Equatable {
         public var backspaces = 0
         public var clicks = 0
         public var scrolls = 0
+        /// Seconds the wheel bursts ran, where the pulse timed them.
+        public var scrollSeconds = 0.0
         public var activeMinutes = 0
         /// Inter-key gaps, seconds — the typing rhythm's moments.
         public var interKey = Stat()
@@ -145,6 +147,7 @@ public struct Rollup: Codable, Equatable {
             backspaces = try c.decodeIfPresent(Int.self, forKey: .backspaces) ?? 0
             clicks = try c.decodeIfPresent(Int.self, forKey: .clicks) ?? 0
             scrolls = try c.decodeIfPresent(Int.self, forKey: .scrolls) ?? 0
+            scrollSeconds = try c.decodeIfPresent(Double.self, forKey: .scrollSeconds) ?? 0
             activeMinutes = try c.decodeIfPresent(Int.self, forKey: .activeMinutes) ?? 0
             interKey = try c.decodeIfPresent(Stat.self, forKey: .interKey) ?? Stat()
             activeHours = try c.decodeIfPresent([Int].self, forKey: .activeHours)
@@ -168,6 +171,11 @@ public struct Rollup: Codable, Equatable {
         public var clicks = 0
         public var trips = 0
         public var roles: [String: Int] = [:]
+        /// The reaches folded, once the tap timed them. Optional so
+        /// archives written before the pointer column decode unchanged.
+        public var pointer: PointerMoments?
+        public var scrolls: Int?
+        public var scrollSeconds: Double?
         public init() {}
     }
 
@@ -191,6 +199,7 @@ public struct Rollup: Codable, Equatable {
         /// archived before the column decode unchanged.
         public var backspaceRuns: [Int]?
         public var backspaceRunKeys: [Int]?
+        public var scrollSeconds: Double?
 
         public init() {}
     }
@@ -552,6 +561,7 @@ public struct Rollup: Codable, Equatable {
             month.health.backspaces += event.backspaces ?? 0
             month.health.clicks += event.clicks ?? 0
             month.health.scrolls += event.scrolls ?? 0
+            month.health.scrollSeconds += event.scrollSeconds ?? 0
             month.health.activeMinutes += active
             month.health.interKey.merge(n: event.ikN ?? 0, sum: event.ikSum ?? 0,
                                         sumSquares: event.ikSumSq ?? 0)
@@ -576,6 +586,9 @@ public struct Rollup: Codable, Equatable {
             }
             weekly.clicks += event.clicks ?? 0
             weekly.scrolls += event.scrolls ?? 0
+            if let seconds = event.scrollSeconds {
+                weekly.scrollSeconds = (weekly.scrollSeconds ?? 0) + seconds
+            }
             weekly.activeMinutes += active
             weekly.interKey.merge(n: event.ikN ?? 0, sum: event.ikSum ?? 0,
                                   sumSquares: event.ikSumSq ?? 0)
@@ -593,6 +606,15 @@ public struct Rollup: Codable, Equatable {
             record.trips += event.trips ?? 0
             for (role, count) in event.roles ?? [:] {
                 record.roles[role, default: 0] += count
+            }
+            if let pointer = event.pointer {
+                var folded = record.pointer ?? PointerMoments()
+                folded.merge(pointer)
+                record.pointer = folded
+            }
+            if let scrolls = event.scrolls, scrolls > 0 {
+                record.scrolls = (record.scrolls ?? 0) + scrolls
+                record.scrollSeconds = (record.scrollSeconds ?? 0) + (event.scrollSeconds ?? 0)
             }
             month.health.clicksByApp[app] = record
 

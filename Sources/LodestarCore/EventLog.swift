@@ -62,10 +62,17 @@ public struct ObservationEvent: Codable, Equatable {
         case pulse
         /// A quarter hour of clicks in one app: `app`, `clicks`, `trips`
         /// (clicks whose previous input was a keystroke — the hand left
-        /// the keys), and `roles`, a histogram of the clicked element's
+        /// the keys, now superseded by the pointer's measured homing and
+        /// kept for older clicks and the KLM fallback), and `roles`, a
+        /// histogram of the clicked element's
         /// accessibility role class. An app name and a role class, never
         /// a label, a title, a coordinate, or a URL: the pool priced at
         /// the grain the focus events already keep, and no finer.
+        /// `pointer` carries the reaches folded to moments — homing,
+        /// travel, settle, press, drag, return, path and displacement,
+        /// as seconds and points of distance, never a position — and
+        /// `scrolls` with `scrollSeconds` the wheel bursts that landed in
+        /// the app and how long they ran.
         case clicks
         /// The instrument observing itself: `verb` names a surface's
         /// warmup ("scroll-panes", "retile"), `seconds` what it took —
@@ -133,6 +140,10 @@ public struct ObservationEvent: Codable, Equatable {
     public var ikSumSq: Double?
     public var trips: Int?
     public var roles: [String: Int]?
+    /// The pointer's reaches, folded: `PointerMoments`.
+    public var pointer: PointerMoments?
+    /// Seconds the wheel bursts ran, beside their count in `scrolls`.
+    public var scrollSeconds: Double?
     public var words: Int?
     public var switches: Int?
     public var firstWord: Double?

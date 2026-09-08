@@ -158,6 +158,11 @@ public enum Advisor {
         public var meetingsEnabled: Bool
         /// Saved breath paths, so a breath offer can name a free letter.
         public var breathPaths: [String]
+        /// The saved breaths themselves — path and the apps in the layout —
+        /// so a pair a breath already holds is never offered again. The
+        /// letter is the hand's to choose; the combination is what counts,
+        /// in either order.
+        public var breaths: [Breath]
         /// Gestures already switched off, by roster name: a dormant offer
         /// for one of those would be offering what is already done.
         public var disabledGestures: Set<String>
@@ -169,6 +174,7 @@ public enum Advisor {
                     profileKeys: [String: String] = [:],
                     meetingsEnabled: Bool = false,
                     breathPaths: [String] = [],
+                    breaths: [Breath] = [],
                     disabledGestures: Set<String> = [], now: Date = Date()) {
             self.observations = observations
             self.events = events
@@ -177,8 +183,24 @@ public enum Advisor {
             self.profileKeys = profileKeys
             self.meetingsEnabled = meetingsEnabled
             self.breathPaths = breathPaths
+            self.breaths = breaths
             self.disabledGestures = disabledGestures
             self.now = now
+        }
+    }
+
+    /// A saved breath as the advisor sees it: its letter and the apps its
+    /// layout holds, lowercased the way the transition table names them.
+    public struct Breath: Equatable {
+        public var path: String
+        public var apps: [String]
+        public init(path: String, apps: [String]) {
+            self.path = path
+            self.apps = apps.map { $0.lowercased() }
+        }
+        /// True when every app in `pair` has a window in this layout.
+        public func holds(_ pair: [String]) -> Bool {
+            Set(apps).isSuperset(of: pair.map { $0.lowercased() })
         }
     }
 
@@ -972,6 +994,16 @@ public enum Advisor {
         var offered = 0
         for pair in pairs where pair.count >= 20 {
             guard seen.insert(Set([pair.from, pair.to])).inserted else { continue }
+            // The pair in one order whichever direction dominated this
+            // fortnight, so the ledger keeps one entry per combination:
+            // the direction flipping between weeks once made an accepted
+            // breath come back as a new finding.
+            let apps = [pair.from, pair.to].sorted()
+            let name = "\(apps[0]) + \(apps[1])"
+            // A breath that already holds both apps answers the finding.
+            // The letter it lives at is the hand's business; the coach
+            // has nothing to add but "use it", and it is not offered.
+            let held = context.breaths.contains { $0.holds(apps) }
             // The null: the pair co-occurs at the rate independence
             // predicts. Normal approximation to the Poisson tail above it.
             let expected = pair.count / pair.lift
@@ -982,20 +1014,21 @@ public enum Advisor {
             // The lift floor is a sanity gate, not the test (see the
             // z-score note above); the cap is presentation. Nothing pulled
             // means nothing to save: not offerable, still in the family.
-            let offerable = pair.lift >= 1.3 && offered < 3 && (pulled ?? 1) > 0
+            let offerable = pair.lift >= 1.3 && offered < 3 && (pulled ?? 1) > 0 && !held
             if offerable { offered += 1 }
             // The accept: compose the pair side by side and save it at a
             // free breath letter. No free letter, no edit — the finding
             // still reports.
-            let edit = breathLetter(for: pair, context: context).map {
-                ConfigEdit.composeBreath(apps: [pair.from, pair.to], path: $0)
+            let edit = held ? nil : breathLetter(for: pair, context: context).map {
+                ConfigEdit.composeBreath(apps: apps, path: $0)
             }
             out.append(Candidate(rec: Recommendation(
-                kind: .breath, target: "\(pair.from) + \(pair.to)",
+                kind: .breath, target: name,
                 detail: "\(pair.from) and \(pair.to) travel together "
                     + String(format: "%.0f× at lift %.1f", pair.count, pair.lift)
                     + (pulled.map { String(format: " · %.0f pulled into view", $0) } ?? "")
-                    + " · a breath would pin them side by side",
+                    + (held ? " · a saved breath already holds them"
+                            : " · a breath would pin them side by side"),
                 // A weekly-halved mass is ~a two-week window, so the rate
                 // is half of it — at two seconds a transition, the count:
                 // the pulled count where the table exists, since a switch
@@ -1003,7 +1036,7 @@ public enum Advisor {
                 secondsPerWeek: pulled ?? pair.count,
                 probability: probability,
                 evidence: [String(format: "lift %.1f over independent use", pair.lift)],
-                display: "\(pair.from) + \(pair.to)",
+                display: name,
                 edit: edit),
                 p: p, offerable: offerable))
         }
@@ -1015,7 +1048,7 @@ public enum Advisor {
     /// equals it or nests around it — and never "b", which the breath
     /// grammar reserves.
     static func breathLetter(for pair: Transitions.Pair, context: Context) -> String? {
-        let taken = context.breathPaths
+        let taken = context.breathPaths + context.breaths.map(\.path)
         func free(_ letter: String) -> Bool {
             letter != "b" && !taken.contains { $0 == letter || $0.hasPrefix(letter) }
         }

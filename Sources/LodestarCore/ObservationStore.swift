@@ -140,6 +140,19 @@ public final class ObservationStore {
         record(event)
     }
 
+    /// A saved breath was restored: `path` is its letter, `apps` every app
+    /// in the layout it brought back. Recorded as a reach by the breath
+    /// road for each of them, so the coach can see a breath being used —
+    /// before this, an accepted breath left no trace at all.
+    public func breathRestored(path: String, apps: [String], at now: Date = Date()) {
+        var event = ObservationEvent(t: now, kind: .reach)
+        event.route = Observations.Route.breath.rawValue
+        event.chain = [path.lowercased()]
+        event.apps = apps.map { $0.lowercased() }
+        event.app = event.apps?.first
+        record(event)
+    }
+
     /// The launcher opened, took typing, and was escaped without a pick.
     public func launcherAbandoned(typed: Int, at now: Date = Date()) {
         var event = ObservationEvent(t: now, kind: .launcherAbandon)

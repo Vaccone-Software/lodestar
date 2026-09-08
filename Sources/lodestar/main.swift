@@ -378,7 +378,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     webRoutes: self.config.webRoutes,
                     profileKeys: identityToKey,
                     meetingsEnabled: self.config.meetingsEnabled,
-                    breathPaths: self.store.state.breaths.map(\.path))
+                    breathPaths: self.store.state.breaths.map(\.path),
+                    breaths: self.store.state.breaths.map {
+                        Advisor.Breath(path: $0.path,
+                                               apps: $0.members.map(\.appName))
+                    })
         }
         coach.applyEdit = { [weak self] edit in
             guard let self else { return "lodestar is shutting down" }

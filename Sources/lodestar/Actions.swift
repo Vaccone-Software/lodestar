@@ -738,6 +738,10 @@ final class Actions {
         let orientation = Orientation(rawValue: record.orientation) ?? .horizontal
         for (_, id) in resolvedPairs { sessionClaimed.insert(id) }
         if !resolvedPairs.isEmpty {
+            // The breath was used: say so, naming the whole layout, so
+            // the count follows the combination and not the letter.
+            observations?.breathRestored(path: record.path,
+                                         apps: record.members.map(\.appName))
             // Members go home: each restores to the display its stored frame
             // was on; members of a since-unplugged display join the active one.
             let fallback = layout.activeDisplay()?.id ?? Displays.ordered().first?.id

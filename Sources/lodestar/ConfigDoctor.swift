@@ -509,12 +509,16 @@ func runObservations(clear: Bool, engine: Bool) -> Never {
     // The saved breath paths, read without a StateStore: its load() takes
     // a backup on the way through, and a reporting process must never
     // write beside the running instance.
-    let breathPaths: [String] = {
+    let savedBreaths: [BreathRecord] = {
         guard let data = try? Data(contentsOf: StateStore.defaultFile),
               let state = try? JSONDecoder().decode(PersistedState.self, from: data)
         else { return [] }
-        return state.breaths.map(\.path)
+        return state.breaths
     }()
+    let breathPaths = savedBreaths.map(\.path)
+    let breaths = savedBreaths.map {
+        Advisor.Breath(path: $0.path, apps: $0.members.map(\.appName))
+    }
     // The same context the app hands its coach, or the report would
     // disagree with the chip about what stands.
     let context = Advisor.Context(
@@ -526,7 +530,8 @@ func runObservations(clear: Bool, engine: Bool) -> Never {
             ($0.value.reference, $0.value.reference)
         }, uniquingKeysWith: { first, _ in first }),
         meetingsEnabled: config.meetingsEnabled,
-        breathPaths: breathPaths
+        breathPaths: breathPaths,
+        breaths: breaths
     )
 
     if engine {

@@ -106,6 +106,10 @@ public struct ObservationEvent: Codable, Equatable {
     public var pressed: String?
     public var app: String?
     public var route: String?
+    /// A breath restore names every app its layout holds, so the count
+    /// follows the combination rather than the letter — rebinding a
+    /// breath to a new key must not start its record over.
+    public var apps: [String]?
     public var typed: Int?
     public var queryPrefix: String?
     public var rank: Int?

@@ -106,7 +106,8 @@ final class CoachController {
                               webRoutes: [String: String],
                               profileKeys: [String: String],
                               meetingsEnabled: Bool,
-                              breathPaths: [String])? = { nil }
+                              breathPaths: [String],
+                              breaths: [Advisor.Breath])? = { nil }
     /// Perform the one config line. Returns an error string, or nil.
     var applyEdit: (ConfigEdit) -> String? = { _ in "coach is not wired" }
     /// The engine's stillness — no chain, no bars, no peek.
@@ -538,7 +539,8 @@ final class CoachController {
                 leaves: inputs.leaves, webRoutes: inputs.webRoutes,
                 profileKeys: inputs.profileKeys,
                 meetingsEnabled: inputs.meetingsEnabled,
-                breathPaths: inputs.breathPaths)
+                breathPaths: inputs.breathPaths,
+                breaths: inputs.breaths)
             let recommendations = Advisor.recommend(context)
             let offer = Coach.standingOffer(observations: inputs.observations,
                                             recommendations: recommendations,

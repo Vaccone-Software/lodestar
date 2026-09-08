@@ -141,9 +141,26 @@ final class EventLogTests: XCTestCase {
         store.focused(app: "brave", at: date)
         store.verbUsed("launcher", at: date)
         store.epochBumped(address: ["b", "g"], change: "retargeted", at: date)
+        store.breathRestored(path: "x", apps: ["Brave Browser", "Ghostty"], at: date)
 
         XCTAssertEqual(Observations.rebuild(from: store.log.readAll()), store.observations,
                        "the view and the log can never disagree")
+    }
+
+    func testABreathRestoreReachesEveryAppInItsLayout() {
+        let store = ObservationStore(
+            file: directory.appendingPathComponent("observations.json"),
+            log: makeLog())
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        store.breathRestored(path: "X", apps: ["Brave Browser", "Ghostty"], at: date)
+        let event = store.log.readAll().last
+        XCTAssertEqual(event?.kind, .reach)
+        XCTAssertEqual(event?.route, "breath")
+        XCTAssertEqual(event?.chain, ["x"])
+        XCTAssertEqual(event?.apps, ["brave browser", "ghostty"],
+                       "the layout's apps travel with the use, so a rebound letter keeps its record")
+        XCTAssertEqual(store.observations.apps["brave browser"]?.breath, 1)
+        XCTAssertEqual(store.observations.apps["ghostty"]?.breath, 1)
     }
 
     func testStoreLoadRebuildsFromLogWhenViewIsMissingOrStale() {

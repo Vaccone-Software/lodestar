@@ -471,9 +471,29 @@ public struct Observations: Codable, Equatable {
             addresses[key] = record
 
         case .reach:
-            guard let name = event.app?.lowercased(), !name.isEmpty,
-                  let routeRaw = event.route, let route = Route(rawValue: routeRaw) else { return }
+            guard let routeRaw = event.route, let route = Route(rawValue: routeRaw) else { return }
+            // A breath reaches every app in its layout at once; every other
+            // road reaches the one app the event names.
+            let names: [String] = {
+                if route == .breath, let apps = event.apps, !apps.isEmpty {
+                    return apps.map { $0.lowercased() }.filter { !$0.isEmpty }
+                }
+                if let name = event.app?.lowercased(), !name.isEmpty { return [name] }
+                return []
+            }()
+            guard let name = names.first else { return }
             touch(now)
+            for other in names.dropFirst() {
+                var record = apps[other] ?? AppRecord()
+                record.firstWeek = record.firstWeek ?? Self.week(now)
+                record.breath += 1
+                record.lastUsed = now
+                record.weeks[Self.week(now), default: 0] += 1
+                Self.prune(&record.weeks)
+                record.dayparts[Self.daypart(now)] += 1
+                record.usage.bump(at: now)
+                apps[other] = record
+            }
             var record = apps[name] ?? AppRecord()
             record.firstWeek = record.firstWeek ?? Self.week(now)
             switch route {

@@ -133,6 +133,43 @@ final class CoachPowersTests: XCTestCase {
                                meetingsEnabled: false, breathPaths: paths, now: start)
     }
 
+    func testASavedBreathHoldingBothAppsAnswersTheFinding() {
+        // The pair is already side by side at some letter — whichever
+        // letter, whichever order. Still tested, never offered, no edit.
+        var context = breathContext(paths: ["q"])
+        context.breaths = [Advisor.Breath(path: "q",
+                                                  apps: ["Brave Browser", "Slack", "Ghostty"])]
+        let candidate = Advisor.breathCandidates(context).first
+        XCTAssertNotNil(candidate, "the finding stays in the family")
+        XCTAssertEqual(candidate?.offerable, false)
+        XCTAssertNil(candidate?.rec.edit)
+        XCTAssertTrue(candidate?.rec.detail.contains("already holds them") ?? false)
+        XCTAssertNil(Advisor.recommend(context).first { $0.kind == .breath })
+    }
+
+    func testABreathHoldingOnlyOneOfThePairStillOffers() {
+        var context = breathContext(paths: ["q"])
+        context.breaths = [Advisor.Breath(path: "q", apps: ["Ghostty", "Slack"])]
+        XCTAssertEqual(Advisor.breathCandidates(context).first?.offerable, true)
+    }
+
+    func testBreathTargetNamesThePairInOneOrder() {
+        // Whichever direction dominates the fortnight, the ledger sees one
+        // combination: a flipped direction once returned an accepted
+        // breath as a brand-new finding.
+        var forward = Observations()
+        forward.transitions = ["ghostty": ["brave browser": 30], "brave browser": ["ghostty": 25]]
+        var backward = Observations()
+        backward.transitions = ["ghostty": ["brave browser": 25], "brave browser": ["ghostty": 30]]
+        let a = Advisor.breathCandidates(Advisor.Context(observations: forward, events: [], leaves: [],
+                                                         meetingsEnabled: false, now: start)).first?.rec
+        let b = Advisor.breathCandidates(Advisor.Context(observations: backward, events: [], leaves: [],
+                                                         meetingsEnabled: false, now: start)).first?.rec
+        XCTAssertEqual(a?.target, "brave browser + ghostty")
+        XCTAssertEqual(a?.target, b?.target)
+        XCTAssertEqual(a?.display, b?.display)
+    }
+
     func testBreathOfferComposesAtAFreeLetter() {
         let candidate = Advisor.breathCandidates(breathContext(paths: [])).first
         XCTAssertEqual(candidate?.offerable, true)

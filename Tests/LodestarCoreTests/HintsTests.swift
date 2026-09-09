@@ -37,6 +37,39 @@ final class HintLabelsTests: XCTestCase {
         XCTAssertEqual(HintLabels.capacity(alphabet: "xx"), 81, "fallback alphabet")
     }
 
+    func testEverythingWearsAChipWhileSinglesSuffice() {
+        // The small window's whole experience: a dialog's three buttons,
+        // each on one keystroke, whether or not the tree could name them.
+        let chipped = HintLabels.chipped(unreachable: [false, true, false],
+                                         alphabet: "asdfghjkl")
+        XCTAssertEqual(chipped, [0, 1, 2])
+    }
+
+    func testPastTheAlphabetOnlyTheActionFoundKeepChips() {
+        // Twelve targets against nine letters: the three the tree found by
+        // action alone paint no word, so they keep the chips; the nine the
+        // tree named by role are typed instead.
+        var unreachable = [Bool](repeating: false, count: 12)
+        unreachable[2] = true
+        unreachable[7] = true
+        unreachable[11] = true
+        XCTAssertEqual(HintLabels.chipped(unreachable: unreachable, alphabet: "asdfghjkl"),
+                       [2, 7, 11])
+    }
+
+    func testChipsHoldReadingOrderAndStopAtCapacity() {
+        let unreachable = [Bool](repeating: true, count: 500)
+        let chipped = HintLabels.chipped(unreachable: unreachable, alphabet: "asdf")
+        XCTAssertEqual(chipped.count, 16, "alphabet squared, never past it")
+        XCTAssertEqual(chipped, Array(0..<16), "the order the harvest walked in")
+    }
+
+    func testAWindowOfNamedTargetsDrawsNoChips() {
+        let unreachable = [Bool](repeating: false, count: 40)
+        XCTAssertTrue(HintLabels.chipped(unreachable: unreachable, alphabet: "asdfghjkl").isEmpty,
+                      "everything here is reachable by typing it")
+    }
+
     func testMatchTiers() {
         let labels = ["aa", "as", "d"]
         XCTAssertEqual(HintLabels.match(typed: "d", labels: labels), .exact(2))

@@ -41,6 +41,31 @@ public enum HintLabels {
         return n * n
     }
 
+    /// Which of a harvest's targets wear a chip, by index.
+    ///
+    /// A label is not free: it is a word the eye must find and the hand
+    /// must spell, and the door already has a better address for most of
+    /// what a window holds — the text painted on it. So chips are spent
+    /// only where typing cannot reach.
+    ///
+    /// While the whole harvest fits in single letters nothing is spent
+    /// and everything wears one: that is the small window's whole
+    /// experience — a dialog's three buttons, a popover's rows, answered
+    /// the instant the tree does and each on one keystroke. Past that the
+    /// chips go to what the screen paints no word on: the targets the
+    /// tree found **by action alone** — a div that presses, an image that
+    /// clicks — and **text inputs**, whose words are the user's to write
+    /// and whose empty box says nothing a search could match. Everything
+    /// the tree named by role keeps the address it always had: type it.
+    public static func chipped(unreachable: [Bool], alphabet: String) -> [Int] {
+        let letters = sanitize(alphabet)
+        let indices = Array(unreachable.indices)
+        let chosen = unreachable.count <= letters.count
+            ? indices
+            : indices.filter { unreachable[$0] }
+        return Array(chosen.prefix(letters.count * letters.count))
+    }
+
     public enum Match: Equatable {
         case none
         case partial

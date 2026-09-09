@@ -1009,27 +1009,47 @@ func runPressables(_ args: inout [String]) {
         return
     }
     let windowFrame = CGRect(origin: position, size: size)
-    let harvested: Set<String> = [
+    let windowArea = max(windowFrame.width * windowFrame.height, 1)
+    // The shipped harvest's own sets and threshold, mirrored: this
+    // command is only worth reading while it measures what runs.
+    let pressableRoles: Set<String> = [
         "AXButton", "AXLink", "AXCheckBox", "AXRadioButton", "AXPopUpButton",
         "AXMenuButton", "AXComboBox", "AXDisclosureTriangle", "AXMenuItem",
-        "AXSegment", "AXSwitch", "AXToggle", "AXTextField", "AXTextArea", "AXSearchField",
+        "AXSegment", "AXSwitch", "AXToggle",
     ]
-    struct Tally { var total = 0; var press = 0; var textless = 0 }
+    let textRoles: Set<String> = ["AXTextField", "AXTextArea", "AXSearchField"]
+    let actionShareCap = 0.05
+
+    struct Found { let role: String; let frame: CGRect; let viaAction: Bool }
+    struct Tally { var total = 0; var press = 0 }
     var byRole: [String: Tally] = [:]
+    var found: [Found] = []
+    var seenFrames = Set<String>()
     var visited = 0
     var pruned = 0
+    var actionAsks = 0
+    var suppressed = 0
     let deadline = Date().addingTimeInterval(4)
     let batch = [kAXRoleAttribute, kAXPositionAttribute, kAXSizeAttribute,
                  kAXChildrenAttribute] as CFArray
 
-    func walk(_ element: AXUIElement, depth: Int) {
-        guard depth < 28, visited < 2800, Date() < deadline else { return }
+    func add(_ role: String, frame: CGRect, viaAction: Bool) -> Bool {
+        let key = "\(Int(frame.minX)):\(Int(frame.minY)):\(Int(frame.width))"
+        guard !seenFrames.contains(key) else { return false }
+        seenFrames.insert(key)
+        found.append(Found(role: role, frame: frame, viaAction: viaAction))
+        return true
+    }
+
+    @discardableResult
+    func walk(_ element: AXUIElement, depth: Int) -> Bool {
+        guard depth < 28, visited < 2800, Date() < deadline else { return false }
         visited += 1
         var values: CFArray?
         guard AXUIElementCopyMultipleAttributeValues(
             element, batch, AXCopyMultipleAttributeOptions(rawValue: 0),
             &values) == .success, let array = values as? [CFTypeRef], array.count == 4
-        else { return }
+        else { return false }
         var frame: CGRect?
         if CFGetTypeID(array[1]) == AXValueGetTypeID(), CFGetTypeID(array[2]) == AXValueGetTypeID() {
             var point = CGPoint.zero, sz = CGSize.zero
@@ -1039,39 +1059,66 @@ func runPressables(_ args: inout [String]) {
             }
         }
         if let frame, frame.width > 1, frame.height > 1,
-           !frame.intersects(windowFrame.insetBy(dx: -8, dy: -8)) { pruned += 1; return }
+           !frame.intersects(windowFrame.insetBy(dx: -8, dy: -8)) { pruned += 1; return false }
+        var yielded = false
+        var pending: (role: String, frame: CGRect)?
         if let role = array[0] as? String, let frame,
            frame.width >= 5, frame.height >= 5, frame.intersects(windowFrame) {
-            var actions: CFArray?
-            AXUIElementCopyActionNames(element, &actions)
-            let presses = (actions as? [String] ?? []).contains(kAXPressAction as String)
             var tally = byRole[role] ?? Tally()
             tally.total += 1
-            if presses {
-                tally.press += 1
-                let text = (AX.string(element, kAXTitleAttribute as String) ?? "")
-                    + (AX.string(element, kAXDescriptionAttribute as String) ?? "")
-                    + (AX.string(element, kAXValueAttribute as String) ?? "")
-                if text.trimmingCharacters(in: .whitespaces).isEmpty { tally.textless += 1 }
-            }
             byRole[role] = tally
+            if pressableRoles.contains(role) || textRoles.contains(role) {
+                yielded = add(role, frame: frame, viaAction: false)
+            } else if frame.width * frame.height <= windowArea * actionShareCap {
+                actionAsks += 1
+                var actions: CFArray?
+                AXUIElementCopyActionNames(element, &actions)
+                if (actions as? [String] ?? []).contains(kAXPressAction as String) {
+                    pending = (role, frame)
+                }
+            }
         }
-        guard CFGetTypeID(array[3]) == CFArrayGetTypeID(),
-              let children = array[3] as? [AXUIElement] else { return }
-        for child in children { walk(child, depth: depth + 1) }
+        let mark = found.count
+        if CFGetTypeID(array[3]) == CFArrayGetTypeID(), let children = array[3] as? [AXUIElement] {
+            for child in children { walk(child, depth: depth + 1) }
+        }
+        if let pending {
+            if found.count == mark {
+                var tally = byRole[pending.role] ?? Tally()
+                tally.press += 1
+                byRole[pending.role] = tally
+                yielded = add(pending.role, frame: pending.frame, viaAction: true) || yielded
+            } else {
+                suppressed += 1
+            }
+        }
+        return yielded || found.count > mark
     }
+
     let began = Date()
     walk(window, depth: 0)
     let ms = Int(Date().timeIntervalSince(began) * 1000)
-    print("\(running.localizedName ?? appName): \(visited) nodes · \(pruned) subtrees pruned off-window · \(ms)ms")
-    print("  \(pad("role", 22)) \(pad("total", 6)) \(pad("press", 6)) \(pad("no text", 8))")
-    for (role, tally) in byRole.sorted(by: { $0.value.press > $1.value.press })
-    where tally.press > 0 || harvested.contains(role) {
-        print("  \(pad(role, 22)) \(pad(String(tally.total), 6)) \(pad(String(tally.press), 6))"
-              + " \(pad(String(tally.textless), 8)) \(harvested.contains(role) ? "harvested" : "")")
+    let byAction = found.filter(\.viaAction).count
+    let alphabet = "asdfghjklqwertyuiopzxcvbnm"
+    // What the door cannot reach by typing: found by action alone, or an
+    // input whose empty box paints no word.
+    let chips = HintLabels.chipped(
+        unreachable: found.map { $0.viaAction || textRoles.contains($0.role) },
+        alphabet: alphabet)
+    let labels = HintLabels.labels(count: chips.count, alphabet: alphabet)
+    print("\(running.localizedName ?? appName): \(visited) nodes · \(pruned) subtrees pruned"
+          + " off-window · \(actionAsks) asked for actions · \(ms)ms")
+    print("  \(pad("role", 22)) \(pad("seen", 6)) \(pad("kept", 6))")
+    var keptByRole: [String: Int] = [:]
+    for target in found { keptByRole[target.role, default: 0] += 1 }
+    for (role, tally) in byRole.sorted(by: { ($0.value.press, $0.value.total) > ($1.value.press, $1.value.total) })
+    where keptByRole[role] != nil {
+        print("  \(pad(role, 22)) \(pad(String(tally.total), 6)) \(pad(String(keptByRole[role] ?? 0), 6))"
+              + " \(pressableRoles.contains(role) || textRoles.contains(role) ? "by role" : "by action")")
     }
-    let inside = byRole.filter { harvested.contains($0.key) }.values.reduce(0) { $0 + $1.total }
-    let outside = byRole.filter { !harvested.contains($0.key) }.values.reduce(0) { $0 + $1.press }
-    let textless = byRole.filter { !harvested.contains($0.key) }.values.reduce(0) { $0 + $1.textless }
-    print("  harvested by role: \(inside) · pressables outside the role list: \(outside) (\(textless) with no text to type)")
+    print("  harvest: \(found.count) targets · \(found.count - byAction) by role · \(byAction)"
+          + " by action (\(suppressed) suppressed as wrappers)")
+    print("  chips drawn: \(chips.count)"
+          + " · labels \(labels.first.map { "\($0)…" } ?? "none")"
+          + " \(labels.allSatisfy { $0.count == 1 } ? "single letters" : "pairs")")
 }

@@ -12,6 +12,12 @@ enum HintTargets {
         let element: AXUIElement
         let frame: CGRect
         let isTextInput: Bool
+        /// Found by its press action rather than by its role: a div, an
+        /// image, a generic container the page made clickable. The tree
+        /// has no name for it and the screen paints no word on it, which
+        /// is exactly why it is the one kind of target worth a chip on a
+        /// dense window.
+        let viaAction: Bool
     }
 
     /// Roles that press. Rows and cells are deliberately absent — they
@@ -24,6 +30,16 @@ enum HintTargets {
     private static let textRoles: Set<String> = [
         "AXTextField", "AXTextArea", "AXSearchField",
     ]
+
+    /// The largest share of a window an action-found target may cover.
+    /// Measured with `probe pressables` against live windows: on a
+    /// Chromium page the pressables outside the role list are a nest of
+    /// clickable cards wrapping clickable rows wrapping the control the
+    /// eye actually sees, and in Brave, Slack, Asana and Claude alike
+    /// every leaf-most one of them came in under 5% of its window. What
+    /// sits above that line is a card, and a chip on a card puts a letter
+    /// over a whole region.
+    private static let actionShareCap = 0.05
 
     /// Press a target: the element's own action when it has one, honest
     /// synthetics otherwise. A text input focuses instead — firing one
@@ -77,20 +93,38 @@ enum HintTargets {
             var found: [Target] = []
             var seenFrames = Set<String>()
             var visited = 0
+            var byAction = 0
+            let windowArea = max(windowFrame.width * windowFrame.height, 1)
             let deadline = Date().addingTimeInterval(1.2)
             let batch = [kAXRoleAttribute, kAXPositionAttribute, kAXSizeAttribute,
                          kAXChildrenAttribute] as CFArray
 
-            func walk(_ element: AXUIElement, depth: Int) {
+            func add(_ element: AXUIElement, frame: CGRect, isTextInput: Bool,
+                     viaAction: Bool) -> Bool {
+                let key = "\(Int(frame.minX)):\(Int(frame.minY)):\(Int(frame.width))"
+                guard !seenFrames.contains(key) else { return false }
+                seenFrames.insert(key)
+                found.append(Target(element: element, frame: frame,
+                                    isTextInput: isTextInput, viaAction: viaAction))
+                if viaAction { byAction += 1 }
+                return true
+            }
+
+            /// Answers whether this subtree yielded a target, which is
+            /// what makes an action-found candidate wait: the tree presses
+            /// all the way up, so the only honest chip is the leaf-most
+            /// one — the innermost thing that presses under the point.
+            @discardableResult
+            func walk(_ element: AXUIElement, depth: Int) -> Bool {
                 guard depth < 28, visited < 2800, found.count < capacity,
-                      Date() < deadline else { return }
+                      Date() < deadline else { return false }
                 visited += 1
 
                 var values: CFArray?
                 guard AXUIElementCopyMultipleAttributeValues(
                     element, batch, AXCopyMultipleAttributeOptions(rawValue: 0),
                     &values) == .success,
-                    let array = values as? [CFTypeRef], array.count == 4 else { return }
+                    let array = values as? [CFTypeRef], array.count == 4 else { return false }
 
                 var frame: CGRect?
                 if CFGetTypeID(array[1]) == AXValueGetTypeID(),
@@ -105,36 +139,56 @@ enum HintTargets {
                 // The pruning that makes the budget go to what is visible.
                 if let frame, frame.width > 1, frame.height > 1,
                    !frame.intersects(windowFrame.insetBy(dx: -8, dy: -8)) {
-                    return
+                    return false
                 }
 
-                if let role = array[0] as? String {
+                var yielded = false
+                var pending: (element: AXUIElement, frame: CGRect)?
+                if let role = array[0] as? String, let frame,
+                   frame.width >= 5, frame.height >= 5, frame.intersects(windowFrame) {
                     let pressable = Self.pressableRoles.contains(role)
                     let textInput = Self.textRoles.contains(role)
-                    if pressable || textInput, let frame,
-                       frame.width >= 5, frame.height >= 5,
-                       frame.intersects(windowFrame) {
-                        let key = "\(Int(frame.minX)):\(Int(frame.minY)):\(Int(frame.width))"
-                        if !seenFrames.contains(key) {
-                            seenFrames.insert(key)
-                            found.append(Target(element: element, frame: frame,
-                                                isTextInput: textInput && !pressable))
+                    if pressable || textInput {
+                        // A role the tree can name goes in where it stands,
+                        // ahead of its own children, which is reading order.
+                        yielded = add(element, frame: frame,
+                                      isTextInput: textInput && !pressable, viaAction: false)
+                    } else if frame.width * frame.height <= windowArea * Self.actionShareCap {
+                        // Everything else is asked the only question that
+                        // matters — does it press? — and held until its
+                        // children have answered for themselves.
+                        var actions: CFArray?
+                        AXUIElementCopyActionNames(element, &actions)
+                        if (actions as? [String] ?? []).contains(kAXPressAction as String) {
+                            pending = (element, frame)
                         }
                     }
                 }
-                guard CFGetTypeID(array[3]) == CFArrayGetTypeID(),
-                      let children = array[3] as? [AXUIElement] else { return }
-                for child in children {
-                    walk(child, depth: depth + 1)
+
+                let mark = found.count
+                if CFGetTypeID(array[3]) == CFArrayGetTypeID(),
+                   let children = array[3] as? [AXUIElement] {
+                    for child in children {
+                        walk(child, depth: depth + 1)
+                    }
                 }
+                // Nothing deeper pressed, so this is the leaf-most press
+                // under the point. `found` has not grown, so appending now
+                // lands exactly where appending before the children would
+                // have — reading order survives the wait.
+                if let pending, found.count == mark, found.count < capacity {
+                    yielded = add(pending.element, frame: pending.frame,
+                                  isTextInput: false, viaAction: true) || yielded
+                }
+                return yielded || found.count > mark
             }
 
             walk(windowElement, depth: 0)
             let elapsed = Int(Date().timeIntervalSince(began) * 1000)
 
             DispatchQueue.main.async {
-                Log.info("hints", ["targets": found.count, "visited": visited,
-                                   "ms": elapsed, "batched": true])
+                Log.info("hints", ["targets": found.count, "byAction": byAction,
+                                   "visited": visited, "ms": elapsed, "batched": true])
                 completion(found)
             }
         }

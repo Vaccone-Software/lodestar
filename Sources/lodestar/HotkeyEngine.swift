@@ -1554,7 +1554,7 @@ extension HotkeyEngine: EngineWorld {
     /// hints controller keeps only its harvest and its press, both
     /// borrowed by the door for entry chips and the commit layer.
     func enterHints(sticky: Bool) -> Bool {
-        select.letters = KeyboardLayout.homeRow()
+        select.letters = KeyboardLayout.chipAlphabet()
         return select.enter(door: .click, sticky: sticky)
     }
 
@@ -1563,7 +1563,7 @@ extension HotkeyEngine: EngineWorld {
     }
 
     func enterSelect() -> Bool {
-        select.letters = KeyboardLayout.homeRow()
+        select.letters = KeyboardLayout.chipAlphabet()
         select.commitOnUnique = config.selectCommitOnUnique
         // Read at mode entry, the way scroll reads its physics: a reload
         // mid-session is honored by the next `lode /`.

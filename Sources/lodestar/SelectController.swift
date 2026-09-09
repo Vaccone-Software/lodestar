@@ -151,14 +151,21 @@ final class SelectController {
     enum Door { case anchor, click }
     private(set) var door: Door = .anchor
     private var sticky = false
-    /// The `;` door's entry chips: pressables the accessibility tree
-    /// could name, pickable by capitals before any typing — a dialog's
-    /// three buttons answer the instant the tree does, even while OCR is
-    /// still reading. They yield the glass the moment aiming starts and
-    /// return if the query empties; the elements stay behind for the
-    /// commit layer, which prefers an app's own press to a synthetic
-    /// click.
+    /// The `;` door's entry chips: pressables harvested from the
+    /// accessibility tree, pickable by capitals before any typing — a
+    /// dialog's three buttons answer the instant the tree does, even
+    /// while OCR is still reading. They yield the glass the moment aiming
+    /// starts and return if the query empties.
+    ///
+    /// Two sets, because the harvest serves two jobs. `entryTargets` is
+    /// all of it, and it stays behind for the commit layer, which prefers
+    /// an app's own press to a synthetic click wherever a pressable owns
+    /// the picked point. `entryLabeled` is the subset wearing a chip —
+    /// `HintLabels.chipped` decides, and on any window bigger than the
+    /// alphabet that means the targets found by action alone, the ones
+    /// with no painted word for the grammar to reach.
     private var entryTargets: [HintTargets.Target] = []
+    private var entryLabeled: [HintTargets.Target] = []
     private var entryLabels: [String] = []
     private var entryTyped = ""
     /// How many chips greeted the entry, and how long the hands waited
@@ -199,6 +206,7 @@ final class SelectController {
         self.door = door
         self.sticky = sticky
         entryTargets = []
+        entryLabeled = []
         entryLabels = []
         entryTyped = ""
         entryChipsAtEntry = 0
@@ -234,10 +242,21 @@ final class SelectController {
             ) { [weak self] found in
                 guard let self, self.generation == expected, self.door == .click else { return }
                 self.entryTargets = found
-                self.entryLabels = HintLabels.labels(count: found.count, alphabet: self.letters)
+                // What typing cannot reach: a target the tree found by its
+                // press action alone, and an input box whose text is the
+                // user's to write rather than the screen's to paint.
+                let chipped = HintLabels.chipped(
+                    unreachable: found.map { $0.viaAction || $0.isTextInput },
+                    alphabet: self.letters)
+                self.entryLabeled = chipped.map { found[$0] }
+                self.entryLabels = HintLabels.labels(count: chipped.count,
+                                                     alphabet: self.letters)
+                Log.info("hints", ["harvested": found.count, "chips": chipped.count,
+                                   "byAction": found.filter(\.viaAction).count,
+                                   "alphabet": self.letters.count])
                 // Counted only while the hands have not yet moved: chips
                 // arriving after the first key never greeted anyone.
-                if self.firstKeyAt == nil { self.entryChipsAtEntry = found.count }
+                if self.firstKeyAt == nil { self.entryChipsAtEntry = chipped.count }
                 self.renderEntry()
             }
         }
@@ -316,6 +335,7 @@ final class SelectController {
         frozen = nil
         grounding = OCRSense.Grounding([])
         entryTargets = []
+        entryLabeled = []
         entryLabels = []
         entryTyped = ""
         if modeEnteredAt != .distantPast {
@@ -400,8 +420,10 @@ final class SelectController {
         if firstKeyAt == nil { firstKeyAt = Date() }
         // The `;` door's entry chips answer before the sensor does: a
         // capital while nothing is typed picks among the pressables the
-        // tree named, even if OCR is still reading.
-        if door == .click, core?.query.isEmpty != false, !entryTargets.isEmpty,
+        // tree named, even if OCR is still reading. Gated on the chips,
+        // not on the harvest: a window whose targets are all typeable
+        // draws none, and a capital there belongs to the grammar.
+        if door == .click, core?.query.isEmpty != false, !entryLabeled.isEmpty,
            key.count == 1, key.first?.isLetter == true,
            shift || !entryTyped.isEmpty {
             return entryPick(letter: key)
@@ -497,7 +519,7 @@ final class SelectController {
         let candidate = entryTyped + letter.lowercased()
         switch HintLabels.match(typed: candidate, labels: entryLabels) {
         case .exact(let index):
-            let target = entryTargets[index]
+            let target = entryLabeled[index]
             let rightClick = controlAtPick
             firedTextInput = target.isTextInput && !rightClick
             entryTyped = ""
@@ -521,7 +543,7 @@ final class SelectController {
     /// the query walks back to nothing.
     private func renderEntry() {
         guard door == .click, core?.query.isEmpty != false else { return }
-        let chips: [SelectOverlay.Chip] = zip(entryLabels, entryTargets).compactMap {
+        let chips: [SelectOverlay.Chip] = zip(entryLabels, entryLabeled).compactMap {
             label, target in
             guard entryTyped.isEmpty || label.hasPrefix(entryTyped) else { return nil }
             return SelectOverlay.Chip(label: label, frames: [target.frame],
@@ -529,7 +551,7 @@ final class SelectController {
         }
         let state = SelectOverlay.State(
             appName: appName, query: "", typedLabel: entryTyped,
-            shown: chips.count, total: entryTargets.count, capped: false,
+            shown: chips.count, total: entryLabeled.count, capped: false,
             stage: .start, scanning: false, verb: "clicks · ⌃⇧ right-clicks")
         overlay.show(chips: chips, anchor: [], over: windowFrame, state: state)
     }

@@ -137,6 +137,57 @@ final class ScrollScenarioTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(record?.seconds ?? -1, 0)
     }
 
+    /// The resting state is one line: the band names the mode and the
+    /// app, and the rows wait for the fade the scroll verb has earned.
+    /// Advancing the clock past it unfolds the map above the band.
+    func testBandStandsAloneUntilTheHandHesitates() {
+        let stage = Stage()
+        stage.engine.scrollRowsDelay = { 2 }
+        enterScroll(stage)
+        XCTAssertEqual(stage.hud.rowCount, 0, "rows held back")
+        XCTAssertTrue(stage.hud.bandText?.contains("scroll") == true)
+        XCTAssertTrue(stage.hud.bandText?.contains("esc") == true)
+        stage.clock.advance(by: 2.1)
+        XCTAssertEqual(stage.hud.rowCount, 6, "the map unfolds on hesitation")
+        XCTAssertEqual(stage.hud.owner, .guide)
+    }
+
+    /// No delay earned yet: the rows paint at once, the way every guide
+    /// always did for a new hand.
+    func testAnUnlearnedHandGetsTheRowsAtOnce() {
+        let stage = Stage()
+        enterScroll(stage)
+        XCTAssertEqual(stage.hud.rowCount, 6)
+    }
+
+    /// Leaving the mode hides the band, and rows still pending never
+    /// arrive on top of whatever comes next.
+    func testLeavingCancelsThePendingRows() {
+        let stage = Stage()
+        stage.engine.scrollRowsDelay = { 2 }
+        enterScroll(stage)
+        _ = stage.press("escape")
+        XCTAssertEqual(stage.hud.owner, .none)
+        stage.clock.advance(by: 2.1)
+        XCTAssertEqual(stage.hud.rowCount, 0)
+        XCTAssertNil(stage.hud.bandText)
+    }
+
+    /// An escape with nothing done in the mode is the stumble that brings
+    /// the rows straight back; a session with a key in it is not.
+    func testEscapeWithNothingDoneIsAStumble() {
+        let stage = Stage()
+        var stumbles = 0
+        stage.scroller.onStumble = { stumbles += 1 }
+        enterScroll(stage)
+        _ = stage.press("escape")
+        XCTAssertEqual(stumbles, 1)
+        enterScroll(stage)
+        _ = stage.press("d")
+        _ = stage.press("escape")
+        XCTAssertEqual(stumbles, 1, "a used session is not a stumble")
+    }
+
     /// d is half the pane; ⇧D is the whole of it.
     func testShiftDIsAFullPage() {
         let stage = Stage()

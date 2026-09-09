@@ -347,6 +347,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         engine.observations = observationStore
         engine.roads = roads
         scroller.observations = observationStore
+        // The scroll guide's rows fade the way the bars' footers do, on
+        // the scroll verb's own count; an escape with nothing done in the
+        // mode is the stumble that brings them straight back.
+        engine.scrollRowsDelay = { [weak self] in self?.footerDelay("scroll") ?? 0 }
+        scroller.onStumble = { [weak self] in self?.surfaceFade.stumbled(surface: "scroll") }
 
         // The hands' pulse: keys from the main tap, clicks and scroll
         // bursts from its own listen-only tap. Gated by both switches —

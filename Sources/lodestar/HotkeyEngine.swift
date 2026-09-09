@@ -1134,21 +1134,44 @@ final class HotkeyEngine {
         _ = apply(core.leaveScroll(reason: reason), event: nil)
     }
 
+    /// How long the scroll guide's rows wait: the fade the bars' footers
+    /// earn, keyed by the scroll verb the observation layer already counts.
+    var scrollRowsDelay: () -> TimeInterval = { 0 }
+
+    /// Scroll's resting state is one line along the bottom edge, in the
+    /// band's shape and voices: what is on, where, and where the aim
+    /// landed. The map of keys stands above it only when the hand
+    /// hesitates. The aimed word is shown on the glass and never logged.
     private func showScrollGuide() {
-        // The aimed word rides the title so the hand knows what the wheel
-        // is on. Shown on the glass only; the log never carries it.
-        let aim = scroller.aimLabel.map { " · ⌖ \($0.prefix(24))" } ?? ""
-        hud.showGuide(
-            title: "≡ scroll · \(scroller.appName)\(aim)",
+        let line = NSMutableAttributedString()
+        func quiet(_ text: String) {
+            line.append(NSAttributedString(string: text, attributes: [
+                .font: BarTheme.secondaryFont, .foregroundColor: BarTheme.secondaryColor,
+            ]))
+        }
+        func loud(_ text: String) {
+            line.append(NSAttributedString(string: text, attributes: [
+                .font: NSFont.monospacedSystemFont(ofSize: BarTheme.Scale.title, weight: .bold),
+                .foregroundColor: BarTheme.readableAccent,
+            ]))
+        }
+        quiet("≡ scroll" + Caption.separator + scroller.appName)
+        if let word = scroller.aimLabel {
+            quiet(Caption.separator + "⌖ ")
+            loud(String(word.prefix(24)))
+        }
+        quiet(Caption.separator + "j k · h l · d u · gg G · 0 $ · / aims · esc")
+        hud.showBand(
+            line: line,
             rows: [
-                GuideRow(key: "J K", label: "down · up    ·    ⇧ 3× faster"),
-                GuideRow(key: "H L", label: "left · right    ·    ⇧ 3× faster"),
-                GuideRow(key: "D U", label: "half-page down · up    ·    ⇧ full page"),
-                GuideRow(key: "G G", label: "top    ·    ⇧G bottom"),
-                GuideRow(key: "0 $", label: "left edge    ·    right edge"),
-                GuideRow(key: "/", label: "aim: type a word you can see, the wheel follows"),
+                GuideRow(key: "J K", label: "down · up · ⇧ 3× faster"),
+                GuideRow(key: "H L", label: "left · right · ⇧ 3× faster"),
+                GuideRow(key: "D U", label: "half page down · up · ⇧ full page"),
+                GuideRow(key: "G G", label: "top · ⇧G bottom"),
+                GuideRow(key: "0 $", label: "left edge · right edge"),
+                GuideRow(key: "/", label: "aim at a word you can see"),
             ],
-            footer: "other lode verbs act and exit · esc or lode J closes"
+            rowsAfter: scrollRowsDelay()
         )
     }
 

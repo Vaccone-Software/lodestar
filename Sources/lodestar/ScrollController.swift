@@ -40,6 +40,10 @@ final class ScrollController {
     private(set) var appName = ""
     /// The session's record: counts and the way out, never the word.
     var observations: ObservationStore?
+    /// The mode was escaped with nothing done in it: entered, hesitated,
+    /// left. The one stumble a lens can make, and what brings its rows
+    /// straight back.
+    var onStumble: (() -> Void)?
     private var began = Date()
     private var inSession = false
     private var keysPressed = 0
@@ -183,6 +187,7 @@ final class ScrollController {
                                pages: pages, ends: ends, aims: aims,
                                aimsLanded: aimsLanded, aimsAway: aimsAway,
                                exit: reason.rawValue)
+        if reason == .escape, keysPressed + pages + ends + aims == 0 { onStumble?() }
     }
 
     /// The aim band opened. Counted here so the session's record has it

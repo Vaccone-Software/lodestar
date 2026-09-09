@@ -79,6 +79,22 @@ final class ScrollScenarioTests: XCTestCase {
         XCTAssertEqual(stage.wheel.count, 1, "the half page landed: scroll mode is still on")
     }
 
+    /// `0` and `$` glide to the horizontal edges in a window with no
+    /// native pane: one axis, opposite signs.
+    func testZeroAndDollarGlideToTheHorizontalEdges() {
+        let stage = Stage()
+        enterScroll(stage)
+        XCTAssertTrue(stage.press("0"))
+        stage.pump(until: { !stage.wheel.isEmpty })
+        XCTAssertTrue(stage.wheel.allSatisfy { $0.dy == 0 && $0.dx != 0 }, "horizontal only")
+        let leftward = stage.wheel[0].dx
+        stage.wheel = []
+        XCTAssertTrue(stage.press("4", shift: true))
+        stage.pump(until: { !stage.wheel.isEmpty })
+        XCTAssertTrue(stage.wheel.allSatisfy { $0.dy == 0 && $0.dx != 0 })
+        XCTAssertEqual(stage.wheel[0].dx, -leftward, "$ is the other edge")
+    }
+
     /// A click or the hand's own wheel ends the lens; the session record
     /// says so, with what the hands did in it.
     func testAClickEndsScrollModeAndTheRecordSaysSo() {

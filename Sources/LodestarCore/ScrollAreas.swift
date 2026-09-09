@@ -49,4 +49,13 @@ public enum ScrollAreas {
         let value = NSNumber(value: bottom ? 1.0 : 0.0)
         return AXUIElementSetAttributeValue(bar, kAXValueAttribute as CFString, value) == .success
     }
+
+    /// The same jump along the other axis: the horizontal scrollbar's
+    /// value set to an edge.
+    @discardableResult
+    public static func jumpToSide(_ pane: AXUIElement, left: Bool) -> Bool {
+        guard let bar = AX.element(pane, kAXHorizontalScrollBarAttribute) else { return false }
+        let value = NSNumber(value: left ? 0.0 : 1.0)
+        return AXUIElementSetAttributeValue(bar, kAXValueAttribute as CFString, value) == .success
+    }
 }

@@ -949,6 +949,8 @@ final class HotkeyEngine {
                 scroller.tapG()
             case .scrollToBottom:
                 scroller.toEnd(bottom: true)
+            case .scrollToSide(let left):
+                scroller.toSide(left: left)
             case .scrollCancelPendingG:
                 scroller.cancelPendingG()
             case .scrollAimEnd:
@@ -1143,6 +1145,7 @@ final class HotkeyEngine {
                 GuideRow(key: "H L", label: "left · right    ·    ⇧ 3× faster"),
                 GuideRow(key: "D U", label: "half-page down · up    ·    ⇧ full page"),
                 GuideRow(key: "G G", label: "top    ·    ⇧G bottom"),
+                GuideRow(key: "0 $", label: "left edge    ·    right edge"),
                 GuideRow(key: "/", label: "aim: type a word you can see, the wheel follows"),
             ],
             footer: "other lode verbs act and exit · esc or lode J closes"
@@ -1225,7 +1228,7 @@ final class HotkeyEngine {
             row("1…9", "jump to window by position", gesture: "index-jump"),
             row("0", "the focused window fills the display · ⇧0 beside", gesture: "maximize"),
             row("\\", "flip layout orientation", gesture: "flip-orientation"),
-            row("`", "scroll mode: j/k · h/l · d/u · gg/G · / aims · ⇧ for more", gesture: "scroll"),
+            row("`", "scroll mode: j/k · h/l · d/u · gg/G · 0/$ · / aims · ⇧ for more", gesture: "scroll"),
             row(";", "click hints: ⇧; chains · ⇧label right-clicks", gesture: "hints"),
             row("/", "select text: ⇧letter anchors · ⌘C takes that word", gesture: "select"),
             row("← →", "undo · redo the layout", gesture: "layout-undo"),

@@ -350,6 +350,29 @@ final class ScrollController {
         }
     }
 
+    /// `0` and `$`: the same jump as gg and G along the other axis. A
+    /// native pane's horizontal scrollbar is set directly; everything
+    /// else gets the glide, which is what a web view's board or table
+    /// answers to.
+    func toSide(left: Bool) {
+        cancelGlide()
+        ends += 1
+        let expected = discoveryGeneration
+        OffTap.run { [weak self] in
+            guard let self, self.discoveryGeneration == expected else { return }
+            if let pane = self.aimedPane,
+               ScrollAreas.jumpToSide(pane.element, left: left) {
+                return
+            }
+            let chunk: Int32 = left ? -800 : 800
+            for i in 0..<150 {
+                let work = DispatchWorkItem { [weak self] in self?.postHorizontal(chunk) }
+                self.glideWork.append(work)
+                DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.012, execute: work)
+            }
+        }
+    }
+
     private var glideWork: [DispatchWorkItem] = []
 
     private func cancelGlide() {

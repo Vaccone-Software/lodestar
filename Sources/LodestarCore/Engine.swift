@@ -72,6 +72,8 @@ public enum EngineEffect: Equatable {
     case scrollFullPage(down: Bool)
     case scrollTapG
     case scrollToBottom
+    /// `0` and `$`: the horizontal ends, vim's own names for them.
+    case scrollToSide(left: Bool)
     case scrollCancelPendingG
     /// The aim band inside scroll mode closed — a pick landed the
     /// pointer, or escape stepped back. Select's machine stands down;
@@ -797,6 +799,13 @@ public struct EngineCore {
             } else {
                 effects.append(.scrollTapG)
             }
+        // The horizontal ends, vim's names: `0` the left edge, `$` (⇧4)
+        // the right. gg and G had the vertical ones; a board or a wide
+        // table reached by the aim wanted the other axis finished.
+        case "0" where !shift:
+            effects.append(.scrollToSide(left: true))
+        case "4" where shift:
+            effects.append(.scrollToSide(left: false))
         case "/" where !shift:
             // Aim by what the screen says. The pointer is the wheel's
             // address, and a word is the one address every pane already

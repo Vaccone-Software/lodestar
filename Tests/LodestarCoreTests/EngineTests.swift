@@ -516,6 +516,15 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(press("g", held: false, shift: true), [.scrollCancelPendingG, .scrollToBottom])
     }
 
+    func testScrollHorizontalEnds() {
+        enterScrollMode()
+        XCTAssertEqual(press("0", held: false), [.scrollCancelPendingG, .scrollToSide(left: true)])
+        XCTAssertEqual(press("4", held: false, shift: true),
+                       [.scrollCancelPendingG, .scrollToSide(left: false)], "$ is shift 4")
+        XCTAssertEqual(press("4", held: false), [.scrollCancelPendingG], "a bare digit is swallowed")
+        XCTAssertEqual(core.state, .scroll)
+    }
+
     func testPointerEndsScrollMode() {
         enterScrollMode()
         XCTAssertEqual(core.leaveScroll(reason: .click), [.scrollExit(reason: .click), .hideGuide])

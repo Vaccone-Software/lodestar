@@ -198,6 +198,17 @@ final class HotkeyEngine {
         draft.replaceClip = { [weak self] clip, text in self?.clipboard.replaceText(of: clip, with: text) }
         draft.fileClip = { [weak self] clip, text in self?.clipboard.fileEdit(of: clip, text: text) }
         draft.onClipDoorClosed = { [weak self] in self?.clipDoorClosed() }
+        // The aim door's landing: select names the point, the scroller
+        // moves the pointer. A landing off the keystroke steps scroll
+        // mode back through the grammar, the way the clip door's closing
+        // does.
+        select.aim = { [weak self] point, label in
+            self?.scroller.aimed(at: point, label: label)
+        }
+        select.onAimLanded = { [weak self] in
+            guard let self else { return }
+            _ = self.apply(self.core.aimLanded(), event: nil)
+        }
         applyGrammarConfig()
     }
 
@@ -936,8 +947,8 @@ final class HotkeyEngine {
                 scroller.toEnd(bottom: true)
             case .scrollCancelPendingG:
                 scroller.cancelPendingG()
-            case .scrollCyclePane:
-                scroller.cyclePane()
+            case .scrollAimEnd:
+                select.exit()
             case .flipOrientation:
                 actions.flipOrientation()
             case .undoLayout:
@@ -1076,15 +1087,17 @@ final class HotkeyEngine {
     // MARK: - Scroll mode
 
     private func showScrollGuide() {
-        let pane = scroller.paneDescription.map { " · \($0)" } ?? ""
+        // The aimed word rides the title so the hand knows what the wheel
+        // is on. Shown on the glass only; the log never carries it.
+        let aim = scroller.aimLabel.map { " · ⌖ \($0.prefix(24))" } ?? ""
         hud.showGuide(
-            title: "≡ scroll · \(scroller.appName)\(pane)",
+            title: "≡ scroll · \(scroller.appName)\(aim)",
             rows: [
                 GuideRow(key: "J K", label: "down · up    ·    ⇧ 3× faster"),
                 GuideRow(key: "H L", label: "left · right    ·    ⇧ 3× faster"),
                 GuideRow(key: "D U", label: "half-page down · up    ·    ⇧ full page"),
                 GuideRow(key: "G G", label: "top    ·    ⇧G bottom"),
-                GuideRow(key: "⇥", label: "next pane"),
+                GuideRow(key: "/", label: "aim: type a word you can see, the wheel follows"),
             ],
             footer: "other lode verbs act and exit · esc or lode J closes"
         )
@@ -1166,7 +1179,7 @@ final class HotkeyEngine {
             row("1…9", "jump to window by position", gesture: "index-jump"),
             row("0", "the focused window fills the display · ⇧0 beside", gesture: "maximize"),
             row("\\", "flip layout orientation", gesture: "flip-orientation"),
-            row("`", "scroll mode: j/k · h/l · d/u · gg/G · ⇧ for more", gesture: "scroll"),
+            row("`", "scroll mode: j/k · h/l · d/u · gg/G · / aims · ⇧ for more", gesture: "scroll"),
             row(";", "click hints: ⇧; chains · ⇧label right-clicks", gesture: "hints"),
             row("/", "select text: ⇧letter anchors · ⌘C takes that word", gesture: "select"),
             row("← →", "undo · redo the layout", gesture: "layout-undo"),
@@ -1195,6 +1208,8 @@ final class HotkeyEngine {
             return "chain(\(kind), '\(letters.joined())'\(deleting ? ", deleting" : ""))"
         case .scroll:
             return "scroll"
+        case .scrollAim:
+            return "scroll+aim"
         case .hints(let sticky):
             return "hints\(sticky ? "(sticky)" : "")"
         case .select:
@@ -1584,6 +1599,16 @@ extension HotkeyEngine: EngineWorld {
         scroller.smooth = config.scrollSmooth
         scroller.speed = config.scrollSpeed
         return scroller.enter()
+    }
+
+    /// Scroll mode's `/`: the same machine as `lode /`, at the door whose
+    /// pick moves the pointer and nothing else. Uniqueness commits here
+    /// as it does at the anchor door, because landing a pointer early
+    /// costs nothing.
+    func enterScrollAim() -> Bool {
+        select.letters = KeyboardLayout.chipAlphabet()
+        select.commitOnUnique = config.selectCommitOnUnique
+        return select.enter(door: .aim)
     }
 
     var searcherVisible: Bool { searcher.isVisible }

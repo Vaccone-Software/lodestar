@@ -2,17 +2,30 @@ import AppKit
 import CoreGraphics
 import LodestarCore
 
-/// Scroll mode's hands: pointer warping, pane cycling, and synthesized
+/// Scroll mode's hands: pointer warping, the aim, and synthesized
 /// pixel-scroll events. The engine owns the mode; this owns the physics.
 ///
 /// Scroll events land on whatever sits under the pointer, so entering the
-/// mode always warps to the primary pane's center — the same gesture scrolls
-/// the same thing every time. Tab warps between discovered panes.
+/// mode always warps to the window's center — the same gesture scrolls
+/// the same thing every time. `/` aims elsewhere: select's machine reads
+/// the screen and a pick lands the pointer on a word, so the wheel that
+/// follows goes to whatever scrolls under it. Tab used to cycle panes the
+/// accessibility tree named; it was retired when the measurement said
+/// the tree names none in a web view or an Electron app, which is every
+/// window this hand scrolls but the terminal. The walk stays for one job:
+/// `gg` and `G` set a native pane's scrollbar directly when one owns the
+/// aim.
 final class ScrollController {
     private let model: WindowModel
     private var panes: [ScrollAreas.Pane] = []
-    private var areaIndex = 0
     private var windowFrame: CGRect = .zero
+    /// Where the last aim landed the pointer, for the pane arithmetic:
+    /// half-page distances and the scrollbar jump read the pane under the
+    /// aim, never the largest pane the walk happened to find first.
+    private(set) var aimPoint: CGPoint?
+    /// The word the aim landed on, for the guide's title. Shown, never
+    /// logged.
+    private(set) var aimLabel: String?
     private var pendingG = false
     /// Wheel-delta polarity follows the system natural-scrolling preference
     /// (measured empirically: natural ON means positive wheel1 = content
@@ -75,7 +88,8 @@ final class ScrollController {
     /// user had validly entered. That is the trust bug this closes.
     func enter() -> Bool {
         panes = []
-        areaIndex = 0
+        aimPoint = nil
+        aimLabel = nil
         pendingG = false
         discoveryGeneration += 1
         let natural = CFPreferencesCopyAppValue(
@@ -231,12 +245,16 @@ final class ScrollController {
         }
     }
 
-    var paneDescription: String? {
-        panes.count > 1 ? "pane \(areaIndex + 1)/\(panes.count)" : nil
+    /// The pane the aim sits in, when the walk named one. Nil is the
+    /// common case in a web view, and the honest one: the wheel is aimed
+    /// by the pointer regardless.
+    private var aimedPane: ScrollAreas.Pane? {
+        guard let aimPoint else { return panes.first }
+        return panes.first { $0.frame.contains(aimPoint) }
     }
 
     private var currentPaneFrame: CGRect {
-        if panes.indices.contains(areaIndex) { return panes[areaIndex].frame }
+        if let pane = aimedPane { return pane.frame }
         if windowFrame.height > 10 { return windowFrame }
         // Cold entry, window still unknown: the screen under the pointer
         // is the honest stand-in, so half-page verbs still mean something.
@@ -274,8 +292,8 @@ final class ScrollController {
             // deltas pass through acceleration curves, drop-heuristics, and
             // coalescing that make large jumps land unpredictably (measured:
             // -500 scrolled, -2000 was dropped, -8000 page-jumped).
-            if self.panes.indices.contains(self.areaIndex),
-               ScrollAreas.jumpToEnd(self.panes[self.areaIndex].element, bottom: bottom) {
+            if let pane = self.aimedPane,
+               ScrollAreas.jumpToEnd(pane.element, bottom: bottom) {
                 return
             }
             // Fallback for panes without a settable scrollbar: a glide of small
@@ -312,10 +330,17 @@ final class ScrollController {
         pendingG = false
     }
 
-    func cyclePane() {
-        guard panes.count > 1 else { return }
-        areaIndex = (areaIndex + 1) % panes.count
-        warpToCurrent()
+    /// The aim landed: select's pick names a point on screen, and the
+    /// pointer goes there so the next wheel event does too. Nothing is
+    /// pressed — the pointer is moved, and that is the whole verb. A
+    /// stage catching the wheel has no pointer to move and only records.
+    func aimed(at point: CGPoint, label: String?) {
+        cancelGlide()
+        aimPoint = point
+        aimLabel = label
+        Log.info("scroll", ["aimed": true, "pane": aimedPane != nil])
+        guard sink == nil else { return }
+        CGWarpMouseCursorPosition(point)
     }
 
     // MARK: - Physics

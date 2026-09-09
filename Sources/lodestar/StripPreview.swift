@@ -140,7 +140,7 @@ enum StripPreview {
                 ]),
                  CheatSheet.Section(header: "motion", rows: [
                     GuideRow(key: "J K", label: "down · up"),
-                    GuideRow(key: "⇥", label: "next pane"),
+                    GuideRow(key: "/", label: "aim at a word"),
                     GuideRow(key: "esc", label: "clear a chain"),
                  ])]
             })
@@ -170,7 +170,7 @@ enum StripPreview {
             hud.showGuide(title: "scroll", rows: [
                 GuideRow(key: "J K", label: "down · up"),
                 GuideRow(key: "D U", label: "half-page down · up"),
-                GuideRow(key: "⇥", label: "next pane"),
+                GuideRow(key: "/", label: "aim at a word"),
             ], footer: "esc leaves")
             app.run()
         }

@@ -1,14 +1,17 @@
 import AppKit
 import LodestarCore
 
-/// One machine, two doors. Text addressed by its own content: type a few
+/// One machine, three doors. Text addressed by its own content: type a few
 /// characters of what you can see; matches highlight and wear capital
 /// chips; a capital picks. At the `/` door a pick anchors — the start lit
 /// as a whole word, which ⌘C alone will take, a second search and capital
 /// for the far end. At the `;` door a pick clicks (⌃⇧ right-clicks), the
 /// tree-named pressables wear chips before any typing, and the mouse's
-/// last territory is annexed by reading. The entry key declares the verb,
-/// the way ⇧ declares beside; everything below the verb is shared.
+/// last territory is annexed by reading. At scroll mode's `/` a pick
+/// aims: the pointer lands on the word and nothing is pressed, so the
+/// wheel that follows goes to whatever scrolls under it. The entry key
+/// declares the verb, the way ⇧ declares beside; everything below the
+/// verb is shared.
 ///
 /// The mode always ends the same way: **the span is highlighted, and the
 /// next verb is yours.** Text whose selection is settable gets a real
@@ -146,10 +149,24 @@ final class SelectController {
     private var ghostContinuation: SelectCore.Continuation?
 
     /// Which door the mode was entered through: `lode /` anchors on a
-    /// pick, `lode ;` clicks on one. Same sensor, same grammar — the
-    /// entry key declares the verb, the way ⇧ declares beside.
-    enum Door { case anchor, click }
+    /// pick, `lode ;` clicks on one, scroll mode's `/` aims the pointer
+    /// with one. Same sensor, same grammar — the entry key declares the
+    /// verb, the way ⇧ declares beside.
+    enum Door { case anchor, click, aim }
     private(set) var door: Door = .anchor
+    /// The aim door's whole verb: the picked word's center, and the word,
+    /// handed to whoever moves the pointer. Set by the shell; a stage
+    /// records it instead.
+    var aim: ((CGPoint, String?) -> Void)?
+    /// An aim that landed off the keystroke — a query typed before the
+    /// sensor settled, unique once it did, or a pasted one — so the
+    /// engine can step scroll mode back on its own.
+    var onAimLanded: (() -> Void)?
+    /// Uniqueness may commit at the doors whose pick is harmless to land
+    /// early: an anchor lights a word, an aim moves the pointer. At the
+    /// click door a pick is a click, and an action must never fire itself
+    /// on uniqueness.
+    private var autoAnchorAllowed: Bool { commitOnUnique && door != .click }
     private var sticky = false
     /// The `;` door's entry chips: pressables harvested from the
     /// accessibility tree, pickable by capitals before any typing — a
@@ -233,7 +250,7 @@ final class SelectController {
         capturedAt = nil
         typedInMode = 0
         committedOutcome = nil
-        observations?.verbUsed(door == .click ? "hints" : "select")
+        observations?.verbUsed(Self.verbName(for: door))
         if door == .click {
             let expected = generation
             HintTargets.harvest(
@@ -304,7 +321,7 @@ final class SelectController {
             if captured != nil { self.windowFrame = display }
             self.frozen = captured
             self.overlay.showScanning(over: self.windowFrame, appName: window.appName,
-                                      mode: self.door == .click ? "click" : "select")
+                                      mode: Self.bandName(for: self.door))
             if let captured {
                 self.senseOCR(image: captured, frame: display, windows: stack,
                               generation: expected)
@@ -338,7 +355,10 @@ final class SelectController {
         entryLabeled = []
         entryLabels = []
         entryTyped = ""
-        if modeEnteredAt != .distantPast {
+        // The aim door leaves no select record: its sessions would read
+        // as selections in the copy ledger, and the verb count is what
+        // its verdict rests on.
+        if modeEnteredAt != .distantPast, door != .aim {
             observations?.selected(
                 app: appName, action: committedOutcome == nil ? "abandoned" : "completed",
                 source: ocrAdopted ? "ocr" : "ax", outcome: committedOutcome,
@@ -347,7 +367,23 @@ final class SelectController {
                 firstKey: firstKeyAt.map { $0.timeIntervalSince(modeEnteredAt) },
                 entryChips: door == .click ? entryChipsAtEntry : nil,
                 pointerOn: pointerOnWindow)
-            modeEnteredAt = .distantPast
+        }
+        modeEnteredAt = .distantPast
+    }
+
+    private static func verbName(for door: Door) -> String {
+        switch door {
+        case .anchor: return "select"
+        case .click: return "hints"
+        case .aim: return "aim"
+        }
+    }
+
+    private static func bandName(for door: Door) -> String {
+        switch door {
+        case .anchor: return "select"
+        case .click: return "click"
+        case .aim: return "aim"
         }
     }
 
@@ -398,8 +434,21 @@ final class SelectController {
         if case .anchored = effect {
             Log.info("select", ["auto": "anchor", "query": query.count, "world": world,
                                 "pasted": true])
+            if aimIfAnchored() { return }
         }
         render()
+    }
+
+    /// The aim door's landing off the keystroke: an anchor the sensor or
+    /// the pasteboard made is the pick, the pointer goes, and the engine
+    /// is told so it can step scroll mode back. True when it landed.
+    @discardableResult
+    private func aimIfAnchored() -> Bool {
+        guard door == .aim, let anchor = core?.anchor else { return false }
+        ghostContinuation = core?.anchorContinuation
+        performAim(on: anchor)
+        onAimLanded?()
+        return true
     }
 
     func backspace() {
@@ -476,6 +525,15 @@ final class SelectController {
             // behind this door.
             if door == .click, let anchor = core!.anchor {
                 performClick(on: anchor)
+                return .done
+            }
+            // The aim door lands on the first pick too, and uniqueness
+            // may make it: the word's unclaimed tail is absorbed the way
+            // a completed span's is, because the hand is still spelling
+            // a word whose letters would otherwise be scroll keys.
+            if door == .aim, let anchor = core!.anchor {
+                ghostContinuation = core?.anchorContinuation
+                performAim(on: anchor)
                 return .done
             }
             render()
@@ -603,6 +661,36 @@ final class SelectController {
 
     private static func click(at point: CGPoint, right: Bool) {
         Pointer.post(SyntheticPointer.click(at: point, right: right))
+    }
+
+    // MARK: - The aim door
+
+    /// The picked word supplies the point, and the point is the whole
+    /// verb: the pointer is moved there and nothing is pressed, focused,
+    /// or copied. The wheel is addressed by the pointer, so this is how a
+    /// pane with no name in any tree is scrolled — by a word painted in
+    /// it. OCR geometry resolves on the tap, arithmetic over recognizer
+    /// data; AX geometry goes off it, the way every AX read does.
+    private func performAim(on match: SelectCore.Match) {
+        guard units.indices.contains(match.element) else { return }
+        let unit = units[match.element]
+        let range = match.range
+        committedOutcome = "aimed"
+        let text = unit.run.text as NSString
+        let label = NSMaxRange(range) <= text.length ? text.substring(with: range) : nil
+        Log.info("select", ["outcome": "aimed", "chars": range.length, "world": world])
+        let land: (CGPoint) -> Void = { [weak self] point in
+            DispatchQueue.main.async { self?.aim?(point, label) }
+        }
+        if case .ocr = unit.geometry,
+           let rect = boundsRects(unit: unit, range: range).first {
+            land(CGPoint(x: rect.midX, y: rect.midY))
+            return
+        }
+        OffTap.run { [weak self] in
+            guard let self, let rect = self.boundsRects(unit: unit, range: range).first else { return }
+            land(CGPoint(x: rect.midX, y: rect.midY))
+        }
     }
 
     /// Sticky `lode ⇧;` after a fire: the app may have changed — a beat,
@@ -1179,13 +1267,14 @@ final class SelectController {
                 SelectCore.Element(id: $0.offset, text: $0.element.run.text,
                                    frame: $0.element.frame)
             },
-            alphabet: letters, autoAnchor: commitOnUnique && door == .anchor && settled)
+            alphabet: letters, autoAnchor: autoAnchorAllowed && settled)
         var seeded = SelectCore.Effect.none
         if !query.isEmpty { seeded = rebuilt.seed(query: query, settled: settled) }
         core = rebuilt
         if case .anchored = seeded {
             Log.info("select", ["auto": "anchor", "query": (query as NSString).length,
                                 "world": world, "seeded": true])
+            if aimIfAnchored() { return }
         }
         replayPendingKeys()
         render()
@@ -1442,9 +1531,11 @@ final class SelectController {
                 SelectCore.Element(id: $0.offset, text: $0.element.run.text,
                                    frame: $0.element.frame)
             },
-            alphabet: letters, autoAnchor: commitOnUnique && door == .anchor && frozen == nil)
-        if !query.isEmpty { rebuilt.seed(query: query) }
+            alphabet: letters, autoAnchor: autoAnchorAllowed && frozen == nil)
+        var seeded = SelectCore.Effect.none
+        if !query.isEmpty { seeded = rebuilt.seed(query: query) }
         core = rebuilt
+        if case .anchored = seeded, aimIfAnchored() { return }
         replayPendingKeys()
         render()
     }
@@ -1546,6 +1637,7 @@ final class SelectController {
             stage: anchor == nil ? .start : .end,
             scanning: false,
             verb: door == .click ? "clicks · ⌃⇧ right-clicks"
+                : door == .aim ? "aims the wheel"
                 : (anchor == nil ? "anchors" : "selects"))
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in

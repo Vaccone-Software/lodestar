@@ -71,7 +71,10 @@ public enum EngineEffect: Equatable {
     case scrollTapG
     case scrollToBottom
     case scrollCancelPendingG
-    case scrollCyclePane
+    /// The aim band inside scroll mode closed — a pick landed the
+    /// pointer, or escape stepped back. Select's machine stands down;
+    /// scroll mode itself is still on.
+    case scrollAimEnd
     case openSettings
     case flipOrientation
     case undoLayout
@@ -192,6 +195,10 @@ public protocol EngineWorld: AnyObject {
     func breathUpdateLatest() -> ChainStep
     /// Enter scroll mode; false when there is nothing to scroll.
     func enterScroll() -> Bool
+    /// `/` inside scroll mode: select's machine opens at the aim door,
+    /// where a pick moves the pointer and nothing else. False when there
+    /// is no window to read.
+    func enterScrollAim() -> Bool
     /// Enter hints on the focused window; false when there is none.
     func enterHints(sticky: Bool) -> Bool
     /// Open the clipboard strip; false when nothing has been copied yet.
@@ -232,6 +239,11 @@ public struct EngineCore {
         case idle
         case chain(kind: ChainKind, letters: [String], deleting: Bool)
         case scroll
+        /// Scroll mode's `/`: the aim band is up and every key is
+        /// select's, typed against what the screen shows. A pick warps the
+        /// pointer to the word and the mode steps back to `.scroll`, so
+        /// the wheel that follows lands on whatever scrolls under it.
+        case scrollAim
         case hints(sticky: Bool)
         case select
         case paste(searching: Bool)
@@ -380,6 +392,7 @@ public struct EngineCore {
         case .idle: return []
         case .chain: effects = [.hideGuide]
         case .scroll: effects = [.scrollExit, .hideGuide]
+        case .scrollAim: effects = [.scrollAimEnd, .scrollExit, .hideGuide]
         case .hints: effects = [.exitHints]
         case .select: effects = [.exitSelect]
         case .paste, .pastePanel: effects = [.exitPaste]
@@ -461,6 +474,9 @@ public struct EngineCore {
                               key: key, shift: shift, world: world)
         case .scroll:
             return scrollPress(key: key, held: held, shift: shift, world: world)
+        case .scrollAim:
+            return scrollAimPress(key: key, held: held, shift: shift, command: command,
+                                  option: option, world: world)
         case .hints(let sticky):
             return hintsPress(key: key, held: held, shift: shift, control: control,
                               command: command, option: option, sticky: sticky, world: world)
@@ -721,7 +737,8 @@ public struct EngineCore {
     // MARK: - Scroll
 
     /// Scroll is a lens, not a transaction: its own keys act, Escape or
-    /// lode+J closes it, and any other lode verb exits and executes.
+    /// lode+J closes it, and any other lode verb exits and executes. `/`
+    /// opens the aim band, a sub-lens of the same shape.
     private mutating func scrollPress(key: String, held: Bool, shift: Bool,
                                       world: EngineWorld) -> [EngineEffect] {
         if held {
@@ -753,12 +770,64 @@ public struct EngineCore {
             } else {
                 effects.append(.scrollTapG)
             }
-        case "tab":
-            effects.append(contentsOf: [.scrollCyclePane, .scrollGuide])
+        case "/" where !shift:
+            // Aim by what the screen says. The pointer is the wheel's
+            // address, and a word is the one address every pane already
+            // paints: type a few characters of something in the pane to
+            // scroll, and the wheel follows the pick. Select's machine,
+            // wearing a verb that moves the pointer and never clicks.
+            if world.enterScrollAim() {
+                state = .scrollAim
+                effects.append(.hideGuide)
+            } else {
+                effects.append(.flash("✕ no focused window to aim in"))
+            }
         default:
             break // swallowed — mode discipline
         }
         return effects
+    }
+
+    /// The aim band: select's grammar, with scroll mode waiting behind it.
+    /// Escape steps back to scroll; a pick lands and steps back too; any
+    /// lode verb ends both and executes, the bargain scroll itself makes.
+    private mutating func scrollAimPress(key: String, held: Bool, shift: Bool,
+                                         command: Bool, option: Bool,
+                                         world: EngineWorld) -> [EngineEffect] {
+        if held {
+            state = .idle
+            var effects: [EngineEffect] = [.scrollAimEnd, .scrollExit, .hideGuide]
+            if key != "j" && key != "escape" {
+                effects.append(contentsOf: idlePress(key: key, shift: shift, world: world))
+            }
+            return effects
+        }
+        switch key {
+        case "escape":
+            state = .scroll
+            return [.scrollAimEnd, .scrollGuide]
+        case "delete":
+            return [.selectBackspace]
+        case "v" where command && !shift && !option:
+            return [.selectPaste]
+        default:
+            switch world.selectKey(key, shift: shift) {
+            case .done:
+                state = .scroll
+                return [.scrollAimEnd, .scrollGuide]
+            case .pending:
+                return []
+            }
+        }
+    }
+
+    /// A pick landed the pointer off the keystroke — a query typed before
+    /// the sensor settled became unique when it did — and the shell says
+    /// so. Scroll mode is back; a no-op from any other state.
+    public mutating func aimLanded() -> [EngineEffect] {
+        guard case .scrollAim = state else { return [] }
+        state = .scroll
+        return [.scrollAimEnd, .scrollGuide]
     }
 
     // MARK: - Hints

@@ -626,7 +626,7 @@ final class WalkController: NSObject {
                     + "stops. Escape leaves. Try it on this window.",
                 illustration: capsRow([("lode", false), ("`", true)]),
                 keys: [KeyRow("d u", "half a page"),
-                       KeyRow("⇥", "the next pane")])
+                       KeyRow("/", "aim at a word you can see")])
         }
     }
 

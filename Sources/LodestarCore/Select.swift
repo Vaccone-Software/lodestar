@@ -141,6 +141,10 @@ public struct SelectCore {
     /// keys — the shell reads this after `.selected` and swallows the
     /// word's tail while the highlight stands.
     public private(set) var lastAutoContinuation: Continuation?
+    /// The start word's unclaimed tail after an anchor uniqueness made,
+    /// for a door whose mode ends at the anchor — the aim door — where
+    /// the shell is what still holds the keys.
+    public var anchorContinuation: Continuation? { continuation }
 
     let elements: [Element]
     let alphabet: String

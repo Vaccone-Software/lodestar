@@ -71,6 +71,12 @@ final class WorldStub: EngineWorld {
         return scrollEnterSucceeds
     }
 
+    var scrollAimEnterSucceeds = true
+    func enterScrollAim() -> Bool {
+        calls.append("enterScrollAim")
+        return scrollAimEnterSucceeds
+    }
+
     var pasteAvailable = true
     func enterPaste() -> Bool {
         calls.append("enterPaste")
@@ -510,9 +516,105 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(press("g", held: false, shift: true), [.scrollCancelPendingG, .scrollToBottom])
     }
 
-    func testScrollTabCyclesPanes() {
+    func testScrollTabIsSwallowedLikeAnyOtherKey() {
+        // Pane cycling was retired: the tree names no panes in a web view
+        // or an Electron app, so the key never had anything to cycle.
         enterScrollMode()
-        XCTAssertEqual(press("tab", held: false), [.scrollCancelPendingG, .scrollCyclePane, .scrollGuide])
+        XCTAssertEqual(press("tab", held: false), [.scrollCancelPendingG])
+        XCTAssertEqual(core.state, .scroll)
+    }
+
+    // MARK: - The aim band
+
+    private func enterAim() {
+        enterScrollMode()
+        XCTAssertEqual(press("/", held: false), [.scrollCancelPendingG, .hideGuide])
+        XCTAssertEqual(core.state, .scrollAim)
+        XCTAssertEqual(world.calls, ["enterScrollAim"])
+        world.calls = []
+    }
+
+    func testSlashOpensTheAimBand() {
+        enterAim()
+    }
+
+    func testAimBandNeedsAWindow() {
+        enterScrollMode()
+        world.scrollAimEnterSucceeds = false
+        XCTAssertEqual(press("/", held: false),
+                       [.scrollCancelPendingG, .flash("✕ no focused window to aim in")])
+        XCTAssertEqual(core.state, .scroll, "scroll mode stays on")
+    }
+
+    func testQuestionMarkInScrollIsSwallowed() {
+        enterScrollMode()
+        XCTAssertEqual(press("/", held: false, shift: true), [.scrollCancelPendingG])
+        XCTAssertEqual(core.state, .scroll)
+    }
+
+    func testAimKeysFeedSelect() {
+        enterAim()
+        XCTAssertEqual(press("t", held: false), [])
+        XCTAssertEqual(press("h", held: false), [], "h is a letter here, not a direction")
+        XCTAssertEqual(world.calls, ["selectKey:t", "selectKey:h"])
+        XCTAssertEqual(core.state, .scrollAim)
+    }
+
+    func testAimKeyUpsPassThrough() {
+        enterAim()
+        XCTAssertEqual(core.keyUp(key: "j"), [.passThrough], "no glide to stop while aiming")
+    }
+
+    func testAimPickStepsBackToScroll() {
+        enterAim()
+        world.selectOutcomes["selectKey:Sa"] = .done
+        XCTAssertEqual(press("a", held: false, shift: true), [.scrollAimEnd, .scrollGuide])
+        XCTAssertEqual(core.state, .scroll, "the pointer moved; the wheel is scroll's again")
+    }
+
+    func testAimLandingOffTheKeystrokeStepsBack() {
+        enterAim()
+        XCTAssertEqual(core.aimLanded(), [.scrollAimEnd, .scrollGuide])
+        XCTAssertEqual(core.state, .scroll)
+        XCTAssertEqual(core.aimLanded(), [], "a no-op from scroll itself")
+    }
+
+    func testAimEscapeStepsBackToScroll() {
+        enterAim()
+        XCTAssertEqual(press("escape", held: false), [.scrollAimEnd, .scrollGuide])
+        XCTAssertEqual(core.state, .scroll)
+    }
+
+    func testAimBackspaceAndPasteAreSelects() {
+        enterAim()
+        XCTAssertEqual(press("delete", held: false), [.selectBackspace])
+        XCTAssertEqual(core.keyDown(key: "v", held: false, shift: false, command: true, world: world),
+                       [.selectPaste])
+        XCTAssertEqual(core.state, .scrollAim)
+    }
+
+    func testAimLodeVerbEndsBothAndExecutes() {
+        world.graph = ["s": .leaf]
+        enterAim()
+        XCTAssertEqual(press("s"),
+                       [.scrollAimEnd, .scrollExit, .hideGuide, .hideGuide,
+                        .summonGraph(letters: ["s"], beside: false)])
+        XCTAssertEqual(core.state, .idle)
+    }
+
+    func testAimLodeJAndEscapeEndBothQuietly() {
+        enterAim()
+        XCTAssertEqual(press("j"), [.scrollAimEnd, .scrollExit, .hideGuide])
+        XCTAssertEqual(core.state, .idle)
+        enterAim()
+        XCTAssertEqual(press("escape"), [.scrollAimEnd, .scrollExit, .hideGuide])
+        XCTAssertEqual(core.state, .idle)
+    }
+
+    func testResetFromAimEndsBoth() {
+        enterAim()
+        XCTAssertEqual(core.reset(), [.scrollAimEnd, .scrollExit, .hideGuide])
+        XCTAssertEqual(core.state, .idle)
     }
 
     func testScrollSwallowsPlainTyping() {

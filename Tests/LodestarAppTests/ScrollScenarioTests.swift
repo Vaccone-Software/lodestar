@@ -57,6 +57,28 @@ final class ScrollScenarioTests: XCTestCase {
         stage.shift(false)
     }
 
+    /// The aim landing on a stage: the pointer is not moved (the stage
+    /// catches the wheel and has no pointer), the point is recorded, and
+    /// the guide comes back naming the word. Nothing is pressed.
+    func testAimedRecordsThePointAndNamesTheWordInTheGuide() {
+        let stage = Stage()
+        enterScroll(stage)
+        stage.scroller.aimed(at: CGPoint(x: 300, y: 400), label: "Threads")
+        XCTAssertEqual(stage.scroller.aimPoint, CGPoint(x: 300, y: 400))
+        XCTAssertEqual(stage.scroller.aimLabel, "Threads")
+        XCTAssertTrue(stage.wheel.isEmpty, "an aim posts no wheel and no click")
+    }
+
+    /// `/` with no window to read: the flash says so and scroll mode stays
+    /// on — the j that follows is still a scroll.
+    func testSlashWithoutAWindowStaysInScroll() {
+        let stage = Stage()
+        enterScroll(stage)
+        XCTAssertTrue(stage.press("/"), "swallowed by the mode")
+        XCTAssertTrue(stage.press("d"), "still scroll's key")
+        XCTAssertEqual(stage.wheel.count, 1, "the half page landed: scroll mode is still on")
+    }
+
     /// d is half the pane; ⇧D is the whole of it.
     func testShiftDIsAFullPage() {
         let stage = Stage()

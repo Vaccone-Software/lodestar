@@ -62,7 +62,9 @@ public enum EngineEffect: Equatable {
     case maximizeFocused(beside: Bool)
     case enterScroll
     case scrollGuide
-    case scrollExit
+    /// Scroll mode ended. The reason is the record's: how the lens is
+    /// left says what it is used for.
+    case scrollExit(reason: ScrollExit = .verb)
     /// `fast` is shift: the same key, three times the distance.
     case scrollDirectionDown(String, fast: Bool)
     case scrollDirectionUp(String)
@@ -165,6 +167,14 @@ public extension EngineEffect {
             return false
         }
     }
+}
+
+/// How scroll mode was left. `escape` and `lode` (lode J, lode esc) are
+/// the quiet ways out; `verb` is exit-and-execute; `toggle` the backtick
+/// again; `click` and `wheel` are the hand reaching for the pointer, which
+/// ends the lens on its own; `reset` is the tap restarting.
+public enum ScrollExit: String, Equatable {
+    case escape, lode, verb, toggle, click, wheel, reset
 }
 
 /// How much of the query a backspace takes.
@@ -311,6 +321,23 @@ public struct EngineCore {
         return [.hideBars, .enterPaste]
     }
 
+    /// The hand reached for the pointer while the scroll lens was up — a
+    /// click, or a wheel burst of its own — so the lens is over: the
+    /// mode would otherwise stay on and swallow the typing that follows
+    /// the click. The aim band goes with it. A no-op from any other state.
+    public mutating func leaveScroll(reason: ScrollExit) -> [EngineEffect] {
+        switch state {
+        case .scroll:
+            state = .idle
+            return [.scrollExit(reason: reason), .hideGuide]
+        case .scrollAim:
+            state = .idle
+            return [.scrollAimEnd, .scrollExit(reason: reason), .hideGuide]
+        default:
+            return []
+        }
+    }
+
     /// Something outside the keyboard ended the mode — a click landed
     /// elsewhere, so the strip is no longer what the user is looking at.
     /// Nothing to interpret, nothing to pass on.
@@ -391,8 +418,8 @@ public struct EngineCore {
         switch state {
         case .idle: return []
         case .chain: effects = [.hideGuide]
-        case .scroll: effects = [.scrollExit, .hideGuide]
-        case .scrollAim: effects = [.scrollAimEnd, .scrollExit, .hideGuide]
+        case .scroll: effects = [.scrollExit(reason: .reset), .hideGuide]
+        case .scrollAim: effects = [.scrollAimEnd, .scrollExit(reason: .reset), .hideGuide]
         case .hints: effects = [.exitHints]
         case .select: effects = [.exitSelect]
         case .paste, .pastePanel: effects = [.exitPaste]
@@ -743,7 +770,7 @@ public struct EngineCore {
                                       world: EngineWorld) -> [EngineEffect] {
         if held {
             state = .idle
-            var effects: [EngineEffect] = [.scrollExit, .hideGuide]
+            var effects: [EngineEffect] = [.scrollExit(reason: Self.heldExit(key)), .hideGuide]
             if key != "j" && key != "escape" {
                 effects.append(contentsOf: idlePress(key: key, shift: shift, world: world))
             }
@@ -754,7 +781,7 @@ public struct EngineCore {
         switch key {
         case "escape":
             state = .idle
-            effects.append(contentsOf: [.scrollExit, .hideGuide])
+            effects.append(contentsOf: [.scrollExit(reason: .escape), .hideGuide])
         // Shift means "more" across the mode: three times the distance
         // on a direction, the whole page instead of half on d/u, the
         // document's end on g. One modifier, one meaning, no new key.
@@ -788,6 +815,17 @@ public struct EngineCore {
         return effects
     }
 
+    /// How a held lode key leaves scroll mode: J and escape are the quiet
+    /// way out, the backtick is the toggle, anything else is a verb about
+    /// to execute.
+    private static func heldExit(_ key: String) -> ScrollExit {
+        switch key {
+        case "j", "escape": return .lode
+        case "`": return .toggle
+        default: return .verb
+        }
+    }
+
     /// The aim band: select's grammar, with scroll mode waiting behind it.
     /// Escape steps back to scroll; a pick lands and steps back too; any
     /// lode verb ends both and executes, the bargain scroll itself makes.
@@ -796,7 +834,8 @@ public struct EngineCore {
                                          world: EngineWorld) -> [EngineEffect] {
         if held {
             state = .idle
-            var effects: [EngineEffect] = [.scrollAimEnd, .scrollExit, .hideGuide]
+            var effects: [EngineEffect] = [.scrollAimEnd, .scrollExit(reason: Self.heldExit(key)),
+                                           .hideGuide]
             if key != "j" && key != "escape" {
                 effects.append(contentsOf: idlePress(key: key, shift: shift, world: world))
             }

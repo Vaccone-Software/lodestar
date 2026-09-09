@@ -364,7 +364,7 @@ final class EngineTests: XCTestCase {
 
         _ = press("`")
         XCTAssertEqual(core.state, .scroll)
-        XCTAssertEqual(core.reset(), [.scrollExit, .hideGuide])
+        XCTAssertEqual(core.reset(), [.scrollExit(reason: .reset), .hideGuide])
         XCTAssertEqual(core.state, .idle)
 
         _ = press(";")
@@ -516,6 +516,30 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(press("g", held: false, shift: true), [.scrollCancelPendingG, .scrollToBottom])
     }
 
+    func testPointerEndsScrollMode() {
+        enterScrollMode()
+        XCTAssertEqual(core.leaveScroll(reason: .click), [.scrollExit(reason: .click), .hideGuide])
+        XCTAssertEqual(core.state, .idle)
+        enterScrollMode()
+        XCTAssertEqual(core.leaveScroll(reason: .wheel), [.scrollExit(reason: .wheel), .hideGuide])
+        XCTAssertEqual(core.state, .idle)
+        XCTAssertEqual(core.leaveScroll(reason: .click), [], "a no-op when the lens is not up")
+    }
+
+    func testPointerEndsTheAimBandToo() {
+        enterAim()
+        XCTAssertEqual(core.leaveScroll(reason: .click),
+                       [.scrollAimEnd, .scrollExit(reason: .click), .hideGuide])
+        XCTAssertEqual(core.state, .idle)
+    }
+
+    func testPointerLeavesOtherModesAlone() {
+        _ = press("/")
+        XCTAssertEqual(core.state, .select)
+        XCTAssertEqual(core.leaveScroll(reason: .click), [])
+        XCTAssertEqual(core.state, .select)
+    }
+
     func testScrollTabIsSwallowedLikeAnyOtherKey() {
         // Pane cycling was retired: the tree names no panes in a web view
         // or an Electron app, so the key never had anything to cycle.
@@ -597,23 +621,23 @@ final class EngineTests: XCTestCase {
         world.graph = ["s": .leaf]
         enterAim()
         XCTAssertEqual(press("s"),
-                       [.scrollAimEnd, .scrollExit, .hideGuide, .hideGuide,
+                       [.scrollAimEnd, .scrollExit(reason: .verb), .hideGuide, .hideGuide,
                         .summonGraph(letters: ["s"], beside: false)])
         XCTAssertEqual(core.state, .idle)
     }
 
     func testAimLodeJAndEscapeEndBothQuietly() {
         enterAim()
-        XCTAssertEqual(press("j"), [.scrollAimEnd, .scrollExit, .hideGuide])
+        XCTAssertEqual(press("j"), [.scrollAimEnd, .scrollExit(reason: .lode), .hideGuide])
         XCTAssertEqual(core.state, .idle)
         enterAim()
-        XCTAssertEqual(press("escape"), [.scrollAimEnd, .scrollExit, .hideGuide])
+        XCTAssertEqual(press("escape"), [.scrollAimEnd, .scrollExit(reason: .lode), .hideGuide])
         XCTAssertEqual(core.state, .idle)
     }
 
     func testResetFromAimEndsBoth() {
         enterAim()
-        XCTAssertEqual(core.reset(), [.scrollAimEnd, .scrollExit, .hideGuide])
+        XCTAssertEqual(core.reset(), [.scrollAimEnd, .scrollExit(reason: .reset), .hideGuide])
         XCTAssertEqual(core.state, .idle)
     }
 
@@ -625,17 +649,17 @@ final class EngineTests: XCTestCase {
 
     func testScrollEscapeExits() {
         enterScrollMode()
-        XCTAssertEqual(press("escape", held: false), [.scrollCancelPendingG, .scrollExit, .hideGuide])
+        XCTAssertEqual(press("escape", held: false), [.scrollCancelPendingG, .scrollExit(reason: .escape), .hideGuide])
         XCTAssertEqual(core.state, .idle)
     }
 
     func testScrollLodeJAndEscapeExitQuietly() {
         enterScrollMode()
-        XCTAssertEqual(press("j"), [.scrollExit, .hideGuide])
+        XCTAssertEqual(press("j"), [.scrollExit(reason: .lode), .hideGuide])
         XCTAssertEqual(core.state, .idle)
 
         enterScrollMode()
-        XCTAssertEqual(press("escape"), [.scrollExit, .hideGuide])
+        XCTAssertEqual(press("escape"), [.scrollExit(reason: .lode), .hideGuide])
         XCTAssertEqual(core.state, .idle)
     }
 
@@ -643,21 +667,21 @@ final class EngineTests: XCTestCase {
         world.graph = ["s": .leaf]
         enterScrollMode()
         XCTAssertEqual(press("s"),
-                       [.scrollExit, .hideGuide, .hideGuide, .summonGraph(letters: ["s"], beside: false)],
+                       [.scrollExit(reason: .verb), .hideGuide, .hideGuide, .summonGraph(letters: ["s"], beside: false)],
                        "any other lode verb exits and executes immediately")
         XCTAssertEqual(core.state, .idle)
     }
 
     func testScrollExitAndExecutePassesUnboundKeys() {
         enterScrollMode()
-        XCTAssertEqual(press("="), [.scrollExit, .hideGuide, .passThrough])
+        XCTAssertEqual(press("="), [.scrollExit(reason: .verb), .hideGuide, .passThrough])
         XCTAssertEqual(core.state, .idle)
     }
 
     func testScrollBacktickTogglesBackIn() {
         enterScrollMode()
         let effects = press("`")
-        XCTAssertEqual(effects, [.scrollExit, .hideGuide, .hideBars, .enterScroll, .scrollGuide])
+        XCTAssertEqual(effects, [.scrollExit(reason: .toggle), .hideGuide, .hideBars, .enterScroll, .scrollGuide])
         XCTAssertEqual(core.state, .scroll, "backtick exits and immediately re-enters — a toggle")
     }
 

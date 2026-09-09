@@ -274,6 +274,7 @@ final class Stage {
                               select: SelectController(model: model),
                               clipboard: clipboard, draft: draft, clock: clock.clock)
         engine.observations = observations
+        scroller.observations = observations
 
         coach = CoachController(clock: clock.clock)
         coach.observations = observations
@@ -599,6 +600,13 @@ final class Stage {
         observations.flush()
         return observations.log.recent(days: 30, now: clock.now.addingTimeInterval(1))
             .last { $0.kind == .draft }
+    }
+
+    /// The last scroll session the store wrote.
+    var lastScroll: ObservationEvent? {
+        observations.flush()
+        return observations.log.recent(days: 30, now: clock.now.addingTimeInterval(1))
+            .last { $0.kind == .scroll }
     }
 
     var eventsFile: URL {

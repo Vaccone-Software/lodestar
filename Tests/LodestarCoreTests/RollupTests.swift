@@ -100,6 +100,19 @@ final class RollupTests: XCTestCase {
         XCTAssertEqual(month.selectRows["held"], 1)
     }
 
+    func testScrollSessionsRollUpByExitAndAim() {
+        let months = Rollup.build(events: [
+            event(.scroll, at: november) { $0.app = "slack"; $0.action = "click"; $0.aimsLanded = 1; $0.aimsAway = 1 },
+            event(.scroll, at: november) { $0.app = "slack"; $0.action = "verb"; $0.aimsLanded = 2 },
+            event(.scroll, at: november) { $0.app = "brave"; $0.action = "verb" },
+        ], now: january)
+        let month = months["2023-11"]!
+        XCTAssertEqual(month.scrollExits["click"], 1)
+        XCTAssertEqual(month.scrollExits["verb"], 2)
+        XCTAssertEqual(month.scrollAimsLanded, 3)
+        XCTAssertEqual(month.scrollAimsAway, 1)
+    }
+
     // MARK: - The archive's one law
 
     func testAdoptIsAddOnly() {

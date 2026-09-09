@@ -927,11 +927,15 @@ final class HotkeyEngine {
             case .maximizeFocused(let beside):
                 actions.maximizeFocused(beside: beside)
             case .enterScroll:
-                break // entry happened in the world callback; state is the record
+                // Entry happened in the world callback; state is the
+                // record. What starts here is the watch for the hand
+                // leaving the keys.
+                watchScrollInterrupts()
             case .scrollGuide:
                 showScrollGuide()
-            case .scrollExit:
-                scroller.exit()
+            case .scrollExit(let reason):
+                stopWatchingScrollInterrupts()
+                scroller.exit(reason: reason)
                 walkSignal?(.scrollEnded)
             case .scrollDirectionDown(let key, let fast):
                 scroller.directionKeyDown(key, fast: fast)
@@ -1085,6 +1089,48 @@ final class HotkeyEngine {
     // MARK: - Chain presses
 
     // MARK: - Scroll mode
+
+    /// The lens ends when the hand reaches for the pointer. A click, or a
+    /// wheel burst of the hand's own — never Lodestar's synthesized wheel,
+    /// told apart by the posting pid the way the pulse tells them — means
+    /// the keys are no longer what is scrolling, and a mode left up would
+    /// swallow the typing that follows the click. The strip already ends
+    /// itself on a click for the same reason.
+    private var scrollClickMonitor: Any?
+    private var scrollWheelMonitor: Any?
+
+    private func watchScrollInterrupts() {
+        if scrollClickMonitor == nil {
+            scrollClickMonitor = NSEvent.addGlobalMonitorForEvents(
+                matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+            ) { [weak self] _ in
+                DispatchQueue.main.async { self?.pointerInterrupted(.click) }
+            }
+        }
+        if scrollWheelMonitor == nil {
+            scrollWheelMonitor = NSEvent.addGlobalMonitorForEvents(matching: .scrollWheel) {
+                [weak self] event in
+                guard let cg = event.cgEvent, Coach.isHumanOrigin(
+                    sourceStateID: cg.getIntegerValueField(.eventSourceStateID),
+                    postingPID: cg.getIntegerValueField(.eventSourceUnixProcessID)
+                ) else { return }
+                DispatchQueue.main.async { self?.pointerInterrupted(.wheel) }
+            }
+        }
+    }
+
+    private func stopWatchingScrollInterrupts() {
+        if let scrollClickMonitor { NSEvent.removeMonitor(scrollClickMonitor) }
+        if let scrollWheelMonitor { NSEvent.removeMonitor(scrollWheelMonitor) }
+        scrollClickMonitor = nil
+        scrollWheelMonitor = nil
+    }
+
+    /// The pointer moved on its own while the lens was up. The seam the
+    /// monitors call and a stage can call directly.
+    func pointerInterrupted(_ reason: ScrollExit) {
+        _ = apply(core.leaveScroll(reason: reason), event: nil)
+    }
 
     private func showScrollGuide() {
         // The aimed word rides the title so the hand knows what the wheel
@@ -1608,7 +1654,9 @@ extension HotkeyEngine: EngineWorld {
     func enterScrollAim() -> Bool {
         select.letters = KeyboardLayout.chipAlphabet()
         select.commitOnUnique = config.selectCommitOnUnique
-        return select.enter(door: .aim)
+        guard select.enter(door: .aim) else { return false }
+        scroller.noteAimOpened()
+        return true
     }
 
     var searcherVisible: Bool { searcher.isVisible }

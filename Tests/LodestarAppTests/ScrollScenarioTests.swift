@@ -79,6 +79,48 @@ final class ScrollScenarioTests: XCTestCase {
         XCTAssertEqual(stage.wheel.count, 1, "the half page landed: scroll mode is still on")
     }
 
+    /// A click or the hand's own wheel ends the lens; the session record
+    /// says so, with what the hands did in it.
+    func testAClickEndsScrollModeAndTheRecordSaysSo() {
+        let stage = Stage()
+        enterScroll(stage)
+        _ = stage.press("d")
+        _ = stage.press("k")
+        stage.engine.pointerInterrupted(.click)
+        XCTAssertNotEqual(stage.hud.owner, .guide, "the guide is down")
+        XCTAssertFalse(stage.press("j"), "j passes through: the mode is over")
+        let record = stage.lastScroll
+        XCTAssertEqual(record?.action, "click")
+        XCTAssertEqual(record?.pages, 1)
+        XCTAssertEqual(record?.keys, 1)
+        XCTAssertEqual(record?.aims, 0)
+    }
+
+    func testAHumanWheelEndsScrollMode() {
+        let stage = Stage()
+        enterScroll(stage)
+        stage.engine.pointerInterrupted(.wheel)
+        XCTAssertFalse(stage.press("j"), "the mode is over")
+        XCTAssertEqual(stage.lastScroll?.action, "wheel")
+    }
+
+    /// Escape's record: the way out, the ends, and an aim that landed
+    /// outside the focused window counted as away.
+    func testEscapeRecordCountsEndsAndAims() {
+        let stage = Stage()
+        enterScroll(stage)
+        _ = stage.press("g", shift: true)
+        stage.scroller.noteAimOpened()
+        stage.scroller.aimed(at: CGPoint(x: -5000, y: -5000), label: "Elsewhere")
+        _ = stage.press("escape")
+        let record = stage.lastScroll
+        XCTAssertEqual(record?.action, "escape")
+        XCTAssertEqual(record?.ends, 1)
+        XCTAssertEqual(record?.aims, 1)
+        XCTAssertEqual(record?.aimsLanded, 1)
+        XCTAssertGreaterThanOrEqual(record?.seconds ?? -1, 0)
+    }
+
     /// d is half the pane; ⇧D is the whole of it.
     func testShiftDIsAFullPage() {
         let stage = Stage()

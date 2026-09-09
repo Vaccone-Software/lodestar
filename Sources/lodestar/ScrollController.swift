@@ -38,6 +38,16 @@ final class ScrollController {
     private var horizontalSign: Int32 { -sign }
 
     private(set) var appName = ""
+    /// The session's record: counts and the way out, never the word.
+    var observations: ObservationStore?
+    private var began = Date()
+    private var inSession = false
+    private var keysPressed = 0
+    private var pages = 0
+    private var ends = 0
+    private var aims = 0
+    private var aimsLanded = 0
+    private var aimsAway = 0
     var step: CGFloat = 60
     var smooth = true
     var speed: CGFloat = 900
@@ -91,6 +101,14 @@ final class ScrollController {
         aimPoint = nil
         aimLabel = nil
         pendingG = false
+        began = Date()
+        inSession = true
+        keysPressed = 0
+        pages = 0
+        ends = 0
+        aims = 0
+        aimsLanded = 0
+        aimsAway = 0
         discoveryGeneration += 1
         let natural = CFPreferencesCopyAppValue(
             "com.apple.swipescrolldirection" as CFString,
@@ -145,12 +163,32 @@ final class ScrollController {
         }
     }
 
-    func exit() {
+    /// The mode is over, for `reason`. One record per session: what the
+    /// hands did in it and how they left, so the lens can be judged by
+    /// its use — a click or a wheel as the way out is the trap the
+    /// interrupt closes, and the count of them is its verdict.
+    func exit(reason: ScrollExit = .verb) {
         pendingG = false
         discoveryGeneration += 1 // invalidate in-flight discovery and retries
         cancelGlide()
         heldKeys.removeAll()
         stopSmoothTimer()
+        guard inSession else { return }
+        inSession = false
+        let seconds = Date().timeIntervalSince(began)
+        Log.info("scroll", ["exit": reason.rawValue, "seconds": Int(seconds),
+                            "keys": keysPressed, "pages": pages, "ends": ends,
+                            "aims": aims, "landed": aimsLanded, "away": aimsAway])
+        observations?.scrolled(app: appName, seconds: seconds, keys: keysPressed,
+                               pages: pages, ends: ends, aims: aims,
+                               aimsLanded: aimsLanded, aimsAway: aimsAway,
+                               exit: reason.rawValue)
+    }
+
+    /// The aim band opened. Counted here so the session's record has it
+    /// whether or not a pick ever lands.
+    func noteAimOpened() {
+        aims += 1
     }
 
     // MARK: - Smooth scrolling (constant velocity while held, instant stop)
@@ -161,6 +199,9 @@ final class ScrollController {
     func directionKeyDown(_ key: String, fast: Bool = false) {
         cancelGlide()
         self.fast = fast
+        // A press, not a repeat: the held set already knows a key that is
+        // down, and the classic path has no set to ask.
+        if !smooth || !heldKeys.contains(key) { keysPressed += 1 }
         guard smooth else {
             let distance = Int32(step * (fast ? Self.fastMultiplier : 1))
             switch key {
@@ -271,6 +312,7 @@ final class ScrollController {
     /// d/u move half the pane; under shift, the whole of it.
     func page(down: Bool, fraction: CGFloat) {
         cancelGlide()
+        pages += 1
         let distance = Int32(currentPaneFrame.height * fraction)
         postVertical(down ? distance : -distance)
     }
@@ -279,6 +321,7 @@ final class ScrollController {
         // Cancelling stays here: it is a local array and stopping a glide the
         // instant the key lands is the whole point of the key.
         cancelGlide()
+        ends += 1
         // Setting a scrollbar is an accessibility write into the focused app,
         // and this verb arrives through the event tap — a wedged app would
         // hold every key on the machine for the messaging timeout. The
@@ -338,7 +381,14 @@ final class ScrollController {
         cancelGlide()
         aimPoint = point
         aimLabel = label
-        Log.info("scroll", ["aimed": true, "pane": aimedPane != nil])
+        aimsLanded += 1
+        // The sensor reads the whole display, so a pick may land in the
+        // window beside the focused one — which then scrolls without
+        // taking focus, the one thing the trackpad cannot do. Counted,
+        // because whether that is used is a question worth answering.
+        let away = windowFrame.width > 0 && !windowFrame.contains(point)
+        if away { aimsAway += 1 }
+        Log.info("scroll", ["aimed": true, "pane": aimedPane != nil, "away": away])
         guard sink == nil else { return }
         CGWarpMouseCursorPosition(point)
     }

@@ -184,6 +184,24 @@ public final class ObservationStore {
         record(event)
     }
 
+    /// A scroll mode session ended — counts and the way out, never the
+    /// word the aim landed on.
+    public func scrolled(app: String, seconds: TimeInterval, keys: Int, pages: Int,
+                         ends: Int, aims: Int, aimsLanded: Int, aimsAway: Int,
+                         exit: String, at now: Date = Date()) {
+        var event = ObservationEvent(t: now, kind: .scroll)
+        event.app = app.lowercased()
+        event.seconds = seconds
+        event.keys = keys
+        event.pages = pages
+        event.ends = ends
+        event.aims = aims
+        event.aimsLanded = aimsLanded
+        event.aimsAway = aimsAway
+        event.action = exit
+        record(event)
+    }
+
     /// A draft ended — counts and timings, never the text.
     public func drafted(app: String, door: String, action: String, row: String?,
                         seconds: TimeInterval, typed: Int, words: Int, backspaces: Int,

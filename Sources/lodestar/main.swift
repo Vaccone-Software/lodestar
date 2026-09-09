@@ -346,6 +346,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         engine.observations = observationStore
         engine.roads = roads
+        scroller.observations = observationStore
 
         // The hands' pulse: keys from the main tap, clicks and scroll
         // bursts from its own listen-only tap. Gated by both switches —

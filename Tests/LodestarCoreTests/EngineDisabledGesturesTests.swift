@@ -43,7 +43,7 @@ final class EngineDisabledGesturesTests: XCTestCase {
         _ = press("`")
         XCTAssertEqual(core.state, .scroll)
         core.disabledGestures = ["s"]
-        XCTAssertEqual(press("s"), [.scrollExit, .hideGuide, .passThrough],
+        XCTAssertEqual(press("s"), [.scrollExit(reason: .verb), .hideGuide, .passThrough],
                        "the lens exits; the disabled verb does not fire")
         XCTAssertEqual(core.state, .idle)
     }

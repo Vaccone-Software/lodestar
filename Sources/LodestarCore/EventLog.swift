@@ -95,6 +95,14 @@ public struct ObservationEvent: Codable, Equatable {
         /// `openToFirstKey` the hesitation, `app` where the paste landed.
         /// Never the clip.
         case paste
+        /// A scroll mode session ended: `app`, `seconds` in the mode,
+        /// `keys` direction presses, `pages` half and full pages, `ends`
+        /// jumps to an edge, `aims` times the aim band opened,
+        /// `aimsLanded` picks that moved the pointer, `aimsAway` of those
+        /// that landed outside the focused window, `action` how the mode
+        /// was left (escape | lode | verb | toggle | click | wheel |
+        /// reset). Never the word aimed at.
+        case scroll
     }
 
     public var t: Date
@@ -148,6 +156,11 @@ public struct ObservationEvent: Codable, Equatable {
     public var pointer: PointerMoments?
     /// Seconds the wheel bursts ran, beside their count in `scrolls`.
     public var scrollSeconds: Double?
+    public var pages: Int?
+    public var ends: Int?
+    public var aims: Int?
+    public var aimsLanded: Int?
+    public var aimsAway: Int?
     public var words: Int?
     public var switches: Int?
     public var firstWord: Double?

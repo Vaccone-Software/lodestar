@@ -247,6 +247,10 @@ public struct Rollup: Codable, Equatable {
         /// Graph epoch changes: added / removed / retargeted → count.
         public var epochs: [String: Int] = [:]
         public var selectActions: [String: Int] = [:]
+        /// Scroll sessions by the way they were left, and the aim's landings.
+        public var scrollExits: [String: Int] = [:]
+        public var scrollAimsLanded = 0
+        public var scrollAimsAway = 0
         public var selectSources: [String: Int] = [:]
         public var selectRows: [String: Int] = [:]
         // v3: the draft, as counts and sums — never the text.
@@ -665,6 +669,13 @@ public struct Rollup: Codable, Equatable {
             }
             month.draftWords += event.words ?? 0
             month.draftSeconds += event.seconds ?? 0
+
+        case .scroll:
+            if let exit = event.action {
+                month.scrollExits[exit, default: 0] += 1
+            }
+            month.scrollAimsLanded += event.aimsLanded ?? 0
+            month.scrollAimsAway += event.aimsAway ?? 0
 
         case .paste:
             if let action = event.action {

@@ -233,22 +233,31 @@ enum GlassChip {
     static let font = NSFont.monospacedSystemFont(ofSize: BarTheme.Scale.meta, weight: .bold)
     static let height: CGFloat = 20
 
-    static func make(_ text: String) -> (chip: NSView, label: NSTextField) {
+    /// `lit` is how many leading letters the hand has already typed of
+    /// this label: they wear the accent, so a narrowing pick can be seen
+    /// on the chip it narrows.
+    static func make(_ text: String, lit: Int = 0) -> (chip: NSView, label: NSTextField) {
         let dark = Tone.systemDark
-        let label = NSTextField(labelWithString: text.uppercased())
-        label.font = font
         // Explicit, not labelColor: the label sits inside the material's
         // contentView, where the glass stamps its backdrop-adapted
         // appearance — labelColor there can resolve against the system's
         // tone, which is the invisible-text bug in one line.
-        label.textColor = dark ? .white : NSColor(white: 0.12, alpha: 1)
+        let ink = dark ? NSColor.white : NSColor(white: 0.12, alpha: 1)
+        let caps = text.uppercased()
+        let string = NSMutableAttributedString(string: caps, attributes: [.font: font, .foregroundColor: ink])
+        let litCount = min(max(0, lit), caps.count)
+        if litCount > 0 {
+            string.addAttribute(.foregroundColor, value: BarTheme.readableAccent,
+                                range: NSRange(location: 0, length: litCount))
+        }
+        let label = NSTextField(labelWithAttributedString: string)
         label.alignment = .center
         label.sizeToFit()
 
         // The label rides on the chip above the material, never inside
         // it, for the reason the cards give.
         let chip = NSView()
-        Glass.installBackdrop(in: chip, cornerRadius: 4.5)
+        Glass.installBackdrop(in: chip, cornerRadius: BarTheme.glassChipRadius)
         chip.addSubview(label)
         lift(chip)
         return (chip, label)

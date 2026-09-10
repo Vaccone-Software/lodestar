@@ -386,7 +386,7 @@ final class SelectController {
 
     /// The pill's reading of this door: listening while nothing is typed,
     /// folded to the letters once something is.
-    private func showPill(text: String?) {
+    private func showPill(text: String?, anchored: String? = nil) {
         let mode: ModePill.Mode
         switch door {
         case .anchor: mode = .select
@@ -395,7 +395,17 @@ final class SelectController {
         }
         pill?.show(ModePill.State(mode: mode, app: appName,
                                   icon: NSRunningApplication(processIdentifier: focusedPid)?.icon,
-                                  listening: true, text: text))
+                                  listening: true, text: text, anchored: anchored))
+    }
+
+    /// The word the start anchor holds, for the pill: the hand's word,
+    /// shown while the far end is being chosen.
+    private func anchoredWord(_ anchor: SelectCore.Match?, in units: [Unit]) -> String? {
+        guard let anchor, units.indices.contains(anchor.element) else { return nil }
+        let text = units[anchor.element].run.text as NSString
+        guard NSMaxRange(anchor.range) <= text.length else { return nil }
+        let word = text.substring(with: anchor.range).trimmingCharacters(in: .whitespacesAndNewlines)
+        return word.isEmpty ? nil : String(word.prefix(24))
     }
 
     /// The keys the hands typed before the first world existed, fed
@@ -621,7 +631,7 @@ final class SelectController {
         // A capital is a pick, not a search: the chips show it narrowing;
         // the pill shows only what is being searched for.
         showPill(text: nil)
-        overlay.show(chips: chips, anchor: [], over: windowFrame)
+        overlay.show(chips: chips, anchor: [], over: windowFrame, typed: entryTyped)
     }
 
     /// The three-layer commit: the picked word supplies the point, an AX
@@ -1647,7 +1657,9 @@ final class SelectController {
         let snapshot = units
         // The query alone: a capital narrows the chips on the glass and
         // never belongs in the text, because it is not part of the search.
-        showPill(text: core.query.isEmpty ? nil : core.query)
+        // The anchored word rides ahead of it while the far end is chosen.
+        showPill(text: core.query.isEmpty ? nil : core.query, anchored: anchoredWord(anchor, in: units))
+        let typed = core.typedLabel
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             func rects(_ match: SelectCore.Match) -> [CGRect] {
@@ -1667,7 +1679,7 @@ final class SelectController {
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.boundsGeneration == expected else { return }
                 self.overlay.show(chips: chips, anchor: anchorFrames,
-                                  over: self.windowFrame)
+                                  over: self.windowFrame, typed: typed)
             }
         }
     }

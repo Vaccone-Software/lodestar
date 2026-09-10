@@ -765,7 +765,7 @@ final class WalkController: NSObject {
 
         let box = NSView()
         box.wantsLayer = true
-        box.layer?.cornerRadius = 5
+        box.layer?.cornerRadius = BarTheme.chipRadius
         box.layer?.backgroundColor = NSColor.labelColor
             .withAlphaComponent(lit ? 0.14 : 0.08).cgColor
         box.layer?.borderWidth = 1

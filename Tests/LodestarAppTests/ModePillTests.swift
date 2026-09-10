@@ -32,6 +32,30 @@ final class ModePillTests: XCTestCase {
         XCTAssertEqual(ModePill.layout(for: standing).last, ModePill.layout(for: typing).last)
     }
 
+    func testAnAnchoredWordRidesAheadOfTheFarEnd() {
+        let waiting = ModePill.State(mode: .select, app: "Ghostty", icon: icon, listening: true, text: nil, anchored: "Threads")
+        XCTAssertEqual(ModePill.layout(for: waiting),
+                       [.symbol("character.cursor.ibeam"), .anchored("Threads"), .caret, .appIcon],
+                       "the wings fold and the caret waits after the word already taken")
+        let typing = ModePill.State(mode: .select, app: "Ghostty", icon: icon, listening: true, text: "fo", anchored: "Threads")
+        XCTAssertEqual(ModePill.layout(for: typing),
+                       [.symbol("character.cursor.ibeam"), .anchored("Threads"), .text("fo"), .appIcon])
+    }
+
+    func testADraggedPillComesBackWhereItWasLeft() {
+        let pill = ModePill()
+        let state = ModePill.State(mode: .scroll, app: "Slack", icon: icon, listening: false, text: nil)
+        pill.show(state)
+        let home = ModePill.home(for: pill.frame.size)
+        pill.remember(origin: NSPoint(x: home.x + 40, y: home.y + 120))
+        XCTAssertEqual(pill.offset.x, 40, accuracy: 0.5)
+        XCTAssertEqual(pill.offset.y, 120, accuracy: 0.5)
+        pill.hide()
+        pill.show(state)
+        XCTAssertEqual(pill.offset.y, 120, accuracy: 0.5, "the displacement outlives a hide")
+        pill.hide()
+    }
+
     func testAnAppWithoutAnIconKeepsItsName() {
         let state = ModePill.State(mode: .scroll, app: "Ghostty", icon: nil, listening: false, text: "word")
         XCTAssertEqual(ModePill.layout(for: state).last, .appWord("Ghostty"))

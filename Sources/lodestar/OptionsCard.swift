@@ -254,7 +254,7 @@ final class OptionsCard {
         let tint: NSColor = item.isDestructive ? .systemRed : .labelColor
         let icon = NSImageView(image: NSImage(
             systemSymbolName: item.symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: 13, weight: .medium)) ?? NSImage())
+            .withSymbolConfiguration(BarTheme.symbol) ?? NSImage())
         icon.contentTintColor = tint
         icon.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([

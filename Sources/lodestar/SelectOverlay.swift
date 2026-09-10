@@ -70,7 +70,15 @@ final class SelectOverlay {
         present(over: windowFrame)
     }
 
-    func show(chips: [Chip], anchor: [CGRect], over windowFrame: CGRect) {
+    /// The chips a partial capital leaves standing: only those the typed
+    /// letters can still complete, so a pick's progress is visible on the
+    /// glass and never in the pill.
+    static func narrowed(_ chips: [Chip], typed: String) -> [Chip] {
+        guard !typed.isEmpty else { return chips }
+        return chips.filter { $0.label.lowercased().hasPrefix(typed.lowercased()) }
+    }
+
+    func show(chips: [Chip], anchor: [CGRect], over windowFrame: CGRect, typed: String = "") {
         // Dozens of frosted chips at once: the instrument times itself.
         let began = Date()
         defer {
@@ -103,13 +111,13 @@ final class SelectOverlay {
             view.wantsLayer = true
             view.layer?.backgroundColor = BarTheme.accent
                 .withAlphaComponent(0.45).cgColor
-            view.layer?.cornerRadius = 3
+            view.layer?.cornerRadius = BarTheme.highlightRadius
             view.frame = appKitRect(rect).insetBy(dx: -1.5, dy: -1.5)
             highlightHost.addSubview(view)
             decorations.append(view)
         }
 
-        for chip in chips {
+        for chip in Self.narrowed(chips, typed: typed) {
             if chip.style == .match {
                 // The match itself, washed in accent — the chip names it,
                 // the highlight is it.
@@ -118,7 +126,7 @@ final class SelectOverlay {
                     highlight.wantsLayer = true
                     highlight.layer?.backgroundColor = BarTheme.accent
                         .withAlphaComponent(0.22).cgColor
-                    highlight.layer?.cornerRadius = 3
+                    highlight.layer?.cornerRadius = BarTheme.highlightRadius
                     highlight.frame = appKitRect(rect).insetBy(dx: -1.5, dy: -1.5)
                     highlightHost.addSubview(highlight)
                     decorations.append(highlight)
@@ -126,8 +134,9 @@ final class SelectOverlay {
             }
             guard let first = chip.frames.first else { continue }
 
-            // Literally the hints chip — one design, one factory.
-            let (cap, label) = GlassChip.make(chip.label)
+            // Literally the hints chip — one design, one factory. The
+            // letters already typed of the label wear the accent.
+            let (cap, label) = GlassChip.make(chip.label, lit: typed.count)
             let width = label.frame.width + 7
             let height = GlassChip.height
             let target = appKitRect(first)
@@ -163,7 +172,7 @@ final class SelectOverlay {
             view.wantsLayer = true
             view.layer?.backgroundColor = BarTheme.accent
                 .withAlphaComponent(0.35).cgColor
-            view.layer?.cornerRadius = 3
+            view.layer?.cornerRadius = BarTheme.highlightRadius
             view.frame = NSRect(x: rect.minX - panel.frame.minX - 1.5,
                                 y: primaryHeight - rect.maxY - panel.frame.minY - 1.5,
                                 width: rect.width + 3, height: rect.height + 3)

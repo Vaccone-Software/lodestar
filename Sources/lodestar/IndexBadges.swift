@@ -25,7 +25,7 @@ final class IndexBadges {
             Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
 
             let label = NSTextField(labelWithString: "\(item.index)")
-            let base = NSFont.systemFont(ofSize: 27, weight: .bold)
+            let base = BarTheme.badgeFont
             let rounded = base.fontDescriptor.withDesign(.rounded).flatMap { NSFont(descriptor: $0, size: 27) }
             label.font = rounded ?? base
             label.textColor = .labelColor

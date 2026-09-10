@@ -515,7 +515,7 @@ private final class WebRowView: NSView {
         wantsLayer = true
         layer?.cornerRadius = BarTheme.rowRadius
 
-        icon.symbolConfiguration = .init(pointSize: 16, weight: .medium)
+        icon.symbolConfiguration = BarTheme.symbolRow
         icon.translatesAutoresizingMaskIntoConstraints = false
 
         title.font = BarTheme.titleFont

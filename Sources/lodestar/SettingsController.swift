@@ -1118,7 +1118,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                 row.wantsLayer = true
                 row.layer?.backgroundColor = BarTheme.accent
                     .withAlphaComponent(0.14).cgColor
-                row.layer?.cornerRadius = 5
+                row.layer?.cornerRadius = BarTheme.chipRadius
             }
             column.addArrangedSubview(row)
         }
@@ -1439,7 +1439,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         view.wantsLayer = true
         view.layer?.backgroundColor = BarTheme.accent
             .withAlphaComponent(0.16).cgColor
-        view.layer?.cornerRadius = 6
+        view.layer?.cornerRadius = BarTheme.wellRadius
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak view] in
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.5
@@ -1470,7 +1470,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         cap.translatesAutoresizingMaskIntoConstraints = false
         let box = NSView()
         box.wantsLayer = true
-        box.layer?.cornerRadius = 4
+        box.layer?.cornerRadius = BarTheme.chipRadius
         box.layer?.backgroundColor = NSColor.labelColor
             .withAlphaComponent(lit ? 0.12 : 0.06).cgColor
         box.translatesAutoresizingMaskIntoConstraints = false
@@ -1494,7 +1494,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         cap.translatesAutoresizingMaskIntoConstraints = false
         let box = NSView()
         box.wantsLayer = true
-        box.layer?.cornerRadius = 4
+        box.layer?.cornerRadius = BarTheme.chipRadius
         box.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.07).cgColor
         box.layer?.borderWidth = 1
         box.layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.1).cgColor

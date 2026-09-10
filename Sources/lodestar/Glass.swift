@@ -302,6 +302,28 @@ enum BarTheme {
 
     static let inputFont = NSFont.systemFont(ofSize: Scale.input, weight: .regular)
     static let inputSymbol = NSImage.SymbolConfiguration(pointSize: 19, weight: .medium)
+    /// The one configuration a symbol beside text wears, and its larger
+    /// cousin for the strip's own controls. Weight matched to the text.
+    static let symbol = NSImage.SymbolConfiguration(pointSize: Scale.meta, weight: .medium)
+    static let symbolBand = NSImage.SymbolConfiguration(pointSize: 15, weight: .medium)
+    /// The hand's words in the pill: a point above the body, medium, so
+    /// they stand apart from the wings by size and weight alone.
+    static let typedFont = NSFont.systemFont(ofSize: 17, weight: .medium)
+    /// The strip's search field, the index badge, and the searcher's dot:
+    /// sizes with one home each, so the drift guard can hold the line.
+    static let stripInputFont = NSFont.systemFont(ofSize: 19, weight: .regular)
+    static let badgeFont = NSFont.systemFont(ofSize: 27, weight: .bold)
+    static let dotFont = NSFont.systemFont(ofSize: 8)
+    /// A glass chip's corner (the select and click labels): the launcher's
+    /// glass, small. The keycaps keep `chipRadius`.
+    static let glassChipRadius: CGFloat = 4.5
+    /// The small corners: a match's wash on the page, a settings well,
+    /// and the hairline things (the draft's caret and its meter bars).
+    static let highlightRadius: CGFloat = 3
+    static let wellRadius: CGFloat = 6
+    static let hairlineRadius: CGFloat = 1
+    /// A symbol leading a bar's row, a size above the text's.
+    static let symbolRow = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
     static let titleFont = NSFont.systemFont(ofSize: Scale.title, weight: .regular)
     /// The one look for secondary text — captions, legends, notes: meta
     /// size, regular weight, the secondary label colour. Weight is not a

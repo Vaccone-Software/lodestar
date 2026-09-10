@@ -46,22 +46,36 @@ final class ModePill {
         var listening: Bool
         /// What the hand has said. Any text at all folds the wings.
         var text: String?
+        /// A word the hand has already taken — select's start anchor —
+        /// shown ahead of the text while the far end is chosen. It folds
+        /// the wings the way text does.
+        var anchored: String? = nil
 
         static func == (lhs: State, rhs: State) -> Bool {
             lhs.mode == rhs.mode && lhs.app == rhs.app && lhs.listening == rhs.listening
-                && lhs.text == rhs.text && lhs.icon === rhs.icon
+                && lhs.text == rhs.text && lhs.anchored == rhs.anchored && lhs.icon === rhs.icon
         }
     }
 
     /// What the pill draws, pure, so a stage can read the composition
     /// instead of pixels.
     enum Piece: Equatable {
-        case symbol(String), modeWord(String), caret, text(String), appWord(String), appIcon
+        case symbol(String), modeWord(String), caret, text(String), anchored(String), appWord(String), appIcon
     }
 
     static func layout(for state: State) -> [Piece] {
-        if let text = state.text {
-            return [.symbol(state.mode.symbol), .text(text), state.icon == nil ? .appWord(state.app) : .appIcon]
+        let tail: Piece = state.icon == nil ? .appWord(state.app) : .appIcon
+        if state.text != nil || state.anchored != nil {
+            var center: [Piece] = []
+            if let anchored = state.anchored { center.append(.anchored(anchored)) }
+            if let text = state.text {
+                center.append(.text(text))
+            } else if state.listening {
+                // The far end is still to be typed: the caret waits after
+                // the word the hand already has.
+                center.append(.caret)
+            }
+            return [.symbol(state.mode.symbol)] + center + [tail]
         }
         var pieces: [Piece] = [.symbol(state.mode.symbol), .modeWord(state.mode.word)]
         if state.listening { pieces.append(.caret) }
@@ -88,7 +102,7 @@ final class ModePill {
 
     /// The hand's words, upright: the italic was tried and did not look
     /// right on the glass. Size and weight set them apart from the wings.
-    static var textFont: NSFont { NSFont.systemFont(ofSize: 17, weight: .medium) }
+    static var textFont: NSFont { BarTheme.typedFont }
 
     // MARK: - Surface
 
@@ -97,12 +111,46 @@ final class ModePill {
     private var content: NSStackView?
     private(set) var state: State?
     var isVisible: Bool { panel.isVisible }
+    var frame: NSRect { panel.frame }
+    /// Where the hand put the pill, as a displacement from its home, so
+    /// a dragged pill comes back where it was left for the rest of the
+    /// session. Zero until dragged; the home is the guide's.
+    private(set) var offset = NSPoint.zero
+    private var moveObserver: Any?
+    private var placing = false
 
     init() {
         panel = Glass.makePanel(level: .statusBar)
-        panel.ignoresMouseEvents = true
         panel.contentView = root
         _ = Glass.installBackdrop(in: root, cornerRadius: Self.radius)
+        // Draggable by its glass, the way the coach's chip is: one home by
+        // default, and a remembered displacement once the hand moves it.
+        Movable.enable(panel)
+        moveObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification, object: panel, queue: .main
+        ) { [weak self] _ in self?.noteMoved() }
+    }
+
+    deinit {
+        if let moveObserver { NotificationCenter.default.removeObserver(moveObserver) }
+    }
+
+    /// The hand dragged the pill: keep where it went as a displacement
+    /// from home. Our own placement moves the window too, and is not a
+    /// drag.
+    private func noteMoved() {
+        guard !placing, panel.isVisible else { return }
+        remember(origin: panel.frame.origin)
+    }
+
+    func remember(origin: NSPoint) {
+        let home = Self.home(for: panel.frame.size)
+        offset = NSPoint(x: origin.x - home.x, y: origin.y - home.y)
+    }
+
+    static func home(for size: NSSize) -> NSPoint {
+        let visible = ActivePolicy.presentationFrame
+        return NSPoint(x: visible.midX - size.width / 2, y: visible.minY + rise)
     }
 
     func show(_ state: State) {
@@ -146,7 +194,7 @@ final class ModePill {
     /// center and from each other by the wing gap.
     private static func gapBefore(_ piece: Piece, after previous: Piece) -> CGFloat {
         switch (previous, piece) {
-        case (.symbol, .modeWord), (.appWord, .appIcon): return wordGap
+        case (.symbol, .modeWord), (.appWord, .appIcon), (.anchored, .text), (.anchored, .caret): return wordGap
         default: return wingGap
         }
     }
@@ -161,9 +209,8 @@ final class ModePill {
     private func view(for piece: Piece, state: State) -> NSView {
         switch piece {
         case .symbol(let name):
-            let configuration = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
             let image = NSImage(systemSymbolName: name, accessibilityDescription: state.mode.word)?
-                .withSymbolConfiguration(configuration)
+                .withSymbolConfiguration(BarTheme.symbol)
             let view = NSImageView(image: image ?? NSImage())
             view.contentTintColor = .labelColor
             view.setContentHuggingPriority(.required, for: .horizontal)
@@ -183,6 +230,17 @@ final class ModePill {
             return view
         case .caret:
             return Self.caret(alpha: 0.55)
+        case .anchored(let word):
+            // The word already taken, then a quiet dot before whatever
+            // comes next: the far end's letters, or the caret waiting.
+            let label = Self.label(word, font: Self.textFont, color: .labelColor)
+            let dot = Self.label("·", font: BarTheme.bodyFont, color: BarTheme.secondaryColor)
+            let pair = NSStackView(views: [label, dot])
+            pair.orientation = .horizontal
+            pair.alignment = .centerY
+            pair.spacing = Self.wordGap
+            pair.translatesAutoresizingMaskIntoConstraints = false
+            return pair
         case .text(let text):
             let label = Self.label(text, font: Self.textFont, color: .labelColor)
             let slot = NSStackView(views: [label, Self.caret(alpha: 1)])
@@ -225,9 +283,17 @@ final class ModePill {
         var size = root.fittingSize
         size.height = Self.height
         size.width = min(max(size.width, 160), 900)
+        let home = Self.home(for: size)
+        // Home plus the hand's displacement, kept on the screen: a pill
+        // dragged to an edge on one display must not vanish on a smaller
+        // one.
         let visible = ActivePolicy.presentationFrame
-        panel.setFrame(NSRect(x: visible.midX - size.width / 2, y: visible.minY + Self.rise,
-                              width: size.width, height: size.height), display: true)
+        var origin = NSPoint(x: home.x + offset.x, y: home.y + offset.y)
+        origin.x = min(max(origin.x, visible.minX), visible.maxX - size.width)
+        origin.y = min(max(origin.y, visible.minY), visible.maxY - size.height)
+        placing = true
+        panel.setFrame(NSRect(origin: origin, size: size), display: true)
+        placing = false
         panel.orderFrontRegardless()
     }
 }

@@ -141,7 +141,7 @@ final class DraftPanel {
         for i in 0..<Self.meterCount {
             let bar = NSView()
             bar.wantsLayer = true
-            bar.layer?.cornerRadius = 1
+            bar.layer?.cornerRadius = BarTheme.hairlineRadius
             bar.frame = NSRect(x: 0, y: 0, width: 3, height: CGFloat(5 + i * 2))
             meterBars.append(bar)
         }
@@ -167,7 +167,7 @@ final class DraftPanel {
         // opt into Auto Layout, or the first layout pass zeroes it.
 
         caret.wantsLayer = true
-        caret.layer?.cornerRadius = 1
+        caret.layer?.cornerRadius = BarTheme.hairlineRadius
 
         footer.font = BarTheme.footerFont
         footer.textColor = BarTheme.secondaryColor
@@ -379,7 +379,7 @@ final class DraftPanel {
         let micLive = view.micOn && listening && view.mode == .insert
         micButton.image = NSImage(systemSymbolName: view.micOn ? "mic.fill" : "mic.slash.fill",
                                   accessibilityDescription: view.micOn ? "microphone on" : "microphone off")?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 14, weight: .medium))
+            .withSymbolConfiguration(BarTheme.symbolBand)
         micButton.contentTintColor = micLive ? Self.live : BarTheme.secondaryColor
         // The clip door has no microphone, and draws none: a glyph that
         // could be clicked would promise what the door refuses.

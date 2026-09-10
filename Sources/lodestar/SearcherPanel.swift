@@ -935,7 +935,7 @@ private final class SearcherRowView: NSView {
             }
             if showDot {
                 let dotLabel = NSTextField(labelWithString: "●")
-                dotLabel.font = .systemFont(ofSize: 8)
+                dotLabel.font = BarTheme.dotFont
                 dot = dotLabel
                 stack.addArrangedSubview(dotLabel)
             }

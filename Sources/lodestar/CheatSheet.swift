@@ -46,11 +46,13 @@ final class CheatSheet {
             column.alignment = .leading
             column.spacing = 6
 
-            let header = NSTextField(labelWithString: section.header.uppercased())
-            header.font = .systemFont(ofSize: BarTheme.Scale.meta, weight: .semibold)
+            // The pill's rule: one text size, tone for hierarchy. A header
+            // is the body voice, quiet, never caps.
+            let header = NSTextField(labelWithString: section.header)
+            header.font = BarTheme.bodyFont
             header.textColor = BarTheme.secondaryColor
             column.addArrangedSubview(header)
-            column.setCustomSpacing(9, after: header)
+            column.setCustomSpacing(ModePill.wordGap, after: header)
 
             for row in section.rows.prefix(14) {
                 column.addArrangedSubview(makeRow(row))
@@ -64,24 +66,26 @@ final class CheatSheet {
             columns.addArrangedSubview(column)
         }
 
-        let footer = NSTextField(labelWithString: "lode ? closes · everything here is live, bind more and it grows")
+        let footer = NSTextField(labelWithString: "? or esc closes · everything here is live, bind more and it grows")
         footer.font = BarTheme.footerFont
         footer.textColor = BarTheme.secondaryColor
 
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 14
+        stack.spacing = ModePill.wordGap
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.addArrangedSubview(columns)
         stack.addArrangedSubview(footer)
 
+        // The pill's inset on every side, so the sheet that opens from a
+        // lens is built on the lens's own proportions.
         root.addSubview(stack)
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 22),
-            stack.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -18),
-            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 26),
-            stack.trailingAnchor.constraint(lessThanOrEqualTo: root.trailingAnchor, constant: -26),
+            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: ModePill.inset),
+            stack.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -ModePill.inset),
+            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: ModePill.inset),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: root.trailingAnchor, constant: -ModePill.inset),
         ])
         content = stack
 

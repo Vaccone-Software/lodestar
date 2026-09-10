@@ -515,7 +515,7 @@ final class ClipboardStrip {
             // do"; a menu answers "what can I do", so the name leads.
             let icon = NSImageView(image: NSImage(
                 systemSymbolName: action.symbol, accessibilityDescription: nil)?
-                .withSymbolConfiguration(.init(pointSize: 13, weight: .medium)) ?? NSImage())
+                .withSymbolConfiguration(BarTheme.symbol) ?? NSImage())
             icon.contentTintColor = tint
             icon.frame = NSRect(x: Self.actionInset,
                                 y: bottom + (Self.actionRow - Self.actionIcon) / 2,
@@ -570,12 +570,12 @@ final class ClipboardStrip {
         let symbol = NSImageView(image: NSImage(
             systemSymbolName: "magnifyingglass",
             accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: 15, weight: .medium)) ?? NSImage())
+            .withSymbolConfiguration(BarTheme.symbolBand) ?? NSImage())
         symbol.contentTintColor = BarTheme.secondaryColor
         symbol.frame = NSRect(x: 18, y: (Self.searchHeight - 18) / 2, width: 18, height: 18)
         plate.addSubview(symbol)
 
-        let font = NSFont.systemFont(ofSize: 19, weight: .regular)
+        let font = BarTheme.stripInputFont
         let field = NSTextField(labelWithString: query.isEmpty ? "Search clips" : query)
         field.font = font
         field.textColor = query.isEmpty ? BarTheme.secondaryColor : .labelColor
@@ -614,7 +614,7 @@ final class ClipboardStrip {
         let symbol = NSImageView(image: NSImage(
             systemSymbolName: "square.and.arrow.down",
             accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: 15, weight: .medium)) ?? NSImage())
+            .withSymbolConfiguration(BarTheme.symbolBand) ?? NSImage())
         symbol.contentTintColor = BarTheme.secondaryColor
         symbol.frame = NSRect(x: 18, y: (Self.searchHeight - 18) / 2, width: 18, height: 18)
         plate.addSubview(symbol)
@@ -630,7 +630,7 @@ final class ClipboardStrip {
                              width: placeWidth, height: place.frame.height)
         plate.addSubview(place)
 
-        let font = NSFont.systemFont(ofSize: 19, weight: .regular)
+        let font = BarTheme.stripInputFont
         let field = NSTextField(labelWithString: name.isEmpty ? offered : name)
         field.font = font
         field.textColor = name.isEmpty ? BarTheme.secondaryColor : .labelColor

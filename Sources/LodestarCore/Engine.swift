@@ -827,12 +827,14 @@ public struct EngineCore {
         return effects
     }
 
-    /// The sheet inside a lens: lode ? shows the keys the lens owns and
-    /// the lens stays up; escape while the sheet stands takes the sheet
-    /// down and nothing else. Nil when the key is the lens's own.
+    /// The sheet inside a lens: a plain ? shows the keys the lens owns and
+    /// the lens stays up, lode ? the same, and escape while the sheet
+    /// stands takes the sheet down and nothing else. A search loses the
+    /// question mark as a character, which no search was ever made of.
+    /// Nil when the key is the lens's own.
     private func sheetPress(key: String, held: Bool, shift: Bool,
                             world: EngineWorld) -> [EngineEffect]? {
-        if held, key == "/", shift { return [.toggleCheat] }
+        if key == "/", shift { return [.toggleCheat] }
         if !held, key == "escape", world.cheatVisible { return [.dismissCheat] }
         return nil
     }

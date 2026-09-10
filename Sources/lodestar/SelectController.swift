@@ -385,8 +385,7 @@ final class SelectController {
     }
 
     /// The pill's reading of this door: listening while nothing is typed,
-    /// folded to the letters once something is. A capital's label rides
-    /// after the query in caps, the way the chips wear it.
+    /// folded to the letters once something is.
     private func showPill(text: String?) {
         let mode: ModePill.Mode
         switch door {
@@ -619,7 +618,9 @@ final class SelectController {
             return SelectOverlay.Chip(label: label, frames: [target.frame],
                                       style: .target)
         }
-        showPill(text: entryTyped.isEmpty ? nil : entryTyped.uppercased())
+        // A capital is a pick, not a search: the chips show it narrowing;
+        // the pill shows only what is being searched for.
+        showPill(text: nil)
         overlay.show(chips: chips, anchor: [], over: windowFrame)
     }
 
@@ -1644,9 +1645,9 @@ final class SelectController {
         let labels = core.labels
         let anchor = core.anchor
         let snapshot = units
-        var typed = core.query
-        if !core.typedLabel.isEmpty { typed += (typed.isEmpty ? "" : " ") + core.typedLabel.uppercased() }
-        showPill(text: typed.isEmpty ? nil : typed)
+        // The query alone: a capital narrows the chips on the glass and
+        // never belongs in the text, because it is not part of the search.
+        showPill(text: core.query.isEmpty ? nil : core.query)
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             func rects(_ match: SelectCore.Match) -> [CGRect] {

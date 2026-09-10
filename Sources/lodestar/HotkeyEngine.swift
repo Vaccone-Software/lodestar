@@ -1151,8 +1151,8 @@ final class HotkeyEngine {
                                  listening: false, text: scroller.aimLabel.map { String($0.prefix(24)) }))
     }
 
-    /// The keys a lens owns, for the sheet on lode ? while that lens is
-    /// up. Idle gets the whole system.
+    /// The keys a lens owns, for the sheet on ? while that lens is up.
+    /// Idle gets the whole system.
     func cheatSections(for state: EngineCore.State) -> [CheatSheet.Section] {
         let leaving = GuideRow(key: "esc", label: "leave the mode · any other lode verb acts and leaves")
         switch state {

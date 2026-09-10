@@ -11,7 +11,7 @@ import LodestarCore
 /// or a still hairline caret when the lens is listening, so the band says
 /// whether typing would land without carrying an instruction. The moment
 /// there is text, both wings fold to their glyphs and the text takes the
-/// band in italic: the symbol and the icon never move, and the fold is
+/// band: the symbol and the icon never move, and the fold is
 /// the only change. No motion anywhere, because a mode indicator that
 /// arrives late is late.
 ///
@@ -86,10 +86,9 @@ final class ModePill {
     static let textSlot: CGFloat = 140
     static let iconSize: CGFloat = 16
 
-    static var textFont: NSFont {
-        NSFontManager.shared.convert(NSFont.systemFont(ofSize: 17, weight: .medium),
-                                     toHaveTrait: .italicFontMask)
-    }
+    /// The hand's words, upright: the italic was tried and did not look
+    /// right on the glass. Size and weight set them apart from the wings.
+    static var textFont: NSFont { NSFont.systemFont(ofSize: 17, weight: .medium) }
 
     // MARK: - Surface
 

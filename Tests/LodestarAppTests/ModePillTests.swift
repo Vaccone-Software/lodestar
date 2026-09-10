@@ -45,9 +45,10 @@ final class ModePillTests: XCTestCase {
         XCTAssertEqual(ModePill.wordGap, ModePill.height / (phi * phi * phi), accuracy: 0.001)
     }
 
-    func testTheHandsWordsAreItalic() {
+    func testTheHandsWordsAreUprightAndLargerThanTheWings() {
         let traits = NSFontManager.shared.traits(of: ModePill.textFont)
-        XCTAssertTrue(traits.contains(.italicFontMask))
+        XCTAssertFalse(traits.contains(.italicFontMask), "the italic was tried and retired")
+        XCTAssertGreaterThan(ModePill.textFont.pointSize, BarTheme.bodyFont.pointSize)
     }
 
     func testShowAndHideOnTheGlass() {

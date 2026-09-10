@@ -4,6 +4,16 @@ import LodestarCore
 
 /// Every verb in the system. One instance, main-thread only.
 final class Actions {
+    /// Names as a sentence lists them: "Slack", "Slack and Brave",
+    /// "Slack, Brave and Zoom".
+    static func spoken(_ names: [String]) -> String {
+        switch names.count {
+        case 0: return ""
+        case 1: return names[0]
+        default: return names.dropLast().joined(separator: ", ") + " and " + names[names.count - 1]
+        }
+    }
+
     private let model: WindowModel
     private let parking: ParkingLot
     private let layout: LayoutController
@@ -570,7 +580,7 @@ final class Actions {
             OffTap.run { [weak self] in
                 guard let self else { return }
                 _ = self.store.deleteBreath(at: path)
-                self.hud.flash("◎ breath \(path.uppercased()) deleted")
+                self.hud.flash("◎ Breath \(path.uppercased()) deleted")
             }
             return .done(flash: nil)
         }
@@ -612,7 +622,7 @@ final class Actions {
                               BreathRecord(path: path, orientation: orientation,
                                            members: members)
                           },
-                          done: { "◎ breath \(path.uppercased()) saved · \($0) window\($0 == 1 ? "" : "s")" })
+                          done: { "◎ Breath \(path.uppercased()) saved with \($0) window\($0 == 1 ? "" : "s")" })
         return .done(flash: nil)
     }
 
@@ -627,7 +637,7 @@ final class Actions {
                               record.orientation = orientation
                               return record
                           },
-                          done: { "◎ breath \(latest.uppercased()) updated · \($0) window\($0 == 1 ? "" : "s")" })
+                          done: { "◎ Breath \(latest.uppercased()) updated with \($0) window\($0 == 1 ? "" : "s")" })
         return .done(flash: nil)
     }
 
@@ -676,8 +686,8 @@ final class Actions {
                 self.store.setBreath(BreathRecord(path: path,
                                                   orientation: orientation.rawValue,
                                                   members: members))
-                self.hud.flash("◎ breath \(path.uppercased()) saved · "
-                    + apps.joined(separator: " + "))
+                self.hud.flash("◎ Breath \(path.uppercased()) saved with "
+                    + Self.spoken(apps))
             }
         }
         return nil
@@ -760,8 +770,8 @@ final class Actions {
         store.touchLatestBreath(record.path)
 
         if !missing.isEmpty {
-            let names = missing.map(\.appName).joined(separator: ", ")
-            hud.flash("◎ \(record.path.uppercased()) · relaunching \(names)",
+            let names = Self.spoken(missing.map(\.appName))
+            hud.flash("◎ Breath \(record.path.uppercased()) is relaunching \(names)",
                       icon: missing.first.flatMap { icon(forAppNamed: $0.appName) })
             for (index, member) in missing.enumerated() {
                 relaunchIntoBreath(member, path: record.path, orientation: orientation,

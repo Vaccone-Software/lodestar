@@ -232,10 +232,13 @@ final class CoachTests: XCTestCase {
         for _ in 0..<31 { o.apply(reach) }
         let chip = Coach.chip(for: bindRec(seconds: 40), observations: o)
         XCTAssertEqual(chip.headline, "lode F → facetime")
-        XCTAssertTrue(chip.evidence.contains("you searched for it 31 times"),
-                      "the user can verify every clause from experience")
-        XCTAssertTrue(chip.evidence.contains("about 40 seconds a week"))
-        XCTAssertTrue(chip.footer.contains("tap lode twice"))
+        XCTAssertEqual(chip.sentence, "facetime could be one key away", "what the offer means, said plainly")
+        XCTAssertTrue(chip.evidence.hasPrefix("You searched for it 31 times"),
+                      "the user can verify every clause from experience, and the line opens with a capital")
+        XCTAssertTrue(chip.evidence.contains("about 40 seconds a week, about half an hour a year"),
+                      "the measurement, then the same measurement at a scale a person can feel")
+        XCTAssertTrue(chip.footer.hasPrefix("Accept"), "the footer says what accepting does")
+        XCTAssertFalse(chip.footer.contains("fades"), "the chip's own life is not the reader's business")
         for line in [chip.headline, chip.evidence, chip.footer] {
             XCTAssertFalse(line.contains("—"), "no dashes in the coach's voice")
             XCTAssertFalse(line.contains(" - "))
@@ -249,7 +252,29 @@ final class CoachTests: XCTestCase {
                                     edit: .removeChain(chain: ["q"]))
         let chip = Coach.chip(for: retire, observations: Observations())
         XCTAssertEqual(chip.headline, "retire lode Q")
-        XCTAssertTrue(chip.footer.contains("to retire it"))
+        XCTAssertEqual(chip.sentence, "Lode Q has gone unused and the letter could be freed")
+        XCTAssertTrue(chip.footer.contains("retires it"))
+    }
+
+    func testTheYearClauseSpeaksAtAHumanScale() {
+        XCTAssertEqual(Coach.secondsClause(4), "", "too little to say")
+        XCTAssertEqual(Coach.secondsClause(10), " · about 10 seconds a week", "under twenty minutes a year: the week alone")
+        XCTAssertEqual(Coach.secondsClause(30), " · about 30 seconds a week, about half an hour a year")
+        XCTAssertEqual(Coach.secondsClause(50), " · about 50 seconds a week, about an hour a year")
+        XCTAssertEqual(Coach.secondsClause(120), " · about 120 seconds a week, about 2 hours a year")
+        XCTAssertEqual(Coach.secondsClause(1200), " · about 1200 seconds a week, about 17 hours a year")
+    }
+
+    func testTheMeasurementsLineOpensWithACapital() {
+        XCTAssertEqual(Coach.sentenceCase("you searched for it 3 times"), "You searched for it 3 times")
+        XCTAssertEqual(Coach.sentenceCase("41% of reaches"), "41% of reaches", "a number is left alone")
+        XCTAssertEqual(Coach.sentenceCase(""), "")
+        XCTAssertEqual(Coach.sentenceCase("Lode Q has fired"), "Lode Q has fired")
+    }
+
+    func testTheDeclinedNoteSaysWhatADeclineDoes() {
+        XCTAssertTrue(Coach.declinedNote.contains("season"), "thirteen weeks asleep, said as a season")
+        XCTAssertFalse(Coach.declinedNote.hasSuffix("."), "a title never ends with a period")
     }
 }
 
@@ -380,7 +405,7 @@ final class ClosedRoadTests: XCTestCase {
                                  edit: .closeRoad(app: "slack", chain: ["s"]))
         let chip = Coach.chip(for: rec, observations: Observations())
         XCTAssertEqual(chip.headline, "lode S → Slack")
-        XCTAssertTrue(chip.footer.contains("close the launcher road"), chip.footer)
+        XCTAssertTrue(chip.footer.contains("closes the launcher road"), chip.footer)
         XCTAssertEqual(Coach.cue(for: rec), .app("slack"))
         XCTAssertNotNil(Coach.standingOffer(observations: Observations(),
                                             recommendations: [rec], now: start),

@@ -37,16 +37,32 @@ enum SurfaceWiring {
             // own rather than living only in the footer's prose: a way out
             // that cannot be clicked is not a way out for anyone reaching
             // for the pointer.
-            hud?.showGuide(
-                title: "⌖ coach",
+            // The offer is the title; the two answers are named as the
+            // verbs they are. The footer says why, and what accepting
+            // does, and nothing about the chip's own life.
+            // Lodestar speaking: the offer as a sentence in the voice, the
+            // address and the measurements beneath it in the interface's
+            // face, and the two answers as key rows.
+            // A keymap is drawn as keys; an offer with no keymap keeps its
+            // address as words in the measurements line.
+            let keymap = Coach.Keymap.parse(chip.headline)
+            hud?.showVoice(
+                sentence: chip.sentence.isEmpty ? chip.headline : chip.sentence,
+                keymap: keymap,
+                detail: keymap == nil ? Coach.sentenceCase("\(chip.headline) · \(chip.evidence)") : chip.evidence,
                 rows: [
-                    GuideRow(keys: ["lode", "lode"], label: chip.headline,
+                    GuideRow(keys: ["lode", "lode"], label: "Accept",
                              action: { [weak coach] in coach?.lodeDoubleTapped() }),
-                    GuideRow(keys: ["lode", "⌫"], label: "not this one",
+                    GuideRow(keys: ["lode", "⌫"], label: "Decline",
                              action: { [weak coach] in _ = coach?.lodeDelete() }),
                 ],
-                footer: "\(chip.evidence)   ·   \(chip.footer)",
                 owner: .coach)
+        }
+        // A decline is answered in the voice too, briefly, and then the
+        // glass is clear: the offer sleeps a season.
+        coach.note = { [weak hud] sentence in
+            hud?.showVoice(sentence: sentence, detail: nil, rows: [], owner: .flash,
+                           seconds: Readability.flashSeconds(for: sentence))
         }
         coach.hideChip = { [weak hud] in hud?.hide() }
         coach.ownsSurface = { [weak hud] in hud?.owner == .coach }

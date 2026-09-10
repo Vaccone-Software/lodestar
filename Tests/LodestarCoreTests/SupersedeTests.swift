@@ -251,8 +251,10 @@ final class SupersedeTests: XCTestCase {
             edit: .supersede(old: ["b", "x"], new: ["x"], target: "brave:xonar"))
         let chip = Coach.chip(for: rec, observations: Observations())
         XCTAssertEqual(chip.headline, "lode X → Brave (Xonar)")
-        XCTAssertTrue(chip.footer.contains("move it"), "got \(chip.footer)")
-        XCTAssertFalse(chip.footer.contains("bind it"))
+        XCTAssertEqual(chip.sentence, "Brave (Xonar) could be reached with fewer keys",
+                       "a shorten says what is gained; the address line says where it lands")
+        XCTAssertTrue(chip.footer.contains("moves it"), "got \(chip.footer)")
+        XCTAssertFalse(chip.footer.contains("binds it"))
     }
 
     /// A plain bind adds and takes nothing, so it keeps the old verb.
@@ -262,7 +264,7 @@ final class SupersedeTests: XCTestCase {
             secondsPerWeek: 45, probability: 0.95, evidence: [],
             edit: .bindTarget(chain: ["f"], target: "facetime"))
         let chip = Coach.chip(for: rec, observations: Observations())
-        XCTAssertTrue(chip.footer.contains("bind it"), "got \(chip.footer)")
+        XCTAssertTrue(chip.footer.contains("binds it"), "got \(chip.footer)")
     }
 
     // MARK: - The ledger records the address being learned

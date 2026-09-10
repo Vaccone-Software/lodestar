@@ -160,7 +160,8 @@ final class AdvisorMeetingsTests: XCTestCase {
                                  edit: .enableMeetings)
         let chip = Coach.chip(for: rec, observations: Observations())
         XCTAssertEqual(chip.headline, "meetings at the door")
-        XCTAssertTrue(chip.evidence.hasPrefix("about 4 meetings a week joined by hand"))
-        XCTAssertTrue(chip.footer.contains("tap lode twice"))
+        XCTAssertEqual(chip.sentence, "Meetings could be met at the door")
+        XCTAssertTrue(chip.evidence.hasPrefix("About 4 meetings a week joined by hand"), chip.evidence)
+        XCTAssertEqual(chip.footer, "Accept turns it on")
     }
 }

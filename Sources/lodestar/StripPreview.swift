@@ -270,14 +270,21 @@ enum StripPreview {
         // offer — the copy here quotes the real templates, not a mock.
         if variant == 62 {
             let hud = HUD()
-            hud.showGuide(title: "⌖ coach",
-                          rows: [GuideRow(keys: ["lode", "lode"], label: "lode F → Figma",
-                                          action: {}),
-                                 GuideRow(keys: ["lode", "⌫"], label: "not this one",
-                                          action: {})],
-                          footer: "you searched for it 31 times across 6 weeks"
-                              + " · about 40 seconds a week   ·   tap lode twice"
-                              + " to bind it · lode ⌫ not this one · fades on its own")
+            hud.showVoice(sentence: "Figma could be one key away",
+                          keymap: Coach.Keymap(keys: ["lode", "F"], target: "Figma"),
+                          detail: "You searched for it 31 times across 6 weeks"
+                              + " · about 40 seconds a week, about half an hour a year",
+                          rows: [GuideRow(keys: ["lode", "lode"], label: "Accept", action: {}),
+                                 GuideRow(keys: ["lode", "⌫"], label: "Decline", action: {})],
+                          owner: .coach)
+            app.run()
+        }
+
+        // 64: the coach's decline note, the voice for as long as a note
+        // stands (held open here so it can be photographed).
+        if variant == 64 {
+            let hud = HUD()
+            hud.showVoice(sentence: Coach.declinedNote, detail: nil, rows: [], owner: .flash)
             app.run()
         }
 

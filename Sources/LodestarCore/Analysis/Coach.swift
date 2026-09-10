@@ -101,10 +101,45 @@ public enum Coach {
     /// user can verify every clause from their own experience, dots
     /// delimit, and the model's machinery is never quoted.
     public struct Chip: Equatable {
+        /// The address the offer lands on, as the hand will type it.
         public let headline: String
         public let evidence: String
         public let footer: String
+        /// What the offer means, said as a sentence: Lodestar's voice.
+        public let sentence: String
+
+        public init(headline: String, evidence: String, footer: String, sentence: String = "") {
+            self.headline = headline
+            self.evidence = evidence
+            self.footer = footer
+            self.sentence = sentence
+        }
     }
+
+    /// A keymap, as the chip draws it: the keys as keys, then the target.
+    /// Parsed from the headline's "lode F → Figma" form, so every address
+    /// on the glass wears keycaps and a keymap is never mistaken for prose.
+    public struct Keymap: Equatable {
+        public let keys: [String]
+        public let target: String
+
+        public init(keys: [String], target: String) {
+            self.keys = keys
+            self.target = target
+        }
+
+        public static func parse(_ headline: String) -> Keymap? {
+            let parts = headline.components(separatedBy: " → ")
+            guard parts.count == 2, parts[0].hasPrefix("lode ") else { return nil }
+            let keys = parts[0].split(separator: " ").map(String.init)
+            guard keys.count >= 2 else { return nil }
+            return Keymap(keys: keys, target: parts[1])
+        }
+    }
+
+    /// What a decline is told: the offer sleeps a season, and only
+    /// stronger evidence wakes it sooner. Said once, at the decline.
+    public static let declinedNote = "Declined, and not offered again for a season"
 
     // MARK: - The moment
 
@@ -614,6 +649,8 @@ public enum Coach {
         let accept: String
         let headline: String
         var evidence = rec.detail
+        var sentence = ""
+        let display = rec.display ?? rec.target
         switch rec.kind {
         case .nudge where rec.edit == nil,
              .rebind where rec.edit == nil,
@@ -623,31 +660,34 @@ public enum Coach {
             // commit, so these point at the report instead.
             headline = rec.target
             accept = "see lodestar observations"
+            sentence = "The record has something worth reading"
         case .nudge:
             // The address exists; the accept closes the road around it.
             // The chip names the address the hand will type, and the
             // verb says what the launcher will do afterwards.
             if case .closeRoad(_, let chain)? = rec.edit {
                 let shown = chain.map { $0.uppercased() }.joined(separator: " ")
-                headline = "lode \(shown) → \(rec.display ?? rec.target)"
+                headline = "lode \(shown) → \(display)"
             } else {
                 headline = rec.target
             }
+            sentence = "\(display) could take its key instead of the launcher"
             if let record = observations.apps[rec.target.lowercased()],
                let share = observations.routeShare(rec.target) {
                 evidence = "\(Int(share * 100))% of \(record.reaches) reaches went through the launcher"
                     + secondsClause(rec.secondsPerWeek)
             }
-            accept = "tap lode twice to close the launcher road until the hand learns it"
+            accept = "Accept closes the launcher road until the hand learns it"
         case .breath:
             // The one accept that composes rather than writes: the apps
             // arrange side by side and the layout saves at the address.
             if case .composeBreath(_, let path)? = rec.edit {
-                headline = "lode ' \(path.uppercased()) → \(rec.display ?? rec.target)"
+                headline = "lode ' \(path.uppercased()) → \(display)"
             } else {
                 headline = rec.target
             }
-            accept = "tap lode twice to save them side by side"
+            accept = "Accept saves them side by side"
+            sentence = "\(display) could stand side by side with one key"
         case .bind, .shorten, .rebind, .flatten:
             // All land on "the address you will type next", which for a
             // supersede is the new chain rather than the one being given
@@ -672,10 +712,15 @@ public enum Coach {
             // something was being added did not agree to that. The verb
             // matches the one the old address will use when it is pressed
             // afterwards, so the two surfaces tell one story.
-            if case .supersede? = rec.edit {
-                accept = "tap lode twice to move it"
+            if case .supersede(_, let new, _)? = rec.edit {
+                accept = "Accept moves it"
+                let shown = new.map { $0.uppercased() }.joined(separator: " ")
+                sentence = rec.kind == .shorten
+                    ? "\(landing.map { rec.display ?? $0.target } ?? display) could be reached with fewer keys"
+                    : "\(landing.map { rec.display ?? $0.target } ?? display) could move to lode \(shown)"
             } else {
-                accept = "tap lode twice to bind it"
+                accept = "Accept binds it"
+                sentence = "\(landing.map { rec.display ?? $0.target } ?? display) could be one key away"
             }
             if rec.kind == .bind, let record = observations.apps[rec.target.lowercased()] {
                 // The observed span, not the pruned week ring: the count is
@@ -714,12 +759,15 @@ public enum Coach {
                 .map { $0.uppercased() }.joined(separator: " ")
             headline = "retire lode \(shown)"
             evidence = "bound and never typed · the letter frees up"
-            accept = "tap lode twice to retire it"
+            accept = "Accept retires it"
+            sentence = "Lode \(shown) has gone unused and the letter could be freed"
         case .route:
             if case .addRoute(let pattern, let profileKey)? = rec.edit {
                 headline = "\(pattern) → \(profileKey)"
+                sentence = "\(pattern) could open in \(profileKey) on its own"
             } else {
                 headline = rec.target
+                sentence = "\(rec.target) could open where it always does, on its own"
             }
             // The same population the advisor priced: deliberate choices
             // only. Counting pass-throughs let the evidence contradict the
@@ -730,24 +778,45 @@ public enum Coach {
                 evidence = "opened there \(hits) of \(total) times"
                     + secondsClause(rec.secondsPerWeek)
             }
-            accept = "tap lode twice to add the route"
+            accept = "Accept adds the route"
         case .meetings:
             headline = "meetings at the door"
             evidence = rec.detail + secondsClause(rec.secondsPerWeek)
-            accept = "tap lode twice to turn it on"
+            accept = "Accept turns it on"
+            sentence = "Meetings could be met at the door"
         case .dormant:
             // Never shown: report-only by construction. Spelled out so the
             // chip stays exhaustive over every kind.
             headline = "gestures.\(rec.target) false"
             evidence = rec.detail
             accept = "in the config"
+            sentence = headline
         }
-        return Chip(headline: headline, evidence: evidence,
-                    footer: "\(accept) · lode ⌫ not this one · fades on its own")
+        // The footer says what accepting does. The keys and the decline
+        // are on the chip's own rows, and that it fades is the chip's
+        // business, not the reader's.
+        return Chip(headline: headline, evidence: sentenceCase(evidence), footer: accept, sentence: sentence)
     }
 
-    private static func secondsClause(_ secondsPerWeek: Double) -> String {
+    /// The measurements line opens with a capital, as a line of prose
+    /// does. A line that opens with a number or an address is left alone.
+    public static func sentenceCase(_ text: String) -> String {
+        guard let first = text.first, first.isLowercase else { return text }
+        return first.uppercased() + text.dropFirst()
+    }
+
+    /// The measurement, and then the same measurement at a scale a person
+    /// can feel: seconds a week become minutes or hours a year.
+    static func secondsClause(_ secondsPerWeek: Double) -> String {
         guard secondsPerWeek >= 5 else { return "" }
-        return " · about \(Int(secondsPerWeek.rounded())) seconds a week"
+        var clause = " · about \(Int(secondsPerWeek.rounded())) seconds a week"
+        let minutesPerYear = secondsPerWeek * 52 / 60
+        if minutesPerYear >= 90 {
+            let hours = (minutesPerYear / 60).rounded()
+            clause += ", about \(Int(hours)) hour\(hours == 1 ? "" : "s") a year"
+        } else if minutesPerYear >= 20 {
+            clause += ", about \(minutesPerYear >= 40 ? "an hour" : "half an hour") a year"
+        }
+        return clause
     }
 }

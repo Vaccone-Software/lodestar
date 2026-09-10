@@ -134,6 +134,9 @@ final class CoachController {
     /// behaviour — correct for a controller nobody has wired a store to.
     var standingSinceFor: (String) -> Date = { _ in Date() }
     var flash: (String) -> Void = { _ in }
+    /// Lodestar speaking briefly, in its voice: a note that goes on its
+    /// own. The decline's memory rides here.
+    var note: (String) -> Void = { _ in }
     /// The curriculum: a lesson due now, if any, when no suggestion
     /// stands. Nil by default; an unwired coach teaches nothing.
     var lessonDue: () -> Curriculum.Lesson? = { nil }
@@ -288,7 +291,7 @@ final class CoachController {
         dismissChip(record: false)
         if !isDemo { observations?.coach(action: "never", rec: rec, at: clock.now()) }
         endDemo()
-        flash("⌖ noted · not that one")
+        note(Coach.declinedNote)
         standing = nil
         onParkedChange()
         return true

@@ -536,6 +536,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         updater.engineQuiet = { [weak self] in self?.engine.isQuiet ?? false }
         updater.lastActivity = { [weak self] in self?.engine.lastActivityAt ?? Date() }
         updater.flash = { [weak self] text, seconds in self?.hud.flash(text, seconds: seconds) }
+        updater.voice = { [weak self] sentence, detail in self?.voice(sentence, detail: detail) }
         updater.requiresRouting = { [weak self] in self?.config.webHandleClicks ?? false }
         updater.start()
         // Browser-role bookkeeping belongs to the bundle that can actually
@@ -1880,8 +1881,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Log.info("ready withheld: handing over to launchd's instance")
             return
         }
-        hud.flash("⌖ Lodestar ready · lode space to begin", seconds: 2.5)
+        // Readiness is about you, not the app, so the app is not named;
+        // the way in is drawn as the keys it is.
+        hud.showVoice(sentence: Self.readyNote, keymap: Self.readyKeymap, detail: nil, rows: [],
+                      owner: .flash, seconds: 2.5)
         Log.info("ready: \(detail)")
+    }
+
+    static let readyNote = "Ready when you are"
+    static let readyKeymap = Coach.Keymap(keys: ["lode", "␣"], target: "Launcher")
+
+    /// Lodestar speaking briefly about itself: a note in the voice that
+    /// goes on its own, the way a flash does.
+    private func voice(_ sentence: String, detail: String?) {
+        hud.showVoice(sentence: sentence, detail: detail, rows: [], owner: .flash,
+                      seconds: Readability.flashSeconds(for: sentence))
     }
 
     private func runLaunchctl(_ arguments: [String]) {

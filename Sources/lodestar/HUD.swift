@@ -56,6 +56,11 @@ final class HUD {
     /// `handOver`, so there is exactly one place a takeover can be missed
     /// and it is a place with a test on it.
     private(set) var owner: SurfaceOwner = .none
+    /// The sentence the voice surface shows, for the stage.
+    private(set) var voiceSentence: String?
+    /// The last flash or guide title as drawn: its mark and its words.
+    private(set) var titleSymbol: String?
+    private(set) var titleText: String?
 
     private let panel: NSPanel
     private let root = NSView()
@@ -88,8 +93,28 @@ final class HUD {
         hideWork?.cancel()
         hideWork = nil
         showingFlash = false
-        build(title: title, titleIcon: nil, rows: Array(rows.prefix(24)), footer: footer)
+        let mark = FlashMark.parse(title)
+        build(title: mark.text, titleIcon: nil, symbol: mark.symbol, rows: Array(rows.prefix(24)), footer: footer)
         present()
+    }
+
+    /// Lodestar speaking: one sentence in the voice, which is what says
+    /// who is speaking, then the keymap as keys and the measurements in
+    /// the interface's face, and the answers as key rows. With `seconds`
+    /// it is a note that goes on its own, the way a flash does; without,
+    /// it stands like a guide.
+    func showVoice(sentence: String, keymap: Coach.Keymap? = nil, detail: String?, rows: [GuideRow],
+                   owner: SurfaceOwner = .coach, seconds: TimeInterval? = nil) {
+        handOver(to: owner)
+        hideWork?.cancel()
+        hideWork = nil
+        showingFlash = false
+        buildVoice(sentence: sentence, keymap: keymap, detail: detail, rows: rows)
+        present()
+        guard let seconds else { return }
+        let work = DispatchWorkItem { [weak self] in self?.hide() }
+        hideWork = work
+        clock.after(seconds, work)
     }
 
     /// A transient message, optionally wearing the app it acted on. It
@@ -98,7 +123,8 @@ final class HUD {
         let seconds = seconds ?? Readability.flashSeconds(for: text)
         handOver(to: .flash)
         showingFlash = true
-        build(title: text, titleIcon: icon, rows: [], footer: nil)
+        let mark = FlashMark.parse(text)
+        build(title: mark.text, titleIcon: icon, symbol: mark.symbol, rows: [], footer: nil)
         present()
         hideWork?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.hide() }
@@ -110,6 +136,7 @@ final class HUD {
         handOver(to: .none)
         hideWork?.cancel()
         hideWork = nil
+        voiceSentence = nil
         panel.orderOut(nil)
     }
 
@@ -137,8 +164,89 @@ final class HUD {
 
     // MARK: - Construction
 
-    private func build(title: String, titleIcon: NSImage?, rows: [GuideRow], footer: String?) {
+    private func buildVoice(sentence: String, keymap: Coach.Keymap?, detail: String?, rows: [GuideRow]) {
         content?.removeFromSuperview()
+        voiceSentence = sentence
+
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = ModePill.wordGap
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        // The card is as wide as its longest line up to the measure: a
+        // one-line note is a small card, an offer with key rows takes the
+        // whole measure. A wrapping label reports no width of its own, so
+        // the width is measured from the words and set.
+        func natural(_ text: String, _ font: NSFont) -> CGFloat {
+            ceil((text as NSString).size(withAttributes: [.font: font]).width)
+        }
+        var width = min(BarTheme.voiceWidth, natural(sentence, BarTheme.voiceFont))
+        if let detail { width = min(BarTheme.voiceWidth, max(width, natural(detail, BarTheme.secondaryFont))) }
+        if !rows.isEmpty { width = BarTheme.voiceWidth }
+
+        let voice = NSTextField(wrappingLabelWithString: sentence)
+        voice.font = BarTheme.voiceFont
+        voice.textColor = .labelColor
+        voice.preferredMaxLayoutWidth = width
+        voice.translatesAutoresizingMaskIntoConstraints = false
+        voice.widthAnchor.constraint(equalToConstant: width).isActive = true
+        stack.addArrangedSubview(voice)
+
+        // The keymap as keys: caps for the keys, then the target in the
+        // body voice. A keymap drawn as prose reads as prose.
+        if let keymap {
+            let line = NSStackView()
+            line.orientation = .horizontal
+            line.alignment = .centerY
+            line.spacing = 4
+            for key in keymap.keys { line.addArrangedSubview(Keycaps.cap(key)) }
+            let arrow = NSTextField(labelWithString: "→")
+            arrow.font = BarTheme.secondaryFont
+            arrow.textColor = BarTheme.secondaryColor
+            line.addArrangedSubview(arrow)
+            let target = NSTextField(labelWithString: keymap.target)
+            target.font = BarTheme.bodyFont
+            target.textColor = .labelColor
+            line.addArrangedSubview(target)
+            line.setCustomSpacing(8, after: line.arrangedSubviews[keymap.keys.count - 1])
+            line.setCustomSpacing(8, after: arrow)
+            stack.addArrangedSubview(line)
+        }
+
+        if let detail {
+            let facts = NSTextField(wrappingLabelWithString: detail)
+            facts.font = BarTheme.secondaryFont
+            facts.textColor = BarTheme.secondaryColor
+            facts.preferredMaxLayoutWidth = width
+            facts.translatesAutoresizingMaskIntoConstraints = false
+            facts.widthAnchor.constraint(equalToConstant: width).isActive = true
+            stack.addArrangedSubview(facts)
+        }
+
+        if !rows.isEmpty {
+            let columns = makeColumns(rows)
+            if let last = stack.arrangedSubviews.last { stack.setCustomSpacing(ModePill.wingGap, after: last) }
+            stack.addArrangedSubview(columns)
+            columns.widthAnchor.constraint(equalToConstant: width).isActive = true
+        }
+
+        root.addSubview(stack)
+        let inset = ModePill.inset
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: inset),
+            stack.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -inset),
+            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: inset),
+            stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -inset),
+        ])
+        content = stack
+    }
+
+    private func build(title: String, titleIcon: NSImage?, symbol: String? = nil, rows: [GuideRow], footer: String?) {
+        content?.removeFromSuperview()
+        voiceSentence = nil
+        titleSymbol = symbol
+        titleText = title
 
         let stack = NSStackView()
         stack.orientation = .vertical
@@ -150,6 +258,16 @@ final class HUD {
         titleRow.orientation = .horizontal
         titleRow.alignment = .centerY
         titleRow.spacing = 8
+        // The mark, in the pill's configuration: what kind of line this
+        // is, drawn the way the pill draws its mode.
+        if let symbol, let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+            .withSymbolConfiguration(BarTheme.symbol) {
+            let view = NSImageView(image: image)
+            view.contentTintColor = .labelColor
+            view.setContentHuggingPriority(.required, for: .horizontal)
+            titleRow.addArrangedSubview(view)
+            titleRow.setCustomSpacing(ModePill.wordGap, after: view)
+        }
         if let titleIcon {
             let iconView = NSImageView(image: titleIcon)
             iconView.translatesAutoresizingMaskIntoConstraints = false
@@ -290,7 +408,7 @@ final class HUD {
     private func present() {
         root.layoutSubtreeIfNeeded()
         var size = root.fittingSize
-        size.width = min(max(size.width, showingFlash ? 0 : 200), 1100)
+        size.width = min(max(size.width, showingFlash || voiceSentence != nil ? 0 : 200), 1100)
         size.height = max(size.height, 44)
 
         // A chip redrawn in place keeps where it was put; anything else

@@ -709,7 +709,7 @@ final class AnalysisTests: XCTestCase {
         let chip = Coach.chip(for: flatten, observations: o)
         XCTAssertTrue(chip.headline.contains("lode Z → Zoom"), chip.headline)
         XCTAssertTrue(chip.evidence.contains("misfired 12 times"), chip.evidence)
-        XCTAssertTrue(chip.footer.contains("move it"),
+        XCTAssertTrue(chip.footer.contains("moves it"),
                       "the old address stops working, and the verb says so")
     }
 

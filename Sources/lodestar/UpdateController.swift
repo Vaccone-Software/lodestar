@@ -42,6 +42,28 @@ final class UpdateController {
     var engineQuiet: () -> Bool = { false }
     var lastActivity: () -> Date = { .distantPast }
     var flash: (String, TimeInterval) -> Void = { _, _ in }
+    /// Lodestar speaking, briefly: a sentence in the voice and a line of
+    /// facts beneath it. The four moments the app has something to say
+    /// about itself; every failure stays a flash, a fact in the
+    /// interface's face.
+    var voice: (_ sentence: String, _ detail: String?) -> Void = { _, _ in }
+
+    /// The words, kept in one place so a test can hold them. Lodestar is
+    /// named only where Lodestar is the subject, and never says I.
+    enum Voice {
+        static func found(_ tag: String) -> (String, String) {
+            ("A newer Lodestar is on its way", "\(tag.hasPrefix("v") ? String(tag.dropFirst()) : tag) · downloading")
+        }
+        static func newest(_ version: String) -> (String, String) {
+            ("This is the newest Lodestar", version)
+        }
+        static func takingOver(_ version: String) -> (String, String) {
+            ("The new Lodestar takes over in a moment", "\(version) · downloaded and verified")
+        }
+        static func updated(_ version: String) -> (String, String) {
+            ("Lodestar has updated", "Now \(version)")
+        }
+    }
     /// Whether a successor has to prove it can route clicked links before the
     /// watchdog blesses it. True exactly while Lodestar holds the http role.
     var requiresRouting: () -> Bool = { false }
@@ -125,8 +147,9 @@ final class UpdateController {
             justUpdated = true
             try? FileManager.default.removeItem(at: updated)
             Log.info("update", ["phase": "completed", "version": version])
-            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [flash] in
-                flash("⌖ Lodestar \(version) · updated", 3)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [voice] in
+                let (sentence, detail) = Voice.updated(version)
+                voice(sentence, detail)
             }
         }
         if let version = try? String(contentsOf: rolledBack, encoding: .utf8) {
@@ -188,7 +211,7 @@ final class UpdateController {
             }
             let local = Updater.parseVersion(Lodestar.version) ?? []
             guard Updater.isNewer(release.version, than: local) else {
-                self.finishCheck(force: force, note: "⌖ up to date · \(Lodestar.version)", log: nil)
+                self.finishCheck(force: force, voice: Voice.newest(Lodestar.version), log: nil)
                 return
             }
             guard Updater.shouldOffer(release, refusedTag: self.refusedTag) else {
@@ -225,6 +248,15 @@ final class UpdateController {
         }
     }
 
+    /// The check that ends in the voice rather than a fact: nothing newer.
+    private func finishCheck(force: Bool, voice words: (String, String), log message: String?) {
+        if let message { Log.error("update check: \(message)") }
+        DispatchQueue.main.async {
+            self.phase = .idle
+            if force { self.voice(words.0, words.1) }
+        }
+    }
+
     private func download(_ release: Updater.Release, force: Bool) {
         guard let url = URL(string: release.zipURL) else {
             finishCheck(force: force, note: "✕ update check failed, see the log", log: "bad asset url")
@@ -232,7 +264,8 @@ final class UpdateController {
         }
         Log.info("update", ["phase": "downloading", "asset": release.zipName])
         if force {
-            DispatchQueue.main.async { self.flash("⌖ \(release.tag) found, downloading…", 3) }
+            let (sentence, detail) = Voice.found(release.tag)
+            DispatchQueue.main.async { self.voice(sentence, detail) }
         }
         let semaphore = DispatchSemaphore(value: 0)
         var fetched: URL?
@@ -346,7 +379,10 @@ final class UpdateController {
         }
 
         phase = .applying(version: version)
-        if force { flash("⌖ updating to \(version), the new build takes over shortly", 4) }
+        if force {
+            let (sentence, detail) = Voice.takingOver(version)
+            voice(sentence, detail)
+        }
         Log.info("update", ["phase": "applying", "to": version])
 
         do {

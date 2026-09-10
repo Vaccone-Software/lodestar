@@ -1239,7 +1239,7 @@ final class HotkeyEngine {
             if letters.isEmpty && !deleting {
                 rows.insert(GuideRow(key: "'", label: "update latest breath"), at: 0)
             }
-            let title = deleting ? "◎ delete breath \(prefix)" : "◎ breath \(prefix)"
+            let title = deleting ? "◎ Delete breath \(prefix)" : "◎ Breath \(prefix)"
             let base = deleting
                 ? "type a path to delete it · ⌫ disarms · esc clears"
                 : "letter restores · ⇧letter saves here · ⌫ arms delete · esc clears"

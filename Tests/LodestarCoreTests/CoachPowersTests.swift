@@ -196,7 +196,7 @@ final class CoachPowersTests: XCTestCase {
         }
         let chip = Coach.chip(for: rec, observations: Observations())
         XCTAssertTrue(chip.headline.contains("lode ' G"), chip.headline)
-        XCTAssertTrue(chip.footer.contains("save them side by side"), chip.footer)
+        XCTAssertTrue(chip.footer.contains("saves them side by side"), chip.footer)
     }
 
     // MARK: - Chip and cue for the rebind edit
@@ -208,7 +208,7 @@ final class CoachPowersTests: XCTestCase {
             edit: .supersede(old: ["b", "g"], new: ["g"], target: "Ghostty"))
         let chip = Coach.chip(for: rec, observations: Observations())
         XCTAssertEqual(chip.headline, "lode G → Ghostty")
-        XCTAssertTrue(chip.footer.contains("move it"),
+        XCTAssertTrue(chip.footer.contains("moves it"),
                       "consent language: the old address stops working")
         XCTAssertEqual(Coach.cue(for: rec), .app("ghostty"))
     }

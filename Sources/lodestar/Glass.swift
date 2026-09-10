@@ -309,6 +309,18 @@ enum BarTheme {
     /// The hand's words in the pill: a point above the body, medium, so
     /// they stand apart from the wings by size and weight alone.
     static let typedFont = NSFont.systemFont(ofSize: 17, weight: .medium)
+    /// Lodestar's voice: the system's serif, New York, reached by design
+    /// so nothing ships. Reserved for sentences Lodestar says when it
+    /// asks, teaches or reflects; facts, addresses, keys and the hand's
+    /// words never wear it.
+    static let voiceFont: NSFont = {
+        let size: CGFloat = 20
+        let descriptor = NSFont.systemFont(ofSize: size).fontDescriptor.withDesign(.serif)
+        return descriptor.flatMap { NSFont(descriptor: $0, size: size) } ?? NSFont.systemFont(ofSize: size)
+    }()
+    /// A sentence's measure: wide enough for one thought, narrow enough
+    /// to be read in a glance.
+    static let voiceWidth: CGFloat = 380
     /// The strip's search field, the index badge, and the searcher's dot:
     /// sizes with one home each, so the drift guard can hold the line.
     static let stripInputFont = NSFont.systemFont(ofSize: 19, weight: .regular)
@@ -324,6 +336,9 @@ enum BarTheme {
     static let hairlineRadius: CGFloat = 1
     /// A symbol leading a bar's row, a size above the text's.
     static let symbolRow = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+    /// The breath's mark: air moving. A breath is taken and released,
+    /// not filed, so it wears wind rather than a window.
+    static let breathSymbol = "wind"
     static let titleFont = NSFont.systemFont(ofSize: Scale.title, weight: .regular)
     /// The one look for secondary text — captions, legends, notes: meta
     /// size, regular weight, the secondary label colour. Weight is not a
@@ -819,5 +834,38 @@ extension BarTheme {
         }
         image.isTemplate = false
         return image
+    }
+}
+
+
+/// The flash's mark, read from the glyph every flash has opened with
+/// since the first one: ✕ refused, ⚠ needs you, ◎ a breath, ⌂ the
+/// clipboard, … opening, ✓ ⌖ done, and the layout family's arrows. The
+/// glyph was the kind; the kind now draws as a symbol in the pill's
+/// configuration and the line opens with a capital, so every flash on
+/// the glass is one family with the pill and nothing is retyped at
+/// sixty sites.
+enum FlashMark {
+    static let symbols: [Character: String] = [
+        "✕": "xmark",
+        "⚠": "exclamationmark.triangle",
+        "◎": BarTheme.breathSymbol,
+        "⌂": "doc.on.clipboard",
+        "…": "arrow.up.forward.app",
+        "✓": "checkmark",
+        "⌖": "checkmark",
+        "↺": "rectangle.3.group",
+        "⟲": "rectangle.3.group",
+        "⤺": "rectangle.3.group",
+        "☰": "line.3.horizontal",
+    ]
+
+    /// The symbol the line's glyph names, and the line without it, its
+    /// first letter raised. A line with no glyph keeps its words and
+    /// takes no symbol.
+    static func parse(_ text: String) -> (symbol: String?, text: String) {
+        guard let first = text.first, let symbol = symbols[first] else { return (nil, text) }
+        let rest = text.dropFirst().trimmingCharacters(in: .whitespaces)
+        return (symbol, Coach.sentenceCase(rest))
     }
 }

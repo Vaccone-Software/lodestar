@@ -61,6 +61,9 @@ final class HUD {
     private let root = NSView()
     private var content: NSStackView?
     private var hideWork: DispatchWorkItem?
+    /// A flash is one line and takes the width of its words; a guide
+    /// keeps a floor so a short map does not draw as a sliver.
+    private var showingFlash = false
     /// The occupant this drawing is replacing — read by `present` to tell a
     /// chip being redrawn from a chip arriving.
     private var cameFromCoach = false
@@ -84,6 +87,7 @@ final class HUD {
         handOver(to: owner)
         hideWork?.cancel()
         hideWork = nil
+        showingFlash = false
         build(title: title, titleIcon: nil, rows: Array(rows.prefix(24)), footer: footer)
         present()
     }
@@ -93,6 +97,7 @@ final class HUD {
     func flash(_ text: String, icon: NSImage? = nil, seconds: TimeInterval? = nil) {
         let seconds = seconds ?? Readability.flashSeconds(for: text)
         handOver(to: .flash)
+        showingFlash = true
         build(title: text, titleIcon: icon, rows: [], footer: nil)
         present()
         hideWork?.cancel()
@@ -285,7 +290,7 @@ final class HUD {
     private func present() {
         root.layoutSubtreeIfNeeded()
         var size = root.fittingSize
-        size.width = min(max(size.width, 200), 1100)
+        size.width = min(max(size.width, showingFlash ? 0 : 200), 1100)
         size.height = max(size.height, 44)
 
         // A chip redrawn in place keeps where it was put; anything else

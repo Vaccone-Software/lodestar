@@ -579,15 +579,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self.model.stop()
                 self.model.start()
                 if self.engine.start() {
-                    self.hud.flash("⌖ Lodestar ready · lode space to begin", seconds: 2.5)
-                    Log.info("ready: \(self.model.windows.count) windows tracked")
+                    self.flashReady("\(self.model.windows.count) windows tracked")
                 }
             }
             return
         }
         if engine.start() {
-            hud.flash("⌖ Lodestar ready · lode space to begin", seconds: 2.5)
-            Log.info("ready: \(model.windows.count) windows tracked, \(config.graph.children.count) graph roots")
+            flashReady("\(model.windows.count) windows tracked, \(config.graph.children.count) graph roots")
         } else {
             hud.flash("✕ Lodestar could not install its event tap", seconds: 6)
         }
@@ -1862,11 +1860,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         case .some(let pid):
             Log.info("login-item", ["action": "readopting", "agent-pid": pid])
+            handingOverToLaunchd = true
             runLaunchctl(["kickstart", "gui/\(getuid())/com.vaccone.lodestar"])
         case .none:
             Log.info("login-item", ["action": "bootstrapping the agent"])
+            handingOverToLaunchd = true
             runLaunchctl(["bootstrap", "gui/\(getuid())", agent.path])
         }
+    }
+
+    /// This instance is a relay: launchd's own is on its way and takes
+    /// over through the pid file. The one that stays says ready; a relay
+    /// that also said it would put the word on screen twice after every
+    /// update, which is what happened.
+    private var handingOverToLaunchd = false
+
+    private func flashReady(_ detail: String) {
+        guard !handingOverToLaunchd else {
+            Log.info("ready withheld: handing over to launchd's instance")
+            return
+        }
+        hud.flash("⌖ Lodestar ready · lode space to begin", seconds: 2.5)
+        Log.info("ready: \(detail)")
     }
 
     private func runLaunchctl(_ arguments: [String]) {

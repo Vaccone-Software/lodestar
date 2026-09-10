@@ -117,6 +117,11 @@ final class ImageDoorScenarioTests: XCTestCase {
         XCTAssertEqual(door.magnification, fitted * ImageDoor.zoomStep, accuracy: 0.001, "= zooms in")
         stage.press("=", shift: true)
         XCTAssertEqual(door.magnification, fitted * ImageDoor.zoomStep * ImageDoor.zoomStep, accuracy: 0.001)
+        // Deep enough in that four strides never reach the picture's
+        // edge on any display: the room to pan grows with the zoom while
+        // the stride shrinks with it. At two steps a small runner screen
+        // clamped the second stride and the test read the clamp.
+        for _ in 0..<4 { stage.press("=") }
         let before = door.visibleOrigin
         stage.press("l")
         let after = door.visibleOrigin
@@ -133,6 +138,7 @@ final class ImageDoorScenarioTests: XCTestCase {
         XCTAssertLessThan(door.visibleOrigin.y, mid.y, "j brings what is below into view")
         stage.press("k")
         XCTAssertEqual(door.visibleOrigin.y, mid.y, accuracy: 0.5)
+        for _ in 0..<4 { stage.press("-") } // the four extra steps, undone
         stage.press("-")
         stage.press("-")
         XCTAssertEqual(door.magnification, fitted, accuracy: 0.001, "- zooms back out")

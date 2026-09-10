@@ -50,9 +50,35 @@ final class DesignDriftTests: XCTestCase {
     }
 
     func testTheThemeHoldsWhatTheGuardExpects() {
-        XCTAssertEqual(BarTheme.glassChipRadius, 4.5)
         XCTAssertEqual(BarTheme.typedFont.pointSize, 17)
         XCTAssertGreaterThan(BarTheme.typedFont.pointSize, BarTheme.bodyFont.pointSize)
         XCTAssertEqual(BarTheme.symbol.value(forKey: "pointSize") as? CGFloat, BarTheme.Scale.meta)
+    }
+
+    /// One ladder from the pill's height, each rung the one above over φ².
+    func testRoundingConvergesOnOneLadder() {
+        let phi = BarTheme.phi
+        XCTAssertEqual(BarTheme.surfaceRadius, BarTheme.pillHeight / (phi * phi), accuracy: 0.001)
+        XCTAssertEqual(BarTheme.controlRadius, BarTheme.surfaceRadius / (phi * phi), accuracy: 0.001)
+        XCTAssertEqual(BarTheme.markRadius, BarTheme.controlRadius / (phi * phi), accuracy: 0.001)
+        for surface in [BarTheme.glassRadius, BarTheme.rowRadius, ModePill.radius] {
+            XCTAssertEqual(surface, BarTheme.surfaceRadius, "every surface rounds at the first rung")
+        }
+        for control in [BarTheme.chipRadius, BarTheme.glassChipRadius, BarTheme.wellRadius] {
+            XCTAssertEqual(control, BarTheme.controlRadius, "every control at the second")
+        }
+        XCTAssertEqual(BarTheme.highlightRadius, BarTheme.markRadius, "a mark at the third")
+    }
+
+    /// Three faces, one per speaker, never borrowed.
+    func testThreeFacesOnePerSpeaker() {
+        XCTAssertFalse(BarTheme.bodyFont.isFixedPitch, "the interface is the sans")
+        XCTAssertFalse(BarTheme.secondaryFont.isFixedPitch)
+        XCTAssertTrue(BarTheme.inputFont.isFixedPitch, "what the hand types is mono")
+        XCTAssertTrue(BarTheme.typedFont.isFixedPitch, "the pill's echo of the hand is mono")
+        XCTAssertTrue(BarTheme.readingMono.isFixedPitch, "the draft is mono")
+        XCTAssertTrue(BarTheme.voiceFont.fontName.contains("NewYork") || BarTheme.voiceFont.familyName?.contains("New York") == true,
+                      "Lodestar speaks in New York")
+        XCTAssertFalse(BarTheme.voiceFont.isFixedPitch)
     }
 }

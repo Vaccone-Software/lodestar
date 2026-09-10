@@ -86,9 +86,9 @@ final class ModePill {
 
     // MARK: - Proportion
 
-    static let phi: CGFloat = 1.618_033_988_75
-    static let height: CGFloat = 44
-    static var radius: CGFloat { height / (phi * phi) }
+    static let phi: CGFloat = BarTheme.phi
+    static let height: CGFloat = BarTheme.pillHeight
+    static var radius: CGFloat { BarTheme.surfaceRadius }
     static var inset: CGFloat { height / phi }
     static var wingGap: CGFloat { height / phi }
     static var wordGap: CGFloat { height / (phi * phi * phi) }

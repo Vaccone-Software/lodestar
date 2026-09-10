@@ -73,6 +73,7 @@ final class ModePillTests: XCTestCase {
         let traits = NSFontManager.shared.traits(of: ModePill.textFont)
         XCTAssertFalse(traits.contains(.italicFontMask), "the italic was tried and retired")
         XCTAssertGreaterThan(ModePill.textFont.pointSize, BarTheme.bodyFont.pointSize)
+        XCTAssertTrue(ModePill.textFont.isFixedPitch, "the hand's words wear the hand's face")
     }
 
     func testShowAndHideOnTheGlass() {

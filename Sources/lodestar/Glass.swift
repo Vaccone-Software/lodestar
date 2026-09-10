@@ -269,9 +269,19 @@ enum BarTheme {
     static let inputHeight: CGFloat = 60
     static let rowHeight: CGFloat = 48
     static let footerHeight: CGFloat = 24
-    static let glassRadius: CGFloat = 18
-    static let rowRadius: CGFloat = 18
-    static let chipRadius: CGFloat = 5
+    /// The rounding, converged: one ladder from the pill's height, each
+    /// rung the one above over φ². A surface (a panel, a card, the pill)
+    /// rounds at the first rung, a control (a keycap, a chip, a well) at
+    /// the second, a mark (a highlight on the page) at the third. A
+    /// hairline rounds to its own half-width and is not on the ladder.
+    static let phi: CGFloat = 1.618_033_988_75
+    static let pillHeight: CGFloat = 44
+    static let surfaceRadius: CGFloat = pillHeight / (phi * phi)
+    static let controlRadius: CGFloat = surfaceRadius / (phi * phi)
+    static let markRadius: CGFloat = controlRadius / (phi * phi)
+    static let glassRadius: CGFloat = surfaceRadius
+    static let rowRadius: CGFloat = surfaceRadius
+    static let chipRadius: CGFloat = controlRadius
     /// One key-and-label row, shared by every surface that draws them: the
     /// chain guide, the cheat sheet, and the clipboard's actions menu. Left
     /// to themselves they drifted into three chip shapes, three keycap
@@ -300,15 +310,24 @@ enum BarTheme {
         static let input: CGFloat = 23
     }
 
-    static let inputFont = NSFont.systemFont(ofSize: Scale.input, weight: .regular)
+    /// The three faces, one per speaker. The interface speaks in the
+    /// system's sans. The hand speaks in mono: whatever the person types
+    /// or says wears it, in every field, in the draft, and in the pill's
+    /// echo of an aim or a search. Lodestar speaks in New York, below.
+    /// A face is never borrowed: a label is never mono, a fact is never
+    /// serif, and the hand's words are never sans.
+    static func handFont(_ size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
+        NSFont.monospacedSystemFont(ofSize: size, weight: weight)
+    }
+    static let inputFont = handFont(Scale.input)
     static let inputSymbol = NSImage.SymbolConfiguration(pointSize: 19, weight: .medium)
     /// The one configuration a symbol beside text wears, and its larger
     /// cousin for the strip's own controls. Weight matched to the text.
     static let symbol = NSImage.SymbolConfiguration(pointSize: Scale.meta, weight: .medium)
     static let symbolBand = NSImage.SymbolConfiguration(pointSize: 15, weight: .medium)
-    /// The hand's words in the pill: a point above the body, medium, so
-    /// they stand apart from the wings by size and weight alone.
-    static let typedFont = NSFont.systemFont(ofSize: 17, weight: .medium)
+    /// The hand's words in the pill: the hand's face, a point above the
+    /// body and medium, so they stand apart from the wings.
+    static let typedFont = handFont(17, weight: .medium)
     /// Lodestar's voice: the system's serif, New York, reached by design
     /// so nothing ships. Reserved for sentences Lodestar says when it
     /// asks, teaches or reflects; facts, addresses, keys and the hand's
@@ -326,13 +345,13 @@ enum BarTheme {
     static let stripInputFont = NSFont.systemFont(ofSize: 19, weight: .regular)
     static let badgeFont = NSFont.systemFont(ofSize: 27, weight: .bold)
     static let dotFont = NSFont.systemFont(ofSize: 8)
-    /// A glass chip's corner (the select and click labels): the launcher's
-    /// glass, small. The keycaps keep `chipRadius`.
-    static let glassChipRadius: CGFloat = 4.5
-    /// The small corners: a match's wash on the page, a settings well,
-    /// and the hairline things (the draft's caret and its meter bars).
-    static let highlightRadius: CGFloat = 3
-    static let wellRadius: CGFloat = 6
+    /// Controls and marks on the ladder: a glass chip and a settings well
+    /// are controls; a match's wash on the page is a mark. The hairline
+    /// things (the draft's caret and its meter bars) round to half their
+    /// width.
+    static let glassChipRadius: CGFloat = controlRadius
+    static let wellRadius: CGFloat = controlRadius
+    static let highlightRadius: CGFloat = markRadius
     static let hairlineRadius: CGFloat = 1
     /// A symbol leading a bar's row, a size above the text's.
     static let symbolRow = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)

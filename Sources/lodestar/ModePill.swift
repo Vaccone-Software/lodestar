@@ -94,10 +94,6 @@ final class ModePill {
     static var wordGap: CGFloat { height / (phi * phi * phi) }
     /// The band's home: the guide's, a little above the bottom edge.
     static let rise: CGFloat = 96
-    /// Room reserved for the hand's words, so the outline never changes
-    /// with a keystroke. Wide enough for the queries uniqueness commits
-    /// on; a longer one grows the slot, which is rare by construction.
-    static let textSlot: CGFloat = 140
     static let iconSize: CGFloat = 16
 
     /// The hand's words, upright: the italic was tried and did not look
@@ -242,13 +238,15 @@ final class ModePill {
             pair.translatesAutoresizingMaskIntoConstraints = false
             return pair
         case .text(let text):
+            // The letters and their caret, and no more: a slot reserved
+            // ahead of the typing left a gap before the icon that read as
+            // something missing. The pill fits what has been said.
             let label = Self.label(text, font: Self.textFont, color: .labelColor)
             let slot = NSStackView(views: [label, Self.caret(alpha: 1)])
             slot.orientation = .horizontal
             slot.alignment = .centerY
             slot.spacing = 3
             slot.translatesAutoresizingMaskIntoConstraints = false
-            slot.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.textSlot).isActive = true
             return slot
         }
     }

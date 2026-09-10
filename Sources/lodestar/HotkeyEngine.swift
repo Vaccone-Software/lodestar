@@ -166,6 +166,9 @@ final class HotkeyEngine {
     private var clickMonitor: Any?
     private let badges = IndexBadges()
     private let cheat = CheatSheet()
+    /// The one object every lens wears. Scroll drives it from here;
+    /// select's machine drives it for its three doors.
+    let pill = ModePill()
     /// Every wait and every stamp; the harness owns it, the app runs live.
     let clock: Clock
 
@@ -202,8 +205,13 @@ final class HotkeyEngine {
         // moves the pointer. A landing off the keystroke steps scroll
         // mode back through the grammar, the way the clip door's closing
         // does.
+        select.pill = pill
         select.aim = { [weak self] point, label in
             self?.scroller.aimed(at: point, label: label)
+        }
+        scroller.onAimed = { [weak self] in
+            guard let self, case .scroll = self.core.state else { return }
+            self.showScrollPill()
         }
         select.onAimLanded = { [weak self] in
             guard let self else { return }
@@ -261,7 +269,7 @@ final class HotkeyEngine {
         CGEvent.tapEnable(tap: tap, enable: true)
         scroller.onPanesDiscovered = { [weak self] in
             guard let self, self.core.state == .scroll else { return }
-            self.showScrollGuide()
+            self.showScrollPill()
         }
         Log.info("hotkeys: tap active (trigger: \(config.trigger.rawValue), sticky chains, peek)")
         return true
@@ -902,7 +910,7 @@ final class HotkeyEngine {
             case .openSettings:
                 onOpenSettings?()
             case .toggleCheat:
-                cheat.toggle(sections: cheatSections)
+                cheat.toggle(sections: { self.cheatSections(for: self.core.state) })
                 walkSignal?(.cheatOpened)
             case .hideBars:
                 hideBars()
@@ -932,10 +940,11 @@ final class HotkeyEngine {
                 // leaving the keys.
                 watchScrollInterrupts()
             case .scrollGuide:
-                showScrollGuide()
+                showScrollPill()
             case .scrollExit(let reason):
                 stopWatchingScrollInterrupts()
                 scroller.exit(reason: reason)
+                pill.hide()
                 walkSignal?(.scrollEnded)
             case .scrollDirectionDown(let key, let fast):
                 scroller.directionKeyDown(key, fast: fast)
@@ -1134,45 +1143,62 @@ final class HotkeyEngine {
         _ = apply(core.leaveScroll(reason: reason), event: nil)
     }
 
-    /// How long the scroll guide's rows wait: the fade the bars' footers
-    /// earn, keyed by the scroll verb the observation layer already counts.
-    var scrollRowsDelay: () -> TimeInterval = { 0 }
+    /// Scroll's pill: standing while nothing has been said, folded to the
+    /// aimed word once something has. The word is shown on the glass and
+    /// never logged. Every key the mode owns is on the sheet, lode ?.
+    private func showScrollPill() {
+        pill.show(ModePill.State(mode: .scroll, app: scroller.appName, icon: scroller.appIcon,
+                                 listening: false, text: scroller.aimLabel.map { String($0.prefix(24)) }))
+    }
 
-    /// Scroll's resting state is one line along the bottom edge, in the
-    /// band's shape and voices: what is on, where, and where the aim
-    /// landed. The map of keys stands above it only when the hand
-    /// hesitates. The aimed word is shown on the glass and never logged.
-    private func showScrollGuide() {
-        let line = NSMutableAttributedString()
-        func quiet(_ text: String) {
-            line.append(NSAttributedString(string: text, attributes: [
-                .font: BarTheme.secondaryFont, .foregroundColor: BarTheme.secondaryColor,
-            ]))
-        }
-        func loud(_ text: String) {
-            line.append(NSAttributedString(string: text, attributes: [
-                .font: NSFont.monospacedSystemFont(ofSize: BarTheme.Scale.title, weight: .bold),
-                .foregroundColor: BarTheme.readableAccent,
-            ]))
-        }
-        quiet("≡ scroll" + Caption.separator + scroller.appName)
-        if let word = scroller.aimLabel {
-            quiet(Caption.separator + "⌖ ")
-            loud(String(word.prefix(24)))
-        }
-        quiet(Caption.separator + "j k · h l · d u · gg G · 0 $ · / aims · esc")
-        hud.showBand(
-            line: line,
-            rows: [
-                GuideRow(key: "J K", label: "down · up · ⇧ 3× faster"),
-                GuideRow(key: "H L", label: "left · right · ⇧ 3× faster"),
-                GuideRow(key: "D U", label: "half page down · up · ⇧ full page"),
+    /// The keys a lens owns, for the sheet on lode ? while that lens is
+    /// up. Idle gets the whole system.
+    func cheatSections(for state: EngineCore.State) -> [CheatSheet.Section] {
+        let leaving = GuideRow(key: "esc", label: "leave the mode · any other lode verb acts and leaves")
+        switch state {
+        case .scroll:
+            return [.init(header: "scroll", rows: [
+                GuideRow(key: "J K", label: "down · up · ⇧ three times the distance"),
+                GuideRow(key: "H L", label: "left · right · ⇧ three times the distance"),
+                GuideRow(key: "D U", label: "half a page down · up · ⇧ a whole page"),
                 GuideRow(key: "G G", label: "top · ⇧G bottom"),
                 GuideRow(key: "0 $", label: "left edge · right edge"),
-                GuideRow(key: "/", label: "aim at a word you can see"),
-            ],
-            rowsAfter: scrollRowsDelay()
-        )
+                GuideRow(key: "/", label: "aim: type a word you can see, the wheel follows"),
+                GuideRow(key: "?", label: "this sheet"),
+                leaving,
+            ])]
+        case .scrollAim:
+            return [.init(header: "aim", rows: [
+                GuideRow(key: "a…z", label: "type a word you can see · a unique match lands on its own"),
+                GuideRow(key: "⇧A…Z", label: "pick a chip when several match"),
+                GuideRow(key: "⌫", label: "back one letter"),
+                GuideRow(key: "⌘V", label: "search for what the pasteboard says"),
+                GuideRow(key: "?", label: "this sheet"),
+                GuideRow(key: "esc", label: "back to scroll, aim unchanged"),
+            ])]
+        case .hints:
+            return [.init(header: "click", rows: [
+                GuideRow(key: "a…z", label: "type what you see · matches wear chips"),
+                GuideRow(key: "⇧A…Z", label: "click the chip's word · ⌃⇧ right-clicks it"),
+                GuideRow(key: "⌫", label: "back one letter"),
+                GuideRow(key: "⌘V", label: "search for what the pasteboard says"),
+                GuideRow(key: "⇧;", label: "on entry: chain clicks, one after another"),
+                GuideRow(key: "?", label: "this sheet"),
+                leaving,
+            ])]
+        case .select:
+            return [.init(header: "select", rows: [
+                GuideRow(key: "a…z", label: "type what you see · a unique match anchors on its own"),
+                GuideRow(key: "⇧A…Z", label: "anchor the start · again for the far end"),
+                GuideRow(key: "⌘C", label: "take the anchored word and leave"),
+                GuideRow(key: "⌫", label: "back one letter"),
+                GuideRow(key: "⌘V", label: "search for what the pasteboard says"),
+                GuideRow(key: "?", label: "this sheet"),
+                leaving,
+            ])]
+        default:
+            return cheatSections()
+        }
     }
 
     // MARK: - Guide

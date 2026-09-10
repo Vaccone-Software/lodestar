@@ -24,38 +24,15 @@ final class SelectOverlay {
         var style: Style = .match
     }
 
-    struct State {
-        let appName: String
-        let query: String
-        let typedLabel: String
-        let shown: Int
-        let total: Int
-        let capped: Bool
-        let stage: Stage
-        let scanning: Bool
-        /// What a capital does here — "anchors", "selects", or the click
-        /// door's "clicks". The band says it so the door never has to be
-        /// remembered.
-        let verb: String
-
-        enum Stage { case start, end }
-    }
-
     private let panel: NSPanel
     private let root = NSView()
     private let highlightHost = NSView()
     private let chipHost = NSView()
     private var decorations: [NSView] = []
-    private let status = NSTextField(labelWithString: "")
-    private let statusChip = NSView()
-    /// Held, because the band's clearance depends on which display the
-    /// overlay landed on and whether the Dock is along its bottom.
-    private var statusBottom: NSLayoutConstraint!
 
     private static let chipFont = NSFont.monospacedSystemFont(ofSize: BarTheme.Scale.meta, weight: .bold)
     private static let chipHeight: CGFloat = 20
     /// Clear water between the band and the bottom of the usable screen.
-    private static let bandGap: CGFloat = 10
 
     init() {
         panel = Glass.makePanel(level: .statusBar)
@@ -75,24 +52,6 @@ final class SelectOverlay {
             ])
         }
 
-        statusChip.translatesAutoresizingMaskIntoConstraints = false
-        Glass.installBackdrop(in: statusChip, cornerRadius: 10)
-        Self.lift(statusChip)
-        status.font = .monospacedSystemFont(ofSize: BarTheme.Scale.meta, weight: .medium)
-        status.textColor = .labelColor
-        status.translatesAutoresizingMaskIntoConstraints = false
-        statusChip.addSubview(status)
-        root.addSubview(statusChip)
-        statusBottom = statusChip.bottomAnchor.constraint(equalTo: root.bottomAnchor,
-                                                          constant: -Self.bandGap)
-        NSLayoutConstraint.activate([
-            status.leadingAnchor.constraint(equalTo: statusChip.leadingAnchor, constant: 14),
-            status.trailingAnchor.constraint(equalTo: statusChip.trailingAnchor, constant: -14),
-            status.topAnchor.constraint(equalTo: statusChip.topAnchor, constant: 7),
-            status.bottomAnchor.constraint(equalTo: statusChip.bottomAnchor, constant: -7),
-            statusChip.centerXAnchor.constraint(equalTo: root.centerXAnchor),
-            statusBottom,
-        ])
     }
 
     private static func lift(_ view: NSView) {
@@ -104,14 +63,14 @@ final class SelectOverlay {
         view.layer?.shadowOffset = CGSize(width: 0, height: -1)
     }
 
-    func showScanning(over windowFrame: CGRect, appName: String, mode: String = "select") {
+    /// The glass goes up over the window before anything is known: the
+    /// pill says what is being read; this only takes its place.
+    func showScanning(over windowFrame: CGRect) {
         clear()
         present(over: windowFrame)
-        statusChip.isHidden = false
-        status.stringValue = "⌖ \(mode) · \(appName) · scanning…"
     }
 
-    func show(chips: [Chip], anchor: [CGRect], over windowFrame: CGRect, state: State) {
+    func show(chips: [Chip], anchor: [CGRect], over windowFrame: CGRect) {
         // Dozens of frosted chips at once: the instrument times itself.
         let began = Date()
         defer {
@@ -128,7 +87,6 @@ final class SelectOverlay {
         }
         clear()
         present(over: windowFrame)
-        statusChip.isHidden = false
         guard let primary = NSScreen.screens.first else { return }
         let primaryHeight = primary.frame.maxY
 
@@ -185,8 +143,6 @@ final class SelectOverlay {
             chipHost.addSubview(cap)
             decorations.append(cap)
         }
-
-        status.attributedStringValue = Self.bandLine(state: state, empty: chips.isEmpty)
     }
 
     /// The held highlight that outlives the mode: the span's rectangles
@@ -194,7 +150,7 @@ final class SelectOverlay {
     /// The highlight is the entire statement; what it answers to (⌘C, or
     /// any key to dismiss) lives in the hands and the guide, not on the
     /// glass.
-    func hold(spans: [CGRect], over windowFrame: CGRect, note: String? = nil) {
+    func hold(spans: [CGRect], over windowFrame: CGRect) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
@@ -214,70 +170,6 @@ final class SelectOverlay {
             highlightHost.addSubview(view)
             decorations.append(view)
         }
-        // The band survives into the held state only when it has something
-        // to say — the auto-copy receipt. A copy is invisible, and the
-        // highlight alone does not announce it.
-        if let note {
-            status.stringValue = note
-            statusChip.isHidden = false
-        } else {
-            statusChip.isHidden = true
-        }
-    }
-
-    /// The band's line, typeset so the query is the protagonist: what you
-    /// have typed stands large in the accent — the same accent that means
-    /// "your typed prefix" on a narrowing hint chip — while everything
-    /// around it recedes to quiet secondary text. One field, mixed sizes,
-    /// baseline-aligned; no new surfaces, no ornament.
-    /// The band's words. Three voices, each the app's own: the caption
-    /// voice for the facts (which window, how many, esc), the body voice
-    /// in the label colour for the one thing the hand is being asked to
-    /// do, and the mono voice for the query, which is the hand's own
-    /// letters echoed back. The band was all mono once, at caption size,
-    /// and the instruction read like a status line rather than a sentence.
-    static func bandLine(state: State, empty: Bool) -> NSAttributedString {
-        let line = NSMutableAttributedString()
-        func quiet(_ text: String) {
-            line.append(NSAttributedString(string: text, attributes: [
-                .font: BarTheme.secondaryFont, .foregroundColor: BarTheme.secondaryColor,
-            ]))
-        }
-        func say(_ text: String) {
-            line.append(NSAttributedString(string: text, attributes: [
-                .font: BarTheme.bodyFont, .foregroundColor: NSColor.labelColor,
-            ]))
-        }
-        func loud(_ text: String, color: NSColor = BarTheme.readableAccent) {
-            line.append(NSAttributedString(string: text, attributes: [
-                .font: NSFont.monospacedSystemFont(ofSize: BarTheme.Scale.title, weight: .bold),
-                .foregroundColor: color,
-            ]))
-        }
-        quiet("⌖ ")
-        if state.query.isEmpty {
-            // The window being read is named while the hand decides: a
-            // read of the wrong window used to look like a read of
-            // nothing.
-            if state.stage == .start {
-                quiet(state.appName + Caption.separator)
-                say("type what you see")
-            } else {
-                say("now the far end")
-                quiet(Caption.separator + "⌘C copies the anchor" + Caption.separator + "⌫ re-opens the start")
-            }
-        } else {
-            loud(state.query)
-            if !state.typedLabel.isEmpty {
-                loud(" " + state.typedLabel.uppercased() + "…", color: .labelColor)
-            }
-            quiet(Caption.separator + (state.shown == state.total
-                ? "\(state.shown)"
-                : "\(state.shown) of \(state.total)\(state.capped ? "+" : "")"))
-            quiet(Caption.separator + "⇧letter " + state.verb)
-        }
-        quiet(Caption.separator + "esc")
-        return line
     }
 
     func hide() {
@@ -298,8 +190,5 @@ final class SelectOverlay {
                             width: windowFrame.width, height: windowFrame.height)
         panel.setFrame(appKit, display: true)
         panel.orderFrontRegardless()
-        // The scope is the whole display, Dock strip included; the band
-        // steps up over it rather than hiding underneath.
-        statusBottom.constant = -(Self.bandGap + Glass.bottomInset(for: appKit))
     }
 }

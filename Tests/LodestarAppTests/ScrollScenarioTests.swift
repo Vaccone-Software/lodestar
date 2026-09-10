@@ -11,7 +11,7 @@ final class ScrollScenarioTests: XCTestCase {
 
     private func enterScroll(_ stage: Stage, file: StaticString = #filePath, line: UInt = #line) {
         stage.lode("`")
-        XCTAssertEqual(stage.hud.owner, .guide, "scroll mode shows its guide", file: file, line: line)
+        XCTAssertTrue(stage.engine.pill.isVisible, "scroll mode wears the pill", file: file, line: line)
     }
 
     /// Hold j, then press shift mid-glide: the next ticks are three times
@@ -137,55 +137,57 @@ final class ScrollScenarioTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(record?.seconds ?? -1, 0)
     }
 
-    /// The resting state is one line: the band names the mode and the
-    /// app, and the rows wait for the fade the scroll verb has earned.
-    /// Advancing the clock past it unfolds the map above the band.
-    func testBandStandsAloneUntilTheHandHesitates() {
+    /// The pill on entry: scroll's symbol and word on the leading wing,
+    /// the app on the trailing wing, and nothing between them, because
+    /// nothing has been said and scroll does not listen until `/`.
+    func testEntryWearsTheStandingPill() {
         let stage = Stage()
-        stage.engine.scrollRowsDelay = { 2 }
         enterScroll(stage)
-        XCTAssertEqual(stage.hud.rowCount, 0, "rows held back")
-        XCTAssertTrue(stage.hud.bandText?.contains("scroll") == true)
-        XCTAssertTrue(stage.hud.bandText?.contains("esc") == true)
-        stage.clock.advance(by: 2.1)
-        XCTAssertEqual(stage.hud.rowCount, 6, "the map unfolds on hesitation")
-        XCTAssertEqual(stage.hud.owner, .guide)
+        let state = stage.engine.pill.state
+        XCTAssertEqual(state?.mode, .scroll)
+        XCTAssertEqual(state?.listening, false)
+        XCTAssertNil(state?.text)
+        XCTAssertEqual(ModePill.layout(for: state!).first, .symbol("arrow.up.and.down"))
+        XCTAssertFalse(ModePill.layout(for: state!).contains(.caret), "scroll is not listening")
     }
 
-    /// No delay earned yet: the rows paint at once, the way every guide
-    /// always did for a new hand.
-    func testAnUnlearnedHandGetsTheRowsAtOnce() {
+    /// A landed aim folds the pill: the word is the only thing between
+    /// the glyphs, and it is the hand's word.
+    func testALandedAimFoldsThePillToTheWord() {
         let stage = Stage()
         enterScroll(stage)
-        XCTAssertEqual(stage.hud.rowCount, 6)
+        // The landing arrives off the keystroke, after the mode redrew;
+        // the scroller tells the shell and the pill folds then.
+        stage.scroller.aimed(at: CGPoint(x: 300, y: 400), label: "Threads")
+        let state = stage.engine.pill.state
+        XCTAssertEqual(state?.text, "Threads")
+        XCTAssertEqual(ModePill.layout(for: state!),
+                       [.symbol("arrow.up.and.down"), .text("Threads"), state?.icon == nil ? .appWord(state!.app) : .appIcon])
     }
 
-    /// Leaving the mode hides the band, and rows still pending never
-    /// arrive on top of whatever comes next.
-    func testLeavingCancelsThePendingRows() {
+    /// Leaving the mode takes the pill down.
+    func testLeavingHidesThePill() {
         let stage = Stage()
-        stage.engine.scrollRowsDelay = { 2 }
         enterScroll(stage)
         _ = stage.press("escape")
-        XCTAssertEqual(stage.hud.owner, .none)
-        stage.clock.advance(by: 2.1)
-        XCTAssertEqual(stage.hud.rowCount, 0)
-        XCTAssertNil(stage.hud.bandText)
+        XCTAssertFalse(stage.engine.pill.isVisible)
+        XCTAssertNil(stage.engine.pill.state)
     }
 
-    /// An escape with nothing done in the mode is the stumble that brings
-    /// the rows straight back; a session with a key in it is not.
-    func testEscapeWithNothingDoneIsAStumble() {
+    /// lode ? inside the mode: the sheet shows scroll's own keys and the
+    /// mode stays up; escape takes the sheet down and the mode is still
+    /// there for the next key.
+    func testTheSheetInsideScrollMode() {
         let stage = Stage()
-        var stumbles = 0
-        stage.scroller.onStumble = { stumbles += 1 }
         enterScroll(stage)
-        _ = stage.press("escape")
-        XCTAssertEqual(stumbles, 1)
-        enterScroll(stage)
-        _ = stage.press("d")
-        _ = stage.press("escape")
-        XCTAssertEqual(stumbles, 1, "a used session is not a stumble")
+        XCTAssertTrue(stage.lode("/", shift: true))
+        XCTAssertTrue(stage.engine.cheatVisible, "the sheet is up")
+        XCTAssertTrue(stage.engine.pill.isVisible, "and the mode is still up")
+        XCTAssertTrue(stage.press("escape"), "escape is the sheet's")
+        XCTAssertFalse(stage.engine.cheatVisible)
+        XCTAssertTrue(stage.engine.pill.isVisible, "the mode survived the escape")
+        XCTAssertTrue(stage.press("d"), "and still owns its keys")
+        XCTAssertEqual(stage.wheel.count, 1)
     }
 
     /// d is half the pane; ⇧D is the whole of it.

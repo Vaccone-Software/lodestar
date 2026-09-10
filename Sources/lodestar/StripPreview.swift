@@ -146,6 +146,23 @@ enum StripPreview {
             })
             app.run()
         }
+        // 19: the pill in its three states — PILL=standing|listening|typing.
+        if variant == 19 {
+            let pill = ModePill()
+            let which = ProcessInfo.processInfo.environment["PILL"] ?? "standing"
+            let icon = NSWorkspace.shared.icon(forFile: "/Applications/Slack.app")
+            switch which {
+            case "listening":
+                pill.show(.init(mode: .click, app: "Brave", icon: NSWorkspace.shared.icon(forFile: "/Applications/Brave Browser.app"),
+                                listening: true, text: nil))
+            case "typing":
+                pill.show(.init(mode: .select, app: "Ghostty", icon: NSWorkspace.shared.icon(forFile: "/Applications/Ghostty.app"),
+                                listening: true, text: "thr"))
+            default:
+                pill.show(.init(mode: .scroll, app: "Slack", icon: icon, listening: false, text: nil))
+            }
+            app.run()
+        }
         if variant == 6 {
             let hud = HUD()
             func appIcon(_ path: String) -> NSImage? {

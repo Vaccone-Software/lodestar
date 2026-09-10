@@ -86,42 +86,4 @@ final class StripLayoutTests: XCTestCase {
         XCTAssertEqual(captions[short.id], "just now")
         stage.press("escape")
     }
-
-    // MARK: - The mode band
-
-    private func runs(_ line: NSAttributedString) -> [(text: String, font: NSFont, color: NSColor)] {
-        var out: [(String, NSFont, NSColor)] = []
-        line.enumerateAttributes(in: NSRange(location: 0, length: line.length)) { attributes, range, _ in
-            out.append(((line.string as NSString).substring(with: range),
-                        attributes[.font] as! NSFont, attributes[.foregroundColor] as! NSColor))
-        }
-        return out
-    }
-
-    private func state(query: String = "", shown: Int = 0, total: Int = 0) -> SelectOverlay.State {
-        SelectOverlay.State(appName: "Brave Browser", query: query, typedLabel: "", shown: shown,
-                            total: total, capped: false, stage: .start, scanning: false, verb: "selects")
-    }
-
-    func testTheInstructionSpeaksInTheBodyVoiceAndTheFactsInTheCaptionVoice() {
-        let line = SelectOverlay.bandLine(state: state(), empty: true)
-        let parts = runs(line)
-        let instruction = parts.first { $0.text == "type what you see" }
-        XCTAssertNotNil(instruction)
-        XCTAssertEqual(instruction?.font.pointSize, BarTheme.Scale.body)
-        XCTAssertEqual(instruction?.color, .labelColor)
-        let app = parts.first { $0.text.contains("Brave Browser") }
-        XCTAssertEqual(app?.font.pointSize, BarTheme.Scale.meta)
-        XCTAssertEqual(app?.color, BarTheme.secondaryColor, "the caption colour, whichever side the runner is on")
-        XCTAssertTrue(line.string.hasSuffix(" · esc"))
-        XCTAssertFalse(app!.font.fontName.lowercased().contains("mono"), "words, not a status line")
-    }
-
-    func testTheQueryStaysLoudAndMono() {
-        let parts = runs(SelectOverlay.bandLine(state: state(query: "needle", shown: 2, total: 2), empty: false))
-        let query = parts.first { $0.text == "needle" }
-        XCTAssertEqual(query?.font.pointSize, BarTheme.Scale.title)
-        XCTAssertEqual(query?.color, .controlAccentColor)
-        XCTAssertTrue(query!.font.fontName.lowercased().contains("mono"), "the hand's own letters, echoed")
-    }
 }

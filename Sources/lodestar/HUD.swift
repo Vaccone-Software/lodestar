@@ -57,23 +57,10 @@ final class HUD {
     /// and it is a place with a test on it.
     private(set) var owner: SurfaceOwner = .none
 
-    /// Where the panel stands. `home` is the chain guide's place, a
-    /// little above the bottom of the display; `band` is select's band's
-    /// place, the strip of glass along the bottom edge, for a lens whose
-    /// resting state is one line.
-    enum Placement { case home, band }
-
     private let panel: NSPanel
     private let root = NSView()
-    private let backdrop: NSView
     private var content: NSStackView?
     private var hideWork: DispatchWorkItem?
-    /// The rows a band guide is holding back until the hand hesitates.
-    private var revealWork: DispatchWorkItem?
-    private var placement: Placement = .home
-    /// What the band says and how many rows stand, for the stage.
-    private(set) var bandText: String?
-    private(set) var rowCount = 0
     /// The occupant this drawing is replacing — read by `present` to tell a
     /// chip being redrawn from a chip arriving.
     private var cameFromCoach = false
@@ -84,7 +71,7 @@ final class HUD {
         panel = Glass.makePanel(level: .statusBar)
         panel.ignoresMouseEvents = true
         panel.contentView = root
-        backdrop = Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+        Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
     }
 
     // MARK: - Public surface
@@ -97,43 +84,8 @@ final class HUD {
         handOver(to: owner)
         hideWork?.cancel()
         hideWork = nil
-        cancelReveal()
-        placement = .home
         build(title: title, titleIcon: nil, rows: Array(rows.prefix(24)), footer: footer)
         present()
-    }
-
-    /// A lens whose resting state is one line: the band stands along the
-    /// bottom edge where select's band stands, and the rows above it wait
-    /// for `delay` before they paint — the fade the bars' footers already
-    /// earn, so a hand that knows its keys never reads them and a hand
-    /// that hesitates gets the map after recall had its chance. Zero
-    /// paints the rows at once. The band stays where it is when the rows
-    /// arrive; the map unfolds above it.
-    func showBand(line: NSAttributedString, rows: [GuideRow], rowsAfter delay: TimeInterval) {
-        handOver(to: .guide)
-        hideWork?.cancel()
-        hideWork = nil
-        cancelReveal()
-        placement = .band
-        let rows = Array(rows.prefix(24))
-        build(band: line, rows: delay > 0 ? [] : rows)
-        present()
-        guard delay > 0 else { return }
-        let work = DispatchWorkItem { [weak self] in
-            guard let self, self.owner == .guide, self.placement == .band,
-                  self.panel.isVisible else { return }
-            self.revealWork = nil
-            self.build(band: line, rows: rows)
-            self.present()
-        }
-        revealWork = work
-        clock.after(delay, work)
-    }
-
-    private func cancelReveal() {
-        revealWork?.cancel()
-        revealWork = nil
     }
 
     /// A transient message, optionally wearing the app it acted on. It
@@ -153,9 +105,6 @@ final class HUD {
         handOver(to: .none)
         hideWork?.cancel()
         hideWork = nil
-        cancelReveal()
-        bandText = nil
-        rowCount = 0
         panel.orderOut(nil)
     }
 
@@ -166,9 +115,6 @@ final class HUD {
         let previous = owner
         cameFromCoach = previous == .coach
         owner = next
-        // A flash or a chip taking the glass takes it whole: rows a band
-        // was holding back must not arrive on top of the newcomer.
-        if next != .guide { cancelReveal() }
         // The glass takes the mouse only for the one occupant that is an
         // offer. A chain guide is the pending state of a gesture already in
         // progress and stands over whatever you are working in; if it took
@@ -186,48 +132,8 @@ final class HUD {
 
     // MARK: - Construction
 
-    /// The band guide: rows first, the band line last, so the line keeps
-    /// its place at the bottom edge whether or not the map stands above.
-    private func build(band line: NSAttributedString, rows: [GuideRow]) {
-        content?.removeFromSuperview()
-        bandText = line.string
-        rowCount = rows.count
-
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 6
-        stack.translatesAutoresizingMaskIntoConstraints = false
-
-        if !rows.isEmpty {
-            let columns = makeColumns(rows)
-            stack.addArrangedSubview(columns)
-            stack.setCustomSpacing(10, after: columns)
-        }
-        let label = NSTextField(labelWithAttributedString: line)
-        // One line, as wide as it needs: an attributed label wraps by
-        // default, and a band that folded into three lines was the first
-        // thing the preview lane showed.
-        label.maximumNumberOfLines = 1
-        label.lineBreakMode = .byTruncatingTail
-        label.setContentCompressionResistancePriority(.required, for: .horizontal)
-        stack.addArrangedSubview(label)
-
-        root.addSubview(stack)
-        let vertical: CGFloat = rows.isEmpty ? 8 : 12
-        NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: vertical),
-            stack.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -vertical),
-            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(lessThanOrEqualTo: root.trailingAnchor, constant: -16),
-        ])
-        content = stack
-    }
-
     private func build(title: String, titleIcon: NSImage?, rows: [GuideRow], footer: String?) {
         content?.removeFromSuperview()
-        bandText = nil
-        rowCount = rows.count
 
         let stack = NSStackView()
         stack.orientation = .vertical
@@ -376,16 +282,11 @@ final class HUD {
         return row
     }
 
-    /// Select's band's clearance above the bottom of the usable screen.
-    static let bandGap: CGFloat = 10
-    static let bandRadius: CGFloat = 10
-
     private func present() {
         root.layoutSubtreeIfNeeded()
         var size = root.fittingSize
         size.width = min(max(size.width, 200), 1100)
-        size.height = max(size.height, placement == .band ? 30 : 44)
-        setCornerRadius(placement == .band ? Self.bandRadius : BarTheme.glassRadius)
+        size.height = max(size.height, 44)
 
         // A chip redrawn in place keeps where it was put; anything else
         // takes the panel's home. Without the second half, a chip dragged
@@ -395,21 +296,10 @@ final class HUD {
             Movable.place(panel, size: size) { panel.frame.origin }
         } else {
             let visible = ActivePolicy.presentationFrame
-            let bottom = placement == .band ? visible.minY + Self.bandGap : visible.minY + 96
-            panel.setFrame(NSRect(origin: NSPoint(x: visible.midX - size.width / 2, y: bottom),
+            panel.setFrame(NSRect(origin: NSPoint(x: visible.midX - size.width / 2,
+                                                  y: visible.minY + 96),
                                   size: size), display: true)
         }
         panel.orderFrontRegardless()
-    }
-
-    /// The one glass, two shapes: the guide's radius at home, the band's
-    /// along the edge.
-    private func setCornerRadius(_ radius: CGFloat) {
-        if #available(macOS 26.0, *), let glass = backdrop as? NSGlassEffectView {
-            glass.cornerRadius = radius
-            glass.contentView?.layer?.cornerRadius = radius
-        } else {
-            backdrop.layer?.cornerRadius = radius
-        }
     }
 }

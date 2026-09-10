@@ -770,11 +770,14 @@ public struct EngineCore {
     /// opens the aim band, a sub-lens of the same shape.
     private mutating func scrollPress(key: String, held: Bool, shift: Bool,
                                       world: EngineWorld) -> [EngineEffect] {
+        if let sheet = sheetPress(key: key, held: held, shift: shift, world: world) { return sheet }
         if held {
             state = .idle
             var effects: [EngineEffect] = [.scrollExit(reason: Self.heldExit(key)), .hideGuide]
             if key != "j" && key != "escape" {
                 effects.append(contentsOf: idlePress(key: key, shift: shift, world: world))
+            } else if world.cheatVisible {
+                effects.append(.dismissCheat)
             }
             return effects
         }
@@ -824,6 +827,16 @@ public struct EngineCore {
         return effects
     }
 
+    /// The sheet inside a lens: lode ? shows the keys the lens owns and
+    /// the lens stays up; escape while the sheet stands takes the sheet
+    /// down and nothing else. Nil when the key is the lens's own.
+    private func sheetPress(key: String, held: Bool, shift: Bool,
+                            world: EngineWorld) -> [EngineEffect]? {
+        if held, key == "/", shift { return [.toggleCheat] }
+        if !held, key == "escape", world.cheatVisible { return [.dismissCheat] }
+        return nil
+    }
+
     /// How a held lode key leaves scroll mode: J and escape are the quiet
     /// way out, the backtick is the toggle, anything else is a verb about
     /// to execute.
@@ -841,12 +854,15 @@ public struct EngineCore {
     private mutating func scrollAimPress(key: String, held: Bool, shift: Bool,
                                          command: Bool, option: Bool,
                                          world: EngineWorld) -> [EngineEffect] {
+        if let sheet = sheetPress(key: key, held: held, shift: shift, world: world) { return sheet }
         if held {
             state = .idle
             var effects: [EngineEffect] = [.scrollAimEnd, .scrollExit(reason: Self.heldExit(key)),
                                            .hideGuide]
             if key != "j" && key != "escape" {
                 effects.append(contentsOf: idlePress(key: key, shift: shift, world: world))
+            } else if world.cheatVisible {
+                effects.append(.dismissCheat)
             }
             return effects
         }
@@ -887,11 +903,14 @@ public struct EngineCore {
                                      control: Bool, command: Bool, option: Bool,
                                      sticky: Bool,
                                      world: EngineWorld) -> [EngineEffect] {
+        if let sheet = sheetPress(key: key, held: held, shift: shift, world: world) { return sheet }
         if held {
             state = .idle
             var effects: [EngineEffect] = [.exitHints]
             if key != ";" && key != "escape" {
                 effects.append(contentsOf: idlePress(key: key, shift: shift, world: world))
+            } else if world.cheatVisible {
+                effects.append(.dismissCheat)
             }
             return effects
         }
@@ -936,11 +955,14 @@ public struct EngineCore {
     private mutating func selectPress(key: String, held: Bool, shift: Bool,
                                       command: Bool, option: Bool,
                                       world: EngineWorld) -> [EngineEffect] {
+        if let sheet = sheetPress(key: key, held: held, shift: shift, world: world) { return sheet }
         if held {
             state = .idle
             var effects: [EngineEffect] = [.exitSelect]
             if key != "/" && key != "escape" {
                 effects.append(contentsOf: idlePress(key: key, shift: shift, world: world))
+            } else if world.cheatVisible {
+                effects.append(.dismissCheat)
             }
             return effects
         }

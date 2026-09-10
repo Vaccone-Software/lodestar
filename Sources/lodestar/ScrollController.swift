@@ -38,12 +38,14 @@ final class ScrollController {
     private var horizontalSign: Int32 { -sign }
 
     private(set) var appName = ""
+    /// The app's own icon, for the pill's trailing wing.
+    private(set) var appIcon: NSImage?
     /// The session's record: counts and the way out, never the word.
     var observations: ObservationStore?
-    /// The mode was escaped with nothing done in it: entered, hesitated,
-    /// left. The one stumble a lens can make, and what brings its rows
-    /// straight back.
-    var onStumble: (() -> Void)?
+    /// An aim landed, so the pill can fold to the word. The landing
+    /// arrives off the keystroke that made it, after the mode has already
+    /// redrawn, which is why the pill cannot simply read the label then.
+    var onAimed: (() -> Void)?
     private var began = Date()
     private var inSession = false
     private var keysPressed = 0
@@ -121,6 +123,7 @@ final class ScrollController {
         sign = natural ? 1 : -1
         if let focused = model.focusedWindow, focused.isAlive {
             appName = focused.appName
+            appIcon = NSRunningApplication(processIdentifier: focused.pid)?.icon
             windowFrame = focused.frame
             discoverPanes(of: focused.element, began: Date())
             warpToCurrent()
@@ -128,6 +131,7 @@ final class ScrollController {
         }
         guard let front = NSWorkspace.shared.frontmostApplication else { return false }
         appName = front.localizedName ?? "…"
+        appIcon = front.icon
         windowFrame = .zero
         retryDiscovery(generation: discoveryGeneration, began: Date(), attempts: 0)
         return true
@@ -146,6 +150,7 @@ final class ScrollController {
                 return
             }
             self.appName = focused.appName
+            self.appIcon = NSRunningApplication(processIdentifier: focused.pid)?.icon
             self.windowFrame = focused.frame
             self.discoverPanes(of: focused.element, began: began)
             self.onPanesDiscovered?()
@@ -187,7 +192,6 @@ final class ScrollController {
                                pages: pages, ends: ends, aims: aims,
                                aimsLanded: aimsLanded, aimsAway: aimsAway,
                                exit: reason.rawValue)
-        if reason == .escape, keysPressed + pages + ends + aims == 0 { onStumble?() }
     }
 
     /// The aim band opened. Counted here so the session's record has it
@@ -417,6 +421,7 @@ final class ScrollController {
         let away = windowFrame.width > 0 && !windowFrame.contains(point)
         if away { aimsAway += 1 }
         Log.info("scroll", ["aimed": true, "pane": aimedPane != nil, "away": away])
+        defer { onAimed?() }
         guard sink == nil else { return }
         CGWarpMouseCursorPosition(point)
     }

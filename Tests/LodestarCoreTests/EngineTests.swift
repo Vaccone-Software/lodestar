@@ -549,6 +549,61 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(core.state, .select)
     }
 
+    // MARK: - The sheet inside a lens
+
+    func testLodeQuestionInsideScrollTogglesTheSheetAndStays() {
+        enterScrollMode()
+        XCTAssertEqual(press("/", shift: true), [.toggleCheat])
+        XCTAssertEqual(core.state, .scroll, "the lens stays up")
+        world.cheatVisible = true
+        XCTAssertEqual(press("escape", held: false), [.dismissCheat], "escape is the sheet's")
+        XCTAssertEqual(core.state, .scroll)
+        world.cheatVisible = false
+        XCTAssertEqual(press("escape", held: false), [.scrollCancelPendingG, .scrollExit(reason: .escape), .hideGuide])
+        XCTAssertEqual(core.state, .idle)
+    }
+
+    func testAQuietExitTakesTheSheetDownWithIt() {
+        enterScrollMode()
+        world.cheatVisible = true
+        XCTAssertEqual(press("j"), [.scrollExit(reason: .lode), .hideGuide, .dismissCheat])
+        XCTAssertEqual(core.state, .idle)
+    }
+
+    func testTheSheetInsideTheAimBand() {
+        enterAim()
+        XCTAssertEqual(press("/", shift: true), [.toggleCheat])
+        XCTAssertEqual(core.state, .scrollAim)
+        world.cheatVisible = true
+        XCTAssertEqual(press("escape", held: false), [.dismissCheat])
+        XCTAssertEqual(core.state, .scrollAim)
+        XCTAssertTrue(world.calls.isEmpty, "select never saw the sheet's keys")
+    }
+
+    func testTheSheetInsideHints() {
+        _ = press(";")
+        XCTAssertEqual(core.state, .hints(sticky: false))
+        XCTAssertEqual(press("/", shift: true), [.toggleCheat])
+        XCTAssertEqual(core.state, .hints(sticky: false))
+        world.cheatVisible = true
+        XCTAssertEqual(press("escape", held: false), [.dismissCheat])
+        XCTAssertEqual(core.state, .hints(sticky: false))
+        XCTAssertEqual(press(";"), [.exitHints, .dismissCheat], "a quiet exit takes the sheet down")
+    }
+
+    func testTheSheetInsideSelect() {
+        _ = press("/")
+        XCTAssertEqual(core.state, .select)
+        XCTAssertEqual(press("/", shift: true), [.toggleCheat])
+        XCTAssertEqual(core.state, .select)
+        world.cheatVisible = true
+        XCTAssertEqual(press("escape", held: false), [.dismissCheat])
+        XCTAssertEqual(core.state, .select)
+        world.cheatVisible = false
+        XCTAssertEqual(press("escape", held: false), [.exitSelect])
+        XCTAssertEqual(core.state, .idle)
+    }
+
     func testScrollTabIsSwallowedLikeAnyOtherKey() {
         // Pane cycling was retired: the tree names no panes in a web view
         // or an Electron app, so the key never had anything to cycle.

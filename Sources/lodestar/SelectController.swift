@@ -154,6 +154,10 @@ final class SelectController {
     /// verb, the way ⇧ declares beside.
     enum Door { case anchor, click, aim }
     private(set) var door: Door = .anchor
+    /// The pill every lens wears: this machine drives it for its three
+    /// doors, saying which door, over which app, and what the hand has
+    /// typed. Set by the shell.
+    var pill: ModePill?
     /// The aim door's whole verb: the picked word's center, and the word,
     /// handed to whoever moves the pointer. Set by the shell; a stage
     /// records it instead.
@@ -320,8 +324,8 @@ final class SelectController {
             }
             if captured != nil { self.windowFrame = display }
             self.frozen = captured
-            self.overlay.showScanning(over: self.windowFrame, appName: window.appName,
-                                      mode: Self.bandName(for: self.door))
+            self.overlay.showScanning(over: self.windowFrame)
+            self.showPill(text: nil)
             if let captured {
                 self.senseOCR(image: captured, frame: display, windows: stack,
                               generation: expected)
@@ -341,6 +345,7 @@ final class SelectController {
         // just painted. The overlay is the ghost's canvas: it stays up
         // exactly as long as the ghost stands.
         if ghost == nil { overlay.hide() }
+        pill?.hide()
         // A harvest is up to 600 units, each carrying its OCR-recognized
         // lines; none of it means anything once the mode is over, and
         // holding it is pure resident-set for an app that lives for weeks.
@@ -379,12 +384,19 @@ final class SelectController {
         }
     }
 
-    private static func bandName(for door: Door) -> String {
+    /// The pill's reading of this door: listening while nothing is typed,
+    /// folded to the letters once something is. A capital's label rides
+    /// after the query in caps, the way the chips wear it.
+    private func showPill(text: String?) {
+        let mode: ModePill.Mode
         switch door {
-        case .anchor: return "select"
-        case .click: return "click"
-        case .aim: return "aim"
+        case .anchor: mode = .select
+        case .click: mode = .click
+        case .aim: mode = .scroll
         }
+        pill?.show(ModePill.State(mode: mode, app: appName,
+                                  icon: NSRunningApplication(processIdentifier: focusedPid)?.icon,
+                                  listening: true, text: text))
     }
 
     /// The keys the hands typed before the first world existed, fed
@@ -607,11 +619,8 @@ final class SelectController {
             return SelectOverlay.Chip(label: label, frames: [target.frame],
                                       style: .target)
         }
-        let state = SelectOverlay.State(
-            appName: appName, query: "", typedLabel: entryTyped,
-            shown: chips.count, total: entryLabeled.count, capped: false,
-            stage: .start, scanning: false, verb: "clicks · ⌃⇧ right-clicks")
-        overlay.show(chips: chips, anchor: [], over: windowFrame, state: state)
+        showPill(text: entryTyped.isEmpty ? nil : entryTyped.uppercased())
+        overlay.show(chips: chips, anchor: [], over: windowFrame)
     }
 
     /// The three-layer commit: the picked word supplies the point, an AX
@@ -764,7 +773,11 @@ final class SelectController {
 
     private func holdGhost(text: String, rects: [CGRect], note: String? = nil) {
         ghost = (text, rects)
-        overlay.hold(spans: rects, over: windowFrame, note: note)
+        overlay.hold(spans: rects, over: windowFrame)
+        // The auto-copy receipt: a copy is invisible and the highlight
+        // alone does not announce it. It rode the band once; the band is
+        // the pill now, and the pill is down by the time the ghost stands.
+        if let note { flash(note) }
         guard ghostClickMonitor == nil else { return }
         ghostClickMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
@@ -1631,14 +1644,9 @@ final class SelectController {
         let labels = core.labels
         let anchor = core.anchor
         let snapshot = units
-        let state = SelectOverlay.State(
-            appName: appName, query: core.query, typedLabel: core.typedLabel,
-            shown: matches.count, total: core.totalMatches, capped: core.countCapped,
-            stage: anchor == nil ? .start : .end,
-            scanning: false,
-            verb: door == .click ? "clicks · ⌃⇧ right-clicks"
-                : door == .aim ? "aims the wheel"
-                : (anchor == nil ? "anchors" : "selects"))
+        var typed = core.query
+        if !core.typedLabel.isEmpty { typed += (typed.isEmpty ? "" : " ") + core.typedLabel.uppercased() }
+        showPill(text: typed.isEmpty ? nil : typed)
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             func rects(_ match: SelectCore.Match) -> [CGRect] {
@@ -1658,7 +1666,7 @@ final class SelectController {
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.boundsGeneration == expected else { return }
                 self.overlay.show(chips: chips, anchor: anchorFrames,
-                                  over: self.windowFrame, state: state)
+                                  over: self.windowFrame)
             }
         }
     }

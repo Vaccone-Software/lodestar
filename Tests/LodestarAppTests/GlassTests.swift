@@ -205,11 +205,19 @@ final class AccentAndChipWordsTests: XCTestCase {
         XCTAssertEqual(BarTheme.accent(for: .system), .controlAccentColor)
     }
 
-    func testTheChipCountsMinutesThenSecondsThenNow() {
-        XCTAssertEqual(MeetingController.phrase(.upcoming(minutes: 4)), "in 4 min")
-        XCTAssertEqual(MeetingController.phrase(.soon(seconds: 45)), "in 45s")
-        XCTAssertEqual(MeetingController.phrase(.now), "now")
-        XCTAssertEqual(MeetingController.phrase(.inProgress(minutes: 10)), "10 min in")
+    func testTheMeetingSpeaksMinutesInWordsAndSecondsInDigits() {
+        XCTAssertEqual(MeetingController.sentence(title: "Standup", phase: .upcoming(minutes: 4)),
+                       "Standup begins in four minutes")
+        XCTAssertEqual(MeetingController.sentence(title: "Standup", phase: .upcoming(minutes: 1)),
+                       "Standup begins in one minute")
+        XCTAssertEqual(MeetingController.sentence(title: "Standup", phase: .soon(seconds: 45)),
+                       "Standup begins in 45 seconds")
+        XCTAssertEqual(MeetingController.sentence(title: "Standup", phase: .now),
+                       "Standup is beginning")
+        XCTAssertEqual(MeetingController.sentence(title: "Standup", phase: .inProgress(minutes: 10)),
+                       "Standup began ten minutes ago")
+        XCTAssertEqual(MeetingController.sentence(title: "Standup", phase: .inProgress(minutes: 25)),
+                       "Standup began 25 minutes ago", "past twelve, digits")
     }
 }
 

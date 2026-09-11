@@ -39,15 +39,19 @@ public enum Curriculum {
         public let day: Int
     }
 
+    /// The lode gestures first, in the order the hand meets them. The
+    /// clipboard comes late because it is the one gesture outside lode,
+    /// and the sheet comes last: by then it is the map of everything the
+    /// hand has been shown.
     public static let order: [Entry] = [
         Entry(lesson: .inside, verb: "hints", day: 2),
         Entry(lesson: .web, verb: "web", day: 4),
-        Entry(lesson: .clipboard, verb: "clipboard", day: 6),
-        Entry(lesson: .sheet, verb: "cheat", day: 8),
-        Entry(lesson: .draft, verb: "draft", day: 11),
-        Entry(lesson: .select, verb: "select", day: 14),
-        Entry(lesson: .commands, verb: "menu", day: 17),
-        Entry(lesson: .scroll, verb: "scroll", day: 20),
+        Entry(lesson: .draft, verb: "draft", day: 6),
+        Entry(lesson: .select, verb: "select", day: 8),
+        Entry(lesson: .commands, verb: "menu", day: 11),
+        Entry(lesson: .scroll, verb: "scroll", day: 14),
+        Entry(lesson: .clipboard, verb: "clipboard", day: 17),
+        Entry(lesson: .sheet, verb: "cheat", day: 20),
     ]
 
     /// Days between any two lessons, whatever their own schedule says.

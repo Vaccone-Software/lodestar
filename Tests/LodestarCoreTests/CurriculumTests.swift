@@ -47,10 +47,10 @@ final class CurriculumTests: XCTestCase {
             .web: offered,
         ]
         XCTAssertNil(next(after: 5, records: records), "one lesson a couple of days apart")
-        XCTAssertEqual(next(after: 6, records: records), .clipboard,
+        XCTAssertEqual(next(after: 6, records: records), .draft,
                        "a lesson passed over does not hold the ones behind it")
         var later = records
-        later[.clipboard] = Curriculum.offered(nil, at: since.addingTimeInterval(6 * day))
+        later[.draft] = Curriculum.offered(nil, at: since.addingTimeInterval(6 * day))
         XCTAssertEqual(next(after: 9, records: later), .web,
                        "a lesson passed over retries after the retry wait, ahead of the rest")
     }
@@ -62,7 +62,7 @@ final class CurriculumTests: XCTestCase {
             .inside: Curriculum.completed(nil, at: since.addingTimeInterval(2 * day)),
             .web: web,
         ]
-        XCTAssertEqual(next(after: 15, records: records), .clipboard,
+        XCTAssertEqual(next(after: 15, records: records), .draft,
                        "parked for good after two offers; the next lesson is due instead")
     }
 
@@ -84,6 +84,7 @@ final class CurriculumTests: XCTestCase {
 
     func testPositionNamesTheLessonsPlace() {
         XCTAssertEqual(Curriculum.position(of: .inside).0, 1)
-        XCTAssertEqual(Curriculum.position(of: .scroll).0, Curriculum.order.count)
+        XCTAssertEqual(Curriculum.position(of: .sheet).0, Curriculum.order.count,
+                       "the sheet is last: the map of everything shown before it")
     }
 }

@@ -169,7 +169,7 @@ enum StripPreview {
                 FileManager.default.fileExists(atPath: path)
                     ? NSWorkspace.shared.icon(forFile: path) : nil
             }
-            hud.showGuide(title: "lode", rows: [
+            hud.showGuide(keys: ["lode"], rows: [
                 GuideRow(key: "W", label: "Safari",
                          icon: appIcon("/Applications/Safari.app")),
                 GuideRow(key: "E", label: "Mail",
@@ -177,18 +177,18 @@ enum StripPreview {
                 GuideRow(key: "N", label: "Notes",
                          icon: appIcon("/System/Applications/Notes.app")),
                 GuideRow(key: "→ D", label: "development"),
-            ], footer: "esc clears")
+            ])
             app.run()
         }
 
         if variant == 7 {
             // A guide with no icons at all, as the scroll guide is.
             let hud = HUD()
-            hud.showGuide(title: "scroll", rows: [
+            hud.showGuide(mark: "arrow.up.and.down", keys: ["lode", "`"], rows: [
                 GuideRow(key: "J K", label: "down · up"),
                 GuideRow(key: "D U", label: "half-page down · up"),
                 GuideRow(key: "/", label: "aim at a word"),
-            ], footer: "esc leaves")
+            ])
             app.run()
         }
 
@@ -339,6 +339,14 @@ enum StripPreview {
                                        folder: "~/Downloads"),
                            selection: 0, actingOn: shot.id)
             }
+            app.run()
+        }
+
+        // 100…106: the next sheet, staged for approval before anything is
+        // built. Real materials throughout: the pill, the voice surface,
+        // the keycaps, the glass.
+        if (100...107).contains(variant) {
+            DispatchQueue.main.async { NextSheet.run(variant) }
             app.run()
         }
 

@@ -269,6 +269,9 @@ enum BarTheme {
     static let inputHeight: CGFloat = 60
     static let rowHeight: CGFloat = 48
     static let footerHeight: CGFloat = 24
+    /// A bar's bottom edge when nothing stands beneath its rows. The bars
+    /// carry no legend: their keys live on the sheet, behind lode ?.
+    static let barFoot: CGFloat = 6
     /// The rounding, converged: one ladder from the pill's height, each
     /// rung the one above over φ². A surface (a panel, a card, the pill)
     /// rounds at the first rung, a control (a keycap, a chip, a well) at
@@ -880,7 +883,6 @@ enum FlashMark {
         "⚠": "exclamationmark.triangle",
         "◎": BarTheme.breathSymbol,
         "⌂": "doc.on.clipboard",
-        "…": "arrow.up.forward.app",
         "✓": "checkmark",
         "⌖": "checkmark",
         "↺": "rectangle.3.group",

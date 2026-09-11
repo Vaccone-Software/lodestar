@@ -83,7 +83,6 @@ final class MeetingController: NSObject {
         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
     private let primeRoot = NSView()
     private static let primeWidth: CGFloat = 440
-    private static let chipWidth: CGFloat = 330
 
     override init() {
         super.init()
@@ -411,40 +410,28 @@ final class MeetingController: NSObject {
         let occurrence = candidate.occurrence
         let resolved = resolve(occurrence)
 
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 5
-        stack.translatesAutoresizingMaskIntoConstraints = false
-
         var title = occurrence.title
-        if title.count > 40 { title = String(title.prefix(39)) + "…" }
-        stack.addArrangedSubview(label("⌖ meeting", size: 10.5, weight: .medium,
-                                       color: BarTheme.secondaryColor))
-        stack.addArrangedSubview(label(title, size: 14, weight: .semibold,
-                                       color: .labelColor))
-
-        let phase = Self.phrase(candidate.phase)
+        if title.count > 40 { title = String(title.prefix(40)) }
         let destination = Meetings.nativeJoin(for: occurrence.link) != nil
-            ? occurrence.link.provider.rawValue
-            : "\(resolved.profileLabel) · \(resolved.deciderLabel)"
-        stack.addArrangedSubview(label("\(phase) · \(destination)", size: 12,
-                                       weight: .regular, color: BarTheme.secondaryColor))
-        stack.setCustomSpacing(9, after: stack.arrangedSubviews.last!)
-        stack.addArrangedSubview(Keycaps.line([
-            .init(["lode", "lode"], "joins", action: { [weak self] in _ = self?.join() }),
-            .init(["lode", "⌫"], "dismisses", action: { [weak self] in _ = self?.dismiss() }),
-        ]))
+            ? Self.providerName(occurrence.link.provider)
+            : resolved.profileLabel
+        let detail = occurrence.calendar.map { "\(destination), from the \($0) calendar" } ?? destination
+        let stack = VoiceCard.build(
+            sentence: Self.sentence(title: title, phase: candidate.phase),
+            detail: detail,
+            rows: [GuideRow(keys: ["lode", "lode"], label: "Join", action: { [weak self] in _ = self?.join() }),
+                   GuideRow(keys: ["lode", "⌫"], label: "Dismiss", action: { [weak self] in _ = self?.dismiss() })])
 
         root.addSubview(stack)
+        let inset = ModePill.inset
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 13),
-            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -16),
+            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: inset),
+            stack.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -inset),
+            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: inset),
+            stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -inset),
         ])
         root.layoutSubtreeIfNeeded()
-        let size = NSSize(width: Self.chipWidth,
-                          height: stack.fittingSize.height + 13 + 12)
+        let size = root.fittingSize
         let wasVisible = panel.isVisible
         Movable.place(panel, size: size) {
             let visible = ActivePolicy.presentationFrame
@@ -553,14 +540,14 @@ final class MeetingController: NSObject {
 
     #if DEBUG
     /// `lodestar __strip-preview 60` stages the chip, 61 the prime card.
-    static func preview(_ index: Int) -> MeetingController {
+    static func preview(_ index: Int, startingIn offset: TimeInterval = 4 * 60) -> MeetingController {
         let controller = MeetingController()
         var (config, _) = Config.load()
         config.meetingsEnabled = true
         controller.config = config
         DispatchQueue.main.async {
             if index == 0 {
-                let start = Date().addingTimeInterval(4 * 60)
+                let start = Date().addingTimeInterval(offset)
                 let occurrence = Meetings.Occurrence(
                     eventID: "preview", title: "Product sync",
                     start: start, end: start.addingTimeInterval(30 * 60),
@@ -603,13 +590,36 @@ final class MeetingController: NSObject {
 }
 
 extension MeetingController {
-    /// The chip's words for a phase, one caption fragment.
-    static func phrase(_ phase: Meetings.Phase) -> String {
+    /// The meeting as a sentence. Minutes are spelled out because they
+    /// change slowly and read as prose; seconds are digits because a
+    /// spelled number changing every second is a clock trying to be a
+    /// sentence. At the door there is no number at all.
+    static func sentence(title: String, phase: Meetings.Phase) -> String {
         switch phase {
-        case .upcoming(let minutes): return "in \(minutes) min"
-        case .soon(let seconds): return "in \(seconds)s"
-        case .now: return "now"
-        case .inProgress(let minutes): return "\(minutes) min in"
+        case .upcoming(let minutes):
+            return "\(title) begins in \(spelled(minutes)) minute\(minutes == 1 ? "" : "s")"
+        case .soon(let seconds):
+            return "\(title) begins in \(seconds) second\(seconds == 1 ? "" : "s")"
+        case .now:
+            return "\(title) is beginning"
+        case .inProgress(let minutes):
+            return "\(title) began \(spelled(minutes)) minute\(minutes == 1 ? "" : "s") ago"
+        }
+    }
+
+    static func spelled(_ n: Int) -> String {
+        let words = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+                     "ten", "eleven", "twelve"]
+        return n >= 0 && n < words.count ? words[n] : String(n)
+    }
+
+    static func providerName(_ provider: Meetings.Provider) -> String {
+        switch provider {
+        case .zoom: return "Zoom"
+        case .meet: return "Google Meet"
+        case .teams: return "Teams"
+        case .webex: return "Webex"
+        case .facetime: return "FaceTime"
         }
     }
 }

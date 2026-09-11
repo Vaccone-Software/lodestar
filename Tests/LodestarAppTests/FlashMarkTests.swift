@@ -15,7 +15,8 @@ final class FlashMarkTests: XCTestCase {
         XCTAssertEqual(breath.text, "Breath W saved with 2 windows")
         XCTAssertEqual(FlashMark.parse("⌂ pinned").symbol, "doc.on.clipboard")
         XCTAssertEqual(FlashMark.parse("⚠ Lodestar lost its keyboard access").symbol, "exclamationmark.triangle")
-        XCTAssertEqual(FlashMark.parse("… launching Slack").symbol, "arrow.up.forward.app")
+        XCTAssertNil(FlashMark.parse("… launching Slack").symbol,
+                     "no flash trails off any more: a launch is the pill's opening mode")
         XCTAssertEqual(FlashMark.parse("⟲ layout").symbol, "rectangle.3.group")
         XCTAssertEqual(FlashMark.parse("⌖ gestures restored").symbol, "checkmark")
     }
@@ -31,11 +32,12 @@ final class FlashMarkTests: XCTestCase {
         hud.flash("◎ Breath W saved with 2 windows", seconds: 60)
         XCTAssertEqual(hud.titleSymbol, "wind")
         XCTAssertEqual(hud.titleText, "Breath W saved with 2 windows")
-        hud.showGuide(title: "◎ Breath W", rows: [GuideRow(key: "A", label: "Slack")], footer: "esc")
+        hud.showGuide(mark: BarTheme.breathSymbol, keys: ["lode", "'", "W"],
+                      rows: [GuideRow(key: "A", label: "Slack")])
         XCTAssertEqual(hud.titleSymbol, "wind")
-        XCTAssertEqual(hud.titleText, "Breath W")
-        hud.showGuide(title: "lode", rows: [], footer: "esc")
-        XCTAssertNil(hud.titleSymbol, "the chain guide's title has no glyph and takes no mark")
+        XCTAssertEqual(hud.titleText, "lode ' W", "the header is the chain so far, as keys")
+        hud.showGuide(keys: ["lode"], rows: [])
+        XCTAssertNil(hud.titleSymbol, "the graph's guide has no mark; its header is the keys alone")
         hud.hide()
     }
 

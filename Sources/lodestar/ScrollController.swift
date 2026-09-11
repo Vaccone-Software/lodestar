@@ -130,7 +130,7 @@ final class ScrollController {
             return true
         }
         guard let front = NSWorkspace.shared.frontmostApplication else { return false }
-        appName = front.localizedName ?? "…"
+        appName = front.localizedName ?? "App"
         appIcon = front.icon
         windowFrame = .zero
         retryDiscovery(generation: discoveryGeneration, began: Date(), attempts: 0)

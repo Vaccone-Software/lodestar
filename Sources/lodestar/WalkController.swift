@@ -551,93 +551,101 @@ final class WalkController: NSObject {
 
     /// The curriculum's cards: one gesture each, proved by the real
     /// gesture happening.
-    private func lessonContent(_ lesson: Curriculum.Lesson) -> CardContent {
-        switch lesson {
-        case .inside:
-            return CardContent(
-                title: "Inside the app",
-                body: "Lodestar also works inside the window. Hold lode and "
-                    + "press ; and every button and link wears a letter. "
-                    + "Press a letter to click it, or press escape to put "
-                    + "the letters away. Try it now.",
-                illustration: capsRow([("lode", false), (";", true)]))
-        case .web:
-            return CardContent(
-                title: "The web",
-                body: "Hold lode and press return to open Ask. Type a name, "
-                    + "a domain, or a question. Destinations open in the "
-                    + "right browser profile. Everything else searches. "
-                    + "Open it now.\n\nLodestar can also stand as your "
-                    + "default browser. Links clicked in any app then "
-                    + "follow the same rules.",
-                illustration: capsRow([("lode", false), ("⏎", true)]))
-        case .clipboard:
-            return CardContent(
-                title: "The clipboard",
-                body: "Lodestar keeps a history of what you copy. Press "
-                    + "⇧⌘V and the history appears along the bottom of the "
-                    + "screen, the newest clip under A. A letter pastes it "
-                    + "as plain text. Open it now.\n\nThis is the one "
-                    + "gesture outside lode, because pasting happens in the "
-                    + "middle of typing.",
-                illustration: capsRow([("⇧⌘V", true)]))
-        case .sheet:
-            return CardContent(
-                title: "Everything else",
-                body: "More gestures exist. Saved window layouts, moving "
-                    + "windows between displays, text selection by eye. You "
-                    + "do not need them today.\n\nHold lode and press ? "
-                    + "once. The sheet holds everything, whenever you need "
-                    + "it.",
-                illustration: capsRow([("lode", false), ("?", true)]))
-        case .draft:
-            return CardContent(
-                title: "The draft",
-                body: "Hold lode and press period. Speak, and the words "
-                    + "appear at the foot of the screen; type into the same "
-                    + "sentence. Return puts it where your cursor was. "
-                    + "Nothing you say leaves your Mac. Open it now.",
-                illustration: capsRow([("lode", false), (".", true)]),
-                keys: [KeyRow("lode ⇧.", "edit what a field already holds"),
-                       KeyRow("esc", "fix a word from the keys")])
-        case .select:
-            return CardContent(
-                title: "Text on screen",
-                body: "Hold lode and press slash, then type a few characters "
-                    + "of anything you can see. Every match wears a letter. "
-                    + "The shifted letter marks the start; type again and "
-                    + "the shifted letter marks the end. Try it now, on any "
-                    + "word.",
-                illustration: capsRow([("lode", false), ("/", true)]),
-                keys: [KeyRow("⌘C", "copies the highlight")])
-        case .commands:
-            return CardContent(
-                title: "Commands",
-                body: "Hold lode and press minus. Every item in this app's "
-                    + "menus, under one search. Type part of a command and "
-                    + "return runs it. Each row wears the app's own "
-                    + "shortcut. Open it now.",
-                illustration: capsRow([("lode", false), ("-", true)]))
-        case .scroll:
-            return CardContent(
-                title: "Scroll from the keys",
-                body: "Hold lode and press the backtick. Then hold j to "
-                    + "scroll down and k to scroll up; release, and it "
-                    + "stops. Escape leaves. Try it on this window.",
-                illustration: capsRow([("lode", false), ("`", true)]),
-                keys: [KeyRow("d u", "half a page"),
-                       KeyRow("/", "aim at a word you can see")])
+    /// One lesson as Lodestar speaking: what the lesson is for, in the
+    /// voice, never naming a key; the keys it teaches as rows beneath,
+    /// drawn as keys; the count quiet in the detail.
+    struct LessonCard: Equatable {
+        let sentence: String
+        let detail: String
+        let rows: [Row]
+        struct Row: Equatable {
+            let keys: [String]
+            let label: String
         }
     }
 
-    /// The card a proven lesson shows for a moment before it goes.
-    private func doneContent(for lesson: Curriculum.Lesson) -> CardContent {
+    static func lessonCard(_ lesson: Curriculum.Lesson) -> LessonCard {
         let (position, total) = Curriculum.position(of: lesson)
-        return CardContent(
-            title: "That is the gesture",
-            body: position < total
-                ? "It is yours now. The next lesson arrives in a few days."
-                : "It is yours now, and that was the last lesson.")
+        let count = "Lesson \(position) of \(total)"
+        func row(_ keys: [String], _ label: String) -> LessonCard.Row { .init(keys: keys, label: label) }
+        switch lesson {
+        case .inside:
+            return LessonCard(sentence: "Buttons and links can wear a letter",
+                              detail: "Press the letter to click what wears it. \(count)",
+                              rows: [row(["lode", ";"], "Letters on"), row(["esc"], "Letters off")])
+        case .web:
+            return LessonCard(sentence: "The web opens from one line",
+                              detail: "A name, a domain, or a question. \(count)",
+                              rows: [row(["lode", "⏎"], "Ask"), row(["⏎"], "Open")])
+        case .draft:
+            return LessonCard(sentence: "Dictation and Vim editing in one draft",
+                              detail: "Speak or type, edit with Vim keys, and it lands where the cursor was. \(count)",
+                              rows: [row(["lode", "."], "Draft with dictation"),
+                                     row(["lode", "⇧."], "Draft without dictation"),
+                                     row(["⏎"], "Place it")])
+        case .select:
+            return LessonCard(sentence: "Text on screen can be highlighted",
+                              detail: "Type what you see, then mark where the selection starts and ends. \(count)",
+                              rows: [row(["lode", "/"], "Select"), row(["⇧A"], "Mark an end"),
+                                     row(["⌘C"], "Copy the selection")])
+        case .commands:
+            return LessonCard(sentence: "Run menu items from the keys",
+                              detail: "Every item in this app's menus answers to a search, each wearing its own shortcut. \(count)",
+                              rows: [row(["lode", "-"], "Commands"), row(["⏎"], "Run")])
+        case .scroll:
+            return LessonCard(sentence: "Scrolling without a mouse",
+                              detail: "Hold to move, release to stop. \(count)",
+                              rows: [row(["lode", "`"], "Scroll"), row(["J", "K"], "Down and up"),
+                                     row(["D", "U"], "Half a page"), row(["/"], "Scroll where a word is")])
+        case .clipboard:
+            return LessonCard(sentence: "Everything copied is kept",
+                              detail: "The newest clip pastes as plain text. The one gesture with no held key, because pasting happens mid-sentence. \(count)",
+                              rows: [row(["⇧⌘V"], "Clipboard"), row(["A"], "Paste the newest")])
+        case .sheet:
+            return LessonCard(sentence: "Review any of the keymaps",
+                              detail: "One sheet lists every key Lodestar answers to. Inside a mode or a bar it lists the keys of that place. \(count)",
+                              rows: [row(["lode", "?"], "Show the keys"), row(["esc"], "Close")])
+        }
+    }
+
+    /// The note a proven lesson leaves for a moment before it goes.
+    static func provenNote(for lesson: Curriculum.Lesson) -> (sentence: String, detail: String) {
+        let (position, total) = Curriculum.position(of: lesson)
+        return ("That gesture is learned",
+                position < total ? "The next lesson arrives in a few days" : "That was the last lesson")
+    }
+
+    /// A lesson on the companion's glass, in the voice.
+    private func renderLesson(_ lesson: Curriculum.Lesson) {
+        for view in cardRoot.subviews where view is NSStackView { view.removeFromSuperview() }
+        let stack: NSStackView
+        if lessonDone {
+            let note = Self.provenNote(for: lesson)
+            stack = VoiceCard.build(sentence: note.sentence, detail: note.detail, rows: [])
+        } else {
+            let card = Self.lessonCard(lesson)
+            var rows = card.rows.map { GuideRow(keys: $0.keys, label: $0.label) }
+            // Later on the same keys every ask answers to, pressable as
+            // well: passing a lesson is the walk's one decision.
+            rows.append(GuideRow(keys: ["lode", "⌫"], label: "Later", action: { [weak self] in _ = self?.pass() }))
+            stack = VoiceCard.build(sentence: card.sentence, detail: card.detail, rows: rows)
+        }
+        cardRoot.addSubview(stack)
+        let inset = ModePill.inset
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: cardRoot.topAnchor, constant: inset),
+            stack.bottomAnchor.constraint(equalTo: cardRoot.bottomAnchor, constant: -inset),
+            stack.leadingAnchor.constraint(equalTo: cardRoot.leadingAnchor, constant: inset),
+            stack.trailingAnchor.constraint(equalTo: cardRoot.trailingAnchor, constant: -inset),
+        ])
+        cardRoot.layoutSubtreeIfNeeded()
+        let size = cardRoot.fittingSize
+        Movable.place(card, size: size) {
+            let visible = ActivePolicy.presentationFrame
+            return NSPoint(x: visible.maxX - size.width - 20,
+                           y: visible.maxY - size.height - 20)
+        }
+        card.orderFrontRegardless()
     }
 
     // MARK: - Companion drawing
@@ -647,10 +655,8 @@ final class WalkController: NSObject {
         let header: String?
         let footer: (title: String, action: Selector)
         if let lesson {
-            content = lessonDone ? doneContent(for: lesson) : lessonContent(lesson)
-            let (position, total) = Curriculum.position(of: lesson)
-            header = "⌖ a lesson · \(position) of \(total)"
-            footer = lessonDone ? ("done", #selector(skipPressed)) : ("later", #selector(skipPressed))
+            renderLesson(lesson)
+            return
         } else {
             guard let walk else { return }
             content = self.content(for: walk.step)

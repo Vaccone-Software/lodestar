@@ -11,6 +11,11 @@ import LodestarCore
 /// the tables' add grammars pick from ground truth wherever the machine
 /// knows the answer better than typing would.
 final class SettingsController: NSObject, NSTextFieldDelegate {
+    /// The window's keys live on the sheet: ? asks the engine for it, and
+    /// escape takes the sheet down before it closes the window.
+    var help: () -> Void = {}
+    var dismissSheet: () -> Bool = { false }
+
     var config = Config() {
         didSet { if panel.isVisible { render() } }
     }
@@ -191,8 +196,13 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         return addBars.contains { responder.isDescendant(of: $0) }
     }
 
+    /// Shift as it arrived with the key being handled, for the branches
+    /// below the responder checks that see only the key's name.
+    private var shiftHeld = false
+
     private func handle(key: String, event: NSEvent) -> Bool {
         if event.modifierFlags.contains(.command) { return false }
+        shiftHeld = event.modifierFlags.contains(.shift)
         // A popup or button holding key focus owns the keys that operate
         // it: space and return press, arrows choose, tab moves on, escape
         // hands the keys back. One inside an add bar owns letters too —
@@ -268,7 +278,13 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         }
         if key != "return" { armedRow = nil }
         if key == "escape" {
+            if dismissSheet() { return true }
             close()
+            return true
+        }
+        // A plain ? (shift and slash): the window's keys on the sheet.
+        if key == "/", shiftHeld {
+            help()
             return true
         }
         if key == "/" {
@@ -747,16 +763,14 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             rail.addArrangedSubview(row)
         }
         rail.addArrangedSubview(spacer())
-        let changed = HandButton(title: "● changed from default", target: self,
+        let changed = HandButton(title: "● Changed from default", target: self,
                                  action: #selector(changedPressed))
         changed.isBordered = false
         changed.font = .systemFont(ofSize: BarTheme.Scale.meta)
         changed.contentTintColor = BarTheme.secondaryColor
         rail.addArrangedSubview(changed)
-        rail.addArrangedSubview(label("/ search", size: BarTheme.Scale.meta,
-                                      weight: .regular, color: BarTheme.secondaryColor))
-        rail.addArrangedSubview(label("esc closes", size: BarTheme.Scale.meta,
-                                      weight: .regular, color: BarTheme.secondaryColor))
+        // No legend on the standing surface: ? shows the window's keys on
+        // the sheet, as every lens does.
         return rail
     }
 
@@ -767,15 +781,17 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         list.spacing = 20
         list.translatesAutoresizingMaskIntoConstraints = false
 
-        list.addArrangedSubview(label(sections[pane].name.uppercased(), size: BarTheme.Scale.meta,
-                                      weight: .semibold, color: BarTheme.secondaryColor))
+        // The pill's rule, as the sheet has it: one text size, tone for
+        // hierarchy. A header is the body voice, quiet, never caps.
+        list.addArrangedSubview(label(sections[pane].name, size: BarTheme.Scale.body,
+                                      weight: .regular, color: BarTheme.secondaryColor))
 
         let rows = sections[pane].rows
         var letters = SettingsModel.labels(for: rows.count).makeIterator()
         var lastGroup: String?
         for (index, row) in rows.enumerated() {
             if let group = row.group, group != lastGroup {
-                let header = label(group.uppercased(), size: BarTheme.Scale.meta, weight: .semibold,
+                let header = label(group, size: BarTheme.Scale.body, weight: .regular,
                                    color: BarTheme.secondaryColor)
                 if let last = list.arrangedSubviews.last {
                     list.setCustomSpacing(24, after: last)
@@ -828,15 +844,15 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         list.alignment = .leading
         list.spacing = 20
         list.translatesAutoresizingMaskIntoConstraints = false
-        list.addArrangedSubview(label("CHANGED FROM DEFAULT", size: BarTheme.Scale.meta,
-                                      weight: .semibold, color: BarTheme.secondaryColor))
+        list.addArrangedSubview(label("Changed from default", size: BarTheme.Scale.body,
+                                      weight: .regular, color: BarTheme.secondaryColor))
         var any = false
         for (sectionIndex, section) in sections.enumerated() {
             let changed = section.rows.enumerated().filter { !$0.element.isDefault
                 && !$0.element.path.isEmpty }
             guard !changed.isEmpty else { continue }
             any = true
-            let header = label(section.name.uppercased(), size: BarTheme.Scale.meta, weight: .semibold,
+            let header = label(section.name, size: BarTheme.Scale.body, weight: .regular,
                                color: BarTheme.secondaryColor)
             list.addArrangedSubview(header)
             for (rowIndex, row) in changed {
@@ -1399,7 +1415,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         list.translatesAutoresizingMaskIntoConstraints = false
         let field = NSTextField()
         field.placeholderString = "Search settings"
-        field.font = .systemFont(ofSize: BarTheme.Scale.body)
+        field.font = BarTheme.handFont(BarTheme.Scale.body)
         field.delegate = self
         field.widthAnchor.constraint(equalToConstant: 380).isActive = true
         searchField = field
@@ -1452,7 +1468,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
 
     private func editableField(_ value: String, width: CGFloat) -> NSTextField {
         let field = NSTextField(string: value)
-        field.font = .systemFont(ofSize: BarTheme.Scale.meta)
+        field.font = BarTheme.handFont(BarTheme.Scale.meta)
         field.delegate = self
         // No target/action on purpose: an action fires on *every* end of
         // editing, so a re-render or a tab committed half-typed values.
@@ -1462,58 +1478,26 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         return field
     }
 
+    /// A key you can press is drawn as the key it is: the shared cap. A
+    /// lit cap is the pane or row that is current, its letter in the
+    /// accent.
     private func chip(_ text: String, lit: Bool) -> NSView {
-        let cap = NSTextField(labelWithString: text)
-        cap.font = .systemFont(ofSize: BarTheme.Scale.meta, weight: .medium)
-        cap.textColor = lit ? BarTheme.accent : BarTheme.secondaryColor
-        cap.alignment = .center
-        cap.translatesAutoresizingMaskIntoConstraints = false
-        let box = NSView()
-        box.wantsLayer = true
-        box.layer?.cornerRadius = BarTheme.chipRadius
-        box.layer?.backgroundColor = NSColor.labelColor
-            .withAlphaComponent(lit ? 0.12 : 0.06).cgColor
-        box.translatesAutoresizingMaskIntoConstraints = false
-        box.setContentHuggingPriority(.required, for: .horizontal)
-        box.addSubview(cap)
-        NSLayoutConstraint.activate([
-            cap.centerXAnchor.constraint(equalTo: box.centerXAnchor),
-            cap.centerYAnchor.constraint(equalTo: box.centerYAnchor),
-            box.widthAnchor.constraint(equalToConstant: 21),
-            box.heightAnchor.constraint(equalToConstant: 19),
-        ])
-        return box
+        let cap = Keycaps.cap(text)
+        if lit, let letter = cap.subviews.first as? NSTextField {
+            letter.textColor = BarTheme.readableAccent
+        }
+        return cap
     }
 
-    /// The keycap the walk draws, at settings scale.
+    /// A row's own keys, beside its title: the shared cap.
     private func keycap(_ text: String) -> NSView {
-        let cap = NSTextField(labelWithString: text)
-        cap.font = .systemFont(ofSize: BarTheme.Scale.meta, weight: .medium)
-        cap.textColor = BarTheme.secondaryColor
-        cap.alignment = .center
-        cap.translatesAutoresizingMaskIntoConstraints = false
-        let box = NSView()
-        box.wantsLayer = true
-        box.layer?.cornerRadius = BarTheme.chipRadius
-        box.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.07).cgColor
-        box.layer?.borderWidth = 1
-        box.layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.1).cgColor
-        box.translatesAutoresizingMaskIntoConstraints = false
-        box.setContentHuggingPriority(.required, for: .horizontal)
-        box.addSubview(cap)
-        NSLayoutConstraint.activate([
-            cap.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: 6),
-            cap.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -6),
-            cap.centerYAnchor.constraint(equalTo: box.centerYAnchor),
-            box.heightAnchor.constraint(equalToConstant: 18),
-        ])
-        return box
+        Keycaps.cap(text)
     }
 
     private func chipSpacer() -> NSView {
         let view = NSView()
         view.translatesAutoresizingMaskIntoConstraints = false
-        view.widthAnchor.constraint(equalToConstant: 21).isActive = true
+        view.widthAnchor.constraint(equalToConstant: BarTheme.chipMinWidth).isActive = true
         view.setContentHuggingPriority(.required, for: .horizontal)
         return view
     }

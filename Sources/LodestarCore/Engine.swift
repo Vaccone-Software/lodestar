@@ -1116,9 +1116,14 @@ public struct EngineCore {
         }
 
         switch key {
+        case "escape" where world.cheatVisible:
+            return [.dismissCheat]
         case "escape":
             state = .idle
             return [.exitPaste]
+        case "/" where shift:
+            // The strip's keys, on the sheet, with the strip still up.
+            return [.toggleCheat]
         case "/":
             state = .paste(searching: true)
             return [.pasteSearchBegin]

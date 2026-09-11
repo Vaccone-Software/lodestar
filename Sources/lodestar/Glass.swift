@@ -342,7 +342,7 @@ enum BarTheme {
     static let voiceWidth: CGFloat = 380
     /// The strip's search field, the index badge, and the searcher's dot:
     /// sizes with one home each, so the drift guard can hold the line.
-    static let stripInputFont = NSFont.systemFont(ofSize: 19, weight: .regular)
+    static let stripInputFont = handFont(19)
     static let badgeFont = NSFont.systemFont(ofSize: 27, weight: .bold)
     static let dotFont = NSFont.systemFont(ofSize: 8)
     /// Controls and marks on the ladder: a glass chip and a settings well

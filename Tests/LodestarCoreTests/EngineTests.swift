@@ -607,6 +607,19 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(core.state, .idle)
     }
 
+    func testQuestionInsideTheStripTogglesTheSheetAndEscapeTakesItDown() {
+        _ = core.openPaste(world: world)
+        XCTAssertEqual(core.state, .paste(searching: false))
+        XCTAssertEqual(press("/", held: false, shift: true), [.toggleCheat])
+        XCTAssertEqual(core.state, .paste(searching: false), "the strip stays up")
+        world.cheatVisible = true
+        XCTAssertEqual(press("escape", held: false), [.dismissCheat])
+        XCTAssertEqual(core.state, .paste(searching: false))
+        world.cheatVisible = false
+        XCTAssertEqual(press("escape", held: false), [.exitPaste])
+        XCTAssertEqual(core.state, .idle)
+    }
+
     func testScrollTabIsSwallowedLikeAnyOtherKey() {
         // Pane cycling was retired: the tree names no panes in a web view
         // or an Electron app, so the key never had anything to cycle.

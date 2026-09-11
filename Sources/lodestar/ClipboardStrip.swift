@@ -304,11 +304,10 @@ final class ClipboardStrip {
         let card = glassPlate(radius: BarTheme.rowRadius, weight: highlighted ? .highlighted : .normal)
         shownCards[clip.id] = card
 
-        let chip = NSTextField(labelWithString: label.uppercased())
-        chip.font = BarTheme.chipFont
-        chip.textColor = .labelColor
-        chip.sizeToFit()
-        chip.frame.origin = NSPoint(x: 11, y: height - chip.frame.height - 9)
+        // The address is a keymap, so it is drawn as the key it is: the
+        // same cap the guides and the sheet draw, placed by frame on a
+        // frame-laid card.
+        let chip = Self.placedCap(label.uppercased(), at: NSPoint(x: 11, y: height - BarTheme.chipHeight - 8))
         card.addSubview(chip)
 
         // A copy of several things reads as one card, and without this it
@@ -357,13 +356,18 @@ final class ClipboardStrip {
         // browser copy was made on — the address the hand remembers, "the
         // one from GitHub", and the one the search reads — or, for any
         // other copy, the app's name. One line, one rule.
+        // The pill's trailing wing: the app's name quiet, then its icon at
+        // the pill's size, a word gap apart.
         var trailing = Self.cardWidth - 11
         if let bundleID = clip.sourceBundleID, let image = sourceIcon(bundleID: bundleID) {
             let icon = NSImageView(image: image)
-            icon.frame = NSRect(x: Self.cardWidth - 28, y: height - 27, width: 17, height: 17)
+            icon.imageScaling = .scaleProportionallyUpOrDown
+            icon.frame = NSRect(x: Self.cardWidth - 11 - ModePill.iconSize,
+                                y: height - 11 - ModePill.iconSize - 4,
+                                width: ModePill.iconSize, height: ModePill.iconSize)
             icon.alphaValue = 0.85
             card.addSubview(icon)
-            trailing = Self.cardWidth - 33
+            trailing = icon.frame.minX - ModePill.wordGap
         }
         if let origin = clip.sourceHost ?? clip.sourceAppName {
             let source = NSTextField(labelWithString: origin)
@@ -403,13 +407,22 @@ final class ClipboardStrip {
     /// what works is the same glass, less dense, with the number legible.
     private func makeEmptyPin(slot: Int) -> NSView {
         let card = glassPlate(radius: BarTheme.rowRadius, weight: .empty)
-        let chip = NSTextField(labelWithString: "\(slot)")
-        chip.font = BarTheme.chipFont
-        chip.textColor = .tertiaryLabelColor
-        chip.sizeToFit()
-        chip.frame.origin = NSPoint(x: 11, y: Self.cardHeight - chip.frame.height - 9)
+        let chip = Self.placedCap("\(slot)", at: NSPoint(x: 11, y: Self.cardHeight - BarTheme.chipHeight - 8))
+        // The slot is waiting: the cap fades with the card it sits on.
+        chip.alphaValue = 0.55
         card.addSubview(chip)
         return card
+    }
+
+    /// The shared keycap, sized by its own constraints and then placed by
+    /// frame, which is how a frame-laid card holds an Auto Layout view.
+    static func placedCap(_ text: String, at origin: NSPoint) -> NSView {
+        let cap = Keycaps.cap(text)
+        cap.layoutSubtreeIfNeeded()
+        let size = cap.fittingSize
+        cap.translatesAutoresizingMaskIntoConstraints = true
+        cap.frame = NSRect(origin: origin, size: NSSize(width: size.width, height: BarTheme.chipHeight))
+        return cap
     }
 
     // MARK: - Actions

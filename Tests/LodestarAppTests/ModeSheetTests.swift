@@ -33,6 +33,13 @@ final class ModeSheetTests: XCTestCase {
         XCTAssertTrue(select.contains("⌘C") && select.contains("⇧A…Z") && select.contains("esc"))
     }
 
+    func testTheStripsSheet() {
+        let stage = Stage()
+        let sections = stage.engine.cheatSections(for: .paste(searching: false))
+        XCTAssertEqual(sections.map(\.header), ["clipboard"])
+        for key in ["A…;", "1…5", "/", "E", "?", "esc"] { XCTAssertTrue(keys(sections).contains(key), key) }
+    }
+
     func testIdleGetsTheWholeSystem() {
         let stage = Stage()
         let sections = stage.engine.cheatSections(for: .idle)

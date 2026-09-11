@@ -1186,6 +1186,16 @@ final class HotkeyEngine {
                 GuideRow(key: "?", label: "this sheet"),
                 leaving,
             ])]
+        case .paste(let searching) where !searching:
+            return [.init(header: "clipboard", rows: [
+                GuideRow(key: "A…;", label: "paste the card wearing that letter · ⇧ pastes as copied"),
+                GuideRow(key: "1…5", label: "paste the pin in that slot"),
+                GuideRow(key: "⌘A…;", label: "the card's actions: pin, edit, delete, save"),
+                GuideRow(key: "/", label: "search the clips · ⌥letter addresses a card mid-search"),
+                GuideRow(key: "E", label: "open a text card in the draft · an image across the display"),
+                GuideRow(key: "?", label: "this sheet"),
+                GuideRow(key: "esc", label: "close the strip"),
+            ])]
         case .select:
             return [.init(header: "select", rows: [
                 GuideRow(key: "a…z", label: "type what you see · a unique match anchors on its own"),
@@ -1296,6 +1306,30 @@ final class HotkeyEngine {
             .init(header: "graph", rows: actions.graphCheatRows(config.graph, prefix: [])),
             .init(header: "breaths", rows: actions.breathGuide(prefix: "")),
         ]
+    }
+
+    /// The settings window's keys, on the sheet: a slow surface with its
+    /// own key handling, so it asks the engine for the glass rather than
+    /// drawing a legend of its own.
+    func toggleSettingsSheet() {
+        cheat.toggle(sections: {
+            [.init(header: "settings", rows: [
+                GuideRow(key: "1…9", label: "the pane with that number"),
+                GuideRow(key: "a…z", label: "the setting wearing that letter"),
+                GuideRow(key: "/", label: "search the settings"),
+                GuideRow(key: "⏎", label: "commit an edit · esc steps back out of it"),
+                GuideRow(key: "?", label: "this sheet"),
+                GuideRow(key: "esc", label: "close the window"),
+            ])]
+        })
+    }
+
+    /// The sheet came down because the settings window's escape asked;
+    /// true when there was one to take down.
+    func dismissSheet() -> Bool {
+        guard cheat.isVisible else { return false }
+        cheat.hide()
+        return true
     }
 
     /// For the SIGUSR1 diagnostics dump.

@@ -1040,6 +1040,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 .sorted { $0.name < $1.name }
         }
         engine.onOpenSettings = { [weak self] in self?.settings.toggle() }
+        settings.help = { [weak self] in self?.engine.toggleSettingsSheet() }
+        settings.dismissSheet = { [weak self] in self?.engine.dismissSheet() ?? false }
     }
 
     @objc private func openSettingsWindow() {

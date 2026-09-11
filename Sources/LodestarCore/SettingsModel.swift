@@ -234,7 +234,7 @@ public enum SettingsModel {
         sections.append(Section(name: "General", rows: [
             Row(title: "Lode key", path: "lode.trigger",
                 control: .choice(options: ["right-command", "left-command"],
-                                 labels: ["right ⌘", "left ⌘"],
+                                 labels: ["Right ⌘", "Left ⌘"],
                                  current: config.trigger.rawValue),
                 detail: "A ⌘⌃⌥ hyper shim also works without changing this.",
                 isDefault: config.trigger == .rightCommand),
@@ -246,7 +246,7 @@ public enum SettingsModel {
                 control: .toggle(config.showMenuBar), isDefault: config.showMenuBar),
             Row(title: "Active display", path: "app.active-display",
                 control: .choice(options: ["pointer", "focus"],
-                                 labels: ["under the pointer", "with the focused window"],
+                                 labels: ["Under the pointer", "With the focused window"],
                                  current: config.activeDisplayMode == .focus ? "focus" : "pointer"),
                 detail: "Which display summoned windows land on.",
                 isDefault: config.activeDisplayMode == .pointer),

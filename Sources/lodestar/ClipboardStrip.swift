@@ -309,6 +309,10 @@ final class ClipboardStrip {
         // frame-laid card.
         let chip = Self.placedCap(label.uppercased(), at: NSPoint(x: 11, y: height - BarTheme.chipHeight - 8))
         card.addSubview(chip)
+        // One line, one center: the cap, the count, the source and its
+        // icon all sit on the cap's midline, which is what makes a header
+        // read as a line and not as three things near the top.
+        let line = height - 8 - BarTheme.chipHeight / 2
 
         // A copy of several things reads as one card, and without this it
         // reads as one *thing* — three files copied together look exactly
@@ -319,7 +323,7 @@ final class ClipboardStrip {
             count.textColor = BarTheme.secondaryColor
             count.sizeToFit()
             count.frame.origin = NSPoint(x: chip.frame.maxX + 6,
-                                         y: height - count.frame.height - 10)
+                                         y: line - count.frame.height / 2)
             card.addSubview(count)
         }
 
@@ -363,7 +367,7 @@ final class ClipboardStrip {
             let icon = NSImageView(image: image)
             icon.imageScaling = .scaleProportionallyUpOrDown
             icon.frame = NSRect(x: Self.cardWidth - 11 - ModePill.iconSize,
-                                y: height - 11 - ModePill.iconSize - 4,
+                                y: line - ModePill.iconSize / 2,
                                 width: ModePill.iconSize, height: ModePill.iconSize)
             icon.alphaValue = 0.85
             card.addSubview(icon)
@@ -378,7 +382,7 @@ final class ClipboardStrip {
             source.sizeToFit()
             // The room to the right of the chip and its item count.
             let width = min(source.frame.width, trailing - 64)
-            source.frame = NSRect(x: trailing - width, y: height - 26,
+            source.frame = NSRect(x: trailing - width, y: line - source.frame.height / 2,
                                   width: max(0, width), height: source.frame.height)
             card.addSubview(source)
             shownSources[clip.id] = origin

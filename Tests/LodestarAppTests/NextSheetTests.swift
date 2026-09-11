@@ -78,8 +78,14 @@ final class NextSheetTests: XCTestCase {
         // sets the frame at once, so the geometry is checked through it.
         pill.toggleKeys(HotkeyEngine.launcherSections)
         XCTAssertTrue(pill.keysShown)
+        let grown = pill.frameForContent()
+        XCTAssertGreaterThan(grown.width, row.width, "the glass grows outward around the row")
+        XCTAssertGreaterThan(grown.height, row.height)
         pill.hideKeys()
         XCTAssertFalse(pill.keysShown)
+        let shrunk = pill.frameForContent()
+        XCTAssertEqual(shrunk.size, row.size,
+                       "the glass comes back to the row's own size: the departing keys must not hold it wide")
         pill.hide()
         XCTAssertFalse(pill.keysShown, "hidden with the pill")
     }

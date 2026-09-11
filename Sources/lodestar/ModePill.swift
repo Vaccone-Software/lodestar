@@ -164,6 +164,7 @@ final class ModePill {
         state = nil
         keys?.removeFromSuperview()
         keys = nil
+        keyEdges = []
         panel.orderOut(nil)
     }
 
@@ -173,6 +174,10 @@ final class ModePill {
     /// never moves: the glass grows around it, upward and outward, and
     /// the keys fade in above.
     private var keys: NSView?
+    /// The edges that ask the glass to be big enough for the keys. Taken
+    /// off before the glass shrinks, or the departing keys would still
+    /// hold it wide while they fade.
+    private var keyEdges: [NSLayoutConstraint] = []
     var keysShown: Bool { keys != nil }
 
     func toggleKeys(_ sections: [CheatSheet.Section]) {
@@ -199,6 +204,7 @@ final class ModePill {
             columns.trailingAnchor.constraint(lessThanOrEqualTo: root.trailingAnchor, constant: -Self.inset),
         ]
         for edge in edges { edge.priority = .init(NSLayoutConstraint.Priority.windowSizeStayPut.rawValue - 1) }
+        keyEdges = edges
         NSLayoutConstraint.activate(edges + [
             columns.widthAnchor.constraint(equalToConstant: width),
             columns.centerXAnchor.constraint(equalTo: root.centerXAnchor),
@@ -213,6 +219,8 @@ final class ModePill {
     func hideKeys() {
         guard let going = keys else { return }
         keys = nil
+        NSLayoutConstraint.deactivate(keyEdges)
+        keyEdges = []
         placing = true
         KeysMotion.shrink(panel, to: frameForContent(), hiding: going) { [weak self] in self?.placing = false }
     }
@@ -346,7 +354,7 @@ final class ModePill {
     /// The glass for what it holds: the row's width and height alone, or
     /// the keys' above them. Its centre and its foot stay where the pill
     /// is, so growing never moves the row.
-    private func frameForContent() -> NSRect {
+    func frameForContent() -> NSRect {
         root.layoutSubtreeIfNeeded()
         var size = root.fittingSize
         if keys == nil { size.height = Self.height }

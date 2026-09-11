@@ -320,6 +320,16 @@ enum BarTheme {
         NSFont.monospacedSystemFont(ofSize: size, weight: weight)
     }
     static let inputFont = handFont(Scale.input)
+    /// A placeholder is the interface asking, not the hand answering, so
+    /// it wears the sans at the field's size and the quiet tone, and mono
+    /// stays reserved for what the person actually typed.
+    static func placeholder(_ text: String, like font: NSFont?) -> NSAttributedString {
+        let size = font?.pointSize ?? Scale.body
+        return NSAttributedString(string: text, attributes: [
+            .font: NSFont.systemFont(ofSize: size, weight: .regular),
+            .foregroundColor: secondaryColor,
+        ])
+    }
     static let inputSymbol = NSImage.SymbolConfiguration(pointSize: 19, weight: .medium)
     /// The one configuration a symbol beside text wears, and its larger
     /// cousin for the strip's own controls. Weight matched to the text.
@@ -886,5 +896,13 @@ enum FlashMark {
         guard let first = text.first, let symbol = symbols[first] else { return (nil, text) }
         let rest = text.dropFirst().trimmingCharacters(in: .whitespaces)
         return (symbol, Coach.sentenceCase(rest))
+    }
+}
+
+
+extension NSTextField {
+    /// The one way a field takes a placeholder: in the interface's face.
+    func setPlaceholder(_ text: String) {
+        placeholderAttributedString = BarTheme.placeholder(text, like: font)
     }
 }

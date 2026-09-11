@@ -52,7 +52,7 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
         field.drawsBackground = false
         field.focusRingType = .none
         field.font = BarTheme.inputFont
-        field.placeholderString = "Do what?"
+        field.setPlaceholder("Do what?")
         field.delegate = self
         field.translatesAutoresizingMaskIntoConstraints = false
 
@@ -114,7 +114,7 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
         let name = app.localizedName ?? "App"
         let pid = app.processIdentifier
         items = []
-        field.placeholderString = "Do what?"
+        field.setPlaceholder("Do what?")
         field.stringValue = ""
         requery()
         panel.makeKeyAndOrderFront(nil)

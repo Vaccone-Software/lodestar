@@ -1039,7 +1039,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         case .text(let value, let placeholder):
             let field = editableField(value, width: 240)
             field.identifier = NSUserInterfaceItemIdentifier(row.path)
-            field.placeholderString = placeholder
+            field.setPlaceholder(placeholder)
             fields[index] = field
             return field
         case .readout(let value, let sub):
@@ -1248,7 +1248,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         bar.spacing = 7
         func field(_ placeholder: String, width: CGFloat) -> NSTextField {
             let field = editableField("", width: width)
-            field.placeholderString = placeholder
+            field.setPlaceholder(placeholder)
             field.identifier = NSUserInterfaceItemIdentifier("bar|\(addKey(kind))")
             return field
         }
@@ -1414,7 +1414,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         list.spacing = 10
         list.translatesAutoresizingMaskIntoConstraints = false
         let field = NSTextField()
-        field.placeholderString = "Search settings"
+        field.setPlaceholder("Search settings")
         field.font = BarTheme.handFont(BarTheme.Scale.body)
         field.delegate = self
         field.widthAnchor.constraint(equalToConstant: 380).isActive = true

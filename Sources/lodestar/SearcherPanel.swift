@@ -157,7 +157,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         field.drawsBackground = false
         field.focusRingType = .none
         field.font = BarTheme.inputFont
-        field.placeholderString = "Where to?"
+        field.setPlaceholder("Where to?")
         field.delegate = self
         field.translatesAutoresizingMaskIntoConstraints = false
 
@@ -206,7 +206,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         appIndex.refreshIfStale()
         closeMenu()
         mode = .apps
-        field.placeholderString = "Where to?"
+        field.setPlaceholder("Where to?")
         field.stringValue = ""
         openedAt = Date()
         firstKeyAt = nil
@@ -219,7 +219,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     /// The window chooser: this app's windows, most recently focused first.
     func showWindowChooser(pid: pid_t, appName: String) {
         mode = .windows(pid: pid, appName: appName, cameFromApps: false)
-        field.placeholderString = "\(appName) windows"
+        field.setPlaceholder("\(appName) windows")
         field.stringValue = ""
         requery()
         present()
@@ -382,7 +382,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         case #selector(NSResponder.cancelOperation(_:)):
             if case .windows(_, _, true) = mode {
                 mode = .apps
-                field.placeholderString = "Where to?"
+                field.setPlaceholder("Where to?")
                 field.stringValue = ""
                 requery()
             } else {
@@ -405,7 +405,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
                case .app(let entry) = rows[selected],
                entry.isRunning, let pid = entry.pid {
                 mode = .windows(pid: pid, appName: entry.name, cameFromApps: true)
-                field.placeholderString = "\(entry.name) windows"
+                field.setPlaceholder("\(entry.name) windows")
                 field.stringValue = ""
                 requery()
             } else {

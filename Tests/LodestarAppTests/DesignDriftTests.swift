@@ -49,6 +49,23 @@ final class DesignDriftTests: XCTestCase {
         XCTAssertEqual(hits, [], "a symbol wears the theme's configuration, never its own")
     }
 
+    func testNoFieldTakesABarePlaceholder() throws {
+        let hits = try offenders(#"placeholderString\s*="#, in: surfaces())
+        XCTAssertEqual(hits, [], "a placeholder is set through the theme, in the interface's face")
+    }
+
+    func testAPlaceholderIsTheInterfaceAskingNotTheHandAnswering() {
+        let placeholder = BarTheme.placeholder("Where to?", like: BarTheme.inputFont)
+        let font = placeholder.attribute(.font, at: 0, effectiveRange: nil) as! NSFont
+        XCTAssertFalse(font.isFixedPitch, "the sans, not the hand's mono")
+        XCTAssertEqual(font.pointSize, BarTheme.inputFont.pointSize, "at the field's size")
+        let field = NSTextField()
+        field.font = BarTheme.inputFont
+        field.setPlaceholder("Where to?")
+        let set = field.placeholderAttributedString?.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
+        XCTAssertEqual(set?.isFixedPitch, false)
+    }
+
     func testTheThemeHoldsWhatTheGuardExpects() {
         XCTAssertEqual(BarTheme.typedFont.pointSize, 17)
         XCTAssertGreaterThan(BarTheme.typedFont.pointSize, BarTheme.bodyFont.pointSize)

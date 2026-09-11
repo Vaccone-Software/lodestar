@@ -108,7 +108,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         field.drawsBackground = false
         field.focusRingType = .none
         field.font = BarTheme.inputFont
-        field.placeholderString = "Where on the web?"
+        field.setPlaceholder("Where on the web?")
         field.delegate = self
         field.translatesAutoresizingMaskIntoConstraints = false
 

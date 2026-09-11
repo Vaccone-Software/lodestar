@@ -592,10 +592,13 @@ final class ClipboardStrip {
         symbol.frame = NSRect(x: 18, y: (Self.searchHeight - 18) / 2, width: 18, height: 18)
         plate.addSubview(symbol)
 
+        // What the hand typed is mono; the empty band's invitation is the
+        // interface asking, in its own face.
         let font = BarTheme.stripInputFont
-        let field = NSTextField(labelWithString: query.isEmpty ? "Search clips" : query)
-        field.font = font
-        field.textColor = query.isEmpty ? BarTheme.secondaryColor : .labelColor
+        let field = query.isEmpty
+            ? NSTextField(labelWithAttributedString: BarTheme.placeholder("Search clips", like: font))
+            : NSTextField(labelWithString: query)
+        if !query.isEmpty { field.font = font; field.textColor = .labelColor }
         field.lineBreakMode = .byTruncatingHead
         field.sizeToFit()
         field.frame = NSRect(x: 46, y: (Self.searchHeight - field.frame.height) / 2,
@@ -647,6 +650,9 @@ final class ClipboardStrip {
                              width: placeWidth, height: place.frame.height)
         plate.addSubview(place)
 
+        // The offered name is text the hand has already been handed, so it
+        // is mono like the name it becomes; only its tone says it is not
+        // yet the hand's own.
         let font = BarTheme.stripInputFont
         let field = NSTextField(labelWithString: name.isEmpty ? offered : name)
         field.font = font

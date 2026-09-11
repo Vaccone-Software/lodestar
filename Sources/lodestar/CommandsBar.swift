@@ -11,7 +11,6 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
     private let symbol = NSImageView()
     private let separator = NSBox()
     private let rowsStack = NSStackView()
-    private let footer = NSTextField(labelWithString: "↵ run    esc close")
 
     private var items: [Commands.Row] = []
     private var rows: [Commands.Row] = []
@@ -20,7 +19,6 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
     private let panelWidth = BarTheme.panelWidth
     private let inputHeight = BarTheme.inputHeight
     private let rowHeight = BarTheme.rowHeight
-    private let footerHeight = BarTheme.footerHeight
 
     override init() {
         panel = KeyablePanel(
@@ -62,17 +60,12 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
         rowsStack.orientation = .vertical
         rowsStack.spacing = 2
         rowsStack.translatesAutoresizingMaskIntoConstraints = false
-
-        footer.font = BarTheme.footerFont
-        footer.textColor = BarTheme.secondaryColor
-        footer.alignment = .center
-        footer.translatesAutoresizingMaskIntoConstraints = false
+        keys.install(root: root, below: rowsStack)
 
         root.addSubview(symbol)
         root.addSubview(field)
         root.addSubview(separator)
         root.addSubview(rowsStack)
-        root.addSubview(footer)
         NSLayoutConstraint.activate([
             symbol.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 22),
             symbol.centerYAnchor.constraint(equalTo: root.topAnchor, constant: inputHeight / 2),
@@ -85,13 +78,30 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
             rowsStack.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 8),
             rowsStack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 10),
             rowsStack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -10),
-            footer.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 14),
-            footer.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -14),
-            footer.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -7),
         ])
     }
 
     var isVisible: Bool { panel.isVisible }
+
+    /// The bar's keys, held in its own glass on lode ?.
+    private let keys = BarKeys()
+    var keysShown: Bool { keys.isShown }
+
+    func toggleKeys(_ sections: [CheatSheet.Section]) {
+        if keys.isShown { hideKeys() } else { showKeys(sections) }
+    }
+
+    func showKeys(_ sections: [CheatSheet.Section]) {
+        guard panel.isVisible else { return }
+        let view = keys.show(sections)
+        root.layoutSubtreeIfNeeded()
+        KeysMotion.grow(panel, to: barFrame(), revealing: view)
+    }
+
+    func hideKeys() {
+        guard let view = keys.hide() else { return }
+        KeysMotion.shrink(panel, to: barFrame(), hiding: view)
+    }
 
     func toggle() {
         if panel.isVisible { hide() } else { show() }
@@ -99,14 +109,8 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
 
     private var harvestGeneration = 0
 
-    /// How long the footer waits before painting — `SurfaceFade`'s
-    /// verdict for this bar, set by the engine before each show.
-    var footerDelay: () -> TimeInterval = { 0 }
-    private let footerFade = FooterFade()
-
     func show() {
         guard let app = NSWorkspace.shared.frontmostApplication else { return }
-        footerFade.apply(to: footer, delay: footerDelay())
         // The panel appears immediately; the AX walk of the menu tree runs
         // off the main thread — a hung app can never freeze lodestar here.
         harvestGeneration += 1
@@ -132,6 +136,7 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
     }
 
     func hide() {
+        keys.hide()?.removeFromSuperview()
         panel.orderOut(nil)
     }
 
@@ -174,16 +179,22 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
         }
     }
 
-    private func reposition() {
+    /// Where the bar stands for what it holds: its top edge fixed, so
+    /// growing to hold its keys extends it downward.
+    private func barFrame() -> NSRect {
         let count = CGFloat(rows.count)
         let rowsArea = count > 0 ? 1 + 8 + count * rowHeight + CGFloat(max(0, rows.count - 1)) * 2 + 6 : 0
-        let height = inputHeight + rowsArea + footerHeight
+        let height = inputHeight + rowsArea + BarTheme.barFoot + keys.height
         let visible = ActivePolicy.presentationFrame
         let origin = NSPoint(
             x: visible.midX - panelWidth / 2,
             y: visible.minY + visible.height * 0.64 - height
         )
-        panel.setFrame(NSRect(origin: origin, size: NSSize(width: panelWidth, height: height)), display: true)
+        return NSRect(origin: origin, size: NSSize(width: panelWidth, height: height))
+    }
+
+    private func reposition() {
+        panel.setFrame(barFrame(), display: true)
     }
 
     // MARK: - Keyboard

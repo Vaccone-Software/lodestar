@@ -553,8 +553,9 @@ final class EngineTests: XCTestCase {
 
     func testQuestionInsideScrollTogglesTheSheetAndStays() {
         enterScrollMode()
-        XCTAssertEqual(press("/", held: false, shift: true), [.toggleCheat], "a plain ?")
-        XCTAssertEqual(press("/", shift: true), [.toggleCheat], "and lode ? the same")
+        XCTAssertEqual(press("/", held: false, shift: true), [.scrollCancelPendingG],
+                       "a plain ? is a character, never a door")
+        XCTAssertEqual(press("/", shift: true), [.toggleCheat], "lode ? is the one door")
         XCTAssertEqual(core.state, .scroll, "the lens stays up")
         world.cheatVisible = true
         XCTAssertEqual(press("escape", held: false), [.dismissCheat], "escape is the sheet's")
@@ -573,7 +574,7 @@ final class EngineTests: XCTestCase {
 
     func testTheSheetInsideTheAimBand() {
         enterAim()
-        XCTAssertEqual(press("/", held: false, shift: true), [.toggleCheat])
+        XCTAssertEqual(press("/", shift: true), [.toggleCheat])
         XCTAssertEqual(core.state, .scrollAim)
         world.cheatVisible = true
         XCTAssertEqual(press("escape", held: false), [.dismissCheat])
@@ -584,7 +585,7 @@ final class EngineTests: XCTestCase {
     func testTheSheetInsideHints() {
         _ = press(";")
         XCTAssertEqual(core.state, .hints(sticky: false))
-        XCTAssertEqual(press("/", held: false, shift: true), [.toggleCheat], "? never reaches the search")
+        XCTAssertEqual(press("/", shift: true), [.toggleCheat], "lode ? never reaches the search")
         XCTAssertEqual(core.state, .hints(sticky: false))
         world.cheatVisible = true
         XCTAssertEqual(press("escape", held: false), [.dismissCheat])
@@ -596,7 +597,7 @@ final class EngineTests: XCTestCase {
         _ = press("/")
         XCTAssertEqual(core.state, .select)
         world.calls = []
-        XCTAssertEqual(press("/", held: false, shift: true), [.toggleCheat], "? never reaches the search")
+        XCTAssertEqual(press("/", shift: true), [.toggleCheat], "lode ? never reaches the search")
         XCTAssertEqual(core.state, .select)
         XCTAssertTrue(world.calls.isEmpty, "select never saw the sheet's key")
         world.cheatVisible = true
@@ -610,7 +611,7 @@ final class EngineTests: XCTestCase {
     func testQuestionInsideTheStripTogglesTheSheetAndEscapeTakesItDown() {
         _ = core.openPaste(world: world)
         XCTAssertEqual(core.state, .paste(searching: false))
-        XCTAssertEqual(press("/", held: false, shift: true), [.toggleCheat])
+        XCTAssertEqual(press("/", shift: true), [.toggleCheat], "lode ? with the strip up")
         XCTAssertEqual(core.state, .paste(searching: false), "the strip stays up")
         world.cheatVisible = true
         XCTAssertEqual(press("escape", held: false), [.dismissCheat])
@@ -652,7 +653,7 @@ final class EngineTests: XCTestCase {
 
     func testQuestionMarkInScrollIsTheSheet() {
         enterScrollMode()
-        XCTAssertEqual(press("/", held: false, shift: true), [.toggleCheat])
+        XCTAssertEqual(press("/", shift: true), [.toggleCheat])
         XCTAssertEqual(core.state, .scroll)
     }
 

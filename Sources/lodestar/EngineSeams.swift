@@ -40,6 +40,16 @@ protocol BarSurface: AnyObject {
     var isVisible: Bool { get }
     func show()
     func hide()
+    /// The bar's keys, held in its own glass on lode ?.
+    var keysShown: Bool { get }
+    func toggleKeys(_ sections: [CheatSheet.Section])
+    func hideKeys()
+}
+
+extension BarSurface {
+    var keysShown: Bool { false }
+    func toggleKeys(_ sections: [CheatSheet.Section]) {}
+    func hideKeys() {}
 }
 
 /// The launcher, which also chooses among one app's windows.

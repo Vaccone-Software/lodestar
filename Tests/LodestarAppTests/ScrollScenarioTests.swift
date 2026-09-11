@@ -180,7 +180,11 @@ final class ScrollScenarioTests: XCTestCase {
     func testTheSheetInsideScrollMode() {
         let stage = Stage()
         enterScroll(stage)
-        XCTAssertTrue(stage.press("/", shift: true), "a plain ? is the sheet's key inside a lens")
+        XCTAssertTrue(stage.press("/", shift: true), "a plain ? is swallowed by the lens, never a door")
+        XCTAssertFalse(stage.engine.cheatVisible, "and opens nothing")
+        stage.hold()
+        XCTAssertTrue(stage.press("/", shift: true), "lode ? is the one door")
+        stage.release()
         XCTAssertTrue(stage.engine.cheatVisible, "the sheet is up")
         XCTAssertTrue(stage.engine.pill.isVisible, "and the mode is still up")
         XCTAssertTrue(stage.press("escape"), "escape is the sheet's")

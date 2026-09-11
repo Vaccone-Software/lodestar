@@ -906,11 +906,11 @@ final class HotkeyEngine {
             case .hintRescan:
                 select.rescanClick()
             case .dismissCheat:
-                cheat.hide()
+                dismissKeys()
             case .openSettings:
                 onOpenSettings?()
             case .toggleCheat:
-                cheat.toggle(sections: { self.cheatSections(for: self.core.state) })
+                toggleKeys()
                 walkSignal?(.cheatOpened)
             case .hideBars:
                 hideBars()
@@ -1071,11 +1071,9 @@ final class HotkeyEngine {
                 self.lastActivityAt = self.clock.now()
                 self.onSurfaceClaimed?()
                 self.walkSignal?(.peeked)
-                self.hud.showGuide(
-                    title: "⌖ graph",
-                    rows: self.actions.graphGuideRows(self.config.graph),
-                    footer: "letter to go · space launcher · ⏎ ask · ; hints · ' breaths · ? everything · release to dismiss"
-                )
+                // The peek is the root guide: lode held, its map. The verbs
+                // it once listed in a footer live on the sheet, behind lode ?.
+                self.hud.showGuide(keys: ["lode"], rows: self.actions.graphGuideRows(self.config.graph))
                 self.badges.show(self.actions.indexBadgeItems())
             }
             peekWork = work
@@ -1233,7 +1231,7 @@ final class HotkeyEngine {
     }
 
     private func showGuide(kind: ChainKind, letters: [String], deleting: Bool, note: String?) {
-        let prefix = display(letters)
+        let typed = letters.map { $0.uppercased() }
         switch kind {
         case .graph:
             var rows: [GuideRow] = []
@@ -1242,23 +1240,17 @@ final class HotkeyEngine {
             } else if letters.isEmpty {
                 rows = actions.graphGuideRows(config.graph)
             }
-            hud.showGuide(title: "⌖ \(prefix.isEmpty ? "graph" : prefix)", rows: rows,
-                          footer: footer(note: note, base: "esc clears"))
+            hud.showGuide(keys: ["lode"] + typed, rows: rows, footer: note)
         case .breath:
             var rows = actions.breathGuide(prefix: letters.joined())
             if letters.isEmpty && !deleting {
-                rows.insert(GuideRow(key: "'", label: "update latest breath"), at: 0)
+                rows.insert(GuideRow(key: "'", label: "Update the latest breath"), at: 0)
             }
-            let title = deleting ? "◎ Delete breath \(prefix)" : "◎ Breath \(prefix)"
-            let base = deleting
-                ? "type a path to delete it · ⌫ disarms · esc clears"
-                : "letter restores · ⇧letter saves here · ⌫ arms delete · esc clears"
-            hud.showGuide(title: title, rows: rows, footer: footer(note: note, base: base))
+            // The header is every key pressed so far, ⌫ included: a delete
+            // armed is a key that was typed, and reads as one.
+            let keys = ["lode", "'"] + (deleting ? ["⌫"] : []) + typed
+            hud.showGuide(mark: BarTheme.breathSymbol, keys: keys, rows: rows, footer: note)
         }
-    }
-
-    private func footer(note: String?, base: String) -> String {
-        note.map { "\($0)   ·   \(base)" } ?? base
     }
 
     /// Everything on one sheet, from live config and state.
@@ -1311,24 +1303,85 @@ final class HotkeyEngine {
     /// The settings window's keys, on the sheet: a slow surface with its
     /// own key handling, so it asks the engine for the glass rather than
     /// drawing a legend of its own.
-    func toggleSettingsSheet() {
-        cheat.toggle(sections: {
-            [.init(header: "settings", rows: [
-                GuideRow(key: "1…9", label: "the pane with that number"),
-                GuideRow(key: "a…z", label: "the setting wearing that letter"),
-                GuideRow(key: "/", label: "search the settings"),
-                GuideRow(key: "⏎", label: "commit an edit · esc steps back out of it"),
-                GuideRow(key: "?", label: "this sheet"),
-                GuideRow(key: "esc", label: "close the window"),
-            ])]
-        })
+    /// Whether the settings window is up: lode ? there shows its keys.
+    var settingsUp: () -> Bool = { false }
+
+    /// The keys of wherever the hand is. One door, lode ?, and what it
+    /// opens depends on what is standing: a bar's keys, the settings
+    /// window's, a lens's, or at idle the whole system.
+    func sheetSections() -> [CheatSheet.Section] {
+        if settingsUp() { return Self.settingsSections }
+        if searcher.isVisible { return Self.launcherSections }
+        if webBar.isVisible { return Self.askSections }
+        if commandsBar.isVisible { return Self.commandsSections }
+        return cheatSections(for: core.state)
     }
+
+    /// lode ?: a standing bar grows to hold its keys, a lens's pill grows
+    /// to hold its own, and with nothing standing the sheet is its own
+    /// panel at the middle of the screen.
+    private func toggleKeys() {
+        for bar in [searcher, webBar, commandsBar] as [BarSurface] where bar.isVisible {
+            bar.toggleKeys(sheetSections())
+            return
+        }
+        if pill.isVisible {
+            pill.toggleKeys(sheetSections())
+            return
+        }
+        cheat.toggle(sections: { self.sheetSections() })
+    }
+
+    private func dismissKeys() {
+        cheat.hide()
+        for bar in [searcher, webBar, commandsBar] as [BarSurface] { bar.hideKeys() }
+        pill.hideKeys()
+    }
+
+    static let everywhereSection = CheatSheet.Section(header: "Everywhere", rows: [
+        GuideRow(keys: ["lode", "?"], label: "The keys of wherever you are"),
+        GuideRow(keys: ["lode", ","], label: "Settings"),
+        GuideRow(key: "esc", label: "Close what is open"),
+    ])
+
+    static let settingsSections: [CheatSheet.Section] = [
+        .init(header: "Settings", rows: [
+            GuideRow(key: "1…9", label: "The pane with that number"),
+            GuideRow(key: "a…z", label: "The setting wearing that letter"),
+            GuideRow(key: "/", label: "Search the settings"),
+            GuideRow(key: "⏎", label: "Commit an edit"),
+            GuideRow(key: "esc", label: "Step out of an edit, then close the window"),
+        ]), everywhereSection]
+
+    static let launcherSections: [CheatSheet.Section] = [
+        .init(header: "Launcher", rows: [
+            GuideRow(key: "⏎", label: "Open"),
+            GuideRow(key: "⇧⏎", label: "Open beside"),
+            GuideRow(key: "⇥", label: "The app's windows"),
+            GuideRow(key: "⌘K", label: "Bind the app to a key"),
+            GuideRow(key: "⌫", label: "Back up"),
+            GuideRow(key: "esc", label: "Close"),
+        ]), everywhereSection]
+
+    static let askSections: [CheatSheet.Section] = [
+        .init(header: "Ask", rows: [
+            GuideRow(key: "⏎", label: "Open"),
+            GuideRow(key: "⇧⏎", label: "Open beside"),
+            GuideRow(key: "⌘K", label: "Link, route, or choose the profile"),
+            GuideRow(key: "esc", label: "Close"),
+        ]), everywhereSection]
+
+    static let commandsSections: [CheatSheet.Section] = [
+        .init(header: "Commands", rows: [
+            GuideRow(key: "⏎", label: "Run"),
+            GuideRow(key: "esc", label: "Close"),
+        ]), everywhereSection]
 
     /// The sheet came down because the settings window's escape asked;
     /// true when there was one to take down.
     func dismissSheet() -> Bool {
-        guard cheat.isVisible else { return false }
-        cheat.hide()
+        guard cheatVisible else { return false }
+        dismissKeys()
         return true
     }
 
@@ -1748,7 +1801,10 @@ extension HotkeyEngine: EngineWorld {
     var searcherVisible: Bool { searcher.isVisible }
     var webBarVisible: Bool { webBar.isVisible }
     var commandsBarVisible: Bool { commandsBar.isVisible }
-    var cheatVisible: Bool { cheat.isVisible }
+    var cheatVisible: Bool {
+        cheat.isVisible || pill.keysShown
+            || ([searcher, webBar, commandsBar] as [BarSurface]).contains { $0.keysShown }
+    }
     var hasFocusedApp: Bool { actions.focusedAppInfo() != nil }
     var draftVisible: Bool { draft.isOpen }
 }

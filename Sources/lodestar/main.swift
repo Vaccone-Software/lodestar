@@ -222,7 +222,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         model.onTrace = { Log.info("model: \($0)") }
         searcher = SearcherController(appIndex: appIndex, actions: actions, model: model)
         searcher.observations = observationStore
-        searcher.footerDelay = { [weak self] in self?.footerDelay("launcher") ?? 0 }
         searcher.onAbandon = { [weak self] in self?.surfaceFade.stumbled(surface: "launcher") }
         rebuildGraphAddresses()
         searcher.graphAddress = { [weak self] name in self?.graphAddressByApp[name] }
@@ -254,7 +253,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         clipboardController.setEnabled(config.clipboardEnabled)
 
         webBar = WebBarController()
-        webBar.footerDelay = { [weak self] in self?.footerDelay("web") ?? 0 }
         webBar.config = config
         webBar.mostRecentProfile = { [weak self] in self?.mostRecentBrowserProfile() }
         webBar.perform = { [weak self] url, profile, beside, row in
@@ -336,7 +334,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         draftController = draft
         let commandsBar = CommandsBarController()
-        commandsBar.footerDelay = { [weak self] in self?.footerDelay("menu") ?? 0 }
         engine = HotkeyEngine(config: config, actions: actions, hud: hud, searcher: searcher,
                               webBar: webBar, commandsBar: commandsBar,
                               scroller: scroller,
@@ -480,6 +477,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                icon: self.icon(for: target))
         }
         actions.onLinkSpent = { [weak self] in self?.linkChip.hide() }
+        // The opening pill rides the lenses' pill. It only comes down if
+        // it is still the one standing: a lens entered mid-launch owns it.
+        actions.onOpening = { [weak self] name, icon in
+            self?.engine.pill.show(.init(mode: .opening, app: name, icon: icon,
+                                         listening: false, text: nil))
+        }
+        actions.onOpened = { [weak self] in
+            guard let pill = self?.engine.pill, pill.state?.mode == .opening else { return }
+            pill.hide()
+        }
         engine.walkSignal = { [weak self] signal in self?.walk.notice(signal) }
         actions.walkPick = { [weak self] in self?.walk.notice(.launcherPick) }
         actions.coachBoundary = { [weak self] app in self?.coach.noteBoundary(app: app) }
@@ -570,7 +577,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // grant was later revoked.
             if walk.isUp == false, store.walkCompletedVersion != nil {
                 Permissions.requestIfNeeded()
-                hud.flash("Lodestar needs Accessibility. Grant it in System Settings and it wakes up on its own", seconds: 8)
+                // The ask in the voice, with no key rows: until the grant
+                // lands no key reaches Lodestar, and a cap that cannot be
+                // pressed would be a lie. It stands until trust arrives,
+                // when the ready note takes its place.
+                hud.showVoice(sentence: Self.accessibilityNote, detail: Self.accessibilityDetail,
+                              rows: [], owner: .flash)
             }
             trustPoll = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: true) { [weak self] _ in
                 guard let self, Permissions.isTrusted else { return }
@@ -1040,8 +1052,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 .sorted { $0.name < $1.name }
         }
         engine.onOpenSettings = { [weak self] in self?.settings.toggle() }
-        settings.help = { [weak self] in self?.engine.toggleSettingsSheet() }
         settings.dismissSheet = { [weak self] in self?.engine.dismissSheet() ?? false }
+        engine.settingsUp = { [weak self] in self?.settings.isVisible ?? false }
     }
 
     @objc private func openSettingsWindow() {
@@ -1891,6 +1903,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     static let readyNote = "Ready when you are"
+    static let accessibilityNote = "Lodestar needs Accessibility to see the windows"
+    static let accessibilityDetail = "Grant it in System Settings and Lodestar wakes on its own"
     static let readyKeymap = Coach.Keymap(keys: ["lode", "␣"], target: "Launcher")
 
     /// Lodestar speaking briefly about itself: a note in the voice that

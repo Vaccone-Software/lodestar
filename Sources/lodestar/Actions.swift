@@ -167,8 +167,8 @@ final class Actions {
             place(window, beside: beside)
             return
         }
-        hud.flash("… opening \(profile.browser.label) · \(profile.display)",
-                  icon: icon(forAppNamed: profile.browser.appName))
+        beginOpening("\(profile.browser.label) · \(profile.display)",
+                     icon: icon(forAppNamed: profile.browser.appName), seconds: 12)
         expect(seconds: 12, matches: { window in
             window.bundleID == profile.browser.bundleID
                 && profile.browser.windowMatches(title: window.title, profile: profile.display)
@@ -224,6 +224,36 @@ final class Actions {
     /// A link went to the browser and the screen is not going to move for
     /// it. The chip is the only evidence the click did anything.
     var onLinkHeld: ((GraphTarget) -> Void)?
+
+    /// A launch that is taking time. The pill stands only after a launch
+    /// has outlasted `openingPatience`: a summon of a running app is
+    /// instant, and a pill that flashes for a frame is noise. It comes
+    /// down when the window arrives or the wait expires.
+    var onOpening: ((_ name: String, _ icon: NSImage?) -> Void)?
+    var onOpened: (() -> Void)?
+    static let openingPatience: TimeInterval = 0.33
+    private var openingWork: DispatchWorkItem?
+    private var openingExpiry: DispatchWorkItem?
+
+    private func beginOpening(_ name: String, icon: NSImage?, seconds: TimeInterval) {
+        endOpening()
+        let show = DispatchWorkItem { [weak self] in
+            self?.openingWork = nil
+            self?.onOpening?(name, icon)
+        }
+        openingWork = show
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.openingPatience, execute: show)
+        let expire = DispatchWorkItem { [weak self] in self?.endOpening() }
+        openingExpiry = expire
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: expire)
+    }
+
+    private func endOpening() {
+        let wasShown = openingWork == nil && openingExpiry != nil
+        openingWork?.cancel(); openingWork = nil
+        openingExpiry?.cancel(); openingExpiry = nil
+        if wasShown { onOpened?() }
+    }
 
     /// The chip's premise is gone: the screen it promised not to move has
     /// moved, or the browser is in front of them anyway. A chip outliving
@@ -350,8 +380,8 @@ final class Actions {
             hud.flash("✕ \(profile.browser.label) profile '\(profile.display)' not found")
             return
         }
-        hud.flash("… opening \(profile.browser.label) · \(profile.display)",
-                  icon: icon(forAppNamed: profile.browser.appName))
+        beginOpening("\(profile.browser.label) · \(profile.display)",
+                     icon: icon(forAppNamed: profile.browser.appName), seconds: 12)
         expect(seconds: 12, matches: { window in
             window.bundleID == profile.browser.bundleID
                 && profile.browser.windowMatches(title: window.title, profile: profile.display)
@@ -362,7 +392,7 @@ final class Actions {
 
     private func launch(_ entry: AppIndex.Entry, beside: Bool) {
         let appIcon = NSWorkspace.shared.icon(forFile: entry.url.path)
-        hud.flash("… launching \(entry.name)", icon: appIcon)
+        beginOpening(entry.name, icon: appIcon, seconds: 12)
         let bundleID = entry.bundleID
         let name = entry.name
         expect(seconds: 12, matches: { window in
@@ -537,11 +567,11 @@ final class Actions {
             .map { record in
                 let remaining = record.path.dropFirst(prefix.count)
                     .uppercased().map(String.init).joined(separator: " ")
+                // The row is the layout: its apps, in their order. No count
+                // and no icon, because the names already say both.
                 let names = record.members.map(\.appName).joined(separator: " · ")
-                let clipped = names.count > 48 ? String(names.prefix(47)) + "…" : names
-                return GuideRow(key: remaining,
-                                label: "\(record.members.count)▢  \(clipped)",
-                                icon: record.members.first.flatMap { icon(forAppNamed: $0.appName) })
+                let clipped = names.count > 48 ? String(names.prefix(48)) : names
+                return GuideRow(key: remaining, label: clipped)
             }
     }
 
@@ -879,6 +909,7 @@ final class Actions {
         // chip standing out its minute over a browser the hand already went
         // and fetched.
         onLinkSpent?()
+        endOpening()
         placing = true
         defer { placing = false }
         let began = Date()

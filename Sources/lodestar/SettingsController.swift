@@ -13,7 +13,6 @@ import LodestarCore
 final class SettingsController: NSObject, NSTextFieldDelegate {
     /// The window's keys live on the sheet: ? asks the engine for it, and
     /// escape takes the sheet down before it closes the window.
-    var help: () -> Void = {}
     var dismissSheet: () -> Bool = { false }
 
     var config = Config() {
@@ -280,11 +279,6 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         if key == "escape" {
             if dismissSheet() { return true }
             close()
-            return true
-        }
-        // A plain ? (shift and slash): the window's keys on the sheet.
-        if key == "/", shiftHeld {
-            help()
             return true
         }
         if key == "/" {

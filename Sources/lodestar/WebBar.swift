@@ -42,7 +42,6 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     private let globe = NSImageView()
     private let separator = NSBox()
     private let rowsStack = NSStackView()
-    private let footer = NSTextField(labelWithString: "↵ open    ⇧↵ beside    esc close")
 
     /// Wired by the app delegate; refreshed on config reload.
     var config = Config()
@@ -70,7 +69,6 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     private let panelWidth = BarTheme.panelWidth
     private let inputHeight = BarTheme.inputHeight
     private let rowHeight = BarTheme.rowHeight
-    private let footerHeight = BarTheme.footerHeight
 
     override init() {
         panel = KeyablePanel(
@@ -118,17 +116,12 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         rowsStack.orientation = .vertical
         rowsStack.spacing = 2
         rowsStack.translatesAutoresizingMaskIntoConstraints = false
-
-        footer.font = BarTheme.footerFont
-        footer.textColor = BarTheme.secondaryColor
-        footer.alignment = .center
-        footer.translatesAutoresizingMaskIntoConstraints = false
+        keys.install(root: root, below: rowsStack)
 
         root.addSubview(globe)
         root.addSubview(field)
         root.addSubview(separator)
         root.addSubview(rowsStack)
-        root.addSubview(footer)
         NSLayoutConstraint.activate([
             globe.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 22),
             globe.centerYAnchor.constraint(equalTo: root.topAnchor, constant: inputHeight / 2),
@@ -141,34 +134,46 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             rowsStack.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 8),
             rowsStack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 10),
             rowsStack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -10),
-            footer.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 14),
-            footer.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -14),
-            footer.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -7),
         ])
     }
 
     var isVisible: Bool { panel.isVisible }
 
+    /// The bar's keys, held in its own glass on lode ?.
+    private let keys = BarKeys()
+    var keysShown: Bool { keys.isShown }
+
+    func toggleKeys(_ sections: [CheatSheet.Section]) {
+        if keys.isShown { hideKeys() } else { showKeys(sections) }
+    }
+
+    func showKeys(_ sections: [CheatSheet.Section]) {
+        guard panel.isVisible else { return }
+        let view = keys.show(sections)
+        root.layoutSubtreeIfNeeded()
+        KeysMotion.grow(panel, to: barFrame(), revealing: view)
+    }
+
+    func hideKeys() {
+        guard let view = keys.hide() else { return }
+        KeysMotion.shrink(panel, to: barFrame(), hiding: view)
+    }
+
     func toggle() {
         if panel.isVisible { hide() } else { show() }
     }
-
-    /// How long the footer waits before painting — `SurfaceFade`'s
-    /// verdict for this bar, set by the engine before each show.
-    var footerDelay: () -> TimeInterval = { 0 }
-    private let footerFade = FooterFade()
 
     func show() {
         closeMenu()
         field.stringValue = ""
         requery()
-        footerFade.apply(to: footer, delay: footerDelay())
         panel.makeKeyAndOrderFront(nil)
         panel.orderFrontRegardless()
         panel.makeFirstResponder(field)
     }
 
     func hide() {
+        keys.hide()?.removeFromSuperview()
         closeMenu()
         panel.orderOut(nil)
     }
@@ -231,30 +236,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             Log.info("webbar: \(query.count) chars -> \(shape)")
         }
         renderRows()
-        updateFooter()
         reposition()
-    }
-
-    /// The hint names what ⌘K would actually offer on this row, read off the
-    /// same options the card would show — so it can never drift from them.
-    /// Two verbs is the budget; a footer is a hint, not the menu.
-    private func updateFooter() {
-        var verbs = ""
-        if let row = menuRow() {
-            let words = menu.options(for: row, in: context).items.prefix(2).map(Self.verb)
-            if !words.isEmpty { verbs = "    ⌘K " + words.joined(separator: " · ") }
-        }
-        footer.stringValue = "↵ open    ⇧↵ beside" + verbs + "    esc close"
-    }
-
-    private static func verb(_ item: WebMenu.Item) -> String {
-        switch item.role {
-        case .addLink: return "link"
-        case .route: return "route"
-        case .removeLink: return "remove"
-        case .removeRoute: return "unroute"
-        case .profile, .choice: return ""
-        }
     }
 
     /// Row views are pooled and mutated — typing repaints, it never rebuilds.
@@ -277,16 +259,22 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         }
     }
 
-    private func reposition() {
+    /// Where the bar stands for what it holds: its top edge fixed, so
+    /// growing to hold its keys extends it downward.
+    private func barFrame() -> NSRect {
         let count = CGFloat(rows.count)
         let rowsArea = count > 0 ? 1 + 8 + count * rowHeight + CGFloat(max(0, rows.count - 1)) * 2 + 6 : 0
-        let height = inputHeight + rowsArea + footerHeight
+        let height = inputHeight + rowsArea + BarTheme.barFoot + keys.height
         let visible = ActivePolicy.presentationFrame
         let origin = NSPoint(
             x: visible.midX - panelWidth / 2,
             y: visible.minY + visible.height * 0.64 - height
         )
-        panel.setFrame(NSRect(origin: origin, size: NSSize(width: panelWidth, height: height)), display: true)
+        return NSRect(origin: origin, size: NSSize(width: panelWidth, height: height))
+    }
+
+    private func reposition() {
+        panel.setFrame(barFrame(), display: true)
     }
 
     // MARK: - Keyboard
@@ -328,7 +316,6 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         guard !rows.isEmpty else { return }
         selected = (selected + delta + rows.count) % rows.count
         renderRows()
-        updateFooter()
     }
 
     private func pick(beside: Bool) {
@@ -592,6 +579,11 @@ extension WebBarController {
     static func preview(query: String, config: Config) -> WebBarController {
         let bar = WebBarController()
         bar.config = config
+        return preview(bar: bar, query: query)
+    }
+
+    /// The same, over a bar the caller has already configured.
+    static func preview(bar: WebBarController, query: String) -> WebBarController {
         bar.show()
         bar.field.stringValue = query
         // Setting the value selects it, and a highlighted query reads as

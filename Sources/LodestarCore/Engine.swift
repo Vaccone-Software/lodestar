@@ -827,14 +827,14 @@ public struct EngineCore {
         return effects
     }
 
-    /// The sheet inside a lens: a plain ? shows the keys the lens owns and
-    /// the lens stays up, lode ? the same, and escape while the sheet
-    /// stands takes the sheet down and nothing else. A search loses the
-    /// question mark as a character, which no search was ever made of.
-    /// Nil when the key is the lens's own.
+    /// The sheet inside a lens: lode ? shows the keys the lens owns and
+    /// the lens stays up, and escape while the sheet stands takes the
+    /// sheet down and nothing else. Only under lode: a plain ? is a
+    /// character wherever typing is, and one door everywhere is the rule
+    /// a hand can keep. Nil when the key is the lens's own.
     private func sheetPress(key: String, held: Bool, shift: Bool,
                             world: EngineWorld) -> [EngineEffect]? {
-        if key == "/", shift { return [.toggleCheat] }
+        if key == "/", shift, held { return [.toggleCheat] }
         if !held, key == "escape", world.cheatVisible { return [.dismissCheat] }
         return nil
     }
@@ -1007,6 +1007,9 @@ public struct EngineCore {
                                      option: Bool, searching: Bool,
                                      world: EngineWorld) -> [EngineEffect] {
         if held {
+            // lode ? is the strip's keys, with the strip still up. Any other
+            // lode gesture leaves the strip and is read at idle.
+            if key == "/", shift { return [.toggleCheat] }
             state = .idle
             var effects: [EngineEffect] = [.exitPaste]
             if key != "escape" {
@@ -1121,10 +1124,7 @@ public struct EngineCore {
         case "escape":
             state = .idle
             return [.exitPaste]
-        case "/" where shift:
-            // The strip's keys, on the sheet, with the strip still up.
-            return [.toggleCheat]
-        case "/":
+        case "/" where !shift:
             state = .paste(searching: true)
             return [.pasteSearchBegin]
         case _ where Self.isDigit(key):

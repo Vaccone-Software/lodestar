@@ -87,12 +87,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     /// commit, the rank picked, the list length. Measured here because
     /// this is the only place the clock and the rows exist together.
     var observations: ObservationStore?
-    /// How long the footer waits before painting — `SurfaceFade`'s
-    /// verdict for the launcher, set by the engine before each show.
-    var footerDelay: () -> TimeInterval = { 0 }
-    private let footerFade = FooterFade()
-    /// The bar was escaped with typing in it: a stumble, which brings the
-    /// footer straight back for a while.
+    /// The bar was escaped with typing in it: a stumble.
     var onAbandon: () -> Void = {}
     /// The app whose closed road has been confirmed once this session —
     /// the second ↵ opens it.
@@ -113,7 +108,9 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     private let panelWidth = BarTheme.panelWidth
     private let inputHeight = BarTheme.inputHeight
     private let rowHeight = BarTheme.rowHeight
-    private let footerHeight = BarTheme.footerHeight
+    /// The bar has no legend. The footer's band exists only while a note
+    /// stands in it: the coach's toll on a closed road.
+    private var footerHeight: CGFloat { footer.stringValue.isEmpty ? BarTheme.barFoot : BarTheme.footerHeight }
 
     init(appIndex: AppIndex, actions: Actions, model: WindowModel) {
         self.appIndex = appIndex
@@ -167,6 +164,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         rowsStack.orientation = .vertical
         rowsStack.spacing = 2
         rowsStack.translatesAutoresizingMaskIntoConstraints = false
+        keys.install(root: root, below: rowsStack)
 
         footer.font = BarTheme.footerFont
         footer.textColor = BarTheme.secondaryColor
@@ -198,6 +196,26 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
 
     var isVisible: Bool { panel.isVisible }
 
+    /// The bar's keys, held in its own glass on lode ?.
+    private let keys = BarKeys()
+    var keysShown: Bool { keys.isShown }
+
+    func toggleKeys(_ sections: [CheatSheet.Section]) {
+        if keys.isShown { hideKeys() } else { showKeys(sections) }
+    }
+
+    func showKeys(_ sections: [CheatSheet.Section]) {
+        guard panel.isVisible else { return }
+        let view = keys.show(sections)
+        root.layoutSubtreeIfNeeded()
+        KeysMotion.grow(panel, to: barFrame(), revealing: view)
+    }
+
+    func hideKeys() {
+        guard let view = keys.hide() else { return }
+        KeysMotion.shrink(panel, to: barFrame(), hiding: view)
+    }
+
     func toggle() {
         if panel.isVisible { hide() } else { show() }
     }
@@ -211,8 +229,8 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         openedAt = Date()
         firstKeyAt = nil
         confirmedRoad = nil
+        footer.stringValue = ""
         requery()
-        footerFade.apply(to: footer, delay: footerDelay())
         present()
     }
 
@@ -226,6 +244,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     }
 
     func hide() {
+        keys.hide()?.removeFromSuperview()
         closeMenu()
         panel.orderOut(nil)
     }
@@ -273,7 +292,6 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
             Log.info("searcher: '\(query)' -> \(rows.prefix(4).map(rowName).joined(separator: ", "))")
         }
         layoutRows()
-        updateFooter()
         reposition()
     }
 
@@ -336,25 +354,22 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         }
     }
 
-    private func updateFooter() {
-        switch mode {
-        case .apps:
-            footer.stringValue = "↵ open    ⇧↵ beside    ⇥ windows    ⌘K graph    esc close"
-        case .windows(_, _, let cameFromApps):
-            footer.stringValue = "↵ open    ⇧↵ beside    esc \(cameFromApps ? "back" : "close")"
-        }
-    }
-
-    private func reposition() {
+    /// Where the bar stands for what it holds: its top edge fixed, so
+    /// growing to hold its keys extends it downward.
+    private func barFrame() -> NSRect {
         let count = CGFloat(rows.count)
         let rowsArea = count > 0 ? 1 + 8 + count * rowHeight + CGFloat(max(0, rows.count - 1)) * 2 + 6 : 0
-        let height = inputHeight + rowsArea + footerHeight
+        let height = inputHeight + rowsArea + footerHeight + keys.height
         let visible = ActivePolicy.presentationFrame
         let origin = NSPoint(
             x: visible.midX - panelWidth / 2,
             y: visible.minY + visible.height * 0.64 - height
         )
-        panel.setFrame(NSRect(origin: origin, size: NSSize(width: panelWidth, height: height)), display: true)
+        return NSRect(origin: origin, size: NSSize(width: panelWidth, height: height))
+    }
+
+    private func reposition() {
+        panel.setFrame(barFrame(), display: true)
     }
 
     // MARK: - Keyboard
@@ -443,8 +458,8 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
            confirmedRoad != entry.name.lowercased() {
             confirmedRoad = entry.name.lowercased()
             let shown = "lode " + chain.map { $0.uppercased() }.joined(separator: " ")
-            footer.alphaValue = 1
             footer.stringValue = "\(shown) reaches \(entry.name)    ↵ again to open it anyway"
+            reposition()
             return
         }
         let now = Date()

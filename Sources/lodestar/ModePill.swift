@@ -20,9 +20,12 @@ import LodestarCore
 final class ModePill {
     enum Mode: Equatable {
         case scroll, click, select
+        /// A launch that is taking time: stands while the window is awaited.
+        case opening
 
         var symbol: String {
             switch self {
+            case .opening: return "arrow.up.forward.app"
             case .scroll: return "arrow.up.and.down"
             case .click: return "cursorarrow.click.2"
             case .select: return "character.cursor.ibeam"
@@ -31,6 +34,7 @@ final class ModePill {
 
         var word: String {
             switch self {
+            case .opening: return "Opening"
             case .scroll: return "Scroll"
             case .click: return "Click"
             case .select: return "Select"
@@ -158,7 +162,59 @@ final class ModePill {
 
     func hide() {
         state = nil
+        keys?.removeFromSuperview()
+        keys = nil
         panel.orderOut(nil)
+    }
+
+    // MARK: - The keys
+
+    /// The lens's keys, above the row, in the pill's own glass. The row
+    /// never moves: the glass grows around it, upward and outward, and
+    /// the keys fade in above.
+    private var keys: NSView?
+    var keysShown: Bool { keys != nil }
+
+    func toggleKeys(_ sections: [CheatSheet.Section]) {
+        if keysShown { hideKeys() } else { showKeys(sections) }
+    }
+
+    func showKeys(_ sections: [CheatSheet.Section]) {
+        guard panel.isVisible, let content else { return }
+        keys?.removeFromSuperview()
+        let columns = CheatSheet.columns(sections)
+        columns.alphaValue = 0
+        root.addSubview(columns)
+        // Laid out once at their own width, centred on the row and standing
+        // on it, so the glass reveals them as it grows and nothing inside
+        // it moves or reflows. The edges that ask the glass to be big
+        // enough sit below the window-size threshold: above it AppKit
+        // would size the window to them at once, ahead of the motion, and
+        // the row would sit off centre until the glass caught up. They
+        // still decide the fitting size the motion grows toward.
+        let width = columns.fittingSize.width
+        let edges = [
+            columns.topAnchor.constraint(equalTo: root.topAnchor, constant: Self.inset),
+            columns.leadingAnchor.constraint(greaterThanOrEqualTo: root.leadingAnchor, constant: Self.inset),
+            columns.trailingAnchor.constraint(lessThanOrEqualTo: root.trailingAnchor, constant: -Self.inset),
+        ]
+        for edge in edges { edge.priority = .init(NSLayoutConstraint.Priority.windowSizeStayPut.rawValue - 1) }
+        NSLayoutConstraint.activate(edges + [
+            columns.widthAnchor.constraint(equalToConstant: width),
+            columns.centerXAnchor.constraint(equalTo: root.centerXAnchor),
+            columns.bottomAnchor.constraint(equalTo: content.topAnchor, constant: -Self.wingGap),
+        ])
+        keys = columns
+        // The glass moves while it grows; that is placement, not a drag.
+        placing = true
+        KeysMotion.grow(panel, to: frameForContent(), revealing: columns) { [weak self] in self?.placing = false }
+    }
+
+    func hideKeys() {
+        guard let going = keys else { return }
+        keys = nil
+        placing = true
+        KeysMotion.shrink(panel, to: frameForContent(), hiding: going) { [weak self] in self?.placing = false }
     }
 
     // MARK: - Construction
@@ -178,10 +234,14 @@ final class ModePill {
         }
 
         root.addSubview(stack)
+        // The row is the foot of the glass and its centre line: the same
+        // pill when nothing stands above it, and the unmoved last line
+        // of the card when its keys do.
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Self.inset),
-            stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -Self.inset),
-            stack.centerYAnchor.constraint(equalTo: root.centerYAnchor),
+            stack.leadingAnchor.constraint(greaterThanOrEqualTo: root.leadingAnchor, constant: Self.inset),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: root.trailingAnchor, constant: -Self.inset),
+            stack.centerXAnchor.constraint(equalTo: root.centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: root.bottomAnchor, constant: -Self.height / 2),
         ])
         content = stack
     }
@@ -277,11 +337,22 @@ final class ModePill {
     }
 
     private func present() {
+        placing = true
+        panel.setFrame(frameForContent(), display: true)
+        placing = false
+        panel.orderFrontRegardless()
+    }
+
+    /// The glass for what it holds: the row's width and height alone, or
+    /// the keys' above them. Its centre and its foot stay where the pill
+    /// is, so growing never moves the row.
+    private func frameForContent() -> NSRect {
         root.layoutSubtreeIfNeeded()
         var size = root.fittingSize
-        size.height = Self.height
-        size.width = min(max(size.width, 160), 900)
-        let home = Self.home(for: size)
+        if keys == nil { size.height = Self.height }
+        size.width = min(max(size.width, 160), 1100)
+        let rowSize = NSSize(width: size.width, height: Self.height)
+        let home = Self.home(for: rowSize)
         // Home plus the hand's displacement, kept on the screen: a pill
         // dragged to an edge on one display must not vanish on a smaller
         // one.
@@ -289,9 +360,6 @@ final class ModePill {
         var origin = NSPoint(x: home.x + offset.x, y: home.y + offset.y)
         origin.x = min(max(origin.x, visible.minX), visible.maxX - size.width)
         origin.y = min(max(origin.y, visible.minY), visible.maxY - size.height)
-        placing = true
-        panel.setFrame(NSRect(origin: origin, size: size), display: true)
-        placing = false
-        panel.orderFrontRegardless()
+        return NSRect(origin: origin, size: size)
     }
 }

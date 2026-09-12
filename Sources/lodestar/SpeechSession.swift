@@ -174,8 +174,47 @@ final class AudioInput: @unchecked Sendable {
     /// stamps the next number and observes its own engine by object, so
     /// a notice from an engine already discarded is dropped by number.
     private var engineGeneration = 0
+    /// Buffers this start has delivered, and the lock the audio thread
+    /// increments it under. Fifteen touches a second at the buffer size
+    /// this installs, so the lock costs nothing and the count is honest.
+    private let deliveryLock = NSLock()
+    private var delivered = 0
+    /// The engine ran and heard nothing, so the next start builds a new
+    /// one rather than restarting this.
+    private var deaf = false
+    /// How long a running engine may deliver nothing before it is not
+    /// believed. Buffers arrive about fifteen times a second; a second
+    /// and a half of none, with the engine claiming to run, is not a
+    /// quiet room, it is a deaf engine.
+    static let deafnessSeconds: TimeInterval = 1.5
 
     init() {}
+
+    /// Whether a kept engine can serve this start, or has to be replaced.
+    ///
+    /// Creating an engine costs a second and starting a kept one costs
+    /// seventy milliseconds, so the warm one is worth keeping — but only
+    /// while it is the same engine in every way that matters. A deaf one
+    /// is stale by the only test that counts and by none of the others:
+    /// same device, same format, starts cleanly, reports running, hears
+    /// nothing. Without that clause it was kept and restarted for every
+    /// draft after it, which is why a silent microphone stayed silent
+    /// for whole minutes rather than for one session.
+    static func engineIsStale(hasEngine: Bool, builtFor: AudioDeviceID?, target: AudioDeviceID?,
+                              attempt: Int, deaf: Bool,
+                              nowReading: (rate: Double, channels: UInt32)?,
+                              builtReading: (rate: Double, channels: UInt32)?) -> Bool {
+        if !hasEngine || deaf || attempt > 0 { return true }
+        if builtFor != target { return true }
+        guard let nowReading, let builtReading else { return true }
+        return nowReading != builtReading
+    }
+
+    private func deliveredCount() -> Int {
+        deliveryLock.lock()
+        defer { deliveryLock.unlock() }
+        return delivered
+    }
 
     /// Watch `fresh` for the hardware under it changing.
     ///
@@ -397,6 +436,7 @@ final class AudioInput: @unchecked Sendable {
         dispatchPrecondition(condition: .onQueue(queue))
         stopNow()
         inFlight = (device, sink)
+        deliveryLock.lock(); delivered = 0; deliveryLock.unlock()
         if fresh { discard() }
         let wanted = device.flatMap { name in Self.inputDevices().first { $0.name == name }?.id }
         if device != nil, wanted == nil {
@@ -409,8 +449,11 @@ final class AudioInput: @unchecked Sendable {
             // A kept engine serves only the device and format it was built
             // for; anything else, and any failed start, gets a fresh one.
             let current = engine?.inputNode.inputFormat(forBus: 0)
-            let stale = engine == nil || engineDevice != target || attempt > 0
-                || current.map { ($0.sampleRate, $0.channelCount) != (engineFormat?.rate, engineFormat?.channels) } ?? true
+            let stale = Self.engineIsStale(
+                hasEngine: engine != nil, builtFor: engineDevice, target: target,
+                attempt: attempt, deaf: deaf,
+                nowReading: current.map { ($0.sampleRate, $0.channelCount) },
+                builtReading: engineFormat)
             if stale { discard(); _ = build(for: target) }
             guard let engine else { throw NSError(domain: "draft", code: 3) }
             let input = engine.inputNode
@@ -424,7 +467,14 @@ final class AudioInput: @unchecked Sendable {
             }
             // Small buffers: at 16 kHz, 4096 frames was a quarter second of
             // audio held back from the recognizer on every callback.
-            input.installTap(onBus: 0, bufferSize: 1024, format: nil) { buffer, _ in sink(buffer) }
+            input.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
+                if let self {
+                    self.deliveryLock.lock()
+                    self.delivered += 1
+                    self.deliveryLock.unlock()
+                }
+                sink(buffer)
+            }
             tapInstalled = true
             engine.prepare()
             do {
@@ -445,7 +495,37 @@ final class AudioInput: @unchecked Sendable {
                            "inHz": Int(input.inputFormat(forBus: 0).sampleRate),
                            "inCh": Int(input.inputFormat(forBus: 0).channelCount),
                            "voiceProcessing": input.isVoiceProcessingEnabled])
+        deaf = false
+        watchForSilence(generation: engineGeneration)
         return (format, name)
+    }
+
+    /// An engine that starts, reports running, and delivers nothing.
+    ///
+    /// This is what an update leaves behind: the audio stack has not
+    /// settled, the engine built inside that window is deaf, and it is
+    /// stale by no test the start path had — same device, same format,
+    /// no error — so every draft afterwards restarted the same deaf
+    /// engine. The field log has runs of a dozen sessions at
+    /// `buffers=0 peakDb=-140` after an update, going back a year of
+    /// releases. Nothing recovered them but time or a relaunch.
+    ///
+    /// So the engine is watched instead. Deliver nothing for
+    /// `deafnessSeconds` while claiming to run, and it is rebuilt on the
+    /// spot, on the same sink, mid-session — the rebuild path the
+    /// configuration-change handler already uses, and bounded by the
+    /// same cap, so a machine whose microphone is genuinely gone does
+    /// not rebuild forever.
+    private func watchForSilence(generation: Int) {
+        queue.asyncAfter(deadline: .now() + Self.deafnessSeconds) { [weak self] in
+            guard let self, self.engineGeneration == generation, self.inFlight != nil,
+                  let engine = self.engine, engine.isRunning else { return }
+            guard self.deliveredCount() == 0 else { return }
+            Log.info("draft", ["speech": "engine heard nothing",
+                               "seconds": Self.deafnessSeconds, "rebuilds": self.rebuilds])
+            self.deaf = true
+            self.rebuild(attempt: 1)
+        }
     }
 
     func pause() {
@@ -456,6 +536,9 @@ final class AudioInput: @unchecked Sendable {
         queue.async {
             guard self.tapInstalled, let engine = self.engine else { return }
             try? engine.start()
+            // Coming back from a pause is a start like any other, and an
+            // engine can be deaf on either side of one.
+            self.watchForSilence(generation: self.engineGeneration)
         }
     }
 
@@ -479,6 +562,9 @@ final class AudioInput: @unchecked Sendable {
 
     private func stopNow() {
         dispatchPrecondition(condition: .onQueue(queue))
+        // A session that heard nothing at all indicts the engine it used,
+        // so the next one does not inherit it.
+        if inFlight != nil, deliveredCount() == 0, engine != nil { deaf = true }
         inFlight = nil
         guard let engine else { return }
         if tapInstalled {

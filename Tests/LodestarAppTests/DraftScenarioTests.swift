@@ -53,6 +53,61 @@ final class DraftScenarioTests: XCTestCase {
         XCTAssertEqual(stage.posted.map(\.key), ["v"], "no enter is ever pressed in the app")
     }
 
+    /// Paragraphs survive the whole round trip. The join rule that makes
+    /// speech read as prose puts a space between a word and the next
+    /// result — and it must put nothing at all after a break, or every
+    /// paragraph would start indented by one space and every blank line
+    /// would quietly fill in.
+    func testABlankLineBetweenDictatedParagraphsSurvivesThePaste() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.settle("First paragraph.")
+        cmd(stage, "return", shift: true)
+        cmd(stage, "return", shift: true)
+        stage.speech.settle("Second paragraph.")
+        cmd(stage, "return")
+        XCTAssertEqual(stage.pasteboard, ["First paragraph.\n\nSecond paragraph."],
+                       "the blank line is kept and no space is added on either side of it")
+        XCTAssertEqual(stage.posted.map(\.key), ["v"])
+    }
+
+    /// And the second paragraph keeps its capital. The recognizer
+    /// capitalizes the first word of every result as if it began a
+    /// sentence; mid-sentence that is lowered, but after a break it is
+    /// exactly right and must be left alone.
+    func testSpeechAfterABreakKeepsItsCapital() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.settle("Title")
+        cmd(stage, "return", shift: true)
+        stage.speech.settle("Body text here.")
+        cmd(stage, "return")
+        XCTAssertEqual(stage.pasteboard, ["Title\nBody text here."])
+    }
+
+    /// Without a break the same two results are one paragraph, joined by
+    /// the single space the rule exists for.
+    func testTwoResultsWithoutABreakAreOneParagraph() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.settle("First paragraph.")
+        stage.speech.settle("Second paragraph.")
+        cmd(stage, "return")
+        XCTAssertEqual(stage.pasteboard, ["First paragraph. Second paragraph."])
+    }
+
+    /// A field pulled in whole keeps the paragraphs it already had, so a
+    /// draft opened on prose does not flatten it just by being opened.
+    func testAPulledFieldKeepsItsParagraphs() {
+        let stage = Stage()
+        stage.field = DraftController.Field(selection: nil, value: "One.\n\nTwo.",
+                                            cursor: 10, token: "t")
+        stage.lode(".", shift: true)
+        XCTAssertEqual(stage.draft.buffer.text, "One.\n\nTwo.")
+        cmd(stage, "return")
+        XCTAssertEqual(stage.pasteboard, ["One.\n\nTwo."])
+    }
+
     func testBackspaceTakesTheGrainOfTheLastInput() {
         let stage = Stage()
         stage.lode(".")

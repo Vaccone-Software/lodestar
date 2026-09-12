@@ -56,6 +56,20 @@ final class HotkeyEngine {
     /// anonymous flag, never the key itself.
     var onHumanKey: ((Bool, Bool) -> Void)?
 
+    /// A hardware press released, and how long it was held. Hold time is
+    /// the psychomotor channel of the health pulse; the key itself never
+    /// leaves this method, and a press the OS repeated never arrives at
+    /// all — a held key's release is seconds after its press and would
+    /// read as one impossibly slow keystroke.
+    var onHumanKeyHold: ((Double) -> Void)?
+    /// Presses in flight, by keycode: when each went down, and whether
+    /// the OS repeated it. Bounded by the hand — at most a few keys are
+    /// down at once — and cleared on every release and on every reset,
+    /// so a release the tap never saw (a key held through a tap
+    /// re-enable) cannot strand an entry that later times a press at
+    /// minutes.
+    private var pressedAt: [Int64: (down: Date, repeated: Bool)] = [:]
+
     /// The grammar lives in LodestarCore, pure and tested; this class is
     /// the AppKit shell that feeds it keys and executes its effects.
     private var core = EngineCore()
@@ -392,6 +406,10 @@ final class HotkeyEngine {
             // Clearing is the honest recovery: the gesture is stateless by
             // design, and a stranded chain swallows every key that follows.
             resetToIdle(reason: type == .tapDisabledByTimeout ? "tap timed out" : "tap interrupted")
+            // Releases that fell in the dark would otherwise strand their
+            // presses, and a stranded press times at however long the tap
+            // was out.
+            pressedAt.removeAll()
             guard let tap else { return Unmanaged.passUnretained(event) }
             CGEvent.tapEnable(tap: tap, enable: true)
             Log.info("hotkeys: tap re-enabled", ["alive": CGEvent.tapIsEnabled(tap: tap)])
@@ -425,6 +443,13 @@ final class HotkeyEngine {
             // the instant a direction key lifts). Swallow the key-ups whose
             // key-downs we swallowed; everything else passes untouched.
             let keycode = event.getIntegerValueField(.keyboardEventKeycode)
+            // The press is timed here, whatever happens to the event
+            // next: a swallowed key was still pressed by a hand, and the
+            // pulse measures the hand and not the effect.
+            if let press = pressedAt.removeValue(forKey: keycode), actingInputWasHuman,
+               !press.repeated {
+                onHumanKeyHold?(clock.now().timeIntervalSince(press.down))
+            }
             guard let key = Keys.name(for: keycode) else { return Unmanaged.passUnretained(event) }
             return dispatch(core.keyUp(key: key), event: event)
         }
@@ -440,8 +465,17 @@ final class HotkeyEngine {
             // key emits one every ~30ms, and a pulse that counted them
             // would read a held key as typing at the repeat rate. The
             // pulse takes the flag and keeps the press, not the storm.
-            onHumanKey?(named == "delete",
-                        event.getIntegerValueField(.keyboardEventAutorepeat) != 0)
+            let repeated = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
+            onHumanKey?(named == "delete", repeated)
+            // The press's clock starts here and is read at its release.
+            // A repeat marks the press contaminated rather than
+            // replacing its stamp: the hold that matters is the one the
+            // hand made, and a held key has no measurable one.
+            if repeated {
+                pressedAt[keycode]?.repeated = true
+            } else if pressedAt[keycode] == nil {
+                pressedAt[keycode] = (down: clock.now(), repeated: false)
+            }
         }
         // A chord carrying ⌘⌥⌃ together is a hyper-key shim's, never typing:
         // under LODESTAR_TRACE it is logged as it arrived, name or not, so

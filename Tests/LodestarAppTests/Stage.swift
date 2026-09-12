@@ -175,6 +175,11 @@ final class Stage {
     let clock = VirtualClock()
     let hud: HUD
     let engine: HotkeyEngine
+    /// The health pulse, fed from the real engine, and every hold time
+    /// the tap measured on the way.
+    var pulse = HealthPulse()
+    private(set) var holds: [Double] = []
+    private(set) var pulses: [ObservationEvent] = []
     let coach: CoachController
     let actions = FakeActions()
     let searcher = FakeBar()
@@ -286,6 +291,22 @@ final class Stage {
             return nil
         }
         actions.coachBoundary = { [unowned self] app in self.coach.noteBoundary(app: app) }
+        // The hands' pulse, fed the way the app feeds it. The monitor
+        // that sits between them in production is three lines of
+        // plumbing; the seam worth exercising is the tap's own press
+        // timing reaching a real accumulator.
+        engine.onHumanKey = { [unowned self] backspace, autorepeat in
+            if let flushed = self.pulse.key(at: self.clock.now, backspace: backspace,
+                                            autorepeat: autorepeat) {
+                self.pulses.append(flushed)
+            }
+        }
+        engine.onHumanKeyHold = { [unowned self] seconds in
+            self.holds.append(seconds)
+            if let flushed = self.pulse.hold(seconds, at: self.clock.now) {
+                self.pulses.append(flushed)
+            }
+        }
         scroller.sink = { [unowned self] dx, dy in self.wheel.append((dx, dy)) }
         clipboard.postPaste = { [unowned self] in self.stripPastes += 1 }
         clipboard.flash = { [unowned self] text in self.hud.flash(text) }
@@ -401,6 +422,33 @@ final class Stage {
         let swallowed = send(event(type: .keyDown, keycode: code, flags: flags, posted: posted))
         send(event(type: .keyUp, keycode: code, flags: flags, posted: posted))
         return swallowed
+    }
+
+    /// One key, down and up with time between them — the shape a hold
+    /// is measured from. The clock moves between the two events, which
+    /// is the whole difference from `press`.
+    @discardableResult
+    func pressHeld(_ name: String, for seconds: Double, shift: Bool = false,
+                   posted: Bool = false) -> Bool {
+        var flags: CGEventFlags = lodeHeld ? Self.lodeFlags : []
+        if shift { flags.insert(.maskShift) }
+        let code = Self.keycode(name)
+        let swallowed = send(event(type: .keyDown, keycode: code, flags: flags, posted: posted))
+        clock.advance(by: seconds)
+        send(event(type: .keyUp, keycode: code, flags: flags, posted: posted))
+        return swallowed
+    }
+
+    /// A key held long enough for the OS to repeat it, then released:
+    /// the press whose hold time means nothing.
+    func pressRepeatedThenRelease(_ name: String, for seconds: Double) {
+        let code = Self.keycode(name)
+        send(event(type: .keyDown, keycode: code, flags: [], posted: false))
+        let repeated = event(type: .keyDown, keycode: code, flags: [], posted: false)
+        repeated.setIntegerValueField(.keyboardEventAutorepeat, value: 1)
+        send(repeated)
+        clock.advance(by: seconds)
+        send(event(type: .keyUp, keycode: code, flags: [], posted: false))
     }
 
     /// A key-down repeating, the way a held key does, with lode already up.

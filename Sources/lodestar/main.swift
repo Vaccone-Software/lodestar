@@ -354,6 +354,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         engine.onHumanKey = { [weak self] backspace, autorepeat in
             self?.health.noteKey(backspace: backspace, autorepeat: autorepeat)
         }
+        engine.onHumanKeyHold = { [weak self] seconds in
+            self?.health.noteHold(seconds)
+        }
         health.setEnabled(loaded.observationsEnabled && loaded.observationsHealth)
 
         // The coach: decisions in LodestarCore, this wiring is the coat.

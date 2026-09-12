@@ -50,6 +50,84 @@ final class RollupHealthTests: XCTestCase {
         XCTAssertEqual(month?.weeks[week]?.interKey.n, 40)
     }
 
+    /// The shape columns archive too, or the year that falls off the
+    /// ring takes the hold times and the pauses with it.
+    func testHoldPausesAndShapeFoldIntoTheArchive() throws {
+        var first = pulse(at: july)
+        first.holdN = 400
+        first.holdSum = 36
+        first.holdSumSq = 3.3
+        var holdShape = Histogram()
+        for _ in 0..<400 { holdShape.add(0.09) }
+        first.holdHist = holdShape
+        first.ikTailN = 7
+        first.ikTailSum = 21
+        var rhythmShape = Histogram()
+        for _ in 0..<20 { rhythmShape.add(0.2) }
+        first.ikHist = rhythmShape
+        let second = first
+        let months = Rollup.build(events: [first, second], now: now)
+        let month = try XCTUnwrap(months[Rollup.monthKey(july)])
+        XCTAssertEqual(month.health.hold?.n, 800)
+        XCTAssertEqual(try XCTUnwrap(month.health.hold?.sum), 72, accuracy: 1e-6)
+        XCTAssertEqual(month.health.holdShape?.total, 800)
+        XCTAssertEqual(month.health.interKeyShape?.total, 40)
+        XCTAssertEqual(month.health.pauses?.n, 14)
+        XCTAssertEqual(try XCTUnwrap(month.health.pauses?.sum), 42, accuracy: 1e-6)
+        let week = "\(Observations.week(july))"
+        XCTAssertEqual(month.weeks[week]?.hold?.n, 800)
+        XCTAssertEqual(month.weeks[week]?.pauses?.n, 14)
+    }
+
+    /// A bout is archived when the pulse says it ended — the next window
+    /// at index zero — and not re-derived from timestamps here.
+    func testBoutsArchiveWhenThePulseClosesThem() throws {
+        var events: [ObservationEvent] = []
+        for index in 0..<4 {
+            var event = pulse(at: july.addingTimeInterval(Double(index) * 900), active: 15)
+            event.boutIndex = index
+            event.boutSeconds = Double(index) * 900
+            events.append(event)
+        }
+        // A second bout opens, which is what closes the first.
+        var next = pulse(at: july.addingTimeInterval(5400), active: 15)
+        next.boutIndex = 0
+        next.boutSeconds = 0
+        events.append(next)
+        let months = Rollup.build(events: events, now: now)
+        let month = try XCTUnwrap(months[Rollup.monthKey(july)])
+        XCTAssertEqual(month.health.boutMinutes?.n, 1, "one bout finished, one still open")
+        XCTAssertEqual(try XCTUnwrap(month.health.boutMinutes?.sum), 60, accuracy: 0.1)
+    }
+
+    /// The compatibility law, for the new columns: an archive written
+    /// before any of this existed still decodes, with them empty.
+    func testAnArchiveWithoutTheShapeColumnsDecodes() throws {
+        let raw = """
+        {"version": 2, "months": {"2026-07": {
+            "events": 1, "days": 1,
+            "firstEvent": "2026-07-10T12:00:00Z", "lastEvent": "2026-07-10T13:00:00Z",
+            "apps": {}, "addresses": {}, "verbs": {},
+            "launcherAbandons": 0,
+            "web": {"opens": 0, "hostProfiles": {}, "sources": {}, "rows": {}},
+            "meetings": {"actions": {}, "joinedLead": {"n": 0, "sum": 0, "sumSquares": 0}},
+            "coach": {}, "epochs": {},
+            "selectActions": {}, "selectSources": {}, "selectRows": {},
+            "health": {"keys": 10, "interKey": {"n": 2, "sum": 1, "sumSquares": 1}}
+        }}}
+        """
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let rollup = try decoder.decode(Rollup.self, from: Data(raw.utf8))
+        let month = try XCTUnwrap(rollup.months["2026-07"])
+        XCTAssertEqual(month.health.keys, 10)
+        XCTAssertNil(month.health.hold)
+        XCTAssertNil(month.health.holdShape)
+        XCTAssertNil(month.health.interKeyShape)
+        XCTAssertNil(month.health.pauses)
+        XCTAssertNil(month.health.boutMinutes)
+    }
+
     func testFocusStructureFolds() {
         // a → b (40s) → a (5s: a checking loop) → c (30s).
         let events = [

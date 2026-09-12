@@ -40,6 +40,126 @@ final class HealthTests: XCTestCase {
         XCTAssertEqual(event?.activeMinutes, 1, "a held key still means someone is there")
     }
 
+    // MARK: - Hold time
+
+    func testHoldTimesAreMomentsAndShape() throws {
+        var pulse = HealthPulse()
+        _ = pulse.key(at: start, backspace: false)
+        for i in 0..<10 {
+            _ = pulse.hold(0.09, at: start.addingTimeInterval(Double(i) * 0.2))
+        }
+        let event = pulse.flush(now: start.addingTimeInterval(5))
+        XCTAssertEqual(event?.holdN, 10)
+        XCTAssertEqual(try XCTUnwrap(event?.holdSum), 0.9, accuracy: 1e-9)
+        XCTAssertEqual(event?.holdHist?.total, 10)
+        XCTAssertEqual(try XCTUnwrap(event?.holdHist?.median), 0.09, accuracy: 0.02)
+    }
+
+    /// A key held down releases whole seconds after it went down. The
+    /// engine drops repeats before they reach here; the ceiling catches
+    /// the held key that never repeated, and either way the release
+    /// still means a hand is present.
+    func testAHeldKeyIsNotAnImpossiblySlowKeystroke() throws {
+        var pulse = HealthPulse()
+        _ = pulse.key(at: start, backspace: false)
+        _ = pulse.hold(0.08, at: start.addingTimeInterval(0.1))
+        _ = pulse.hold(3.5, at: start.addingTimeInterval(4))
+        let event = pulse.flush(now: start.addingTimeInterval(5))
+        XCTAssertEqual(event?.holdN, 1, "the press the hand made, not the key it leaned on")
+        XCTAssertEqual(try XCTUnwrap(event?.holdSum), 0.08, accuracy: 1e-9)
+        XCTAssertEqual(event?.holdHist?.total, 1)
+        XCTAssertEqual(event?.activeMinutes, 1, "a held key still means someone is there")
+    }
+
+    func testAReleaseAloneNeverInventsAPulse() {
+        var pulse = HealthPulse()
+        XCTAssertNil(pulse.hold(0.09, at: start))
+        XCTAssertNil(pulse.flush(now: start.addingTimeInterval(1)),
+                     "a window with no keystroke, click or scroll in it is not an event")
+    }
+
+    // MARK: - The tail
+
+    /// The moments keep the motor band and mean exactly what they always
+    /// did. What changed is that the pauses past the ceiling are now
+    /// kept censored instead of thrown away: a rhythm's lapses are a
+    /// measurement, not noise.
+    func testPausesPastTheCeilingAreKeptNotDropped() throws {
+        var pulse = HealthPulse()
+        _ = pulse.key(at: start, backspace: false)
+        _ = pulse.key(at: start.addingTimeInterval(0.2), backspace: false)
+        _ = pulse.key(at: start.addingTimeInterval(5.2), backspace: false)
+        let event = pulse.flush(now: start.addingTimeInterval(6))
+        XCTAssertEqual(event?.ikN, 1, "one gap inside the motor band")
+        XCTAssertEqual(try XCTUnwrap(event?.ikSum), 0.2, accuracy: 1e-6)
+        XCTAssertEqual(event?.ikTailN, 1, "and one pause, kept")
+        XCTAssertEqual(try XCTUnwrap(event?.ikTailSum), 5.0, accuracy: 1e-6)
+        XCTAssertEqual(event?.ikHist?.total, 2, "the shape carries both")
+    }
+
+    /// A gap longer than a bout survives cannot be a typing pause. The
+    /// bout break clears the rhythm clock on its way through, so the
+    /// first key of the next bout starts fresh.
+    func testNoRhythmReachesAcrossABoutBreak() {
+        var pulse = HealthPulse()
+        _ = pulse.key(at: start, backspace: false)
+        let flushed = pulse.key(at: start.addingTimeInterval(HealthPulse.boutGap + 60),
+                                backspace: false)
+        XCTAssertEqual(flushed?.ikTailN, nil, "the first bout saw no gap at all")
+        let event = pulse.flush(now: start.addingTimeInterval(HealthPulse.boutGap + 120))
+        XCTAssertEqual(event?.ikN, 0)
+        XCTAssertNil(event?.ikTailN, "ten minutes of nothing is not a gap of typing")
+        XCTAssertNil(event?.ikHist, "and it is not part of the rhythm's shape either")
+    }
+
+    // MARK: - Bouts
+
+    /// A bout is continuous work. The break closes the window wherever
+    /// it fell: a pulse that straddled one would carry two bouts' worth
+    /// of position and describe neither.
+    func testABoutBreakClosesTheWindow() throws {
+        var pulse = HealthPulse()
+        _ = pulse.key(at: start, backspace: false)
+        _ = pulse.key(at: start.addingTimeInterval(60), backspace: false)
+        let closed = pulse.key(at: start.addingTimeInterval(60 + HealthPulse.boutGap),
+                               backspace: false)
+        let first = try? XCTUnwrap(closed)
+        XCTAssertEqual(first?.keys, 2, "the bout that ended, closed early and whole")
+        XCTAssertEqual(first?.boutIndex, 0)
+        XCTAssertEqual(try XCTUnwrap(first?.boutSeconds), 0, accuracy: 1e-9)
+        let second = pulse.flush(now: start.addingTimeInterval(60 + HealthPulse.boutGap + 10))
+        XCTAssertEqual(second?.keys, 1)
+        XCTAssertEqual(second?.boutIndex, 0, "the new bout starts its own count")
+    }
+
+    /// A window rolling is bookkeeping, not the hands stopping: the bout
+    /// runs on and the index counts up, which is the whole input a
+    /// decrement is fitted from.
+    func testAWindowRollAdvancesThePositionInTheBout() throws {
+        var pulse = HealthPulse()
+        _ = pulse.key(at: start, backspace: false)
+        // Inside the bout gap the whole way, so only the window is due.
+        _ = pulse.key(at: start.addingTimeInterval(500), backspace: false)
+        let rolled = pulse.key(at: start.addingTimeInterval(950), backspace: false)
+        XCTAssertEqual(rolled?.boutIndex, 0, "the window that closed was the bout's first")
+        _ = pulse.key(at: start.addingTimeInterval(1400), backspace: false)
+        let next = pulse.flush(now: start.addingTimeInterval(1500))
+        XCTAssertEqual(next?.boutIndex, 1, "the second window of one bout")
+        XCTAssertEqual(try XCTUnwrap(next?.boutSeconds), 950, accuracy: 1,
+                       "and it opened fifteen minutes into the work")
+    }
+
+    func testFlushEndsTheBout() throws {
+        var pulse = HealthPulse()
+        _ = pulse.key(at: start, backspace: false)
+        _ = pulse.flush(now: start.addingTimeInterval(1))
+        _ = pulse.key(at: start.addingTimeInterval(2), backspace: false)
+        let event = pulse.flush(now: start.addingTimeInterval(3))
+        XCTAssertEqual(event?.boutIndex, 0)
+        XCTAssertEqual(try XCTUnwrap(event?.boutSeconds), 0, accuracy: 1e-9,
+                       "whatever comes back after a flush starts a new bout")
+    }
+
     func testInterKeyGapsObeyTheCeiling() {
         var pulse = HealthPulse()
         _ = pulse.key(at: start, backspace: false)

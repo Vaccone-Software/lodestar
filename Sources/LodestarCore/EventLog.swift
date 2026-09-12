@@ -58,7 +58,12 @@ public struct ObservationEvent: Codable, Equatable {
         /// general typing** — per-key or per-digraph timing on arbitrary
         /// text statistically reconstructs content, so the fingers'
         /// metrics are global moments and one anonymous flag (backspace,
-        /// the correction key) and nothing else, ever.
+        /// the correction key) and nothing else, ever. Beside them the
+        /// shape: `holdN`/`holdSum`/`holdSumSq`/`holdHist` for press
+        /// durations, `ikHist` for the rhythm's whole distribution,
+        /// `ikTailN`/`ikTailSum` for the pauses past the motor ceiling,
+        /// and `boutIndex`/`boutSeconds` placing the window inside its
+        /// bout of continuous work. All shape, still no identity.
         case pulse
         /// A quarter hour of clicks in one app: `app`, `clicks`, `trips`
         /// (clicks whose previous input was a keystroke — the hand left
@@ -179,6 +184,33 @@ public struct ObservationEvent: Codable, Equatable {
     /// A select event: the pointer rested over the window that was read.
     public var pointerOn: Bool?
     public var warm: Bool?
+    /// Key hold time — press to release, seconds — as moments and as a
+    /// histogram. The one keyboard measurement with a clinical track
+    /// record behind it, and it needs no key identity to take: how long
+    /// a press lasted is not which key it was. Autorepeat-contaminated
+    /// presses are excluded upstream, so a key held down is never read
+    /// as a very slow keystroke.
+    public var holdN: Int?
+    public var holdSum: Double?
+    public var holdSumSq: Double?
+    public var holdHist: Histogram?
+    /// The inter-key rhythm's whole shape, not only its first two
+    /// moments. `ikN`/`ikSum`/`ikSumSq` still carry the motor band under
+    /// the ceiling and mean exactly what they always did; this carries
+    /// every gap inside the bout, tail included.
+    public var ikHist: Histogram?
+    /// Gaps past the motor ceiling and inside the bout: the pauses the
+    /// moments deliberately exclude, kept censored rather than dropped,
+    /// because a rhythm's lapses are a measurement and not noise.
+    public var ikTailN: Int?
+    public var ikTailSum: Double?
+    /// Where this window sat in its bout — the count of windows before
+    /// it, and the seconds from the bout's first input to this window's
+    /// start. A bout is continuous work: it ends when the hands stop for
+    /// longer than `HealthPulse.boutGap`. Stored as position, never as a
+    /// verdict, so any decrement model is fitted at read time.
+    public var boutIndex: Int?
+    public var boutSeconds: Double?
 
     public init(t: Date, kind: Kind) {
         self.t = t

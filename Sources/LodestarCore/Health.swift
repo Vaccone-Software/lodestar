@@ -14,6 +14,24 @@ import Foundation
 /// Scrolls are counted as *bursts*, not wheel events — a trackpad emits
 /// hundreds of events per flick, and "reached for the scroll" is the fact
 /// the pointer-vs-keyboard ratio wants.
+///
+/// Three things ride beside the counts, and all three are *shape*, which
+/// is what the line above permits and the moments could not give:
+///
+/// - **Hold time**, press to release. How long a press lasted is not
+///   which key it was, and it is the one keyboard measurement with a
+///   clinical literature behind it.
+/// - **The whole rhythm**, as a histogram. The moments keep the motor
+///   band under `interKeyCeiling` and mean what they always did; the
+///   histogram keeps every gap the bout contains, and the pauses past
+///   the ceiling are kept censored (`ikTailN`, `ikTailSum`) instead of
+///   dropped. A rhythm's lapses are a measurement, not noise.
+/// - **Bouts.** A bout is continuous work; it ends when the hands stop
+///   for longer than `boutGap`, and that break closes the window so no
+///   pulse ever straddles one. Each pulse carries its position in its
+///   bout, which is the only fact a decrement needs and is stored as a
+///   position rather than a verdict — the fitting happens at read time,
+///   like everything else.
 public struct HealthPulse: Equatable {
     /// One pulse per quarter hour of activity. Windows are event-driven —
     /// they open at the first input after a flush — so an idle machine
@@ -24,6 +42,14 @@ public struct HealthPulse: Equatable {
     public static let interKeyCeiling: TimeInterval = 2.0
     /// Wheel events closer together than this are one reach for the wheel.
     public static let scrollBurstGap: TimeInterval = 1.0
+    /// Hands quiet for longer than this ended a bout of work. Ten
+    /// minutes: short enough that a coffee break separates two bouts,
+    /// long enough that reading a page does not.
+    public static let boutGap: TimeInterval = 600
+    /// A press longer than this was a key being held, not a keystroke.
+    /// Autorepeat is already excluded upstream; this catches the held
+    /// key that never repeated.
+    public static let holdCeiling: TimeInterval = 1.0
 
     var windowStart: Date?
     var keys = 0
@@ -35,8 +61,26 @@ public struct HealthPulse: Equatable {
     var ikN = 0
     var ikSum = 0.0
     var ikSumSq = 0.0
+    /// Gaps past the motor ceiling and inside the bout, censored rather
+    /// than discarded.
+    var ikTailN = 0
+    var ikTailSum = 0.0
+    /// Every gap the bout contained, by shape.
+    var ikHist = Histogram()
+    /// Press durations: moments and shape.
+    var holdN = 0
+    var holdSum = 0.0
+    var holdSumSq = 0.0
+    var holdHist = Histogram()
     var lastKeyAt: Date?
     var lastScrollAt: Date?
+    /// Any input at all, for the bout boundary — a bout is the hands
+    /// being present, not the keyboard specifically.
+    var lastInputAt: Date?
+    /// The bout in flight: when it began, and how many windows of it
+    /// have already closed.
+    var boutStart: Date?
+    var boutIndex = 0
     /// The backspace run in flight, and the closed runs by length —
     /// single, two to four, five and more — as run counts and as the
     /// backspaces inside them. A run is a revision of thought; a single
@@ -73,13 +117,49 @@ public struct HealthPulse: Equatable {
         }
         if let last = lastKeyAt {
             let gap = now.timeIntervalSince(last)
-            if gap > 0, gap <= Self.interKeyCeiling {
-                ikN += 1
-                ikSum += gap
-                ikSumSq += gap * gap
+            // A gap at or past the bout gap cannot reach this line — a
+            // break clears `lastKeyAt` on its way through `rollIfDue`.
+            // One can still arrive when the hands stayed busy on the
+            // mouse for longer than the gap, and that is not a typing
+            // pause: it belongs to neither the tail nor the shape.
+            if gap > 0, gap < Self.boutGap {
+                if gap <= Self.interKeyCeiling {
+                    ikN += 1
+                    ikSum += gap
+                    ikSumSq += gap * gap
+                } else {
+                    // Past the motor band: a pause, and the thing the
+                    // moments were built to exclude. Kept censored — a
+                    // count and a sum — rather than dropped, because a
+                    // rhythm's lapses are a measurement.
+                    ikTailN += 1
+                    ikTailSum += gap
+                }
+                ikHist.add(gap)
             }
         }
         lastKeyAt = now
+        touch(now)
+        return flushed
+    }
+
+    /// A press ended, `seconds` after it began.
+    ///
+    /// Hold time is the one keyboard measurement with a clinical
+    /// literature behind it, and it asks nothing the line forbids: how
+    /// long a press lasted is not which key it was. Presses the OS
+    /// repeated are excluded upstream — a held key releases whole
+    /// seconds after it goes down and would read as one impossibly slow
+    /// keystroke — and `holdCeiling` catches the held key that never
+    /// repeated. The release still marks the hand present either way.
+    public mutating func hold(_ seconds: Double, at now: Date) -> ObservationEvent? {
+        let flushed = rollIfDue(now: now)
+        if seconds > 0, seconds <= Self.holdCeiling {
+            holdN += 1
+            holdSum += seconds
+            holdSumSq += seconds * seconds
+            holdHist.add(seconds)
+        }
         touch(now)
         return flushed
     }
@@ -117,15 +197,13 @@ public struct HealthPulse: Equatable {
         return flushed
     }
 
-    /// Close the open window unconditionally — shutdown's path.
+    /// Close the open window unconditionally — shutdown's path, and the
+    /// switch being turned off. Either way the bout is over: whatever
+    /// comes back later starts a new one.
     public mutating func flush(now: Date = Date()) -> ObservationEvent? {
-        guard windowStart != nil, keys + clicks + scrolls > 0 else {
-            reset(windowStart: nil)
-            return nil
-        }
-        closeRun()
-        let pulse = build()
+        let pulse = closedWindow()
         reset(windowStart: nil)
+        endBout()
         return pulse
     }
 
@@ -133,7 +211,28 @@ public struct HealthPulse: Equatable {
 
     private mutating func touch(_ now: Date) {
         if windowStart == nil { windowStart = now }
+        if boutStart == nil { boutStart = now }
+        lastInputAt = now
         minutes.insert(Int(now.timeIntervalSince1970 / 60))
+    }
+
+    /// The bout in flight is over. The rhythm clock goes with it: two
+    /// keystrokes ten minutes apart are not one gap of typing.
+    private mutating func endBout() {
+        boutStart = nil
+        boutIndex = 0
+        lastInputAt = nil
+        lastKeyAt = nil
+        lastScrollAt = nil
+    }
+
+    /// The open window as an event, or nothing when nothing happened in
+    /// it — a window opened by a bare release, say, with no keystroke
+    /// behind it yet.
+    private mutating func closedWindow() -> ObservationEvent? {
+        guard windowStart != nil, keys + clicks + scrolls > 0 else { return nil }
+        closeRun()
+        return build()
     }
 
     /// The run in flight ends: any input that is not a backspace, a
@@ -147,11 +246,21 @@ public struct HealthPulse: Equatable {
     }
 
     private mutating func rollIfDue(now: Date) -> ObservationEvent? {
+        // The hands stopped for longer than a bout survives. The break
+        // closes the window wherever it fell — a pulse that straddled a
+        // break would carry two bouts' worth of position and describe
+        // neither — and the next input opens a new bout at index zero.
+        if let last = lastInputAt, now.timeIntervalSince(last) >= Self.boutGap {
+            let pulse = closedWindow()
+            reset(windowStart: nil)
+            endBout()
+            return pulse
+        }
         guard let start = windowStart,
               now.timeIntervalSince(start) >= Self.windowSeconds else { return nil }
-        closeRun()
-        let pulse = build()
+        let pulse = closedWindow()
         reset(windowStart: now)
+        boutIndex += 1
         return pulse
     }
 
@@ -170,6 +279,24 @@ public struct HealthPulse: Equatable {
         event.ikSumSq = ikSumSq
         event.bsRuns = runCounts
         event.bsRunKeys = runKeys
+        if ikTailN > 0 {
+            event.ikTailN = ikTailN
+            event.ikTailSum = ikTailSum
+        }
+        if !ikHist.isEmpty { event.ikHist = ikHist }
+        if holdN > 0 {
+            event.holdN = holdN
+            event.holdSum = holdSum
+            event.holdSumSq = holdSumSq
+            event.holdHist = holdHist
+        }
+        // Where the window sat in its bout. Position, not a verdict:
+        // whether the hands slowed across a bout is a question for read
+        // time, fitted from these, never frozen in here.
+        event.boutIndex = boutIndex
+        if let start = windowStart, let bout = boutStart {
+            event.boutSeconds = max(0, start.timeIntervalSince(bout))
+        }
         return event
     }
 
@@ -184,11 +311,21 @@ public struct HealthPulse: Equatable {
         ikN = 0
         ikSum = 0.0
         ikSumSq = 0.0
+        ikTailN = 0
+        ikTailSum = 0.0
+        ikHist = Histogram()
+        holdN = 0
+        holdSum = 0.0
+        holdSumSq = 0.0
+        holdHist = Histogram()
         runLength = 0
         runCounts = [0, 0, 0]
         runKeys = [0, 0, 0]
         // The inter-key clock survives the roll: two keystrokes that
-        // straddle a window boundary are still one gap of typing.
+        // straddle a window boundary are still one gap of typing. The
+        // bout survives it too — a window closing is a bookkeeping
+        // boundary, not the hands stopping — and only `endBout` clears
+        // either.
     }
 }
 
@@ -218,10 +355,53 @@ public enum Health {
         /// as run counts and as the backspaces inside them.
         public var backspaceRuns = [0, 0, 0]
         public var backspaceRunKeys = [0, 0, 0]
+        /// Press durations: how long keys were held down.
+        public var holdN = 0
+        public var holdSum = 0.0
+        public var holdSumSq = 0.0
+        public var holdHistogram = Histogram()
+        /// The rhythm's whole shape, tail included, where the moments
+        /// carry only the band under the ceiling.
+        public var interKeyHistogram = Histogram()
+        /// Gaps past the motor ceiling and inside a bout: the pauses.
+        public var pauseN = 0
+        public var pauseSum = 0.0
 
         public var correctionRate: Double? {
             keys > 0 ? Double(backspaces) / Double(keys) : nil
         }
+
+        /// Mean hold time in seconds — press to release.
+        public var holdMean: Double? { holdN > 0 ? holdSum / Double(holdN) : nil }
+
+        public var holdSD: Double? {
+            guard holdN > 1, let mean = holdMean else { return nil }
+            let variance = max(0, (holdSumSq - Double(holdN) * mean * mean) / Double(holdN - 1))
+            return variance.squareRoot()
+        }
+
+        /// Hold time's coefficient of variation. The scale-free form is
+        /// the one worth comparing across weeks: a hand that got faster
+        /// and a hand that got less even are different events, and the
+        /// raw SD confounds them.
+        public var holdCV: Double? {
+            guard let mean = holdMean, mean > 0, let sd = holdSD else { return nil }
+            return sd / mean
+        }
+
+        /// The share of measured gaps that were pauses rather than
+        /// rhythm — the tail the moments exclude by construction, and
+        /// the reason it is now kept.
+        public var pauseShare: Double? {
+            let total = interKeyGaps + pauseN
+            return total > 0 ? Double(pauseN) / Double(total) : nil
+        }
+
+        /// Mean length of those pauses, seconds.
+        public var pauseMean: Double? { pauseN > 0 ? pauseSum / Double(pauseN) : nil }
+
+        /// Gaps inside the motor band, from the moments.
+        public var interKeyGaps = 0
 
         /// The share of backspaces that were single corrections — the
         /// typo budget, which no product should try to train away.
@@ -277,6 +457,13 @@ public enum Health {
             if let runKeys = pulse.bsRunKeys, runKeys.count == 3 {
                 for i in 0..<3 { out.backspaceRunKeys[i] += runKeys[i] }
             }
+            out.holdN += pulse.holdN ?? 0
+            out.holdSum += pulse.holdSum ?? 0
+            out.holdSumSq += pulse.holdSumSq ?? 0
+            if let hist = pulse.holdHist { out.holdHistogram.merge(hist) }
+            if let hist = pulse.ikHist { out.interKeyHistogram.merge(hist) }
+            out.pauseN += pulse.ikTailN ?? 0
+            out.pauseSum += pulse.ikTailSum ?? 0
             dayOrdinals.insert(Int(pulse.t.timeIntervalSince1970 / 86_400))
             let hour = calendar.component(.hour, from: pulse.t)
             out.hourMinutes[min(23, max(0, hour))] += active
@@ -293,6 +480,7 @@ public enum Health {
         }
         out.longestStretchMinutes = max(out.longestStretchMinutes, stretchMinutes)
         out.days = dayOrdinals.count
+        out.interKeyGaps = ikN
         if ikN > 1 {
             let mean = ikSum / Double(ikN)
             out.interKeyMean = mean

@@ -64,6 +64,14 @@ public struct Rollup: Codable, Equatable {
             sumSquares += value * value
         }
 
+        /// `add`, for the optional columns where the stat has to be read
+        /// back out before it can be stored again.
+        public func adding(_ value: Double) -> Stat {
+            var copy = self
+            copy.add(value)
+            return copy
+        }
+
         public var mean: Double? { n > 0 ? sum / Double(n) : nil }
     }
 
@@ -136,6 +144,17 @@ public struct Rollup: Codable, Equatable {
         /// more): run counts, and the backspaces inside them.
         public var backspaceRuns = [Int](repeating: 0, count: 3)
         public var backspaceRunKeys = [Int](repeating: 0, count: 3)
+        /// Key hold times — press to release, seconds — as moments and
+        /// as shape. Optional so archives written before the column
+        /// decode unchanged.
+        public var hold: Stat?
+        public var holdShape: Histogram?
+        /// The rhythm's whole shape, and the pauses past the motor
+        /// ceiling that the `interKey` moments exclude by construction.
+        public var interKeyShape: Histogram?
+        public var pauses: Stat?
+        /// Bouts of continuous work: how long one ran, in minutes.
+        public var boutMinutes: Stat?
 
         public init() {}
 
@@ -161,6 +180,11 @@ public struct Rollup: Codable, Equatable {
                 ?? [Int](repeating: 0, count: 3)
             backspaceRunKeys = try c.decodeIfPresent([Int].self, forKey: .backspaceRunKeys)
                 ?? [Int](repeating: 0, count: 3)
+            hold = try c.decodeIfPresent(Stat.self, forKey: .hold)
+            holdShape = try c.decodeIfPresent(Histogram.self, forKey: .holdShape)
+            interKeyShape = try c.decodeIfPresent(Histogram.self, forKey: .interKeyShape)
+            pauses = try c.decodeIfPresent(Stat.self, forKey: .pauses)
+            boutMinutes = try c.decodeIfPresent(Stat.self, forKey: .boutMinutes)
         }
 
         var isEmpty: Bool { self == HealthMonth() }
@@ -193,8 +217,15 @@ public struct Rollup: Codable, Equatable {
         /// Returned to the app just left within fifteen seconds.
         public var checkingLoops = 0
         public var interKey = Stat()
-        /// Log-seconds spent in an app before the next switch.
+        /// Log-seconds spent in an app before the next switch. Named
+        /// before hold times existed and kept: this is how long an *app*
+        /// was in front of you, never how long a key was down.
         public var dwell = Stat()
+        /// Key hold times, seconds — the week's psychomotor line, where
+        /// a shift is worth seeing at week resolution.
+        public var hold: Stat?
+        /// Pauses past the motor ceiling, seconds.
+        public var pauses: Stat?
         /// Backspace runs by length, as in the month. Optional so weeks
         /// archived before the column decode unchanged.
         public var backspaceRuns: [Int]?
@@ -365,6 +396,12 @@ public struct Rollup: Codable, Equatable {
         var stretchMinutes = 0
         var stretchMonth: String?
         var lastPulseEnd: Date?
+        /// The open bout: how far into it the last pulse reached, and
+        /// which month to charge it to when it closes. A bout is what
+        /// the pulse itself decided — the next window at index zero is
+        /// the next bout — so nothing is re-derived from timestamps here.
+        var boutMinutes = 0.0
+        var boutMonth: String?
     }
 
     /// Dwell outside these bounds is not attention: under a second is
@@ -485,6 +522,22 @@ public struct Rollup: Codable, Equatable {
             fold.stretchMonth = key
             fold.lastPulseEnd = event.t.addingTimeInterval(HealthPulse.windowSeconds)
 
+            // Bouts, where the pulse recorded them. A window at index
+            // zero opened a new one, so the one in flight is finished
+            // and can be archived at the month it ran in.
+            if let index = event.boutIndex {
+                if index == 0, fold.boutMinutes > 0, let month = fold.boutMonth {
+                    // Read out, then write back: the subscript cannot be
+                    // both sides of one assignment.
+                    let existing = months[month]?.health.boutMinutes ?? Stat()
+                    months[month]?.health.boutMinutes = existing.adding(fold.boutMinutes)
+                    fold.boutMinutes = 0
+                }
+                fold.boutMinutes = max(fold.boutMinutes,
+                                       (event.boutSeconds ?? 0) / 60 + Double(active))
+                fold.boutMonth = key
+            }
+
         default:
             return
         }
@@ -579,7 +632,40 @@ public struct Rollup: Codable, Equatable {
             if let runKeys = event.bsRunKeys, runKeys.count == 3 {
                 for i in 0..<3 { month.health.backspaceRunKeys[i] += runKeys[i] }
             }
+            if let n = event.holdN, n > 0 {
+                var hold = month.health.hold ?? Stat()
+                hold.merge(n: n, sum: event.holdSum ?? 0, sumSquares: event.holdSumSq ?? 0)
+                month.health.hold = hold
+            }
+            if let shape = event.holdHist {
+                var merged = month.health.holdShape ?? Histogram()
+                merged.merge(shape)
+                month.health.holdShape = merged
+            }
+            if let shape = event.ikHist {
+                var merged = month.health.interKeyShape ?? Histogram()
+                merged.merge(shape)
+                month.health.interKeyShape = merged
+            }
+            if let n = event.ikTailN, n > 0 {
+                var pauses = month.health.pauses ?? Stat()
+                // The pulse keeps a count and a sum of the pauses, never
+                // their squares — the mean is the claim, and a variance
+                // nobody can compute is better than one invented here.
+                pauses.merge(n: n, sum: event.ikTailSum ?? 0, sumSquares: 0)
+                month.health.pauses = pauses
+            }
             var weekly = month.weeks[week] ?? WeekHealth()
+            if let n = event.holdN, n > 0 {
+                var hold = weekly.hold ?? Stat()
+                hold.merge(n: n, sum: event.holdSum ?? 0, sumSquares: event.holdSumSq ?? 0)
+                weekly.hold = hold
+            }
+            if let n = event.ikTailN, n > 0 {
+                var pauses = weekly.pauses ?? Stat()
+                pauses.merge(n: n, sum: event.ikTailSum ?? 0, sumSquares: 0)
+                weekly.pauses = pauses
+            }
             weekly.keys += event.keys ?? 0
             weekly.backspaces += event.backspaces ?? 0
             if let runs = event.bsRuns, runs.count == 3 {

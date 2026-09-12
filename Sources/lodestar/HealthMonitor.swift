@@ -136,6 +136,16 @@ final class HealthMonitor {
         }
     }
 
+    /// A press released, and how long it was held. Main thread, from the
+    /// same tap the keystrokes come from — so the release is already
+    /// known to be a hand's, and already known not to be a repeat.
+    func noteHold(_ seconds: Double, at now: Date = Date()) {
+        guard enabled else { return }
+        if let flushed = pulse.hold(seconds, at: now) {
+            observations?.healthPulse(flushed)
+        }
+    }
+
     /// Shutdown: the open window's counts must not die with the process.
     func flush() {
         drainPending(all: true)

@@ -559,6 +559,14 @@ func runObservations(clear: Bool, engine: Bool) -> Never {
         text.count >= width ? text : text + String(repeating: " ", count: width - text.count)
     }
     func seconds(_ value: TimeInterval) -> String { String(format: "%.2fs", value) }
+    /// Hours since midnight as a clock time, wrapping past a day so
+    /// "finished at 01:20" reads as a time and not as 25:20.
+    func clockTime(_ hours: Double) -> String {
+        let wrapped = hours.truncatingRemainder(dividingBy: 24)
+        let normalized = wrapped < 0 ? wrapped + 24 : wrapped
+        return String(format: "%02d:%02d", Int(normalized),
+                      Int((normalized - Double(Int(normalized))) * 60))
+    }
 
     if !bound.isEmpty {
         print("addresses")
@@ -777,6 +785,89 @@ func runObservations(clear: Bool, engine: Bool) -> Never {
             print(pad("  shape", 10)
                 + pad(String(format: "peak %02d:00", peak.offset), 14)
                 + "late night \(late * 100 / total)% (23:00 to 03:00)")
+        }
+        // The press itself: how long keys were held down. Shape, never
+        // identity — how long a press lasted is not which key it was.
+        // The variation is reported scale-free, because a hand that got
+        // faster and a hand that got less even are different events and
+        // a raw spread confounds them.
+        if let hold = health.holdMean {
+            var press = pad("  press", 10)
+            press += pad(String(format: "hold %.0fms", hold * 1000), 16)
+            if let cv = health.holdCV {
+                press += pad(String(format: "variation %.0f%%", cv * 100), 18)
+            }
+            if let median = health.holdHistogram.median {
+                press += String(format: "median %.0fms", median * 1000)
+            }
+            print(press)
+        }
+        // The pauses the rhythm's moments exclude by construction, now
+        // kept instead of dropped: a gap past the motor ceiling is the
+        // hand stopping, and that is a measurement.
+        if let share = health.pauseShare, health.pauseN > 0 {
+            var pauses = pad("  pauses", 10)
+            pauses += pad(String(format: "%.0f%% of gaps", share * 100), 16)
+            if let mean = health.pauseMean {
+                pauses += pad(String(format: "mean %.1fs", mean), 14)
+            }
+            if let p90 = health.interKeyHistogram.quantile(0.9) {
+                pauses += String(format: "90th gap %.0fms", p90 * 1000)
+            }
+            print(pauses)
+        }
+        // Bouts of continuous work, and what running on does to the
+        // hands inside one. The slope is fitted within bouts, so it
+        // cannot be an artefact of which bouts happen to run long; where
+        // the error swallows it, the line says so rather than rounding
+        // an absent effect into a finding.
+        if let bouts = Vigilance.report(events: events, days: 28), bouts.bouts > 0 {
+            var line = pad("  bouts", 10)
+            line += pad("\(bouts.bouts) in \(health.days) days", 18)
+            if let mean = bouts.meanBoutMinutes {
+                line += pad(String(format: "mean %.0fm", mean), 12)
+            }
+            if let longest = bouts.longestBoutMinutes {
+                line += String(format: "longest %.0fm", longest)
+            }
+            print(line)
+            let drifts: [(String, Vigilance.Drift, (Double) -> String)] = [
+                ("corrections", bouts.correctionRate, { String(format: "%+.1f%%/h", $0 * 100) }),
+                ("pauses", bouts.pauseShare, { String(format: "%+.1f%%/h", $0 * 100) }),
+                ("hold", bouts.holdTime, { String(format: "%+.0fms/h", $0 * 1000) }),
+            ]
+            let shown = drifts.compactMap { name, drift, format -> String? in
+                guard let slope = drift.perHour, drift.fitted >= 4 else { return nil }
+                let reading = drift.isDistinguishable ? format(slope) : "flat"
+                return "\(name) \(reading)"
+            }
+            if !shown.isEmpty {
+                print(pad("  drift", 10) + shown.joined(separator: "   ")
+                    + "   (across a bout, fitted within bouts)")
+            }
+        }
+        // The day's own shape, by the measures actigraphy settled on for
+        // exactly this raw material. Described, never judged: what a
+        // person wants their rhythm to be is theirs.
+        if let cycle = Circadian.profile(events: events, days: 28), cycle.days >= 2 {
+            if let stability = cycle.interdailyStability,
+               let fragmentation = cycle.intradailyVariability {
+                var line = pad("  cycle", 10)
+                line += pad(String(format: "day-to-day %.2f", stability), 18)
+                line += pad(String(format: "broken up %.2f", fragmentation), 18)
+                if let amplitude = cycle.relativeAmplitude {
+                    line += String(format: "amplitude %.2f", amplitude)
+                }
+                print(line)
+            }
+            var clock = pad("  clock", 10)
+            if let onset = cycle.onsetHour { clock += pad("up \(clockTime(onset))", 12) }
+            if let offset = cycle.offsetHour { clock += pad("down \(clockTime(offset))", 14) }
+            if let mid = cycle.midpointHour { clock += pad("centre \(clockTime(mid))", 16) }
+            if let jetlag = cycle.socialJetlagHours {
+                clock += String(format: "weekend shift %.1fh", jetlag)
+            }
+            if clock.trimmingCharacters(in: .whitespaces) != "clock" { print(clock) }
         }
         // The mouse by app: where the clicks go and what they land on,
         // by role class. Described, not judged — the pool's size is the

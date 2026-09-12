@@ -115,8 +115,11 @@ final class DraftScenarioTests: XCTestCase {
         cmd(stage, "delete")
         XCTAssertEqual(stage.draft.buffer.text, "one two", "a word after speech")
         cmd(stage, "x")
+        XCTAssertEqual(stage.draft.buffer.text, "one two x",
+                       "a hand typing after speech means the next word, so the space is put in")
         cmd(stage, "delete")
-        XCTAssertEqual(stage.draft.buffer.text, "one two", "a character after typing")
+        XCTAssertEqual(stage.draft.buffer.text, "one two ",
+                       "a character after typing — the space it joined by stays, as a typed one would")
     }
 
     func testEscapeGoesToNormalModeAndSilencesTheMicThenEscapeKeepsTheDraft() {
@@ -212,7 +215,7 @@ final class DraftScenarioTests: XCTestCase {
         XCTAssertFalse(stage.press("s"), "the letter is the launcher's while it stands")
         stage.searcher.hide()
         cmd(stage, "x")
-        XCTAssertEqual(stage.draft.buffer.text, "interruptedx", "keys come back to the draft")
+        XCTAssertEqual(stage.draft.buffer.text, "interrupted x", "keys come back to the draft")
         XCTAssertTrue(stage.pasteboard.isEmpty, "nothing was written by a bar opening")
     }
 
@@ -1036,5 +1039,116 @@ final class DraftSilentMicTests: XCTestCase {
         let worst = attempts * SpeechStart.deadline + (attempts - 1) * SpeechStart.settleSeconds
         XCTAssertLessThan(worst, DraftController.listenWatchdogSeconds,
                           "the watchdog must outlast the retries or it kills a start that would have landed")
+    }
+}
+
+/// Dictation and the hand, interleaved.
+///
+/// The recognizer runs seconds behind the voice, so a hand that types
+/// while words are still in flight is the ordinary case and not the
+/// edge one. What it must never do is reorder what was said, paste an
+/// utterance back over an edit, or run a typed word into a spoken one.
+final class DraftInterleaveTests: XCTestCase {
+    private func cmd(_ stage: Stage, _ key: String, shift: Bool = false) {
+        _ = stage.press(key, shift: shift)
+    }
+
+    /// The one that pasted the session back. Words are still a ghost, the
+    /// hand takes one back, and the recognizer's final — which is for the
+    /// whole utterance, including the word just deleted — must not land.
+    func testEditingWordsStillInFlightDoesNotPasteThemBackWhenTheyLand() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.hear("run the migration and tail the log")
+        XCTAssertEqual(stage.draft.buffer.ghost, "run the migration and tail the log")
+        cmd(stage, "delete")
+        let afterEdit = stage.draft.buffer.text
+        XCTAssertFalse(afterEdit.contains("log"), "the last word went: \(afterEdit)")
+
+        stage.speech.settle("run the migration and tail the log")
+        XCTAssertEqual(stage.draft.buffer.text, afterEdit,
+                       "the final is for words the hand has edited, so it is dropped, not pasted")
+    }
+
+    /// Speak, then type before the recognizer has said anything. The words
+    /// were said first and must land first.
+    func testWordsSpokenBeforeTheHandLandBeforeWhatItTyped() {
+        let stage = Stage()
+        stage.lode(".")
+        // The microphone is hearing a voice, but nothing has been
+        // recognized yet — the seconds the recognizer runs behind.
+        stage.speech.level(0.6)
+        cmd(stage, "o"); cmd(stage, "k")
+        XCTAssertEqual(stage.draft.buffer.text, "ok")
+
+        stage.speech.settle("Hello there")
+        XCTAssertEqual(stage.draft.buffer.text, "Hello there ok",
+                       "the spoken words go in where the hand cut in, ahead of what it typed")
+    }
+
+    /// And the reverse: type into a quiet room, then speak. Nothing was in
+    /// flight, so the words belong after.
+    func testWordsSpokenAfterTheHandLandAfterIt() {
+        let stage = Stage()
+        stage.lode(".")
+        cmd(stage, "o"); cmd(stage, "k")
+        stage.speech.level(0.6)
+        stage.speech.settle("hello there")
+        XCTAssertEqual(stage.draft.buffer.text, "ok hello there",
+                       "a quiet microphone when the key came down means nothing was in flight")
+    }
+
+    /// An anchor is a reservation for words that are coming. Words that
+    /// never come must not hold the place open forever.
+    func testAStaleAnchorIsForgotten() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.level(0.6)
+        cmd(stage, "o"); cmd(stage, "k")
+        stage.clock.advance(by: DraftController.speechAnchorSeconds + 1)
+        stage.speech.settle("hello there")
+        XCTAssertEqual(stage.draft.buffer.text, "ok hello there",
+                       "a reservation older than the words it waits for is not honoured")
+    }
+
+    // MARK: - The space between a spoken word and a typed one
+
+    func testTypingAfterSpeechStartsANewWord() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.settle("move it to the done column")
+        for key in ["a", "n", "d"] { cmd(stage, key) }
+        XCTAssertEqual(stage.draft.buffer.text, "move it to the done column and")
+    }
+
+    /// Punctuation attaches, by the same rule that joins speech to speech.
+    func testTypedPunctuationStillAttaches() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.settle("that is all")
+        cmd(stage, ".")
+        XCTAssertEqual(stage.draft.buffer.text, "that is all.")
+    }
+
+    /// A space the hand types is the hand's own; it does not get another.
+    func testATypedSpaceIsNotDoubled() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.settle("one two")
+        cmd(stage, "space"); cmd(stage, "x")
+        XCTAssertEqual(stage.draft.buffer.text, "one two x")
+    }
+
+    /// The whole shape the hand asked for: speak, type while it catches
+    /// up, speak again. Everything in the order it happened.
+    func testSpeakTypeSpeakLandsInOrder() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.settle("First thing.")
+        stage.speech.level(0.6)
+        for key in ["t", "h", "e", "n"] { cmd(stage, key) }
+        stage.speech.settle("Second thing.")
+        XCTAssertEqual(stage.draft.buffer.text, "First thing. Second thing. then",
+                       "said, typed, said — in the order it happened")
     }
 }

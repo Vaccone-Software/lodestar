@@ -53,12 +53,34 @@ public enum Draft {
         // MARK: Input
 
         /// Typed characters land at the cursor.
-        public mutating func type(_ typed: String) {
-            guard !typed.isEmpty else { return }
-            let incoming = Array(typed)
+        ///
+        /// `joining` applies the spacing rule when what stands before is
+        /// spoken. A hand that starts typing after a settled phrase means
+        /// the next word, not more of the last one — speech joins speech
+        /// by that rule and typing had been exempt from it, so a hand
+        /// that spoke and then typed got `columnand` where it meant
+        /// `column and`. Punctuation still attaches, because the rule
+        /// that decides is the same one.
+        ///
+        /// Returns what was actually inserted, so the editor's record of
+        /// the run matches the buffer. Off by default: the editor's own
+        /// replay types the characters it recorded, and a separator
+        /// invented during a replay would not be in them.
+        @discardableResult
+        public mutating func type(_ typed: String, joining: Bool = false) -> String {
+            guard !typed.isEmpty else { return "" }
+            var text = typed
+            // Not before whitespace of the hand's own: a typed space
+            // after a spoken word is the hand putting the space there,
+            // and adding one to it gives two.
+            if joining, lastGrain == .spoken, !(typed.first?.isWhitespace ?? true) {
+                text = Draft.separator(after: characters[..<cursor], before: typed) + typed
+            }
+            let incoming = Array(text)
             characters.insert(contentsOf: incoming, at: cursor)
             cursor += incoming.count
             lastGrain = .typed
+            return text
         }
 
         /// A settled recognizer result lands at the cursor, joined to what

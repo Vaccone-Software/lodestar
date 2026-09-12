@@ -159,6 +159,26 @@ final class DraftController {
     /// on the spot, as seen; the recognizer's final for them, if it still
     /// comes, replaces exactly that text and nothing else.
     private var provisional: (range: Range<Int>, text: String)?
+    /// The last moment the microphone heard something louder than a
+    /// quiet room, and the level that counts as something.
+    private var lastVoiceAt: Date?
+    static let voiceFloor: Float = 0.08
+    /// Where the cursor stood when the hand cut in while words were
+    /// still in flight.
+    ///
+    /// The recognizer runs seconds behind the voice. Speak, then start
+    /// typing before the first volatile lands, and there is no ghost to
+    /// reserve — so the words arrive later and go in at the cursor,
+    /// which is now past what was typed. The order comes out backwards.
+    /// This is that reservation, made from the only evidence available
+    /// at the time: the microphone was hearing a voice when the key
+    /// came down, so whatever it is still chewing on was said first.
+    private var speechAnchor: (at: Int, since: Date)?
+    /// How recently the voice must have been heard for a key to mean
+    /// "I am still finishing what I said".
+    static let voiceRecencySeconds: TimeInterval = 1.5
+    /// How long an anchor waits for the words it is holding a place for.
+    static let speechAnchorSeconds: TimeInterval = 4
 
     private struct Origin {
         let pid: pid_t
@@ -507,6 +527,7 @@ final class DraftController {
         }, onLevel: { [weak self] level in
             guard let self, self.isOpen, self.session == mine else { return }
             self.level = level
+            if level > Self.voiceFloor { self.lastVoiceAt = self.clock.now() }
             self.panel.setLevel(level)
         }, onVolatile: { [weak self] text in
             guard let self, self.isOpen, self.session == mine, self.mode == .insert, self.micWanted,
@@ -563,6 +584,20 @@ final class DraftController {
             return
         }
         let writing = mode == .insert && micWanted
+        // A reservation the hand has since edited: the final is for words
+        // that no longer stand as they did, and inserting it would put
+        // the whole utterance back on top of the edit. Delete a word from
+        // what you just said and the recognizer's final would paste the
+        // entire session in again — the comment below always claimed this
+        // was dropped, and the branch underneath quietly inserted it.
+        if let standing = provisional, buffer.slice(standing.range) != standing.text {
+            buffer.clearGhost()
+            provisional = nil
+            speechAnchor = nil
+            Log.info("draft", ["speech": "final dropped", "reason": "reserved words were edited"])
+            render()
+            return
+        }
         if let standing = provisional, buffer.slice(standing.range) == standing.text {
             // The final for words settled early: it replaces them in place,
             // if they are still there untouched; edited or gone, it is dropped.
@@ -593,15 +628,35 @@ final class DraftController {
             // before the words land, so ⌘Z reaches the buffer as it
             // stood when the recognizer began this one.
             vim.markInsertBoundary(buffer)
+            // Words said before the hand cut in go where the hand cut in,
+            // not at the cursor it has since moved.
+            let landing = freshSpeechAnchor()
+            let resume = buffer.cursor
+            if let landing { buffer.setCursor(landing) }
             let before = buffer.count
             buffer.settle(repaired)
+            var grew = buffer.count - before
             // The editor hears what speech typed, so `.` can say it again.
-            vim.typed(buffer.slice(buffer.cursor - (buffer.count - before)..<buffer.cursor))
+            vim.typed(buffer.slice(buffer.cursor - grew..<buffer.cursor))
+            if landing != nil {
+                // The words went in ahead of what the hand typed, and the
+                // joining rule only ever puts a space on the near side of
+                // what it inserts. Without this the two run together:
+                // "Hello there" ahead of "ok" reads "Hello thereok".
+                let at = buffer.cursor
+                if at < buffer.count, !buffer.characters[at].isWhitespace {
+                    buffer.replace(at..<at, with: " ")
+                    grew += 1
+                }
+                buffer.setCursor(resume + grew)
+            }
+            speechAnchor = nil
         } else {
             // Spoken while silent and never shown, or shown and since edited
             // away: it does not write.
             buffer.clearGhost()
             provisional = nil
+            speechAnchor = nil
         }
         render()
     }
@@ -610,6 +665,19 @@ final class DraftController {
     /// opening or closing moves it once instead of on every key that
     /// leaves the selection standing.
     private var micRunning = false
+
+    /// The standing anchor, if it is still worth honouring: a reservation
+    /// older than the words it waits for is a reservation for words that
+    /// are not coming.
+    private func freshSpeechAnchor() -> Int? {
+        guard let anchor = speechAnchor else { return nil }
+        guard clock.now().timeIntervalSince(anchor.since) <= Self.speechAnchorSeconds,
+              anchor.at <= buffer.count else {
+            speechAnchor = nil
+            return nil
+        }
+        return anchor.at
+    }
 
     private func pauseSpeech() {
         guard listening else { return }
@@ -732,11 +800,20 @@ final class DraftController {
         // later revises the reserved words in place (`provisional`), not
         // at the cursor. Moves and the commit leave the ghost to its own
         // rules.
-        if !buffer.ghost.isEmpty {
-            let moves = ["escape", "left", "right", "up", "down"]
-            let editingControl = control && ["h", "w", "u", "k"].contains(key)
-            let editingKey = !control && !moves.contains(key) && !(key == "return" && !shift)
-            if editingControl || editingKey { settleGhostAsSeen() }
+        let moves = ["escape", "left", "right", "up", "down"]
+        let editingControl = control && ["h", "w", "u", "k"].contains(key)
+        let editingKey = !control && !moves.contains(key) && !(key == "return" && !shift)
+        if editingControl || editingKey {
+            if !buffer.ghost.isEmpty {
+                settleGhostAsSeen()
+            } else if speechAnchor == nil, provisional == nil, micWanted, listening,
+                      let heard = lastVoiceAt,
+                      clock.now().timeIntervalSince(heard) <= Self.voiceRecencySeconds {
+                // Nothing shown yet, but the microphone was hearing a
+                // voice a moment ago: whatever it is still working on
+                // was said before this key, and belongs before it.
+                speechAnchor = (buffer.cursor, clock.now())
+            }
         }
         // The control chords every macOS field answers: line ends, a word
         // or a line back, the rest of the line forward.
@@ -789,8 +866,9 @@ final class DraftController {
             buffer.type("\t"); vim.typed("\t"); typedCharacters += 1
         default:
             guard !control, let typed = Keys.character(for: key, shift: shift) else { return true }
-            buffer.type(typed)
-            vim.typed(typed)
+            // The editor hears exactly what the buffer took, separator
+            // and all, or `.` would replay a word without its space.
+            vim.typed(buffer.type(typed, joining: true))
             typedCharacters += 1
         }
         render()
@@ -983,6 +1061,8 @@ final class DraftController {
         inputName = nil
         level = 0
         provisional = nil
+        speechAnchor = nil
+        lastVoiceAt = nil
         session += 1
         pendingSettle = nil
         panel.hide()

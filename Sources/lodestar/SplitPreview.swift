@@ -16,12 +16,26 @@ import LodestarCore
 @available(macOS 26.0, *)
 enum SplitPreview {
     static let draftWidth: CGFloat = 720
-    static let draftHeight: CGFloat = 112
+    /// Equal heights on purpose. A panel taller than the draft meets it
+    /// at a step, and the container fillets that step into a flare that
+    /// reads as the draft's own corner bulging outward — which is not a
+    /// neck and does not look like one.
+    static let draftHeight: CGFloat = 168
     static let panelWidth: CGFloat = 240
     static let panelHeight: CGFloat = 168
+    /// Where the panel has finished widening and starts pulling away.
+    /// Width and gap used to grow together, so by the time a panel was
+    /// big enough to bridge, the gap had already passed `spacing` and
+    /// there was nothing to bridge: the shapes only ever touched, and a
+    /// union is not a neck. The panel comes out from under the draft
+    /// first, then leaves.
+    static let emergeThrough: CGFloat = 0.45
     /// Open far enough to clear `spacing`, or the panels never break off.
-    static let openGap: CGFloat = 44
-    static let spacing: CGFloat = 30
+    static let openGap: CGFloat = 56
+    /// How far apart the container keeps bridging. Larger holds the neck
+    /// through more of the gesture, which is the part worth seeing; the
+    /// gap has to finish well past it or the panels never let go.
+    static let spacing: CGFloat = 55
 
     private static var held: [NSWindow] = []
 
@@ -61,10 +75,32 @@ enum SplitPreview {
         let middle = draftGlass()
         for view in [left, middle, right] { inner.addSubview(view) }
 
+        /// `KeysMotion`'s own curve — cubic-bezier(0.25, 0.1, 0.25, 1),
+        /// the system's for a window changing frame — so the harness is
+        /// judged on the timing the surface would actually ship with,
+        /// and not on a smoothstep that flatters it.
+        func ease(_ t: CGFloat) -> CGFloat {
+            var lo: CGFloat = 0, hi: CGFloat = 1, u: CGFloat = t
+            func bez(_ a: CGFloat, _ b: CGFloat, _ s: CGFloat) -> CGFloat {
+                3 * a * s * (1 - s) * (1 - s) + 3 * b * s * s * (1 - s) + s * s * s
+            }
+            for _ in 0..<20 {
+                u = (lo + hi) / 2
+                if bez(0.25, 0.25, u) < t { lo = u } else { hi = u }
+            }
+            return bez(0.1, 1, u)
+        }
+
         func layout(_ progress: CGFloat) {
-            let eased = progress * progress * (3 - 2 * progress)
-            let gap = openGap * eased
-            let w = panelWidth * eased
+            let p = max(0, min(1, progress))
+            // Two beats in one gesture: the panel widens out from under
+            // the draft, then the pair pulls apart and the bridge between
+            // them thins and breaks.
+            let widen = ease(min(1, p / emergeThrough))
+            let part = ease(max(0, (p - emergeThrough) / (1 - emergeThrough)))
+            let eased = widen
+            let gap = openGap * part
+            let w = panelWidth * widen
             let floor: CGFloat = 60
             let midX = width / 2
             middle.frame = NSRect(x: midX - draftWidth / 2, y: floor,
@@ -87,11 +123,26 @@ enum SplitPreview {
             layout(CGFloat(progress))
         } else {
             layout(0)
+            // The shipping cadence: `KeysMotion.growSeconds` out,
+            // `shrinkSeconds` back, and long enough at each end to read
+            // the state before it moves again.
+            let grow = 0.30, shrink = 0.22, hold = 1.4
+            let cycleLength = grow + hold + shrink + hold
             var t = 0.0
             Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { _ in
                 t += 1.0 / 60
-                let cycle = t.truncatingRemainder(dividingBy: 4.0)
-                layout(CGFloat(cycle < 2 ? min(1, cycle / 1.2) : max(0, 1 - (cycle - 2) / 1.2)))
+                let c = t.truncatingRemainder(dividingBy: cycleLength)
+                let progress: Double
+                if c < grow {
+                    progress = c / grow
+                } else if c < grow + hold {
+                    progress = 1
+                } else if c < grow + hold + shrink {
+                    progress = 1 - (c - grow - hold) / shrink
+                } else {
+                    progress = 0
+                }
+                layout(CGFloat(progress))
             }
         }
 
@@ -165,10 +216,10 @@ enum SplitPreview {
         mode.textColor = BarTheme.secondaryColor
         mode.translatesAutoresizingMaskIntoConstraints = false
         let words = NSTextField(labelWithString:
-            "Run the migration for user_sessions and tail the log, then move the\nAsana card to the done column.")
+            "Run the migration for user_sessions and tail the log, then move the\nAsana card to the done column, then let the team know it landed\nand check the dashboard once the backfill has caught up.")
         words.font = BarTheme.readingMono
         words.textColor = .labelColor
-        words.maximumNumberOfLines = 2
+        words.maximumNumberOfLines = 3
         words.translatesAutoresizingMaskIntoConstraints = false
         for v in [name, mode, words] { scrim.addSubview(v) }
         NSLayoutConstraint.activate([

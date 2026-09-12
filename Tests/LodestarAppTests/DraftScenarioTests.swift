@@ -796,3 +796,50 @@ final class DraftScenarioTests: XCTestCase {
         XCTAssertEqual(stage.speech.openSessions, 1)
     }
 }
+
+/// The draft carries no legend. Every key it owns lives behind `lode ?`,
+/// the one door, and the glass grows to hold them the way a bar's does.
+final class DraftKeysScenarioTests: XCTestCase {
+    func testTheDraftOpensWithNoLegend() {
+        let stage = Stage()
+        stage.lode(".")
+        XCTAssertTrue(stage.draft.isOpen)
+        XCTAssertFalse(stage.draft.keysShown, "nothing is shown until it is asked for")
+    }
+
+    func testLodeQuestionShowsTheDraftsOwnKeysAndTogglesThemAway() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.settle("some words")
+        stage.lode("/", shift: true)
+        XCTAssertTrue(stage.draft.keysShown, "lode ? is answered by the draft, not by the sheet")
+        XCTAssertTrue(stage.draft.isOpen, "and the draft is still standing under them")
+        stage.lode("/", shift: true)
+        XCTAssertFalse(stage.draft.keysShown)
+        XCTAssertTrue(stage.draft.isOpen)
+    }
+
+    /// The keys answer for the mode the hand is actually in.
+    func testTheKeysFollowTheEditorsMode() {
+        func labels(_ editor: Vim.Mode) -> [String] {
+            HotkeyEngine.draftSections(editor: editor, card: false).flatMap { $0.rows }.map(\.label)
+        }
+        XCTAssertTrue(labels(.insert).contains("new line"))
+        XCTAssertTrue(labels(.normal).contains("left · down · up · right"))
+        XCTAssertTrue(labels(.visual(line: false))
+            .contains("delete · change · yank what is selected"))
+    }
+
+    /// The draft still ends on ⏎ with its keys up: a sheet is a thing to
+    /// read, never a mode to get out of first.
+    func testReturnStillPastesWithTheKeysUp() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.settle("with the keys up")
+        stage.lode("/", shift: true)
+        XCTAssertTrue(stage.draft.keysShown)
+        _ = stage.press("return")
+        XCTAssertFalse(stage.draft.isOpen)
+        XCTAssertEqual(stage.pasteboard, ["with the keys up"])
+    }
+}

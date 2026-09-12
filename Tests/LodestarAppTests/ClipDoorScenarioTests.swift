@@ -494,22 +494,29 @@ final class ClipDoorPanelTests: XCTestCase {
         XCTAssertEqual(panel.registerText, "Brave Browser")
         XCTAssertEqual(panel.registerDetail, "github.com · 3m ago")
         XCTAssertFalse(panel.micVisible)
-        XCTAssertTrue(panel.footerText.hasPrefix("⏎ save to the card"), panel.footerText)
-        panel.show(view("x", editor: .normal))
-        XCTAssertTrue(panel.footerText.contains("esc back to the clipboard"), panel.footerText)
-        panel.show(view("x", editor: .visual(line: false)))
-        XCTAssertTrue(panel.footerText.hasPrefix("⏎ save to the card"), panel.footerText)
+        XCTAssertEqual(panel.keysText, "", "the draft carries no legend; its keys live behind lode ?")
     }
 
-    func testTheDraftsOwnDoorsStillSayPaste() {
-        let panel = DraftPanel()
-        defer { panel.hide() }
-        panel.show(view("x", card: false))
-        XCTAssertTrue(panel.micVisible)
-        XCTAssertEqual(panel.registerText, "Notes")
-        XCTAssertTrue(panel.footerText.hasPrefix("⏎ paste"), panel.footerText)
-        panel.show(view("x", card: false, editor: .normal))
-        XCTAssertTrue(panel.footerText.contains("esc close, kept in the clipboard"), panel.footerText)
+    /// The legend that used to sit under the text said where ⏎ lands and
+    /// what esc does, and the clip door said it differently. That is now
+    /// the sheet's sentence, and it still has to differ.
+    func testTheCardsKeysSayTheCardAndTheDraftsSayThePaste() {
+        func labels(_ sections: [CheatSheet.Section]) -> [String] {
+            sections.flatMap { $0.rows }.map(\.label)
+        }
+        let card = labels(HotkeyEngine.draftSections(editor: .normal, card: true))
+        XCTAssertTrue(card.contains("save to the card"), "\(card)")
+        XCTAssertTrue(card.contains("back to the clipboard"), "\(card)")
+
+        let draft = labels(HotkeyEngine.draftSections(editor: .normal, card: false))
+        XCTAssertTrue(draft.contains("paste where ⏎ lands"), "\(draft)")
+        XCTAssertTrue(draft.contains("close, kept in the clipboard"), "\(draft)")
+
+        // Insert mode names the two keys the legend used to, and no more
+        // of the editor than the hand is holding.
+        let insert = labels(HotkeyEngine.draftSections(editor: .insert, card: false))
+        XCTAssertTrue(insert.contains("new line"), "\(insert)")
+        XCTAssertTrue(insert.contains { $0.hasPrefix("normal mode") }, "\(insert)")
     }
 }
 

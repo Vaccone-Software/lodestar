@@ -1344,6 +1344,7 @@ final class HotkeyEngine {
     /// opens depends on what is standing: a bar's keys, the settings
     /// window's, a lens's, or at idle the whole system.
     func sheetSections() -> [CheatSheet.Section] {
+        if draft.isOpen { return Self.draftSections(editor: draft.vim.mode, card: draft.editingClip != nil) }
         if settingsUp() { return Self.settingsSections }
         if searcher.isVisible { return Self.launcherSections }
         if webBar.isVisible { return Self.askSections }
@@ -1355,6 +1356,12 @@ final class HotkeyEngine {
     /// to hold its own, and with nothing standing the sheet is its own
     /// panel at the middle of the screen.
     private func toggleKeys() {
+        // The draft stands over everything while it is open, and it owns
+        // the keys the hand is actually holding.
+        if draft.isOpen {
+            draft.toggleKeys(sheetSections())
+            return
+        }
         for bar in [searcher, webBar, commandsBar] as [BarSurface] where bar.isVisible {
             bar.toggleKeys(sheetSections())
             return
@@ -1368,8 +1375,61 @@ final class HotkeyEngine {
 
     private func dismissKeys() {
         cheat.hide()
+        draft.hideKeys()
         for bar in [searcher, webBar, commandsBar] as [BarSurface] { bar.hideKeys() }
         pill.hideKeys()
+    }
+
+    /// The draft's own keys. The legend that used to sit under the text
+    /// said three of these and had room for no more; behind `lode ?`
+    /// there is room for the editor the draft actually is.
+    static func draftSections(editor: Vim.Mode, card: Bool) -> [CheatSheet.Section] {
+        let commit = card ? "save to the card" : "paste where ⏎ lands"
+        let leave = card ? "back to the clipboard" : "close, kept in the clipboard"
+        switch editor {
+        case .insert:
+            return [
+                .init(header: "draft", rows: [
+                    GuideRow(key: "⏎", label: commit),
+                    GuideRow(key: "⇧⏎", label: "new line"),
+                    GuideRow(key: "esc", label: "normal mode · the microphone waits there"),
+                ]),
+                .init(header: "typing", rows: [
+                    GuideRow(key: "⌘Z", label: "undo · ⇧⌘Z redo"),
+                    GuideRow(key: "⌘A", label: "all of it"),
+                    GuideRow(key: "⌥⌫", label: "back one word · ⌘⌫ back to the line's start"),
+                ]),
+            ]
+        case .normal:
+            return [
+                .init(header: "draft", rows: [
+                    GuideRow(key: "⏎", label: commit),
+                    GuideRow(key: "i", label: "insert · a after · o a line below"),
+                    GuideRow(key: "esc", label: leave),
+                ]),
+                .init(header: "move", rows: [
+                    GuideRow(key: "h j k l", label: "left · down · up · right"),
+                    GuideRow(key: "w b e", label: "by word · 0 $ the line's edges"),
+                    GuideRow(key: "f t", label: "to a letter · ; and , again"),
+                ]),
+                .init(header: "change", rows: [
+                    GuideRow(key: "d c y", label: "delete · change · yank, with a motion"),
+                    GuideRow(key: "x p", label: "the letter under the cursor · put"),
+                    GuideRow(key: "v V", label: "select · by line"),
+                ]),
+            ]
+        case .visual:
+            return [
+                .init(header: "selection", rows: [
+                    GuideRow(key: "d c y", label: "delete · change · yank what is selected"),
+                    GuideRow(key: "h j k l", label: "grow it · w b by word"),
+                    GuideRow(key: "esc", label: "normal mode"),
+                ]),
+                .init(header: "draft", rows: [
+                    GuideRow(key: "⏎", label: commit),
+                ]),
+            ]
+        }
     }
 
     static let everywhereSection = CheatSheet.Section(header: "Everywhere", rows: [

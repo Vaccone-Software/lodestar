@@ -73,7 +73,11 @@ final class DraftPanel {
     let textView = NSTextView()
     private let scroll = NSScrollView()
     private let caret = NSView()
-    private let footer = NSTextField(labelWithString: "")
+    /// The keys, when they are asked for. The draft carries no legend:
+    /// every key it owns lives behind `lode ?`, like every other
+    /// surface's, and the glass grows to hold them.
+    private var keysView: NSView?
+    private(set) var keysShown = false
 
     /// The mic was clicked: on becomes off, off becomes on.
     var onToggleMic: (() -> Void)?
@@ -85,7 +89,13 @@ final class DraftPanel {
     private static let margin: CGFloat = 22
     private static let padX: CGFloat = 22
     private static let registerHeight: CGFloat = 40
-    private static let footerHeight: CGFloat = 26
+    /// The air under the text when the draft carries nothing else.
+    private static let floorHeight: CGFloat = 14
+    /// Air between the text and the keys, and under them: the pill's own
+    /// inset, so a draft holding its keys is spaced like a bar holding
+    /// its keys.
+    private static let keysAbove: CGFloat = ModePill.inset
+    private static let keysBelow: CGFloat = ModePill.inset
     private static let minTextHeight: CGFloat = 58
     private static let meterCount = 5
     /// The system's mono face: a block cursor in a proportional face is
@@ -169,16 +179,24 @@ final class DraftPanel {
         caret.wantsLayer = true
         caret.layer?.cornerRadius = BarTheme.hairlineRadius
 
-        footer.font = BarTheme.footerFont
-        footer.textColor = BarTheme.secondaryColor
-
         // The caret sits under the text: a block cursor is a solid plate
         // with the glyph inverted over it, the way every terminal draws
         // one, and the plate has to be behind the glyph for that.
         for view in [registerIcon, registerName, registerNote, inputPopup, modeLabel, micButton,
-                     caret, scroll, footer] + meterBars {
+                     caret, scroll] + meterBars {
             root.addSubview(view)
         }
+        // The panel's frame animates when the keys arrive, and the draft
+        // places every view by hand rather than by constraint. These
+        // masks are what carries the layout through an animation that no
+        // render runs inside: the register line holds the top edge, the
+        // text takes the room that opens, the keys hold the bottom.
+        root.autoresizesSubviews = true
+        for view in [registerIcon, registerName, registerNote, inputPopup, modeLabel, micButton]
+            + meterBars {
+            view.autoresizingMask = [.minYMargin]
+        }
+        scroll.autoresizingMask = [.width, .height]
     }
 
     @objc private func micClicked() { onToggleMic?() }
@@ -194,9 +212,26 @@ final class DraftPanel {
     var frame: NSRect { panel.frame }
     var caretFrame: NSRect { caret.frame }
     var caretColor: NSColor? { caret.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)) }
+    /// Every view on the register line, named, for a layout probe.
+    var registerViews: [(String, NSView)] {
+        [("icon", registerIcon), ("name", registerName), ("mode", modeLabel),
+         ("note", registerNote), ("input", inputPopup), ("mic", micButton)]
+            + meterBars.enumerated().map { ("meter\($0.offset)", $0.element) }
+    }
     var registerText: String { registerName.stringValue }
     var registerDetail: String { registerNote.stringValue }
-    var footerText: String { footer.stringValue }
+    /// What the keys say, when they are up — the legend's replacement,
+    /// for the tests that used to read the footer.
+    var keysText: String {
+        guard let keysView else { return "" }
+        var out: [String] = []
+        func walk(_ view: NSView) {
+            if let field = view as? NSTextField { out.append(field.stringValue) }
+            view.subviews.forEach(walk)
+        }
+        walk(keysView)
+        return out.joined(separator: " ")
+    }
     var micVisible: Bool { !micButton.isHidden }
 
     /// The width a text asks for: its longest line in the panel's face,
@@ -238,7 +273,12 @@ final class DraftPanel {
         return text.substring(to: min(landingUTF16, text.length)).count
     }
 
+    /// The last frame rendered, so the keys can re-render the panel once
+    /// the glass has finished growing.
+    private var lastView: DraftView?
+
     func show(_ view: DraftView) {
+        lastView = view
         let screen = ActivePolicy.presentationFrame
         let width = min(view.width ?? Self.width, screen.width - Self.margin * 2)
         let textWidth = width - Self.padX * 2
@@ -311,7 +351,7 @@ final class DraftPanel {
         // scrolls past it — one rule for every door. A card opened to be
         // read wants all of itself on screen, and a long dictation is no
         // worse for the room.
-        let chrome = Self.registerHeight + Self.footerHeight + 14
+        let chrome = Self.registerHeight + Self.floorHeight + keysBand
         let maxTextHeight = max(Self.minTextHeight,
                                 screen.height - view.standsAbove - Self.margin * 2 - chrome)
         let textHeight = min(maxTextHeight, max(Self.minTextHeight, used + lineHeight * 0.4))
@@ -331,11 +371,24 @@ final class DraftPanel {
         root.frame = NSRect(origin: .zero, size: frame.size)
         backdrop?.frame = root.bounds
 
-        // The register line. Everything on it shares one vertical center.
+        // The register line. Everything on it shares one vertical center,
+        // and the rounding happens to the *edges* rather than the centre:
+        // rounding `centre - h/2` puts an even-height view on a whole
+        // pixel and an odd-height one on a half, which is a visible
+        // stagger across a row that mixes glyphs, symbols and controls.
         let registerY = height - Self.registerHeight
-        let centerY = registerY + Self.registerHeight / 2
+        let centerY = (registerY + Self.registerHeight / 2).rounded()
         func place(_ v: NSView, x: CGFloat, width w: CGFloat, height h: CGFloat) {
-            v.frame = NSRect(x: x.rounded(), y: (centerY - h / 2).rounded(), width: w, height: h)
+            let top = (centerY + h / 2).rounded()
+            v.frame = NSRect(x: x.rounded(), y: top - h.rounded(), width: w, height: h.rounded())
+        }
+        /// A label is centred on its *text*, not on whatever box it is
+        /// handed. Two labels in two faces, each centred as a box, do not
+        /// share a baseline — which is what made this line look off.
+        func placeText(_ field: NSTextField, x: CGFloat, width w: CGFloat) {
+            let natural = field.sizeThatFits(NSSize(width: CGFloat.greatestFiniteMagnitude,
+                                                    height: CGFloat.greatestFiniteMagnitude)).height
+            place(field, x: x, width: w, height: natural)
         }
         var x = Self.padX
         if let card = view.card {
@@ -358,7 +411,7 @@ final class DraftPanel {
         place(registerIcon, x: x, width: 18, height: 18)
         x += 26
         registerName.sizeToFit()
-        place(registerName, x: x, width: min(registerName.frame.width, 240), height: 17)
+        placeText(registerName, x: x, width: min(registerName.frame.width, 240))
         x += registerName.frame.width + 14
 
         // Where the text goes and what the keys mean sit together on the
@@ -369,7 +422,7 @@ final class DraftPanel {
         case .visual(let line): modeLabel.stringValue = line ? "V-LINE" : "VISUAL"
         }
         modeLabel.sizeToFit()
-        place(modeLabel, x: x, width: modeLabel.frame.width, height: 15)
+        placeText(modeLabel, x: x, width: modeLabel.frame.width)
         x += modeLabel.frame.width + 16
 
         var trailing = width - Self.padX
@@ -389,10 +442,14 @@ final class DraftPanel {
             place(micButton, x: trailing - 20, width: 20, height: 20)
             trailing -= 28
         }
+        // The meter sits on one floor and grows upward. Centring each bar
+        // on the row's centre splayed them symmetrically — a bowtie, not
+        // a meter — and no meter anywhere is drawn that way.
+        let meterFloor = (centerY - CGFloat(Self.meterCount + 3) / 2).rounded()
         for (i, bar) in meterBars.enumerated() {
-            let h = bar.frame.height
             bar.isHidden = !listening || noMic
-            place(bar, x: trailing - 3 - CGFloat(Self.meterCount - 1 - i) * 5, width: 3, height: h)
+            bar.frame = NSRect(x: (trailing - 3 - CGFloat(Self.meterCount - 1 - i) * 5).rounded(),
+                               y: meterFloor, width: 3, height: bar.frame.height)
         }
         if listening, !noMic { trailing -= CGFloat(Self.meterCount) * 5 + 10 }
         setLevel(listening ? view.level : 0, live: micLive)
@@ -421,10 +478,11 @@ final class DraftPanel {
         registerNote.stringValue = view.card?.detail ?? Self.note(for: view)
         registerNote.isHidden = registerNote.stringValue.isEmpty
         registerNote.sizeToFit()
-        place(registerNote, x: x, width: max(0, min(registerNote.frame.width, trailing - x)), height: 15)
+        placeText(registerNote, x: x, width: max(0, min(registerNote.frame.width, trailing - x)))
 
         // The text.
-        scroll.frame = NSRect(x: Self.padX, y: Self.footerHeight + 6, width: textWidth, height: textHeight)
+        scroll.frame = NSRect(x: Self.padX, y: Self.floorHeight + keysBand,
+                              width: textWidth, height: textHeight)
         textView.frame = NSRect(x: 0, y: 0, width: textWidth, height: max(textHeight, used))
         textView.layoutManager?.ensureLayout(for: textView.textContainer!)
         if used > textHeight {
@@ -470,31 +528,84 @@ final class DraftPanel {
             caret.layer?.backgroundColor = (block ? NSColor.labelColor : BarTheme.readableAccent).cgColor
         }
 
-        let commit = noMic ? "⏎ save to the card" : "⏎ paste"
-        let leave = noMic ? "esc back to the clipboard" : "esc close, kept in the clipboard"
-        switch view.editor {
-        case .insert: footer.stringValue = "\(commit)    ⇧⏎ new line    esc normal mode"
-        case .normal: footer.stringValue = "\(commit)    i insert    \(leave)"
-        case .visual: footer.stringValue = "\(commit)    d c y on the selection    esc normal mode"
-        }
-        footer.sizeToFit()
-        footer.frame = NSRect(x: Self.padX, y: 8, width: width - Self.padX * 2, height: 15)
+        placeKeys(width: width)
 
         CATransaction.commit()
         NSAnimationContext.endGrouping()
 
-        if !panel.isVisible {
-            // The footer fades on the way in, once per opening: the mode
-            // legend is a recallable answer like any bar's.
-            footerFade.apply(to: footer, delay: footerDelay())
-            panel.orderFrontRegardless()
+        if !panel.isVisible { panel.orderFrontRegardless() }
+    }
+
+    // MARK: - The keys
+
+    /// The height the glass owes its keys: zero while they are away.
+    private var keysBand: CGFloat {
+        guard keysShown, let keysView else { return 0 }
+        return Self.keysAbove + keysView.frame.height + Self.keysBelow
+    }
+
+    /// The keys sit under the text, against the floor, which is where
+    /// the legend used to stand.
+    private func placeKeys(width: CGFloat) {
+        guard let keysView, keysShown else { return }
+        keysView.frame = NSRect(x: Self.padX, y: Self.keysBelow,
+                                width: keysView.frame.width, height: keysView.frame.height)
+    }
+
+    /// The panel's frame with `delta` more height, kept on its own floor:
+    /// the draft is anchored at the bottom of the screen, so the room a
+    /// growing glass needs comes off the top edge. Approximate on
+    /// purpose — the render that follows the animation is exact, and
+    /// this only has to be where the glass is heading.
+    private func grown(by delta: CGFloat) -> NSRect {
+        var frame = panel.frame
+        let ceiling = (panel.screen ?? NSScreen.main)?.visibleFrame.maxY ?? frame.maxY
+        frame.size.height = max(Self.registerHeight + Self.minTextHeight,
+                                min(frame.height + delta, ceiling - frame.minY - Self.margin))
+        return frame
+    }
+
+    /// `lode ?`, from the engine. The draft is the frontmost surface
+    /// while it is open, so it answers before any bar does.
+    func toggleKeys(_ sections: [CheatSheet.Section]) {
+        if keysShown { hideKeys() } else { showKeys(sections) }
+    }
+
+    func showKeys(_ sections: [CheatSheet.Section]) {
+        guard panel.isVisible, let last = lastView, !keysShown else { return }
+        keysView?.removeFromSuperview()
+        let columns = CheatSheet.columns(sections)
+        // The draft places every view by frame; a stack that still
+        // believes in its constraints would be zeroed by the first
+        // layout pass.
+        columns.translatesAutoresizingMaskIntoConstraints = true
+        let fitting = columns.fittingSize
+        columns.frame = NSRect(x: Self.padX, y: Self.keysBelow,
+                               width: min(fitting.width, Self.width - Self.padX * 2),
+                               height: fitting.height)
+        columns.autoresizingMask = [.maxYMargin]
+        columns.alphaValue = 0
+        root.addSubview(columns)
+        keysView = columns
+        keysShown = true
+        // The glass grows downward from under the text — the draft is
+        // anchored at the bottom of the screen, so the room has to come
+        // from the top edge, and the keys fade in once it has opened.
+        KeysMotion.grow(panel, to: grown(by: keysBand), revealing: columns) { [weak self] in
+            self?.show(last)
         }
     }
 
-    /// How long the footer waits before painting — `SurfaceFade`'s
-    /// verdict for the draft, asked at each opening.
-    var footerDelay: () -> TimeInterval = { 0 }
-    private let footerFade = FooterFade()
+    func hideKeys() {
+        guard keysShown, let last = lastView else { return }
+        keysShown = false
+        let going = keysView
+        let band = Self.keysAbove + (going?.frame.height ?? 0) + Self.keysBelow
+        keysView = nil
+        KeysMotion.shrink(panel, to: grown(by: -band), hiding: going) { [weak self] in
+            self?.show(last)
+        }
+    }
 
     /// Move the meter without a re-layout: it arrives ten times a second.
     func setLevel(_ level: Float, live: Bool? = nil) {

@@ -93,12 +93,12 @@ final class DraftController {
     // MARK: State
 
     private let panel = DraftPanel()
-    /// The panel's footer fade, exposed for the wiring that owns the
-    /// observations.
-    var footerDelay: () -> TimeInterval {
-        get { panel.footerDelay }
-        set { panel.footerDelay = newValue }
-    }
+    /// `lode ?` while the draft is open: its own keys, in its own glass.
+    /// The draft carries no legend now, so this is the only way they are
+    /// read — and the only way they are ever asked for.
+    var keysShown: Bool { panel.keysShown }
+    func toggleKeys(_ sections: [CheatSheet.Section]) { panel.toggleKeys(sections) }
+    func hideKeys() { panel.hideKeys() }
     private let speech: SpeechSession
     private(set) var isOpen = false
     private(set) var buffer = Draft.Buffer()

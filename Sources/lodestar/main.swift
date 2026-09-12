@@ -283,7 +283,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.observationStore?.latency(surface: surface, seconds: seconds)
         }
         let draft = DraftController(speech: AnalyzerSpeechSession())
-        draft.footerDelay = { [weak self] in self?.footerDelay("draft") ?? 0 }
         draft.flash = { [weak self] text in self?.hud.flash(text) }
         draft.observations = observationStore
         draft.words = config.draftWords

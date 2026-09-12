@@ -20,8 +20,36 @@ enum SpeechStart {
     static let attempts = 3
     static let settleSeconds: TimeInterval = 0.65
 
+    /// What the recognizer's own preparation is given before it is
+    /// treated as wedged. `prepareToAnalyze` and `start(inputSequence:)`
+    /// are awaits with no timeout of their own, and when the speech
+    /// stack is stuck — which it is for minutes after an update — they
+    /// never return at all. The session then reports no state whatever,
+    /// and the draft says the microphone did not start while the task
+    /// that would have started it is parked for the life of the process.
+    static let prepareDeadline: TimeInterval = 3
+
     struct TimedOut: Error, CustomStringConvertible {
         var description: String { "the microphone did not answer" }
+    }
+
+    /// Run `work`, or give up on it. Whatever is still waiting is left to
+    /// the runtime: the point is that the caller stops waiting, so it can
+    /// say what happened instead of never speaking again.
+    static func withDeadline<T: Sendable>(
+        _ seconds: TimeInterval,
+        _ work: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await work() }
+            group.addTask {
+                try await Task.sleep(for: .seconds(seconds))
+                throw TimedOut()
+            }
+            defer { group.cancelAll() }
+            guard let first = try await group.next() else { throw TimedOut() }
+            return first
+        }
     }
 }
 
@@ -182,6 +210,18 @@ final class AudioInput: @unchecked Sendable {
     /// The engine ran and heard nothing, so the next start builds a new
     /// one rather than restarting this.
     private var deaf = false
+    /// A device to use instead of the one that would be chosen.
+    ///
+    /// Set when a device proves deaf, and kept for the life of the
+    /// process: a system default that delivers nothing will deliver
+    /// nothing on the next draft too, and retrying it every time is how
+    /// a dictation feature spends a whole evening hearing silence. A
+    /// monitor or a dock that presents an input with no microphone
+    /// behind it is the ordinary way to end up here, and it can be the
+    /// system default without anyone having chosen it.
+    private var forced: AudioDeviceID?
+    /// Devices already proved deaf, so a fallback is never made to one.
+    private var deafDevices: Set<AudioDeviceID> = []
     /// How long a running engine may deliver nothing before it is not
     /// believed. Buffers arrive about fifteen times a second; a second
     /// and a half of none, with the engine claiming to run, is not a
@@ -380,6 +420,28 @@ final class AudioInput: @unchecked Sendable {
     }
 
     /// The system's default input right now.
+    /// The Mac's own microphone, found by transport type rather than by
+    /// name, because the name is localised and the transport is not.
+    ///
+    /// It is the fallback for a device that will not speak. A Mac's
+    /// built-in microphone is the one input that is always present and
+    /// always works, so when the chosen one delivers nothing it is
+    /// better to be heard somewhere than to be silent faithfully.
+    static func builtInInput() -> AudioDeviceID? {
+        for (id, _) in inputDevices() {
+            var address = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyTransportType,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain)
+            var transport: UInt32 = 0
+            var size = UInt32(MemoryLayout<UInt32>.size)
+            guard AudioObjectGetPropertyData(id, &address, 0, nil, &size, &transport) == noErr
+            else { continue }
+            if transport == kAudioDeviceTransportTypeBuiltIn { return id }
+        }
+        return nil
+    }
+
     static func defaultInput() -> AudioDeviceID? {
         var device = AudioObjectID(0)
         var size = UInt32(MemoryLayout<AudioObjectID>.size)
@@ -442,7 +504,11 @@ final class AudioInput: @unchecked Sendable {
         if device != nil, wanted == nil {
             Log.info("draft", ["speech": "input not found", "wanted": device ?? ""])
         }
-        let target = wanted ?? Self.defaultInput()
+        // A device proved deaf is not chosen again while this process
+        // lives, whoever named it.
+        var target = wanted ?? Self.defaultInput()
+        if let chosen = target, deafDevices.contains(chosen) { target = forced ?? chosen }
+        if target == nil { target = forced }
         var attempt = 0
         var format = AVAudioFormat()
         while true {
@@ -521,9 +587,25 @@ final class AudioInput: @unchecked Sendable {
             guard let self, self.engineGeneration == generation, self.inFlight != nil,
                   let engine = self.engine, engine.isRunning else { return }
             guard self.deliveredCount() == 0 else { return }
+            self.deaf = true
+            // Rebuilding the same device is only worth doing once: an
+            // engine can be born deaf, but a device that is deaf twice is
+            // a device with no microphone behind it, and a monitor or a
+            // dock can be the system default without anyone choosing it.
+            // After that, the Mac's own microphone, which is always
+            // there and always works.
+            if let device = self.engineDevice {
+                let alreadyKnown = self.deafDevices.contains(device)
+                self.deafDevices.insert(device)
+                if alreadyKnown, let builtIn = Self.builtInInput(), builtIn != device {
+                    self.forced = builtIn
+                    Log.info("draft", ["speech": "input heard nothing twice",
+                                       "was": Self.name(of: device) ?? "unknown",
+                                       "falling back to": Self.name(of: builtIn) ?? "built-in"])
+                }
+            }
             Log.info("draft", ["speech": "engine heard nothing",
                                "seconds": Self.deafnessSeconds, "rebuilds": self.rebuilds])
-            self.deaf = true
             self.rebuild(attempt: 1)
         }
     }
@@ -563,8 +645,22 @@ final class AudioInput: @unchecked Sendable {
     private func stopNow() {
         dispatchPrecondition(condition: .onQueue(queue))
         // A session that heard nothing at all indicts the engine it used,
-        // so the next one does not inherit it.
-        if inFlight != nil, deliveredCount() == 0, engine != nil { deaf = true }
+        // so the next one does not inherit it — and indicts the device
+        // too, which is what stops the next draft opening the same
+        // silence.
+        if inFlight != nil, deliveredCount() == 0, engine != nil {
+            deaf = true
+            if let device = engineDevice {
+                let alreadyKnown = deafDevices.contains(device)
+                deafDevices.insert(device)
+                if alreadyKnown, forced == nil, let builtIn = Self.builtInInput(), builtIn != device {
+                    forced = builtIn
+                    Log.info("draft", ["speech": "input heard nothing twice",
+                                       "was": Self.name(of: device) ?? "unknown",
+                                       "falling back to": Self.name(of: builtIn) ?? "built-in"])
+                }
+            }
+        }
         inFlight = nil
         guard let engine else { return }
         if tapInstalled {
@@ -668,15 +764,20 @@ private actor AnalyzerBox {
         if !words.isEmpty { context.contextualStrings[.general] = words }
         let analyzer = SpeechAnalyzer(modules: [transcriber], options: Self.options)
         self.analyzer = analyzer
-        let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber])
-        self.format = format
+        var prepared: AVAudioFormat?
         do {
-            try await analyzer.setContext(context)
-            try await analyzer.prepareToAnalyze(in: format)
+            prepared = try await SpeechStart.withDeadline(SpeechStart.prepareDeadline) {
+                let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber])
+                try await analyzer.setContext(context)
+                try await analyzer.prepareToAnalyze(in: format)
+                return format
+            }
         } catch {
             Log.info("draft", ["speech": "prepare failed", "error": "\(error)"])
             say(.failed("the recognizer could not start")); return
         }
+        let format = prepared
+        self.format = format
 
         results = Task { [weak self] in
             do {
@@ -697,7 +798,9 @@ private actor AnalyzerBox {
         self.continuation = continuation
         guard let outFormat = format else { say(.failed("the recognizer has no audio format")); return }
         do {
-            try await analyzer.start(inputSequence: stream)
+            try await SpeechStart.withDeadline(SpeechStart.prepareDeadline) {
+                try await analyzer.start(inputSequence: stream)
+            }
         } catch {
             Log.info("draft", ["speech": "analyzer start failed", "error": "\(error)"])
             say(.failed("the recognizer could not start")); return

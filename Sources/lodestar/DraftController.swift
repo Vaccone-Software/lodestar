@@ -139,14 +139,17 @@ final class DraftController {
     /// session is stopped and named failed, and `lode .` or the mic
     /// glyph starts a fresh one.
     private var listenWatchdog: DispatchWorkItem?
-    /// Sized to sit just past the start path's own budget: three bounded
-    /// attempts and the two settles between them come to 5.8 seconds, so
-    /// anything still silent at six is silent for a reason no retry will
-    /// fix. It was eight, which is longer than a hand's patience — the
-    /// field log has 353 sessions, 26 of them silent, and this watchdog
-    /// fired for none of them, because the draft was always closed and
-    /// reopened first.
-    static let listenWatchdogSeconds: TimeInterval = 6
+    /// A backstop, and only that.
+    ///
+    /// Every step of the start now reports its own failure on its own
+    /// deadline — the recognizer's preparation, its start, and each
+    /// attempt at the microphone — so a wedge is named in three to nine
+    /// seconds by the step that wedged. This has to outlast all of them
+    /// put together or it would kill a start that was going to land:
+    /// two preparation deadlines and three bounded microphone attempts
+    /// with their settles come to 11.8 seconds. `SpeechStartBudgetTests`
+    /// holds the arithmetic.
+    static let listenWatchdogSeconds: TimeInterval = 13
     /// The landing that runs if the recognizer never says it stopped:
     /// while `closing` stands every key is swallowed, so a stop that
     /// hangs would take the keyboard with it.

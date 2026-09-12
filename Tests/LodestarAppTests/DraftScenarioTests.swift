@@ -1031,14 +1031,23 @@ final class DraftSilentMicTests: XCTestCase {
         }
     }
 
-    /// The bound that makes the watchdog reachable at all: three attempts
-    /// inside their own deadline come to less than the watchdog's wait,
-    /// so a wedged audio queue is reported rather than parked on.
-    func testTheStartPathFitsInsideTheWatchdog() {
+    /// Every step of the start has a deadline, and the watchdog has to
+    /// outlast all of them together or it kills a start that was going to
+    /// land. The recognizer's preparation and its own start are bounded
+    /// once each; the microphone is bounded per attempt.
+    func testTheWholeStartPathFitsInsideTheWatchdog() {
         let attempts = Double(SpeechStart.attempts)
-        let worst = attempts * SpeechStart.deadline + (attempts - 1) * SpeechStart.settleSeconds
-        XCTAssertLessThan(worst, DraftController.listenWatchdogSeconds,
-                          "the watchdog must outlast the retries or it kills a start that would have landed")
+        let microphone = attempts * SpeechStart.deadline + (attempts - 1) * SpeechStart.settleSeconds
+        let recognizer = 2 * SpeechStart.prepareDeadline
+        XCTAssertLessThan(microphone + recognizer, DraftController.listenWatchdogSeconds,
+                          "the watchdog must outlast every deadline under it")
+    }
+
+    /// And each of those deadlines has to be short enough that the step
+    /// that wedged names itself long before the backstop does.
+    func testEachStepNamesItselfFirst() {
+        XCTAssertLessThan(SpeechStart.prepareDeadline, DraftController.listenWatchdogSeconds / 2)
+        XCTAssertLessThan(SpeechStart.deadline, SpeechStart.prepareDeadline)
     }
 }
 

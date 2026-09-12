@@ -726,10 +726,10 @@ extension DraftPanel {
                                  micOn: true,
                                  destination: ("Messages", icon), replacing: false))
         } else {
-            buffer = Draft.Buffer(text: "Run the migration for user_sessions and tail the log, then move the Asana card to the done column.", cursor: 68)
+            buffer = Draft.Buffer(text: "The quick brown fox\njumps over the lazy dog.", cursor: 10)
             panel.show(DraftView(buffer: buffer, mode: .normal, speech: nil,
                                  inputs: inputs, systemInput: "Cypress",
-                                 destination: ("Messages", icon), replacing: false))
+                                 destination: ("Messages", icon), replacing: true))
         }
         return panel
     }

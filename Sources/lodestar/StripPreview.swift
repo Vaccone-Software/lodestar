@@ -40,6 +40,9 @@ enum StripPreview {
     }
     private static var heldLink: LinkChip?
 
+    /// The flat ground alone, for a harness that stages its own panels.
+    static func stageOnly() { stage() }
+
     private static func stage() {
         for screen in NSScreen.screens {
             let window = NSWindow(contentRect: screen.frame, styleMask: [.borderless],

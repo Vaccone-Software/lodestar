@@ -2189,6 +2189,16 @@ if cliArguments.contains("--help") || cliArguments.contains("help") || cliArgume
 }
 #if DEBUG
 // Visual harness for the clipboard strip; compiled out of release builds.
+if cliArguments.contains("__split-preview") {
+    if #available(macOS 26.0, *) {
+        StripPreview.stageOnly()
+        DispatchQueue.main.async { SplitPreview.run() }
+        NSApplication.shared.setActivationPolicy(.accessory)
+        NSApplication.shared.run()
+    }
+    exit(0)
+}
+
 if let i = cliArguments.firstIndex(of: "__strip-preview") {
     StripPreview.run(cliArguments.indices.contains(i + 1) ? (Int(cliArguments[i + 1]) ?? 1) : 1)
 }

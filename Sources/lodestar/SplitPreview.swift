@@ -20,9 +20,14 @@ enum SplitPreview {
     /// at a step, and the container fillets that step into a flare that
     /// reads as the draft's own corner bulging outward — which is not a
     /// neck and does not look like one.
-    static let draftHeight: CGFloat = 168
+    /// Swept by `LODESTAR_DRAFT_H`: the real draft's height is its
+    /// text's, anywhere from 112 empty to the screen's own ceiling.
+    static var draftHeight: CGFloat = 168
     static let panelWidth: CGFloat = 240
-    static let panelHeight: CGFloat = 168
+    /// The keys' own content height, unless `LODESTAR_PANEL_MATCH` asks
+    /// the panels to take the draft's instead.
+    static var panelHeight: CGFloat = 168
+    static let panelContentHeight: CGFloat = 168
     /// Where the panel has finished widening and starts pulling away.
     static let emergeThrough: CGFloat = 0.45
     /// Open far enough to clear `spacing`, or the panels never break off.
@@ -35,9 +40,16 @@ enum SplitPreview {
     private static var held: [NSWindow] = []
 
     static func run() {
+        let env = ProcessInfo.processInfo.environment
+        if let h = env["LODESTAR_DRAFT_H"].flatMap(Double.init) { draftHeight = CGFloat(h) }
+        // Two answers to the height question, so they can be compared
+        // rather than argued about: the keys keep their own height and
+        // meet a taller draft at a step, or they take the draft's and
+        // stand mostly empty.
+        panelHeight = env["LODESTAR_PANEL_MATCH"] == "1" ? draftHeight : panelContentHeight
         let screen = NSScreen.main!.frame
         let width = panelWidth * 2 + openGap * 2 + draftWidth + 120
-        let height = panelHeight + draftHeight + 160
+        let height = max(panelHeight, draftHeight) + 160
         let window = NSPanel(
             contentRect: NSRect(x: screen.midX - width / 2, y: screen.minY + 80,
                                 width: width, height: height),

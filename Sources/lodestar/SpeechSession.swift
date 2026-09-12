@@ -4,6 +4,27 @@ import LodestarCore
 import Speech
 
 /// What the recognizer is doing, for the register line to say.
+/// How long one attempt at opening the microphone is given, and what a
+/// spent attempt throws. Outside the recognizer's availability gate,
+/// because the budget is a fact about the audio stack and the tests that
+/// hold it against the watchdog's wait run on any macOS.
+enum SpeechStart {
+    /// One attempt's budget. The engine lands in half a second when it
+    /// lands at all, and one and a half is generous for a Bluetooth
+    /// radio changing profile — measured starts in the field finish
+    /// inside 1.5s including a failed first try. Three attempts and the
+    /// two settles between them must still come in under
+    /// `DraftController.listenWatchdogSeconds`, or the watchdog would
+    /// kill a start that was going to land.
+    static let deadline: TimeInterval = 1.5
+    static let attempts = 3
+    static let settleSeconds: TimeInterval = 0.65
+
+    struct TimedOut: Error, CustomStringConvertible {
+        var description: String { "the microphone did not answer" }
+    }
+}
+
 enum SpeechState: Equatable {
     /// The model is being fetched or loaded; `progress` when known.
     case preparing(progress: Double?)
@@ -607,7 +628,7 @@ private actor AnalyzerBox {
         // that, so the settling happens here, off the main thread,
         // across a few attempts.
         var started: (format: AVAudioFormat, name: String?)?
-        for attempt in 1...4 {
+        for attempt in 1...SpeechStart.attempts {
             if attempt > 1 {
                 try? await Task.sleep(for: .milliseconds(650))
                 guard !stopped else { return }
@@ -644,11 +665,34 @@ private actor AnalyzerBox {
                                         stillWanted: @escaping @MainActor () -> Bool,
                                         sink: @escaping (AVAudioPCMBuffer) -> Void) async throws
         -> (format: AVAudioFormat, name: String?) {
-        try await withCheckedThrowingContinuation { continuation in
-            Task { @MainActor in
-                guard stillWanted() else { continuation.resume(throwing: CancellationError()); return }
-                microphone.start(device: device, sink: sink) { continuation.resume(with: $0) }
+        // Bounded, because the thing on the other side of this call is a
+        // serial queue with CoreAudio on it, and CoreAudio blocks. Every
+        // call here used to wait forever: `start` hands its completion to
+        // that queue, and a queue wedged by a device transition — which
+        // is what a cold audio stack after a restart is — never runs the
+        // block, never resumes the continuation, and parks this whole
+        // task for the life of the process. The draft then said "opening
+        // the microphone" until it was closed and opened again. A
+        // deadline turns that into an attempt that failed, which the
+        // loop above can retry and the register line can report.
+        try await withThrowingTaskGroup(of: (format: AVAudioFormat, name: String?).self) { group in
+            group.addTask {
+                try await withCheckedThrowingContinuation { continuation in
+                    Task { @MainActor in
+                        guard stillWanted() else {
+                            continuation.resume(throwing: CancellationError()); return
+                        }
+                        microphone.start(device: device, sink: sink) { continuation.resume(with: $0) }
+                    }
+                }
             }
+            group.addTask {
+                try await Task.sleep(for: .seconds(SpeechStart.deadline))
+                throw SpeechStart.TimedOut()
+            }
+            defer { group.cancelAll() }
+            guard let first = try await group.next() else { throw SpeechStart.TimedOut() }
+            return first
         }
     }
 

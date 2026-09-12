@@ -109,7 +109,9 @@ final class DraftController {
     /// The doors set this; the mode gates it. Insert mode with the mic
     /// wanted is the only state in which speech writes.
     private var micWanted = false
-    private var speechState: SpeechState?
+    /// What the recognizer last said about itself; nil until it says
+    /// anything, which is the state the watchdog exists to end.
+    private(set) var speechState: SpeechState?
     /// A recognizer session was asked for; it must be stopped whatever
     /// state it reached, or a draft closed mid-preparation leaves the
     /// microphone running with nothing on screen.
@@ -137,7 +139,14 @@ final class DraftController {
     /// session is stopped and named failed, and `lode .` or the mic
     /// glyph starts a fresh one.
     private var listenWatchdog: DispatchWorkItem?
-    static let listenWatchdogSeconds: TimeInterval = 8
+    /// Sized to sit just past the start path's own budget: three bounded
+    /// attempts and the two settles between them come to 5.8 seconds, so
+    /// anything still silent at six is silent for a reason no retry will
+    /// fix. It was eight, which is longer than a hand's patience — the
+    /// field log has 353 sessions, 26 of them silent, and this watchdog
+    /// fired for none of them, because the draft was always closed and
+    /// reopened first.
+    static let listenWatchdogSeconds: TimeInterval = 6
     /// The landing that runs if the recognizer never says it stopped:
     /// while `closing` stands every key is swallowed, so a stop that
     /// hangs would take the keyboard with it.
@@ -539,6 +548,20 @@ final class DraftController {
     private func settle(_ text: String) {
         let repaired = Draft.Vocabulary.apply(text, words: words)
         let count = repaired.split(whereSeparator: \.isWhitespace).count
+        // Speaking over a selection is `c` with the voice: the words take
+        // the selection's place and insert opens where they end. Behind
+        // one undo step, so ⌘Z brings the selection back as it stood.
+        if case .visual = vim.mode, micWanted, listening,
+           let range = vim.selection(in: buffer), !repaired.isEmpty {
+            spokenWords += count
+            if firstWordAt == nil { firstWordAt = clock.now() }
+            onActivity?()
+            provisional = nil
+            vim.speakOver(range, with: repaired, buffer: &buffer)
+            setMode(.insert)
+            render()
+            return
+        }
         let writing = mode == .insert && micWanted
         if let standing = provisional, buffer.slice(standing.range) == standing.text {
             // The final for words settled early: it replaces them in place,
@@ -566,6 +589,10 @@ final class DraftController {
             spokenWords += count
             if firstWordAt == nil { firstWordAt = clock.now() }
             onActivity?()
+            // Each settled result is its own step to take back. Marked
+            // before the words land, so ⌘Z reaches the buffer as it
+            // stood when the recognizer began this one.
+            vim.markInsertBoundary(buffer)
             let before = buffer.count
             buffer.settle(repaired)
             // The editor hears what speech typed, so `.` can say it again.
@@ -579,14 +606,33 @@ final class DraftController {
         render()
     }
 
+    /// Whether the microphone is writing right now, so a selection
+    /// opening or closing moves it once instead of on every key that
+    /// leaves the selection standing.
+    private var micRunning = false
+
     private func pauseSpeech() {
         guard listening else { return }
+        micRunning = false
         speech.pause()
     }
 
     private func resumeIfWanted() {
-        guard listening, micWanted, mode == .insert else { return }
+        guard listening, micWanted else { return }
+        // The mic writes in insert, and over a visual selection, where
+        // speaking replaces what is selected. Everywhere else it waits.
+        guard mode == .insert || vim.selection(in: buffer) != nil else { return }
+        micRunning = true
         speech.resume()
+    }
+
+    /// After a normal-mode key: a selection opening wakes the microphone,
+    /// and a selection closing puts it back to sleep.
+    private func matchSpeechToSelection() {
+        guard isOpen, micWanted, listening, mode != .insert else { return }
+        let wanted = vim.selection(in: buffer) != nil
+        guard wanted != micRunning else { return }
+        if wanted { resumeIfWanted() } else { pauseSpeech() }
     }
 
     // MARK: - Keys, from the tap
@@ -782,6 +828,7 @@ final class DraftController {
                 if vimKey == .escape { cancel(reason: "escape"); return true }
             }
         }
+        matchSpeechToSelection()
         render()
         return true
     }

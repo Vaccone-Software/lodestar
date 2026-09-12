@@ -334,9 +334,11 @@ final class DraftScenarioTests: XCTestCase {
         cmd(stage, "v"); cmd(stage, "e")
         XCTAssertEqual(stage.draft.vim.mode, .visual(line: false))
         XCTAssertEqual(stage.draft.vim.selection(in: stage.draft.buffer), 8..<14)
+        XCTAssertEqual(stage.speech.resumes, 1,
+                       "a selection wakes the microphone: speaking over one replaces it")
         cmd(stage, "c")
         XCTAssertEqual(stage.draft.mode, .insert)
-        XCTAssertEqual(stage.speech.resumes, 1, "insert mode after the speak door brings the mic back")
+        XCTAssertEqual(stage.speech.resumes, 2, "and insert mode keeps it awake")
         cmd(stage, "n"); cmd(stage, "e"); cmd(stage, "w")
         cmd(stage, "escape")
         XCTAssertEqual(stage.draft.buffer.text, "fix the new word here")
@@ -841,5 +843,167 @@ final class DraftKeysScenarioTests: XCTestCase {
         _ = stage.press("return")
         XCTAssertFalse(stage.draft.isOpen)
         XCTAssertEqual(stage.pasteboard, ["with the keys up"])
+    }
+}
+
+/// What ⌘Z takes back, and what speaking over a selection does.
+///
+/// Vim's `u` undoes a whole insert run, which is right when a run is a
+/// few seconds of typing. A dictation never leaves insert, so the run
+/// was the entire session and one ⌘Z took back every word of it — an
+/// 87-word median, gone on one keystroke.
+final class DraftSpeechUndoTests: XCTestCase {
+    private func cmd(_ stage: Stage, _ key: String, shift: Bool = false) {
+        _ = stage.press(key, shift: shift)
+    }
+
+    func testEachSettledResultIsItsOwnStepBack() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.settle("First sentence here.")
+        stage.speech.settle("Second sentence here.")
+        stage.speech.settle("Third sentence here.")
+        XCTAssertEqual(stage.draft.buffer.text,
+                       "First sentence here. Second sentence here. Third sentence here.")
+        _ = stage.commandPress("z")
+        XCTAssertEqual(stage.draft.buffer.text, "First sentence here. Second sentence here.",
+                       "one undo takes back the last thing it heard, not the session")
+        _ = stage.commandPress("z")
+        XCTAssertEqual(stage.draft.buffer.text, "First sentence here.")
+        _ = stage.commandPress("z")
+        XCTAssertEqual(stage.draft.buffer.text, "")
+    }
+
+    func testRedoPutsTheWordsBack() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.settle("Words that were said.")
+        stage.speech.settle("And more of them.")
+        _ = stage.commandPress("z")
+        XCTAssertEqual(stage.draft.buffer.text, "Words that were said.")
+        _ = stage.chord("z", [.maskCommand, .maskShift])
+        XCTAssertEqual(stage.draft.buffer.text, "Words that were said. And more of them.")
+    }
+
+    /// Typed characters keep vim's own grammar: a run of typing is one
+    /// step, because that is what a hand expects from a field.
+    func testTypingIsStillOneRun() {
+        let stage = Stage()
+        stage.lode(".")
+        for key in ["a", "b", "c"] { cmd(stage, key) }
+        XCTAssertEqual(stage.draft.buffer.text, "abc")
+        _ = stage.commandPress("z")
+        XCTAssertEqual(stage.draft.buffer.text, "", "a typed run is one step, as vim's is")
+    }
+
+    // MARK: - Speaking over a selection
+
+    func testSpeakingOverASelectionReplacesIt() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.settle("fix the middle word here")
+        cmd(stage, "escape")
+        cmd(stage, "0"); cmd(stage, "w"); cmd(stage, "w")
+        cmd(stage, "v"); cmd(stage, "e")
+        XCTAssertEqual(stage.draft.vim.selection(in: stage.draft.buffer), 8..<14)
+        stage.speech.settle("second")
+        XCTAssertEqual(stage.draft.buffer.text, "fix the second word here",
+                       "the words take the selection's place")
+        XCTAssertEqual(stage.draft.mode, .insert, "and the draft is left where the change ended")
+    }
+
+    /// The half that makes it safe to try: one undo brings the selection
+    /// back exactly as it stood.
+    func testUndoAfterSpeakingOverASelectionRestoresIt() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.settle("fix the middle word here")
+        cmd(stage, "escape")
+        cmd(stage, "0"); cmd(stage, "w"); cmd(stage, "w")
+        cmd(stage, "v"); cmd(stage, "e")
+        stage.speech.settle("second")
+        XCTAssertEqual(stage.draft.buffer.text, "fix the second word here")
+        _ = stage.commandPress("z")
+        XCTAssertEqual(stage.draft.buffer.text, "fix the middle word here",
+                       "the spoken words go and the selection comes back, in one step")
+    }
+
+    /// Normal mode without a selection is still silent: the microphone
+    /// waits there, as it always has.
+    func testSpeechInNormalModeWithNoSelectionStillDoesNotWrite() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.settle("the text as it stands")
+        cmd(stage, "escape")
+        stage.speech.settle("this should not land")
+        XCTAssertEqual(stage.draft.buffer.text, "the text as it stands")
+    }
+
+    func testTheSelectionSurvivesTheWholeRoundTripToThePasteboard() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.settle("one two three")
+        cmd(stage, "escape")
+        cmd(stage, "0"); cmd(stage, "w")
+        cmd(stage, "v"); cmd(stage, "e")
+        stage.speech.settle("TWO")
+        cmd(stage, "return")
+        XCTAssertEqual(stage.pasteboard, ["one TWO three"])
+    }
+}
+
+/// The mic that never opens.
+///
+/// The field log carries 353 speech sessions; 26 of them never reported
+/// any state at all, clustered in the minute after a restart, and the
+/// register line said "opening the microphone" until the draft was
+/// closed and opened again. The watchdog that was meant to catch this
+/// waited eight seconds and fired for none of them — the retries in the
+/// log come 1.4 to 12 seconds apart, so the hand always gave up first.
+final class DraftSilentMicTests: XCTestCase {
+    func testASilentRecognizerIsNamedRatherThanWaitedOnForever() {
+        let stage = Stage()
+        stage.speech.slowToListen = true
+        stage.lode(".")
+        XCTAssertTrue(stage.draft.isOpen)
+        XCTAssertNil(stage.draft.speechState, "nothing said yet, so the line reads as opening")
+
+        // Just short of the watchdog, it is still waiting: a Bluetooth
+        // radio changing profile is allowed its second.
+        stage.clock.advance(by: DraftController.listenWatchdogSeconds - 0.5)
+        XCTAssertNil(stage.draft.speechState)
+
+        stage.clock.advance(by: 1)
+        guard case .failed = stage.draft.speechState else {
+            return XCTFail("a mic that never opened must say so: \(String(describing: stage.draft.speechState))")
+        }
+        XCTAssertTrue(stage.draft.isOpen, "the draft stays up — the words typed into it are not lost")
+    }
+
+    /// And the next door opens a fresh session rather than inheriting the
+    /// wedged one.
+    func testTheNextDoorStartsOver() {
+        let stage = Stage()
+        stage.speech.slowToListen = true
+        stage.lode(".")
+        stage.clock.advance(by: DraftController.listenWatchdogSeconds + 1)
+        XCTAssertEqual(stage.speech.openSessions, 0, "the silent session was stopped, not left running")
+        _ = stage.press("escape")
+        _ = stage.press("escape")
+        stage.speech.slowToListen = false
+        stage.lode(".")
+        guard case .listening = stage.draft.speechState else {
+            return XCTFail("a fresh door gets a fresh session")
+        }
+    }
+
+    /// The bound that makes the watchdog reachable at all: three attempts
+    /// inside their own deadline come to less than the watchdog's wait,
+    /// so a wedged audio queue is reported rather than parked on.
+    func testTheStartPathFitsInsideTheWatchdog() {
+        let attempts = Double(SpeechStart.attempts)
+        let worst = attempts * SpeechStart.deadline + (attempts - 1) * SpeechStart.settleSeconds
+        XCTAssertLessThan(worst, DraftController.listenWatchdogSeconds,
+                          "the watchdog must outlast the retries or it kills a start that would have landed")
     }
 }

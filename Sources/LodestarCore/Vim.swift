@@ -219,6 +219,35 @@ public struct Vim {
         return []
     }
 
+    /// Close the undo run in flight without leaving insert mode.
+    ///
+    /// Vim's `u` takes back a whole insert run, which is right when a run
+    /// is a few seconds of typing. Speech is not typing: a dictation
+    /// never leaves insert, so the run is the entire session, and one ⌘Z
+    /// was taking back every word of it. The recognizer already cuts the
+    /// stream into settled results, so each one gets its own step and ⌘Z
+    /// means "take back what it just heard".
+    public mutating func markInsertBoundary(_ buffer: Draft.Buffer) {
+        guard mode == .insert, !replaying else { return }
+        snapshot(buffer)
+    }
+
+    /// Speech landing on a visual selection: the words replace it and
+    /// insert mode opens where the change ends — `c`, said rather than
+    /// typed. One snapshot covers both halves, so ⌘Z brings back the
+    /// selection exactly as it stood.
+    @discardableResult
+    public mutating func speakOver(_ range: Range<Int>, with text: String,
+                                   buffer: inout Draft.Buffer) -> [Effect] {
+        guard case .visual = mode else { return [] }
+        snapshot(buffer)
+        let target = min(range.lowerBound, buffer.count)..<min(range.upperBound, buffer.count)
+        buffer.replace(target, with: text)
+        buffer.setCursor(target.lowerBound + text.count)
+        lastVisual = nil
+        return enterInsert(&buffer, snapshotTaken: true)
+    }
+
     public mutating func typed(_ text: String) {
         guard mode == .insert, !replaying else { return }
         for character in text { inserted.append(.char(character)) }

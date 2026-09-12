@@ -192,6 +192,8 @@ final class DraftPanel {
         // render runs inside: the register line holds the top edge, the
         // text takes the room that opens, the keys hold the bottom.
         root.autoresizesSubviews = true
+        root.autoresizingMask = [.width, .height]
+        backdrop?.autoresizingMask = [.width, .height]
         for view in [registerIcon, registerName, registerNote, inputPopup, modeLabel, micButton]
             + meterBars {
             view.autoresizingMask = [.minYMargin]
@@ -233,6 +235,15 @@ final class DraftPanel {
         return out.joined(separator: " ")
     }
     var micVisible: Bool { !micButton.isHidden }
+    /// The two bands a keys toggle moves, for the tests that hold them
+    /// apart.
+    var textFrame: NSRect { scroll.frame }
+    var keysFrame: NSRect { keysView?.frame ?? .zero }
+    /// Whether the text has more than fits and must be scrolled.
+    var textOverflows: Bool { scroll.hasVerticalScroller }
+    /// Where the visible window onto the text begins, so a test can see
+    /// the cursor did not fall out of it.
+    var textScrollOrigin: CGFloat { scroll.contentView.bounds.origin.y }
 
     /// The width a text asks for: its longest line in the panel's face,
     /// between the draft's own width and the screen. Prose stays at
@@ -556,23 +567,18 @@ final class DraftPanel {
 
     /// The keys sit under the text, against the floor, which is where
     /// the legend used to stand.
+    ///
+    /// Placed against the width the panel actually has, not against the
+    /// draft's default one. The glass is 720 wide on every display a Mac
+    /// has, and the columns want 454 of it, so the clamp does not bind
+    /// in practice — but it was written against the constant, and a
+    /// constant is the wrong thing to measure a variable against.
     private func placeKeys(width: CGFloat) {
         guard let keysView, keysShown else { return }
+        let available = max(0, width - Self.padX * 2)
         keysView.frame = NSRect(x: Self.padX, y: Self.keysBelow,
-                                width: keysView.frame.width, height: keysView.frame.height)
-    }
-
-    /// The panel's frame with `delta` more height, kept on its own floor:
-    /// the draft is anchored at the bottom of the screen, so the room a
-    /// growing glass needs comes off the top edge. Approximate on
-    /// purpose — the render that follows the animation is exact, and
-    /// this only has to be where the glass is heading.
-    private func grown(by delta: CGFloat) -> NSRect {
-        var frame = panel.frame
-        let ceiling = (panel.screen ?? NSScreen.main)?.visibleFrame.maxY ?? frame.maxY
-        frame.size.height = max(Self.registerHeight + Self.minTextHeight,
-                                min(frame.height + delta, ceiling - frame.minY - Self.margin))
-        return frame
+                                width: min(keysView.fittingSize.width, available),
+                                height: keysView.frame.height)
     }
 
     /// `lode ?`, from the engine. The draft is the frontmost surface
@@ -589,32 +595,48 @@ final class DraftPanel {
         // believes in its constraints would be zeroed by the first
         // layout pass.
         columns.translatesAutoresizingMaskIntoConstraints = true
-        let fitting = columns.fittingSize
+        // The height is the columns' own; the width is settled by
+        // `placeKeys` against the glass this draft actually has.
         columns.frame = NSRect(x: Self.padX, y: Self.keysBelow,
-                               width: min(fitting.width, Self.width - Self.padX * 2),
-                               height: fitting.height)
+                               width: columns.fittingSize.width,
+                               height: columns.fittingSize.height)
         columns.autoresizingMask = [.maxYMargin]
         columns.alphaValue = 0
         root.addSubview(columns)
         keysView = columns
         keysShown = true
-        // The glass grows downward from under the text — the draft is
-        // anchored at the bottom of the screen, so the room has to come
-        // from the top edge, and the keys fade in once it has opened.
-        KeysMotion.grow(panel, to: grown(by: keysBand), revealing: columns) { [weak self] in
-            self?.show(last)
-        }
+        KeysMotion.grow(panel, to: restaged(last).to, revealing: columns)
     }
 
     func hideKeys() {
         guard keysShown, let last = lastView else { return }
         keysShown = false
         let going = keysView
-        let band = Self.keysAbove + (going?.frame.height ?? 0) + Self.keysBelow
         keysView = nil
-        KeysMotion.shrink(panel, to: grown(by: -band), hiding: going) { [weak self] in
-            self?.show(last)
-        }
+        KeysMotion.shrink(panel, to: restaged(last).to, hiding: going)
+    }
+
+    /// Lay the panel out for where it is going, then put the glass back
+    /// where it was so the animation has somewhere to travel from.
+    ///
+    /// The layout used to be corrected in the animation's completion
+    /// handler, and that was wrong twice over. A frame animation whose
+    /// target equals its current value never runs, and AppKit never
+    /// calls the handler — so a draft already standing at the top of the
+    /// screen, which cannot grow, drew its keys straight over the last
+    /// hundred points of its own text and left them there until some
+    /// other keystroke happened to re-render it. Correctness cannot
+    /// depend on an animation: the layout is right from the first frame
+    /// now, and the motion only carries the glass between two frames
+    /// that are both already true. The subviews ride on their
+    /// autoresizing masks the whole way.
+    @discardableResult
+    private func restaged(_ view: DraftView) -> (from: NSRect, to: NSRect) {
+        let from = panel.frame
+        show(view)
+        let to = panel.frame
+        panel.setFrame(from, display: false)
+        return (from, to)
     }
 
     /// Move the meter without a re-layout: it arrives ten times a second.

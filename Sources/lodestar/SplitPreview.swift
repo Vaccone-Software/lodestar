@@ -24,11 +24,6 @@ enum SplitPreview {
     static let panelWidth: CGFloat = 240
     static let panelHeight: CGFloat = 168
     /// Where the panel has finished widening and starts pulling away.
-    /// Width and gap used to grow together, so by the time a panel was
-    /// big enough to bridge, the gap had already passed `spacing` and
-    /// there was nothing to bridge: the shapes only ever touched, and a
-    /// union is not a neck. The panel comes out from under the draft
-    /// first, then leaves.
     static let emergeThrough: CGFloat = 0.45
     /// Open far enough to clear `spacing`, or the panels never break off.
     static let openGap: CGFloat = 56
@@ -68,10 +63,12 @@ enum SplitPreview {
         container.contentView = inner
         root.addSubview(container)
 
-        let left = glass(rows: [("⏎", "paste"), ("⇧⏎", "new line"), ("esc", "normal mode"),
-                                ("⌘Z", "undo"), ("lode .", "speak")], header: "draft")
-        let right = glass(rows: [("h j k l", "move"), ("w b e", "by word"), ("d c y", "change"),
-                                 ("sa sd sr", "surround"), ("v V", "select")], header: "editor")
+        let (left, leftKeys) = glass(rows: [("⏎", "paste"), ("⇧⏎", "new line"),
+                                           ("esc", "normal mode"), ("⌘Z", "undo"),
+                                           ("lode .", "speak")], header: "draft")
+        let (right, rightKeys) = glass(rows: [("h j k l", "move"), ("w b e", "by word"),
+                                              ("d c y", "change"), ("sa sd sr", "surround"),
+                                              ("v V", "select")], header: "editor")
         let middle = draftGlass()
         for view in [left, middle, right] { inner.addSubview(view) }
 
@@ -92,30 +89,42 @@ enum SplitPreview {
         }
 
         func layout(_ progress: CGFloat) {
+            // Two beats. The panel widens out from the draft's edge at no
+            // gap, then the pair pulls apart and the bridge thins and
+            // breaks. Width and gap on one curve was the original
+            // mistake: by the time a panel was wide enough to bridge, the
+            // gap had passed `spacing` and the shapes only ever touched.
+            //
+            // Sliding a full-width panel out from *inside* the draft is
+            // the other way to do this, and it costs more than it saves —
+            // two tinted glasses overlapping tint twice, so the draft
+            // wears vertical bands wherever a panel is parked behind it,
+            // for most of the gesture.
             let p = max(0, min(1, progress))
-            // Two beats in one gesture: the panel widens out from under
-            // the draft, then the pair pulls apart and the bridge between
-            // them thins and breaks.
             let widen = ease(min(1, p / emergeThrough))
             let part = ease(max(0, (p - emergeThrough) / (1 - emergeThrough)))
-            let eased = widen
             let gap = openGap * part
             let w = panelWidth * widen
             let floor: CGFloat = 60
             let midX = width / 2
             middle.frame = NSRect(x: midX - draftWidth / 2, y: floor,
                                   width: draftWidth, height: draftHeight)
-            // The panels sit on the draft's own floor and grow out of its
-            // edges, so at rest they are inside its glass entirely.
-            // Full height from the first frame: only the width opens. A
-            // panel that grows in both directions pinches the merge into
-            // a droplet at one corner; at full height the neck spans the
-            // whole edge the two shapes share.
             left.frame = NSRect(x: midX - draftWidth / 2 - gap - w, y: floor,
                                 width: w, height: panelHeight)
             right.frame = NSRect(x: midX + draftWidth / 2 + gap, y: floor,
                                  width: w, height: panelHeight)
-            for panel in [left, right] { panel.alphaValue = min(1, max(0, (eased - 0.15) / 0.5)) }
+            // Nothing at all below a width that can hold its own corner
+            // radius: a sliver narrower than its curve merges into the
+            // draft as a lump on the edge rather than as a panel leaving.
+            for panel in [left, right] { panel.isHidden = w < BarTheme.glassRadius * 2 }
+            // The rows appear only once the panel is its full width. They
+            // used to be drawn into whatever width the panel had reached,
+            // which sliced them mid-word on the way out and, worse, on
+            // the way back — the last thing the gesture showed was a
+            // column of half-cut words being swallowed.
+            let shown = ease(max(0, min(1, (widen - 0.72) / 0.28)))
+            leftKeys.alphaValue = shown
+            rightKeys.alphaValue = shown
         }
 
         if let frozen = ProcessInfo.processInfo.environment["LODESTAR_SPLIT"],
@@ -160,7 +169,8 @@ enum SplitPreview {
     /// thing that merges.
     static var veil: NSColor { NSColor.black.withAlphaComponent(Glass.Weight.normal.bases.dark) }
 
-    private static func glass(rows: [(String, String)], header: String) -> NSGlassEffectView {
+    private static func glass(rows: [(String, String)],
+                              header: String) -> (NSGlassEffectView, NSView) {
         let view = NSGlassEffectView()
         view.cornerRadius = BarTheme.glassRadius
         view.tintColor = veil
@@ -197,7 +207,7 @@ enum SplitPreview {
         ])
         scrim.clipsToBounds = true
         view.contentView = scrim
-        return view
+        return (view, scrim)
     }
 
     private static func draftGlass() -> NSGlassEffectView {

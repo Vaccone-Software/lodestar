@@ -831,6 +831,38 @@ final class DraftKeysScenarioTests: XCTestCase {
         XCTAssertTrue(labels(.visual(line: false)).contains("delete, change, copy it"))
     }
 
+    /// `lode ?` is a question asked of a surface, and the answer must not
+    /// outlive the asking. A draft closed with its keys up used to come
+    /// back with them up.
+    func testKeysDoNotSurviveTheDraftClosing() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.settle("some words")
+        stage.lode("/", shift: true)
+        XCTAssertTrue(stage.draft.keysShown)
+        _ = stage.press("return")
+        XCTAssertFalse(stage.draft.isOpen)
+
+        stage.lode(".")
+        XCTAssertTrue(stage.draft.isOpen)
+        XCTAssertFalse(stage.draft.keysShown, "a reopened draft starts with nothing shown")
+    }
+
+    /// The same by the other ending, which is the one a hand reaches for.
+    func testKeysDoNotSurviveAnEscape() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.settle("kept in the clipboard")
+        stage.lode("/", shift: true)
+        XCTAssertTrue(stage.draft.keysShown)
+        _ = stage.press("escape")
+        _ = stage.press("escape")
+        XCTAssertFalse(stage.draft.isOpen)
+
+        stage.lode(".")
+        XCTAssertFalse(stage.draft.keysShown)
+    }
+
     /// The draft still ends on ⏎ with its keys up: a sheet is a thing to
     /// read, never a mode to get out of first.
     func testReturnStillPastesWithTheKeysUp() {

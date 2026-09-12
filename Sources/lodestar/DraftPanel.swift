@@ -208,7 +208,20 @@ final class DraftPanel {
         onChooseInput?(index <= 0 ? nil : inputPopup.itemTitle(at: index))
     }
 
-    func hide() { panel.orderOut(nil) }
+    /// The keys go with the panel.
+    ///
+    /// Every other keyed surface drops its keys in `hide()`; this one did
+    /// not, so a draft closed with its keys up came back with them up —
+    /// `lode ?` is a question asked of a surface, and the answer should
+    /// not outlive the asking. The last frame goes too, rather than
+    /// holding a destination's icon until the next opening.
+    func hide() {
+        keysView?.removeFromSuperview()
+        keysView = nil
+        keysShown = false
+        lastView = nil
+        panel.orderOut(nil)
+    }
 
     /// Where the panel stands and what its lines say, for the tests.
     var frame: NSRect { panel.frame }

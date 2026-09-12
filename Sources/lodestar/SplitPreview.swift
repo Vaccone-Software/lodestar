@@ -23,10 +23,15 @@ enum SplitPreview {
     /// Swept by `LODESTAR_DRAFT_H`: the real draft's height is its
     /// text's, anywhere from 112 empty to the screen's own ceiling.
     static var draftHeight: CGFloat = 168
-    static let panelWidth: CGFloat = 240
+    /// Measured from the rows, not chosen: the keys decide how wide and
+    /// how tall their panel has to be.
+    static var panelWidth: CGFloat = 240
     /// The keys' own content height, unless `LODESTAR_PANEL_MATCH` asks
     /// the panels to take the draft's instead.
     static var panelHeight: CGFloat = 168
+    /// Each panel's own, so the pair need not be level.
+    static var leftHeight: CGFloat = 168
+    static var rightHeight: CGFloat = 168
     static let panelContentHeight: CGFloat = 168
     /// Where the panel has finished widening and starts pulling away.
     static let emergeThrough: CGFloat = 0.45
@@ -48,8 +53,8 @@ enum SplitPreview {
         // stand mostly empty.
         panelHeight = env["LODESTAR_PANEL_MATCH"] == "1" ? draftHeight : panelContentHeight
         let screen = NSScreen.main!.frame
-        let width = panelWidth * 2 + openGap * 2 + draftWidth + 120
-        let height = max(panelHeight, draftHeight) + 160
+        var width = panelWidth * 2 + openGap * 2 + draftWidth + 120
+        var height = max(panelHeight, draftHeight) + 160
         let window = NSPanel(
             contentRect: NSRect(x: screen.midX - width / 2, y: screen.minY + 80,
                                 width: width, height: height),
@@ -75,12 +80,35 @@ enum SplitPreview {
         container.contentView = inner
         root.addSubview(container)
 
-        let (left, leftKeys) = glass(rows: [("⏎", "paste"), ("⇧⏎", "new line"),
-                                           ("esc", "normal mode"), ("⌘Z", "undo"),
-                                           ("lode .", "speak")], header: "draft")
-        let (right, rightKeys) = glass(rows: [("h j k l", "move"), ("w b e", "by word"),
-                                              ("d c y", "change"), ("sa sd sr", "surround"),
-                                              ("v V", "select")], header: "editor")
+        let (left, leftKeys, leftSize) = glass(Self.draftSections)
+        let (right, rightKeys, rightSize) = glass(Self.editorSections)
+        // Both panels take the wider and the taller, so the pair is
+        // symmetric and the draft sits between two equals.
+        panelWidth = max(leftSize.width, rightSize.width)
+        // Each panel takes its own content's height by default: the
+        // editor has four times as much to say as the draft, and forcing
+        // them level leaves the left one more than half empty glass.
+        // `LODESTAR_PANEL_EQUAL` levels them, to compare.
+        let level = env["LODESTAR_PANEL_EQUAL"] == "1"
+        let tallest = max(leftSize.height, rightSize.height)
+        leftHeight = level ? tallest : leftSize.height
+        rightHeight = level ? tallest : rightSize.height
+        if env["LODESTAR_PANEL_MATCH"] == "1" {
+            leftHeight = draftHeight
+            rightHeight = draftHeight
+        }
+        panelHeight = max(leftHeight, rightHeight)
+        Log.info("split", ["panel": "\(Int(panelWidth))x\(Int(panelHeight))",
+                           "draft": Int(draftHeight)])
+        // The window was sized before the rows had been measured; it has
+        // to hold whatever they came to.
+        width = panelWidth * 2 + openGap * 2 + draftWidth + 120
+        height = max(panelHeight, draftHeight) + 160
+        window.setFrame(NSRect(x: screen.midX - width / 2, y: screen.minY + 80,
+                               width: width, height: height), display: false)
+        root.frame = NSRect(origin: .zero, size: NSSize(width: width, height: height))
+        container.frame = root.bounds
+        inner.frame = root.bounds
         let middle = draftGlass()
         for view in [left, middle, right] { inner.addSubview(view) }
 
@@ -122,9 +150,9 @@ enum SplitPreview {
             middle.frame = NSRect(x: midX - draftWidth / 2, y: floor,
                                   width: draftWidth, height: draftHeight)
             left.frame = NSRect(x: midX - draftWidth / 2 - gap - w, y: floor,
-                                width: w, height: panelHeight)
+                                width: w, height: leftHeight)
             right.frame = NSRect(x: midX + draftWidth / 2 + gap, y: floor,
-                                 width: w, height: panelHeight)
+                                 width: w, height: rightHeight)
             // Nothing at all below a width that can hold its own corner
             // radius: a sliver narrower than its curve merges into the
             // draft as a lump on the edge rather than as a panel leaving.
@@ -181,45 +209,95 @@ enum SplitPreview {
     /// thing that merges.
     static var veil: NSColor { NSColor.black.withAlphaComponent(Glass.Weight.normal.bases.dark) }
 
-    private static func glass(rows: [(String, String)],
-                              header: String) -> (NSGlassEffectView, NSView) {
+    /// The draft's own keys, and the editor's whole grammar.
+    ///
+    /// Built from `CheatSheet.Section` and rendered by
+    /// `CheatSheet.columns`, which is what every other surface uses — so
+    /// a key is a cap with a chip behind it and a label is plain text,
+    /// and the two cannot be mistaken for each other. A harness that
+    /// draws its own rows proves nothing about the thing that ships.
+    static let draftSections: [CheatSheet.Section] = [
+        .init(header: "draft", rows: [
+            GuideRow(key: "⏎", label: "paste where it lands"),
+            GuideRow(key: "⇧⏎", label: "new line"),
+            GuideRow(key: "esc", label: "normal mode"),
+        ]),
+        .init(header: "typing", rows: [
+            GuideRow(key: "⌘Z", label: "undo · ⇧⌘Z redo"),
+            GuideRow(key: "⌘A", label: "all of it"),
+            GuideRow(key: "⌥⌫", label: "back a word · ⌘⌫ the line"),
+        ]),
+        .init(header: "doors", rows: [
+            GuideRow(keys: ["lode", "."], label: "speak"),
+            GuideRow(keys: ["lode", "⇧."], label: "edit what is focused"),
+        ]),
+    ]
+
+    /// Most of the grammar, deliberately. The point of the right-hand
+    /// panel is the motions nobody can guess — and the surrounds and the
+    /// quote and bracket objects are not vim at all.
+    static let editorSections: [CheatSheet.Section] = [
+        .init(header: "move", rows: [
+            GuideRow(key: "h j k l", label: "left · down · up · right"),
+            GuideRow(key: "w b e", label: "by word · ⇧ by WORD"),
+            GuideRow(key: "0 ^ $", label: "line start · first word · end"),
+            GuideRow(keys: ["g", "g"], label: "the top · ⇧G the bottom"),
+            GuideRow(key: "f t", label: "onto · up to a letter · ⇧ backwards"),
+            GuideRow(key: "; ,", label: "that again · and back"),
+            GuideRow(key: "{ }", label: "by paragraph"),
+            GuideRow(key: "%", label: "the matching bracket"),
+        ]),
+        .init(header: "change", rows: [
+            GuideRow(key: "d c y", label: "delete · change · yank, with a motion"),
+            GuideRow(key: "⇧D ⇧C ⇧Y", label: "the same, to the line's end"),
+            GuideRow(key: "x r", label: "cut a letter · replace one"),
+            GuideRow(key: "p ⇧P", label: "put after · before"),
+            GuideRow(key: "~", label: "flip the case"),
+            GuideRow(key: ".", label: "that change again"),
+            GuideRow(key: "u", label: "undo"),
+        ]),
+        .init(header: "select", rows: [
+            GuideRow(key: "v ⇧V", label: "by character · by line"),
+            GuideRow(key: "d c y", label: "on the selection"),
+            GuideRow(key: "o", label: "jump to its other end"),
+        ]),
+        .init(header: "wrap · not vim", rows: [
+            GuideRow(keys: ["s", "a"], label: "surround a span"),
+            GuideRow(keys: ["s", "d"], label: "unwrap it"),
+            GuideRow(keys: ["s", "r"], label: "swap the delimiters"),
+            GuideRow(key: "q b", label: "any quote · any bracket, as objects"),
+        ]),
+    ]
+
+    /// One panel: the sections down a column, in the app's own rows.
+    private static func glass(_ sections: [CheatSheet.Section])
+        -> (NSGlassEffectView, NSView, NSSize) {
         let view = NSGlassEffectView()
         view.cornerRadius = BarTheme.glassRadius
         view.tintColor = veil
-        let scrim = NSView()
-        scrim.wantsLayer = true
-        scrim.autoresizingMask = [.width, .height]
+        let host = NSView()
+        host.wantsLayer = true
+        host.autoresizingMask = [.width, .height]
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 7
+        stack.spacing = ModePill.inset
         stack.translatesAutoresizingMaskIntoConstraints = false
-        let title = NSTextField(labelWithString: header)
-        title.font = BarTheme.bodyFont
-        title.textColor = BarTheme.secondaryColor
-        stack.addArrangedSubview(title)
-        for (cap, label) in rows {
-            let row = NSStackView()
-            row.orientation = .horizontal
-            row.spacing = 8
-            let key = NSTextField(labelWithString: cap)
-            key.font = BarTheme.readingMono
-            key.textColor = .labelColor
-            let text = NSTextField(labelWithString: label)
-            text.font = BarTheme.bodyFont
-            text.textColor = .labelColor
-            row.addArrangedSubview(key)
-            row.addArrangedSubview(text)
-            stack.addArrangedSubview(row)
+        for section in sections {
+            stack.addArrangedSubview(CheatSheet.columns([section]))
         }
-        scrim.addSubview(stack)
+        host.addSubview(stack)
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: scrim.leadingAnchor, constant: 20),
-            stack.topAnchor.constraint(equalTo: scrim.topAnchor, constant: 18),
+            stack.leadingAnchor.constraint(equalTo: host.leadingAnchor, constant: BarKeys.inset),
+            stack.topAnchor.constraint(equalTo: host.topAnchor, constant: BarKeys.inset),
         ])
-        scrim.clipsToBounds = true
-        view.contentView = scrim
-        return (view, scrim)
+        host.clipsToBounds = true
+        view.contentView = host
+        stack.layoutSubtreeIfNeeded()
+        let fitting = stack.fittingSize
+        let natural = NSSize(width: (fitting.width + BarKeys.inset * 2).rounded(.up),
+                             height: (fitting.height + BarKeys.inset * 2).rounded(.up))
+        return (view, host, natural)
     }
 
     private static func draftGlass() -> NSGlassEffectView {

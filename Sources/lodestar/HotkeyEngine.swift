@@ -1388,44 +1388,54 @@ final class HotkeyEngine {
         let leave = card ? "back to the clipboard" : "close, kept in the clipboard"
         switch editor {
         case .insert:
+            // No typing group. ⌘Z, ⌘A and ⌥⌫ are the Mac's keys, not
+            // Lodestar's, and a sheet that spends a column saying undo is
+            // ⌘Z is a column nobody reads. The doors are named for what
+            // they do from in here: inside an open draft `lode .` turns
+            // the microphone on and `lode ⇧.` turns it off.
             return [
-                .init(header: "draft", rows: [
+                .init(header: "Draft", rows: [
                     GuideRow(key: "⏎", label: commit),
-                    GuideRow(key: "⇧⏎", label: "new line"),
-                    GuideRow(key: "esc", label: "normal mode"),
+                    GuideRow(key: "⇧⏎", label: "start a new line"),
+                    GuideRow(key: "esc", label: "stop typing, start editing"),
                 ]),
-                .init(header: "typing", rows: [
-                    GuideRow(key: "⌘Z", label: "undo · ⇧⌘Z redo"),
-                    GuideRow(key: "⌘A", label: "all of it"),
-                    GuideRow(key: "⌥⌫", label: "back a word · ⌘⌫ the line"),
+                .init(header: "Dictation", rows: [
+                    GuideRow(keys: ["lode", "."], label: "turn dictation on"),
+                    GuideRow(keys: ["lode", "⇧."], label: "turn dictation off"),
                 ]),
             ]
         case .normal:
+            // The verbs stand alone and the group says what follows them.
+            // Naming a verb by an example of itself teaches one
+            // combination and hides the rule.
             return [
-                .init(header: "draft", rows: [
+                .init(header: "Draft", rows: [
                     GuideRow(key: "⏎", label: commit),
-                    GuideRow(key: "i", label: "insert · a after · o a line below"),
+                    GuideRow(key: "i a", label: "back to typing, before or after"),
                     GuideRow(key: "esc", label: leave),
                 ]),
-                .init(header: "move", rows: [
-                    GuideRow(key: "h j k l", label: "left · down · up · right"),
-                    GuideRow(key: "w b e", label: "by word · 0 $ the line's edges"),
-                    GuideRow(key: "f t", label: "to a letter · ; , again"),
+                .init(header: "Move", rows: [
+                    GuideRow(key: "h j k l", label: "left, down, up, right"),
+                    GuideRow(key: "w b", label: "forward a word · back one"),
+                    GuideRow(key: "0 $", label: "start of the line · end of it"),
+                    GuideRow(key: "f t", label: "onto · just before a letter"),
                 ]),
-                .init(header: "change", rows: [
-                    GuideRow(key: "d c y", label: "delete · change · yank, with a motion"),
-                    GuideRow(key: "x p", label: "the letter under the cursor · put"),
-                    GuideRow(key: "v V", label: "select · by line"),
+                .init(header: "Change", rows: [
+                    GuideRow(key: "d c y", label: "delete · change · copy, then a move"),
+                    GuideRow(key: "i a", label: "inside · around, after a verb"),
+                    GuideRow(key: "q b", label: "any quote · any bracket"),
+                    GuideRow(keys: ["s", "a"], label: "wrap · sd unwrap · sr swap"),
                 ]),
             ]
         case .visual:
             return [
-                .init(header: "selection", rows: [
-                    GuideRow(key: "d c y", label: "delete · change · yank what is selected"),
+                .init(header: "Selection", rows: [
+                    GuideRow(key: "d c y", label: "delete, change, copy it"),
                     GuideRow(key: "h j k l", label: "grow it · w b by word"),
-                    GuideRow(key: "esc", label: "normal mode"),
+                    GuideRow(keys: ["s", "a"], label: "wrap it in quotes or brackets"),
+                    GuideRow(key: "esc", label: "back to normal mode"),
                 ]),
-                .init(header: "draft", rows: [
+                .init(header: "Draft", rows: [
                     GuideRow(key: "⏎", label: commit),
                 ]),
             ]

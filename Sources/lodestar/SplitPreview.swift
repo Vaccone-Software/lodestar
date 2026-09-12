@@ -276,7 +276,7 @@ enum SplitPreview {
         // rule and every combination with it.
         .init(header: "Change · a verb, then a move", rows: [
             GuideRow(key: "d", label: "delete"),
-            GuideRow(key: "c", label: "change — deletes, then you type"),
+            GuideRow(key: "c", label: "change: deletes, then you type"),
             GuideRow(key: "y", label: "copy · p pastes it back"),
             GuideRow(key: "x", label: "delete one letter"),
             GuideRow(key: "u", label: "undo"),

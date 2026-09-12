@@ -515,8 +515,8 @@ final class ClipDoorPanelTests: XCTestCase {
         // Insert mode names the two keys the legend used to, and no more
         // of the editor than the hand is holding.
         let insert = labels(HotkeyEngine.draftSections(editor: .insert, card: false))
-        XCTAssertTrue(insert.contains("new line"), "\(insert)")
-        XCTAssertTrue(insert.contains { $0.hasPrefix("normal mode") }, "\(insert)")
+        XCTAssertTrue(insert.contains("start a new line"), "\(insert)")
+        XCTAssertTrue(insert.contains("stop typing, start editing"), "\(insert)")
     }
 }
 

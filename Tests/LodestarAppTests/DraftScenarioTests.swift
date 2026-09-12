@@ -826,10 +826,9 @@ final class DraftKeysScenarioTests: XCTestCase {
         func labels(_ editor: Vim.Mode) -> [String] {
             HotkeyEngine.draftSections(editor: editor, card: false).flatMap { $0.rows }.map(\.label)
         }
-        XCTAssertTrue(labels(.insert).contains("new line"))
-        XCTAssertTrue(labels(.normal).contains("left · down · up · right"))
-        XCTAssertTrue(labels(.visual(line: false))
-            .contains("delete · change · yank what is selected"))
+        XCTAssertTrue(labels(.insert).contains("start a new line"))
+        XCTAssertTrue(labels(.normal).contains("left, down, up, right"))
+        XCTAssertTrue(labels(.visual(line: false)).contains("delete, change, copy it"))
     }
 
     /// The draft still ends on ⏎ with its keys up: a sheet is a thing to

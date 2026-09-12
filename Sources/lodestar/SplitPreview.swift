@@ -71,10 +71,14 @@ enum SplitPreview {
                                   width: draftWidth, height: draftHeight)
             // The panels sit on the draft's own floor and grow out of its
             // edges, so at rest they are inside its glass entirely.
+            // Full height from the first frame: only the width opens. A
+            // panel that grows in both directions pinches the merge into
+            // a droplet at one corner; at full height the neck spans the
+            // whole edge the two shapes share.
             left.frame = NSRect(x: midX - draftWidth / 2 - gap - w, y: floor,
-                                width: w, height: panelHeight * eased)
+                                width: w, height: panelHeight)
             right.frame = NSRect(x: midX + draftWidth / 2 + gap, y: floor,
-                                 width: w, height: panelHeight * eased)
+                                 width: w, height: panelHeight)
             for panel in [left, right] { panel.alphaValue = min(1, max(0, (eased - 0.15) / 0.5)) }
         }
 
@@ -95,12 +99,22 @@ enum SplitPreview {
         held.append(window)
     }
 
+    /// The veil as a tint on the glass rather than a view inside it.
+    ///
+    /// `EqualizerScrim` is a subview clipped to one glass view's bounds,
+    /// and a merge is a property of the glass, not of the content: the
+    /// neck between two merging views is glass that no scrim covers, so
+    /// it shows the adaptive tone and reads as a different material.
+    /// `tintColor` tints "the background and glass effect", which is the
+    /// thing that merges.
+    static var veil: NSColor { NSColor.black.withAlphaComponent(Glass.Weight.normal.bases.dark) }
+
     private static func glass(rows: [(String, String)], header: String) -> NSGlassEffectView {
         let view = NSGlassEffectView()
         view.cornerRadius = BarTheme.glassRadius
-        let scrim = EqualizerScrim()
+        view.tintColor = veil
+        let scrim = NSView()
         scrim.wantsLayer = true
-        scrim.layer?.cornerRadius = BarTheme.glassRadius
         scrim.autoresizingMask = [.width, .height]
         let stack = NSStackView()
         stack.orientation = .vertical
@@ -138,9 +152,9 @@ enum SplitPreview {
     private static func draftGlass() -> NSGlassEffectView {
         let view = NSGlassEffectView()
         view.cornerRadius = BarTheme.glassRadius
-        let scrim = EqualizerScrim()
+        view.tintColor = veil
+        let scrim = NSView()
         scrim.wantsLayer = true
-        scrim.layer?.cornerRadius = BarTheme.glassRadius
         scrim.autoresizingMask = [.width, .height]
         let name = NSTextField(labelWithString: "Messages")
         name.font = BarTheme.rowLabelFont

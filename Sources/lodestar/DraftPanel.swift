@@ -351,10 +351,20 @@ final class DraftPanel {
         // scrolls past it — one rule for every door. A card opened to be
         // read wants all of itself on screen, and a long dictation is no
         // worse for the room.
-        let chrome = Self.registerHeight + Self.floorHeight + keysBand
+        // The floor is the air under the text. With keys up, the keys'
+        // own air is that air — counting both put a second empty band
+        // between the words and their keys.
+        let chrome = Self.registerHeight + (keysShown ? keysBand : Self.floorHeight)
         let maxTextHeight = max(Self.minTextHeight,
                                 screen.height - view.standsAbove - Self.margin * 2 - chrome)
-        let textHeight = min(maxTextHeight, max(Self.minTextHeight, used + lineHeight * 0.4))
+        // The text box keeps a floor of its own so an empty draft is not a
+        // slot — but that floor is slack under the words, and with keys
+        // up it stacks on the keys' own air and reads as one gap of
+        // twice the size. With keys up the box hugs instead; the air
+        // between the words and their keys is then exactly the one inset
+        // every other surface uses.
+        let floor = keysShown ? lineHeight : Self.minTextHeight
+        let textHeight = min(maxTextHeight, max(floor, used + lineHeight * 0.4))
         scroll.hasVerticalScroller = used > maxTextHeight
 
         let height = chrome + textHeight
@@ -481,7 +491,7 @@ final class DraftPanel {
         placeText(registerNote, x: x, width: max(0, min(registerNote.frame.width, trailing - x)))
 
         // The text.
-        scroll.frame = NSRect(x: Self.padX, y: Self.floorHeight + keysBand,
+        scroll.frame = NSRect(x: Self.padX, y: keysShown ? keysBand : Self.floorHeight,
                               width: textWidth, height: textHeight)
         textView.frame = NSRect(x: 0, y: 0, width: textWidth, height: max(textHeight, used))
         textView.layoutManager?.ensureLayout(for: textView.textContainer!)

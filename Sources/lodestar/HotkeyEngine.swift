@@ -1392,12 +1392,12 @@ final class HotkeyEngine {
                 .init(header: "draft", rows: [
                     GuideRow(key: "⏎", label: commit),
                     GuideRow(key: "⇧⏎", label: "new line"),
-                    GuideRow(key: "esc", label: "normal mode · the microphone waits there"),
+                    GuideRow(key: "esc", label: "normal mode"),
                 ]),
                 .init(header: "typing", rows: [
                     GuideRow(key: "⌘Z", label: "undo · ⇧⌘Z redo"),
                     GuideRow(key: "⌘A", label: "all of it"),
-                    GuideRow(key: "⌥⌫", label: "back one word · ⌘⌫ back to the line's start"),
+                    GuideRow(key: "⌥⌫", label: "back a word · ⌘⌫ the line"),
                 ]),
             ]
         case .normal:
@@ -1410,7 +1410,7 @@ final class HotkeyEngine {
                 .init(header: "move", rows: [
                     GuideRow(key: "h j k l", label: "left · down · up · right"),
                     GuideRow(key: "w b e", label: "by word · 0 $ the line's edges"),
-                    GuideRow(key: "f t", label: "to a letter · ; and , again"),
+                    GuideRow(key: "f t", label: "to a letter · ; , again"),
                 ]),
                 .init(header: "change", rows: [
                     GuideRow(key: "d c y", label: "delete · change · yank, with a motion"),

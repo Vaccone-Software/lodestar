@@ -248,6 +248,18 @@ enum StripPreview {
             app.run()
         }
 
+        // 73: the speak door holding its keys — the end state of lode ?,
+        // photographed so the motion can be designed against the real
+        // thing rather than against a drawing of it.
+        if variant == 73 {
+            DispatchQueue.main.async {
+                let panel = DraftPanel.preview(0)
+                heldDraft = panel
+                panel.showKeys(HotkeyEngine.draftSections(editor: .insert, card: false))
+            }
+            app.run()
+        }
+
         // 16: the commands bar, mid-search over synthetic menus.
         if variant == 16 {
             let held = CommandsBarController.preview(query: "pa")

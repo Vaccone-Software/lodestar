@@ -80,8 +80,11 @@ enum SplitPreview {
         container.contentView = inner
         root.addSubview(container)
 
-        let (left, leftKeys, leftSize) = glass(Self.draftSections)
-        let (right, rightKeys, rightSize) = glass(Self.editorSections)
+        let (left, leftKeys, leftSize) = glass(title: Self.insertTitle,
+                                               blurb: Self.insertBlurb, Self.draftSections)
+        let (right, rightKeys, rightSize) = glass(title: Self.normalTitle,
+                                                  blurb: Self.normalBlurb,
+                                                  entry: Self.normalEntry, Self.editorSections)
         // Both panels take the wider and the taller, so the pair is
         // symmetric and the draft sits between two equals.
         panelWidth = max(leftSize.width, rightSize.width)
@@ -216,61 +219,84 @@ enum SplitPreview {
     /// a key is a cap with a chip behind it and a label is plain text,
     /// and the two cannot be mistaken for each other. A harness that
     /// draws its own rows proves nothing about the thing that ships.
+    /// The left panel: what is true wherever the hand is, said the way
+    /// a person would say it.
+    ///
+    /// The typing group is gone. ⌘Z, ⌘A and ⌥⌫ are the Mac's, not
+    /// Lodestar's, and a sheet that spends rows telling you undo is ⌘Z
+    /// is a sheet nobody finishes reading. And the doors are named for
+    /// what they do from in here: inside an open draft, `lode .` turns
+    /// the microphone on and `lode ⇧.` turns it off — the labels used to
+    /// name the door rather than the effect.
+    static let insertTitle = "Insert mode"
+    static let insertBlurb = "Where you are now. Type, or speak, and it lands in the draft."
     static let draftSections: [CheatSheet.Section] = [
-        .init(header: "draft", rows: [
-            GuideRow(key: "⏎", label: "paste where it lands"),
-            GuideRow(key: "⇧⏎", label: "new line"),
-            GuideRow(key: "esc", label: "normal mode"),
+        .init(header: "Draft", rows: [
+            GuideRow(key: "⏎", label: "paste it where you came from"),
+            GuideRow(key: "⇧⏎", label: "start a new line"),
+            GuideRow(key: "esc", label: "stop typing, start editing"),
         ]),
-        .init(header: "typing", rows: [
-            GuideRow(key: "⌘Z", label: "undo · ⇧⌘Z redo"),
-            GuideRow(key: "⌘A", label: "all of it"),
-            GuideRow(key: "⌥⌫", label: "back a word · ⌘⌫ the line"),
-        ]),
-        .init(header: "doors", rows: [
-            GuideRow(keys: ["lode", "."], label: "speak"),
-            GuideRow(keys: ["lode", "⇧."], label: "edit what is focused"),
+        .init(header: "Dictation", rows: [
+            GuideRow(keys: ["lode", "."], label: "turn dictation on"),
+            GuideRow(keys: ["lode", "⇧."], label: "turn dictation off"),
         ]),
     ]
 
-    /// Most of the grammar, deliberately. The point of the right-hand
-    /// panel is the motions nobody can guess — and the surrounds and the
-    /// quote and bracket objects are not vim at all.
+    /// The right panel: the editor, taught rather than listed.
+    ///
+    /// The old version was an alphabet — `w b e · by word` reads as sense
+    /// only to someone who already knows what `w` is. Worse, it listed
+    /// the moves and the verbs in separate groups and never said the one
+    /// thing that makes the grammar worth learning: that they combine.
+    /// A row that shows `d w` and says "d and any move deletes that far"
+    /// teaches the whole language; two rows listing `d c y` and `w b e`
+    /// teach neither half.
+    ///
+    /// Nothing is labelled "not vim" any more. Naming a group after what
+    /// it is not tells a person who has never heard of vim nothing at
+    /// all, and tells one who has that we were apologising.
+    static let normalTitle = "Normal mode"
+    static let normalBlurb = "Every key is a command. Edit without reaching for the mouse."
+    static let normalEntry: [GuideRow] = [
+        GuideRow(key: "esc", label: "get here from typing"),
+        GuideRow(key: "i a", label: "back to typing, before or after"),
+    ]
     static let editorSections: [CheatSheet.Section] = [
-        .init(header: "move", rows: [
-            GuideRow(key: "h j k l", label: "left · down · up · right"),
-            GuideRow(key: "w b e", label: "by word · ⇧ by WORD"),
-            GuideRow(key: "0 ^ $", label: "line start · first word · end"),
-            GuideRow(keys: ["g", "g"], label: "the top · ⇧G the bottom"),
-            GuideRow(key: "f t", label: "onto · up to a letter · ⇧ backwards"),
-            GuideRow(key: "; ,", label: "that again · and back"),
-            GuideRow(key: "{ }", label: "by paragraph"),
-            GuideRow(key: "%", label: "the matching bracket"),
+        .init(header: "Move", rows: [
+            GuideRow(key: "h j k l", label: "left, down, up, right"),
+            GuideRow(key: "w b", label: "forward a word · back one"),
+            GuideRow(key: "0 $", label: "start of the line · end of it"),
+            GuideRow(keys: ["g", "g"], label: "the very top · ⇧G the bottom"),
+            GuideRow(key: "f", label: "then a letter, to jump to it"),
         ]),
-        .init(header: "change", rows: [
-            GuideRow(key: "d c y", label: "delete · change · yank, with a motion"),
-            GuideRow(key: "⇧D ⇧C ⇧Y", label: "the same, to the line's end"),
-            GuideRow(key: "x r", label: "cut a letter · replace one"),
-            GuideRow(key: "p ⇧P", label: "put after · before"),
-            GuideRow(key: "~", label: "flip the case"),
-            GuideRow(key: ".", label: "that change again"),
+        // The lesson rides in the group's name, where it costs one line
+        // instead of one per row — and the three rows under it are the
+        // same verb against three different moves, so the pattern is
+        // shown rather than asserted.
+        .init(header: "Change · a verb, then a move", rows: [
+            GuideRow(keys: ["d", "w"], label: "delete a word"),
+            GuideRow(keys: ["c", "w"], label: "change a word"),
+            GuideRow(keys: ["d", "$"], label: "delete to the line's end"),
+            GuideRow(key: "x", label: "delete one letter"),
+            GuideRow(key: "y p", label: "copy · paste it back"),
             GuideRow(key: "u", label: "undo"),
         ]),
-        .init(header: "select", rows: [
-            GuideRow(key: "v ⇧V", label: "by character · by line"),
-            GuideRow(key: "d c y", label: "on the selection"),
-            GuideRow(key: "o", label: "jump to its other end"),
+        .init(header: "Select", rows: [
+            GuideRow(key: "v", label: "then move, to select"),
+            GuideRow(key: "⇧V", label: "select whole lines"),
+            GuideRow(key: "d c y", label: "delete, change, copy it"),
         ]),
-        .init(header: "wrap · not vim", rows: [
-            GuideRow(keys: ["s", "a"], label: "surround a span"),
-            GuideRow(keys: ["s", "d"], label: "unwrap it"),
-            GuideRow(keys: ["s", "r"], label: "swap the delimiters"),
-            GuideRow(key: "q b", label: "any quote · any bracket, as objects"),
+        .init(header: "Surround", rows: [
+            GuideRow(keys: ["s", "a"], label: "wrap in quotes or brackets"),
+            GuideRow(keys: ["s", "d"], label: "take the wrapping off"),
+            GuideRow(keys: ["s", "r"], label: "swap one for another"),
         ]),
     ]
 
     /// One panel: the sections down a column, in the app's own rows.
-    private static func glass(_ sections: [CheatSheet.Section])
+    private static func glass(title: String, blurb: String,
+                              entry: [GuideRow] = [],
+                              _ sections: [CheatSheet.Section])
         -> (NSGlassEffectView, NSView, NSSize) {
         let view = NSGlassEffectView()
         view.cornerRadius = BarTheme.glassRadius
@@ -283,6 +309,24 @@ enum SplitPreview {
         stack.alignment = .leading
         stack.spacing = ModePill.inset
         stack.translatesAutoresizingMaskIntoConstraints = false
+        // The mode says what it is before it says what its keys are. One
+        // text size, tone for hierarchy — the pill's rule, and the
+        // reason this reads as a sentence rather than as a heading.
+        let name = NSTextField(labelWithString: title)
+        name.font = BarTheme.rowLabelFont
+        name.textColor = .labelColor
+        let line = NSTextField(wrappingLabelWithString: blurb)
+        line.font = BarTheme.rowLabelFont
+        line.textColor = BarTheme.secondaryColor
+        line.preferredMaxLayoutWidth = 330
+        stack.addArrangedSubview(name)
+        stack.setCustomSpacing(ModePill.wordGap, after: name)
+        stack.addArrangedSubview(line)
+        if !entry.isEmpty {
+            // A named group, not a headerless one: an empty header still
+            // draws its line, which left a blank band under the blurb.
+            stack.addArrangedSubview(CheatSheet.columns([.init(header: "In and out", rows: entry)]))
+        }
         for section in sections {
             stack.addArrangedSubview(CheatSheet.columns([section]))
         }

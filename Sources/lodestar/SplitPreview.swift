@@ -267,19 +267,27 @@ enum SplitPreview {
             GuideRow(key: "w b", label: "forward a word · back one"),
             GuideRow(key: "0 $", label: "start of the line · end of it"),
             GuideRow(keys: ["g", "g"], label: "the very top · ⇧G the bottom"),
-            GuideRow(key: "f", label: "then a letter, to jump to it"),
+            GuideRow(key: "f t", label: "onto · just before a letter"),
+            GuideRow(key: "⇧F ⇧T", label: "the same, backwards"),
         ]),
-        // The lesson rides in the group's name, where it costs one line
-        // instead of one per row — and the three rows under it are the
-        // same verb against three different moves, so the pattern is
-        // shown rather than asserted.
+        // The verbs stand alone. Naming a verb by an example of itself —
+        // `d w · delete a word` — teaches one combination and hides the
+        // rule; `d · delete` and a group called "then a move" teaches the
+        // rule and every combination with it.
         .init(header: "Change · a verb, then a move", rows: [
-            GuideRow(keys: ["d", "w"], label: "delete a word"),
-            GuideRow(keys: ["c", "w"], label: "change a word"),
-            GuideRow(keys: ["d", "$"], label: "delete to the line's end"),
+            GuideRow(key: "d", label: "delete"),
+            GuideRow(key: "c", label: "change — deletes, then you type"),
+            GuideRow(key: "y", label: "copy · p pastes it back"),
             GuideRow(key: "x", label: "delete one letter"),
-            GuideRow(key: "y p", label: "copy · paste it back"),
             GuideRow(key: "u", label: "undo"),
+        ]),
+        // The other thing a verb can take, and the reason the pairs are
+        // worth knowing: a target does not depend on where the cursor
+        // sits inside it.
+        .init(header: "Inside and around · after a verb", rows: [
+            GuideRow(key: "i a", label: "inside it · around it"),
+            GuideRow(key: "w", label: "the word under the cursor"),
+            GuideRow(key: "q b", label: "any quote · any bracket"),
         ]),
         .init(header: "Select", rows: [
             GuideRow(key: "v", label: "then move, to select"),

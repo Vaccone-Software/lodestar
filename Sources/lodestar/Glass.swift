@@ -40,14 +40,31 @@ enum Accessibility {
 /// Measured on macOS 27.0 at Liquid Glass's clearest, over both grounds
 /// (tools/glass-sweep, 2026-09-14): the material alone drifted a dark bar
 /// over paper to grey 147 with white text at 2.65 to 1; the scrim held it
-/// at 100 and 4.79, and the pill at 124 and 3.50; black at 0.85 holds the
-/// bar at 22 and 13.1 and the pill at 27 and 12.5, sixteen levels from
-/// their charcoal selves, with the frost and the rim intact. Live, so a
-/// theme switch and Reduce Transparency both re-resolve on a standing
-/// surface.
+/// at 100 and 4.79, and the pill at 124 and 3.50. Black at 0.85 fixed the
+/// contrast and broke the colour — grey 6 over charcoal, where the design
+/// draws 26 — so the tint aims at `BarTheme.glassTint` instead (2026-09-15).
+/// Live, so a theme switch and Reduce Transparency both re-resolve on a
+/// standing surface.
 @available(macOS 26.0, *)
 final class TonedGlass: NSGlassEffectView {
     var weight: Glass.Weight = .normal { didSet { retint() } }
+    /// Reduce Transparency: an opaque veil in the ground's own colour,
+    /// inside the glass so the rim and the shadow stay. The tint cannot
+    /// do this job — at alpha 1 the material still shows the backdrop
+    /// (grey 24 over charcoal, 57 over paper, measured 2026-09-15).
+    private let veil = NSView()
+    var veilShown: Bool { !veil.isHidden }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        veil.wantsLayer = true
+        veil.autoresizingMask = [.width, .height]
+        veil.isHidden = true
+        // Attached as the contentView only while it shows; the frost
+        // needs nothing inside it.
+    }
+
+    required init?(coder: NSCoder) { nil }
 
     private var themeObserver: NSObjectProtocol?
     private var accessibilityObserver: NSObjectProtocol?
@@ -86,9 +103,15 @@ final class TonedGlass: NSGlassEffectView {
     }
 
     /// The tint, re-read from the system's tone and the person's settings.
+    /// It aims at `BarTheme.glassTint`, a grey chosen so the panel lands
+    /// on its own ground; see the note there for why that grey is not the
+    /// ground itself.
     func retint() {
-        let alpha = Accessibility.reduceTransparency() ? Glass.opaque : weight.alpha
-        tintColor = (Tone.systemDark ? NSColor.black : NSColor.white).withAlphaComponent(alpha)
+        tintColor = BarTheme.glassTint.withAlphaComponent(weight.alpha)
+        veil.layer?.cornerRadius = cornerRadius
+        veil.layer?.backgroundColor = BarTheme.ground.withAlphaComponent(Glass.opaque).cgColor
+        veil.isHidden = !Accessibility.reduceTransparency()
+        contentView = veil.isHidden ? nil : veil
     }
 }
 
@@ -109,14 +132,14 @@ enum Glass {
         case normal, raised, faint
         var alpha: CGFloat {
             switch self {
-            case .normal: return 0.85
-            case .raised: return 0.92
-            case .faint: return 0.72
+            case .normal: return 0.92
+            case .raised: return 0.96
+            case .faint: return 0.82
             }
         }
     }
 
-    /// The tint when a person has asked for no transparency at all: the
+    /// The veil when a person has asked for no transparency at all: the
     /// glass stays for its edge and its shadow, and the frost is gone.
     static let opaque: CGFloat = 0.95
 
@@ -376,6 +399,18 @@ enum BarTheme {
     /// light, so the ground is a known tone rather than a query.
     static var ground: NSColor {
         Tone.systemDark ? NSColor(white: 0.1, alpha: 1) : NSColor(white: 0.92, alpha: 1)
+    }
+
+    /// What the glass is tinted toward, so that it lands on `ground`. Not
+    /// the ground itself: the material multiplies with its backdrop rather
+    /// than blending, so a tint aimed at charcoal read grey 6 over
+    /// charcoal, and black read the same. Measured 2026-09-15 with
+    /// tools/glass-sweep at the normal weight: white 0.25 lands the bar
+    /// at 25 over charcoal (the ground is 26) and 65 over paper, 7.9 to 1;
+    /// white 0.92 lands it at 237 over black (paper is 235) and 254 over
+    /// paper. Change the number and the sweep decides, not the eye.
+    static var glassTint: NSColor {
+        Tone.systemDark ? NSColor(white: 0.25, alpha: 1) : NSColor(white: 0.92, alpha: 1)
     }
 
     /// The accent the person chose, as a closure so a test can choose one.

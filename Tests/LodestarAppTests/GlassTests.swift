@@ -28,9 +28,10 @@ final class GlassTests: XCTestCase {
         guard #available(macOS 26.0, *) else { throw XCTSkip("no glass before 26") }
         let (window, glass) = glassInAWindow()
         let tint = try XCTUnwrap(glass.tintColor?.usingColorSpace(.sRGB), "arriving in a window is a reading")
-        XCTAssertEqual(tint.alphaComponent, 0.85, accuracy: 0.01, "the measured number")
-        XCTAssertEqual(tint.redComponent, Tone.systemDark ? 0 : 1, accuracy: 0.01,
-                       "black on charcoal, white on paper: the system's tone, never the backdrop's")
+        XCTAssertEqual(tint.alphaComponent, 0.92, accuracy: 0.01, "the measured number")
+        XCTAssertEqual(tint.redComponent, Tone.systemDark ? 0.25 : 0.92, accuracy: 0.02,
+                       "the grey that lands on charcoal or paper: the system's tone, never the backdrop's")
+        XCTAssertFalse(glass.veilShown, "the frost shows while transparency is allowed")
         _ = window
     }
 
@@ -38,11 +39,10 @@ final class GlassTests: XCTestCase {
         guard #available(macOS 26.0, *) else { throw XCTSkip("no glass before 26") }
         let (window, glass) = glassInAWindow()
         glass.weight = .raised
-        XCTAssertEqual(glass.tintColor?.alphaComponent ?? 0, 0.92, accuracy: 0.01, "a lit card is heavier")
+        XCTAssertEqual(glass.tintColor?.alphaComponent ?? 0, 0.96, accuracy: 0.01, "a lit card is heavier")
         Accessibility.reduceTransparency = { true }
         glass.viewDidChangeEffectiveAppearance()
-        XCTAssertEqual(glass.tintColor?.alphaComponent ?? 0, Glass.opaque, accuracy: 0.01,
-                       "a flipped setting is a new reading, not the next opening's")
+        XCTAssertTrue(glass.veilShown, "a flipped setting is a new reading, not the next opening's")
         _ = window
     }
 
@@ -123,12 +123,13 @@ final class AccessibilitySettingsTests: XCTestCase {
         glass.frame = NSRect(x: 0, y: 0, width: 10, height: 10)
         window.contentView?.addSubview(glass)
         _ = window
+        if glass.veilShown { return Glass.opaque }
         return glass.tintColor?.alphaComponent ?? 0
     }
 
     func testReduceTransparencyMakesTheVeilOpaque() throws {
         XCTAssertEqual(try veilAlpha(reduce: true), Glass.opaque, accuracy: 0.01)
-        XCTAssertLessThan(try veilAlpha(reduce: false), 0.9, "and the frost is back when it is off")
+        XCTAssertLessThan(try veilAlpha(reduce: false), Glass.opaque, "and the frost is back when it is off")
     }
 
     func testIncreaseContrastSetsCaptionsInTheLabelColour() {

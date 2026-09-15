@@ -142,14 +142,24 @@ final class UpdateController {
     private func announceMarkers() {
         let updated = Self.directory.appendingPathComponent("updated-to")
         let rolledBack = Self.directory.appendingPathComponent("rolled-back")
-        if let version = try? String(contentsOf: updated, encoding: .utf8),
-           version == Lodestar.version {
-            justUpdated = true
+        if let version = try? String(contentsOf: updated, encoding: .utf8) {
             try? FileManager.default.removeItem(at: updated)
-            Log.info("update", ["phase": "completed", "version": version])
-            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [voice] in
-                let (sentence, detail) = Voice.updated(version)
-                voice(sentence, detail)
+            if version == Lodestar.version {
+                justUpdated = true
+                Log.info("update", ["phase": "completed", "version": version])
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [voice] in
+                    let (sentence, detail) = Voice.updated(version)
+                    voice(sentence, detail)
+                }
+            } else {
+                // Applied, relaunched, and still not that version: the
+                // release did not change the binary. v0.32.4 (2026-09-14)
+                // was 0.32.3's build under a new label, and every check
+                // re-applied it — 194 relaunches in a night, each one
+                // restoring parked windows on the way out. Refused the way
+                // a rollback is refused, until a newer release ships.
+                try? version.write(to: Self.refusedFile, atomically: true, encoding: .utf8)
+                Log.error("update to \(version) did not change the binary — still \(Lodestar.version); refusing it until a newer release ships")
             }
         }
         if let version = try? String(contentsOf: rolledBack, encoding: .utf8) {

@@ -45,6 +45,10 @@ final class TabsScenarioTests: XCTestCase {
         XCTAssertEqual(first.count, 1, "a single letter with three tabs")
         XCTAssertTrue(stage.press(first), "a lowercase letter is a pick: there is no search here")
         XCTAssertFalse(stage.engine.stateDescription.contains("hints"), "pressed, and the mode is over")
+        stage.clock.advance(by: 0.1)
+        let click = try XCTUnwrap(stage.clicks.first, "a pick is a click")
+        XCTAssertEqual(click.last?.point, CGPoint(x: 70, y: 56), "at the tab's center")
+        XCTAssertTrue(click.contains { $0.type == .leftMouseDown } && click.contains { $0.type == .leftMouseUp })
     }
 
     func testAWindowWithNoTabsSaysSoAndStandsDown() {

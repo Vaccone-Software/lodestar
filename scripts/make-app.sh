@@ -9,11 +9,16 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 BIN=.build/release/lodestar
+# Ask the toolchain where it put the product rather than assuming. Xcode 27
+# moved the universal product from .build/apple/Products to
+# .build/out/Products, and the old path, still holding the build from three
+# days before, was packaged and shipped as v0.32.4 (2026-09-14).
 if [ "${1:-}" = "--universal" ]; then
     swift build -c release --arch arm64 --arch x86_64
-    BIN=.build/apple/Products/Release/lodestar
+    BIN="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/lodestar"
 else
     swift build -c release
+    BIN="$(swift build -c release --show-bin-path)/lodestar"
 fi
 
 APP=dist/lodestar.app

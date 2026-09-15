@@ -223,7 +223,7 @@ final class SelectController {
     // MARK: - Lifecycle
 
     func enter(door: Door = .anchor, sticky: Bool = false) -> Bool {
-        guard let window = model.focusedWindow, window.isAlive else { return false }
+        guard let window = model.focusedWindowNow() else { return false }
         self.door = door
         self.sticky = sticky
         entryTargets = []

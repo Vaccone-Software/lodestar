@@ -121,7 +121,7 @@ final class ScrollController {
             kCFPreferencesAnyApplication
         ) as? Bool ?? true
         sign = natural ? 1 : -1
-        if let focused = model.focusedWindow, focused.isAlive {
+        if let focused = model.focusedWindowNow() {
             appName = focused.appName
             appIcon = NSRunningApplication(processIdentifier: focused.pid)?.icon
             windowFrame = focused.frame
@@ -144,7 +144,7 @@ final class ScrollController {
         guard discoveryGeneration == generation, attempts < 16 else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
             guard let self, self.discoveryGeneration == generation else { return }
-            guard let focused = self.model.focusedWindow, focused.isAlive else {
+            guard let focused = self.model.focusedWindowNow() else {
                 self.retryDiscovery(generation: generation, began: began,
                                     attempts: attempts + 1)
                 return

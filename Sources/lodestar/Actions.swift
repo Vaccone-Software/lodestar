@@ -416,7 +416,7 @@ final class Actions {
     /// to index jumps, breaths, and undo like anything Lodestar summoned.
     /// ⇧ joins beside instead of taking over.
     func maximizeFocused(beside: Bool) {
-        guard let window = model.focusedWindow, model.verify(window.id) else {
+        guard let window = model.focusedWindowNow() else {
             hud.flash("✕ no focused window to maximize")
             return
         }
@@ -497,7 +497,7 @@ final class Actions {
     /// lode [ / ]: throw the focused window to the neighbor display —
     /// plain arrives full-screen there, shift arrives beside.
     func moveFocusedDisplay(direction: Int, beside: Bool) {
-        guard let focused = model.focusedWindow, model.verify(focused.id) else {
+        guard let focused = model.focusedWindowNow() else {
             hud.flash("✕ no focused window")
             return
         }

@@ -41,6 +41,9 @@ public final class WindowModel {
     public var onFocus: ((CGWindowID) -> Void)?
     public var onTitleChanged: ((CGWindowID) -> Void)?
     public var onTrace: ((String) -> Void)?
+    /// Who is in front, for a fresh ask. A closure so the scenario harness,
+    /// whose world never touches a real window, can answer nobody.
+    public var frontmostApp: () -> NSRunningApplication? = { NSWorkspace.shared.frontmostApplication }
 
     private var observers: [pid_t: AppObserver] = [:]
 
@@ -188,6 +191,52 @@ public final class WindowModel {
         return Self.mostCurrent(windows.values.filter { $0.isAlive && $0.pid == pid })
     }
 
+    /// A window put in front by hand: the scenario harness's, whose world
+    /// never touches a real one. Tracked as alive and focused, nothing
+    /// watched.
+    public func stand(_ window: Window) {
+        windows[window.id] = window
+        setFocus(window.id)
+    }
+
+    /// The focused window for an action about to use it: the model's, if
+    /// its handle still answers; otherwise asked of the frontmost app
+    /// afresh. The model hears about focus by notification, and a window
+    /// whose element dies under it (Zoom, mid-meeting) never sends one.
+    public func focusedWindowNow() -> Window? {
+        if let w = focusedWindow, verify(w.id) { return w }
+        return refocusFrontmost()
+    }
+
+    /// Ask the frontmost app, right now, which window is focused, and
+    /// track it: first by its own answer, then — when it names none,
+    /// which Zoom also does mid-meeting — by walking its AX windows and
+    /// taking the one the window server lists on top. Both routes bridge
+    /// through the same private call and come back with the same id, so
+    /// breaths, index jumps and undo keep the window they knew.
+    public func refocusFrontmost() -> Window? {
+        guard let app = frontmostApp(),
+              app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return nil }
+        let ax = AXApplication(app)
+        if let focused = ax.focusedWindow(), let id = track(element: focused.element, app: app), verify(id) {
+            onTrace?("refocus id=\(id) \(windows[id]?.appName ?? "?") via=focused")
+            setFocus(id)
+            return windows[id]
+        }
+        guard let axWindows = ax.windows(), !axWindows.isEmpty else { return nil }
+        let pid = app.processIdentifier
+        let onTop = CGWindows.list(onScreenOnly: true).filter { $0.pid == pid && $0.layer == 0 }.map(\.id)
+        let bridged = axWindows.compactMap { w in windowID(of: w.element).map { ($0, w.element) } }
+        for id in onTop {
+            guard let (_, element) = bridged.first(where: { $0.0 == id }),
+                  let tracked = track(element: element, app: app), verify(tracked) else { continue }
+            onTrace?("refocus id=\(tracked) \(windows[tracked]?.appName ?? "?") via=top")
+            setFocus(tracked)
+            return windows[tracked]
+        }
+        return nil
+    }
+
     /// Re-read a window's frame right now (AX events can lag a beat).
     public func refreshFrame(_ id: CGWindowID) {
         guard var w = windows[id], w.isAlive else { return }
@@ -269,7 +318,11 @@ public final class WindowModel {
     @discardableResult
     private func track(element: AXUIElement, app: NSRunningApplication) -> CGWindowID? {
         guard let id = windowID(of: element) else { return nil }
-        if windows[id] != nil { return id }
+        if let known = windows[id] {
+            if known.isAlive { return id }
+            revive(id, element: element, app: app, lastFocused: known.lastFocused)
+            return id
+        }
         let ax = AXWindow(element: element)
         let window = Window(
             id: id,
@@ -295,6 +348,39 @@ public final class WindowModel {
         }
         if !seeding { onCreated?(id) }
         return id
+    }
+
+    /// A window that outlived its handle. Zoom rebuilds its accessibility
+    /// tree during a meeting: the meeting window keeps its window-server
+    /// id while the element the model holds for it goes dead, `verify`
+    /// buries the record, and no focus-changed notification ever fires,
+    /// because from Zoom's side focus never moved. A buried record keeps
+    /// its id until pruneDead, so a fresh element for a known id was
+    /// ignored for minutes (seven, in the log of 2026-09-14's 11:00
+    /// meeting); now it takes the record over, alive.
+    private func revive(_ id: CGWindowID, element: AXUIElement, app: NSRunningApplication,
+                        lastFocused: Date?) {
+        let ax = AXWindow(element: element)
+        let window = Window(
+            id: id,
+            element: element,
+            pid: app.processIdentifier,
+            appName: app.localizedName ?? "pid \(app.processIdentifier)",
+            bundleID: app.bundleIdentifier,
+            title: ax?.title ?? "",
+            frame: ax?.frame ?? .zero,
+            isMinimized: ax?.isMinimized ?? false,
+            isAlive: true,
+            lastFocused: lastFocused
+        )
+        windows[id] = window
+        idByElement[ElementKey(element: element)] = id
+        onTrace?("revive id=\(id) \(window.appName) '\(window.title.prefix(30))' — a fresh element for a known window")
+        if let observer = observer(for: app) {
+            for notification in Self.windowNotifications {
+                observer.watch(notification, on: element)
+            }
+        }
     }
 
     /// Dead records serve close-vs-hide judgment and history skipping for

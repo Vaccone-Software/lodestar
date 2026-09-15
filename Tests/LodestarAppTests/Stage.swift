@@ -267,6 +267,10 @@ final class Stage {
 
         hud = HUD(clock: clock.clock)
         let model = WindowModel()
+        self.model = model
+        // The world never moves a window, so a fresh ask for the focused
+        // one finds no app in front: the model knows only what a test told it.
+        model.frontmostApp = { nil }
         let clipboard = ClipboardController(
             store: ClipboardStore(root: directory.appendingPathComponent("clipboard")))
         // A private board and a counted keystroke: a test that pasted into

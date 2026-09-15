@@ -48,6 +48,13 @@ public enum CGWindows {
             .compactMap { $0[kCGWindowNumber as String] as? CGWindowID })
     }
 
+    /// The window server's layer for one window: 0 for what a person
+    /// calls a window, higher for toasts, pickers and toolbars.
+    public static func layer(of id: CGWindowID) -> Int? {
+        (CGWindowListCreateDescriptionFromArray([id] as CFArray) as? [[String: Any]])?
+            .first?[kCGWindowLayer as String] as? Int
+    }
+
     public static func contains(_ id: CGWindowID, onScreenOnly: Bool = false) -> Bool {
         liveIDs(onScreenOnly: onScreenOnly).contains(id)
     }

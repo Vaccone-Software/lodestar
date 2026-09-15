@@ -9,7 +9,7 @@ import LodestarCore
 /// or remove chains, written straight into the config — while the list
 /// underneath stays frozen exactly as it was. Row views are cached and
 /// reused — typing repaints, it never rebuilds — and rows teach the faster
-/// paths: graph addresses and window counts on apps.
+/// paths: graph addresses on apps.
 /// The panel never activates lodestar, so focus context stays where it was.
 final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     private enum Row {
@@ -98,7 +98,6 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     private var rowViews: [SearcherRowView] = []
     private var viewCache: [String: SearcherRowView] = [:]
     /// Alive windows per pid, rebuilt once per requery for the row chips.
-    private var aliveByPid: [pid_t: Int] = [:]
     private var selected = 0
     private var mode: Mode = .apps
     private var menuState: MenuState = .closed
@@ -262,12 +261,6 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         switch mode {
         case .apps:
             rows = appIndex.query(query).map(Row.app)
-            // One walk of the model for every row's window-count chip:
-            // counting per row re-filtered every tracked window per visible
-            // row, per keystroke.
-            aliveByPid = model.windows.values.reduce(into: [:]) { counts, w in
-                if w.isAlive { counts[w.pid, default: 0] += 1 }
-            }
         case .windows(let pid, _, _):
             var windows = model.windows.values.filter { $0.isAlive && $0.pid == pid }
             let trimmed = query.trimmingCharacters(in: .whitespaces)
@@ -332,10 +325,11 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
             if let address = graphAddress(entry.name.lowercased()) {
                 chips.append(address)
             }
-            if entry.isRunning, let pid = entry.pid {
-                let count = aliveByPid[pid] ?? 0
-                if count > 1 { chips.append("⇥ \(count)") }
-            }
+            // No window count beside the app. The chip once read "⇥ 3",
+            // and the number was every AX window the model could bridge —
+            // Brave's pickers, Zoom's toasts, ghosts not yet swept — so it
+            // moved while you watched. The chooser behind ⇥ is unchanged;
+            // the sheet is where ⇥ is taught, not the row.
             view.configure(
                 identity: row.identity,
                 icon: { NSWorkspace.shared.icon(forFile: entry.url.path) },

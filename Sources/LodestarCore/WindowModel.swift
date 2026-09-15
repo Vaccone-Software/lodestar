@@ -338,7 +338,10 @@ public final class WindowModel {
         )
         windows[id] = window
         idByElement[ElementKey(element: element)] = id
-        onTrace?("track id=\(id) \(window.appName) '\(window.title.prefix(30))' bundle=\(window.bundleID ?? "nil")")
+        // Subrole and layer ride along so the log can say which of the
+        // windows the model counts a person would call one — the picker,
+        // the toast and the toolbar carry other subroles and other layers.
+        onTrace?("track id=\(id) \(window.appName) '\(window.title.prefix(30))' bundle=\(window.bundleID ?? "nil") subrole=\((ax?.subrole ?? "?").replacingOccurrences(of: "AX", with: "")) layer=\(CGWindows.layer(of: id).map(String.init) ?? "?")")
         if let observer = observer(for: app) {
             for notification in Self.windowNotifications {
                 observer.watch(notification, on: element)

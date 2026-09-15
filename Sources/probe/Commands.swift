@@ -132,14 +132,18 @@ func runCG(_ args: inout [String]) {
 
 func runList(_ args: inout [String]) {
     requireTrust()
-    let cgIDs = Set(CGWindows.list(onScreenOnly: false).map(\.id))
+    let cgRecords = CGWindows.list(onScreenOnly: false)
+    let cgIDs = Set(cgRecords.map(\.id))
+    let cgLayer = Dictionary(cgRecords.map { ($0.id, $0.layer) }, uniquingKeysWith: { a, _ in a })
     var totalWindows = 0
     var bridged = 0
     var crossChecked = 0
     var unreachable: [String] = []
     var unbridgedByApp: [String: Int] = [:]
 
-    print(pad("WID", 8) + pad("APP", 22) + pad("TITLE", 42) + pad("FRAME", 26) + "FLAGS")
+    // SUBROLE and the window server's LAYER: the two facts that tell a
+    // window a person would call one from a picker, a toast or a toolbar.
+    print(pad("WID", 8) + pad("APP", 22) + pad("TITLE", 42) + pad("FRAME", 26) + pad("SUBROLE", 20) + pad("LAYER", 6) + "FLAGS")
     for app in AXApplication.regularApps().sorted(by: { $0.name.lowercased() < $1.name.lowercased() }) {
         guard let windows = app.windows() else {
             unreachable.append(app.name)
@@ -157,6 +161,8 @@ func runList(_ args: inout [String]) {
             let frame = window.frame.map(fmt) ?? "?"
             print(pad(String(window.id), 8) + pad(clip(app.name, 20), 22)
                 + pad(clip(window.title ?? "", 40), 42) + pad(frame, 26)
+                + pad((window.subrole ?? "?").replacingOccurrences(of: "AX", with: ""), 20)
+                + pad(cgLayer[window.id].map(String.init) ?? "?", 6)
                 + flags.joined(separator: ","))
         }
     }
@@ -1121,4 +1127,253 @@ func runPressables(_ args: inout [String]) {
     print("  chips drawn: \(chips.count)"
           + " · labels \(labels.first.map { "\($0)…" } ?? "none")"
           + " \(labels.allSatisfy { $0.count == 1 } ? "single letters" : "pairs")")
+}
+
+
+// MARK: - tabs
+
+/// Does this app expose its tabs over AX, and as what? The verdict for a
+/// `lode ⇥` that means "the tabs of this window": every AXTabGroup, and
+/// every element that calls itself a tab, with its title and whether it
+/// is the selected one.
+func runTabs(_ args: inout [String]) {
+    requireTrust()
+    guard let query = args.first?.lowercased() else { print("usage: probe tabs <app>"); return }
+    guard let app = AXApplication.regularApps().first(where: { $0.name.lowercased().contains(query) }) else {
+        print("no running app matching \(query)"); return
+    }
+    // Chromium builds no AX tree until an assistive client announces itself.
+    AXUIElementSetMessagingTimeout(app.element, 1.0)
+    AXUIElementSetAttributeValue(app.element, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+    usleep(300_000)
+    guard let windows = AX.elements(app.element, kAXWindowsAttribute as String), !windows.isEmpty else {
+        print("\(app.name): no AX windows"); return
+    }
+    var found = 0
+    var visited = 0
+    func walk(_ element: AXUIElement, depth: Int, inGroup: Bool) {
+        visited += 1
+        guard depth < 14, visited < 6000 else { return }
+        let role = AX.string(element, kAXRoleAttribute as String) ?? "?"
+        let subrole = AX.string(element, kAXSubroleAttribute as String) ?? ""
+        let described = AX.string(element, kAXRoleDescriptionAttribute as String) ?? ""
+        let isGroup = role == "AXTabGroup"
+        let isTab = subrole == "AXTabButton" || described.lowercased() == "tab"
+            || (inGroup && role == "AXRadioButton")
+        if isGroup || isTab {
+            found += 1
+            let title = AX.string(element, kAXTitleAttribute as String)
+                ?? AX.string(element, kAXDescriptionAttribute as String) ?? ""
+            let value = AX.int(element, kAXValueAttribute as String)
+            let frame = AX.point(element, kAXPositionAttribute as String).map { "\(Int($0.x)),\(Int($0.y))" } ?? "?"
+            print(String(repeating: "  ", count: depth) + "\(role)\(subrole.isEmpty ? "" : "/" + subrole) '\(described)' \(isTab ? "value=\(value.map(String.init) ?? "?")" : "") @\(frame)  \(title.prefix(50))")
+        }
+        guard let children = AX.elements(element, kAXChildrenAttribute as String) else { return }
+        for child in children { walk(child, depth: depth + 1, inGroup: inGroup || isGroup) }
+    }
+    for (i, window) in windows.prefix(2).enumerated() {
+        print("== \(app.name) window \(i): \((AX.string(window, kAXTitleAttribute as String) ?? "").prefix(60))")
+        walk(window, depth: 0, inGroup: false)
+    }
+    print("\(found) tab-like elements, \(visited) nodes visited")
+}
+
+// MARK: - badges
+
+/// What the Dock says is waiting: every app tile that carries a badge.
+func runBadges(_ args: inout [String]) {
+    requireTrust()
+    guard let dock = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first else {
+        print("no Dock"); return
+    }
+    let root = AXUIElementCreateApplication(dock.processIdentifier)
+    var badged = 0
+    func walk(_ element: AXUIElement, depth: Int) {
+        guard depth < 6 else { return }
+        if let label = AX.string(element, "AXStatusLabel"), !label.isEmpty {
+            badged += 1
+            print("\(AX.string(element, kAXTitleAttribute as String) ?? "?"): \(label)")
+        }
+        for child in AX.elements(element, kAXChildrenAttribute as String) ?? [] { walk(child, depth: depth + 1) }
+    }
+    walk(root, depth: 0)
+    print("\(badged) badged tiles")
+}
+
+
+// MARK: - find
+
+/// Every element in an app whose title, description or value carries the
+/// text: its role, subrole, actions, frame, and the roles above it. For
+/// the question "why does the click door miss this button?" — whether
+/// the tree names it at all, and as what.
+func runFind(_ args: inout [String]) {
+    requireTrust()
+    guard args.count >= 2 else { print("usage: probe find <app> <text>"); return }
+    let query = args[0].lowercased(), needle = args[1].lowercased()
+    guard let app = AXApplication.regularApps().first(where: { $0.name.lowercased().contains(query) }) else {
+        print("no running app matching \(query)"); return
+    }
+    AXUIElementSetMessagingTimeout(app.element, 1.0)
+    AXUIElementSetAttributeValue(app.element, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+    usleep(300_000)
+    guard let windows = AX.elements(app.element, kAXWindowsAttribute as String), !windows.isEmpty else {
+        print("\(app.name): no AX windows"); return
+    }
+    var visited = 0, hits = 0
+    func text(_ e: AXUIElement, _ attr: String) -> String { AX.string(e, attr) ?? "" }
+    func walk(_ element: AXUIElement, depth: Int, path: [String]) {
+        visited += 1
+        guard depth < 40, visited < 20000 else { return }
+        let role = text(element, kAXRoleAttribute as String)
+        let title = text(element, kAXTitleAttribute as String)
+        let desc = text(element, kAXDescriptionAttribute as String)
+        let value = text(element, kAXValueAttribute as String)
+        let help = text(element, kAXHelpAttribute as String)
+        let names = [title, desc, value, help].joined(separator: " ").lowercased()
+        if names.contains(needle) {
+            hits += 1
+            var actions: CFArray?
+            AXUIElementCopyActionNames(element, &actions)
+            let acts = (actions as? [String] ?? []).joined(separator: ",")
+            let origin = AX.point(element, kAXPositionAttribute as String).map { "\(Int($0.x)),\(Int($0.y))" } ?? "?"
+            let size = AX.size(element, kAXSizeAttribute as String).map { "\(Int($0.width))x\(Int($0.height))" } ?? "?"
+            let enabled = AX.bool(element, kAXEnabledAttribute as String).map(String.init) ?? "?"
+            print("\(role)\(text(element, kAXSubroleAttribute as String).isEmpty ? "" : "/" + text(element, kAXSubroleAttribute as String)) title='\(title.prefix(40))' desc='\(desc.prefix(40))' actions=[\(acts)] @\(origin) \(size) enabled=\(enabled)")
+            print("    under: \(path.suffix(6).joined(separator: " > "))")
+        }
+        for child in AX.elements(element, kAXChildrenAttribute as String) ?? [] {
+            walk(child, depth: depth + 1, path: path + [role])
+        }
+    }
+    for window in windows.prefix(2) { walk(window, depth: 0, path: []) }
+    print("\(hits) hits, \(visited) nodes")
+}
+
+
+// MARK: - press
+
+/// AXPress the first enabled element with exactly this title, and report
+/// what the window looked like before and after: dialogs, sheets, menus,
+/// the focused element. The question a "the chip does nothing" report
+/// asks is whether the app honours its own press action.
+func runPress(_ args: inout [String]) {
+    requireTrust()
+    guard args.count >= 2 else { print("usage: probe press <app> <title> [--click]"); return }
+    let useClick = has("--click", in: &args)
+    let nth = value(of: "--nth", in: &args).flatMap(Int.init) ?? 0
+    let query = args[0].lowercased(), wanted = args[1].lowercased()
+    guard let app = AXApplication.regularApps().first(where: { $0.name.lowercased().contains(query) }) else {
+        print("no running app matching \(query)"); return
+    }
+    AXUIElementSetAttributeValue(app.element, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+    usleep(300_000)
+    guard let windows = AX.elements(app.element, kAXWindowsAttribute as String), !windows.isEmpty else { return }
+    func text(_ e: AXUIElement, _ attr: String) -> String { AX.string(e, attr) ?? "" }
+    var candidates: [AXUIElement] = []
+    var popups = 0
+    func walk(_ element: AXUIElement, depth: Int, counting: Bool) {
+        guard depth < 40 else { return }
+        let role = text(element, kAXRoleAttribute as String)
+        let sub = text(element, kAXSubroleAttribute as String)
+        if counting, ["AXSheet", "AXPopover", "AXMenu"].contains(role) || sub == "AXApplicationDialog" || sub == "AXDialog" { popups += 1 }
+        if !counting, text(element, kAXTitleAttribute as String).lowercased() == wanted,
+           AX.bool(element, kAXEnabledAttribute as String) ?? true { candidates.append(element) }
+        for child in AX.elements(element, kAXChildrenAttribute as String) ?? [] { walk(child, depth: depth + 1, counting: counting) }
+    }
+    func census() -> (popups: Int, windows: Int, focused: String) {
+        popups = 0
+        let ws = AX.elements(app.element, kAXWindowsAttribute as String) ?? []
+        for w in ws { walk(w, depth: 0, counting: true) }
+        let f = AX.element(app.element, kAXFocusedUIElementAttribute as String)
+        return (popups, ws.count, f.map { text($0, kAXRoleAttribute as String) + " '" + text($0, kAXTitleAttribute as String).prefix(30) + "'" } ?? "none")
+    }
+    for w in windows.prefix(2) { walk(w, depth: 0, counting: false) }
+    print("candidates titled '\(wanted)': \(candidates.count)")
+    guard candidates.indices.contains(nth) else { print("no candidate \(nth)"); return }
+    let target = candidates[nth]
+    let o = AX.point(target, kAXPositionAttribute as String) ?? .zero
+    print("pressing candidate \(nth) @\(Int(o.x)),\(Int(o.y))")
+    let before = census()
+    print("before: popups=\(before.popups) windows=\(before.windows) focused=\(before.focused)")
+    if useClick {
+        let origin = AX.point(target, kAXPositionAttribute as String) ?? .zero
+        let size = AX.size(target, kAXSizeAttribute as String) ?? .zero
+        let point = CGPoint(x: origin.x + size.width / 2, y: origin.y + size.height / 2)
+        // The honest floor, as three HID events: move, press, release.
+        for (type, pause) in [(CGEventType.mouseMoved, 60_000), (.leftMouseDown, 40_000), (.leftMouseUp, 0)] as [(CGEventType, UInt32)] {
+            CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+            usleep(pause)
+        }
+        print("synthetic click at \(Int(point.x)),\(Int(point.y))")
+    } else {
+        let result = AXUIElementPerformAction(target, kAXPressAction as CFString)
+        print("AXPress -> \(result == .success ? "success" : "error \(result.rawValue)")")
+    }
+    usleep(700_000)
+    let after = census()
+    print("after:  popups=\(after.popups) windows=\(after.windows) focused=\(after.focused)")
+}
+
+
+// MARK: - key
+
+/// One key to one app, by pid, no activation: the way to close a dialog
+/// in a window nobody is looking at.
+func runKey(_ args: inout [String]) {
+    requireTrust()
+    guard args.count >= 2 else { print("usage: probe key <app> <escape|return>"); return }
+    let query = args[0].lowercased()
+    guard let app = AXApplication.regularApps().first(where: { $0.name.lowercased().contains(query) }) else {
+        print("no running app matching \(query)"); return
+    }
+    let code: CGKeyCode = args[1] == "return" ? 36 : 53
+    let pid = app.pid
+    for down in [true, false] {
+        CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down)?.postToPid(pid)
+        usleep(30_000)
+    }
+    print("sent \(args[1]) to \(app.name) (pid \(pid))")
+}
+
+
+// MARK: - owners
+
+/// Every element with a press action whose frame encloses a point, in
+/// tree order, with its area: which one a first-in-order rule would have
+/// pressed, and which one the smallest-enclosing rule presses.
+func runOwners(_ args: inout [String]) {
+    requireTrust()
+    guard args.count >= 3, let x = Double(args[1]), let y = Double(args[2]) else {
+        print("usage: probe owners <app> <x> <y>"); return
+    }
+    let point = CGPoint(x: x, y: y)
+    let query = args[0].lowercased()
+    guard let app = AXApplication.regularApps().first(where: { $0.name.lowercased().contains(query) }) else {
+        print("no running app matching \(query)"); return
+    }
+    AXUIElementSetAttributeValue(app.element, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+    usleep(300_000)
+    guard let windows = AX.elements(app.element, kAXWindowsAttribute as String) else { return }
+    var order = 0
+    func walk(_ element: AXUIElement, depth: Int) {
+        guard depth < 40 else { return }
+        var names: CFArray?
+        AXUIElementCopyActionNames(element, &names)
+        let acts = names as? [String] ?? []
+        if acts.contains(kAXPressAction as String),
+           let o = AX.point(element, kAXPositionAttribute as String),
+           let sz = AX.size(element, kAXSizeAttribute as String) {
+            order += 1
+            let frame = CGRect(origin: o, size: sz)
+            if frame.contains(point) {
+                let role = AX.string(element, kAXRoleAttribute as String) ?? "?"
+                let title = AX.string(element, kAXTitleAttribute as String) ?? ""
+                print(String(format: "#%-4d %-16@ %8.0f px²  @%.0f,%.0f %.0fx%.0f  '%@'", order, role as NSString,
+                             sz.width * sz.height, o.x, o.y, sz.width, sz.height, String(title.prefix(30)) as NSString))
+            }
+        }
+        for child in AX.elements(element, kAXChildrenAttribute as String) ?? [] { walk(child, depth: depth + 1) }
+    }
+    for w in windows.prefix(1) { walk(w, depth: 0) }
 }

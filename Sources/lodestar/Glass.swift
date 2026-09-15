@@ -347,6 +347,9 @@ enum BarTheme {
     static let wellRadius: CGFloat = controlRadius
     static let highlightRadius: CGFloat = markRadius
     static let hairlineRadius: CGFloat = 1
+    /// The pin inside a chip whose profile was chosen, and its gap to the name.
+    static let chipMarkWidth: CGFloat = 14
+    static let chipMarkGap: CGFloat = 4
     /// A symbol leading a bar's row, a size above the text's.
     static let symbolRow = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
     /// The breath's mark: air moving. A breath is taken and released,

@@ -208,18 +208,18 @@ enum StripPreview {
             {
               "web": {
                 "links": {
-                  "docs": "developer.apple.com/documentation",
-                  "hn": "news.ycombinator.com"
+                  "docs": { "url": "developer.apple.com/documentation", "profile": "brave:Work" },
+                  "hn": { "url": "news.ycombinator.com" }
                 },
-                "routes": { "github.com": "default" },
-                "fallback": "default"
+                "routes": { "github.com": "brave:Work" },
+                "fallback": "brave:Personal"
               }
             }
             """
             var problems: [String] = []
             let tree = (try? Json.parse(json)) ?? [:]
             let config = Config.build(from: tree, problems: &problems)
-            let held = WebBarController.preview(query: "github.com/vaccone-software", config: config)
+            let held = WebBarController.preview(query: ProcessInfo.processInfo.environment["ASK"] ?? "github.com/vaccone-software", config: config)
             _ = held
             app.run()
         }

@@ -25,7 +25,16 @@ public struct ProfileResolution: Equatable {
             case .route: return "route"
             case .fallback: return "fallback"
             case .recent: return "recent"
-            case .none: return "default"
+            case .none: return "inferred"
+            }
+        }
+
+        /// Chosen (a pin, a rule) cannot change tomorrow; inferred (the
+        /// fallback, the browser you were in last, nothing open) can.
+        public var isInferred: Bool {
+            switch self {
+            case .pinned, .route: return false
+            case .fallback, .recent, .none: return true
             }
         }
 

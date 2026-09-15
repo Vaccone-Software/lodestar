@@ -33,7 +33,8 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         var name: String?
         /// The link's pinned profile, when it has one.
         var pinnedProfileKey: String?
-        let profile: BrowserProfile
+        let resolution: ProfileResolution
+        var profile: BrowserProfile { resolution.profile }
     }
 
     private let panel: KeyablePanel
@@ -185,8 +186,8 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         WebContext(config: config, mostRecent: mostRecentProfile())
     }
 
-    private func resolveProfile(pinned: String?, routedOn text: String) -> BrowserProfile {
-        context.resolve(pinned: pinned, routedOn: text).profile
+    private func resolveProfile(pinned: String?, routedOn text: String) -> ProfileResolution {
+        context.resolve(pinned: pinned, routedOn: text)
     }
 
     private func requery() {
@@ -204,7 +205,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
                 raw: link.url,
                 name: link.name,
                 pinnedProfileKey: link.profileKey,
-                profile: resolveProfile(pinned: link.profileKey, routedOn: "\(link.name) \(link.url)")
+                resolution: resolveProfile(pinned: link.profileKey, routedOn: "\(link.name) \(link.url)")
             ))
         }
         if WebRouting.isDomainLike(query) {
@@ -213,7 +214,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
                 title: query,
                 url: WebRouting.normalize(query),
                 raw: query,
-                profile: resolveProfile(pinned: nil, routedOn: query)
+                resolution: resolveProfile(pinned: nil, routedOn: query)
             ))
         }
         if !query.isEmpty {
@@ -222,7 +223,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
                 title: "Search “\(query)”",
                 url: WebRouting.searchURL(template: config.webSearchURL, query: query),
                 raw: query,
-                profile: resolveProfile(pinned: nil, routedOn: query)
+                resolution: resolveProfile(pinned: nil, routedOn: query)
             ))
         }
 
@@ -232,7 +233,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             // Shape, never content: which kinds of row the query produced and
             // where each would open. Enough to debug routing; not a record of
             // where you went, even behind the trace flag.
-            let shape = rows.map { "\($0.kind)@\($0.profile.display)" }.joined(separator: " | ")
+            let shape = rows.map { "\($0.kind)@\($0.profile.display)·\($0.resolution.source.label)" }.joined(separator: " | ")
             Log.info("webbar: \(query.count) chars -> \(shape)")
         }
         renderRows()
@@ -492,6 +493,16 @@ private final class WebRowView: NSView {
     private let title = NSTextField(labelWithString: "")
     private let chipLabel = NSTextField(labelWithString: "")
     private let chip = NSView()
+    /// A pin before the profile's name when the profile was chosen — a
+    /// link's pin, a route's rule — and nothing when it was inferred from
+    /// the fallback or the browser you were in last. The mark means fixed:
+    /// a chosen destination cannot change tomorrow, a guess can. Only the
+    /// chosen side wears it, because a chosen profile is the rarer one and
+    /// rarity is what makes a mark a signal (the accent's rule).
+    private let chipMark = NSImageView()
+    private var markWidth: NSLayoutConstraint!
+    private var markGap: NSLayoutConstraint!
+    private var inferred = false
     private var kind: WebBarController.WebRow.Kind?
     private var selectedState = false
 
@@ -511,6 +522,11 @@ private final class WebRowView: NSView {
 
         chipLabel.font = BarTheme.chipFont
         chipLabel.translatesAutoresizingMaskIntoConstraints = false
+        chipMark.symbolConfiguration = BarTheme.symbol
+        chipMark.translatesAutoresizingMaskIntoConstraints = false
+        chip.addSubview(chipMark)
+        markWidth = chipMark.widthAnchor.constraint(equalToConstant: 0)
+        markGap = chipLabel.leadingAnchor.constraint(equalTo: chipMark.trailingAnchor, constant: 0)
         chip.wantsLayer = true
         chip.layer?.cornerRadius = BarTheme.chipRadius
         chip.translatesAutoresizingMaskIntoConstraints = false
@@ -525,7 +541,10 @@ private final class WebRowView: NSView {
             icon.widthAnchor.constraint(equalToConstant: 24),
             title.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 12),
             title.centerYAnchor.constraint(equalTo: centerYAnchor),
-            chipLabel.leadingAnchor.constraint(equalTo: chip.leadingAnchor, constant: 6),
+            chipMark.leadingAnchor.constraint(equalTo: chip.leadingAnchor, constant: 6),
+            chipMark.centerYAnchor.constraint(equalTo: chip.centerYAnchor),
+            markWidth,
+            markGap,
             chipLabel.trailingAnchor.constraint(equalTo: chip.trailingAnchor, constant: -6),
             chipLabel.topAnchor.constraint(equalTo: chip.topAnchor, constant: 2),
             chipLabel.bottomAnchor.constraint(equalTo: chip.bottomAnchor, constant: -2),
@@ -551,7 +570,21 @@ private final class WebRowView: NSView {
         }
         if title.stringValue != row.title { title.stringValue = row.title }
         if chipLabel.stringValue != row.profile.display { chipLabel.stringValue = row.profile.display }
+        if inferred != row.resolution.source.isInferred || chipMark.image == nil {
+            inferred = row.resolution.source.isInferred
+            if inferred {
+                chipMark.isHidden = true
+                markWidth.constant = 0; markGap.constant = 0
+            } else {
+                chipMark.image = NSImage(systemSymbolName: "pin", accessibilityDescription: "chosen")
+                chipMark.isHidden = false
+                markWidth.constant = BarTheme.chipMarkWidth; markGap.constant = BarTheme.chipMarkGap
+            }
+        }
     }
+
+    /// Whether the chip wears the pin, for the tests.
+    var marksChosen: Bool { !chipMark.isHidden }
 
     func setSelected(_ selected: Bool) {
         guard selected != selectedState else { return }
@@ -565,6 +598,7 @@ private final class WebRowView: NSView {
         icon.contentTintColor = selectedState ? onAccent : BarTheme.secondaryColor
         title.textColor = selectedState ? onAccent : .labelColor
         chipLabel.textColor = selectedState ? onAccent : BarTheme.secondaryColor
+        chipMark.contentTintColor = selectedState ? onAccent : BarTheme.secondaryColor
         chip.layer?.backgroundColor = selectedState
             ? onAccent.withAlphaComponent(0.22).cgColor
             : NSColor.labelColor.withAlphaComponent(0.08).cgColor
@@ -581,6 +615,11 @@ extension WebBarController {
         bar.config = config
         return preview(bar: bar, query: query)
     }
+
+    /// Which rows wear the pin, top to bottom, for the tests.
+    var shownMarks: [Bool] { rowViews.prefix(rows.count).map(\.marksChosen) }
+    /// What decided each row's profile, for the tests.
+    var shownSources: [String] { rows.map(\.resolution.source.label) }
 
     /// The same, over a bar the caller has already configured.
     static func preview(bar: WebBarController, query: String) -> WebBarController {

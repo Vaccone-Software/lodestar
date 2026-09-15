@@ -1,12 +1,11 @@
 import AppKit
 import LodestarCore
 
-/// What survived the hints controller: the harvest and the press. The
+/// What survived the hints controller: the harvest and the click. The
 /// `;` door is select's machine now — one sensor, one grammar, the verb
 /// declared at the door — and what it borrows from the old tree-only
 /// hints is exactly this file: which roles press, how to find them
-/// without stalling on a wedged app, and how to fire one with the app's
-/// own action before falling back to a synthetic click.
+/// without stalling on a wedged app, and where to click for one.
 enum HintTargets {
     struct Target {
         let element: AXUIElement
@@ -146,6 +145,16 @@ enum HintTargets {
             var seenFrames = Set<String>()
             var visited = 0
             var byAction = 0
+            // Two answers from one walk. The first lands the moment the
+            // chips are full, so the door is usable as fast as it ever
+            // was; the walk then goes on to the deadline collecting
+            // role-named pressables only — owners for a typed pick, never
+            // chips, so nothing on the glass changes under the hand — and
+            // answers once more. Asana's Share button was pressable
+            // number 1,115 in its tree; a walk that stopped at 200
+            // targets never reached it, and a wrapper it had reached
+            // took the point (probe owners, 2026-09-15).
+            var announced = false
             let windowArea = max(windowFrame.width * windowFrame.height, 1)
             let deadline = Date().addingTimeInterval(1.2)
             let batch = [kAXRoleAttribute, kAXPositionAttribute, kAXSizeAttribute,
@@ -153,12 +162,20 @@ enum HintTargets {
 
             func add(_ element: AXUIElement, frame: CGRect, isTextInput: Bool,
                      viaAction: Bool) -> Bool {
+                // Past the chips' capacity only owners join, and an owner
+                // is a target the tree named by role.
+                if found.count >= capacity, viaAction || isTextInput { return false }
                 let key = "\(Int(frame.minX)):\(Int(frame.minY)):\(Int(frame.width))"
                 guard !seenFrames.contains(key) else { return false }
                 seenFrames.insert(key)
                 found.append(Target(element: element, frame: frame,
                                     isTextInput: isTextInput, viaAction: viaAction))
                 if viaAction { byAction += 1 }
+                if !announced, found.count >= capacity {
+                    announced = true
+                    let chipsFull = found
+                    DispatchQueue.main.async { completion(chipsFull) }
+                }
                 return true
             }
 
@@ -168,8 +185,7 @@ enum HintTargets {
             /// one — the innermost thing that presses under the point.
             @discardableResult
             func walk(_ element: AXUIElement, depth: Int) -> Bool {
-                guard depth < 28, visited < 2800, found.count < capacity,
-                      Date() < deadline else { return false }
+                guard depth < 28, visited < 9000, Date() < deadline else { return false }
                 visited += 1
 
                 var values: CFArray?
@@ -240,8 +256,11 @@ enum HintTargets {
 
             DispatchQueue.main.async {
                 Log.info("hints", ["targets": found.count, "byAction": byAction,
-                                   "visited": visited, "ms": elapsed, "batched": true])
-                completion(found)
+                                   "visited": visited, "ms": elapsed, "batched": true,
+                                   "owners": found.count > capacity])
+                // The second answer, only when the walk found owners past
+                // the chips; a walk that never filled them answers once.
+                if !announced || found.count > capacity { completion(found) }
             }
         }
     }
@@ -253,7 +272,10 @@ enum HintTargets {
 /// scripts themselves are `SyntheticPointer`'s, so the walk-before-press
 /// rule is decided once, in code a test can read.
 enum Pointer {
-    static func post(_ steps: [SyntheticPointer.Step]) {
+    /// Replaced by the scenario harness, whose world never moves a pointer.
+    static var post: ([SyntheticPointer.Step]) -> Void = postToSystem
+
+    static let postToSystem: ([SyntheticPointer.Step]) -> Void = { steps in
         for step in steps {
             let right = step.type == .rightMouseDown || step.type == .rightMouseUp
                 || step.type == .rightMouseDragged

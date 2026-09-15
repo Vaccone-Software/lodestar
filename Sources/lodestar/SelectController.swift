@@ -673,13 +673,13 @@ final class SelectController {
         overlay.show(chips: chips, anchor: [], over: windowFrame, typed: entryTyped)
     }
 
-    /// The three-layer commit: the picked word supplies the point, an AX
-    /// pressable that owns the point supplies the press, and a synthetic
-    /// click is the honest floor. The press always runs off the tap; so
-    /// does geometry for anything AX-backed. Only the OCR branch may
-    /// resolve on the tap — it is arithmetic over recognizer data, no AX
-    /// anywhere — and that carve-out is load-bearing: it is what lets a
-    /// text-input fire end a sticky mode before the typing arrives.
+    /// The commit: the picked word supplies the point, and the point is
+    /// clicked. The harvest is consulted for one fact only — whether a
+    /// text input owns the point — so a sticky mode can end before the
+    /// typing arrives. The click always runs off the tap; so does geometry
+    /// for anything AX-backed. Only the OCR branch may resolve on the tap
+    /// — it is arithmetic over recognizer data, no AX anywhere — and that
+    /// carve-out is load-bearing for the text-input case above.
     private func performClick(on match: SelectCore.Match) {
         guard units.indices.contains(match.element) else { return }
         let unit = units[match.element]
@@ -695,7 +695,7 @@ final class SelectController {
            let rect = boundsRects(unit: unit, range: range).first {
             let point = CGPoint(x: rect.midX, y: rect.midY)
             resolvedPoint = point
-            let owner = owners.first { $0.frame.contains(point) }
+            let owner = HintTargets.owner(of: point, among: owners)
             firedTextInput = (owner?.isTextInput ?? false) && !rightClick
         }
         Log.info("select", ["outcome": "clicked", "chars": range.length,
@@ -710,11 +710,9 @@ final class SelectController {
             } else {
                 return
             }
-            if let owner = owners.first(where: { $0.frame.contains(point) }) {
-                HintTargets.fire(owner, rightClick: rightClick)
-            } else {
-                Self.click(at: point, right: rightClick)
-            }
+            Self.click(at: point, right: rightClick)
+            Log.info("hint", ["action": rightClick ? "right-click" : "click",
+                              "text": HintTargets.owner(of: point, among: owners)?.isTextInput ?? false])
         }
     }
 

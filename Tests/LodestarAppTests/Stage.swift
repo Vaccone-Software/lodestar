@@ -221,6 +221,8 @@ final class Stage {
     }
     let observations: ObservationStore
     let scroller: ScrollController
+    /// Every pointer script a pick posted, caught before the screen.
+    var clicks: [[SyntheticPointer.Step]] = []
     /// Every wheel delta scroll mode posted, caught before the window
     /// server saw it.
     var wheel: [(dx: Int32, dy: Int32)] = []
@@ -317,6 +319,7 @@ final class Stage {
             }
         }
         scroller.sink = { [unowned self] dx, dy in self.wheel.append((dx, dy)) }
+        Pointer.post = { [unowned self] steps in self.clicks.append(steps) }
         clipboard.postPaste = { [unowned self] in self.stripPastes += 1 }
         clipboard.flash = { [unowned self] text in self.hud.flash(text) }
         draft.observations = observations

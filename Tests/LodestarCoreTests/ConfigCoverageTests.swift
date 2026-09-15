@@ -34,6 +34,7 @@ final class ConfigCoverageTests: XCTestCase {
         Probe(path: ["lode", "trigger"], value: .string("left-command")) { $0.trigger == .leftCommand },
         Probe(path: ["app", "active-display"], value: .string("focus")) { $0.activeDisplayMode == .focus },
         Probe(path: ["app", "auto-update"], value: .bool(false)) { !$0.autoUpdate },
+        Probe(path: ["app", "sounds"], value: .bool(false)) { !$0.sounds },
         Probe(path: ["app", "show-menu-bar"], value: .bool(false)) { !$0.showMenuBar },
         Probe(path: ["app", "start-at-login"], value: .bool(false)) { !$0.startAtLogin },
 

@@ -287,6 +287,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         draft.observations = observationStore
         draft.words = config.draftWords
         draft.inputDevice = config.draftInput.isEmpty ? nil : config.draftInput
+        draft.sounds = config.sounds
         draft.playback = PlaybackPause()
         // The in-flight stash: a crash mid-draft costs at most the last
         // half second of words, recovered to the pasteboard right here at
@@ -1646,6 +1647,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         clipboardController.excludedPatterns = loaded.clipboardExcludePatterns
         draftController?.words = loaded.draftWords
         draftController?.inputDevice = loaded.draftInput.isEmpty ? nil : loaded.draftInput
+        draftController?.sounds = loaded.sounds
         clipboardController.maxBytes = loaded.clipboardMaxBytes
         clipboardController.saveFolder = loaded.clipboardSaveFolder
         clipboardController.setEnabled(loaded.clipboardEnabled)

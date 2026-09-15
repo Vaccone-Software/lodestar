@@ -26,6 +26,8 @@ public struct Config {
     /// Keep Lodestar current: check daily, verify, apply when idle
     /// (installed app only).
     public var autoUpdate = true
+    /// Lodestar's own sounds, together. The alert sound is the Mac's.
+    public var sounds = true
     /// Keep the login LaunchAgent installed (installed app only).
     public var startAtLogin = true
     /// Show the status item permanently; false hides it (picking lodestar
@@ -162,6 +164,7 @@ public struct Config {
         ], description: "The lode key."),
         "app": .table([
             "auto-update": .boolean(description: "Keep Lodestar current: check daily, verify the download, apply quietly when idle (installed app only)."),
+            "sounds": .boolean(description: "Lodestar's own sounds, together: today the draft's note when the microphone is live and when the words land. The alert sound is the Mac's own setting."),
             "start-at-login": .boolean(description: "Keep the login LaunchAgent installed (installed app only)."),
             "show-menu-bar": .boolean(description: "Show the status item permanently; false hides it until lodestar is picked in the launcher."),
             "active-display": .string(allowed: ["pointer", "focus"], description: "How the active display is chosen."),
@@ -334,6 +337,9 @@ public struct Config {
         problems.append(contentsOf: ConfigSchema.validate(root, against: schema))
         let effective = Json.merged(defaults: ConfigDefaults.tree, overlay: root)
 
+        if let sounds = effective.value(at: ["app", "sounds"])?.bool {
+            config.sounds = sounds
+        }
         if let autoUpdate = effective.value(at: ["app", "auto-update"])?.bool {
             config.autoUpdate = autoUpdate
         }

@@ -90,6 +90,7 @@ final class FakeSpeech: SpeechSession {
     var openSessions: Int { listens - stops }
     private var onState: ((SpeechState) -> Void)?
     private var onLevel: ((Float) -> Void)?
+    private var onAlive: (() -> Void)?
     private var onVolatile: ((String) -> Void)?
     private var onSettled: ((String) -> Void)?
     /// The session before this one, the way a real recognizer's late
@@ -110,12 +111,12 @@ final class FakeSpeech: SpeechSession {
     func warm(input: String?) {}
     private(set) var lastInput: String?
     func listen(words: [String], input: String?, onState: @escaping (SpeechState) -> Void,
-                onLevel: @escaping (Float) -> Void,
+                onLevel: @escaping (Float) -> Void, onAlive: @escaping () -> Void,
                 onVolatile: @escaping (String) -> Void, onSettled: @escaping (String) -> Void) {
         listens += 1
         lastInput = input
         previousSettled = self.onSettled
-        self.onState = onState; self.onLevel = onLevel
+        self.onState = onState; self.onLevel = onLevel; self.onAlive = onAlive
         self.onVolatile = onVolatile; self.onSettled = onSettled
         if !slowToListen { onState(.listening(input: "Stage Microphone")) }
     }
@@ -141,6 +142,8 @@ final class FakeSpeech: SpeechSession {
     }
     func feed(file: URL) -> Bool { false }
     func level(_ value: Float) { onLevel?(value) }
+    /// The first buffer with signal: the microphone is live.
+    func alive() { onAlive?() }
     /// A final from the session before this one, arriving late.
     func settleFromPreviousSession(_ text: String) { previousSettled?(text) }
     func hear(_ text: String) { ghost = text; onVolatile?(text) }

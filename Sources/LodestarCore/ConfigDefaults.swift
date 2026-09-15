@@ -178,6 +178,7 @@ public enum ConfigDefaults {
         ),
         "app": .table([
             "auto-update": .bool(true),
+            "sounds": .bool(true),
             "start-at-login": .bool(true),
             "show-menu-bar": .bool(true),
             "active-display": .string("pointer"),

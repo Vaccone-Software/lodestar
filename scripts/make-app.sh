@@ -22,10 +22,29 @@ mkdir -p "$APP/Contents/MacOS"
 cp packaging/Info.plist "$APP/Contents/Info.plist"
 mkdir -p "$APP/Contents/Resources"
 cp packaging/lodestar.icns "$APP/Contents/Resources/lodestar.icns"
+# The alert sound, so a person can pick Lodestar in Sound settings
+# (it installs to ~/Library/Sounds; tools/sound/lodestar.py renders it).
+cp packaging/Lodestar.aiff "$APP/Contents/Resources/Lodestar.aiff"
+# The draft's two notes (app.sounds).
+cp packaging/Listening.aiff packaging/Landed.aiff "$APP/Contents/Resources/"
 # Stamp the bundle with the code's version — Version.swift is the truth.
 VERSION=$(grep 'public static let version' Sources/LodestarCore/Version.swift | cut -d'"' -f2)
 plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP/Contents/Info.plist"
 plutil -replace CFBundleVersion -string "$VERSION" "$APP/Contents/Info.plist"
+# The binary must be the code it is labelled as. A bare run is a CLI asking
+# for help, and the first line names the version compiled in: ask it.
+ANNOUNCED=$("$BIN" 2>/dev/null | sed -n 's/^Lodestar \([0-9.]*\):.*/\1/p' | head -1)
+if [ "$ANNOUNCED" != "$VERSION" ]; then
+    echo "✕ $BIN announces '${ANNOUNCED:-nothing}', not $VERSION: a stale product, refusing to package it" >&2
+    exit 1
+fi
+# The binary must be the code it is labelled as. A bare run is a CLI asking
+# for help, and the first line names the version compiled in: ask it.
+ANNOUNCED=$("$BIN" 2>/dev/null | sed -n 's/^Lodestar \([0-9.]*\):.*/\1/p' | head -1)
+if [ "$ANNOUNCED" != "$VERSION" ]; then
+    echo "✕ $BIN announces '${ANNOUNCED:-nothing}', not $VERSION: a stale product, refusing to package it" >&2
+    exit 1
+fi
 cp "$BIN" "$APP/Contents/MacOS/lodestar"
 
 # LODESTAR_SIGN_IDENTITY overrides the choice. Worth reaching for when the

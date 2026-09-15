@@ -501,6 +501,13 @@ final class DraftController {
         }
     }
 
+    /// The dictation pair, under `app.sounds`: a note when the microphone
+    /// is live, another when the words land. Not the alert.
+    var sounds = true
+    /// Whether this session's microphone delivered signal: the listening
+    /// note plays once on it, and the landing note only after it.
+    private var heardAlive = false
+
     // MARK: - Speech
 
     private func startListening() {
@@ -513,6 +520,7 @@ final class DraftController {
         session += 1
         let mine = session
         sessionStarted = true
+        heardAlive = false
         speech.listen(words: words, input: inputDevice, onState: { [weak self] state in
             guard let self, self.isOpen, self.session == mine else { return }
             self.speechState = state
@@ -532,6 +540,11 @@ final class DraftController {
             self.level = level
             if level > Self.voiceFloor { self.lastVoiceAt = self.clock.now() }
             self.panel.setLevel(level)
+        }, onAlive: { [weak self] in
+            guard let self, self.isOpen, self.session == mine, !self.heardAlive else { return }
+            self.heardAlive = true
+            Log.info("draft", ["microphone": "alive"])
+            if self.sounds && self.micWanted { Sounds.play(.listening) }
         }, onVolatile: { [weak self] text in
             guard let self, self.isOpen, self.session == mine, self.mode == .insert, self.micWanted,
                   // Reserved words await their final; a cumulative volatile
@@ -1005,6 +1018,8 @@ final class DraftController {
     }
 
     private func paste() {
+        // Landed: the confirmation for the eye that is on the destination.
+        if sounds && heardAlive { Sounds.play(.landed) }
         postKey("v", .maskCommand)
     }
 

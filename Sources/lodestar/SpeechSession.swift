@@ -85,6 +85,7 @@ protocol SpeechSession: AnyObject {
     func listen(words: [String], input: String?,
                 onState: @escaping (SpeechState) -> Void,
                 onLevel: @escaping (Float) -> Void,
+                onAlive: @escaping () -> Void,
                 onVolatile: @escaping (String) -> Void,
                 onSettled: @escaping (String) -> Void)
     /// The mic goes quiet, the session stays. Normal mode.
@@ -122,6 +123,7 @@ final class AnalyzerSpeechSession: SpeechSession {
     func listen(words: [String], input: String?,
                 onState: @escaping (SpeechState) -> Void,
                 onLevel: @escaping (Float) -> Void,
+                onAlive: @escaping () -> Void,
                 onVolatile: @escaping (String) -> Void,
                 onSettled: @escaping (String) -> Void) {
         guard #available(macOS 26, *) else { onState(.unavailable); return }
@@ -134,7 +136,7 @@ final class AnalyzerSpeechSession: SpeechSession {
         self.box = box
         Task { await box.listen(words: words, input: input,
                                 stillWanted: { [weak self] in (self?.box as AnyObject?) === box },
-                                onState: onState, onLevel: onLevel,
+                                onState: onState, onLevel: onLevel, onAlive: onAlive,
                                 onVolatile: onVolatile, onSettled: onSettled) }
     }
 
@@ -707,6 +709,7 @@ private actor AnalyzerBox {
                 stillWanted: @escaping @MainActor () -> Bool,
                 onState: @escaping (SpeechState) -> Void,
                 onLevel: @escaping (Float) -> Void,
+                onAlive: @escaping () -> Void,
                 onVolatile: @escaping (String) -> Void,
                 onSettled: @escaping (String) -> Void) async {
         let say: (SpeechState) -> Void = { state in
@@ -806,7 +809,8 @@ private actor AnalyzerBox {
             say(.failed("the recognizer could not start")); return
         }
         guard !stopped else { return }
-        let feed = AudioFeed(outFormat: outFormat, continuation: continuation, onLevel: onLevel)
+        let feed = AudioFeed(outFormat: outFormat, continuation: continuation,
+                             onLevel: onLevel, onAlive: onAlive)
         self.feed = feed
         // A Bluetooth radio resting on its music profile flips to the
         // hands-free profile when the input opens, and a start inside the
@@ -954,6 +958,12 @@ private final class AudioFeed: @unchecked Sendable {
     private let outFormat: AVAudioFormat
     private let continuation: AsyncStream<AnalyzerInput>.Continuation
     private let onLevel: (Float) -> Void
+    /// Fired once, on the first buffer with signal. A device the system
+    /// names can deliver nothing but zeros (a dock, a monitor, a radio
+    /// mid-flip), and the engine reports running on it all the same:
+    /// this is the fact the engine's state cannot carry.
+    private let onAlive: () -> Void
+    private var alive = false
     private var converter: AVAudioConverter?
     private var inFormat: AVAudioFormat?
     private var lastLevelAt = Date.distantPast
@@ -963,10 +973,11 @@ private final class AudioFeed: @unchecked Sendable {
     private(set) var peak: Float = 0
 
     init(outFormat: AVAudioFormat, continuation: AsyncStream<AnalyzerInput>.Continuation,
-         onLevel: @escaping (Float) -> Void) {
+         onLevel: @escaping (Float) -> Void, onAlive: @escaping () -> Void) {
         self.outFormat = outFormat
         self.continuation = continuation
         self.onLevel = onLevel
+        self.onAlive = onAlive
     }
 
     func push(_ buffer: AVAudioPCMBuffer) {
@@ -995,13 +1006,22 @@ private final class AudioFeed: @unchecked Sendable {
     /// second: enough for a meter, nothing for a recognizer.
     private func meter(_ buffer: AVAudioPCMBuffer) {
         let now = Date()
-        guard now.timeIntervalSince(lastLevelAt) > 0.1, let data = buffer.floatChannelData,
+        // Every buffer is read until one carries signal; after that, ten
+        // a second.
+        guard !alive || now.timeIntervalSince(lastLevelAt) > 0.1, let data = buffer.floatChannelData,
               buffer.frameLength > 0 else { return }
-        lastLevelAt = now
         let samples = UnsafeBufferPointer(start: data[0], count: Int(buffer.frameLength))
         var sum: Float = 0
         for sample in samples { sum += sample * sample }
         let rms = (sum / Float(samples.count)).squareRoot()
+        // -100 dBFS: measured, a live room never reads below -97 and a
+        // deaf device reads exactly -140.
+        if !alive, rms > 1e-5 {
+            alive = true
+            DispatchQueue.main.async { self.onAlive() }
+        }
+        guard now.timeIntervalSince(lastLevelAt) > 0.1 else { return }
+        lastLevelAt = now
         // Speech at a normal distance sits around -30 dBFS; the meter's
         // top is a raised voice, its floor silence.
         let db = 20 * log10(max(rms, 1e-7))

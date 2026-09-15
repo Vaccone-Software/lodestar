@@ -4,7 +4,7 @@ import XCTest
 @testable import LodestarCore
 
 /// One glass. Every panel, card, and chip is the launcher's backdrop,
-/// and the scrim inside it never keeps a cold first guess.
+/// tinted toward the system's ground and re-read live.
 final class GlassTests: XCTestCase {
     /// The veil these tests read is the frost's, not the opaque one a
     /// runner with Reduce Transparency on would draw.
@@ -13,39 +13,36 @@ final class GlassTests: XCTestCase {
         Accessibility.reduceTransparency = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency }
     }
 
-    /// The veil's alpha as the layer holds it, once the view has drawn.
-    private func alpha(_ scrim: EqualizerScrim) -> CGFloat? {
-        scrim.displayIfNeeded()
-        return scrim.layer?.backgroundColor.flatMap(NSColor.init(cgColor:))?.alphaComponent
-    }
-
-    /// A scrim in a window whose appearance is the system's, so the
-    /// material's stamp and the system agree and the veil is the base.
-    private func scrimInAWindow() -> (NSWindow, EqualizerScrim) {
+    /// A toned glass in a window, the way a backdrop stands.
+    @available(macOS 26.0, *)
+    private func glassInAWindow() -> (NSWindow, TonedGlass) {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10),
                               styleMask: [.borderless], backing: .buffered, defer: false)
-        let scrim = EqualizerScrim()
-        scrim.wantsLayer = true
-        scrim.frame = NSRect(x: 0, y: 0, width: 10, height: 10)
-        (scrim.darkBase, scrim.lightBase) = (0.31, 0.31)
-        window.contentView?.addSubview(scrim)
-        return (window, scrim)
+        let glass = TonedGlass()
+        glass.frame = NSRect(x: 0, y: 0, width: 10, height: 10)
+        window.contentView?.addSubview(glass)
+        return (window, glass)
     }
 
-    func testTheScrimRereadsWhenTheMaterialStampsItsTone() {
-        let (window, scrim) = scrimInAWindow()
-        XCTAssertEqual(alpha(scrim) ?? 0, 0.31, accuracy: 0.01, "the first reading")
-        // The veil's target changes; a scrim that kept its first guess
-        // would still say 0.31 after the stamp.
-        (scrim.darkBase, scrim.lightBase) = (0.57, 0.57)
-        scrim.viewDidChangeEffectiveAppearance()
-        XCTAssertEqual(alpha(scrim) ?? 0, 0.57, accuracy: 0.01, "a changed stamp is a new reading")
+    func testTheGlassIsTintedTowardTheSystemsGroundOnArrival() throws {
+        guard #available(macOS 26.0, *) else { throw XCTSkip("no glass before 26") }
+        let (window, glass) = glassInAWindow()
+        let tint = try XCTUnwrap(glass.tintColor?.usingColorSpace(.sRGB), "arriving in a window is a reading")
+        XCTAssertEqual(tint.alphaComponent, 0.85, accuracy: 0.01, "the measured number")
+        XCTAssertEqual(tint.redComponent, Tone.systemDark ? 0 : 1, accuracy: 0.01,
+                       "black on charcoal, white on paper: the system's tone, never the backdrop's")
         _ = window
     }
 
-    func testTheScrimReadsOnArrivalInAWindow() {
-        let (window, scrim) = scrimInAWindow()
-        XCTAssertEqual(alpha(scrim) ?? 0, 0.31, accuracy: 0.01, "arriving in a window is a reading")
+    func testTheGlassRetintsWhenTheSettingsChange() throws {
+        guard #available(macOS 26.0, *) else { throw XCTSkip("no glass before 26") }
+        let (window, glass) = glassInAWindow()
+        glass.weight = .raised
+        XCTAssertEqual(glass.tintColor?.alphaComponent ?? 0, 0.92, accuracy: 0.01, "a lit card is heavier")
+        Accessibility.reduceTransparency = { true }
+        glass.viewDidChangeEffectiveAppearance()
+        XCTAssertEqual(glass.tintColor?.alphaComponent ?? 0, Glass.opaque, accuracy: 0.01,
+                       "a flipped setting is a new reading, not the next opening's")
         _ = window
     }
 
@@ -54,20 +51,19 @@ final class GlassTests: XCTestCase {
         let normal = Glass.installBackdrop(in: root, cornerRadius: 18)
         let raised = Glass.installBackdrop(in: NSView(), cornerRadius: 18, weight: .raised)
         let faint = Glass.installBackdrop(in: NSView(), cornerRadius: 18, weight: .faint)
-        XCTAssertEqual(Glass.scrim(in: normal)?.darkBase, 0.32)
-        XCTAssertEqual(Glass.scrim(in: raised)?.darkBase, 0.50)
-        XCTAssertEqual(Glass.scrim(in: faint)?.darkBase, 0.20)
-        XCTAssertLessThan(Glass.Weight.faint.bases.dark, Glass.Weight.normal.bases.dark)
-        XCTAssertLessThan(Glass.Weight.normal.bases.dark, Glass.Weight.raised.bases.dark)
+        XCTAssertEqual(Glass.weight(in: normal), .normal)
+        XCTAssertEqual(Glass.weight(in: raised), .raised)
+        XCTAssertEqual(Glass.weight(in: faint), .faint)
+        XCTAssertLessThan(Glass.Weight.faint.alpha, Glass.Weight.normal.alpha)
+        XCTAssertLessThan(Glass.Weight.normal.alpha, Glass.Weight.raised.alpha)
         XCTAssertEqual(root.subviews.first, normal, "installed under everything else")
     }
 
     func testAChipIsTheLaunchersGlassWithTheLabelOnTop() {
         let (chip, label) = GlassChip.make("ab")
-        let backdrop = chip.subviews.first { Glass.scrim(in: $0) != nil }
+        let backdrop = chip.subviews.first { Glass.weight(in: $0) != nil }
         XCTAssertNotNil(backdrop, "the one backdrop recipe")
-        XCTAssertEqual(Glass.scrim(in: backdrop!)?.darkBase, Glass.Weight.normal.bases.dark,
-                       "the launcher's own veil, not a heavier one")
+        XCTAssertEqual(Glass.weight(in: backdrop!), .normal, "the launcher's own tint, not a heavier one")
         XCTAssertTrue(chip.subviews.contains(label), "the label rides above the material, not inside it")
         XCTAssertNil(label.shadow, "no halo: the frost makes it unnecessary")
         XCTAssertNotNil(chip.layer?.shadowColor, "still lifted off the content beneath")
@@ -84,7 +80,7 @@ final class GlassTests: XCTestCase {
         let cards = stage.engine.strip.shownWeights.filter { $0 != .faint }
         XCTAssertEqual(Set(cards), [.normal], "no card is lit; the empty slot is faint")
         for card in stage.engine.strip.shownCards.values {
-            let backdrop = card.subviews.first { Glass.scrim(in: $0) != nil }
+            let backdrop = card.subviews.first { Glass.weight(in: $0) != nil }
             XCTAssertNotNil(backdrop)
             if #available(macOS 26.0, *) {
                 XCTAssertEqual((backdrop as? NSGlassEffectView)?.style, .regular)
@@ -118,21 +114,21 @@ final class AccessibilitySettingsTests: XCTestCase {
         BarTheme.accentColor = { .controlAccentColor }
     }
 
-    private func veilAlpha(reduce: Bool) -> CGFloat {
+    private func veilAlpha(reduce: Bool) throws -> CGFloat {
+        guard #available(macOS 26.0, *) else { throw XCTSkip("no glass before 26") }
         Accessibility.reduceTransparency = { reduce }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10),
                               styleMask: [.borderless], backing: .buffered, defer: false)
-        let scrim = EqualizerScrim()
-        scrim.wantsLayer = true
-        scrim.frame = NSRect(x: 0, y: 0, width: 10, height: 10)
-        window.contentView?.addSubview(scrim)
-        scrim.displayIfNeeded()
-        return scrim.layer?.backgroundColor.flatMap(NSColor.init(cgColor:))?.alphaComponent ?? 0
+        let glass = TonedGlass()
+        glass.frame = NSRect(x: 0, y: 0, width: 10, height: 10)
+        window.contentView?.addSubview(glass)
+        _ = window
+        return glass.tintColor?.alphaComponent ?? 0
     }
 
-    func testReduceTransparencyMakesTheVeilOpaque() {
-        XCTAssertEqual(veilAlpha(reduce: true), EqualizerScrim.opaque, accuracy: 0.01)
-        XCTAssertLessThan(veilAlpha(reduce: false), 0.8, "and the frost is back when it is off")
+    func testReduceTransparencyMakesTheVeilOpaque() throws {
+        XCTAssertEqual(try veilAlpha(reduce: true), Glass.opaque, accuracy: 0.01)
+        XCTAssertLessThan(try veilAlpha(reduce: false), 0.9, "and the frost is back when it is off")
     }
 
     func testIncreaseContrastSetsCaptionsInTheLabelColour() {

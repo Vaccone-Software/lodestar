@@ -71,6 +71,12 @@ enum StripPreview {
             // flipping the machine.
             StageView.light = ground == "light"
             if StageView.light { app.appearance = NSAppearance(named: .aqua) }
+            // `LODESTAR_GROUND=light|dark` stages the other ground under
+            // this appearance. Glass composites what is behind it, so a
+            // veil's weight only shows over a ground that disagrees with it.
+            if let other = ProcessInfo.processInfo.environment["LODESTAR_GROUND"] {
+                StageView.light = other == "light"
+            }
             // `LODESTAR_ACCENT=orange` stages Lodestar's own accent.
             if ProcessInfo.processInfo.environment["LODESTAR_ACCENT"] == "orange" {
                 BarTheme.accentColor = { BarTheme.accent(for: .orange) }

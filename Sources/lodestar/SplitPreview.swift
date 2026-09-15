@@ -202,15 +202,12 @@ enum SplitPreview {
         held.append(window)
     }
 
-    /// The veil as a tint on the glass rather than a view inside it.
-    ///
-    /// `EqualizerScrim` is a subview clipped to one glass view's bounds,
-    /// and a merge is a property of the glass, not of the content: the
-    /// neck between two merging views is glass that no scrim covers, so
-    /// it shows the adaptive tone and reads as a different material.
-    /// `tintColor` tints "the background and glass effect", which is the
-    /// thing that merges.
-    static var veil: NSColor { NSColor.black.withAlphaComponent(Glass.Weight.normal.bases.dark) }
+    /// The veil as a tint on the glass, which is what `TonedGlass` now
+    /// does everywhere: a merge is a property of the glass, not of the
+    /// content, and the neck between two merging views is glass that no
+    /// view inside it could cover. `tintColor` tints "the background and
+    /// glass effect", which is the thing that merges.
+    static var veil: NSColor { NSColor.black.withAlphaComponent(Glass.Weight.normal.alpha) }
 
     /// The draft's own keys, and the editor's whole grammar.
     ///

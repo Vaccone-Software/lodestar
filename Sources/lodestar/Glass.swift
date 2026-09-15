@@ -28,56 +28,52 @@ enum Accessibility {
     }
 }
 
-/// The quiet layer between glass and text that guarantees the two agree.
-/// Text everywhere resolves from the system appearance; the material
-/// adapts to its backdrop and stamps that choice onto its contentView's
-/// appearance — this view's. The scrim uses the stamp as a sensor and
-/// equalizes toward the system's tone: a light veil when the material
-/// already agrees (the frost stays the star), a heavy one when the
-/// backdrop pulled it the other way. Live, so theme switches and
-/// backdrop changes both re-resolve.
-class EqualizerScrim: NSView {
-    /// Veil strength when the material agrees with the system tone.
-    /// Callers tune these; the opposed-material weights are fixed.
-    var darkBase: CGFloat = 0.32
-    var lightBase: CGFloat = 0.42
+/// Liquid Glass tinted toward the system's own ground, so text and glass
+/// agree by construction. Text everywhere resolves from the system
+/// appearance; the material would rather adapt its tone to whatever sits
+/// behind it, and `tintColor` — "the color the glass effect view uses to
+/// tint the background and glass effect toward" — removes that vote at
+/// the source. It replaces the equalizer scrim, a veil painted over the
+/// content view that sensed the material's adapted tone and corrected it
+/// after the fact: the veil held the tone, not the weight.
+///
+/// Measured on macOS 27.0 at Liquid Glass's clearest, over both grounds
+/// (tools/glass-sweep, 2026-09-14): the material alone drifted a dark bar
+/// over paper to grey 147 with white text at 2.65 to 1; the scrim held it
+/// at 100 and 4.79, and the pill at 124 and 3.50; black at 0.85 holds the
+/// bar at 22 and 13.1 and the pill at 27 and 12.5, sixteen levels from
+/// their charcoal selves, with the frost and the rim intact. Live, so a
+/// theme switch and Reduce Transparency both re-resolve on a standing
+/// surface.
+@available(macOS 26.0, *)
+final class TonedGlass: NSGlassEffectView {
+    var weight: Glass.Weight = .normal { didSet { retint() } }
 
     private var themeObserver: NSObjectProtocol?
     private var accessibilityObserver: NSObjectProtocol?
 
-    override var wantsUpdateLayer: Bool { true }
-
-    /// The material stamps its adapted tone onto this view after it has
-    /// sensed its backdrop, which on a cold panel is after the first
-    /// draw. A scrim that read the stamp once kept its first guess for
-    /// the life of the view — the clipboard's cards opened see-through
-    /// the first time and right every time after, because the second
-    /// opening rebuilt them over a panel that had been on screen. So the
-    /// veil re-reads whenever the stamp changes.
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        needsDisplay = true
+        retint()
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        needsDisplay = true
+        retint()
         guard window != nil, themeObserver == nil else { return }
-        // The material's stamp does not change when the user switches
-        // themes (it tracks the backdrop), so a long-lived scrim would
-        // never hear about the new target without listening for it.
+        // A standing surface — the pill, the strip — must hear a theme
+        // switch and a Reduce Transparency flip at once, not at its next
+        // opening.
         themeObserver = DistributedNotificationCenter.default().addObserver(
             forName: NSNotification.Name("AppleInterfaceThemeChangedNotification"),
             object: nil, queue: .main
         ) { [weak self] _ in
-            DispatchQueue.main.async { self?.needsDisplay = true }
+            DispatchQueue.main.async { self?.retint() }
         }
-        // Reduce Transparency flipped while a panel stands: the veil
-        // answers at once, not at the next opening.
         accessibilityObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
             object: nil, queue: .main
-        ) { [weak self] _ in self?.needsDisplay = true }
+        ) { [weak self] _ in self?.retint() }
     }
 
     deinit {
@@ -89,24 +85,10 @@ class EqualizerScrim: NSView {
         }
     }
 
-    /// The veil when a person has asked for no transparency at all: the
-    /// glass stays for its edge and its shadow, and the frost is gone.
-    static let opaque: CGFloat = 0.95
-
-    override func updateLayer() {
-        let materialDark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        if Accessibility.reduceTransparency() {
-            layer?.backgroundColor = (Tone.systemDark ? NSColor.black : NSColor.white)
-                .withAlphaComponent(Self.opaque).cgColor
-            return
-        }
-        if Tone.systemDark {
-            layer?.backgroundColor = NSColor.black
-                .withAlphaComponent(materialDark ? darkBase : max(darkBase, 0.72)).cgColor
-        } else {
-            layer?.backgroundColor = NSColor.white
-                .withAlphaComponent(materialDark ? max(lightBase, 0.80) : lightBase).cgColor
-        }
+    /// The tint, re-read from the system's tone and the person's settings.
+    func retint() {
+        let alpha = Accessibility.reduceTransparency() ? Glass.opaque : weight.alpha
+        tintColor = (Tone.systemDark ? NSColor.black : NSColor.white).withAlphaComponent(alpha)
     }
 }
 
@@ -116,30 +98,34 @@ class EqualizerScrim: NSView {
 ///
 /// One recipe for every panel, card, and chip. The clipboard's cards and
 /// the hint chips once wore a second one — clear glass under a heavier
-/// scrim — and clear glass has no frost, so its opacity was entirely the
-/// scrim's, and a scrim caught cold made a see-through card. Regular
-/// glass carries most of its opacity in the frost; the scrim is a
-/// correction, and a wrong first guess is a shade, not a hole.
+/// veil — and clear glass has no frost, so a card's opacity was entirely
+/// the veil's. Regular glass, tinted, carries its own.
 enum Glass {
-    /// How heavy the veil is. The material is the same; this is state —
-    /// a lit card, an empty slot — never a second style.
+    /// How far toward its ground the glass is tinted. The material is the
+    /// same; this is state — a lit card, an empty slot — never a second
+    /// style. Normal is the measured number; the others keep their order
+    /// around it.
     enum Weight: Equatable {
         case normal, raised, faint
-        var bases: (dark: CGFloat, light: CGFloat) {
+        var alpha: CGFloat {
             switch self {
-            case .normal: return (0.32, 0.42)
-            case .raised: return (0.50, 0.60)
-            case .faint: return (0.20, 0.28)
+            case .normal: return 0.85
+            case .raised: return 0.92
+            case .faint: return 0.72
             }
         }
     }
 
-    /// The scrim inside a backdrop this made, for the tests.
-    static func scrim(in backdrop: NSView) -> EqualizerScrim? {
-        if #available(macOS 26.0, *), let glass = backdrop as? NSGlassEffectView {
-            return glass.contentView as? EqualizerScrim
+    /// The tint when a person has asked for no transparency at all: the
+    /// glass stays for its edge and its shadow, and the frost is gone.
+    static let opaque: CGFloat = 0.95
+
+    /// The weight a backdrop this made carries, for the tests.
+    static func weight(in backdrop: NSView) -> Weight? {
+        if #available(macOS 26.0, *), let glass = backdrop as? TonedGlass {
+            return glass.weight
         }
-        return backdrop.subviews.compactMap { $0 as? EqualizerScrim }.first
+        return nil
     }
 
     @discardableResult
@@ -149,15 +135,10 @@ enum Glass {
         if #available(macOS 26.0, *) {
             // Regular glass, deliberately: the frost is the panel's beauty
             // AND half its contrast — clear glass let the world through
-            // sharp and made everything worse. The scrim rides inside it.
-            let glass = NSGlassEffectView()
+            // sharp and made everything worse.
+            let glass = TonedGlass()
             glass.cornerRadius = cornerRadius
-            let scrim = EqualizerScrim()
-            (scrim.darkBase, scrim.lightBase) = weight.bases
-            scrim.wantsLayer = true
-            scrim.layer?.cornerRadius = cornerRadius
-            scrim.autoresizingMask = [.width, .height]
-            glass.contentView = scrim
+            glass.weight = weight
             backdrop = glass
         } else {
             let effect = NSVisualEffectView()

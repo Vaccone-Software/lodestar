@@ -189,6 +189,8 @@ final class Stage {
     let webBar = FakeBar()
     let commandsBar = FakeBar()
     let speech = FakeSpeech()
+    /// The window model the engine reads; `stand` puts a window in front.
+    let model: WindowModel
     let draft: DraftController
     /// The real clipboard history, on a store in the stage's own directory.
     let clipboard: ClipboardController

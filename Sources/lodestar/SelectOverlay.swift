@@ -78,7 +78,11 @@ final class SelectOverlay {
         return chips.filter { $0.label.lowercased().hasPrefix(typed.lowercased()) }
     }
 
+    /// What stands, for the tests.
+    private(set) var shownChips: [Chip] = []
+
     func show(chips: [Chip], anchor: [CGRect], over windowFrame: CGRect, typed: String = "") {
+        shownChips = chips
         // Dozens of frosted chips at once: the instrument times itself.
         let began = Date()
         defer {

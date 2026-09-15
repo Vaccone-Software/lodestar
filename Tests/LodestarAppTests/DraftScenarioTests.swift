@@ -496,7 +496,8 @@ final class DraftScenarioTests: XCTestCase {
     func testTheWindowChooserOverTheDraftOwnsTheKeys() {
         let stage = Stage()
         stage.lode(".")
-        stage.lode("tab")
+        // ⇧⇥ since the tabs door took the plain key.
+        stage.lode("tab", shift: true)
         XCTAssertTrue(stage.searcher.isVisible, "the chooser opened")
         XCTAssertTrue(stage.draft.isOpen, "the draft waits underneath")
         XCTAssertFalse(stage.press("s"), "the letter goes to the chooser, not the draft")

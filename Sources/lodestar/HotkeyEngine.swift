@@ -141,7 +141,8 @@ final class HotkeyEngine {
     private let webBar: WebBarSurface
     private let commandsBar: BarSurface
     private let scroller: ScrollController
-    private let select: SelectController
+    /// Internal, not private: the scenarios read its door and its chips.
+    let select: SelectController
     private let clipboard: ClipboardController
     private let draft: DraftController
     /// Internal for the tests, which read what the strip shows.
@@ -220,6 +221,15 @@ final class HotkeyEngine {
         // mode back through the grammar, the way the clip door's closing
         // does.
         select.pill = pill
+        select.noTabs = { [weak self] in
+            // A turn later, never inside the keystroke that opened the
+            // door: resetting the engine while it handles a key is an
+            // exclusivity abort.
+            DispatchQueue.main.async {
+                self?.resetToIdle(reason: "no tabs")
+                self?.hud.flash("✕ no tabs in this window")
+            }
+        }
         select.aim = { [weak self] point, label in
             self?.scroller.aimed(at: point, label: label)
         }
@@ -1864,6 +1874,11 @@ extension HotkeyEngine: EngineWorld {
 
     func hintType(_ letter: String, shift: Bool, control: Bool) -> HintStep {
         select.clickKey(letter, shift: shift, control: control)
+    }
+
+    func enterTabs() -> Bool {
+        select.letters = KeyboardLayout.chipAlphabet()
+        return select.enter(door: .tabs)
     }
 
     func enterSelect() -> Bool {

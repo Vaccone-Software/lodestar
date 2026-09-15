@@ -185,7 +185,7 @@ public enum SettingsModel {
                      "Type a few letters of any app and press return."),
         "graph": ("Graph", ["lode", "a…z"],
                   "Letters that lead straight to apps. Hold lode and press one."),
-        "window-chooser": ("Window list", ["lode", "⇥"], nil),
+        "tabs": ("Tabs", ["lode", "⇥"], "A letter on every tab of the window. ⇧⇥ lists its windows."),
         "web-bar": ("Ask", ["lode", "⏎"],
                     "Type a destination or a question. It opens in the "
                     + "right browser profile."),
@@ -279,7 +279,7 @@ public enum SettingsModel {
         // 3 · Gestures — is the feature on, named plainly, wearing its
         // keys, in four short lists instead of one long one.
         let gestureGroups: [(group: String, verbs: [String])] = [
-            ("Navigation", ["launcher", "graph", "window-chooser", "index-jump"]),
+            ("Navigation", ["launcher", "graph", "tabs", "index-jump"]),
             ("Windows", ["maximize", "flip-orientation", "layout-undo",
                          "display-move", "breaths"]),
             ("Interactions", ["hints", "scroll", "select", "commands", "draft"]),

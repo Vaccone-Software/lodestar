@@ -152,12 +152,19 @@ final class SelectController {
     /// pick, `lode ;` clicks on one, scroll mode's `/` aims the pointer
     /// with one. Same sensor, same grammar — the entry key declares the
     /// verb, the way ⇧ declares beside.
-    enum Door { case anchor, click, aim }
+    /// `tabs` is the fourth: `lode ⇥` puts a letter on every tab of the
+    /// window, and the letter presses it. No sensing, no search — the tree
+    /// names the tabs and there is nothing to read past them.
+    enum Door { case anchor, click, aim, tabs }
     private(set) var door: Door = .anchor
     /// The pill every lens wears: this machine drives it for its three
     /// doors, saying which door, over which app, and what the hand has
     /// typed. Set by the shell.
     var pill: ModePill?
+    /// The tabs door found no tabs: the shell ends the mode and says so.
+    var noTabs: (() -> Void)?
+    /// The chips standing on the glass, for the tests.
+    var shownChips: [SelectOverlay.Chip] { overlay.shownChips }
     /// The aim door's whole verb: the picked word's center, and the word,
     /// handed to whoever moves the pointer. Set by the shell; a stage
     /// records it instead.
@@ -269,17 +276,41 @@ final class SelectController {
                 let chipped = HintLabels.chipped(
                     unreachable: found.map { $0.viaAction || $0.isTextInput },
                     alphabet: self.letters)
+                let labels = HintLabels.labels(count: chipped.count, alphabet: self.letters)
+                // The harvest answers twice: chips, then the owners that
+                // came after them. The second answer must not move a chip.
+                let sameChips = labels == self.entryLabels
+                    && chipped.map { found[$0].frame } == self.entryLabeled.map(\.frame)
                 self.entryLabeled = chipped.map { found[$0] }
-                self.entryLabels = HintLabels.labels(count: chipped.count,
-                                                     alphabet: self.letters)
+                self.entryLabels = labels
                 Log.info("hints", ["harvested": found.count, "chips": chipped.count,
                                    "byAction": found.filter(\.viaAction).count,
                                    "alphabet": self.letters.count])
                 // Counted only while the hands have not yet moved: chips
                 // arriving after the first key never greeted anyone.
                 if self.firstKeyAt == nil { self.entryChipsAtEntry = chipped.count }
+                if !sameChips { self.renderEntry() }
+            }
+        }
+
+        if door == .tabs {
+            // No capture, no OCR: the tabs are the tree's to name, and the
+            // pill stands while they are read.
+            let expected = generation
+            showPill(text: nil)
+            HintTargets.harvestTabs(window) { [weak self] found in
+                guard let self, self.generation == expected, self.door == .tabs else { return }
+                self.entryTargets = found
+                self.entryLabeled = found
+                self.entryLabels = HintLabels.labels(count: found.count, alphabet: self.letters)
+                if self.firstKeyAt == nil { self.entryChipsAtEntry = found.count }
+                if found.isEmpty {
+                    self.noTabs?()
+                    return
+                }
                 self.renderEntry()
             }
+            return true
         }
 
         // Everything above is bookkeeping in memory and stays here, because
@@ -381,6 +412,7 @@ final class SelectController {
         case .anchor: return "select"
         case .click: return "hints"
         case .aim: return "aim"
+        case .tabs: return "tabs"
         }
     }
 
@@ -392,6 +424,7 @@ final class SelectController {
         case .anchor: mode = .select
         case .click: mode = .click
         case .aim: mode = .scroll
+        case .tabs: mode = .tabs
         }
         pill?.show(ModePill.State(mode: mode, app: appName,
                                   icon: NSRunningApplication(processIdentifier: focusedPid)?.icon,
@@ -496,6 +529,12 @@ final class SelectController {
         if door == .click, core?.query.isEmpty != false, !entryLabeled.isEmpty,
            key.count == 1, key.first?.isLetter == true,
            shift || !entryTyped.isEmpty {
+            return entryPick(letter: key)
+        }
+        // The tabs door has no search to type into: a letter, any case,
+        // is a pick; anything else waits with the chips standing.
+        if door == .tabs {
+            guard key.count == 1, key.first?.isLetter == true else { return .pending }
             return entryPick(letter: key)
         }
         guard core != nil else {
@@ -621,7 +660,7 @@ final class SelectController {
     /// search universe owns the glass, and it owns it again the moment
     /// the query walks back to nothing.
     private func renderEntry() {
-        guard door == .click, core?.query.isEmpty != false else { return }
+        guard door == .click || door == .tabs, core?.query.isEmpty != false else { return }
         let chips: [SelectOverlay.Chip] = zip(entryLabels, entryLabeled).compactMap {
             label, target in
             guard entryTyped.isEmpty || label.hasPrefix(entryTyped) else { return nil }

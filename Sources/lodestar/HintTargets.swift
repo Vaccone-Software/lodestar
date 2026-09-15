@@ -41,29 +41,81 @@ enum HintTargets {
     /// over a whole region.
     private static let actionShareCap = 0.05
 
-    /// Press a target: the element's own action when it has one, honest
-    /// synthetics otherwise. A text input focuses instead — firing one
-    /// means "put my typing here".
-    static func fire(_ target: Target, rightClick: Bool) {
-        if rightClick {
-            // The element's own context-menu action when it has one; a
-            // synthetic right-click at its center otherwise.
-            if AXUIElementPerformAction(target.element, "AXShowMenu" as CFString) == .success {
-                Log.info("hint", ["action": "show-menu"])
-                return
+    /// The target that owns a point: the smallest one enclosing it, and
+    /// at a tie the one the tree named by role over one found by action.
+    /// The first in tree order was taken before, and in Asana that was
+    /// the wrapper the page marks pressable around the Share button: its
+    /// press reported success and did nothing, while the button's own
+    /// press opens the dialog (probe press, 2026-09-15). The harvest is
+    /// leaf-most by doctrine; the commit has to be too.
+    static func owner(of point: CGPoint, among targets: [Target]) -> Target? {
+        targets
+            .filter { $0.frame.contains(point) }
+            .min { a, b in
+                let areaA = a.frame.width * a.frame.height
+                let areaB = b.frame.width * b.frame.height
+                if areaA != areaB { return areaA < areaB }
+                return !a.viaAction && b.viaAction
             }
-            let point = CGPoint(x: target.frame.midX, y: target.frame.midY)
-            Pointer.post(SyntheticPointer.click(at: point, right: true))
-            Log.info("hint", ["action": "right-click"])
-            return
+    }
+
+    /// A pick is a click. The letter does what the hand would have done at
+    /// that point, in every app alike: a text input takes focus and the
+    /// caret where you looked, a button presses, ⌃ opens the menu a
+    /// right-click opens. The element's own action was tried first for a
+    /// year and retired 2026-09-15: `AXPress` answers success whether or
+    /// not anything happened — in Asana the page-sized group around the
+    /// Share button said yes every time and did nothing — and a press that
+    /// cannot be told from a no-op cannot be backed up without waiting,
+    /// and a wrong wait fires twice. A click either lands or plainly does
+    /// not, and the cursor going where the hand would have sent it is not
+    /// a cost the doctrine minds.
+    static func fire(_ target: Target, rightClick: Bool) {
+        let point = CGPoint(x: target.frame.midX, y: target.frame.midY)
+        Pointer.post(SyntheticPointer.click(at: point, right: rightClick))
+        Log.info("hint", ["action": rightClick ? "right-click" : "click", "text": target.isTextInput])
+    }
+
+    /// The tabs of a window, off the main thread: every `AXTabButton`
+    /// under an `AXTabGroup`, except the one already selected. Measured
+    /// with `probe tabs` (2026-09-15): Brave's tab strip and Ghostty's tab
+    /// bar expose the identical shape — a group of radio buttons whose
+    /// value is 1 on the current tab — so one rule reads both, and the
+    /// press is the button's own action. Chromium builds no tree until an
+    /// assistive client announces itself, the same flag the click door
+    /// flips. Replaced by the tests, whose world has no tabs to read.
+    static var harvestTabs: (WindowModel.Window, @escaping ([Target]) -> Void) -> Void = { window, completion in
+        let windowElement = window.element
+        let pid = window.pid
+        DispatchQueue.global(qos: .userInitiated).async {
+            let app = AXUIElementCreateApplication(pid)
+            AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+            AXUIElementSetMessagingTimeout(app, 0.5)
+            var found: [Target] = []
+            var visited = 0
+            let deadline = Date().addingTimeInterval(0.8)
+            func walk(_ element: AXUIElement, depth: Int, inGroup: Bool) {
+                visited += 1
+                guard depth < 16, visited < 4000, Date() < deadline else { return }
+                let role = AX.string(element, kAXRoleAttribute) ?? ""
+                let group = inGroup || role == "AXTabGroup"
+                if group, AX.string(element, kAXSubroleAttribute) == "AXTabButton" {
+                    if AX.int(element, kAXValueAttribute) != 1,
+                       let origin = AX.point(element, kAXPositionAttribute),
+                       let size = AX.size(element, kAXSizeAttribute) {
+                        found.append(Target(element: element, frame: CGRect(origin: origin, size: size),
+                                            isTextInput: false, viaAction: true))
+                    }
+                    return
+                }
+                for child in AX.elements(element, kAXChildrenAttribute) ?? [] {
+                    walk(child, depth: depth + 1, inGroup: group)
+                }
+            }
+            walk(windowElement, depth: 0, inGroup: false)
+            Log.info("tabs", ["harvested": found.count, "visited": visited])
+            DispatchQueue.main.async { completion(found) }
         }
-        if target.isTextInput {
-            AX.set(target.element, kAXFocusedAttribute, to: true)
-            Log.info("hint", ["action": "focus-text"])
-            return
-        }
-        let pressed = AXUIElementPerformAction(target.element, kAXPressAction as CFString) == .success
-        Log.info("hint", ["action": "press", "ok": pressed])
     }
 
     /// Bounded walk of the focused window's element tree, off the main

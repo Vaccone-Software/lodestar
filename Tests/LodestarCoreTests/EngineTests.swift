@@ -104,6 +104,12 @@ final class WorldStub: EngineWorld {
         return hintsEnterSucceeds
     }
 
+    var tabsEnterSucceeds = true
+    func enterTabs() -> Bool {
+        calls.append("enterTabs")
+        return tabsEnterSucceeds
+    }
+
     func hintType(_ letter: String, shift: Bool, control: Bool) -> HintStep {
         calls.append("hintType:\(letter)\(shift ? ":shift" : "")\(control ? ":control" : "")")
         return hintOutcomes[letter] ?? .ignored
@@ -250,10 +256,20 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(core.state, .idle)
     }
 
-    func testTabOpensWindowChooser() {
-        XCTAssertEqual(press("tab"), [.openWindowChooser])
+    func testShiftTabOpensWindowChooser() {
+        XCTAssertEqual(press("tab", shift: true), [.openWindowChooser])
         world.hasFocusedApp = false
-        XCTAssertEqual(press("tab"), [.flash("✕ no focused window")])
+        XCTAssertEqual(press("tab", shift: true), [.flash("✕ no focused window")])
+    }
+
+    func testTabEntersTheTabsDoorThroughTheHintsMachine() {
+        XCTAssertEqual(press("tab"), [.hideBars])
+        XCTAssertEqual(core.state, .hints(sticky: false), "the same machine as the click door")
+        XCTAssertEqual(world.calls.last, "enterTabs")
+        _ = press("escape")
+        world.tabsEnterSucceeds = false
+        XCTAssertEqual(press("tab"), [.hideBars, .flash("✕ no focused window")])
+        XCTAssertEqual(core.state, .idle)
     }
 
     func testTabInsideSearcherIsSwallowed() {

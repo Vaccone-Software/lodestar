@@ -213,6 +213,8 @@ public protocol EngineWorld: AnyObject {
     func enterScrollAim() -> Bool
     /// Enter hints on the focused window; false when there is none.
     func enterHints(sticky: Bool) -> Bool
+    /// `lode ⇥`: a letter on every tab of the focused window.
+    func enterTabs() -> Bool
     /// Open the clipboard strip; false when nothing has been copied yet.
     func enterPaste() -> Bool
     /// Does a card answer to this address at this moment? Letters address
@@ -606,7 +608,19 @@ public struct EngineCore {
             }
         case "tab":
             if world.searcherVisible { break } // the searcher owns its tab
-            effects.append(world.hasFocusedApp ? .openWindowChooser : .flash("✕ no focused window"))
+            if shift {
+                // ⇧⇥: the window chooser, where ⇥ alone once led. The
+                // list was walked through three times a month; the tabs
+                // are what the key means everywhere else on the Mac.
+                effects.append(world.hasFocusedApp ? .openWindowChooser : .flash("✕ no focused window"))
+            } else {
+                effects.append(.hideBars)
+                if world.enterTabs() {
+                    state = .hints(sticky: false)
+                } else {
+                    effects.append(.flash("✕ no focused window"))
+                }
+            }
         case "\\":
             // The key wearing the vertical bar flips the layout — moved
             // off O so the letter can go back to being an address.

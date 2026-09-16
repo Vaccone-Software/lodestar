@@ -139,11 +139,24 @@ final class UpdateController {
 
     // MARK: - Boot markers (the successor speaks; the watchdog wrote)
 
+    private static let updatedMarker = directory.appendingPathComponent("updated-to")
+    private static let rolledBackMarker = directory.appendingPathComponent("rolled-back")
+
+    /// The markers outlive the instance that reads them first. After an
+    /// update the successor is a relay: it hands the session to launchd
+    /// and bows out within a second, so a marker it consumed was gone
+    /// before the resident booted, and the resident never knew it had
+    /// updated (every update since readoption said "ready" and nothing
+    /// else). The instance that says ready retires them.
+    func acknowledgeBoot() {
+        try? FileManager.default.removeItem(at: Self.updatedMarker)
+        try? FileManager.default.removeItem(at: Self.rolledBackMarker)
+    }
+
     private func announceMarkers() {
-        let updated = Self.directory.appendingPathComponent("updated-to")
-        let rolledBack = Self.directory.appendingPathComponent("rolled-back")
+        let updated = Self.updatedMarker
+        let rolledBack = Self.rolledBackMarker
         if let version = try? String(contentsOf: updated, encoding: .utf8) {
-            try? FileManager.default.removeItem(at: updated)
             if version == Lodestar.version {
                 justUpdated = true
                 Log.info("update", ["phase": "completed", "version": version])
@@ -158,6 +171,7 @@ final class UpdateController {
                 // re-applied it — 194 relaunches in a night, each one
                 // restoring parked windows on the way out. Refused the way
                 // a rollback is refused, until a newer release ships.
+                try? FileManager.default.removeItem(at: updated)
                 try? version.write(to: Self.refusedFile, atomically: true, encoding: .utf8)
                 Log.error("update to \(version) did not change the binary — still \(Lodestar.version); refusing it until a newer release ships")
             }

@@ -73,7 +73,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// reason we were launched, so the event can beat our own setup; the queue
     /// is what stops that link from being the one that vanishes.
     private var pendingClicks: [URL] = []
-    private var defaultBrowserItem: NSMenuItem?
     private let walk = WalkController()
     private let meetings = MeetingController()
     private let linkChip = LinkChip()
@@ -141,6 +140,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         // Before anything opens a file: settle where files live.
         Paths.migrateIfNeeded()
+        // The alert sound is Lodestar's, and Sound settings finds it here.
+        AlertSound.installAtBoot()
         var (loaded, problems) = Config.load()
         // What the browsers actually have joins what the config references,
         // so pickers and most-recent resolution see every real profile.
@@ -736,20 +737,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.statusItem?.button?.image = active ? StatusIcon.active : StatusIcon.idle
         }
 
+        // Verbs only, and few. Preferences live in Settings, the config
+        // file and the log are for an agent that knows where they are,
+        // and the browser role is a switch in Settings. No ellipses: the
+        // Mac's convention marks a verb that opens a window, and every
+        // verb here does.
         let menu = NSMenu()
-        let header = NSMenuItem(title: "Lodestar \(Lodestar.version) · destination over process", action: nil, keyEquivalent: "")
+        let header = NSMenuItem(title: "Lodestar \(Lodestar.version) · Destination over Process", action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
         menu.addItem(.separator())
-        menu.addItem(makeItem("How Lodestar Works…", #selector(showWalk), key: ""))
-        menu.addItem(makeItem("Check for Updates…", #selector(checkForUpdates), key: ""))
-        menu.addItem(makeItem("Report an Issue…", #selector(reportIssue), key: ""))
-        menu.addItem(.separator())
-        // Title set at menu-open time, since it names what the item will do
-        // and that depends on where the role currently sits.
-        let browserItem = makeItem("", #selector(toggleDefaultBrowser), key: "")
-        defaultBrowserItem = browserItem
-        menu.addItem(browserItem)
+        menu.addItem(makeItem("How Lodestar Works", #selector(showWalk), key: ""))
+        menu.addItem(makeItem("Settings", #selector(openSettingsWindow), key: ""))
+        menu.addItem(makeItem("Check for Updates", #selector(checkForUpdates), key: ""))
+        menu.addItem(makeItem("Report an Issue", #selector(reportIssue), key: ""))
         // The coach's inbox of at most one: a suggestion whose moment was
         // missed parks here instead of being lost. Hidden when empty.
         let coachItem = makeItem("", #selector(presentCoachSuggestion), key: "")
@@ -758,49 +759,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(coachItem)
         menu.delegate = self
         menu.addItem(.separator())
-        // Verbs and state machines only. Preferences live in Settings, and
-        // the file reloads itself on save — the menu carries nothing a
-        // window or a watcher already does.
-        menu.addItem(makeItem("Settings…", #selector(openSettingsWindow), key: ""))
-        menu.addItem(makeItem("Edit Config…", #selector(editConfig), key: ""))
-        menu.addItem(makeItem("Open Log", #selector(openLog), key: ""))
-        menu.addItem(.separator())
-        menu.addItem(makeItem("Quit lodestar", #selector(quit), key: "q"))
+        menu.addItem(makeItem("Quit Lodestar", #selector(quit), key: "q"))
+        menu.addItem(makeItem("Uninstall Lodestar", #selector(uninstall), key: ""))
         item.menu = menu
     }
 
-    /// The browser item reads the world each time the menu opens: it says what
-    /// pressing it does, not what state you are in.
+    /// The coach item reads its inbox each time the menu opens.
     func menuNeedsUpdate(_ menu: NSMenu) {
-        if let coachItem = coachSuggestionItem {
-            if let headline = coach?.parkedHeadline {
-                coachItem.isHidden = false
-                coachItem.title = "Coach: \(headline)"
-            } else {
-                coachItem.isHidden = true
-            }
+        guard let coachItem = coachSuggestionItem else { return }
+        if let headline = coach?.parkedHeadline {
+            coachItem.isHidden = false
+            coachItem.title = "Coach: \(headline)"
+        } else {
+            coachItem.isHidden = true
         }
-        guard let item = defaultBrowserItem else { return }
-        // Reality, not config: the role can be handed to us or taken away in
-        // System Settings without going through this menu, and an item that
-        // offered to "give links back" while we do not hold them would be
-        // describing a world that no longer exists.
-        guard holdsBrowserRole() else {
-            item.title = "Route Clicked Links Through Lodestar…"
-            return
-        }
-        let saved = config.webClickBrowser
-        item.title = saved.isEmpty
-            ? "Stop Routing Clicked Links"
-            : "Give Links Back to \(Self.shortBrowserName(saved))"
     }
 
-    /// com.brave.Browser reads as Brave. A bundle id in a menu is furniture.
-    private static func shortBrowserName(_ bundleID: String) -> String {
-        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {
-            return bundleID
+    /// The plan, shown whole before anything is touched. Config, breaths
+    /// and the clipboard stay unless the box is ticked.
+    @objc private func uninstall() {
+        let alert = NSAlert()
+        alert.messageText = "Uninstall Lodestar?"
+        alert.informativeText = Self.uninstallSummary(UninstallPlan.live(purge: false))
+        alert.alertStyle = .warning
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = "Also remove my config, breaths and clipboard"
+        let remove = alert.addButton(withTitle: "Uninstall")
+        remove.hasDestructiveAction = true
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let purge = alert.suppressionButton?.state == .on
+        Log.info("uninstall", ["from": "menu", "purge": purge])
+        let plan = UninstallPlan.live(purge: purge)
+        for step in plan.steps {
+            Log.info("uninstall", ["step": step.name])
+            step.run()
         }
-        return url.deletingPathExtension().lastPathComponent
+        // The last step stops the agent, which is usually this process.
+        NSApp.terminate(nil)
+    }
+
+    static func uninstallSummary(_ plan: UninstallPlan) -> String {
+        let lines = plan.steps.map { "• \($0.name)" }
+        let kept = plan.kept.isEmpty ? []
+            : ["", "Your config, breaths and clipboard stay, so a reinstall finds them."]
+        return (lines + kept + ["", UninstallPlan.closing]).joined(separator: "\n")
     }
 
     private func removeStatusItem() {
@@ -1289,9 +1293,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             : "⌖ Routing links · unrouted go to \(name)", seconds: 6)
     }
 
-    @objc private func toggleDefaultBrowser() {
-        // Same question the label asked, so the item always does what it says.
-        holdsBrowserRole() ? standDownAsBrowser() : becomeDefaultBrowser()
+    /// com.brave.Browser reads as Brave. A bundle id in a flash is furniture.
+    private static func shortBrowserName(_ bundleID: String) -> String {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {
+            return bundleID
+        }
+        return url.deletingPathExtension().lastPathComponent
     }
 
     /// Where macOS keeps the choice, since macOS will not let us make it. The
@@ -1815,13 +1822,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // the XML malformed — launchd then refused the job, so start
             // at login quietly stopped working while the log said
             // "installed".
-            let job: [String: Any] = [
-                "Label": "com.vaccone.lodestar",
-                "ProgramArguments": ["\(bundlePath)/Contents/MacOS/lodestar"],
-                "RunAtLoad": true,
-                "KeepAlive": ["SuccessfulExit": false],
-                "ThrottleInterval": 10,
-            ]
+            let job = LoginAgent.job(binary: "\(bundlePath)/Contents/MacOS/lodestar")
             guard let plist = try? PropertyListSerialization.data(
                 fromPropertyList: job, format: .xml, options: 0
             ) else {
@@ -1904,6 +1905,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         hud.showVoice(sentence: Self.readyNote, keymap: Self.readyKeymap, detail: nil, rows: [],
                       owner: .flash, seconds: 2.5)
         Log.info("ready: \(detail)")
+        // The instance that says ready is the resident one, so it is the
+        // one that retires the update's markers.
+        updater.acknowledgeBoot()
     }
 
     static let readyNote = "Ready when you are"
@@ -1951,25 +1955,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return nil
     }
 
-
-    @objc private func editConfig() {
-        ensureConfigOnDisk()
-        if !NSWorkspace.shared.open(Config.file) {
-            // No app claims .json — TextEdit always opens plain text.
-            NSWorkspace.shared.open([Config.file],
-                                    withApplicationAt: URL(fileURLWithPath: "/System/Applications/TextEdit.app"),
-                                    configuration: NSWorkspace.OpenConfiguration())
-        }
-    }
-
-    /// The file can vanish between launch and the click; load() rewrites it.
-    private func ensureConfigOnDisk() {
-        if !FileManager.default.fileExists(atPath: Config.file.path) { _ = Config.load() }
-    }
-
-    @objc private func openLog() {
-        NSWorkspace.shared.open(Log.file)
-    }
 
     @objc private func quit() {
         NSApp.terminate(nil)

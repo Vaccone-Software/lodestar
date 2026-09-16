@@ -57,4 +57,8 @@ final class DraftSoundTests: XCTestCase {
         XCTAssertNotNil(Sounds.url(for: .listening))
         XCTAssertNotNil(Sounds.url(for: .landed))
     }
+
+    func testTheAlertTravelsWithTheAppSoSoundSettingsCanFindIt() {
+        XCTAssertNotNil(AlertSound.bundled, "the strike ships, whether or not anything plays it")
+    }
 }

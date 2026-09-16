@@ -226,84 +226,25 @@ func runResetConfig() -> Never {
     exit(0)
 }
 
-/// Remove lodestar from the machine: agent, PATH link, app bundle. User
-/// data (config, breaths) stays unless --purge; --dry-run prints
-/// the plan and touches nothing. A clean exit is part of professionalism.
+/// `lodestar uninstall`: the plan in `UninstallPlan`, described or run.
+/// User data (config, breaths, clipboard) stays unless --purge; --dry-run
+/// prints the plan and touches nothing.
 func runUninstall(dryRun: Bool, purge: Bool) -> Never {
-    let fm = FileManager.default
-    let home = fm.homeDirectoryForCurrentUser
-    let agentPlist = home.appendingPathComponent("Library/LaunchAgents/com.vaccone.lodestar.plist")
-    let appBundle = home.appendingPathComponent("Applications/lodestar.app")
-    let links = ["/opt/homebrew/bin/lodestar", "/usr/local/bin/lodestar"]
-    let roots = [Paths.config, Paths.data]
-
-    var plan: [(String, () -> Void)] = []
-
-    // Give the browser role back first, while we are still here to do it.
-    // Removing the app that answers for http and leaving macOS to guess is
-    // how someone ends up with links that open nothing.
-    let (uninstallConfig, _) = Config.load()
-    // The recorded browser, or the system's best other answer. The fallback
-    // is not politeness: a config that recorded *us* is dropped to empty at
-    // load, and skipping the restore on empty is how somebody ends up with
-    // the http handler deleted and every link on the machine opening
-    // nothing. `discoverBrowser` never returns Lodestar.
-    let restoreTo: URL? = ClickRouter.handoffBrowser(uninstallConfig.webClickBrowser)
-        .flatMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }
-        ?? ClickHandler.discoverBrowser()
-    if uninstallConfig.webHandleClicks, let browser = restoreTo {
-        let name = browser.deletingPathExtension().lastPathComponent
-        plan.append(("restore \(name) as your default browser", {
-            let done = DispatchSemaphore(value: 0)
-            NSWorkspace.shared.setDefaultApplication(at: browser,
-                                                    toOpenURLsWithScheme: "https") { _ in
-                NSWorkspace.shared.setDefaultApplication(at: browser,
-                                                         toOpenURLsWithScheme: "http") { _ in
-                    done.signal()
-                }
-            }
-            _ = done.wait(timeout: .now() + 5)
-        }))
-    }
-
-    plan.append(("unload login agent (stops the running instance)", {
-        let uid = getuid()
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-        task.arguments = ["bootout", "gui/\(uid)/com.vaccone.lodestar"]
-        try? task.run()
-        task.waitUntilExit()
-    }))
-    if fm.fileExists(atPath: agentPlist.path) {
-        plan.append(("remove \(agentPlist.path)", { try? fm.removeItem(at: agentPlist) }))
-    }
-    for link in links where fm.fileExists(atPath: link) {
-        plan.append(("remove \(link)", { try? fm.removeItem(atPath: link) }))
-    }
-    if fm.fileExists(atPath: appBundle.path) {
-        plan.append(("remove \(appBundle.path)", { try? fm.removeItem(at: appBundle) }))
-    }
-    if purge {
-        for root in roots where fm.fileExists(atPath: root.path) {
-            plan.append(("remove \(root.path)", { try? fm.removeItem(at: root) }))
-        }
-    }
-
+    let plan = UninstallPlan.live(purge: purge)
+    let keptNote = plan.kept.isEmpty ? nil
+        : "keeping \(plan.kept.map(\.path).joined(separator: " and ")): your config, breaths and clipboard survive a reinstall (lodestar uninstall --purge removes them)"
     if dryRun {
         print("uninstall would:")
-        for (step, _) in plan { print("  • \(step)") }
-        if !purge { print("  (keeping \(Paths.config.path) and \(Paths.data.path) — add --purge to remove your config, breaths, and clipboard)") }
+        for step in plan.steps { print("  • \(step.name)") }
+        if let keptNote { print("  (\(keptNote))") }
         exit(0)
     }
-    for (step, action) in plan {
-        print("• \(step)")
-        action()
+    for step in plan.steps {
+        print("• \(step.name)")
+        step.run()
     }
-    if !purge {
-        print("kept \(Paths.config.path) and \(Paths.data.path) — your config, breaths, and clipboard survive a reinstall")
-        print("(remove it later with: lodestar uninstall --purge, or rm -rf)")
-    }
-    print("✓ Lodestar uninstalled. The Accessibility entry can be removed in System Settings → Privacy & Security.")
+    if let keptNote { print(keptNote) }
+    print("✓ Lodestar uninstalled. \(UninstallPlan.closing)")
     exit(0)
 }
 

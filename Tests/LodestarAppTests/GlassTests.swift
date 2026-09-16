@@ -31,7 +31,7 @@ final class GlassTests: XCTestCase {
         XCTAssertEqual(tint.alphaComponent, 0.92, accuracy: 0.01, "the measured number")
         XCTAssertEqual(tint.redComponent, Tone.systemDark ? 0.25 : 0.92, accuracy: 0.02,
                        "the grey that lands on charcoal or paper: the system's tone, never the backdrop's")
-        XCTAssertEqual(glass.veilAlpha, 0.70, accuracy: 0.01, "the veil takes the backdrop's vote, and the frost shows through the rest")
+        XCTAssertEqual(glass.veilAlpha, 0.90, accuracy: 0.01, "the veil takes the backdrop's vote, and the frost shows through the rest")
         _ = window
     }
 

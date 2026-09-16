@@ -53,10 +53,12 @@ final class TonedGlass: NSGlassEffectView {
     /// and cannot set the backdrop's share: every tint colour and alpha
     /// left the draft 25 over charcoal and about 60 over paper, and a big
     /// panel over a mixed desktop was patchy where a small bar over one
-    /// thing was not. The veil takes the backdrop's vote: at 0.7 the draft
-    /// reads 25 over charcoal and 37 over paper (2026-09-15), with the
-    /// frost showing through the rest. It sits inside the glass so the rim
-    /// and the shadow stay the material's.
+    /// thing was not. The veil takes the backdrop's vote: at 0.9 the bar,
+    /// the draft and the pill read 25 over charcoal and 29, 29 and 31 over
+    /// paper (2026-09-15) — 0.7 had left the draft at 37 and the pill,
+    /// being small and mostly edge, a few levels lighter than a bar over
+    /// the same ground, which was seen. It sits inside the glass so the
+    /// rim and the shadow stay the material's.
     private let veil = NSView()
     var veilAlpha: CGFloat {
         (veil.layer?.backgroundColor).flatMap(NSColor.init(cgColor:))?.alphaComponent ?? 0
@@ -146,9 +148,9 @@ enum Glass {
         /// order around it.
         var veil: CGFloat {
             switch self {
-            case .normal: return 0.70
-            case .raised: return 0.80
-            case .faint: return 0.55
+            case .normal: return 0.90
+            case .raised: return 0.94
+            case .faint: return 0.80
             }
         }
     }

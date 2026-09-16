@@ -283,7 +283,24 @@ enum Pointer {
                                       mouseCursorPosition: step.point,
                                       mouseButton: right ? .right : .left) else { continue }
             event.setIntegerValueField(.eventSourceUserData, value: SelectController.ownMark)
+            if step.type == .leftMouseDown || step.type == .leftMouseUp
+                || step.type == .rightMouseDown || step.type == .rightMouseUp {
+                event.setIntegerValueField(.mouseEventClickState, value: 1)
+            }
             event.post(tap: .cghidEventTap)
+            // The walk must land before the press. Posted back to back, the
+            // press reached apps before the cursor had moved, so it landed
+            // where the pointer last rested and the release at the target:
+            // a drag, and a highlight, from wherever the hand had left it.
+            // A warp puts the cursor there now; the pause lets the app hear
+            // the move before the button. Runs off the tap, so the wait is
+            // nobody's keystroke.
+            if step.type == .mouseMoved {
+                CGWarpMouseCursorPosition(step.point)
+                usleep(40_000)
+            } else if step.type == .leftMouseDown || step.type == .rightMouseDown {
+                usleep(30_000)
+            }
         }
     }
 

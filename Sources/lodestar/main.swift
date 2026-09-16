@@ -352,11 +352,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // its own config line as well as the master.
         health.observations = observationStore
         health.roads = roads
-        engine.onHumanKey = { [weak self] backspace, autorepeat in
-            self?.health.noteKey(backspace: backspace, autorepeat: autorepeat)
+        engine.onHumanKey = { [weak self] backspace, autorepeat, at in
+            self?.health.noteKey(backspace: backspace, autorepeat: autorepeat, at: at)
         }
         engine.onHumanKeyHold = { [weak self] seconds in
             self?.health.noteHold(seconds)
+        }
+        engine.onHumanPress = { [weak self] press in self?.health.notePress(press) }
+        engine.onStampJitter = { [weak self] seconds in self?.health.noteJitter(seconds) }
+        engine.onTapReset = { [weak self] in self?.health.noteTapReset() }
+        health.context = { [weak draft] in
+            HealthMonitor.WindowContext(
+                app: NSWorkspace.shared.frontmostApplication?.localizedName,
+                dictation: draft?.isOpen ?? false)
         }
         health.setEnabled(loaded.observationsEnabled && loaded.observationsHealth)
 

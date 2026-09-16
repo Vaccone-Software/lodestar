@@ -52,9 +52,11 @@ final class HotkeyEngine {
     private var coachTaps = LodeTapDetector()
 
     /// A hardware keystroke passed through the tap; true when it was the
-    /// correction key. The health pulse counts these — a count and one
-    /// anonymous flag, never the key itself.
-    var onHumanKey: ((Bool, Bool) -> Void)?
+    /// correction key, and whether the OS repeated it. The health pulse
+    /// counts these — a count and one anonymous flag, never the key
+    /// itself — at the moment the event says it happened, not the
+    /// moment the tap got around to it.
+    var onHumanKey: ((Bool, Bool, Date) -> Void)?
 
     /// A hardware press released, and how long it was held. Hold time is
     /// the psychomotor channel of the health pulse; the key itself never
@@ -62,13 +64,40 @@ final class HotkeyEngine {
     /// all — a held key's release is seconds after its press and would
     /// read as one impossibly slow keystroke.
     var onHumanKeyHold: ((Double) -> Void)?
+    /// Every hardware press, at its release (or when the release is
+    /// known never to come), as the raw record keeps it: stamps, hand,
+    /// kind and circumstances. The keycode is read here to name the hand
+    /// and the kind and goes no further.
+    var onHumanPress: ((KeyPress) -> Void)?
+    /// How late this callback ran after the event's own stamp.
+    var onStampJitter: ((Double) -> Void)?
+    /// The tap was disabled and re-enabled.
+    var onTapReset: (() -> Void)?
+
+    /// A press in flight, everything its release will need.
+    private struct Press {
+        var down: Date
+        var repeated = false
+        var shift = false
+        var chord = false
+        var lens = false
+        var keyboardType = 0
+        var swallowed = false
+
+        func keyPress(keycode: Int64, hold: Double?) -> KeyPress {
+            KeyPress(down: down, hold: hold, hand: Keys.hand(for: keycode),
+                     kind: Keys.kind(for: keycode), shift: shift, chord: chord,
+                     gesture: swallowed, lens: lens, repeated: repeated,
+                     keyboardType: keyboardType)
+        }
+    }
     /// Presses in flight, by keycode: when each went down, and whether
     /// the OS repeated it. Bounded by the hand — at most a few keys are
     /// down at once — and cleared on every release and on every reset,
     /// so a release the tap never saw (a key held through a tap
     /// re-enable) cannot strand an entry that later times a press at
     /// minutes.
-    private var pressedAt: [Int64: (down: Date, repeated: Bool)] = [:]
+    private var pressedAt: [Int64: Press] = [:]
 
     /// The grammar lives in LodestarCore, pure and tested; this class is
     /// the AppKit shell that feeds it keys and executes its effects.
@@ -401,6 +430,27 @@ final class HotkeyEngine {
     /// event fed here walks exactly the path a hardware one does, verdict
     /// included.
     func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        let verdict = route(type: type, event: event)
+        // A press the engine kept is a gesture. The verdict is known only
+        // once the whole route has run, so it is written back onto the
+        // press here and read at its release.
+        if type == .keyDown, verdict == nil {
+            pressedAt[event.getIntegerValueField(.keyboardEventKeycode)]?.swallowed = true
+        }
+        return verdict
+    }
+
+    /// Presses whose release will never be seen — the tap reset, or a key
+    /// that has been down longer than any keystroke — leave as records
+    /// with no hold, so the coverage line can count them.
+    private func strand(all: Bool = false, olderThan: TimeInterval = 5, now: Date) {
+        for (keycode, press) in pressedAt where all || now.timeIntervalSince(press.down) > olderThan {
+            onHumanPress?(press.keyPress(keycode: keycode, hold: nil))
+            pressedAt.removeValue(forKey: keycode)
+        }
+    }
+
+    private func route(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if Self.traceTap {
             let keycode = event.getIntegerValueField(.keyboardEventKeycode)
             Log.info("tap: type=\(type.rawValue) key=\(keycode) flags=\(String(event.flags.rawValue, radix: 16))")
@@ -419,7 +469,8 @@ final class HotkeyEngine {
             // Releases that fell in the dark would otherwise strand their
             // presses, and a stranded press times at however long the tap
             // was out.
-            pressedAt.removeAll()
+            strand(all: true, now: clock.now())
+            onTapReset?()
             guard let tap else { return Unmanaged.passUnretained(event) }
             CGEvent.tapEnable(tap: tap, enable: true)
             Log.info("hotkeys: tap re-enabled", ["alive": CGEvent.tapIsEnabled(tap: tap)])
@@ -431,6 +482,10 @@ final class HotkeyEngine {
         lastEventPostingPID = event.getIntegerValueField(.eventSourceUnixProcessID)
         actingInputWasHuman = lastInputWasHuman
         if actingInputWasHuman { lastHumanInputAt = clock.now() }
+        // The event's own stamp, for anything that measures the hand: the
+        // handler runs on the main run loop and reads the scheduler's
+        // delay into every interval it times from its own clock.
+        let at = EventTime.date(of: event) ?? clock.now()
         if type == .flagsChanged {
             // The coach's assent gesture watches the classified lode state
             // and consumes nothing — fed first, so no other path can
@@ -456,9 +511,11 @@ final class HotkeyEngine {
             // The press is timed here, whatever happens to the event
             // next: a swallowed key was still pressed by a hand, and the
             // pulse measures the hand and not the effect.
-            if let press = pressedAt.removeValue(forKey: keycode), actingInputWasHuman,
-               !press.repeated {
-                onHumanKeyHold?(clock.now().timeIntervalSince(press.down))
+            if let press = pressedAt.removeValue(forKey: keycode), actingInputWasHuman {
+                let hold = at.timeIntervalSince(press.down)
+                if !press.repeated { onHumanKeyHold?(hold) }
+                onHumanPress?(press.keyPress(keycode: keycode, hold: hold))
+                if event.timestamp != 0 { onStampJitter?(clock.now().timeIntervalSince(at)) }
             }
             guard let key = Keys.name(for: keycode) else { return Unmanaged.passUnretained(event) }
             return dispatch(core.keyUp(key: key), event: event)
@@ -476,15 +533,21 @@ final class HotkeyEngine {
             // would read a held key as typing at the repeat rate. The
             // pulse takes the flag and keeps the press, not the storm.
             let repeated = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
-            onHumanKey?(named == "delete", repeated)
+            onHumanKey?(named == "delete", repeated, at)
             // The press's clock starts here and is read at its release.
             // A repeat marks the press contaminated rather than
             // replacing its stamp: the hold that matters is the one the
             // hand made, and a held key has no measurable one.
+            strand(now: at)
             if repeated {
                 pressedAt[keycode]?.repeated = true
             } else if pressedAt[keycode] == nil {
-                pressedAt[keycode] = (down: clock.now(), repeated: false)
+                pressedAt[keycode] = Press(
+                    down: at,
+                    shift: event.flags.contains(.maskShift),
+                    chord: !event.flags.intersection([.maskCommand, .maskControl, .maskAlternate]).isEmpty,
+                    lens: core.state != .idle,
+                    keyboardType: Int(event.getIntegerValueField(.keyboardEventKeyboardType)))
             }
         }
         // A chord carrying ⌘⌥⌃ together is a hyper-key shim's, never typing:

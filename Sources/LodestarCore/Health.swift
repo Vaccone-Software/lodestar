@@ -4,12 +4,15 @@ import Foundation
 /// event per quarter hour. Pure and value-typed so the whole accumulation
 /// is testable without a tap.
 ///
-/// What it keeps is bounded by one line that must never move: **never key
-/// identities on general typing.** Per-key or per-digraph timing on
-/// arbitrary text statistically reconstructs what was typed, so this
-/// records global counts, global inter-key moments, and exactly one named
-/// key — backspace, the correction key, whose rate is the classic early
-/// strain signal. Which keys, which apps, which words: never.
+/// What it keeps beyond counts is shape, never keycodes: which keys were
+/// pressed are not recorded on general typing, not as a courtesy but
+/// because no analysis in the literature wants them, while which *hand*
+/// pressed is fair to keep because the literature does. The discipline
+/// lives in what the instrument says and what leaves the machine, not in
+/// what it collects (DESIGN, the bouts paragraph). So this records global
+/// counts, global inter-key moments, and exactly one named key —
+/// backspace, the correction key, whose rate is the classic early strain
+/// signal.
 ///
 /// Scrolls are counted as *bursts*, not wheel events — a trackpad emits
 /// hundreds of events per flick, and "reached for the scroll" is the fact
@@ -72,6 +75,14 @@ public struct HealthPulse: Equatable {
     var holdSum = 0.0
     var holdSumSq = 0.0
     var holdHist = Histogram()
+    /// The instrument watching itself: how late the tap's callback ran
+    /// after the event's own stamp, and how often the tap had to be
+    /// re-enabled. Neither is the hand; both say how far to trust the
+    /// window they sit in.
+    var jitterN = 0
+    var jitterSum = 0.0
+    var jitterSumSq = 0.0
+    var tapResets = 0
     var lastKeyAt: Date?
     var lastScrollAt: Date?
     /// Any input at all, for the bout boundary — a bout is the hands
@@ -161,6 +172,23 @@ public struct HealthPulse: Equatable {
             holdHist.add(seconds)
         }
         touch(now)
+        return flushed
+    }
+
+    /// The callback's clock against the event's stamp, seconds.
+    public mutating func jitter(_ seconds: Double, at now: Date) -> ObservationEvent? {
+        let flushed = rollIfDue(now: now)
+        jitterN += 1
+        jitterSum += seconds
+        jitterSumSq += seconds * seconds
+        return flushed
+    }
+
+    /// The key tap was disabled and re-enabled: presses in flight were
+    /// stranded and keys in between were never seen.
+    public mutating func tapReset(at now: Date) -> ObservationEvent? {
+        let flushed = rollIfDue(now: now)
+        tapResets += 1
         return flushed
     }
 
@@ -290,6 +318,12 @@ public struct HealthPulse: Equatable {
             event.holdSumSq = holdSumSq
             event.holdHist = holdHist
         }
+        if jitterN > 0 {
+            event.jitterN = jitterN
+            event.jitterSum = jitterSum
+            event.jitterSumSq = jitterSumSq
+        }
+        if tapResets > 0 { event.tapResets = tapResets }
         // Where the window sat in its bout. Position, not a verdict:
         // whether the hands slowed across a bout is a question for read
         // time, fitted from these, never frozen in here.
@@ -318,6 +352,10 @@ public struct HealthPulse: Equatable {
         holdSum = 0.0
         holdSumSq = 0.0
         holdHist = Histogram()
+        jitterN = 0
+        jitterSum = 0.0
+        jitterSumSq = 0.0
+        tapResets = 0
         runLength = 0
         runCounts = [0, 0, 0]
         runKeys = [0, 0, 0]

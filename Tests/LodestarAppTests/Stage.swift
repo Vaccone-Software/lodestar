@@ -182,6 +182,8 @@ final class Stage {
     /// the tap measured on the way.
     var pulse = HealthPulse()
     private(set) var holds: [Double] = []
+    /// The raw record's view of every press, as the store would keep it.
+    private(set) var presses: [KeyPress] = []
     private(set) var pulses: [ObservationEvent] = []
     let coach: CoachController
     let actions = FakeActions()
@@ -306,12 +308,13 @@ final class Stage {
         // that sits between them in production is three lines of
         // plumbing; the seam worth exercising is the tap's own press
         // timing reaching a real accumulator.
-        engine.onHumanKey = { [unowned self] backspace, autorepeat in
+        engine.onHumanKey = { [unowned self] backspace, autorepeat, _ in
             if let flushed = self.pulse.key(at: self.clock.now, backspace: backspace,
                                             autorepeat: autorepeat) {
                 self.pulses.append(flushed)
             }
         }
+        engine.onHumanPress = { [unowned self] press in self.presses.append(press) }
         engine.onHumanKeyHold = { [unowned self] seconds in
             self.holds.append(seconds)
             if let flushed = self.pulse.hold(seconds, at: self.clock.now) {

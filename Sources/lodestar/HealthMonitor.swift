@@ -1,5 +1,7 @@
 import AppKit
+import ApplicationServices
 import CoreGraphics
+import IOKit.ps
 import LodestarCore
 
 /// The hands' pulse, gathered: keystroke counts arrive from the main event
@@ -26,6 +28,25 @@ final class HealthMonitor {
 
     private var pulse = HealthPulse()
     private var clickPulse = ClickPulse()
+    /// What the shell knows at a window's close that the presses do not.
+    struct WindowContext {
+        var app: String?
+        var dictation: Bool
+    }
+    var context: (() -> WindowContext)?
+    /// The raw record beneath every summary, and the window that
+    /// describes ninety seconds of it at a time.
+    private let keys: KeyStore
+    private var window = HoldWindow()
+    private let roster = KeyboardRoster()
+    /// The focused element's role, sampled off the main thread when a
+    /// window opens and read at its close: best effort, never waited on.
+    private var sampledRole: String?
+
+    init() {
+        keys = KeyStore(directory: Paths.data.appendingPathComponent(KeyStore.subdirectory, isDirectory: true),
+                        installID: Install.id())
+    }
     private var enabled = false
     private var tap: CFMachPort?
     private var tapThread: Thread?
@@ -113,8 +134,10 @@ final class HealthMonitor {
             flushTimer?.invalidate()
             flushTimer = nil
             drainPending(all: true)
-            if let final = pulse.flush() { observations?.healthPulse(final) }
+            if let final = pulse.flush() { recordPulse(final) }
             for event in clickPulse.flush() { observations?.clickPulse(event) }
+            if let closed = window.close() { emit(closed) }
+            keys.flushSync()
         }
     }
 
@@ -132,7 +155,89 @@ final class HealthMonitor {
             lock.unlock()
         }
         if let flushed = pulse.key(at: now, backspace: backspace, autorepeat: autorepeat) {
-            observations?.healthPulse(flushed)
+            recordPulse(flushed)
+        }
+    }
+
+    /// A pulse closed: it leaves wearing the keyboards that were attached.
+    private func recordPulse(_ event: ObservationEvent?) {
+        guard var event else { return }
+        event.keyboards = roster.ids
+        observations?.healthPulse(event)
+    }
+
+    /// A hardware press, complete: the raw store keeps it, the window
+    /// describes it. Main thread.
+    func notePress(_ press: KeyPress) {
+        guard enabled else { return }
+        keys.append(press)
+        if let closed = window.add(press) { emit(closed) }
+        if window.count == 1 { sampleRole() }
+    }
+
+    /// How late the tap ran after the event's stamp. Main thread.
+    func noteJitter(_ seconds: Double, at now: Date = Date()) {
+        guard enabled else { return }
+        recordPulse(pulse.jitter(seconds, at: now))
+    }
+
+    func noteTapReset(at now: Date = Date()) {
+        guard enabled else { return }
+        recordPulse(pulse.tapReset(at: now))
+    }
+
+    /// A window closed: the shell adds what it knows and the store keeps
+    /// it. The presses are already in the raw store; only their
+    /// description travels.
+    private func emit(_ stats: WindowStats) {
+        var stats = stats
+        let context = context?()
+        stats.app = context?.app
+        stats.dictation = context?.dictation
+        stats.keyboards = roster.ids
+        stats.power = Self.powerSource()
+        stats.screens = NSScreen.screens.count
+        stats.tz = TimeZone.current.secondsFromGMT(for: stats.start)
+        lock.lock()
+        stats.role = sampledRole
+        sampledRole = nil
+        lock.unlock()
+        var event = ObservationEvent(t: stats.start, kind: .window)
+        event.window = stats
+        observations?.healthWindow(event)
+    }
+
+    /// The focused element's role class, asked with a short leash on the
+    /// lookup queue. A role, never a title or a value.
+    private func sampleRole() {
+        lookup.async { [weak self] in
+            let system = AXUIElementCreateSystemWide()
+            AXUIElementSetMessagingTimeout(system, 0.1)
+            var focused: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
+                  let element = focused else { return }
+            let axElement = element as! AXUIElement
+            AXUIElementSetMessagingTimeout(axElement, 0.1)
+            var role: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(axElement, kAXRoleAttribute as CFString, &role) == .success,
+                  let name = role as? String else { return }
+            guard let self else { return }
+            self.lock.lock()
+            self.sampledRole = name
+            self.lock.unlock()
+        }
+    }
+
+    /// Mains, battery or a UPS: a laptop on the couch is a different
+    /// posture, and often a different keyboard, from the desk.
+    private static func powerSource() -> String? {
+        guard let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
+              let type = IOPSGetProvidingPowerSourceType(info)?.takeRetainedValue() as String? else { return nil }
+        switch type {
+        case kIOPMACPowerKey: return "ac"
+        case kIOPMBatteryPowerKey: return "battery"
+        case kIOPMUPSPowerKey: return "ups"
+        default: return type.lowercased()
         }
     }
 
@@ -142,15 +247,17 @@ final class HealthMonitor {
     func noteHold(_ seconds: Double, at now: Date = Date()) {
         guard enabled else { return }
         if let flushed = pulse.hold(seconds, at: now) {
-            observations?.healthPulse(flushed)
+            recordPulse(flushed)
         }
     }
 
     /// Shutdown: the open window's counts must not die with the process.
     func flush() {
         drainPending(all: true)
-        if let final = pulse.flush() { observations?.healthPulse(final) }
+        if let final = pulse.flush() { recordPulse(final) }
         for event in clickPulse.flush() { observations?.clickPulse(event) }
+        if let closed = window.close() { emit(closed) }
+        keys.flushSync()
     }
 
     // MARK: - The mouse side
@@ -180,7 +287,7 @@ final class HealthMonitor {
         let releaseByStamp = Dictionary(releases.map { ($0.downAt, $0.release) }, uniquingKeysWith: { a, _ in a })
         let returnByStamp = Dictionary(returns.map { ($0.downAt, $0.seconds) }, uniquingKeysWith: { a, _ in a })
         for click in clicks {
-            if let flushed = pulse.click(at: click.at) { observations?.healthPulse(flushed) }
+            if let flushed = pulse.click(at: click.at) { recordPulse(flushed) }
             // The pid becomes a name here, on the main thread, and only
             // the name travels: the same word the focus events use.
             let app = Self.appName(click.pid)
@@ -201,7 +308,7 @@ final class HealthMonitor {
         }
         for burst in scrolls {
             if let flushed = pulse.scroll(from: burst.start, to: burst.last) {
-                observations?.healthPulse(flushed)
+                recordPulse(flushed)
             }
             for event in clickPulse.scroll(app: Self.appName(burst.pid),
                                            seconds: burst.last.timeIntervalSince(burst.start),
@@ -225,6 +332,10 @@ final class HealthMonitor {
         let timer = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
             guard let self else { return }
             self.drainPending()
+            // A window whose ninety seconds ran out with nobody typing
+            // closes here, and the raw store writes what it has.
+            if let closed = self.window.closeIfStale(now: Date()) { self.emit(closed) }
+            self.keys.flush()
             if self.enabled, self.tap == nil, Permissions.isTrusted {
                 self.tapThread = nil
                 self.startMouseTap()
@@ -296,7 +407,9 @@ final class HealthMonitor {
             sourceStateID: event.getIntegerValueField(.eventSourceStateID),
             postingPID: event.getIntegerValueField(.eventSourceUnixProcessID)
         ) else { return }
-        let now = Date()
+        // The event's own stamp: the tap thread is quiet, but the stamp
+        // is the hand's moment and the clock is the callback's.
+        let now = EventTime.date(of: event) ?? Date()
         let location = event.location
         lock.lock()
         defer { lock.unlock() }

@@ -53,18 +53,23 @@ public struct ObservationEvent: Codable, Equatable {
         /// A quarter-hour of the hands, as counts and moments only: `keys`,
         /// `backspaces`, `clicks`, `scrolls` (bursts, not wheel events),
         /// `activeMinutes`, and the inter-key interval's sufficient
-        /// statistics (`ikN`, `ikSum`, `ikSumSq`). The hard line, stated
-        /// once and enforced at the accumulator: **never key identities on
-        /// general typing** — per-key or per-digraph timing on arbitrary
-        /// text statistically reconstructs content, so the fingers'
+        /// statistics (`ikN`, `ikSum`, `ikSumSq`). No keycodes on general
+        /// typing — not as a courtesy but because no analysis wants them;
+        /// the discipline lives in what is said and what leaves the
+        /// machine (DESIGN, the bouts paragraph) — so the fingers'
         /// metrics are global moments and one anonymous flag (backspace,
-        /// the correction key) and nothing else, ever. Beside them the
+        /// the correction key). Beside them the
         /// shape: `holdN`/`holdSum`/`holdSumSq`/`holdHist` for press
         /// durations, `ikHist` for the rhythm's whole distribution,
         /// `ikTailN`/`ikTailSum` for the pauses past the motor ceiling,
         /// and `boutIndex`/`boutSeconds` placing the window inside its
         /// bout of continuous work. All shape, still no identity.
         case pulse
+        /// Ninety seconds of presses described exactly by `HoldWindow`:
+        /// `window` carries the order statistics, the pair terms by hand
+        /// and direction, the counts by kind, and the context the shell
+        /// added at close. The presses themselves live in the raw store.
+        case window
         /// A quarter hour of clicks in one app: `app`, `clicks`, `trips`
         /// (clicks whose previous input was a keystroke — the hand left
         /// the keys, now superseded by the pointer's measured homing and
@@ -211,6 +216,17 @@ public struct ObservationEvent: Codable, Equatable {
     /// verdict, so any decrement model is fitted at read time.
     public var boutIndex: Int?
     public var boutSeconds: Double?
+    /// A window's description.
+    public var window: WindowStats?
+    /// The keyboards attached while the pulse ran, by roster id.
+    public var keyboards: [String]?
+    /// The instrument watching itself: the callback's clock against the
+    /// event's own stamp, seconds, as moments — how late the tap ran —
+    /// and how many times the tap had to be re-enabled.
+    public var jitterN: Int?
+    public var jitterSum: Double?
+    public var jitterSumSq: Double?
+    public var tapResets: Int?
 
     public init(t: Date, kind: Kind) {
         self.t = t

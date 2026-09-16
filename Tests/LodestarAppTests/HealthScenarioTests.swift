@@ -23,6 +23,36 @@ final class HealthScenarioTests: XCTestCase {
         super.tearDown()
     }
 
+    /// The raw record: a press leaves with its hand, its kind and its
+    /// hold, and a press the engine kept leaves marked as a gesture.
+    func testARawPressNamesTheHandAndTheKindAndNeverTheKey() throws {
+        stage.pressHeld("a", for: 0.085)
+        stage.pressHeld("j", for: 0.11, shift: true)
+        stage.pressHeld("space", for: 0.07)
+        XCTAssertEqual(stage.presses.count, 3)
+        let a = stage.presses[0], j = stage.presses[1], space = stage.presses[2]
+        XCTAssertEqual(a.hand, .left)
+        XCTAssertEqual(a.kind, .letter)
+        XCTAssertEqual(a.hold!, 0.085, accuracy: 0.002)
+        XCTAssertFalse(a.gesture)
+        XCTAssertFalse(a.shift)
+        XCTAssertEqual(j.hand, .right)
+        XCTAssertTrue(j.shift)
+        XCTAssertFalse(j.chord)
+        XCTAssertEqual(space.hand, .thumb)
+        XCTAssertEqual(space.kind, .space)
+        XCTAssertTrue(space.isTyping)
+    }
+
+    func testAGestureIsARawPressMarkedAsOne() {
+        // A lode chain letter is swallowed by the engine: still a press
+        // the hand made, kept, and marked so the typing habit excludes it.
+        _ = stage.lode("a")
+        XCTAssertTrue(stage.presses.contains { $0.gesture },
+                      "a swallowed press should be recorded as a gesture")
+        XCTAssertFalse(stage.presses.contains { $0.gesture && $0.isTyping })
+    }
+
     func testAPressIsTimedFromItsOwnKeyDown() throws {
         stage.pressHeld("a", for: 0.085)
         stage.pressHeld("s", for: 0.11)

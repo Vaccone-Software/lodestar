@@ -343,6 +343,12 @@ public final class ObservationStore {
         record(event)
     }
 
+    /// A window of presses, folded by `HoldWindow`. The pulse's gate.
+    public func healthWindow(_ event: ObservationEvent) {
+        guard event.kind == .window, healthEnabled else { return }
+        record(event)
+    }
+
     /// A quarter hour of clicks in one app, folded by `ClickPulse`. The
     /// same gate as the pulse: it watches every click, not Lodestar's.
     public func clickPulse(_ event: ObservationEvent) {

@@ -73,6 +73,12 @@ public struct Rollup: Codable, Equatable {
         }
 
         public var mean: Double? { n > 0 ? sum / Double(n) : nil }
+
+        /// Sample standard deviation, when there are two or more.
+        public var sd: Double? {
+            guard n > 1, let mean else { return nil }
+            return max(0, (sumSquares - Double(n) * mean * mean) / Double(n - 1)).squareRoot()
+        }
     }
 
     public struct AddressMonth: Codable, Equatable {
@@ -155,6 +161,9 @@ public struct Rollup: Codable, Equatable {
         public var pauses: Stat?
         /// Bouts of continuous work: how long one ran, in minutes.
         public var boutMinutes: Stat?
+        /// The ninety-second windows, folded: each window's own spread
+        /// kept as a sample, so the month holds the spread of the spread.
+        public var windows: WindowRollup?
 
         public init() {}
 
@@ -185,6 +194,7 @@ public struct Rollup: Codable, Equatable {
             interKeyShape = try c.decodeIfPresent(Histogram.self, forKey: .interKeyShape)
             pauses = try c.decodeIfPresent(Stat.self, forKey: .pauses)
             boutMinutes = try c.decodeIfPresent(Stat.self, forKey: .boutMinutes)
+            windows = try c.decodeIfPresent(WindowRollup.self, forKey: .windows)
         }
 
         var isEmpty: Bool { self == HealthMonth() }
@@ -231,8 +241,48 @@ public struct Rollup: Codable, Equatable {
         public var backspaceRuns: [Int]?
         public var backspaceRunKeys: [Int]?
         public var scrollSeconds: Double?
+        /// The week's windows, folded the same way as the month's.
+        public var windows: WindowRollup?
 
         public init() {}
+    }
+
+    /// Windows folded: one sample per valid window of each published
+    /// feature, as a `Stat` across windows. A month of hold times pooled
+    /// is one number; a month of windows is a distribution of them, and
+    /// its spread is the thing the literature measures.
+    public struct WindowRollup: Codable, Equatable {
+        public var windows = 0
+        public var valid = 0
+        /// Per valid window: the sample SD of its holds, seconds.
+        public var holdSD = Stat()
+        /// Per valid window: the SD of ln(hold₂ ÷ hold₁).
+        public var fluctSD = Stat()
+        /// Per valid window: (q2 − q1) ÷ (q3 − q1).
+        public var vIQR = Stat()
+        /// Per valid window: outliers over typing presses.
+        public var vOut = Stat()
+        /// Per valid window: mean rollover overlap, seconds.
+        public var overlap = Stat()
+        /// Per valid window with both hands: left median hold minus right.
+        public var asymmetry = Stat()
+        /// Per valid window: the median hold, seconds.
+        public var holdMedian = Stat()
+
+        public init() {}
+
+        public mutating func add(_ window: WindowStats) {
+            windows += 1
+            guard window.valid else { return }
+            valid += 1
+            if let sd = window.hold.sd { holdSD.add(sd) }
+            if let sd = window.fluct.sd { fluctSD.add(sd) }
+            if let v = window.vIQR { vIQR.add(v) }
+            if let v = window.vOut { vOut.add(v) }
+            if let mean = window.overlap.mean { overlap.add(mean) }
+            if let a = window.asymmetry { asymmetry.add(a) }
+            if window.holdQ.count == 7 { holdMedian.add(window.holdQ[3]) }
+        }
     }
 
     public struct CoachMonth: Codable, Equatable {
@@ -610,6 +660,18 @@ public struct Rollup: Codable, Equatable {
             month.apps[app] = record
             let hour = Calendar.current.component(.hour, from: event.t)
             month.hours[min(23, max(0, hour))] += 1
+
+        case .window:
+            guard let stats = event.window else { return }
+            var folded = month.health.windows ?? WindowRollup()
+            folded.add(stats)
+            month.health.windows = folded
+            let week = "\(Observations.week(event.t))"
+            var weekly = month.weeks[week] ?? WeekHealth()
+            var weekFolded = weekly.windows ?? WindowRollup()
+            weekFolded.add(stats)
+            weekly.windows = weekFolded
+            month.weeks[week] = weekly
 
         case .pulse:
             let week = "\(Observations.week(event.t))"

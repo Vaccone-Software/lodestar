@@ -412,8 +412,12 @@ public enum Health {
         public var tapResets = 0
         public var keyboards: Set<String> = []
         public var jitterMean: Double? { jitterN > 0 ? jitterSum / Double(jitterN) : nil }
+        /// Keystrokes in pulses that carry the hold column at all — a
+        /// pulse archived before the column existed is not a dropped
+        /// release.
+        public var coverageKeys = 0
         /// Holds recorded per keystroke counted: the raw record's coverage.
-        public var coverage: Double? { keys > 0 ? Double(holdN) / Double(keys) : nil }
+        public var coverage: Double? { coverageKeys > 0 ? Double(holdN) / Double(coverageKeys) : nil }
 
         public var correctionRate: Double? {
             keys > 0 ? Double(backspaces) / Double(keys) : nil
@@ -506,6 +510,7 @@ public enum Health {
                 for i in 0..<3 { out.backspaceRunKeys[i] += runKeys[i] }
             }
             out.holdN += pulse.holdN ?? 0
+            if pulse.holdN != nil { out.coverageKeys += pulse.keys ?? 0 }
             out.holdSum += pulse.holdSum ?? 0
             out.holdSumSq += pulse.holdSumSq ?? 0
             if let hist = pulse.holdHist { out.holdHistogram.merge(hist) }

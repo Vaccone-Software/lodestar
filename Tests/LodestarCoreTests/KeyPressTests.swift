@@ -14,6 +14,41 @@ final class KeyPressTests: XCTestCase {
         XCTAssertEqual(Keys.hand(for: Keys.codes["5"]!), .left)
     }
 
+    func testFingersFollowTheTouchTypingColumns() {
+        XCTAssertEqual(Keys.finger(for: 0), .pinky)   // a
+        XCTAssertEqual(Keys.finger(for: 1), .ring)    // s
+        XCTAssertEqual(Keys.finger(for: 2), .middle)  // d
+        XCTAssertEqual(Keys.finger(for: 3), .index)   // f
+        XCTAssertEqual(Keys.finger(for: 5), .index)   // g
+        XCTAssertEqual(Keys.finger(for: 4), .index)   // h
+        XCTAssertEqual(Keys.finger(for: 38), .index)  // j
+        XCTAssertEqual(Keys.finger(for: 40), .middle) // k
+        XCTAssertEqual(Keys.finger(for: 37), .ring)   // l
+        XCTAssertEqual(Keys.finger(for: 41), .pinky)  // ;
+        XCTAssertEqual(Keys.finger(for: 49), .thumb)  // space
+        XCTAssertEqual(Keys.finger(for: 56), .pinky)  // left shift
+        XCTAssertEqual(Keys.finger(for: 59), .pinky)  // left control
+        XCTAssertEqual(Keys.finger(for: 58), .ring)   // left option
+        XCTAssertEqual(Keys.finger(for: 55), .thumb)  // left command
+        XCTAssertEqual(Keys.finger(for: 123), .unknown, "arrows are not guessed")
+    }
+
+    func testModifiersAreTheirOwnKindAndHaveAHand() {
+        XCTAssertEqual(Keys.modifier(for: 56), .shift)
+        XCTAssertEqual(Keys.modifier(for: 60), .shift)
+        XCTAssertEqual(Keys.modifier(for: 55), .command)
+        XCTAssertEqual(Keys.modifier(for: 62), .control)
+        XCTAssertEqual(Keys.modifier(for: 63), .fn)
+        XCTAssertNil(Keys.modifier(for: 0))
+        XCTAssertEqual(Keys.kind(for: 56), .modifier)
+        XCTAssertEqual(Keys.hand(for: 56), .left)
+        XCTAssertEqual(Keys.hand(for: 60), .right)
+        XCTAssertFalse(Keys.Kind.modifier.isTyping)
+        let press = KeyPress(down: Date(), hold: 2, hand: .left, kind: .modifier, modifiers: .control, struck: 4)
+        XCTAssertFalse(press.isTyping)
+        XCTAssertEqual(Keys.Modifiers.chording, [.command, .option, .control])
+    }
+
     func testEveryNamedKeyHasAKind() {
         for (code, name) in Keys.ansi {
             let kind = Keys.kind(for: code)
@@ -32,7 +67,7 @@ final class KeyPressTests: XCTestCase {
         }
         XCTAssertEqual(Keys.kind(for: 122), .function) // F1
         XCTAssertEqual(Keys.kind(for: 82), .keypad) // keypad 0
-        XCTAssertEqual(Keys.kind(for: 63), .other) // fn
+        XCTAssertEqual(Keys.kind(for: 63), .modifier) // fn is a modifier now, with its own record
     }
 
     func testTypingIsTheHabitAndNothingElse() {

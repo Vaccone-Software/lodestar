@@ -23,6 +23,62 @@ final class HealthTests: XCTestCase {
         XCTAssertEqual(event?.clicks, 1)
     }
 
+    func testTimeToCorrectionIsTheGapToTheFirstBackspaceOfARun() {
+        var pulse = HealthPulse()
+        _ = pulse.key(at: start, backspace: false)
+        _ = pulse.key(at: start.addingTimeInterval(0.3), backspace: true)
+        _ = pulse.key(at: start.addingTimeInterval(0.4), backspace: true) // the run, not a new fix
+        _ = pulse.key(at: start.addingTimeInterval(1.0), backspace: false)
+        _ = pulse.key(at: start.addingTimeInterval(1.0 + HealthPulse.fixCeiling + 1), backspace: true) // too late
+        let event = pulse.flush(now: start.addingTimeInterval(10))
+        XCTAssertEqual(event?.fixN, 1)
+        XCTAssertEqual(event?.fixSum ?? 0, 0.3, accuracy: 1e-6)
+        XCTAssertEqual(event?.fixSumSq ?? 0, 0.09, accuracy: 1e-6)
+        XCTAssertEqual(event?.backspaces, 3)
+    }
+
+    func testScrollBurstsAreSplitByKindAndPostedClicksAreCountedApart() {
+        var pulse = HealthPulse()
+        _ = pulse.scroll(from: start, to: start.addingTimeInterval(0.4), precise: true, momentum: true)
+        _ = pulse.scroll(from: start.addingTimeInterval(2), to: start.addingTimeInterval(2.2), precise: true)
+        _ = pulse.scroll(from: start.addingTimeInterval(4), to: start.addingTimeInterval(4.1))
+        _ = pulse.postedClick(at: start.addingTimeInterval(5))
+        _ = pulse.postedClick(at: start.addingTimeInterval(5.1))
+        _ = pulse.click(at: start.addingTimeInterval(6))
+        let event = pulse.flush(now: start.addingTimeInterval(10))
+        XCTAssertEqual(event?.scrolls, 3)
+        XCTAssertEqual(event?.scrollPrecise, 2)
+        XCTAssertEqual(event?.scrollMomentum, 1)
+        XCTAssertEqual(event?.clicksPosted, 2)
+        XCTAssertEqual(event?.clicks, 1, "the hand's clicks never include the tool's")
+    }
+
+    func testAPostedClickAloneOpensNoPulse() {
+        var pulse = HealthPulse()
+        _ = pulse.postedClick(at: start)
+        XCTAssertNil(pulse.flush(now: start.addingTimeInterval(1)), "a posted click is not the hands being present")
+    }
+
+    func testSummaryCarriesTheNewColumns() {
+        var a = ObservationEvent(t: start, kind: .pulse)
+        a.keys = 10
+        a.scrolls = 4
+        a.scrollPrecise = 3
+        a.scrollMomentum = 1
+        a.clicksPosted = 5
+        a.fixN = 2
+        a.fixSum = 0.8
+        a.fixSumSq = 0.34
+        var b = a
+        b.t = start.addingTimeInterval(900)
+        let summary = Health.summary(events: [a, b], days: 1, now: start.addingTimeInterval(1000))!
+        XCTAssertEqual(summary.fixN, 4)
+        XCTAssertEqual(summary.fixMean!, 0.4, accuracy: 1e-9)
+        XCTAssertEqual(summary.scrollPreciseShare!, 0.75, accuracy: 1e-9)
+        XCTAssertEqual(summary.scrollMomentumShare!, 0.25, accuracy: 1e-9)
+        XCTAssertEqual(summary.clicksPosted, 10)
+    }
+
     func testAutorepeatIsPresenceNotTyping() {
         var pulse = HealthPulse()
         let start = Date(timeIntervalSince1970: 1_700_000_000)

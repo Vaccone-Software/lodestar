@@ -356,6 +356,13 @@ public final class ObservationStore {
         record(event)
     }
 
+    /// The instrument's own state changed. The pulse's gate: it is part
+    /// of the health record and travels with it.
+    public func era(_ event: ObservationEvent) {
+        guard event.kind == .era, healthEnabled else { return }
+        record(event)
+    }
+
     /// Off means no pulse is recorded; the accumulator upstream also stops
     /// feeding, but the store enforces its own gate so a straggler flush
     /// cannot land after the switch.
@@ -478,5 +485,6 @@ public final class ObservationStore {
                                                 withIntermediateDirectories: true)
         try? data.write(to: file, options: .atomic)
         Paths.restrict(file)
+        Paths.excludeFromBackup(file)
     }
 }

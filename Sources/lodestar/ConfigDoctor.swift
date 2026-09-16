@@ -739,9 +739,29 @@ func runObservations(clear: Bool, engine: Bool) -> Never {
                 press += pad(String(format: "variation %.0f%%", cv * 100), 18)
             }
             if let median = health.holdHistogram.median {
-                press += String(format: "median %.0fms", median * 1000)
+                press += pad(String(format: "median %.0fms", median * 1000), 14)
+            }
+            // How fast a slip is noticed, apart from how often one is
+            // made: the last key to the first backspace of a run.
+            if let fix = health.fixMean {
+                press += String(format: "fix %.0fms", fix * 1000)
             }
             print(press)
+        }
+        // The wheel by what made it, and the clicks that were the tool's
+        // and not the hand's.
+        if health.scrolls > 0 || health.clicksPosted > 0 {
+            var pointer = pad("  pointer", 10)
+            if let precise = health.scrollPreciseShare {
+                pointer += pad(String(format: "scroll %.0f%% trackpad", precise * 100), 20)
+            }
+            if let flick = health.scrollMomentumShare {
+                pointer += pad(String(format: "%.0f%% flick", flick * 100), 12)
+            }
+            if health.clicksPosted > 0 {
+                pointer += "posted clicks \(health.clicksPosted)"
+            }
+            print(pointer)
         }
         // The windows: each one's own spread, and the spread of those
         // spreads across the weeks. Description, no verdict.

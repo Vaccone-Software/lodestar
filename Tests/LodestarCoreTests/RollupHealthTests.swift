@@ -79,6 +79,33 @@ final class RollupHealthTests: XCTestCase {
         XCTAssertEqual(month.weeks[week]?.pauses?.n, 14)
     }
 
+    func testFixScrollKindsPostedClicksAndVersionsFold() throws {
+        var first = pulse(at: july)
+        first.fixN = 3
+        first.fixSum = 1.2
+        first.fixSumSq = 0.5
+        first.scrollPrecise = 2
+        first.scrollMomentum = 1
+        first.clicksPosted = 4
+        let second = first
+        var oldBuild = ObservationEvent(t: july.addingTimeInterval(60), kind: .era)
+        oldBuild.era = EraInfo(appVersion: "0.34.0", keySchema: 1, pointerSchema: 0)
+        var newBuild = ObservationEvent(t: july.addingTimeInterval(3600), kind: .era)
+        newBuild.era = EraInfo(appVersion: "0.35.0", keySchema: 2, pointerSchema: 1)
+        var again = newBuild
+        again.t = july.addingTimeInterval(7200)
+        let months = Rollup.build(events: [first, second, oldBuild, newBuild, again], now: now)
+        let month = try XCTUnwrap(months[Rollup.monthKey(july)])
+        XCTAssertEqual(month.health.fix?.n, 6)
+        XCTAssertEqual(try XCTUnwrap(month.health.fix?.sum), 2.4, accuracy: 1e-9)
+        XCTAssertEqual(month.health.scrollPrecise, 4)
+        XCTAssertEqual(month.health.scrollMomentum, 2)
+        XCTAssertEqual(month.health.clicksPosted, 8)
+        XCTAssertEqual(month.versions, ["0.34.0", "0.35.0"], "each build once, sorted")
+        let week = "\(Observations.week(july))"
+        XCTAssertEqual(month.weeks[week]?.fix?.n, 6)
+    }
+
     /// A bout is archived when the pulse says it ended — the next window
     /// at index zero — and not re-derived from timestamps here.
     func testBoutsArchiveWhenThePulseClosesThem() throws {

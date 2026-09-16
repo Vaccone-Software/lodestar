@@ -30,9 +30,14 @@ public enum Paths {
     public static let pidFile = config.appendingPathComponent("lodestar.pid")
     public static let update = config.appendingPathComponent("update", isDirectory: true)
 
-    /// Create both roots, and keep the data directory out of backups and
-    /// off other users' reach — clipboard history has no business in a
-    /// Time Machine snapshot.
+    /// Create both roots, and keep the data directory off other users'
+    /// reach. Backups are decided file by file, not for the directory:
+    /// the *behavioral* record — the event ring, the observations, the
+    /// clipboard, the log, the state — is browser-history-grade and
+    /// stays out of Time Machine; the *health* record — the raw presses
+    /// and reaches, the archived pulses and windows, the monthly rollup
+    /// — is a baseline nothing can recompute, and one disk must not be
+    /// the only copy of it.
     public static func prepare() {
         let fm = FileManager.default
         try? fm.createDirectory(at: config, withIntermediateDirectories: true)
@@ -47,19 +52,48 @@ public enum Paths {
         // hands' pulse — is browser-history-grade, and nothing on this
         // machine but you has business reading it.
         try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: data.path)
+        // The directory itself used to carry the backup exclusion, which
+        // kept the health record out with everything else. Cleared here
+        // and re-applied to the behavioral files one by one, every
+        // launch, so a data directory made under the old rule comes
+        // right on its own.
+        var directory = data
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = false
+        try? directory.setResourceValues(values)
         if let names = try? fm.contentsOfDirectory(atPath: data.path) {
             for name in names {
                 let item = data.appendingPathComponent(name)
                 var isDirectory: ObjCBool = false
-                guard fm.fileExists(atPath: item.path, isDirectory: &isDirectory),
-                      !isDirectory.boolValue else { continue }
+                guard fm.fileExists(atPath: item.path, isDirectory: &isDirectory) else { continue }
+                if isBehavioral(name) { excludeFromBackup(item) }
+                guard !isDirectory.boolValue else { continue }
                 restrict(item)
             }
         }
-        var directory = data
+        excludeFromBackup(clipboard)
+    }
+
+    /// The files of the behavioral record, by name: what a backup must
+    /// not carry. Everything else in the data directory is the health
+    /// record or harmless, and is backed up.
+    public static func isBehavioral(_ name: String) -> Bool {
+        if name == "clipboard" { return true }
+        for prefix in ["events", "observations", "lodestar.log", "state.json"]
+        where name == prefix || name.hasPrefix(prefix + ".") || name.hasPrefix(prefix + "-") {
+            return true
+        }
+        return false
+    }
+
+    /// Keep one file out of Time Machine. Called by every writer of a
+    /// behavioral file after it creates one, because a fresh inode does
+    /// not inherit the flag.
+    public static func excludeFromBackup(_ url: URL) {
+        var url = url
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
-        try? directory.setResourceValues(values)
+        try? url.setResourceValues(values)
     }
 
     /// Owner-only. Atomic writes replace the inode, and the fresh file

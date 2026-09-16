@@ -2,10 +2,10 @@ import Foundation
 
 /// The durable monthly archive: what survives the ring.
 ///
-/// `events.jsonl` holds ninety rolling days, and the quarterly
-/// retrospective speaks from quarters — so once a calendar month
-/// completes, its summary is written down before compaction lets the raw
-/// events go. What is written is **sufficient statistics, never fitted
+/// `events.jsonl` is bounded by size and retires its oldest months when
+/// it is over, and the quarterly retrospective speaks from quarters — so
+/// once a calendar month completes, its summary is written down before
+/// compaction lets the raw events go. What is written is **sufficient statistics, never fitted
 /// models**: the v1 lesson (a write-time median froze a mistake into the
 /// data) holds hardest here, where there is no replaying once the ring
 /// moves on. Counts, sums, and log-moments — later models derive what
@@ -164,6 +164,13 @@ public struct Rollup: Codable, Equatable {
         /// The ninety-second windows, folded: each window's own spread
         /// kept as a sample, so the month holds the spread of the spread.
         public var windows: WindowRollup?
+        /// Time to correction, seconds: the last key to the first
+        /// backspace of a run.
+        public var fix: Stat?
+        /// Wheel bursts by kind, and the clicks that were not the hand's.
+        public var scrollPrecise: Int?
+        public var scrollMomentum: Int?
+        public var clicksPosted: Int?
 
         public init() {}
 
@@ -195,6 +202,10 @@ public struct Rollup: Codable, Equatable {
             pauses = try c.decodeIfPresent(Stat.self, forKey: .pauses)
             boutMinutes = try c.decodeIfPresent(Stat.self, forKey: .boutMinutes)
             windows = try c.decodeIfPresent(WindowRollup.self, forKey: .windows)
+            fix = try c.decodeIfPresent(Stat.self, forKey: .fix)
+            scrollPrecise = try c.decodeIfPresent(Int.self, forKey: .scrollPrecise)
+            scrollMomentum = try c.decodeIfPresent(Int.self, forKey: .scrollMomentum)
+            clicksPosted = try c.decodeIfPresent(Int.self, forKey: .clicksPosted)
         }
 
         var isEmpty: Bool { self == HealthMonth() }
@@ -243,6 +254,8 @@ public struct Rollup: Codable, Equatable {
         public var scrollSeconds: Double?
         /// The week's windows, folded the same way as the month's.
         public var windows: WindowRollup?
+        /// Time to correction, seconds.
+        public var fix: Stat?
 
         public init() {}
     }
@@ -357,6 +370,9 @@ public struct Rollup: Codable, Equatable {
         public var latency: [String: Stat] = [:]
         /// Week ordinal (as a string key, for JSON) → that week's health.
         public var weeks: [String: WeekHealth] = [:]
+        /// Every build that wrote into the month, from its era events —
+        /// so a step in the data can be told from a step in the hand.
+        public var versions: [String] = []
 
         public init(firstEvent: Date, lastEvent: Date) {
             self.firstEvent = firstEvent
@@ -411,6 +427,7 @@ public struct Rollup: Codable, Equatable {
             latency = try container.decodeIfPresent([String: Stat].self, forKey: .latency) ?? [:]
             weeks = try container.decodeIfPresent([String: WeekHealth].self,
                                                   forKey: .weeks) ?? [:]
+            versions = try container.decodeIfPresent([String].self, forKey: .versions) ?? []
         }
     }
 
@@ -717,7 +734,26 @@ public struct Rollup: Codable, Equatable {
                 pauses.merge(n: n, sum: event.ikTailSum ?? 0, sumSquares: 0)
                 month.health.pauses = pauses
             }
+            if let n = event.fixN, n > 0 {
+                var fix = month.health.fix ?? Stat()
+                fix.merge(n: n, sum: event.fixSum ?? 0, sumSquares: event.fixSumSq ?? 0)
+                month.health.fix = fix
+            }
+            if let n = event.scrollPrecise, n > 0 {
+                month.health.scrollPrecise = (month.health.scrollPrecise ?? 0) + n
+            }
+            if let n = event.scrollMomentum, n > 0 {
+                month.health.scrollMomentum = (month.health.scrollMomentum ?? 0) + n
+            }
+            if let n = event.clicksPosted, n > 0 {
+                month.health.clicksPosted = (month.health.clicksPosted ?? 0) + n
+            }
             var weekly = month.weeks[week] ?? WeekHealth()
+            if let n = event.fixN, n > 0 {
+                var fix = weekly.fix ?? Stat()
+                fix.merge(n: n, sum: event.fixSum ?? 0, sumSquares: event.fixSumSq ?? 0)
+                weekly.fix = fix
+            }
             if let n = event.holdN, n > 0 {
                 var hold = weekly.hold ?? Stat()
                 hold.merge(n: n, sum: event.holdSum ?? 0, sumSquares: event.holdSumSq ?? 0)
@@ -750,6 +786,11 @@ public struct Rollup: Codable, Equatable {
             guard let surface = event.verb, let seconds = event.seconds, seconds > 0
             else { return }
             month.latency[surface, default: Stat()].add(log(seconds))
+
+        case .era:
+            guard let era = event.era, !month.versions.contains(era.appVersion) else { return }
+            month.versions.append(era.appVersion)
+            month.versions.sort()
 
         case .clicks:
             guard let app = event.app else { return }

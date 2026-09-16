@@ -21,10 +21,10 @@ public struct ReachMotion: Equatable {
     /// Bands need a second of motion to mean anything.
     public static let bandFloor: TimeInterval = 1.0
 
-    private(set) var t: [Double] = []
-    private(set) var dx: [Double] = []
-    private(set) var dy: [Double] = []
-    private var origin: Date?
+    public private(set) var t: [Double] = []
+    public private(set) var dx: [Double] = []
+    public private(set) var dy: [Double] = []
+    public private(set) var origin: Date?
 
     public init() {}
 
@@ -44,6 +44,19 @@ public struct ReachMotion: Equatable {
         t.append(now.timeIntervalSince(origin))
         self.dx.append(dx)
         self.dy.append(dy)
+    }
+
+    /// The reports as the raw store keeps them: each one's distance in
+    /// time from the one before, and the device's own counts.
+    public var samples: [PointerStore.Sample] {
+        var out: [PointerStore.Sample] = []
+        out.reserveCapacity(t.count)
+        var previous = 0.0
+        for i in 0..<t.count {
+            out.append(PointerStore.Sample(dt: t[i] - previous, dx: Int(dx[i].rounded()), dy: Int(dy[i].rounded())))
+            previous = t[i]
+        }
+        return out
     }
 
     /// The profile, read at the press.

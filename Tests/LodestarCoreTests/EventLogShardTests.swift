@@ -67,23 +67,58 @@ final class EventLogShardTests: XCTestCase {
                        "a month that closes across compactions accumulates")
     }
 
-    func testRetentionRetiresWholeShards() {
+    private func pulse(at date: Date) -> ObservationEvent {
+        var event = ObservationEvent(t: date, kind: .pulse)
+        event.keys = 10
+        event.holdN = 10
+        event.holdSum = 0.9
+        return event
+    }
+
+    /// The ring is bounded by size: over the bound, the oldest month
+    /// retires as a whole file — and its health kinds leave first, for
+    /// an archive the bound never touches.
+    func testTheBoundRetiresTheOldestShardAndArchivesItsHealth() {
         let log = makeLog()
         let now = day("2026-09-05T12:00:00Z")
-        log.append(event(at: day("2025-06-10T12:00:00Z"))) // 15 months back
+        log.append(event(at: day("2026-06-10T12:00:00Z")))
+        log.append(pulse(at: day("2026-06-10T12:15:00Z")))
+        log.append(event(at: day("2026-07-10T12:00:00Z")))
+        log.append(event(at: day("2026-09-01T12:00:00Z")))
+        log.flush()
+        // Rotation first, under a bound nothing reaches.
+        log.compact(now: now)
+        let june = log.shardFile(for: "2026-06")
+        let july = log.shardFile(for: "2026-07")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: june.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: july.path))
+        func size(_ url: URL) -> Int64 {
+            ((try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber)?.int64Value ?? 0
+        }
+        // A bound that July and the live file fit under, but June does not.
+        log.behavioralBound = size(july) + size(log.file)
+        log.compact(now: now)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: june.path), "the oldest month retired")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: july.path), "and only the oldest")
+        XCTAssertEqual(log.readAll().count, 2)
+        // June's pulse survived into the health archive; June's verb did not.
+        let archived = EventLog.healthArchive(month: "2026-06", beside: log.file)
+        XCTAssertEqual(archived.map(\.kind), [.pulse])
+        XCTAssertEqual(archived.first?.holdN, 10)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: log.healthArchiveFile(for: "2026-06").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: log.healthArchiveFile(for: "2026-07").path),
+                       "a month still in the ring has no archive yet")
+    }
+
+    /// A shard that has aged, under the bound, stays: age is not a rule.
+    func testAgeAloneRetiresNothing() {
+        let log = makeLog()
+        let now = day("2026-09-05T12:00:00Z")
+        log.append(event(at: day("2024-06-10T12:00:00Z")))
         log.append(event(at: day("2026-08-10T12:00:00Z")))
         log.flush()
         log.compact(now: now)
-        // The ancient event aged out before ever reaching a shard.
-        XCTAssertFalse(FileManager.default.fileExists(
-            atPath: log.shardFile(for: "2025-06").path))
-        // And a shard that exists but has aged out is deleted next pass.
-        try? "".write(to: log.shardFile(for: "2025-05"), atomically: true, encoding: .utf8)
-        log.append(event(at: day("2026-07-01T12:00:00Z")))
-        log.flush()
-        log.compact(now: now)
-        XCTAssertFalse(FileManager.default.fileExists(
-            atPath: log.shardFile(for: "2025-05").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: log.shardFile(for: "2024-06").path))
         XCTAssertEqual(log.readAll().count, 2)
     }
 

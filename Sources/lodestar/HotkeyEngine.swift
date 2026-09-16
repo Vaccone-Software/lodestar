@@ -83,13 +83,32 @@ final class HotkeyEngine {
         var lens = false
         var keyboardType = 0
         var swallowed = false
+        /// The modifiers that were down when the key was struck.
+        var modifiers: Keys.Modifiers = []
+        /// For a modifier's own press: which one it is. Empty for a key.
+        var modifier: Keys.Modifiers = []
+        /// For a modifier's own press: keys struck while it was held.
+        var struck = 0
 
         func keyPress(keycode: Int64, hold: Double?) -> KeyPress {
             KeyPress(down: down, hold: hold, hand: Keys.hand(for: keycode),
-                     kind: Keys.kind(for: keycode), shift: shift, chord: chord,
+                     kind: modifier.isEmpty ? Keys.kind(for: keycode) : .modifier,
+                     shift: shift, chord: chord,
                      gesture: swallowed, lens: lens, repeated: repeated,
-                     keyboardType: keyboardType)
+                     keyboardType: keyboardType, finger: Keys.finger(for: keycode),
+                     modifiers: modifier.isEmpty ? modifiers : modifier, struck: struck)
         }
+    }
+
+    /// The modifier set an event's flags describe.
+    private static func modifiers(of flags: CGEventFlags) -> Keys.Modifiers {
+        var set: Keys.Modifiers = []
+        if flags.contains(.maskCommand) { set.insert(.command) }
+        if flags.contains(.maskShift) { set.insert(.shift) }
+        if flags.contains(.maskAlternate) { set.insert(.option) }
+        if flags.contains(.maskControl) { set.insert(.control) }
+        if flags.contains(.maskSecondaryFn) { set.insert(.fn) }
+        return set
     }
     /// Presses in flight, by keycode: when each went down, and whether
     /// the OS repeated it. Bounded by the hand — at most a few keys are
@@ -444,9 +463,35 @@ final class HotkeyEngine {
     /// that has been down longer than any keystroke — leave as records
     /// with no hold, so the coverage line can count them.
     private func strand(all: Bool = false, olderThan: TimeInterval = 5, now: Date) {
-        for (keycode, press) in pressedAt where all || now.timeIntervalSince(press.down) > olderThan {
+        for (keycode, press) in pressedAt {
+            // A modifier held for a minute is a chord being worked, not a
+            // release the tap missed; a key held that long is.
+            let ceiling = press.modifier.isEmpty ? olderThan : Self.modifierStrandSeconds
+            guard all || now.timeIntervalSince(press.down) > ceiling else { continue }
             onHumanPress?(press.keyPress(keycode: keycode, hold: nil))
             pressedAt.removeValue(forKey: keycode)
+        }
+    }
+
+    static let modifierStrandSeconds: TimeInterval = 60
+
+    /// A modifier went down or came up: its own press record, timed
+    /// from the flags transitions the way a key's is from its keydown
+    /// and keyup. Its hold is the sustained load the letters' records
+    /// cannot show, so it goes to the raw store and the windows and
+    /// never into the typing hold channel.
+    private func noteModifier(_ event: CGEvent, at: Date) {
+        let keycode = event.getIntegerValueField(.keyboardEventKeycode)
+        guard let modifier = Keys.modifier(for: keycode) else { return }
+        if let press = pressedAt.removeValue(forKey: keycode) {
+            onHumanPress?(press.keyPress(keycode: keycode, hold: at.timeIntervalSince(press.down)))
+        } else {
+            strand(now: at)
+            var press = Press(down: at, lens: core.state != .idle,
+                              keyboardType: Int(event.getIntegerValueField(.keyboardEventKeyboardType)))
+            press.modifiers = Self.modifiers(of: event.flags).subtracting(modifier)
+            press.modifier = modifier
+            pressedAt[keycode] = press
         }
     }
 
@@ -500,6 +545,7 @@ final class HotkeyEngine {
                actingInputWasHuman {
                 onLodeDoubleTap?()
             }
+            if actingInputWasHuman { noteModifier(event, at: at) }
             handleFlagsChanged(event)
             return Unmanaged.passUnretained(event)
         }
@@ -542,12 +588,18 @@ final class HotkeyEngine {
             if repeated {
                 pressedAt[keycode]?.repeated = true
             } else if pressedAt[keycode] == nil {
-                pressedAt[keycode] = Press(
+                var press = Press(
                     down: at,
                     shift: event.flags.contains(.maskShift),
                     chord: !event.flags.intersection([.maskCommand, .maskControl, .maskAlternate]).isEmpty,
                     lens: core.state != .idle,
                     keyboardType: Int(event.getIntegerValueField(.keyboardEventKeyboardType)))
+                press.modifiers = Self.modifiers(of: event.flags)
+                pressedAt[keycode] = press
+                // The chord's size, counted on the modifier that holds it.
+                for (held, open) in pressedAt where !open.modifier.isEmpty {
+                    pressedAt[held]?.struck += 1
+                }
             }
         }
         // A chord carrying ⌘⌥⌃ together is a hyper-key shim's, never typing:

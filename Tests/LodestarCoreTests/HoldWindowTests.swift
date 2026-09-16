@@ -14,6 +14,57 @@ final class HoldWindowTests: XCTestCase {
                  chord: chord, gesture: gesture, repeated: repeated)
     }
 
+    // MARK: - The new columns
+
+    func testModifierPressesAreCountedWithTheirHoldAndChordSize() {
+        var presses = (0..<30).map { press(Double($0) * 0.2) }
+        for i in presses.indices { presses[i].finger = i % 2 == 0 ? .index : .pinky }
+        var control = press(0.05, hold: 1.5, kind: .modifier)
+        control.modifiers = .control
+        control.struck = 6
+        var shift = press(3.0, hold: 0.4, kind: .modifier)
+        shift.modifiers = .shift
+        shift.struck = 1
+        let stats = HoldWindow.stats(start: start, presses: presses + [control, shift])
+        XCTAssertEqual(stats.modifiers, 2)
+        XCTAssertEqual(stats.struck, 7)
+        XCTAssertEqual(stats.modifierHold?.n, 2)
+        XCTAssertEqual(stats.modifierHold?.sum ?? 0, 1.9, accuracy: 1e-9)
+        XCTAssertEqual(stats.typing, 30, "a modifier is never typing")
+        XCTAssertEqual(stats.fingers?[Int(Keys.Finger.index.rawValue)], 15)
+        XCTAssertEqual(stats.fingers?[Int(Keys.Finger.pinky.rawValue)], 15)
+        XCTAssertEqual(stats.fingers?[Int(Keys.Finger.unknown.rawValue)], 2)
+        XCTAssertEqual(stats.kinds[Int(Keys.Kind.modifier.rawValue)], 2)
+    }
+
+    func testAWindowWrittenBeforeTheColumnsDecodes() throws {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .secondsSince1970
+        let json = """
+        {"start":1700000000,"seconds":10,"presses":3,"typing":3,"valid":false,
+         "hold":{"n":3,"sum":0.3,"sumSq":0.03,"sumCube":0.003,"sumQuad":0.0003},
+         "holdQ":[],"holdCDF":[],"outliers":0,
+         "fluct":{"n":0,"sum":0,"sumSq":0,"sumCube":0,"sumQuad":0},"fluctQ":[],
+         "flight":{"n":0,"sum":0,"sumSq":0,"sumCube":0,"sumQuad":0},
+         "overlap":{"n":0,"sum":0,"sumSq":0,"sumCube":0,"sumQuad":0},"overlapN":0,
+         "latency":{"n":0,"sum":0,"sumSq":0,"sumCube":0,"sumQuad":0},
+         "left":{"hold":{"n":0,"sum":0,"sumSq":0,"sumCube":0,"sumQuad":0},"q":[]},
+         "right":{"hold":{"n":0,"sum":0,"sumSq":0,"sumCube":0,"sumQuad":0},"q":[]},
+         "ll":{"n":0,"latency":{"n":0,"sum":0,"sumSq":0,"sumCube":0,"sumQuad":0},"flight":{"n":0,"sum":0,"sumSq":0,"sumCube":0,"sumQuad":0}},
+         "lr":{"n":0,"latency":{"n":0,"sum":0,"sumSq":0,"sumCube":0,"sumQuad":0},"flight":{"n":0,"sum":0,"sumSq":0,"sumCube":0,"sumQuad":0}},
+         "rl":{"n":0,"latency":{"n":0,"sum":0,"sumSq":0,"sumCube":0,"sumQuad":0},"flight":{"n":0,"sum":0,"sumSq":0,"sumCube":0,"sumQuad":0}},
+         "rr":{"n":0,"latency":{"n":0,"sum":0,"sumSq":0,"sumCube":0,"sumQuad":0},"flight":{"n":0,"sum":0,"sumSq":0,"sumCube":0,"sumQuad":0}},
+         "kinds":[0,3,0,0,0,0,0,0,0,0,0,0],"shift":0,"chord":0,"gesture":0,"lens":0,"repeated":0,
+         "unseen":0,"keyboardTypes":{"40":3}}
+        """
+        let stats = try decoder.decode(WindowStats.self, from: Data(json.utf8))
+        XCTAssertEqual(stats.presses, 3)
+        XCTAssertNil(stats.fingers)
+        XCTAssertNil(stats.modifierHold)
+        XCTAssertNil(stats.lid)
+        XCTAssertEqual(stats.kinds.count, 12, "an older window's kinds are read as written")
+    }
+
     // MARK: - Windowing
 
     func testAPressPastNinetySecondsClosesTheWindowAndOpensTheNext() {

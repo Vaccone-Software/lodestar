@@ -51,10 +51,14 @@ public struct PointerTracker: Equatable {
         /// The reach's speed profile, when the tap fed it the device's
         /// deltas.
         public var kin: Kinematics?
+        /// The reports themselves, for the raw store: the profile above
+        /// is what they fold to, and what they fold to is not all a
+        /// later question will want.
+        public var motion: ReachMotion?
 
         public init(travel: Double = 0, settle: Double = 0, homing: Double? = nil,
                     path: Double = 0, displacement: Double = 0, stationary: Bool = false,
-                    kin: Kinematics? = nil) {
+                    kin: Kinematics? = nil, motion: ReachMotion? = nil) {
             self.travel = travel
             self.settle = settle
             self.homing = homing
@@ -62,6 +66,7 @@ public struct PointerTracker: Equatable {
             self.displacement = displacement
             self.stationary = stationary
             self.kin = kin
+            self.motion = motion
         }
     }
 
@@ -170,7 +175,8 @@ public struct PointerTracker: Equatable {
         return Click(travel: travel, settle: settle, homing: homing,
                      path: open.path + Self.distance(open.current, point),
                      displacement: Self.distance(open.origin, point),
-                     kin: open.motion.kinematics(end: now))
+                     kin: open.motion.kinematics(end: now),
+                     motion: open.motion.count > 0 ? open.motion : nil)
     }
 
     /// The button came up. Nil when no press was open (a release the tap

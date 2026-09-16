@@ -101,16 +101,16 @@ final class EventLogTests: XCTestCase {
         XCTAssertEqual(log.readAll().count, 2, "flushing appends; it never rewrites")
     }
 
-    func testCompactionDropsOnlyWhatAgedOut() {
+    func testCompactionKeepsOldMonthsUnderTheBound() {
         let log = makeLog()
         let now = Date()
-        log.append(chainEvent(at: now.addingTimeInterval(-EventLog.retention - 86_400)))
+        log.append(chainEvent(at: now.addingTimeInterval(-450 * 86_400)))
         log.append(chainEvent(at: now.addingTimeInterval(-3600)))
         log.flush()
         log.compact(now: now)
         let kept = EventLog(file: log.file).readAll()
-        XCTAssertEqual(kept.count, 1, "the ring is bounded by age")
-        XCTAssertEqual(kept.first?.t.timeIntervalSince(now) ?? 0, -3600, accuracy: 5)
+        XCTAssertEqual(kept.count, 2, "the ring is bounded by size, never by age")
+        XCTAssertEqual(kept.last?.t.timeIntervalSince(now) ?? 0, -3600, accuracy: 5)
     }
 
     func testClearRemovesEverything() {

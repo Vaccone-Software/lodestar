@@ -53,6 +53,9 @@ public struct HealthPulse: Equatable {
     /// Autorepeat is already excluded upstream; this catches the held
     /// key that never repeated.
     public static let holdCeiling: TimeInterval = 1.0
+    /// A backspace this long after the key it corrects is a correction
+    /// of that key; later is a rewrite of a thought, not a slip noticed.
+    public static let fixCeiling: TimeInterval = 5.0
 
     var windowStart: Date?
     var keys = 0
@@ -83,6 +86,20 @@ public struct HealthPulse: Equatable {
     var jitterSum = 0.0
     var jitterSumSq = 0.0
     var tapResets = 0
+    /// Time to correction: the last key to the first backspace of a run,
+    /// as moments. How fast a slip is *noticed*, apart from how often
+    /// one is made.
+    var fixN = 0
+    var fixSum = 0.0
+    var fixSumSq = 0.0
+    /// Wheel bursts by what made them: precise deltas (a trackpad or a
+    /// Magic Mouse, against a wheel's notches) and bursts that carried
+    /// momentum (a flick, against a drag held to the glass).
+    var scrollPrecise = 0
+    var scrollMomentum = 0
+    /// Clicks Lodestar or another process posted, counted apart so the
+    /// hand's own are never inflated by the tool's.
+    var clicksPosted = 0
     var lastKeyAt: Date?
     var lastScrollAt: Date?
     /// Any input at all, for the bout boundary — a bout is the hands
@@ -122,6 +139,14 @@ public struct HealthPulse: Equatable {
         keys += 1
         if backspace {
             backspaces += 1
+            if runLength == 0, let last = lastKeyAt {
+                let gap = now.timeIntervalSince(last)
+                if gap > 0, gap <= Self.fixCeiling {
+                    fixN += 1
+                    fixSum += gap
+                    fixSumSq += gap * gap
+                }
+            }
             runLength += 1
         } else {
             closeRun()
@@ -214,14 +239,26 @@ public struct HealthPulse: Equatable {
 
     /// A whole burst, already coalesced at the tap: one reach for the
     /// wheel, and how long it ran.
-    public mutating func scroll(from start: Date, to end: Date) -> ObservationEvent? {
+    public mutating func scroll(from start: Date, to end: Date,
+                                precise: Bool = false, momentum: Bool = false) -> ObservationEvent? {
         let flushed = rollIfDue(now: start)
         scrolls += 1
+        if precise { scrollPrecise += 1 }
+        if momentum { scrollMomentum += 1 }
         scrollSeconds += max(0, end.timeIntervalSince(start))
         lastScrollAt = end
         closeRun()
         touch(start)
         touch(end)
+        return flushed
+    }
+
+    /// A click that was not the hand's: Lodestar's own, or another
+    /// process's. Counted, never touched — a posted click is not the
+    /// hands being present.
+    public mutating func postedClick(at now: Date) -> ObservationEvent? {
+        let flushed = rollIfDue(now: now)
+        clicksPosted += 1
         return flushed
     }
 
@@ -324,6 +361,14 @@ public struct HealthPulse: Equatable {
             event.jitterSumSq = jitterSumSq
         }
         if tapResets > 0 { event.tapResets = tapResets }
+        if fixN > 0 {
+            event.fixN = fixN
+            event.fixSum = fixSum
+            event.fixSumSq = fixSumSq
+        }
+        if scrollPrecise > 0 { event.scrollPrecise = scrollPrecise }
+        if scrollMomentum > 0 { event.scrollMomentum = scrollMomentum }
+        if clicksPosted > 0 { event.clicksPosted = clicksPosted }
         // Where the window sat in its bout. Position, not a verdict:
         // whether the hands slowed across a bout is a question for read
         // time, fitted from these, never frozen in here.
@@ -356,6 +401,12 @@ public struct HealthPulse: Equatable {
         jitterSum = 0.0
         jitterSumSq = 0.0
         tapResets = 0
+        fixN = 0
+        fixSum = 0.0
+        fixSumSq = 0.0
+        scrollPrecise = 0
+        scrollMomentum = 0
+        clicksPosted = 0
         runLength = 0
         runCounts = [0, 0, 0]
         runKeys = [0, 0, 0]
@@ -412,6 +463,19 @@ public enum Health {
         public var tapResets = 0
         public var keyboards: Set<String> = []
         public var jitterMean: Double? { jitterN > 0 ? jitterSum / Double(jitterN) : nil }
+        /// Time to correction, as moments; wheel bursts by kind; and the
+        /// clicks that were not the hand's.
+        public var fixN = 0
+        public var fixSum = 0.0
+        public var fixSumSq = 0.0
+        public var fixMean: Double? { fixN > 0 ? fixSum / Double(fixN) : nil }
+        public var scrollPrecise = 0
+        public var scrollMomentum = 0
+        public var clicksPosted = 0
+        /// Precise (trackpad or Magic Mouse) bursts over all bursts.
+        public var scrollPreciseShare: Double? { scrolls > 0 ? Double(scrollPrecise) / Double(scrolls) : nil }
+        /// Bursts that carried momentum — flicks — over all bursts.
+        public var scrollMomentumShare: Double? { scrolls > 0 ? Double(scrollMomentum) / Double(scrolls) : nil }
         /// Keystrokes in pulses that carry the hold column at all — a
         /// pulse archived before the column existed is not a dropped
         /// release.
@@ -521,6 +585,12 @@ public enum Health {
             out.jitterSum += pulse.jitterSum ?? 0
             out.jitterSumSq += pulse.jitterSumSq ?? 0
             out.tapResets += pulse.tapResets ?? 0
+            out.fixN += pulse.fixN ?? 0
+            out.fixSum += pulse.fixSum ?? 0
+            out.fixSumSq += pulse.fixSumSq ?? 0
+            out.scrollPrecise += pulse.scrollPrecise ?? 0
+            out.scrollMomentum += pulse.scrollMomentum ?? 0
+            out.clicksPosted += pulse.clicksPosted ?? 0
             for id in pulse.keyboards ?? [] { out.keyboards.insert(id) }
             dayOrdinals.insert(Int(pulse.t.timeIntervalSince1970 / 86_400))
             let hour = calendar.component(.hour, from: pulse.t)

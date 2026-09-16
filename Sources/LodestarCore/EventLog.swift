@@ -113,7 +113,16 @@ public struct ObservationEvent: Codable, Equatable {
         /// was left (escape | lode | verb | toggle | click | wheel |
         /// reset). Never the word aimed at.
         case scroll
+        /// The instrument's own state changed — a new build, a record
+        /// format, the input settings, the screens, the keyboard layout:
+        /// `era` carries all of it, so a change in the data can be told
+        /// from a change in the hand without reading a log.
+        case era
     }
+
+    /// The kinds that are the health record: what leaves a retired
+    /// shard for the health archive instead of dying with it.
+    public static let healthKinds: Set<Kind> = [.pulse, .window, .era]
 
     public var t: Date
     public var kind: Kind
@@ -227,6 +236,25 @@ public struct ObservationEvent: Codable, Equatable {
     public var jitterSum: Double?
     public var jitterSumSq: Double?
     public var tapResets: Int?
+    /// Time to correction — the last key to the first backspace of a
+    /// run — as moments: how fast a slip is noticed, apart from how
+    /// often one is made.
+    public var fixN: Int?
+    public var fixSum: Double?
+    public var fixSumSq: Double?
+    /// Wheel bursts by kind: precise deltas (trackpad, Magic Mouse) and
+    /// bursts that carried momentum (a flick).
+    public var scrollPrecise: Int?
+    public var scrollMomentum: Int?
+    /// Clicks that were posted rather than pressed — Lodestar's own picks
+    /// and warps first among them — kept apart from the hand's.
+    public var clicksPosted: Int?
+    /// The pointing devices attached while the pulse ran, by roster id.
+    public var pointers: [String]?
+    /// The lid was closed while the pulse ran.
+    public var lid: Bool?
+    /// An era's description.
+    public var era: EraInfo?
 
     public init(t: Date, kind: Kind) {
         self.t = t
@@ -237,28 +265,30 @@ public struct ObservationEvent: Codable, Equatable {
 /// The append-only event file: `events.jsonl`, one event per line, beside the
 /// aggregate view. Appends are buffered and coalesced because this is fed
 /// from the event tap and a keystroke must never wait on a disk. The ring is
-/// bounded by age: events older than `retention` fall off at compaction, by
-/// which time their contribution lives on in the aggregates' running
-/// statistics — the raw sample is dropped only once its summary is kept.
+/// bounded by size (`Retention.behavioralBytes`): once it is over, its
+/// oldest months retire at compaction, by which time their contribution
+/// lives on in the aggregates' running statistics — the raw sample is
+/// dropped only once its summary is kept — and their health kinds
+/// (`healthKinds`) leave first for `health-YYYY-MM.jsonl.z` beside the
+/// ring, which no bound of the ring's ever touches.
 ///
 /// The ring is sharded by UTC month: the live file holds the open month,
 /// and compaction moves every closed month into `events-YYYY-MM.jsonl`
 /// beside it. A closed shard is never re-parsed or rewritten — retention
-/// retires it by deleting the whole file — which is what keeps a year of
+/// retires it by deleting the whole file — which is what keeps years of
 /// raw material from making every boot pay for the archive. Bounded reads
 /// (`recent`) open only the shards a window actually touches.
 public final class EventLog {
     public static let defaultFile = Paths.data.appendingPathComponent("events.jsonl")
-    /// A year of raw material. The monthly shards keep the working set
-    /// small — the live file never holds more than the open month — so
-    /// retention buys replay depth for models without a boot-time bill.
-    public static let retention: TimeInterval = 365 * 86_400
     /// The window handed to the recommendation pass: every generator's
     /// evidence joins live inside it, and a pass that decoded the whole
     /// year on every refresh would pay for history nothing reads.
     public static let advisorWindowDays = 90
 
     public let file: URL
+    /// The ring's bound, in bytes: `Retention.behavioralBytes` for the
+    /// real ring, and whatever a test needs to watch a month retire.
+    public var behavioralBound: Int64 = Retention.behavioralBytes
     /// Owns `pending` and every touch of the file. Appends land here
     /// without waiting; the scheduled flush writes here without ever
     /// holding the main thread — the tap shares the main run loop, and a
@@ -347,6 +377,7 @@ public final class EventLog {
             do {
                 try lines.write(to: file, options: .atomic)
                 Paths.restrict(file)
+                Paths.excludeFromBackup(file)
                 appended = true
             } catch {
                 Log.error("events: could not create \(file.lastPathComponent) (\(error))")
@@ -422,19 +453,13 @@ public final class EventLog {
     /// Two jobs, both cheap because shards are immutable. Closed-month
     /// events leave the live file for their month's shard — appended, so a
     /// month that closes across several compactions accumulates rather
-    /// than replacing. Retention deletes whole shard files whose month has
-    /// fallen out of the window; a shard straddling the cutoff keeps all
-    /// of its events, because rewriting an archive to shave days off its
+    /// than replacing. Then the bound: while the ring is over
+    /// `Retention.behavioralBytes`, the oldest shard retires — its health
+    /// kinds copied to the health archive first, then the whole file
+    /// deleted — because rewriting an archive to shave days off its
     /// oldest edge is exactly the kind of churn the shards exist to end.
     private func compactLocked(now: Date) {
         dispatchPrecondition(condition: .onQueue(io))
-        let cutoff = now.addingTimeInterval(-Self.retention)
-        for shard in shardFilesLocked() {
-            guard let month = Self.shardMonth(of: shard) else { continue }
-            if Self.monthEnd(of: month) < cutoff {
-                try? FileManager.default.removeItem(at: shard)
-            }
-        }
         let open = Self.monthKey(now)
         let events = Self.read(file: file)
         var keep: [ObservationEvent] = []
@@ -443,28 +468,82 @@ public final class EventLog {
             let month = Self.monthKey(event.t)
             if month == open {
                 keep.append(event)
-            } else if event.t >= cutoff {
+            } else {
                 closing[month, default: []].append(event)
-            } // else: aged out entirely — dropped.
-        }
-        guard keep.count < events.count else { return }
-        for (month, moved) in closing.sorted(by: { $0.key < $1.key }) {
-            let shard = shardFile(for: month)
-            let lines = Self.encodeLines(moved)
-            if let handle = try? FileHandle(forWritingTo: shard) {
-                defer { try? handle.close() }
-                _ = try? handle.seekToEnd()
-                try? handle.write(contentsOf: lines)
-            } else if !FileManager.default.fileExists(atPath: shard.path) {
-                // First write for this month. The existence check is the
-                // guard: an open that failed on an existing shard must not
-                // fall through to replacing it.
-                try? lines.write(to: shard, options: .atomic)
-                Paths.restrict(shard)
             }
         }
-        try? Self.encodeLines(keep).write(to: file, options: .atomic)
-        Paths.restrict(file)
+        if keep.count < events.count {
+            for (month, moved) in closing.sorted(by: { $0.key < $1.key }) {
+                let shard = shardFile(for: month)
+                let lines = Self.encodeLines(moved)
+                if let handle = try? FileHandle(forWritingTo: shard) {
+                    defer { try? handle.close() }
+                    _ = try? handle.seekToEnd()
+                    try? handle.write(contentsOf: lines)
+                } else if !FileManager.default.fileExists(atPath: shard.path) {
+                    // First write for this month. The existence check is the
+                    // guard: an open that failed on an existing shard must not
+                    // fall through to replacing it.
+                    try? lines.write(to: shard, options: .atomic)
+                    Paths.restrict(shard)
+                    Paths.excludeFromBackup(shard)
+                }
+            }
+            try? Self.encodeLines(keep).write(to: file, options: .atomic)
+            Paths.restrict(file)
+            Paths.excludeFromBackup(file)
+        }
+        retireLocked()
+    }
+
+    /// The bound, oldest month first. Health leaves before the file does.
+    private func retireLocked() {
+        let directory = file.deletingLastPathComponent()
+        let base = file.deletingPathExtension().lastPathComponent
+        var shards = shardFilesLocked()
+        while Retention.behavioralUsage(in: directory, base: base).bytes > behavioralBound,
+              !shards.isEmpty {
+            let oldest = shards.removeFirst()
+            guard let month = Self.shardMonth(of: oldest) else { continue }
+            archiveHealth(from: oldest, month: month)
+            try? FileManager.default.removeItem(at: oldest)
+        }
+    }
+
+    // MARK: - The health archive
+
+    /// `health-2026-08.jsonl.z` beside the live file: the pulses, windows
+    /// and eras of a month, kept once the ring has let the month go.
+    public func healthArchiveFile(for month: String) -> URL {
+        file.deletingLastPathComponent().appendingPathComponent("health-\(month).jsonl.z")
+    }
+
+    /// The health kinds of a shard, appended to the month's archive.
+    private func archiveHealth(from shard: URL, month: String) {
+        let health = Self.read(file: shard).filter { ObservationEvent.healthKinds.contains($0.kind) }
+        guard !health.isEmpty else { return }
+        let archive = healthArchiveFile(for: month)
+        var lines = Data()
+        if let packed = try? Data(contentsOf: archive),
+           let existing = try? (packed as NSData).decompressed(using: .zlib) as Data {
+            lines.append(existing)
+        }
+        lines.append(Self.encodeLines(health))
+        guard let deflated = try? (lines as NSData).compressed(using: .zlib) as Data else { return }
+        try? deflated.write(to: archive, options: .atomic)
+        Paths.restrict(archive)
+    }
+
+    /// One month's archived health events, oldest first; empty when the
+    /// month never retired.
+    public static func healthArchive(month: String, beside file: URL) -> [ObservationEvent] {
+        let archive = file.deletingLastPathComponent().appendingPathComponent("health-\(month).jsonl.z")
+        guard let packed = try? Data(contentsOf: archive),
+              let data = try? (packed as NSData).decompressed(using: .zlib) as Data else { return [] }
+        let decoder = makeDecoder()
+        return data.split(separator: 0x0A).compactMap {
+            try? decoder.decode(ObservationEvent.self, from: Data($0))
+        }
     }
 
     private static func encodeLines(_ events: [ObservationEvent]) -> Data {

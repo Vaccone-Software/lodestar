@@ -74,8 +74,18 @@ public struct HoldWindow: Equatable {
         let ordered = presses.sorted { $0.down < $1.down }
         stats.presses = ordered.count
         stats.seconds = ordered.last.map { $0.down.timeIntervalSince(start) } ?? 0
+        var fingers = [Int](repeating: 0, count: Keys.Finger.allCases.count)
+        var modifierHold = Moments()
+        var modifiers = 0
+        var struck = 0
         for press in ordered {
             stats.kinds[Int(press.kind.rawValue)] += 1
+            fingers[Int(press.finger.rawValue)] += 1
+            if press.kind == .modifier {
+                modifiers += 1
+                struck += press.struck
+                if let hold = press.hold, hold > 0 { modifierHold.add(hold) }
+            }
             if press.shift { stats.shift += 1 }
             if press.chord { stats.chord += 1 }
             if press.gesture { stats.gesture += 1 }
@@ -84,6 +94,10 @@ public struct HoldWindow: Equatable {
             if press.hold == nil { stats.unseen += 1 }
             stats.keyboardTypes[String(press.keyboardType), default: 0] += 1
         }
+        stats.fingers = fingers
+        stats.modifiers = modifiers
+        stats.struck = struck
+        stats.modifierHold = modifierHold
         // The typing habit, with a measured hold under the ceiling.
         let typing = ordered.filter { press in
             press.isTyping && (press.hold.map { $0 > 0 && $0 <= holdCeiling } ?? false)
@@ -274,12 +288,26 @@ public struct WindowStats: Codable, Equatable {
     /// Presses whose release was never seen.
     public var unseen = 0
     public var keyboardTypes: [String: Int] = [:]
+    /// Presses by `Keys.Finger`, indexed by raw value. Optional, with
+    /// the three beside it, so windows written before the columns decode
+    /// unchanged.
+    public var fingers: [Int]?
+    /// Modifiers' own presses: how many, how many keys they covered in
+    /// all, and how long they were held — the sustained load the
+    /// letters' holds cannot show.
+    public var modifiers: Int?
+    public var struck: Int?
+    public var modifierHold: Moments?
     // Context, filled by the shell at close.
     public var app: String?
     public var role: String?
     public var keyboards: [String]?
+    public var pointers: [String]?
     public var power: String?
     public var screens: Int?
+    public var displays: [DisplayInfo]?
+    public var lid: Bool?
+    public var layout: String?
     public var dictation: Bool?
     public var tz: Int?
     public var boutSeconds: Double?

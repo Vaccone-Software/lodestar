@@ -48,20 +48,25 @@ enum Accessibility {
 @available(macOS 26.0, *)
 final class TonedGlass: NSGlassEffectView {
     var weight: Glass.Weight = .normal { didSet { retint() } }
-    /// Reduce Transparency: an opaque veil in the ground's own colour,
-    /// inside the glass so the rim and the shadow stay. The tint cannot
-    /// do this job — at alpha 1 the material still shows the backdrop
-    /// (grey 24 over charcoal, 57 over paper, measured 2026-09-15).
+    /// A veil in the ground's own colour inside the glass, at the weight's
+    /// strength, opaque under Reduce Transparency. The tint sets the shade
+    /// and cannot set the backdrop's share: every tint colour and alpha
+    /// left the draft 25 over charcoal and about 60 over paper, and a big
+    /// panel over a mixed desktop was patchy where a small bar over one
+    /// thing was not. The veil takes the backdrop's vote: at 0.7 the draft
+    /// reads 25 over charcoal and 37 over paper (2026-09-15), with the
+    /// frost showing through the rest. It sits inside the glass so the rim
+    /// and the shadow stay the material's.
     private let veil = NSView()
-    var veilShown: Bool { !veil.isHidden }
+    var veilAlpha: CGFloat {
+        (veil.layer?.backgroundColor).flatMap(NSColor.init(cgColor:))?.alphaComponent ?? 0
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         veil.wantsLayer = true
         veil.autoresizingMask = [.width, .height]
-        veil.isHidden = true
-        // Attached as the contentView only while it shows; the frost
-        // needs nothing inside it.
+        contentView = veil
     }
 
     required init?(coder: NSCoder) { nil }
@@ -108,10 +113,9 @@ final class TonedGlass: NSGlassEffectView {
     /// ground itself.
     func retint() {
         tintColor = BarTheme.glassTint.withAlphaComponent(weight.alpha)
+        let strength = Accessibility.reduceTransparency() ? Glass.opaque : weight.veil
         veil.layer?.cornerRadius = cornerRadius
-        veil.layer?.backgroundColor = BarTheme.ground.withAlphaComponent(Glass.opaque).cgColor
-        veil.isHidden = !Accessibility.reduceTransparency()
-        contentView = veil.isHidden ? nil : veil
+        veil.layer?.backgroundColor = BarTheme.ground.withAlphaComponent(strength).cgColor
     }
 }
 
@@ -135,6 +139,16 @@ enum Glass {
             case .normal: return 0.92
             case .raised: return 0.96
             case .faint: return 0.82
+            }
+        }
+        /// The veil's share of the panel: how much of the backdrop's vote
+        /// is taken. Normal is the measured number; the others keep their
+        /// order around it.
+        var veil: CGFloat {
+            switch self {
+            case .normal: return 0.70
+            case .raised: return 0.80
+            case .faint: return 0.55
             }
         }
     }
@@ -406,9 +420,10 @@ enum BarTheme {
     /// than blending, so a tint aimed at charcoal read grey 6 over
     /// charcoal, and black read the same. Measured 2026-09-15 with
     /// tools/glass-sweep at the normal weight: white 0.25 lands the bar
-    /// at 25 over charcoal (the ground is 26) and 65 over paper, 7.9 to 1;
-    /// white 0.92 lands it at 237 over black (paper is 235) and 254 over
-    /// paper. Change the number and the sweep decides, not the eye.
+    /// at 25 over charcoal (the ground is 26); white 0.92 lands it at 237
+    /// over black (paper is 235). What lands over the *other* ground is
+    /// the veil's to decide, not the tint's (see `TonedGlass.veil`).
+    /// Change the number and the sweep decides, not the eye.
     static var glassTint: NSColor {
         Tone.systemDark ? NSColor(white: 0.25, alpha: 1) : NSColor(white: 0.92, alpha: 1)
     }

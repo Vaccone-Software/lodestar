@@ -31,7 +31,7 @@ final class GlassTests: XCTestCase {
         XCTAssertEqual(tint.alphaComponent, 0.92, accuracy: 0.01, "the measured number")
         XCTAssertEqual(tint.redComponent, Tone.systemDark ? 0.25 : 0.92, accuracy: 0.02,
                        "the grey that lands on charcoal or paper: the system's tone, never the backdrop's")
-        XCTAssertFalse(glass.veilShown, "the frost shows while transparency is allowed")
+        XCTAssertEqual(glass.veilAlpha, 0.70, accuracy: 0.01, "the veil takes the backdrop's vote, and the frost shows through the rest")
         _ = window
     }
 
@@ -42,7 +42,7 @@ final class GlassTests: XCTestCase {
         XCTAssertEqual(glass.tintColor?.alphaComponent ?? 0, 0.96, accuracy: 0.01, "a lit card is heavier")
         Accessibility.reduceTransparency = { true }
         glass.viewDidChangeEffectiveAppearance()
-        XCTAssertTrue(glass.veilShown, "a flipped setting is a new reading, not the next opening's")
+        XCTAssertEqual(glass.veilAlpha, Glass.opaque, accuracy: 0.01, "a flipped setting is a new reading, not the next opening's")
         _ = window
     }
 
@@ -56,6 +56,8 @@ final class GlassTests: XCTestCase {
         XCTAssertEqual(Glass.weight(in: faint), .faint)
         XCTAssertLessThan(Glass.Weight.faint.alpha, Glass.Weight.normal.alpha)
         XCTAssertLessThan(Glass.Weight.normal.alpha, Glass.Weight.raised.alpha)
+        XCTAssertLessThan(Glass.Weight.faint.veil, Glass.Weight.normal.veil)
+        XCTAssertLessThan(Glass.Weight.normal.veil, Glass.Weight.raised.veil)
         XCTAssertEqual(root.subviews.first, normal, "installed under everything else")
     }
 
@@ -123,8 +125,7 @@ final class AccessibilitySettingsTests: XCTestCase {
         glass.frame = NSRect(x: 0, y: 0, width: 10, height: 10)
         window.contentView?.addSubview(glass)
         _ = window
-        if glass.veilShown { return Glass.opaque }
-        return glass.tintColor?.alphaComponent ?? 0
+        return glass.veilAlpha
     }
 
     func testReduceTransparencyMakesTheVeilOpaque() throws {

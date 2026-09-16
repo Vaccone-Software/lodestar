@@ -508,6 +508,22 @@ public enum SettingsModel {
                     : "Needs observations.",
                 isDefault: config.coachEnabled,
                 dimmed: !config.observationsEnabled),
+            // About you, for the health record. Two facts every reading
+            // of the hands is adjusted for, and nothing that names you.
+            Row(title: "Born", path: "health.born",
+                control: .text(config.healthBorn.map(String.init) ?? "", placeholder: "Year"),
+                detail: "The year. Age is the first thing a reading of the hands "
+                    + "is adjusted for. Optional, local, never sent.",
+                isDefault: config.healthBorn == nil,
+                group: "Health"),
+            Row(title: "Handedness", path: "health.hand",
+                control: .choice(options: ["", "left", "right", "either"],
+                                 labels: ["Not set", "Left", "Right", "Either"],
+                                 current: config.healthHand),
+                detail: "The hand you write with. Fine motor signs are often "
+                    + "one sided and the record keeps each hand apart.",
+                isDefault: config.healthHand.isEmpty,
+                group: "Health"),
         ]))
 
         // 9 · Advanced

@@ -404,6 +404,16 @@ public enum Health {
         /// Gaps past the motor ceiling and inside a bout: the pauses.
         public var pauseN = 0
         public var pauseSum = 0.0
+        /// The instrument watching itself: the tap's lateness against the
+        /// event stamps, the resets, and the keyboards seen.
+        public var jitterN = 0
+        public var jitterSum = 0.0
+        public var jitterSumSq = 0.0
+        public var tapResets = 0
+        public var keyboards: Set<String> = []
+        public var jitterMean: Double? { jitterN > 0 ? jitterSum / Double(jitterN) : nil }
+        /// Holds recorded per keystroke counted: the raw record's coverage.
+        public var coverage: Double? { keys > 0 ? Double(holdN) / Double(keys) : nil }
 
         public var correctionRate: Double? {
             keys > 0 ? Double(backspaces) / Double(keys) : nil
@@ -502,6 +512,11 @@ public enum Health {
             if let hist = pulse.ikHist { out.interKeyHistogram.merge(hist) }
             out.pauseN += pulse.ikTailN ?? 0
             out.pauseSum += pulse.ikTailSum ?? 0
+            out.jitterN += pulse.jitterN ?? 0
+            out.jitterSum += pulse.jitterSum ?? 0
+            out.jitterSumSq += pulse.jitterSumSq ?? 0
+            out.tapResets += pulse.tapResets ?? 0
+            for id in pulse.keyboards ?? [] { out.keyboards.insert(id) }
             dayOrdinals.insert(Int(pulse.t.timeIntervalSince1970 / 86_400))
             let hour = calendar.component(.hour, from: pulse.t)
             out.hourMinutes[min(23, max(0, hour))] += active

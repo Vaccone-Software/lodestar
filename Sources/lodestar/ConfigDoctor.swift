@@ -743,6 +743,42 @@ func runObservations(clear: Bool, engine: Bool) -> Never {
             }
             print(press)
         }
+        // The windows: each one's own spread, and the spread of those
+        // spreads across the weeks. Description, no verdict.
+        if let windows = WindowSummary.report(events: events, days: 28) {
+            var line = pad("  windows", 10)
+            line += pad("\(windows.valid) valid of \(windows.windows)", 20)
+            if let sd = windows.holdSDMedian {
+                line += pad(String(format: "hold sd %.0fms", sd * 1000), 15)
+            }
+            if let spread = windows.holdSDSpread {
+                line += pad(String(format: "spread %.0fms", spread * 1000), 14)
+            }
+            if let fluct = windows.fluctSDMedian {
+                line += pad(String(format: "fluct %.2f", fluct), 12)
+            }
+            if let share = windows.overlapShare {
+                line += pad(String(format: "rollover %.0f%%", share * 100), 14)
+            }
+            if let asymmetry = windows.asymmetryMedian {
+                line += String(format: "L-R %+.0fms", asymmetry * 1000)
+            }
+            print(line)
+        }
+        // The instrument on itself: how much of the typing the raw record
+        // holds, how late the tap ran, and how many keyboards were seen.
+        var quality = pad("  quality", 10)
+        if let coverage = health.coverage {
+            quality += pad(String(format: "holds %.0f%% of keys", coverage * 100), 20)
+        }
+        if let late = health.jitterMean {
+            quality += pad(String(format: "tap late %.1fms", late * 1000), 16)
+        }
+        if health.tapResets > 0 { quality += pad("resets \(health.tapResets)", 11) }
+        if !health.keyboards.isEmpty {
+            quality += "keyboard\(health.keyboards.count == 1 ? "" : "s") \(health.keyboards.count)"
+        }
+        print(quality)
         // The pauses the rhythm's moments exclude by construction, now
         // kept instead of dropped: a gap past the motor ceiling is the
         // hand stopping, and that is a measurement.

@@ -119,6 +119,13 @@ public struct Config {
     /// and clicking, never key identities. Its own switch because it
     /// watches more than Lodestar's gestures.
     public var observationsHealth = true
+    /// `health.born`: the year, or nil when not given. Age is the first
+    /// thing any reading of the hands is adjusted for.
+    public var healthBorn: Int?
+    /// `health.hand`: left, right, either, or empty when not given. Fine
+    /// motor signs are often one-sided, and the record keeps the hands
+    /// apart.
+    public var healthHand = ""
     public var coachEnabled = true
     /// The chain guide fades as a subtree is learned: the map waits for
     /// recall before it appears. The coach's doctrine, not a switch.
@@ -229,6 +236,10 @@ public struct Config {
         "coach": .table([
             "enabled": .boolean(description: "Let Lodestar offer one improvement at a time, in quiet moments, priced in seconds."),
         ], description: "The coach: rare, evidence-backed suggestions drawn from the observations."),
+        "health": .table([
+            "born": .string(allowed: nil, description: "The year you were born, four digits. Age is the first thing a reading of the hands is adjusted for. Optional."),
+            "hand": .string(allowed: ["left", "right", "either"], description: "The hand you write with. Fine motor signs are often one sided and the record keeps each hand apart. Optional."),
+        ], description: "About you, for the health record. Local, optional, never sent."),
         "keys": .freeTable(value: .string(allowed: nil, description: "The key name this keycode produces."),
                            description: "Keycode → key-name overrides for non-ANSI layouts."),
         "graph": .graph(description: "lode + letter chains → apps. Values: app name or <browser>:<profile name>."),
@@ -490,6 +501,16 @@ public struct Config {
         }
         if let enabled = effective.value(at: ["coach", "enabled"])?.bool {
             config.coachEnabled = enabled
+        }
+        if let born = effective.value(at: ["health", "born"])?.string {
+            let digits = born.trimmingCharacters(in: .whitespaces)
+            if digits.count == 4, let year = Int(digits), (1900...2100).contains(year) {
+                config.healthBorn = year
+            }
+        }
+        if let hand = effective.value(at: ["health", "hand"])?.string,
+           ["left", "right", "either"].contains(hand) {
+            config.healthHand = hand
         }
         if let accent = effective.value(at: ["appearance", "accent"])?.string {
             if let chosen = Config.Accent(rawValue: accent) {

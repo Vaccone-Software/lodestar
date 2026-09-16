@@ -65,6 +65,8 @@ final class ConfigCoverageTests: XCTestCase {
         Probe(path: ["observations", "enabled"], value: .bool(false)) { !$0.observationsEnabled },
         Probe(path: ["observations", "health"], value: .bool(false)) { !$0.observationsHealth },
         Probe(path: ["coach", "enabled"], value: .bool(false)) { !$0.coachEnabled },
+        Probe(path: ["health", "born"], value: .string("1990")) { $0.healthBorn == 1990 },
+        Probe(path: ["health", "hand"], value: .string("left")) { $0.healthHand == "left" },
 
         Probe(path: ["keys", "50"], value: .string("-")) { $0.keyOverrides[50] == "-" },
         Probe(path: ["graph", "s"], value: .string("Slack")) {

@@ -48,15 +48,20 @@ public struct PointerTracker: Equatable {
         /// the previous press, or its last motion was too long ago to be
         /// this press's aim.
         public var stationary: Bool
+        /// The reach's speed profile, when the tap fed it the device's
+        /// deltas.
+        public var kin: Kinematics?
 
         public init(travel: Double = 0, settle: Double = 0, homing: Double? = nil,
-                    path: Double = 0, displacement: Double = 0, stationary: Bool = false) {
+                    path: Double = 0, displacement: Double = 0, stationary: Bool = false,
+                    kin: Kinematics? = nil) {
             self.travel = travel
             self.settle = settle
             self.homing = homing
             self.path = path
             self.displacement = displacement
             self.stationary = stationary
+            self.kin = kin
         }
     }
 
@@ -85,6 +90,7 @@ public struct PointerTracker: Equatable {
         var origin: CGPoint
         var current: CGPoint
         var path = 0.0
+        var motion = ReachMotion()
     }
 
     private var reach: Reach?
@@ -123,6 +129,14 @@ public struct PointerTracker: Equatable {
         }
     }
 
+    /// The pointer moved, and the device said by how much: the same
+    /// reach bookkeeping, plus the motion kept for the profile.
+    public mutating func moved(to point: CGPoint, dx: Double, dy: Double, at now: Date) {
+        moved(to: point, at: now)
+        guard pressed == nil else { return }
+        reach?.motion.add(dx: dx, dy: dy, at: now)
+    }
+
     /// A keystroke. Returns the return-trip seconds when this is the
     /// first key after a press within the ceiling.
     @discardableResult
@@ -155,7 +169,8 @@ public struct PointerTracker: Equatable {
         }
         return Click(travel: travel, settle: settle, homing: homing,
                      path: open.path + Self.distance(open.current, point),
-                     displacement: Self.distance(open.origin, point))
+                     displacement: Self.distance(open.origin, point),
+                     kin: open.motion.kinematics(end: now))
     }
 
     /// The button came up. Nil when no press was open (a release the tap
@@ -201,6 +216,9 @@ public struct PointerMoments: Codable, Equatable {
     /// First keys after a press within the return ceiling.
     public var returnN = 0
     public var returnSum = 0.0
+    /// The reaches' speed profiles, folded. Optional so archives written
+    /// before the column decode unchanged.
+    public var kin: KinMoments?
 
     public init() {}
 
@@ -220,6 +238,11 @@ public struct PointerMoments: Codable, Equatable {
         if let homing = click.homing {
             homingN += 1
             homingSum += homing
+        }
+        if let profile = click.kin {
+            var folded = kin ?? KinMoments()
+            folded.add(profile)
+            kin = folded
         }
     }
 
@@ -255,6 +278,11 @@ public struct PointerMoments: Codable, Equatable {
         dragPathSum += other.dragPathSum
         returnN += other.returnN
         returnSum += other.returnSum
+        if let theirs = other.kin {
+            var folded = kin ?? KinMoments()
+            folded.merge(theirs)
+            kin = folded
+        }
     }
 
     // MARK: - Read-time views

@@ -415,7 +415,12 @@ final class HealthMonitor {
         defer { lock.unlock() }
         switch type {
         case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
-            tracker.moved(to: location, at: now)
+            // The device's own counts, before the acceleration curve: the
+            // profile is read from these, the path from the positions.
+            tracker.moved(to: location,
+                          dx: Double(event.getIntegerValueField(.mouseEventDeltaX)),
+                          dy: Double(event.getIntegerValueField(.mouseEventDeltaY)),
+                          at: now)
         case .leftMouseUp, .rightMouseUp, .otherMouseUp:
             if let release = tracker.up(at: location, at: now), let down = lastDownAt {
                 pendingReleases.append(PendingRelease(downAt: down, release: release))

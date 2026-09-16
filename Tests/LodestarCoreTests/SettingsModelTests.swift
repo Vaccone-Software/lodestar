@@ -14,6 +14,29 @@ final class SettingsModelTests: XCTestCase {
                                  "digits address panes; a tenth pane has no key")
     }
 
+    /// About you, for the health record: two optional facts in their own
+    /// group of the Coach pane, since digits address panes and a tenth
+    /// pane has no key.
+    func testTheHealthGroupHoldsTwoOptionalFacts() {
+        let coach = sections.first { $0.name == "Coach" }!
+        let health = coach.rows.filter { $0.group == "Health" }
+        XCTAssertEqual(health.map(\.path), ["health.born", "health.hand"])
+        XCTAssertTrue(health.allSatisfy(\.isDefault), "unset by default")
+        guard case .text(let year, let placeholder) = health[0].control else { return XCTFail("born is typed") }
+        XCTAssertEqual(year, "")
+        XCTAssertEqual(placeholder, "Year")
+        guard case .choice(let options, let labels, let current) = health[1].control else { return XCTFail("hand is chosen") }
+        XCTAssertEqual(options.count, labels.count)
+        XCTAssertEqual(current, "")
+        var config = Config()
+        config.healthBorn = 1990
+        config.healthHand = "left"
+        let filled = SettingsModel.catalog(config: config, machine: .init())
+            .first { $0.name == "Coach" }!.rows.filter { $0.group == "Health" }
+        XCTAssertFalse(filled[0].isDefault)
+        if case .text(let year, _) = filled[0].control { XCTAssertEqual(year, "1990") }
+    }
+
     func testEveryConfigRowWearsItsPath() {
         for section in sections where section.name != "Permissions" {
             for row in section.rows {

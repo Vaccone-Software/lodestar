@@ -314,3 +314,59 @@ public struct WindowStats: Codable, Equatable {
         return left.q[1] - right.q[1]
     }
 }
+
+/// The windows read back for the printout: medians of each window's own
+/// spread across the last few weeks, and the spread of those spreads.
+/// Description only; the numbers are what they are.
+public enum WindowSummary {
+    public struct Report: Equatable {
+        public var windows = 0
+        public var valid = 0
+        public var holdSDMedian: Double?
+        public var holdSDSpread: Double?
+        public var holdMedian: Double?
+        public var fluctSDMedian: Double?
+        public var vIQRMedian: Double?
+        public var vOutMedian: Double?
+        /// Pairs that rolled over, as a share of all pairs.
+        public var overlapShare: Double?
+        public var asymmetryMedian: Double?
+        public var keyboards: Set<String> = []
+        public var apps = 0
+    }
+
+    public static func report(events: [ObservationEvent], days: Int, now: Date = Date()) -> Report? {
+        let cutoff = now.addingTimeInterval(-Double(days) * 86_400)
+        let windows = events.filter { $0.kind == .window && $0.t >= cutoff }.compactMap { $0.window }
+        guard !windows.isEmpty else { return nil }
+        var report = Report()
+        report.windows = windows.count
+        let valid = windows.filter(\.valid)
+        report.valid = valid.count
+        var apps: Set<String> = []
+        for w in windows {
+            for id in w.keyboards ?? [] { report.keyboards.insert(id) }
+            if let app = w.app { apps.insert(app) }
+        }
+        report.apps = apps.count
+        guard !valid.isEmpty else { return report }
+        func median(_ values: [Double]) -> Double? {
+            guard !values.isEmpty else { return nil }
+            return HoldWindow.quantile(values.sorted(), 0.5)
+        }
+        let holdSDs = valid.compactMap { $0.hold.sd }
+        report.holdSDMedian = median(holdSDs)
+        var spread = Moments()
+        for sd in holdSDs { spread.add(sd) }
+        report.holdSDSpread = spread.sd
+        report.holdMedian = median(valid.compactMap { $0.holdQ.count == 7 ? $0.holdQ[3] : nil })
+        report.fluctSDMedian = median(valid.compactMap { $0.fluct.sd })
+        report.vIQRMedian = median(valid.compactMap { $0.vIQR })
+        report.vOutMedian = median(valid.compactMap { $0.vOut })
+        let pairs = valid.reduce(0) { $0 + $1.latency.n }
+        let rolled = valid.reduce(0) { $0 + $1.overlapN }
+        report.overlapShare = pairs > 0 ? Double(rolled) / Double(pairs) : nil
+        report.asymmetryMedian = median(valid.compactMap { $0.asymmetry })
+        return report
+    }
+}

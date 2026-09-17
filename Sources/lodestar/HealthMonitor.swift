@@ -42,22 +42,31 @@ final class HealthMonitor {
     private var window = HoldWindow()
     private let roster = KeyboardRoster()
     private let pointers = PointerRoster()
-    private let eras = EraTracker()
+    private let eras: EraTracker
     /// The focused element's role, sampled off the main thread when a
     /// window opens and read at its close: best effort, never waited on.
     private var sampledRole: String?
     /// The lid, read at most every half minute — an IORegistry call is
-    /// cheap but not free, and a press must never wait on one.
+    /// cheap but not free, and a press must never wait on one. Under its
+    /// own lock, never the monitor's: the mouse tap reads it while
+    /// holding the monitor's lock, and `NSLock` does not re-enter — the
+    /// first click after boot once deadlocked the tap thread on exactly
+    /// this, the main thread behind it, and the key tap with it.
     private var lidCached: Bool?
     private var lidAt = Date.distantPast
+    private let lidLock = NSLock()
     private let ownPID = Int64(ProcessInfo.processInfo.processIdentifier)
 
-    init() {
-        let install = Install.id()
-        keys = KeyStore(directory: Paths.data.appendingPathComponent(KeyStore.subdirectory, isDirectory: true),
+    /// The raw stores and the era file live in `directory` — the real
+    /// data directory in the app, a scratch one in a test — beside the
+    /// observations, never at a global default.
+    init(directory: URL = Paths.data) {
+        let install = Install.id(in: directory)
+        keys = KeyStore(directory: directory.appendingPathComponent(KeyStore.subdirectory, isDirectory: true),
                         installID: install)
-        pointerStore = PointerStore(directory: Paths.data.appendingPathComponent(PointerStore.subdirectory, isDirectory: true),
+        pointerStore = PointerStore(directory: directory.appendingPathComponent(PointerStore.subdirectory, isDirectory: true),
                                     installID: install)
+        eras = EraTracker(file: directory.appendingPathComponent("era.json"))
     }
     private var enabled = false
     private var tap: CFMachPort?
@@ -267,10 +276,11 @@ final class HealthMonitor {
         }
     }
 
-    /// The lid, cached for half a minute. Any thread.
+    /// The lid, cached for half a minute. Any thread, under `lidLock`
+    /// only — safe to call while holding the monitor's lock.
     private func lidClosed(now: Date = Date()) -> Bool? {
-        lock.lock()
-        defer { lock.unlock() }
+        lidLock.lock()
+        defer { lidLock.unlock() }
         if now.timeIntervalSince(lidAt) < DeviceRoster.cacheSeconds { return lidCached }
         lidCached = Lid.isClosed()
         lidAt = now
@@ -527,8 +537,9 @@ final class HealthMonitor {
 
     private static let downTypes: Set<CGEventType> = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
 
-    /// Tap thread. Counts and times; the event passes untouched either way.
-    private func sawMouse(type: CGEventType, event: CGEvent) {
+    /// Tap thread. Counts and times; the event passes untouched either
+    /// way. Internal so the harness can prove it always returns.
+    func sawMouse(type: CGEventType, event: CGEvent) {
         // The event's own stamp: the tap thread is quiet, but the stamp
         // is the hand's moment and the clock is the callback's.
         let now = EventTime.date(of: event) ?? Date()

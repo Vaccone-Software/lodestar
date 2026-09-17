@@ -53,6 +53,9 @@ enum EditMenu {
     }
 
     static func install() {
-        NSApp.mainMenu = make()
+        // `NSApplication.shared`, not `NSApp`: the first caller in a fresh
+        // process (a test worker) is what brings the application into
+        // being, and `NSApp` is nil until then.
+        NSApplication.shared.mainMenu = make()
     }
 }

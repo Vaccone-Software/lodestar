@@ -184,6 +184,8 @@ final class Stage {
     private(set) var holds: [Double] = []
     /// The raw record's view of every press, as the store would keep it.
     private(set) var presses: [KeyPress] = []
+    /// The real health monitor, at the scratch directory.
+    let health: HealthMonitor
     private(set) var pulses: [ObservationEvent] = []
     let coach: CoachController
     let actions = FakeActions()
@@ -230,7 +232,7 @@ final class Stage {
     var wheel: [(dx: Int32, dy: Int32)] = []
     /// Every config line the coach asked the app to write.
     private(set) var edits: [ConfigEdit] = []
-    private let directory: URL
+    let directory: URL
 
     /// The graph on this stage: `lode s` is a leaf, `lode b` is a branch
     /// with `x` and `g` under it, `q` is nowhere.
@@ -267,6 +269,7 @@ final class Stage {
         observations = ObservationStore(
             file: directory.appendingPathComponent("observations.json"),
             log: EventLog(file: directory.appendingPathComponent("events.jsonl")))
+        health = HealthMonitor(directory: directory)
 
         var config = Config()
         config.graph = Self.graph()
@@ -308,19 +311,33 @@ final class Stage {
         // that sits between them in production is three lines of
         // plumbing; the seam worth exercising is the tap's own press
         // timing reaching a real accumulator.
-        engine.onHumanKey = { [unowned self] backspace, autorepeat, _ in
+        engine.onHumanKey = { [unowned self] backspace, autorepeat, at in
             if let flushed = self.pulse.key(at: self.clock.now, backspace: backspace,
                                             autorepeat: autorepeat) {
                 self.pulses.append(flushed)
             }
+            self.health.noteKey(backspace: backspace, autorepeat: autorepeat, at: at)
         }
-        engine.onHumanPress = { [unowned self] press in self.presses.append(press) }
+        engine.onHumanPress = { [unowned self] press in
+            self.presses.append(press)
+            self.health.notePress(press)
+        }
         engine.onHumanKeyHold = { [unowned self] seconds in
             self.holds.append(seconds)
             if let flushed = self.pulse.hold(seconds, at: self.clock.now) {
                 self.pulses.append(flushed)
             }
+            self.health.noteHold(seconds)
         }
+        engine.onStampJitter = { [unowned self] seconds in self.health.noteJitter(seconds) }
+        engine.onTapReset = { [unowned self] in self.health.noteTapReset() }
+        // The real monitor, on its real queue, writing to the scratch
+        // directory: every scenario drives the health path the app does,
+        // short of the mouse tap itself.
+        health.observations = observations
+        health.listensToTheMouse = false
+        health.context = { HealthMonitor.WindowContext(app: "Stage", dictation: false) }
+        health.setEnabled(true)
         scroller.sink = { [unowned self] dx, dy in self.wheel.append((dx, dy)) }
         Pointer.post = { [unowned self] steps in self.clicks.append(steps) }
         clipboard.postPaste = { [unowned self] in self.stripPastes += 1 }
@@ -364,7 +381,18 @@ final class Stage {
     }
 
     deinit {
+        health.setEnabled(false)
+        clipboard.stop()
         hud.hide()
+        // Every panel this stage ever ordered in is still in the
+        // application's window list — a panel that is not released when
+        // closed, and was only ever ordered out, stays there for the life
+        // of the process. Three hundred stages left a hundred of them,
+        // and every run-loop turn paid for all of them: the same suite
+        // ran in two seconds alone and twenty-seven late in the run.
+        // Tests run one at a time, so at this moment every live window is
+        // this stage's; close them all.
+        for window in NSApplication.shared.windows { window.close() }
         try? FileManager.default.removeItem(at: directory)
     }
 
@@ -683,8 +711,15 @@ final class Stage {
         }
     }
 
-    /// Drain the main queue: the engine hops window work to the next turn.
+    /// Drain the main queue: the engine hops window work to the next
+    /// turn. Everything queued before the marker runs, then one short
+    /// real turn so a timer already due fires too — a tenth of what a
+    /// fixed ten milliseconds cost, over the thousands of keystrokes a
+    /// suite sends.
     static func pump() {
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+        var drained = false
+        DispatchQueue.main.async { drained = true }
+        while !drained { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.002)) }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.001))
     }
 }

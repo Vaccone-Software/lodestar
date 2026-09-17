@@ -44,6 +44,21 @@ final class HealthScenarioTests: XCTestCase {
         XCTAssertTrue(space.isTyping)
     }
 
+    /// Through the real monitor: the presses the tap timed are in the
+    /// raw store at the scratch directory, every column filled in.
+    func testTheRealMonitorKeepsThePressesInItsRawStore() {
+        stage.pressHeld("a", for: 0.085)
+        stage.pressHeld("j", for: 0.11, shift: true)
+        stage.health.drainForTesting()
+        stage.health.flush()
+        let keys = stage.directory.appendingPathComponent(KeyStore.subdirectory)
+        let presses = KeyStore.days(in: keys).flatMap { KeyStore.presses(day: $0, in: keys) }
+        XCTAssertEqual(presses.count, 2)
+        XCTAssertEqual(presses.map(\.finger), [.pinky, .index])
+        XCTAssertEqual(presses.map(\.hand), [.left, .right])
+        XCTAssertTrue(presses[1].modifiers.contains(.shift))
+    }
+
     func testAGestureIsARawPressMarkedAsOne() {
         // A lode chain letter is swallowed by the engine: still a press
         // the hand made, kept, and marked so the typing habit excludes it.

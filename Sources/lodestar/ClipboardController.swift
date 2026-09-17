@@ -93,6 +93,11 @@ final class ClipboardController {
         poll = nil
     }
 
+    /// A poller with a weak self outlives its owner on the run loop,
+    /// firing into nothing three times a second forever; the harness
+    /// builds hundreds of these.
+    deinit { stop() }
+
     // MARK: - Capture
 
     private func capture() {

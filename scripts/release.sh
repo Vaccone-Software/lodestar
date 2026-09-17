@@ -7,8 +7,13 @@
 #   2. Notary credentials in the keychain:
 #      xcrun notarytool store-credentials lodestar-notary \
 #        --apple-id <you> --team-id <TEAMID> --password <app-specific-pw>
+# Two phases, so a human can stand between them:
+#   release.sh build     test, build, sign, self-test — the app is at dist/
+#   release.sh publish   notarize, staple, zip, DMG
+#   release.sh           both, back to back (CI)
 set -euo pipefail
 cd "$(dirname "$0")/.."
+PHASE="${1:-all}"
 
 VERSION=$(grep 'public static let version' Sources/LodestarCore/Version.swift | cut -d'"' -f2)
 APP=dist/lodestar.app
@@ -23,16 +28,28 @@ if [ -z "$IDENTITY" ]; then
     exit 1
 fi
 
-echo "→ testing"
-swift test >/dev/null 2>&1 || { echo "✕ tests failed — no release from a red suite (run: swift test)"; exit 1; }
+if [ "$PHASE" = "build" ] || [ "$PHASE" = "all" ]; then
+    echo "→ testing"
+    swift test >/dev/null 2>&1 || { echo "✕ tests failed — no release from a red suite (run: swift test)"; exit 1; }
 
-echo "→ building v$VERSION"
-./scripts/make-app.sh --universal >/dev/null
+    echo "→ building v$VERSION"
+    ./scripts/make-app.sh --universal >/dev/null
 
-echo "→ signing with: $IDENTITY"
-codesign --force --options runtime --timestamp \
-    --entitlements packaging/lodestar.entitlements --sign "$IDENTITY" "$APP"
-codesign --verify --strict "$APP"
+    echo "→ signing with: $IDENTITY"
+    codesign --force --options runtime --timestamp \
+        --entitlements packaging/lodestar.entitlements --sign "$IDENTITY" "$APP"
+    codesign --verify --strict "$APP"
+
+    # The signed binary proving, on real threads, that the input path
+    # cannot freeze — the same stress the harness runs, without the
+    # harness, on the exact bytes that ship.
+    echo "→ self-test on the signed build"
+    "$APP/Contents/MacOS/lodestar" --self-test || { echo "✕ self-test failed — refusing to release"; exit 1; }
+fi
+if [ "$PHASE" = "build" ]; then
+    echo "✓ built and signed: $APP — smoke it (scripts/smoke.sh), then release.sh publish"
+    exit 0
+fi
 
 echo "→ submitting for notarization"
 ditto -c -k --keepParent "$APP" "$ARTIFACT"

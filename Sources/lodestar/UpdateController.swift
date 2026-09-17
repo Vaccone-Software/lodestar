@@ -458,50 +458,66 @@ final class UpdateController {
     /// itself: the pid file changing hands is the verdict, plus the
     /// successor's word that its router answered when links depend on it.
     private func spawnWatchdog(app: URL, previous: URL, version: String) {
-        let script = """
-        #!/bin/bash
-        # lodestar update watchdog: bless the new build or put the old one back.
-        APP="$1"; PREVIOUS="$2"; OLDPID="$3"; VERSION="$4"; MARKERS="$5"; PIDFILE="$6"
-        ROUTING="$7"
-        for _ in 1 2 3 4 5 6 7 8 9; do
-            sleep 5
-            PID=$(cat "$PIDFILE" 2>/dev/null)
-            if [ -n "$PID" ] && [ "$PID" != "$OLDPID" ] && kill -0 "$PID" 2>/dev/null; then
-                # While Lodestar holds the browser role, booting is not proof.
-                # The successor has to say its router answered, in its own
-                # voice: the marker carries the new pid, so a stale one from
-                # the build being replaced cannot bless anything.
-                if [ "$ROUTING" = "1" ] && [ "$(cat "$MARKERS/routes-ok" 2>/dev/null)" != "$PID" ]; then
-                    continue
-                fi
-                rm -rf "$PREVIOUS"
-                exit 0
-            fi
-        done
-        rm -f "$MARKERS/routes-ok"
-        # The handover failed, whatever happens next: drop the success
-        # marker first, above the rollback gate. Left behind, it would fire
-        # a false "updated" flash whenever that version finally does boot.
-        rm -f "$MARKERS/updated-to"
-        # Roll back only while the old bundle is still there to restore.
-        # If .previous is gone, another actor already resolved this swap —
-        # deleting the app with nothing to put back is never the answer.
-        [ -d "$PREVIOUS" ] || exit 0
-        rm -rf "$APP"
-        mv "$PREVIOUS" "$APP"
-        printf '%s' "$VERSION" > "$MARKERS/rolled-back"
-        # -n: launch a fresh instance even though the old process may still
-        # be running — its boot takes the pid file and announces the marker.
-        open -n "$APP"
-        """
         let path = Self.directory.appendingPathComponent("watchdog.sh")
-        try? script.write(to: path, atomically: true, encoding: .utf8)
+        try? Self.watchdogScript.write(to: path, atomically: true, encoding: .utf8)
         let pidFile = Paths.pidFile
         spawnDetached(["/bin/bash", path.path, app.path, previous.path,
                        "\(ProcessInfo.processInfo.processIdentifier)", version,
                        Self.directory.path, pidFile.path,
                        requiresRouting() ? "1" : "0"])
     }
+
+    /// The watchdog, as text: a static so a test can read what it will
+    /// do. Two verdicts bless a successor — the pid file changed hands,
+    /// and the successor *answers*. A frozen build writes its pid and
+    /// looks alive; it does not answer `state` on its control socket,
+    /// because the verb runs on the main thread and that is the thread
+    /// that froze. So the probe asks, with a three-second alarm, and a
+    /// build that never answers inside the window is rolled back like
+    /// one that never booted.
+    static let watchdogScript = """
+    #!/bin/bash
+    # lodestar update watchdog: bless the new build or put the old one back.
+    APP="$1"; PREVIOUS="$2"; OLDPID="$3"; VERSION="$4"; MARKERS="$5"; PIDFILE="$6"
+    ROUTING="$7"
+    CLI="$APP/Contents/MacOS/lodestar"
+    for _ in 1 2 3 4 5 6 7 8 9; do
+        sleep 5
+        PID=$(cat "$PIDFILE" 2>/dev/null)
+        if [ -n "$PID" ] && [ "$PID" != "$OLDPID" ] && kill -0 "$PID" 2>/dev/null; then
+            # Alive is not enough: the successor has to answer on its
+            # control socket, from its main thread, inside three seconds.
+            # A frozen main thread holds the pid and answers nothing.
+            if ! perl -e 'alarm shift; exec @ARGV' 3 "$CLI" state --json >/dev/null 2>&1; then
+                continue
+            fi
+            # While Lodestar holds the browser role, booting is not proof.
+            # The successor has to say its router answered, in its own
+            # voice: the marker carries the new pid, so a stale one from
+            # the build being replaced cannot bless anything.
+            if [ "$ROUTING" = "1" ] && [ "$(cat "$MARKERS/routes-ok" 2>/dev/null)" != "$PID" ]; then
+                continue
+            fi
+            rm -rf "$PREVIOUS"
+            exit 0
+        fi
+    done
+    rm -f "$MARKERS/routes-ok"
+    # The handover failed, whatever happens next: drop the success
+    # marker first, above the rollback gate. Left behind, it would fire
+    # a false "updated" flash whenever that version finally does boot.
+    rm -f "$MARKERS/updated-to"
+    # Roll back only while the old bundle is still there to restore.
+    # If .previous is gone, another actor already resolved this swap —
+    # deleting the app with nothing to put back is never the answer.
+    [ -d "$PREVIOUS" ] || exit 0
+    rm -rf "$APP"
+    mv "$PREVIOUS" "$APP"
+    printf '%s' "$VERSION" > "$MARKERS/rolled-back"
+    # -n: launch a fresh instance even though the old process may still
+    # be running — its boot takes the pid file and announces the marker.
+    open -n "$APP"
+    """
 
     /// posix_spawn with SETSID: the child leads its own session, immune to
     /// the process-group teardown launchd performs when this job exits.

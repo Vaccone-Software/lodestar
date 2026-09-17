@@ -109,9 +109,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         clickHandler.open(urls)
     }
 
+    /// A crash is better than a freeze: see `MainThreadWatchdog`.
+    private let watchdog = MainThreadWatchdog()
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         Log.info("Lodestar \(Lodestar.version) starting (pid \(ProcessInfo.processInfo.processIdentifier))")
         takeOverPidFile()
+        watchdog.start()
         // Before any panel exists: the chords a text field answers are
         // routed through the main menu, and an accessory app has none
         // until it makes one.
@@ -2083,6 +2087,7 @@ func printUsage() {
       observations clear   delete everything noticed so far
       config-path      print the config file path
       apps             list every app name the graph can bind
+      --self-test      prove the input path cannot freeze, on real threads
 
     Scripted verbs — these drive the running instance:
 
@@ -2176,6 +2181,12 @@ if cliArguments.contains("reset-config") {
 if cliArguments.contains("uninstall") {
     runUninstall(dryRun: cliArguments.contains("--dry-run"),
                  purge: cliArguments.contains("--purge"))
+}
+if cliArguments.contains("--self-test") {
+    // The built binary proving itself on real threads; the release
+    // script runs this on the signed app before notarizing it.
+    Log.stdoutEnabled = true
+    exit(SelfTest.run() ? 0 : 1)
 }
 if cliArguments.contains("--help") || cliArguments.contains("help") || cliArguments.contains("-h") {
     Log.stdoutEnabled = true

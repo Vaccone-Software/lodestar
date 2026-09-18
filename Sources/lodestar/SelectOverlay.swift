@@ -7,7 +7,7 @@ import LodestarCore
 /// Never key, ignores the mouse — the window underneath keeps focus and
 /// receives the selection when the mode commits.
 final class SelectOverlay {
-    struct Chip {
+    struct Chip: Equatable {
         /// A text match wears its wash — the highlight is the answer — and
         /// its label just above the word. An element target is a box, not
         /// a word: its frame often wraps padding or a whole clickable
@@ -15,7 +15,7 @@ final class SelectOverlay {
         /// detaches from the text the eye actually reads. Targets pin the
         /// label at the frame's top-left corner, overlapping it, the way
         /// hints always did.
-        enum Style { case match, target }
+        enum Style: Equatable { case match, target }
 
         let label: String
         /// One rect per fragment the match crosses — a phrase over a bold
@@ -80,9 +80,27 @@ final class SelectOverlay {
 
     /// What stands, for the tests.
     private(set) var shownChips: [Chip] = []
+    /// The rest of what the last draw was made of. Four hundred frosted
+    /// chips cost a quarter second of the main thread to build, and the
+    /// door redraws whenever a new world lands — the harvest, then the
+    /// sketch, then the settled read — each time with the identical
+    /// labels in the identical places. Drawing that three times is three
+    /// stalls the hand feels and one picture it cannot tell apart, so a
+    /// draw that would change nothing is not made.
+    private var shownAnchor: [CGRect] = []
+    private var shownFrame: CGRect = .null
+    private var shownTyped: String?
 
     func show(chips: [Chip], anchor: [CGRect], over windowFrame: CGRect, typed: String = "") {
+        if panel.isVisible, chips == shownChips, anchor == shownAnchor,
+           windowFrame == shownFrame, typed == shownTyped {
+            Log.info("chips", ["count": chips.count, "ms": 0, "reused": true])
+            return
+        }
         shownChips = chips
+        shownAnchor = anchor
+        shownFrame = windowFrame
+        shownTyped = typed
         // Dozens of frosted chips at once: the instrument times itself.
         let began = Date()
         defer {
@@ -151,6 +169,7 @@ final class SelectOverlay {
             let raw = chip.style == .match ? target.maxY + 1 : target.maxY - height + 4
             let y = min(max(raw, 0), panel.frame.height - height)
             cap.frame = NSRect(x: x, y: y, width: width, height: height)
+            GlassChip.settleShadow(cap)
             label.frame = NSRect(x: 0, y: (height - label.frame.height) / 2,
                                  width: width, height: label.frame.height)
             chipHost.addSubview(cap)
@@ -187,6 +206,10 @@ final class SelectOverlay {
 
     func hide() {
         clear()
+        shownChips = []
+        shownAnchor = []
+        shownFrame = .null
+        shownTyped = nil
         panel.orderOut(nil)
     }
 

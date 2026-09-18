@@ -354,6 +354,17 @@ enum GlassChip {
         return (chip, label)
     }
 
+    /// The shadow, once the chip knows its size. Without a path, Core
+    /// Animation derives the shadow from the layer's alpha channel on
+    /// every composite — it must rasterize the glass underneath to learn
+    /// its shape. A rounded rectangle is a shape we already know, and
+    /// four hundred chips is four hundred rasterizations not done.
+    static func settleShadow(_ view: NSView, cornerRadius: CGFloat = BarTheme.glassChipRadius) {
+        view.layer?.shadowPath = CGPath(roundedRect: view.bounds,
+                                        cornerWidth: cornerRadius,
+                                        cornerHeight: cornerRadius, transform: nil)
+    }
+
     static func lift(_ view: NSView) {
         view.wantsLayer = true
         view.layer?.masksToBounds = false

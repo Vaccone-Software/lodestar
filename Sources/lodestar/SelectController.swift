@@ -83,6 +83,13 @@ final class SelectController {
 
     private var core: SelectCore?
     private var units: [Unit] = []
+    /// The click door's harvest, kept so the chips can be decided again
+    /// when the words land: which targets typing can reach is a fact
+    /// about the screen, and the screen is read after the tree is.
+    private var entryHarvest: [HintTargets.Target]?
+    /// Chips are settled once. They may not move under a hand that has
+    /// begun to read them, so the accurate pass never re-spends them.
+    private var entryChipsSettled = false
     private var generation = 0
     private var boundsGeneration = 0
     private var lastPassLeaves = -1
@@ -190,8 +197,9 @@ final class SelectController {
     /// an app's own press to a synthetic click wherever a pressable owns
     /// the picked point. `entryLabeled` is the subset wearing a chip —
     /// `HintLabels.chipped` decides, and on any window bigger than the
-    /// alphabet that means the targets found by action alone, the ones
-    /// with no painted word for the grammar to reach.
+    /// alphabet that means every target the screen paints no word inside,
+    /// whether the tree found it by action or by role — an icon button is
+    /// an `AXButton` with nothing on it for the grammar to reach.
     private var entryTargets: [HintTargets.Target] = []
     private var entryLabeled: [HintTargets.Target] = []
     private var entryLabels: [String] = []
@@ -235,6 +243,8 @@ final class SelectController {
         self.sticky = sticky
         entryTargets = []
         entryLabeled = []
+        entryHarvest = nil
+        entryChipsSettled = false
         entryLabels = []
         entryTyped = ""
         entryChipsAtEntry = 0
@@ -270,26 +280,16 @@ final class SelectController {
             ) { [weak self] found in
                 guard let self, self.generation == expected, self.door == .click else { return }
                 self.entryTargets = found
-                // What typing cannot reach: a target the tree found by its
-                // press action alone, and an input box whose text is the
-                // user's to write rather than the screen's to paint.
-                let chipped = HintLabels.chipped(
-                    unreachable: found.map { $0.viaAction || $0.isTextInput },
-                    alphabet: self.letters)
-                let labels = HintLabels.labels(count: chipped.count, alphabet: self.letters)
-                // The harvest answers twice: chips, then the owners that
-                // came after them. The second answer must not move a chip.
-                let sameChips = labels == self.entryLabels
-                    && chipped.map { found[$0].frame } == self.entryLabeled.map(\.frame)
-                self.entryLabeled = chipped.map { found[$0] }
-                self.entryLabels = labels
-                Log.info("hints", ["harvested": found.count, "chips": chipped.count,
-                                   "byAction": found.filter(\.viaAction).count,
-                                   "alphabet": self.letters.count])
-                // Counted only while the hands have not yet moved: chips
-                // arriving after the first key never greeted anyone.
-                if self.firstKeyAt == nil { self.entryChipsAtEntry = chipped.count }
-                if !sameChips { self.renderEntry() }
+                self.entryHarvest = found
+                self.labelEntry()
+            }
+            // The words decide the chips, and a window may have none to
+            // read — an image, a canvas, a tree that never answers. The
+            // chips are not held hostage to a world that is not coming.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                guard let self, self.generation == expected, self.door == .click,
+                      !self.entryChipsSettled else { return }
+                self.labelEntry(force: true)
             }
         }
 
@@ -389,6 +389,8 @@ final class SelectController {
         grounding = OCRSense.Grounding([])
         entryTargets = []
         entryLabeled = []
+        entryHarvest = nil
+        entryChipsSettled = false
         entryLabels = []
         entryTyped = ""
         // The aim door leaves no select record: its sessions would read
@@ -659,6 +661,50 @@ final class SelectController {
     /// only while the query is empty: the moment aiming starts, the
     /// search universe owns the glass, and it owns it again the moment
     /// the query walks back to nothing.
+    /// Where the click door's chips are spent. The rule is the doctrine's
+    /// — a chip goes where typing cannot reach — and the word world is the
+    /// index that typing actually searches, so it is the only honest way
+    /// to ask the question. Being named by a role is not the same as
+    /// painting a word: an icon button is an `AXButton` with nothing on it
+    /// to type, and until this was measured those targets wore no chip and
+    /// answered to no search, which left the pointer as their only door.
+    ///
+    /// The tree answers before the screen does, so the chips wait for the
+    /// first world and are spent once — they may not move under a hand
+    /// that has begun to read them. A harvest small enough to wear single
+    /// letters needs no words at all: everything gets one, which is the
+    /// small window's whole experience.
+    private func labelEntry(force: Bool = false) {
+        guard door == .click, let found = entryHarvest else { return }
+        let small = found.count <= letters.count
+        guard small || force || !units.isEmpty else { return }
+        let words = units.map(\.frame)
+        var wordless = 0
+        let unreachable = found.map { target -> Bool in
+            if target.viaAction || target.isTextInput { return true }
+            if HintLabels.paintsWord(target: target.frame, words: words) { return false }
+            wordless += 1
+            return true
+        }
+        let chipped = HintLabels.chipped(unreachable: unreachable, alphabet: letters)
+        let labels = HintLabels.labels(count: chipped.count, alphabet: letters)
+        // The harvest answers twice: chips, then the owners that came
+        // after them. The second answer must not move a chip.
+        let sameChips = labels == entryLabels
+            && chipped.map { found[$0].frame } == entryLabeled.map(\.frame)
+        entryLabeled = chipped.map { found[$0] }
+        entryLabels = labels
+        entryChipsSettled = true
+        Log.info("hints", ["harvested": found.count, "chips": chipped.count,
+                           "byAction": found.filter { $0.viaAction }.count,
+                           "wordless": wordless, "words": units.count,
+                           "alphabet": letters.count])
+        // Counted only while the hands have not yet moved: chips arriving
+        // after the first key never greeted anyone.
+        if firstKeyAt == nil { entryChipsAtEntry = chipped.count }
+        if !sameChips { renderEntry() }
+    }
+
     private func renderEntry() {
         guard door == .click || door == .tabs, core?.query.isEmpty != false else { return }
         let chips: [SelectOverlay.Chip] = zip(entryLabels, entryLabeled).compactMap {
@@ -1315,6 +1361,10 @@ final class SelectController {
         units.sort(by: Self.readingOrder)
         let query = core?.query ?? ""
         self.units = units
+        // The words are what typing searches, so they are what says
+        // which targets typing can reach: the click door's chips wait
+        // for this and are spent here, once.
+        if door == .click, !entryChipsSettled { labelEntry() }
         // Uniqueness may commit only on a settled world. The fast pass is
         // a sketch — a few lines short, rough around rare glyphs — and a
         // match unique in a sketch is not unique on the screen; it shows
@@ -1582,6 +1632,10 @@ final class SelectController {
 
         let query = core?.query ?? ""
         self.units = units
+        // The words are what typing searches, so they are what says
+        // which targets typing can reach: the click door's chips wait
+        // for this and are spent here, once.
+        if door == .click, !entryChipsSettled { labelEntry() }
         // The tree's uniqueness counts only where the tree is the only
         // sensor. With a capture in hand the accurate pass is the settled
         // world, and a tree pass — adopted a beat before the pixels land,

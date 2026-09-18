@@ -45,10 +45,10 @@ final class HintLabelsTests: XCTestCase {
         XCTAssertEqual(chipped, [0, 1, 2])
     }
 
-    func testPastTheAlphabetOnlyTheActionFoundKeepChips() {
-        // Twelve targets against nine letters: the three the tree found by
-        // action alone paint no word, so they keep the chips; the nine the
-        // tree named by role are typed instead.
+    func testPastTheAlphabetOnlyTheWordlessKeepChips() {
+        // Twelve targets against nine letters: the three the screen paints
+        // no word inside keep the chips; the nine with a word on them are
+        // typed instead.
         var unreachable = [Bool](repeating: false, count: 12)
         unreachable[2] = true
         unreachable[7] = true
@@ -68,6 +68,54 @@ final class HintLabelsTests: XCTestCase {
         let unreachable = [Bool](repeating: false, count: 40)
         XCTAssertTrue(HintLabels.chipped(unreachable: unreachable, alphabet: "asdfghjkl").isEmpty,
                       "everything here is reachable by typing it")
+    }
+
+    // MARK: - which targets typing can reach
+
+    func testAWordInsideTheTargetIsItsAddress() {
+        let button = CGRect(x: 100, y: 100, width: 80, height: 24)
+        let label = CGRect(x: 108, y: 104, width: 60, height: 16)
+        XCTAssertTrue(HintLabels.paintsWord(target: button, words: [label]))
+    }
+
+    func testAnIconButtonPaintsNoWordAndSoEarnsAChip() {
+        // The defect this rule was written for: a 32x32 icon button is an
+        // AXButton like any other, and for a year that was taken to mean
+        // the hand could type it. There is nothing on it to type.
+        let icon = CGRect(x: 300, y: 40, width: 32, height: 32)
+        let elsewhere = [CGRect(x: 10, y: 400, width: 90, height: 16),
+                         CGRect(x: 500, y: 40, width: 70, height: 16)]
+        XCTAssertFalse(HintLabels.paintsWord(target: icon, words: elsewhere))
+    }
+
+    func testAWordBesideACheckboxBelongsToTheLabel() {
+        // The box and its caption are two targets; the caption's word must
+        // not make the box look typeable, or the box loses its only door.
+        let box = CGRect(x: 100, y: 100, width: 14, height: 14)
+        let caption = CGRect(x: 120, y: 100, width: 80, height: 14)
+        XCTAssertFalse(HintLabels.paintsWord(target: box, words: [caption]))
+        XCTAssertTrue(HintLabels.paintsWord(target: caption, words: [caption]))
+    }
+
+    func testAWordClippedByTheTargetsEdgeIsNotItsAddress() {
+        // A row that happens to overlap the last letters of a heading
+        // above it has not been named by that heading.
+        let row = CGRect(x: 0, y: 200, width: 400, height: 40)
+        let heading = CGRect(x: 0, y: 170, width: 200, height: 40)
+        XCTAssertFalse(HintLabels.paintsWord(target: row, words: [heading]),
+                       "half a word inside is not an address")
+    }
+
+    func testNoWordsAtAllMeansNothingIsTypeable() {
+        // A window the recognizer has not answered for yet: every target
+        // is wordless, which is what makes the chips wait for the words.
+        XCTAssertFalse(HintLabels.paintsWord(target: CGRect(x: 0, y: 0, width: 50, height: 20),
+                                             words: []))
+    }
+
+    func testAnEmptyTargetIsNeverTypeable() {
+        XCTAssertFalse(HintLabels.paintsWord(target: .null, words: [CGRect(x: 0, y: 0, width: 9, height: 9)]))
+        XCTAssertFalse(HintLabels.paintsWord(target: .zero, words: [CGRect(x: 0, y: 0, width: 9, height: 9)]))
     }
 
     func testMatchTiers() {

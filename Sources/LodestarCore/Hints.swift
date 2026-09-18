@@ -52,11 +52,12 @@ public enum HintLabels {
     /// and everything wears one: that is the small window's whole
     /// experience — a dialog's three buttons, a popover's rows, answered
     /// the instant the tree does and each on one keystroke. Past that the
-    /// chips go to what the screen paints no word on: the targets the
-    /// tree found **by action alone** — a div that presses, an image that
-    /// clicks — and **text inputs**, whose words are the user's to write
-    /// and whose empty box says nothing a search could match. Everything
-    /// the tree named by role keeps the address it always had: type it.
+    /// chips go to what the screen paints no word on, and that is asked of
+    /// the words themselves rather than guessed from how the target was
+    /// found: a div that presses, an image that clicks, a text input whose
+    /// words are the user's to write, **and the icon button** — named by
+    /// role, and just as wordless. Only a target with a word painted
+    /// inside it keeps the address it always had: type it.
     public static func chipped(unreachable: [Bool], alphabet: String) -> [Int] {
         let letters = sanitize(alphabet)
         let indices = Array(unreachable.indices)
@@ -64,6 +65,26 @@ public enum HintLabels {
             ? indices
             : indices.filter { unreachable[$0] }
         return Array(chosen.prefix(letters.count * letters.count))
+    }
+
+    /// Does the screen paint a word inside this target — is there an
+    /// address here the grammar can already reach? Asked of the word world
+    /// itself, because that is the index the typing searches; the tree's
+    /// own name for a target is no answer, since an icon button carries a
+    /// name it paints nowhere.
+    ///
+    /// A word that merely brushes the frame belongs to its neighbour — the
+    /// text beside a checkbox is the label's word, not the box's — so most
+    /// of the word has to sit inside to count as an address for it.
+    public static func paintsWord(target: CGRect, words: [CGRect],
+                                  inside share: CGFloat = 0.7) -> Bool {
+        guard !target.isNull, !target.isEmpty else { return false }
+        return words.contains { word in
+            guard !word.isNull, !word.isEmpty, word.intersects(target) else { return false }
+            let shared = word.intersection(target)
+            guard !shared.isNull else { return false }
+            return shared.width * shared.height >= word.width * word.height * share
+        }
     }
 
     public enum Match: Equatable {

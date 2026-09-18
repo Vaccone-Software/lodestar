@@ -1008,7 +1008,25 @@ func runPressables(_ args: inout [String]) {
     AXUIElementSetMessagingTimeout(app, 1.0)
     AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
     usleep(300_000)
-    guard let window = AX.elements(app, kAXWindowsAttribute as String)?.first,
+    // The focused window, not merely the first: a tooltip or a transient
+    // bubble can head the list and measure nothing anybody is looking at.
+    var focused: AXUIElement?
+    var value: CFTypeRef?
+    if AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &value) == .success,
+       let candidate = value, CFGetTypeID(candidate) == AXUIElementGetTypeID() {
+        focused = (candidate as! AXUIElement)
+    }
+    // --window <substring> names the window outright, which is the only
+    // reliable way to measure the one a browser tab is actually in.
+    var named: AXUIElement?
+    if let index = args.firstIndex(of: "--window"), index + 1 < args.count {
+        let wanted = args[index + 1].lowercased()
+        named = AX.elements(app, kAXWindowsAttribute as String)?.first {
+            (AX.string($0, kAXTitleAttribute as String) ?? "").lowercased().contains(wanted)
+        }
+        if named == nil { print("no window matching '\(wanted)'"); return }
+    }
+    guard let window = named ?? focused ?? AX.elements(app, kAXWindowsAttribute as String)?.first,
           let position = AX.point(window, kAXPositionAttribute as String),
           let size = AX.size(window, kAXSizeAttribute as String) else {
         print("\(appName): no window frame")
@@ -1024,7 +1042,13 @@ func runPressables(_ args: inout [String]) {
         "AXSegment", "AXSwitch", "AXToggle",
     ]
     let textRoles: Set<String> = ["AXTextField", "AXTextArea", "AXSearchField"]
-    let actionShareCap = 0.05
+    // --cap <percent> sweeps the one budget that decides whether a large
+    // wordless pressable is ever asked the question. The shipped value is 5.
+    var actionShareCap = 0.05
+    if let index = args.firstIndex(of: "--cap"), index + 1 < args.count,
+       let percent = Double(args[index + 1]) {
+        actionShareCap = percent / 100
+    }
 
     struct Found { let role: String; let frame: CGRect; let viaAction: Bool }
     struct Tally { var total = 0; var press = 0 }
@@ -1127,6 +1151,65 @@ func runPressables(_ args: inout [String]) {
     print("  chips drawn: \(chips.count)"
           + " · labels \(labels.first.map { "\($0)…" } ?? "none")"
           + " \(labels.allSatisfy { $0.count == 1 } ? "single letters" : "pairs")")
+    // --dump prints every kept target's frame, so a second sensor's answer
+    // (a browser's DOM, say) can be laid over the tree's and the overlap
+    // counted rather than guessed at from role names.
+    // --words reads the screen the way the door does and reports which of
+    // the harvest typing can actually reach. A target with no word painted
+    // inside it answers to no search, so this count is the chips the door
+    // will spend — the measurement the old `viaAction` guess hid.
+    if args.contains("--words") {
+        // The door reads the whole display and places its words in the
+        // same global space the tree reports frames in. Capturing one
+        // window instead puts the words in that window's own coordinates,
+        // and every target then reads as wordless — so this mirrors the
+        // app exactly rather than approximating it.
+        let display = Displays.display(containing: windowFrame)?.bounds ?? windowFrame
+        if let image = CGWindowListCreateImage(display, .optionOnScreenOnly,
+                                               kCGNullWindowID, [.bestResolution]) {
+            let began = Date()
+            let lines = OCRSense.recognize(image: image, windowFrame: display)
+            let words = lines.map(\.frame)
+            let ocrMs = Int(Date().timeIntervalSince(began) * 1000)
+            let wordless = found.filter {
+                !$0.viaAction && !textRoles.contains($0.role)
+                    && !HintLabels.paintsWord(target: $0.frame, words: words)
+            }
+            let chipsThen = HintLabels.chipped(
+                unreachable: found.map {
+                    $0.viaAction || textRoles.contains($0.role)
+                        || !HintLabels.paintsWord(target: $0.frame, words: words)
+                },
+                alphabet: alphabet).count
+            print("  words: \(lines.count) read in \(ocrMs)ms · \(wordless.count) of"
+                  + " \(found.count) targets paint none")
+            print("  chips: \(chips.count) by the found-how rule · \(chipsThen) by the painted-word rule")
+            var wordlessByRole: [String: Int] = [:]
+            for target in wordless { wordlessByRole[target.role, default: 0] += 1 }
+            for (role, count) in wordlessByRole.sorted(by: { $0.value > $1.value }) {
+                print("    \(pad(role, 20)) \(count) wordless")
+            }
+            if args.contains("--dump") {
+                for target in wordless {
+                    print("  wordless \(target.role) \(Int(target.frame.minX))"
+                          + " \(Int(target.frame.minY)) \(Int(target.frame.width))"
+                          + " \(Int(target.frame.height))")
+                }
+            }
+        } else {
+            print("  words: capture failed (Screen Recording?)")
+        }
+    }
+    if args.contains("--dump") {
+        print("  window \"\(AX.string(window, kAXTitleAttribute as String) ?? "?")\""
+              + " \(Int(windowFrame.minX)) \(Int(windowFrame.minY))"
+              + " \(Int(windowFrame.width)) \(Int(windowFrame.height))")
+        for target in found {
+            print("  target \(target.role) \(target.viaAction ? "action" : "role")"
+                  + " \(Int(target.frame.minX)) \(Int(target.frame.minY))"
+                  + " \(Int(target.frame.width)) \(Int(target.frame.height))")
+        }
+    }
 }
 
 

@@ -87,6 +87,27 @@ public enum HintLabels {
         }
     }
 
+    /// May the click door spend its chips yet?
+    ///
+    /// Two sensors answer at different times and the chips need both: the
+    /// tree says what the targets are, the screen says which of them carry
+    /// a word. The tree is usually first, so spending on its answer alone
+    /// would chip everything and then take most of it back — and a chip
+    /// that moves under a hand already reading it is worse than a chip
+    /// that arrived a little later. So the door waits for the words.
+    ///
+    /// Two ways out of the wait. A harvest small enough that every target
+    /// wears a single letter needs no words to decide anything — that is
+    /// the dialog answered the instant the tree does. And a window may
+    /// have no words coming at all (an image, a canvas, a tree that never
+    /// answers), so the caller forces the decision on a deadline rather
+    /// than leaving the door chipless forever.
+    public static func spendChipsNow(harvested: Int?, alphabet: Int,
+                                     words: Int, forced: Bool) -> Bool {
+        guard let harvested else { return false }
+        return harvested <= alphabet || words > 0 || forced
+    }
+
     public enum Match: Equatable {
         case none
         case partial

@@ -118,6 +118,42 @@ final class HintLabelsTests: XCTestCase {
         XCTAssertFalse(HintLabels.paintsWord(target: .zero, words: [CGRect(x: 0, y: 0, width: 9, height: 9)]))
     }
 
+    // MARK: - when the chips may be spent
+
+    func testNoHarvestNoChips() {
+        XCTAssertFalse(HintLabels.spendChipsNow(harvested: nil, alphabet: 26,
+                                                words: 400, forced: true),
+                       "the tree has not answered; there is nothing to label")
+    }
+
+    func testASmallHarvestNeedsNoWords() {
+        // The dialog's three buttons, answered the instant the tree does:
+        // everything wears a single letter, so no word decides anything.
+        XCTAssertTrue(HintLabels.spendChipsNow(harvested: 3, alphabet: 26,
+                                               words: 0, forced: false))
+    }
+
+    func testALargeHarvestWaitsForTheWords() {
+        // The defect this guards: spending on the tree's answer alone
+        // chips every target, then takes most of them back when the words
+        // land — and a chip that moves under a reading hand is worse than
+        // one that came late.
+        XCTAssertFalse(HintLabels.spendChipsNow(harvested: 107, alphabet: 26,
+                                                words: 0, forced: false))
+    }
+
+    func testTheWordsReleaseTheChips() {
+        XCTAssertTrue(HintLabels.spendChipsNow(harvested: 107, alphabet: 26,
+                                               words: 76, forced: false))
+    }
+
+    func testAWindowWithNoWordsComingIsNotMadeToWaitForever() {
+        // An image, a canvas, a tree that never answers: the deadline
+        // forces the decision rather than leaving the door chipless.
+        XCTAssertTrue(HintLabels.spendChipsNow(harvested: 107, alphabet: 26,
+                                               words: 0, forced: true))
+    }
+
     func testMatchTiers() {
         let labels = ["aa", "as", "d"]
         XCTAssertEqual(HintLabels.match(typed: "d", labels: labels), .exact(2))

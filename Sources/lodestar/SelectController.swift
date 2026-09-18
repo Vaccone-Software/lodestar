@@ -676,8 +676,8 @@ final class SelectController {
     /// small window's whole experience.
     private func labelEntry(force: Bool = false) {
         guard door == .click, let found = entryHarvest else { return }
-        let small = found.count <= letters.count
-        guard small || force || !units.isEmpty else { return }
+        guard HintLabels.spendChipsNow(harvested: found.count, alphabet: letters.count,
+                                       words: units.count, forced: force) else { return }
         let words = units.map(\.frame)
         var wordless = 0
         let unreachable = found.map { target -> Bool in

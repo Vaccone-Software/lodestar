@@ -561,7 +561,7 @@ public enum SettingsModel {
                     + "is adjusted for. Optional, local, never sent.",
                 isDefault: config.healthBorn == nil,
                 group: "Health"),
-            Row(title: "Handedness", path: "health.hand",
+            Row(title: "Dominant hand", path: "health.hand",
                 control: .choice(options: ["", "left", "right", "either"],
                                  labels: ["Not set", "Left", "Right", "Either"],
                                  current: config.healthHand),

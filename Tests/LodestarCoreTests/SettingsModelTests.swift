@@ -14,14 +14,16 @@ final class SettingsModelTests: XCTestCase {
                                  "digits address panes; a tenth pane has no key")
     }
 
-    /// About you, for the health record: two optional facts in their own
-    /// group of the Coach pane, since digits address panes and a tenth
-    /// pane has no key.
-    func testTheHealthGroupHoldsTwoOptionalFacts() {
+    /// About you, for the health record: two optional facts and the door
+    /// to the keyboards, in their own group of the Coach pane, since
+    /// digits address panes and a tenth pane has no key.
+    func testTheHealthGroupHoldsTwoOptionalFactsAndTheKeyboardsDoor() {
         let coach = sections.first { $0.name == "Coach" }!
         let health = coach.rows.filter { $0.group == "Health" }
-        XCTAssertEqual(health.map(\.path), ["health.born", "health.hand"])
+        XCTAssertEqual(health.map(\.path), ["health.born", "health.hand", "health.keyboards"])
         XCTAssertTrue(health.allSatisfy(\.isDefault), "unset by default")
+        guard case .page(let page) = health[2].control else { return XCTFail("keyboards is a door") }
+        XCTAssertEqual(page, SettingsModel.keyboardsPage)
         guard case .text(let year, let placeholder) = health[0].control else { return XCTFail("born is typed") }
         XCTAssertEqual(year, "")
         XCTAssertEqual(placeholder, "Year")

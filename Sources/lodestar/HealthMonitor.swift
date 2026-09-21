@@ -73,6 +73,15 @@ final class HealthMonitor {
     private let roster = KeyboardRoster()
     private let pointers = PointerRoster()
     private let eras: EraTracker
+    /// Where the keys sit on each keyboard, as declared. Two copies of
+    /// one value: the main thread's, read by the era check, and the
+    /// queue's, read by every press — so neither ever waits on the other.
+    private var declaredFingers = FingerMap()
+    private var fingerMap = FingerMap()
+    /// The roster charges a press to a keyboard by built-in against
+    /// external, which a test machine cannot arrange. This names the
+    /// board every press came from instead. Queue-confined; tests only.
+    private var forcedKeyboard: String?
     private let ownPID = Int64(ProcessInfo.processInfo.processIdentifier)
 
     init(directory: URL = Paths.data) {
@@ -184,6 +193,26 @@ final class HealthMonitor {
         }
     }
 
+    /// Config's `health.keyboards`, at boot and on every reload. Main
+    /// thread. A changed map is a new era: what the finger column means
+    /// moved, and the ring should say when.
+    func setFingerMap(_ map: FingerMap) {
+        guard map != declaredFingers else { return }
+        declaredFingers = map
+        queue.async { [self] in fingerMap = map }
+        if enabled { checkEra() }
+    }
+
+    /// The keyboards attached right now, for the Keyboards page. Main
+    /// thread; enumeration only, nothing is opened.
+    func attachedKeyboards() -> [DeviceRoster.Device] { roster.current() }
+
+    /// Name the keyboard every press is charged to, for a test that has
+    /// no way to attach one. Nil returns to the roster's word.
+    func forceKeyboardForTesting(_ id: String?) {
+        queue.async { [self] in forcedKeyboard = id }
+    }
+
     /// Shutdown, and the switch going off: everything in flight lands
     /// before this returns. Main thread. The queue is asked once,
     /// synchronously; nothing on it ever waits on main, so this cannot
@@ -232,7 +261,14 @@ final class HealthMonitor {
             let lid = lidClosedLocked(now: press.down)
             press.lid = lid ?? false
             press.keyboard = roster.attribute(lidClosed: lid)
-            keys.append(press, roster: roster.ids)
+            // The finger the tap named is the convention's; the board
+            // this press came from may put the key under another digit.
+            let ids = roster.ids
+            let attributed = press.keyboard > 0 && press.keyboard <= ids.count ? ids[press.keyboard - 1] : nil
+            if let id = forcedKeyboard ?? attributed {
+                press = fingerMap.apply(to: press, keyboard: id)
+            }
+            keys.append(press, roster: ids)
             if let closed = window.add(press) { emitWindow(closed) }
             if window.count == 1 { sampleRole() }
         }
@@ -525,7 +561,7 @@ final class HealthMonitor {
                            pointerSchema: Int(PointerStore.version), layout: Environment.layoutID(),
                            keyboards: roster.ids, pointers: pointers.ids,
                            displays: Environment.displays(), settings: Environment.inputSettings(),
-                           lid: Lid.isClosed())
+                           lid: Lid.isClosed(), fingerMap: declaredFingers.fingerprint)
         if let event = eras.check(info) {
             Log.info("health: era", ["reason": event.era?.reason ?? "?", "version": info.appVersion])
             observations?.era(event)

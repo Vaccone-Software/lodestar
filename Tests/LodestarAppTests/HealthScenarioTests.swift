@@ -44,6 +44,28 @@ final class HealthScenarioTests: XCTestCase {
         XCTAssertTrue(space.isTyping)
     }
 
+    /// The keyboard's declaration reaches the row: enter on a split
+    /// board lands in the store under the thumb, with the hand column —
+    /// the windows' class — exactly as the tap named it.
+    func testADeclaredKeyLandsInTheStoreUnderItsFinger() {
+        stage.health.setFingerMap(FingerMap(["kb": [.enter: FingerMap.Placement(.right, .thumb)]]))
+        stage.health.forceKeyboardForTesting("kb")
+        stage.pressHeld("return", for: 0.08)
+        stage.pressHeld("a", for: 0.085)
+        stage.health.drainForTesting()
+        stage.health.flush()
+        let keys = stage.directory.appendingPathComponent(KeyStore.subdirectory)
+        let presses = KeyStore.days(in: keys).flatMap { KeyStore.presses(day: $0, in: keys) }
+        XCTAssertEqual(presses.count, 2)
+        XCTAssertEqual(presses[0].kind, .enter)
+        XCTAssertEqual(presses[0].finger, .thumb, "declared")
+        XCTAssertEqual(presses[0].hand, .other, "the hand column is not the map's to move")
+        XCTAssertEqual(presses[1].finger, .pinky, "a letter keeps its column")
+        // Read back under the same declaration, the row says the same.
+        XCTAssertEqual(presses[0].relabeled(by: FingerMap(), keyboard: "kb").finger, .thumb,
+                       "the stored finger is what the tap wrote")
+    }
+
     /// Through the real monitor: the presses the tap timed are in the
     /// raw store at the scratch directory, every column filled in.
     func testTheRealMonitorKeepsThePressesInItsRawStore() {

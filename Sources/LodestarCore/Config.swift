@@ -126,6 +126,11 @@ public struct Config {
     /// motor signs are often one-sided, and the record keeps the hands
     /// apart.
     public var healthHand = ""
+    /// `health.keyboards`: per keyboard, the keys that sit somewhere other
+    /// than the standard convention puts them — a split board's thumb
+    /// clusters. Only the finger column reads it; the hand column is the
+    /// windows' class and never moves.
+    public var fingerMap = FingerMap()
     public var coachEnabled = true
     /// The chain guide fades as a subtree is learned: the map waits for
     /// recall before it appears. The coach's doctrine, not a switch.
@@ -239,6 +244,11 @@ public struct Config {
         "health": .table([
             "born": .string(allowed: nil, description: "The year you were born, four digits. Age is the first thing a reading of the hands is adjusted for. Optional."),
             "hand": .string(allowed: ["left", "right", "either"], description: "The hand you write with. Fine motor signs are often one sided and the record keeps each hand apart. Optional."),
+            "keyboards": .freeTable(
+                value: .freeTable(
+                    value: .string(allowed: nil, description: "Where the key sits on this keyboard, as a side and a finger: right thumb, either thumb, left pinky."),
+                    description: "One keyboard's keys that sit somewhere other than standard, by name: left-shift, right-shift, left-control, right-control, left-option, right-option, left-command, right-command, fn, space, enter, backspace, tab, escape."),
+                description: "Keyboard id (vendor:product:hash, as the Keyboards page shows it) → the keys a split or custom board moves. Letters keep their columns everywhere and are never here."),
         ], description: "About you, for the health record. Local, optional, never sent."),
         "keys": .freeTable(value: .string(allowed: nil, description: "The key name this keycode produces."),
                            description: "Keycode → key-name overrides for non-ANSI layouts."),
@@ -511,6 +521,26 @@ public struct Config {
         if let hand = effective.value(at: ["health", "hand"])?.string,
            ["left", "right", "either"].contains(hand) {
             config.healthHand = hand
+        }
+        if let keyboards = effective.value(at: ["health", "keyboards"])?.table {
+            for (id, value) in keyboards {
+                guard let keys = value.table else {
+                    problems.append("health.keyboards.\(id): a keyboard is a section of keys")
+                    continue
+                }
+                for (name, placed) in keys {
+                    guard let key = Keys.SpecialKey(rawValue: name) else {
+                        let known = Keys.SpecialKey.allCases.map(\.rawValue).joined(separator: ", ")
+                        problems.append("health.keyboards.\(id).\(name): unknown key — one of \(known)")
+                        continue
+                    }
+                    guard let text = placed.string, let placement = FingerMap.Placement(parsing: text) else {
+                        problems.append("health.keyboards.\(id).\(name): a side and a finger, like 'right thumb'")
+                        continue
+                    }
+                    config.fingerMap.keyboards[id, default: [:]][key] = placement
+                }
+            }
         }
         if let accent = effective.value(at: ["appearance", "accent"])?.string {
             if let chosen = Config.Accent(rawValue: accent) {

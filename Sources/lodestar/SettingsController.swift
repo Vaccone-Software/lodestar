@@ -82,6 +82,20 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     /// Popup token tables, so a selected label resolves to its profile.
     private var popupTokens: [String: [String]] = [:]
     private var lastRenderedPane = -1
+    /// The pages behind the panes, rebuilt with them; the one open, by
+    /// name, or nil while a pane is showing; and what the window has
+    /// chosen on it, which the config does not own.
+    private var pages: [SettingsModel.Section] = []
+    private var openPage: String?
+    private var selectedKeyboard: String?
+    private var lastRenderedPage: String?
+
+    /// What the pane column is showing: the open page, or the pane the
+    /// rail has lit. Every handler that reads a row by index reads it
+    /// from here, never from `sections[pane]` directly.
+    private var current: SettingsModel.Section {
+        openPage.flatMap { name in pages.first { $0.name == name } } ?? sections[pane]
+    }
     /// See render(): the doctor's findings and the machine probes, memoized
     /// for one second so per-keystroke renders stop re-reading the disk.
     private var doctorCache: (machine: SettingsModel.MachineState,
@@ -278,6 +292,10 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         if key != "return" { armedRow = nil }
         if key == "escape" {
             if dismissSheet() { return true }
+            if openPage != nil {
+                backPressed()
+                return true
+            }
             close()
             return true
         }
@@ -291,6 +309,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         }
         if let digit = Int(key), (1...9).contains(digit), digit <= sections.count {
             pane = digit - 1
+            openPage = nil
             highlightRow = nil
             listFocus = nil
             inlineEdit = nil
@@ -310,7 +329,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     /// the add line, escape steps back out.
     private func listKey(_ key: String) -> Bool {
         guard let focus = listFocus,
-              case .table(let kind, let entries) = sections[pane].rows[focus.row].control
+              case .table(let kind, let entries) = current.rows[focus.row].control
         else { listFocus = nil; return true }
         switch key {
         case "escape":
@@ -378,6 +397,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             guard hits.indices.contains(hitSelection) else { return true }
             let hit = hits[hitSelection]
             pane = hit.section
+            openPage = nil
             highlightRow = hit.row
             layer = .browsing
             render()
@@ -409,7 +429,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     // MARK: - Activation and writes
 
     private func activate(row index: Int) {
-        let row = sections[pane].rows[index]
+        let row = current.rows[index]
         if row.dimmed { return }
         switch row.control {
         case .toggle(let value):
@@ -431,6 +451,10 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             } else if let input = addInputs[addKey(kind)] {
                 panel.makeFirstResponder(input)
             }
+        case .page(let name):
+            open(page: name)
+        case .selector:
+            popups[index]?.performClick(nil)
         case .readout:
             break
         }
@@ -509,6 +533,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         guard let view = gesture.view,
               let index = railRows.firstIndex(where: { $0 === view }) else { return }
         pane = index
+        openPage = nil
         highlightRow = nil
         layer = .browsing
         showingChanged = false
@@ -532,13 +557,19 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     @objc private func resetPressed(_ sender: NSButton) {
         guard let dotted = sender.identifier?.rawValue, !dotted.isEmpty else { return }
         let path = dotted.split(separator: ".").map(String.init)
+        // A declared key placement has no default to write back to:
+        // standard is the line's absence.
+        if dotted.hasPrefix("health.keyboards.") {
+            writeEntries(remove: [path])
+            return
+        }
         guard let value = ConfigDefaults.tree.value(at: path) else { return }
         write(dotted, value)
     }
 
     @objc private func togglePressed(_ sender: AccentSwitch) {
         guard let index = owningRow(of: sender) else { return }
-        let row = sections[pane].rows[index]
+        let row = current.rows[index]
         if case .toggle(let value) = row.control, !row.dimmed {
             write(row.path, .bool(!value))
         } else {
@@ -548,12 +579,64 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
 
     @objc private func choicePressed(_ sender: NSPopUpButton) {
         guard let index = owningRow(of: sender) else { return }
-        let row = sections[pane].rows[index]
+        let row = current.rows[index]
         guard case .choice(let options, _, _) = row.control,
               options.indices.contains(sender.indexOfSelectedItem) else { return }
         // Every option is the value the config stores — a mode word, or a
         // profile reference like brave:Xonar.
-        write(row.path, .string(options[sender.indexOfSelectedItem]))
+        let chosen = options[sender.indexOfSelectedItem]
+        if row.path.hasPrefix("health.keyboards.") {
+            // A key's placement is one entry of a free table: standard
+            // is the entry's absence, so choosing it removes the line
+            // rather than writing an empty one.
+            let path = row.path.split(separator: ".").map(String.init)
+            if chosen.isEmpty {
+                writeEntries(remove: [path])
+            } else {
+                writeEntries(set: [(path, .string(chosen))])
+            }
+            return
+        }
+        write(row.path, .string(chosen))
+    }
+
+    @objc private func selectorPressed(_ sender: NSPopUpButton) {
+        guard let index = owningRow(of: sender) else { return }
+        let row = current.rows[index]
+        guard case .selector(let options, _, _) = row.control,
+              options.indices.contains(sender.indexOfSelectedItem) else { return }
+        selectedKeyboard = options[sender.indexOfSelectedItem]
+        render()
+    }
+
+    @objc private func pagePressed(_ sender: NSButton) {
+        guard let name = sender.identifier?.rawValue, !name.isEmpty else { return }
+        open(page: name)
+    }
+
+    @objc private func backPressed() {
+        openPage = nil
+        highlightRow = nil
+        render()
+        panel.makeFirstResponder(nil)
+    }
+
+    /// A page opens over its parent pane: the rail keeps the parent lit,
+    /// escape returns to it.
+    private func open(page name: String) {
+        guard let page = pages.first(where: { $0.name == name }) else { return }
+        if let parent = page.parent, let index = sections.firstIndex(where: { $0.name == parent }) {
+            pane = index
+        }
+        openPage = name
+        showingChanged = false
+        highlightRow = nil
+        listFocus = nil
+        armedRow = nil
+        inlineEdit = nil
+        editing = [:]
+        render()
+        panel.makeFirstResponder(nil)
     }
 
     private func owningRow(of control: NSView) -> Int? {
@@ -632,9 +715,10 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                 DispatchQueue.main.async { [weak self] in self?.render() }
             }
         }
-        let keepScroll = lastRenderedPane == pane && !showingChanged
+        let keepScroll = lastRenderedPane == pane && lastRenderedPage == openPage && !showingChanged
         let offset = paneScroll?.contentView.bounds.origin
         lastRenderedPane = pane
+        lastRenderedPage = openPage
         // The doctor and the machine probes hit disk and LaunchServices;
         // render runs per keystroke while the window is up. A one-second
         // memo keeps them fresh at human speed and off the key path — a
@@ -652,6 +736,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         }
         sections = SettingsModel.catalog(config: config, machine: machine,
                                          problems: findings)
+        pages = SettingsModel.pages(config: config, machine: machine,
+                                    view: SettingsModel.ViewState(selectedKeyboard: selectedKeyboard))
         recycledSwitches = switches
         switches = [:]
         // End any editing before the views under it go away — a field
@@ -777,10 +863,21 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
 
         // The pill's rule, as the sheet has it: one text size, tone for
         // hierarchy. A header is the body voice, quiet, never caps.
-        list.addArrangedSubview(label(sections[pane].name, size: BarTheme.Scale.body,
+        let section = current
+        if let parent = section.parent {
+            // A page wears the way back where the eye lands first; escape
+            // is the same door.
+            let back = HandButton(title: "‹ \(parent)", target: self, action: #selector(backPressed))
+            back.isBordered = false
+            back.font = .systemFont(ofSize: BarTheme.Scale.meta)
+            back.contentTintColor = BarTheme.secondaryColor
+            list.addArrangedSubview(back)
+            list.setCustomSpacing(8, after: back)
+        }
+        list.addArrangedSubview(label(section.name, size: BarTheme.Scale.body,
                                       weight: .regular, color: BarTheme.secondaryColor))
 
-        let rows = sections[pane].rows
+        let rows = section.rows
         var letters = SettingsModel.labels(for: rows.count).makeIterator()
         var lastGroup: String?
         for (index, row) in rows.enumerated() {
@@ -865,6 +962,30 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                 list.addArrangedSubview(line)
             }
         }
+        // A page's rows are changes too; clicking one opens the page.
+        for page in pages {
+            let changed = page.rows.enumerated().filter { !$0.element.isDefault
+                && !$0.element.path.isEmpty }
+            guard !changed.isEmpty else { continue }
+            any = true
+            list.addArrangedSubview(label(page.name, size: BarTheme.Scale.body, weight: .regular,
+                                          color: BarTheme.secondaryColor))
+            for (rowIndex, row) in changed {
+                let line = HandStack()
+                line.orientation = .horizontal
+                line.alignment = .centerY
+                line.spacing = 9
+                line.addArrangedSubview(label(row.title, size: BarTheme.Scale.body, weight: .regular,
+                                              color: .labelColor))
+                line.addArrangedSubview(label(row.path, size: BarTheme.Scale.meta, weight: .regular,
+                                              color: BarTheme.secondaryColor, mono: true))
+                let go = NSClickGestureRecognizer(target: self,
+                                                  action: #selector(changedRowClicked(_:)))
+                line.addGestureRecognizer(go)
+                line.identifier = NSUserInterfaceItemIdentifier("page|\(page.name)|\(rowIndex)")
+                list.addArrangedSubview(line)
+            }
+        }
         if !any {
             list.addArrangedSubview(label("Everything is at its default.", size: BarTheme.Scale.body,
                                           weight: .regular, color: BarTheme.secondaryColor))
@@ -881,9 +1002,17 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
 
     @objc private func changedRowClicked(_ gesture: NSClickGestureRecognizer) {
         guard let id = gesture.view?.identifier?.rawValue else { return }
-        let parts = id.split(separator: "|").compactMap { Int($0) }
+        let pieces = id.split(separator: "|").map(String.init)
+        if pieces.count == 3, pieces[0] == "page", let row = Int(pieces[2]) {
+            open(page: pieces[1])
+            highlightRow = row
+            render()
+            return
+        }
+        let parts = pieces.compactMap { Int($0) }
         guard parts.count == 2 else { return }
         showingChanged = false
+        openPage = nil
         pane = parts[0]
         highlightRow = parts[1]
         render()
@@ -1055,6 +1184,25 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             return column
         case .table:
             return NSView() // the table renders under the title column
+        case .page(let name):
+            let open = HandButton(title: "Open", target: self, action: #selector(pagePressed(_:)))
+            open.bezelStyle = .inline
+            open.controlSize = .regular
+            open.font = .systemFont(ofSize: BarTheme.Scale.meta, weight: .medium)
+            open.contentTintColor = BarTheme.secondaryColor
+            open.identifier = NSUserInterfaceItemIdentifier(name)
+            return open
+        case .selector(let options, let labels, let current):
+            let popup = KeyPopUp()
+            popup.addItems(withTitles: labels)
+            if let at = options.firstIndex(of: current) {
+                popup.selectItem(at: at)
+            }
+            popup.font = .systemFont(ofSize: BarTheme.Scale.meta)
+            popup.target = self
+            popup.action = #selector(selectorPressed(_:))
+            popups[index] = popup
+            return popup
         }
     }
 

@@ -228,6 +228,9 @@ public enum ConfigDefaults {
         "coach": .table([
             "enabled": .bool(true),
         ]),
+        "health": .table([
+            "keyboards": .table([:]),
+        ]),
         "keys": .table([:]),
     ]
 }

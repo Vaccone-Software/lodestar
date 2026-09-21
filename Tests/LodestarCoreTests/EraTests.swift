@@ -51,6 +51,17 @@ final class EraTests: XCTestCase {
         var layout = base
         layout.layout = "com.apple.keylayout.Dvorak"
         XCTAssertNotEqual(layout.fingerprint, base.fingerprint)
+        // A declared key placement changes what the finger column means;
+        // nothing declared is the era the record already had.
+        var fingers = base
+        fingers.fingerMap = "kb=enter:right thumb"
+        XCTAssertNotEqual(fingers.fingerprint, base.fingerprint)
+        var none = base
+        none.fingerMap = ""
+        XCTAssertEqual(none.fingerprint, base.fingerprint)
+        var before = base
+        before.fingerMap = nil
+        XCTAssertEqual(before.fingerprint, base.fingerprint, "an era written before the map existed")
     }
 
     func testTheHealthKindsAreThePulseTheWindowAndTheEra() {

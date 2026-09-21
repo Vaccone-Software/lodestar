@@ -108,6 +108,9 @@ final class ConfigCoverageTests: XCTestCase {
         Probe(path: ["web", "clicks", "browser"], value: .string("com.brave.Browser")) {
             $0.webClickBrowser == "com.brave.Browser"
         },
+        Probe(path: ["health", "keyboards", "7504:24926:782ec294", "enter"], value: .string("right thumb")) {
+            $0.fingerMap.keyboards["7504:24926:782ec294"]?[.enter] == FingerMap.Placement(.right, .thumb)
+        },
     ] + Gestures.roster.map { verb in
         Probe(path: ["gestures", verb.name], value: .bool(false)) { config in
             !verb.keys.isEmpty && verb.keys.allSatisfy(config.disabledGestures.contains)

@@ -67,6 +67,11 @@ public enum SettingsModel {
         case readout(String, sub: String?)
         /// An editable table: rows with remove, and an add grammar per kind.
         case table(kind: TableKind, entries: [TableEntry])
+        /// A door to a page: the section it opens, by name.
+        case page(String)
+        /// A choice the window keeps rather than the config: which of
+        /// several things a page is showing. Index-aligned like `choice`.
+        case selector(options: [String], labels: [String], current: String)
     }
 
     public struct Preset: Equatable {
@@ -124,10 +129,41 @@ public enum SettingsModel {
     public struct Section: Equatable {
         public let name: String
         public let rows: [Row]
+        /// A page rather than a pane: reached from a row of the named
+        /// pane, never listed on the rail, and escape returns to its
+        /// parent. Nil for the nine panes the digits address.
+        public let parent: String?
 
-        public init(name: String, rows: [Row]) {
+        public init(name: String, rows: [Row], parent: String? = nil) {
             self.name = name
             self.rows = rows
+            self.parent = parent
+        }
+    }
+
+    /// One keyboard, as the Keyboards page names it.
+    public struct Keyboard: Equatable {
+        /// `vendor:product:hash`, the roster's id and the config's key.
+        public let id: String
+        public let name: String
+        public let builtIn: Bool
+        public let attached: Bool
+
+        public init(id: String, name: String, builtIn: Bool, attached: Bool) {
+            self.id = id
+            self.name = name
+            self.builtIn = builtIn
+            self.attached = attached
+        }
+    }
+
+    /// What the window is showing that the config does not own: the
+    /// keyboard the Keyboards page is opened to.
+    public struct ViewState: Equatable {
+        public var selectedKeyboard: String?
+
+        public init(selectedKeyboard: String? = nil) {
+            self.selectedKeyboard = selectedKeyboard
         }
     }
 
@@ -149,6 +185,10 @@ public enum SettingsModel {
         /// which of them the system calls its default.
         public var inputDevices: [String] = []
         public var defaultInput: String?
+        /// Every keyboard the Keyboards page can speak for: the ones
+        /// attached, by the roster, and the ones the config has declared
+        /// keys for, attached or not.
+        public var keyboards: [Keyboard] = []
 
         public init(accessibility: String = "unknown", screenRecording: String = "unknown",
                     calendars: String = "unknown", browserRole: String = "unknown",
@@ -524,6 +564,11 @@ public enum SettingsModel {
                     + "one sided and the record keeps each hand apart.",
                 isDefault: config.healthHand.isEmpty,
                 group: "Health"),
+            Row(title: "Keyboards", path: "health.keyboards",
+                control: .page(keyboardsPage),
+                detail: keyboardsSummary(config: config, machine: machine),
+                isDefault: config.fingerMap.isEmpty,
+                group: "Health"),
         ]))
 
         // 9 · Advanced
@@ -539,6 +584,69 @@ public enum SettingsModel {
         ]))
 
         return sections
+    }
+
+    // MARK: - Pages
+
+    public static let keyboardsPage = "Keyboards"
+
+    /// The Health row's one line: which boards differ, and by how much.
+    static func keyboardsSummary(config: Config, machine: MachineState) -> String {
+        let named = machine.keyboards.filter { !$0.builtIn }
+        guard !named.isEmpty else {
+            return "Where each key sits on a split or custom keyboard, so the record "
+                + "charges it to the right finger. Letters keep their columns everywhere."
+        }
+        return named.map { keyboard in
+            let n = config.fingerMap.differing(on: keyboard.id)
+            let state = n == 0 ? "standard" : (n == 1 ? "1 key differs" : "\(n) keys differ")
+            return "\(keyboard.name) · \(state)"
+        }.joined(separator: ". ") + "."
+    }
+
+    /// The pages behind the panes: reached from a row, never from the
+    /// rail. One today — the Keyboards page, opened to one keyboard.
+    public static func pages(config: Config, machine: MachineState,
+                             view: ViewState = ViewState()) -> [Section] {
+        [keyboardsSection(config: config, machine: machine, view: view)]
+    }
+
+    /// One keyboard's fourteen keys and where each sits. The board is
+    /// chosen at the top; every row below is one key, its standard
+    /// placement labelled as such, and only a placement that differs is
+    /// ever written.
+    static func keyboardsSection(config: Config, machine: MachineState, view: ViewState) -> Section {
+        let boards = machine.keyboards
+        let shown = view.selectedKeyboard.flatMap { id in boards.first { $0.id == id } }
+            ?? boards.first { !$0.builtIn } ?? boards.first
+        var rows: [Row] = []
+        if boards.isEmpty {
+            rows.append(Row(title: "No keyboard found",
+                            control: .readout("Attach one and reopen the page.", sub: nil)))
+            return Section(name: keyboardsPage, rows: rows, parent: "Coach")
+        }
+        rows.append(Row(
+            title: "Keyboard",
+            control: .selector(options: boards.map(\.id),
+                               labels: boards.map { $0.attached ? $0.name : "\($0.name) · not attached" },
+                               current: shown?.id ?? ""),
+            detail: shown.map {
+                "\($0.id). Keys are named as the system reports them. A board that "
+                    + "sends one code for both thumbs maps that key to Either."
+            }))
+        guard let shown else { return Section(name: keyboardsPage, rows: rows, parent: "Coach") }
+        for key in Keys.SpecialKey.allCases {
+            let placed = config.fingerMap.placement(of: key, keyboard: shown.id)
+            let options = [""] + FingerMap.Placement.all.map(\.text)
+            let labels = ["\(key.standard.label) · standard"] + FingerMap.Placement.all.map(\.label)
+            rows.append(Row(
+                title: key.label,
+                path: "health.keyboards.\(shown.id).\(key.rawValue)",
+                control: .choice(options: options, labels: labels, current: placed?.text ?? ""),
+                isDefault: placed == nil,
+                group: key == .leftShift ? "Keys" : nil))
+        }
+        return Section(name: keyboardsPage, rows: rows, parent: "Coach")
     }
 
     // MARK: - Labels

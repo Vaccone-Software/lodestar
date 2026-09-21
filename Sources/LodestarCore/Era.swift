@@ -21,12 +21,18 @@ public struct EraInfo: Codable, Equatable {
     public var displays: [DisplayInfo]
     public var settings: InputSettings
     public var lid: Bool?
+    /// The finger map's fingerprint — which keys the person has declared
+    /// to sit off the convention, per keyboard. A change to it changes
+    /// what the stored finger column means from here on. Nil in an era
+    /// written before the map existed, and empty when nothing is declared.
+    public var fingerMap: String?
     /// "boot" or "changed".
     public var reason: String
 
     public init(appVersion: String, keySchema: Int, pointerSchema: Int, layout: String? = nil,
                 keyboards: [String] = [], pointers: [String] = [], displays: [DisplayInfo] = [],
-                settings: InputSettings = InputSettings(), lid: Bool? = nil, reason: String = "boot") {
+                settings: InputSettings = InputSettings(), lid: Bool? = nil,
+                fingerMap: String? = nil, reason: String = "boot") {
         self.appVersion = appVersion
         self.keySchema = keySchema
         self.pointerSchema = pointerSchema
@@ -36,17 +42,23 @@ public struct EraInfo: Codable, Equatable {
         self.displays = displays
         self.settings = settings
         self.lid = lid
+        self.fingerMap = fingerMap
         self.reason = reason
     }
 
     /// What counts as the instrument changing. Devices come and go with
     /// a Bluetooth radio and are carried by every pulse and window
     /// anyway, so they are not part of it; the build, the formats, the
-    /// settings, the screens and the layout are.
+    /// settings, the screens, the layout — and the finger map, because a
+    /// relabeled key is a step in what the finger column means. An empty
+    /// map adds nothing, so an era written before the map existed still
+    /// matches an install that has declared none.
     public var fingerprint: String {
         let screens = displays.map { "\($0.width)x\($0.height)@\($0.scale)/\($0.mmWidth)x\($0.mmHeight)" }
-        return [appVersion, "\(keySchema)", "\(pointerSchema)", layout ?? "",
-                screens.joined(separator: "|"), settings.fingerprint].joined(separator: ";")
+        var parts = [appVersion, "\(keySchema)", "\(pointerSchema)", layout ?? "",
+                     screens.joined(separator: "|"), settings.fingerprint]
+        if let fingerMap, !fingerMap.isEmpty { parts.append("fingers=" + fingerMap) }
+        return parts.joined(separator: ";")
     }
 }
 

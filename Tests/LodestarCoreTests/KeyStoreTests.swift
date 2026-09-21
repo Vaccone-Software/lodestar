@@ -56,6 +56,7 @@ final class KeyStoreTests: XCTestCase {
         letter.modifiers = [.shift, .command]
         letter.keyboard = 2
         letter.lid = true
+        letter.armed = true
         var modifier = press(0.5, hold: 1.7, kind: .modifier)
         modifier.modifiers = .control
         modifier.struck = 3
@@ -70,6 +71,8 @@ final class KeyStoreTests: XCTestCase {
         XCTAssertEqual(back[0].modifiers, [.shift, .command])
         XCTAssertEqual(back[0].keyboard, 2)
         XCTAssertTrue(back[0].lid)
+        XCTAssertTrue(back[0].armed, "a key under a tapped lode says so")
+        XCTAssertFalse(back[1].armed)
         XCTAssertEqual(back[0].struck, 0)
         XCTAssertEqual(back[1].kind, .modifier)
         XCTAssertEqual(back[1].modifiers, .control)

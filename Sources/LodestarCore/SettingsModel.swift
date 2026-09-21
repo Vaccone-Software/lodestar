@@ -278,6 +278,11 @@ public enum SettingsModel {
                                  current: config.trigger.rawValue),
                 detail: "A ⌘⌃⌥ hyper shim also works without changing this.",
                 isDefault: config.trigger == .rightCommand),
+            Row(title: "Tap lode", path: "lode.tap",
+                control: .toggle(config.lodeTap),
+                detail: "A tap arms the next key as a gesture, for one second. "
+                    + "Holding still works and is how the map appears.",
+                isDefault: config.lodeTap),
             Row(title: "Start at login", path: "app.start-at-login",
                 control: .toggle(config.startAtLogin), isDefault: config.startAtLogin),
             Row(title: "Automatic updates", path: "app.auto-update",

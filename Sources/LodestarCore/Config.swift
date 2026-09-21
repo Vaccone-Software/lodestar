@@ -22,6 +22,12 @@ public struct Config {
     }
 
     public var trigger: Trigger = .rightCommand
+    /// `lode.tap`: a tap of lode arms the next key as a gesture, for one
+    /// second, so the thumb need not hold through a key it covers alone.
+    /// The hold is unchanged. On by default; a switch because the record
+    /// showed what a tap can cost — a short empty press followed by a
+    /// letter now becomes a gesture rather than that letter.
+    public var lodeTap = true
     /// Reload the config automatically when the file is saved.
     /// Keep Lodestar current: check daily, verify, apply when idle
     /// (installed app only).
@@ -173,6 +179,7 @@ public struct Config {
         "lode": .table([
             "trigger": .string(allowed: ["right-command", "left-command"],
                                description: "The physical trigger for every gesture."),
+            "tap": .boolean(description: "A tap of lode arms the next key as a gesture, for one second, as if lode were held. Holding still works and is how the map appears."),
         ], description: "The lode key."),
         "app": .table([
             "auto-update": .boolean(description: "Keep Lodestar current: check daily, verify the download, apply quietly when idle (installed app only)."),
@@ -383,6 +390,9 @@ public struct Config {
             } else {
                 problems.append("unknown lode.trigger '\(raw)' — using right-command")
             }
+        }
+        if let tap = effective.value(at: ["lode", "tap"])?.bool {
+            config.lodeTap = tap
         }
         if let step = effective.value(at: ["scroll", "step"])?.double {
             config.scrollStep = CGFloat(max(10, min(400, step)))

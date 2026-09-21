@@ -179,6 +179,7 @@ public final class KeyStore {
         if press.gesture { flags |= 4 }
         if press.lens { flags |= 8 }
         if press.repeated { flags |= 16 }
+        if press.armed { flags |= 32 }
         out.append(flags)
         out.append(UInt8(min(255, max(0, press.keyboardType))))
         out.append(press.finger.rawValue)
@@ -203,7 +204,7 @@ public final class KeyStore {
             kind: Keys.Kind(rawValue: bytes[13]) ?? .other,
             shift: flags & 1 != 0, chord: flags & 2 != 0, gesture: flags & 4 != 0,
             lens: flags & 8 != 0, repeated: flags & 16 != 0,
-            keyboardType: Int(bytes[15]))
+            keyboardType: Int(bytes[15]), armed: flags & 32 != 0)
         guard bytes.count >= recordSize else { return press }
         press.finger = Keys.Finger(rawValue: bytes[16]) ?? .unknown
         press.modifiers = Keys.Modifiers(rawValue: bytes[17])

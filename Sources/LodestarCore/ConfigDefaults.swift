@@ -172,6 +172,7 @@ public enum ConfigDefaults {
     public static let tree: [String: ConfigValue] = [
         "lode": .table([
             "trigger": .string("right-command"),
+            "tap": .bool(true),
         ]),
         "gestures": .table(
             Dictionary(uniqueKeysWithValues: Gestures.roster.map { ($0.name, ConfigValue.bool(true)) })

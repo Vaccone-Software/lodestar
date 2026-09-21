@@ -83,6 +83,8 @@ final class HotkeyEngine {
         var lens = false
         var keyboardType = 0
         var swallowed = false
+        /// The key arrived under a tapped lode, not a held one.
+        var armed = false
         /// The modifiers that were down when the key was struck.
         var modifiers: Keys.Modifiers = []
         /// For a modifier's own press: which one it is. Empty for a key.
@@ -96,7 +98,8 @@ final class HotkeyEngine {
                      shift: shift, chord: chord,
                      gesture: swallowed, lens: lens, repeated: repeated,
                      keyboardType: keyboardType, finger: Keys.finger(for: keycode),
-                     modifiers: modifier.isEmpty ? modifiers : modifier, struck: struck)
+                     modifiers: modifier.isEmpty ? modifiers : modifier, struck: struck,
+                     armed: armed)
         }
     }
 
@@ -133,6 +136,14 @@ final class HotkeyEngine {
     /// every modifier transition, and only the down edge may start the
     /// chain clock.
     private var lodeWasHeld = false
+    /// A tapped lode, waiting for the key it arms: when it was tapped,
+    /// the pill that says so if the hand hesitates, and the expiry.
+    private var armedAt: Date?
+    private var armPill: DispatchWorkItem?
+    private var armExpiry: DispatchWorkItem?
+    /// How long a tap keeps the next key. Past it the arm expires
+    /// silently, so a tap followed by nothing costs nothing.
+    static let armSeconds: TimeInterval = 1.0
     private var tapWatchdog: Timer?
     /// Latched so a tap we cannot revive is reported once, not every tick.
     private var tapWasDead = false
@@ -421,6 +432,7 @@ final class HotkeyEngine {
         // A merely *scheduled* peek counts too: with the release event lost
         // to a tap outage, the pending work would fire into an idle world
         // and stand a phantom guide with lode already up.
+        disarm()
         guard !core.isIdle || isPeeking || peekWork != nil else { return }
         Log.info("hotkeys: engine reset", ["reason": reason])
         cancelPeek(hideGuide: true)
@@ -540,10 +552,20 @@ final class HotkeyEngine {
             // must be a hand's. The detector is still fed every transition —
             // it is a state machine, and starving it would desync the
             // gesture — but a posted double-tap agrees to nothing.
-            if coachTaps.lodeChanged(held: lodeHeld,
-                                     at: clock.now().timeIntervalSinceReferenceDate),
-               actingInputWasHuman {
-                onLodeDoubleTap?()
+            let doubled = coachTaps.lodeChanged(held: lodeHeld,
+                                                at: clock.now().timeIntervalSinceReferenceDate)
+            if doubled {
+                // The second tap is assent or nothing; it never leaves a
+                // key armed behind it.
+                disarm()
+                if actingInputWasHuman { onLodeDoubleTap?() }
+            } else if coachTaps.justTapped, config.lodeTap, core.isIdle, !anyBarVisible,
+                      actingInputWasHuman {
+                // One tap — shorter than a peek, nothing struck inside it —
+                // arms the next key as the gesture it would be under the
+                // hold. A posted tap arms nothing, for the reason a posted
+                // double-tap agrees to nothing.
+                arm()
             }
             if actingInputWasHuman { noteModifier(event, at: at) }
             handleFlagsChanged(event)
@@ -568,6 +590,11 @@ final class HotkeyEngine {
         }
         guard type == .keyDown else { return Unmanaged.passUnretained(event) }
 
+        // A tapped lode spends itself on this key, whatever the key is:
+        // the gesture it arms, the escape that cancels it, or a key the
+        // table cannot name. One key, then the hand is on its own again.
+        let armed = armedAt != nil
+        if armed { disarm() }
         coachTaps.keyDown()
         if isPeeking { chainSawPeek = true }
 
@@ -595,6 +622,7 @@ final class HotkeyEngine {
                     lens: core.state != .idle,
                     keyboardType: Int(event.getIntegerValueField(.keyboardEventKeyboardType)))
                 press.modifiers = Self.modifiers(of: event.flags)
+                press.armed = armed
                 pressedAt[keycode] = press
                 // The chord's size, counted on the modifier that holds it.
                 for (held, open) in pressedAt where !open.modifier.isEmpty {
@@ -656,7 +684,15 @@ final class HotkeyEngine {
             _ = select.ghostHandleKey(key: "", held: false, flags: event.flags)
             return Unmanaged.passUnretained(event)
         }
-        let (held, shift) = classify(event.flags)
+        let (physicallyHeld, shift) = classify(event.flags)
+        // Under a tapped lode the key is a gesture, exactly as if the
+        // thumb were still down — the same routing, the same effects,
+        // and the release stamped right after (below), so a sticky chain
+        // finishing later is a plain summon the way it is after a lift.
+        let held = physicallyHeld || armed
+        // Escape under an arm is the hand changing its mind: the arm is
+        // already gone, and the key was aimed at the instrument.
+        if armed, key == "escape" { return nil }
 
         // ⌘⇥ with the ordinary ⌘, not lode: the app switcher's road. Noted
         // and passed through untouched — the switcher is the system's.
@@ -758,6 +794,9 @@ final class HotkeyEngine {
                                    control: event.flags.contains(.maskControl), world: self)
         let arrived = clock.now()
         let verdict = dispatch(effects, event: event)
+        // The thumb was never down: the phrase a hold would have kept open
+        // ends with the key, the way it ends when lode lifts.
+        if armed, !physicallyHeld { core.lodeReleased() }
         observeChain(effects, key: key, at: arrived)
         if wasIdle != core.isIdle { onChainActive?(!core.isIdle) }
         return verdict
@@ -1190,6 +1229,9 @@ final class HotkeyEngine {
         let (held, _) = classify(event.flags)
         let wasHeld = lodeWasHeld
         lodeWasHeld = held
+        // The thumb going down is the hold taking over from any tap
+        // before it; a tap is armed only on the way up.
+        if held, !wasHeld { disarm() }
         // The phrase ends with the thumb: letters after this are single
         // summons again.
         if !held, wasHeld { core.lodeReleased() }
@@ -1250,6 +1292,39 @@ final class HotkeyEngine {
             badges.hide()
             if hideGuide { hud.hide() }
         }
+    }
+
+    // MARK: - Tap (tap lode to arm the next key)
+
+    /// A tap has just completed: the next key is a gesture for
+    /// `armSeconds`. The pill is for the hand that hesitates only — nine
+    /// gestures in ten strike inside 300 ms and never see it, and a pill
+    /// on every tap would be motion — so it waits a peek's threshold.
+    private func arm() {
+        armedAt = clock.now()
+        armPill?.cancel()
+        armExpiry?.cancel()
+        let show = DispatchWorkItem { [weak self] in
+            guard let self, self.armedAt != nil, self.core.isIdle, !self.anyBarVisible else { return }
+            self.pill.show(ModePill.State(mode: .lode, app: "", icon: nil, listening: false, text: nil))
+        }
+        armPill = show
+        clock.after(LodeTapDetector.maxHold, show)
+        let expire = DispatchWorkItem { [weak self] in self?.disarm() }
+        armExpiry = expire
+        clock.after(Self.armSeconds, expire)
+    }
+
+    /// The arm is spent, cancelled, or expired. Silent unless the pill
+    /// had appeared, and never touches a pill another lens is wearing.
+    private func disarm() {
+        guard armedAt != nil else { return }
+        armedAt = nil
+        armPill?.cancel()
+        armPill = nil
+        armExpiry?.cancel()
+        armExpiry = nil
+        if pill.state?.mode == .lode { pill.hide() }
     }
 
     // MARK: - Idle presses

@@ -25,6 +25,10 @@ public struct LodeTapDetector: Equatable {
     private var downAt: TimeInterval?
     private var poisoned = false
     private var lastTapAt: TimeInterval?
+    /// True exactly on the call that completed a single tap — the edge
+    /// the shell arms the next key on. A hold, a keystroke inside the
+    /// press, or the second tap of a double all leave it false.
+    public private(set) var justTapped = false
 
     public init() {}
 
@@ -32,11 +36,13 @@ public struct LodeTapDetector: Equatable {
     public mutating func keyDown() {
         poisoned = true
         lastTapAt = nil
+        justTapped = false
     }
 
     /// Feed the classified lode state on every flagsChanged. Returns true
     /// exactly when the second tap completes.
     public mutating func lodeChanged(held: Bool, at now: TimeInterval) -> Bool {
+        justTapped = false
         if held {
             if downAt == nil {
                 downAt = now
@@ -55,6 +61,7 @@ public struct LodeTapDetector: Equatable {
             return true
         }
         lastTapAt = now
+        justTapped = true
         return false
     }
 }

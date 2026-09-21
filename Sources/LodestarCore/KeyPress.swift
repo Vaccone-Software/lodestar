@@ -26,6 +26,10 @@ public struct KeyPress: Codable, Equatable {
     /// The OS repeated the key while it was down; its hold is a held
     /// key's, not a keystroke's.
     public var repeated: Bool
+    /// The press arrived under a tapped lode rather than a held one: a
+    /// gesture the thumb did not co-contract for. Kept so the trade the
+    /// tap makes can be read from the record rather than argued.
+    public var armed: Bool
     /// The event's keyboard-type code — a layout class, not a device.
     public var keyboardType: Int
     /// Which digit the position belongs to under touch typing — the unit
@@ -49,7 +53,7 @@ public struct KeyPress: Codable, Equatable {
                 shift: Bool = false, chord: Bool = false, gesture: Bool = false,
                 lens: Bool = false, repeated: Bool = false, keyboardType: Int = 0,
                 finger: Keys.Finger = .unknown, modifiers: Keys.Modifiers = [],
-                struck: Int = 0, keyboard: Int = 0, lid: Bool = false) {
+                struck: Int = 0, keyboard: Int = 0, lid: Bool = false, armed: Bool = false) {
         self.down = down
         self.hold = hold
         self.hand = hand
@@ -59,6 +63,7 @@ public struct KeyPress: Codable, Equatable {
         self.gesture = gesture
         self.lens = lens
         self.repeated = repeated
+        self.armed = armed
         self.keyboardType = keyboardType
         self.finger = finger
         self.modifiers = modifiers

@@ -1112,8 +1112,14 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         }
         text.addArrangedSubview(titleRow)
         if !row.path.isEmpty {
-            text.addArrangedSubview(label(row.path, size: BarTheme.Scale.meta, weight: .regular,
-                                          color: BarTheme.secondaryColor, mono: true))
+            let path = label(row.path, size: BarTheme.Scale.meta, weight: .regular,
+                             color: BarTheme.secondaryColor, mono: true)
+            // A path too long for the column loses its middle, not its
+            // end: the leaf is the half that says which line this is, and
+            // truncating the tail took exactly that — a keyboard's key
+            // read `health.keyboards.13364:2064:cf3d8489.right-sh…`.
+            path.lineBreakMode = .byTruncatingMiddle
+            text.addArrangedSubview(path)
         }
         if let detail = row.detail {
             let wrapped = NSTextField(wrappingLabelWithString: detail)

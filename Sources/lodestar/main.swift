@@ -1038,18 +1038,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 state.savedBrowser = name ?? saved
                 state.savedBrowserID = saved
             }
-            // The keyboards the Keyboards page can speak for: every one
-            // attached, and every one the config has declared keys for,
-            // so a board left in a bag keeps its map on the page.
-            var keyboards = (self?.health.attachedKeyboards() ?? []).map {
-                SettingsModel.Keyboard(id: $0.id, name: $0.name, builtIn: $0.builtIn, attached: true)
-            }
-            if let declared = self?.config.fingerMap.keyboards.keys {
-                for id in declared.sorted() where !keyboards.contains(where: { $0.id == id }) {
-                    keyboards.append(SettingsModel.Keyboard(id: id, name: id, builtIn: false, attached: false))
-                }
-            }
-            state.keyboards = keyboards
             var detected: [SettingsModel.DetectedProfile] = []
             for browser in ChromiumBrowser.allCases {
                 for name in ChromiumProfiles.displayNames(for: browser) {
@@ -1059,6 +1047,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             state.detectedProfiles = detected
             return state
+        }
+        // The boards the Keyboards page can speak for: every one attached
+        // right now, and every one the config has declared keys for, so a
+        // board left in a bag keeps its map on the page. Asked on every
+        // render and never memoized — see the note at the call.
+        settings.attachedKeyboards = { [weak self] in
+            var keyboards = (self?.health.attachedKeyboards() ?? []).map {
+                SettingsModel.Keyboard(id: $0.id, name: $0.name, builtIn: $0.builtIn, attached: true)
+            }
+            if let declared = self?.config.fingerMap.keyboards.keys {
+                for id in declared.sorted() where !keyboards.contains(where: { $0.id == id }) {
+                    keyboards.append(SettingsModel.Keyboard(id: id, name: id, builtIn: false, attached: false))
+                }
+            }
+            return keyboards
         }
         settings.problems = {
             let (loaded, loadProblems) = Config.load()

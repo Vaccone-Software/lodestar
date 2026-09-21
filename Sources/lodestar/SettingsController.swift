@@ -33,6 +33,11 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     var appDisplayName: (String) -> String? = { _ in nil }
     /// The doctor's findings, rendered beside the rows that fix them.
     var problems: () -> [String] = { [] }
+    /// The boards the Keyboards page can speak for: attached right now by
+    /// the roster, plus any the config has declared keys for. Its own
+    /// closure rather than a field of the machine state, because the
+    /// machine state is memoized and this must never be.
+    var attachedKeyboards: () -> [SettingsModel.Keyboard] = { [] }
     /// Running apps, for the clipboard exclusion picker.
     var appChoices: () -> [(name: String, bundleID: String)] = { [] }
 
@@ -89,6 +94,10 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     private var openPage: String?
     private var selectedKeyboard: String?
     private var lastRenderedPage: String?
+    /// The Keyboards page's watch: the rule in `KeyboardWatch`, and the
+    /// turns that feed it while the page stands.
+    private var keyboards = KeyboardWatch()
+    private var keyboardTurns: Timer?
 
     /// What the pane column is showing: the open page, or the pane the
     /// rail has lit. Every handler that reads a row by index reads it
@@ -183,7 +192,42 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
 
     func close() {
         unwatchClicks()
+        stopKeyboardWatch()
         panel.orderOut(nil)
+    }
+
+    // MARK: - The Keyboards page's watch
+
+    /// Start or stop the watch to match what the window is showing.
+    /// Called at the end of every render, so opening the page starts it
+    /// and leaving the page — or the window — ends it.
+    private func updateKeyboardWatch() {
+        guard openPage == SettingsModel.keyboardsPage else {
+            stopKeyboardWatch()
+            return
+        }
+        keyboards.drew(attachedKeyboards().map(\.id))
+        guard keyboardTurns == nil else { return }
+        keyboardTurns = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            self?.keyboardWatchTick()
+        }
+    }
+
+    /// One turn. The window's own going is not checked: the panel is
+    /// borderless and every way out of it — escape, the menu item, a
+    /// click outside — is `close`, which stops the watch itself.
+    private func keyboardWatchTick() {
+        guard openPage == SettingsModel.keyboardsPage else {
+            stopKeyboardWatch()
+            return
+        }
+        if keyboards.shouldRedraw(attachedKeyboards().map(\.id)) { render() }
+    }
+
+    private func stopKeyboardWatch() {
+        keyboardTurns?.invalidate()
+        keyboardTurns = nil
+        keyboards.stopped()
     }
 
     // MARK: - Keys: three layers, escape pops one
@@ -725,7 +769,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         // commit reloads the config, which pushes fresh state through the
         // next render anyway.
         let now = Date()
-        let machine: SettingsModel.MachineState
+        var machine: SettingsModel.MachineState
         let findings: [String]
         if let cached = doctorCache, now.timeIntervalSince(cached.at) < 1 {
             (machine, findings) = (cached.machine, cached.problems)
@@ -734,6 +778,14 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             findings = problems()
             doctorCache = (machine, findings, now)
         }
+        // The probe above is memoized because it hits disk and
+        // LaunchServices and this runs per keystroke. The device list is
+        // not, ever: it is a registry read, it is what the Keyboards page
+        // is *about*, and a memo of it is how that page came to name a
+        // keyboard that had been unpaired for hours while the one in the
+        // hands was missing. Read here, outside the memo, so that opening
+        // the page — which renders — cannot draw a stale one.
+        machine.keyboards = attachedKeyboards()
         sections = SettingsModel.catalog(config: config, machine: machine,
                                          problems: findings)
         pages = SettingsModel.pages(config: config, machine: machine,
@@ -781,6 +833,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             paneScroll.contentView.scroll(to: offset)
             paneScroll.reflectScrolledClipView(paneScroll.contentView)
         }
+        updateKeyboardWatch()
         // A reload mid-search rebuilt the field; typing must not die with
         // the old one. The hits die with it, though: results standing for
         // a query the empty field no longer shows would be an answer with

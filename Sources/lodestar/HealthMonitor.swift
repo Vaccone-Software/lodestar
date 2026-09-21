@@ -203,9 +203,11 @@ final class HealthMonitor {
         if enabled { checkEra() }
     }
 
-    /// The keyboards attached right now, for the Keyboards page. Main
-    /// thread; enumeration only, nothing is opened.
-    func attachedKeyboards() -> [DeviceRoster.Device] { roster.current() }
+    /// The keyboards attached right now, for the Keyboards page. Asked
+    /// fresh rather than from the tap path's half-minute cache, because
+    /// this one is read by a person looking for the board in their hands.
+    /// Main thread; enumeration only, nothing is opened.
+    func attachedKeyboards() -> [DeviceRoster.Device] { roster.refresh() }
 
     /// Name the keyboard every press is charged to, for a test that has
     /// no way to attach one. Nil returns to the roster's word.

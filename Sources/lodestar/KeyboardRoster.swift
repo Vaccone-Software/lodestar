@@ -51,6 +51,25 @@ class DeviceRoster {
         lock.lock()
         defer { lock.unlock() }
         if now.timeIntervalSince(cachedAt) < Self.cacheSeconds { return cached }
+        return reload(now: now)
+    }
+
+    /// Ask the system again now, whatever the cache says.
+    ///
+    /// The half-minute is for the tap's path, where the list is wanted on
+    /// every press and a device arriving a moment late costs nothing — a
+    /// press is charged to the keyboard that was there, and one keyboard
+    /// more or less does not change which. A surface showing that list to
+    /// a person is the other case: a keyboard just plugged in has to be
+    /// on it, and half a minute is not "just".
+    func refresh(now: Date = Date()) -> [Device] {
+        lock.lock()
+        defer { lock.unlock() }
+        return reload(now: now)
+    }
+
+    /// The registry read itself. The lock is held.
+    private func reload(now: Date) -> [Device] {
         let devices = (IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice>) ?? []
         var seen: Set<String> = []
         cached = devices.map(Self.describe)

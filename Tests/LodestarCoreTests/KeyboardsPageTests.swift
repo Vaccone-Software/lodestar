@@ -115,6 +115,27 @@ final class KeyboardsPageTests: XCTestCase {
         XCTAssertTrue(none.detail?.contains("split or custom keyboard") ?? false)
     }
 
+    /// A board that is neither attached nor declared is not on the page
+    /// at all. The window once showed one for hours after it was
+    /// unpaired, which was a stale render rather than this — but the
+    /// invariant is worth holding here, where it can be read.
+    func testABoardNeitherAttachedNorDeclaredIsAbsent() {
+        let gone = SettingsModel.Keyboard(id: "13364:2064:cf3d8489", name: "Keychron Q1 Max",
+                                          builtIn: false, attached: true)
+        var config = Config()
+        config.fingerMap = FingerMap([gone.id: [.enter: FingerMap.Placement(.right, .thumb)]])
+        // Declared and away: present, and marked so.
+        let declared = page(config: config, keyboards: [apple, kinesis], selected: nil)
+        guard case .selector(let options, let labels, _) = declared.rows[0].control else { return XCTFail() }
+        XCTAssertFalse(options.contains(gone.id), "the machine did not offer it, so the page cannot")
+        XCTAssertFalse(labels.contains { $0.contains("Keychron") })
+        // Neither: gone from the summary too.
+        let coach = SettingsModel.catalog(config: Config(), machine: machine([apple, kinesis]))
+            .first { $0.name == "Coach" }!
+        XCTAssertFalse(coach.rows.first { $0.path == "health.keyboards" }!
+            .detail!.contains("Keychron"))
+    }
+
     func testWithNoKeyboardThePageSaysSoInsteadOfGuessing() {
         let page = page(keyboards: [])
         XCTAssertEqual(page.rows.count, 1)

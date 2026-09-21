@@ -137,9 +137,8 @@ final class HotkeyEngine {
     /// chain clock.
     private var lodeWasHeld = false
     /// A tapped lode, waiting for the key it arms: when it was tapped,
-    /// the pill that says so if the hand hesitates, and the expiry.
+    /// and the expiry that ends it in silence.
     private var armedAt: Date?
-    private var armPill: DispatchWorkItem?
     private var armExpiry: DispatchWorkItem?
     /// How long a tap keeps the next key. Past it the arm expires
     /// silently, so a tap followed by nothing costs nothing.
@@ -1297,34 +1296,28 @@ final class HotkeyEngine {
     // MARK: - Tap (tap lode to arm the next key)
 
     /// A tap has just completed: the next key is a gesture for
-    /// `armSeconds`. The pill is for the hand that hesitates only — nine
-    /// gestures in ten strike inside 300 ms and never see it, and a pill
-    /// on every tap would be motion — so it waits a peek's threshold.
+    /// `armSeconds`, and nothing appears on screen.
+    ///
+    /// A mark saying lode is armed was built and taken out again. Nine
+    /// gestures in ten strike inside 300 ms, so it would have been
+    /// motion on almost every one; and what bounds the invisible state
+    /// is the second the arm lives, not something the eye has to find —
+    /// a tap the hand forgets is gone before it can cost anything. The
+    /// hold keeps the map, which is the surface that has a job.
     private func arm() {
         armedAt = clock.now()
-        armPill?.cancel()
         armExpiry?.cancel()
-        let show = DispatchWorkItem { [weak self] in
-            guard let self, self.armedAt != nil, self.core.isIdle, !self.anyBarVisible else { return }
-            self.pill.show(ModePill.State(mode: .lode, app: "", icon: nil, listening: false, text: nil))
-        }
-        armPill = show
-        clock.after(LodeTapDetector.maxHold, show)
         let expire = DispatchWorkItem { [weak self] in self?.disarm() }
         armExpiry = expire
         clock.after(Self.armSeconds, expire)
     }
 
-    /// The arm is spent, cancelled, or expired. Silent unless the pill
-    /// had appeared, and never touches a pill another lens is wearing.
+    /// The arm is spent, cancelled, or expired. Always silent.
     private func disarm() {
         guard armedAt != nil else { return }
         armedAt = nil
-        armPill?.cancel()
-        armPill = nil
         armExpiry?.cancel()
         armExpiry = nil
-        if pill.state?.mode == .lode { pill.hide() }
     }
 
     // MARK: - Idle presses

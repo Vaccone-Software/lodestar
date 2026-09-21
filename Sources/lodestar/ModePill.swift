@@ -22,13 +22,9 @@ final class ModePill {
         case scroll, click, select, tabs
         /// A launch that is taking time: stands while the window is awaited.
         case opening
-        /// A tapped lode, waiting for its key — shown only once the hand
-        /// has hesitated past a peek's threshold.
-        case lode
 
         var symbol: String {
             switch self {
-            case .lode: return "keyboard"
             case .opening: return "arrow.up.forward.app"
             case .scroll: return "arrow.up.and.down"
             case .click: return "cursorarrow.click.2"
@@ -39,7 +35,6 @@ final class ModePill {
 
         var word: String {
             switch self {
-            case .lode: return "Lode"
             case .opening: return "Opening"
             case .scroll: return "Scroll"
             case .click: return "Click"

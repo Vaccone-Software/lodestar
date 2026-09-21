@@ -5,8 +5,8 @@ import XCTest
 /// Tap, or hold. A tap of lode — down and up, shorter than a peek,
 /// nothing struck inside — arms the next key as the gesture it would be
 /// under the hold, for one second. The hold is unchanged. Through the
-/// real engine on the virtual clock: the summon, the expiry, the pill
-/// that waits for a hesitating hand, escape, the double-tap that is
+/// real engine on the virtual clock: the summon, the expiry, the
+/// silence however long the hand waits, escape, the double-tap that is
 /// assent and never an arm, the switch, and the record's mark.
 final class LodeTapScenarioTests: XCTestCase {
     private var stage: Stage!
@@ -48,23 +48,22 @@ final class LodeTapScenarioTests: XCTestCase {
     func testATapFollowedByNothingExpiresSilently() {
         stage.tapLode()
         stage.clock.advance(by: HotkeyEngine.armSeconds + 0.1)
-        XCTAssertFalse(stage.engine.pill.isVisible)
         XCTAssertFalse(stage.press("s"), "typed, not summoned")
         XCTAssertTrue(stage.actions.summoned.isEmpty)
     }
 
-    /// Nine gestures in ten strike inside 300 ms; the pill is for the
-    /// hand that does not, and it goes the moment the key lands.
-    func testThePillWaitsForAHesitatingHandAndLeavesWithTheKey() {
+    /// A tap puts nothing on the glass, however long the hand waits. A
+    /// mark saying lode was armed was built and taken out again: nine
+    /// gestures in ten strike inside 300 ms, so it would have been
+    /// motion on almost every one, and what bounds the state the eye
+    /// cannot see is the expiry, not something the eye has to find.
+    func testATapPutsNothingOnTheGlass() {
         stage.tapLode()
-        stage.clock.advance(by: 0.2)
-        XCTAssertFalse(stage.engine.pill.isVisible, "a quick hand sees nothing")
-        stage.clock.advance(by: LodeTapDetector.maxHold)
-        XCTAssertTrue(stage.engine.pill.isVisible)
-        XCTAssertEqual(stage.engine.pill.state?.mode, .lode)
-        XCTAssertEqual(ModePill.layout(for: stage.engine.pill.state!),
-                       [.symbol("keyboard"), .modeWord("Lode"), .appWord("")])
-        XCTAssertTrue(stage.press("s"))
+        for _ in 0..<4 {
+            stage.clock.advance(by: 0.2)
+            XCTAssertFalse(stage.engine.pill.isVisible, "nothing appears while the arm stands")
+        }
+        XCTAssertTrue(stage.press("s"), "and the gesture still lands")
         XCTAssertFalse(stage.engine.pill.isVisible)
         XCTAssertEqual(stage.actions.summoned.map(\.target), [.app("Slack")])
     }
@@ -102,7 +101,6 @@ final class LodeTapScenarioTests: XCTestCase {
         stage.clock.advance(by: 0.1)
         XCTAssertFalse(stage.press("s"), "typed")
         XCTAssertTrue(stage.actions.summoned.isEmpty)
-        XCTAssertFalse(stage.engine.pill.isVisible)
     }
 
     func testAPostedTapArmsNothing() {

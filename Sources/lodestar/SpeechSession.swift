@@ -271,6 +271,25 @@ final class AudioInput: @unchecked Sendable {
         bluetooth ? radioDeafnessSeconds : deafnessSeconds
     }
 
+    /// What a start reads: a device, or the reason none can be.
+    enum Choice: Equatable {
+        case device(AudioDeviceID?)
+        case off(String)
+    }
+
+    /// The line the draft shows for a Mac whose lid is closed.
+    static let lidClosedWhy = "the lid is closed, so the Mac's microphone is off"
+
+    /// A closed lid switches the built-in microphone off at the
+    /// hardware: every process reads exact zeros from it, and the first
+    /// evening's "the mic does not work" was this. An error, not a
+    /// silence, so the register line can say it in one line instead of
+    /// listening to nothing.
+    struct InputOff: Error, CustomStringConvertible {
+        let why: String
+        var description: String { why }
+    }
+
     /// Which device a start reads.
     ///
     /// A device named on the register line is read as named, always: a
@@ -281,13 +300,34 @@ final class AudioInput: @unchecked Sendable {
     /// being heard somewhere beating being silent faithfully; nil is
     /// the engine's own default. `writtenOff` never contains anything a
     /// hand named, and it never survives a change to the set of inputs.
+    ///
+    /// With the lid closed the Mac's microphone is off, so it is never
+    /// fallen back to, and a default that is the Mac's microphone is
+    /// read on a Bluetooth headset when one is connected, a headset
+    /// being the one input that is a microphone by definition; a dock's
+    /// line-in would be silence again. With no headset the start is
+    /// refused with the reason, whoever named the device, because a
+    /// closed lid is a fact about the hardware and not about the name.
     static func choose(wanted: AudioDeviceID?, systemDefault: AudioDeviceID?,
-                       writtenOff: Set<AudioDeviceID>, builtIn: AudioDeviceID?) -> AudioDeviceID? {
-        if let wanted { return wanted }
-        guard let systemDefault else { return builtIn }
-        guard writtenOff.contains(systemDefault) else { return systemDefault }
-        if let builtIn, !writtenOff.contains(builtIn) { return builtIn }
-        return systemDefault
+                       writtenOff: Set<AudioDeviceID>, builtIn: AudioDeviceID?,
+                       lidClosed: Bool = false, headset: AudioDeviceID? = nil) -> Choice {
+        let builtInOff = lidClosed && builtIn != nil
+        if let wanted {
+            if builtInOff, wanted == builtIn { return .off(lidClosedWhy) }
+            return .device(wanted)
+        }
+        let candidates: [AudioDeviceID?]
+        if let systemDefault, !writtenOff.contains(systemDefault) {
+            candidates = [systemDefault, headset]
+        } else {
+            candidates = [builtIn, headset, systemDefault]
+        }
+        for case let candidate? in candidates where !writtenOff.contains(candidate) {
+            if builtInOff, candidate == builtIn { continue }
+            return .device(candidate)
+        }
+        if builtInOff { return .off(lidClosedWhy) }
+        return .device(systemDefault ?? builtIn)
     }
 
     /// Whether the write-off still applies: only while the inputs it was
@@ -609,12 +649,22 @@ final class AudioInput: @unchecked Sendable {
         }
         let writtenOff = Set(silentWindows.filter { $0.value >= Self.windowsToWriteOff }.map(\.key))
         let systemDefault = Self.defaultInput()
-        let target = Self.choose(wanted: wanted, systemDefault: systemDefault,
-                                 writtenOff: writtenOff, builtIn: Self.builtInInput())
+        let lidClosed = Lid.isClosed() == true
+        let headset = devices.map(\.id).first { !writtenOff.contains($0) && Self.isBluetooth($0) }
+        let target: AudioDeviceID?
+        switch Self.choose(wanted: wanted, systemDefault: systemDefault, writtenOff: writtenOff,
+                           builtIn: Self.builtInInput(), lidClosed: lidClosed, headset: headset) {
+        case .off(let why):
+            Log.info("draft", ["speech": "input is off", "why": why])
+            throw InputOff(why: why)
+        case .device(let chosen):
+            target = chosen
+        }
         if let target, wanted == nil, target != systemDefault {
-            Log.info("draft", ["speech": "default written off",
+            Log.info("draft", ["speech": "default not read",
                                "was": systemDefault.flatMap(Self.name(of:)) ?? "none",
-                               "reading": Self.name(of: target) ?? "unknown"])
+                               "reading": Self.name(of: target) ?? "unknown",
+                               "lidClosed": lidClosed])
         }
         var attempt = 0
         var format = AVAudioFormat()
@@ -939,6 +989,10 @@ private actor AnalyzerBox {
                 break
             } catch is CancellationError {
                 return
+            } catch let off as AudioInput.InputOff {
+                // Not a start that failed: a start there is no device for.
+                // Another attempt would refuse the same way.
+                say(.failed(off.why)); return
             } catch {
                 Log.info("draft", ["speech": "audio start failed", "attempt": attempt,
                                    "error": "\(error.localizedDescription)"])

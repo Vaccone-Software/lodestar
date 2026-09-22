@@ -95,20 +95,50 @@ final class DeafEngineTests: XCTestCase {
     func testANamedInputIsReadNotRedirected() {
         let headset: AudioDeviceID = 7, builtIn: AudioDeviceID = 42
         XCTAssertEqual(AudioInput.choose(wanted: headset, systemDefault: builtIn,
-                                         writtenOff: [headset], builtIn: builtIn), headset,
+                                         writtenOff: [headset], builtIn: builtIn), .device(headset),
                        "written off or not, the name is the instruction")
         XCTAssertEqual(AudioInput.choose(wanted: nil, systemDefault: headset,
-                                         writtenOff: [headset], builtIn: builtIn), builtIn,
+                                         writtenOff: [headset], builtIn: builtIn), .device(builtIn),
                        "the default, written off, is read elsewhere")
         XCTAssertEqual(AudioInput.choose(wanted: nil, systemDefault: headset,
-                                         writtenOff: [], builtIn: builtIn), headset,
+                                         writtenOff: [], builtIn: builtIn), .device(headset),
                        "and followed while it hears")
         XCTAssertEqual(AudioInput.choose(wanted: nil, systemDefault: headset,
-                                         writtenOff: [headset, builtIn], builtIn: builtIn), headset,
+                                         writtenOff: [headset, builtIn], builtIn: builtIn), .device(headset),
                        "with nowhere better to go, the default is still the default")
         XCTAssertEqual(AudioInput.choose(wanted: nil, systemDefault: nil,
-                                         writtenOff: [], builtIn: builtIn), builtIn,
+                                         writtenOff: [], builtIn: builtIn), .device(builtIn),
                        "no default at all: the Mac's own")
+    }
+
+    /// A closed lid switches the Mac's microphone off at the hardware:
+    /// every process reads exact zeros from it. Measured the evening
+    /// this was written, sixteen sessions on it in clamshell, against a
+    /// dock's line-in that read a live floor in the same minute.
+    func testAClosedLidTakesTheMacsMicrophoneOutOfTheRunning() {
+        let headset: AudioDeviceID = 7, builtIn: AudioDeviceID = 42
+        XCTAssertEqual(AudioInput.choose(wanted: nil, systemDefault: builtIn, writtenOff: [],
+                                         builtIn: builtIn, lidClosed: true, headset: headset),
+                       .device(headset), "the default is the Mac's own and the lid is closed: the headset")
+        XCTAssertEqual(AudioInput.choose(wanted: nil, systemDefault: builtIn, writtenOff: [],
+                                         builtIn: builtIn, lidClosed: true, headset: nil),
+                       .off(AudioInput.lidClosedWhy), "no headset: the reason, not a silence")
+        XCTAssertEqual(AudioInput.choose(wanted: nil, systemDefault: headset, writtenOff: [headset],
+                                         builtIn: builtIn, lidClosed: true, headset: nil),
+                       .off(AudioInput.lidClosedWhy), "the fallback is never the microphone the lid switched off")
+        XCTAssertEqual(AudioInput.choose(wanted: builtIn, systemDefault: builtIn, writtenOff: [],
+                                         builtIn: builtIn, lidClosed: true, headset: headset),
+                       .off(AudioInput.lidClosedWhy), "named or not, a closed lid is a fact about the hardware")
+        XCTAssertEqual(AudioInput.choose(wanted: headset, systemDefault: builtIn, writtenOff: [],
+                                         builtIn: builtIn, lidClosed: true, headset: headset),
+                       .device(headset), "a named headset is read")
+        XCTAssertEqual(AudioInput.choose(wanted: nil, systemDefault: headset, writtenOff: [],
+                                         builtIn: builtIn, lidClosed: true, headset: headset),
+                       .device(headset), "a headset default is followed as before")
+        XCTAssertEqual(AudioInput.choose(wanted: nil, systemDefault: builtIn, writtenOff: [],
+                                         builtIn: builtIn, lidClosed: false, headset: headset),
+                       .device(builtIn), "lid open: the default is the default")
+        XCTAssertFalse(AudioInput.lidClosedWhy.contains("—"), "the voice: no dashes")
     }
 
     /// The write-off lasts only while the inputs it was charged under

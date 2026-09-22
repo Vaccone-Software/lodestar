@@ -803,6 +803,54 @@ final class DraftScenarioTests: XCTestCase {
     }
 }
 
+/// A microphone the system names can deliver nothing but zeros, and it
+/// reports listening as happily as a live one. The meter not moving is
+/// what a quiet room looks like too, so the register line has to say it.
+final class DraftHearsNothingScenarioTests: XCTestCase {
+    func testSilenceIsSaidOnTheRegisterLineAndSignalTakesItBack() {
+        let stage = Stage()
+        stage.lode(".")
+        XCTAssertEqual(stage.draft.state["listening"] as? Bool, true)
+        XCTAssertEqual(stage.draft.state["silent"] as? Bool, false, "not yet: the link may be coming up")
+        stage.clock.advance(by: DraftController.silenceNoteSeconds)
+        XCTAssertEqual(stage.draft.state["silent"] as? Bool, true, "this long with zeros is said")
+        stage.speech.alive()
+        XCTAssertEqual(stage.draft.state["silent"] as? Bool, false, "the first buffer with signal takes it back")
+        stage.clock.advance(by: DraftController.silenceNoteSeconds)
+        XCTAssertEqual(stage.draft.state["silent"] as? Bool, false, "and it stays taken back")
+    }
+
+    func testAMicrophoneThatSpokeInTimeIsNeverCalledSilent() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.alive()
+        stage.clock.advance(by: DraftController.silenceNoteSeconds)
+        XCTAssertEqual(stage.draft.state["silent"] as? Bool, false)
+    }
+
+    func testTheLineNamesTheInput() {
+        let buffer = Draft.Buffer()
+        func view(silent: Bool, mode: Draft.Mode = .insert, input: String? = "Cypress") -> DraftView {
+            DraftView(buffer: buffer, mode: mode, editor: mode == .insert ? .insert : .normal,
+                      speech: .listening(input: input), input: input,
+                      micOn: true, silent: silent, destination: nil, replacing: false)
+        }
+        XCTAssertEqual(DraftPanel.note(for: view(silent: false)), "")
+        XCTAssertEqual(DraftPanel.note(for: view(silent: true)), "hearing nothing on Cypress")
+        XCTAssertEqual(DraftPanel.note(for: view(silent: true, input: nil)), "hearing nothing on the microphone")
+        XCTAssertEqual(DraftPanel.note(for: view(silent: true, mode: .normal)), "microphone waits for insert mode",
+                       "outside insert the microphone is not expected to hear")
+    }
+
+    /// The note has to come after the engine's own watch on a wired
+    /// input, so the engine gets its rebuild first, and before the hand
+    /// gives up, which the record puts at five seconds.
+    func testTheNoteWaitsOutTheEngineAndNotTheHand() {
+        XCTAssertGreaterThan(DraftController.silenceNoteSeconds, AudioInput.deafnessSeconds)
+        XCTAssertLessThan(DraftController.silenceNoteSeconds, 5)
+    }
+}
+
 /// The draft carries no legend. Every key it owns lives behind `lode ?`,
 /// the one door, and the glass grows to hold them the way a bar's does.
 final class DraftKeysScenarioTests: XCTestCase {

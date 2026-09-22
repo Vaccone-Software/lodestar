@@ -27,6 +27,10 @@ struct DraftView {
     var chosenInput: String? = nil
     /// The mic is wanted: it writes, or would as soon as insert mode returns.
     var micOn = false
+    /// Listening, and nothing but zeros has arrived for as long as a
+    /// hand waits: the register line says so, because the meter's
+    /// stillness is not a message.
+    var silent = false
     /// Where ⏎ lands right now: the frontmost app, or the clipboard.
     let destination: (name: String, icon: NSImage?)?
     /// The origin field's text was pulled in, so ⏎ replaces it there.
@@ -664,7 +668,7 @@ final class DraftPanel {
         }
     }
 
-    private static func note(for view: DraftView) -> String {
+    static func note(for view: DraftView) -> String {
         if view.replacing { return "replaces the selection" }
         switch view.speech {
         case .preparing(let progress):
@@ -675,7 +679,8 @@ final class DraftPanel {
         case .failed(let why): return why
         case .listening:
             if !view.micOn { return "microphone off" }
-            return view.mode == .insert ? "" : "microphone waits for insert mode"
+            if view.mode != .insert { return "microphone waits for insert mode" }
+            return view.silent ? "hearing nothing on \(view.input ?? "the microphone")" : ""
         case .paused: return ""
         case nil:
             // Between the door and the recognizer's first word about

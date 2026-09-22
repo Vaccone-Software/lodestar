@@ -290,6 +290,7 @@ final class DraftController {
         case .visual(let line): out["editor"] = line ? "visual-line" : "visual"
         }
         out["listening"] = listening
+        out["silent"] = hearsNothing
         out["mic"] = micWanted
         if let inputName { out["input"] = inputName }
         out["words"] = spokenWords
@@ -507,6 +508,13 @@ final class DraftController {
     /// Whether this session's microphone delivered signal: the listening
     /// note plays once on it, and the landing note only after it.
     private var heardAlive = false
+    /// Listening this long with nothing but zeros is said on the register
+    /// line: "hearing nothing on <input>". Three seconds is past the
+    /// engine's own watch on a wired input and inside a hand's patience;
+    /// the sessions that ended in nothing waited five at the median.
+    static let silenceNoteSeconds: TimeInterval = 3
+    private(set) var hearsNothing = false
+    private var silenceWatch: DispatchWorkItem?
 
     // MARK: - Speech
 
@@ -521,12 +529,15 @@ final class DraftController {
         let mine = session
         sessionStarted = true
         heardAlive = false
+        hearsNothing = false
+        silenceWatch?.cancel()
         speech.listen(words: words, input: inputDevice, onState: { [weak self] state in
             guard let self, self.isOpen, self.session == mine else { return }
             self.speechState = state
             if case .listening(let input) = state {
                 self.listening = true
                 self.inputName = input
+                self.watchForSilence(session: mine)
                 // The device actually read, when the session named it:
                 // a pinned input that fell back gates on what is open.
                 self.playback?.dictationBegan(input: input ?? self.inputDevice)
@@ -545,6 +556,10 @@ final class DraftController {
             self.heardAlive = true
             Log.info("draft", ["microphone": "alive"])
             if self.sounds && self.micWanted { Sounds.play(.listening) }
+            if self.hearsNothing {
+                self.hearsNothing = false
+                self.render()
+            }
         }, onVolatile: { [weak self] text in
             guard let self, self.isOpen, self.session == mine, self.mode == .insert, self.micWanted,
                   // Reserved words await their final; a cumulative volatile
@@ -580,6 +595,24 @@ final class DraftController {
         }
         listenWatchdog = watchdog
         clock.after(Self.listenWatchdogSeconds, watchdog)
+    }
+
+    /// The register line says when the microphone has been open this
+    /// long and delivered nothing but zeros. A deaf device reports
+    /// listening as happily as a live one, and the only other cue was
+    /// the meter not moving, which is what a quiet room looks like too.
+    private func watchForSilence(session mine: Int) {
+        silenceWatch?.cancel()
+        let watch = DispatchWorkItem { [weak self] in
+            guard let self, self.isOpen, self.session == mine, self.listening,
+                  !self.heardAlive, !self.hearsNothing else { return }
+            self.hearsNothing = true
+            Log.info("draft", ["microphone": "hearing nothing", "input": self.inputName ?? "unknown",
+                               "seconds": Int(Self.silenceNoteSeconds)])
+            self.render()
+        }
+        silenceWatch = watch
+        clock.after(Self.silenceNoteSeconds, watch)
     }
 
     private func settle(_ text: String) {
@@ -1070,6 +1103,9 @@ final class DraftController {
         landBackstop = nil
         listenWatchdog?.cancel()
         listenWatchdog = nil
+        silenceWatch?.cancel()
+        silenceWatch = nil
+        hearsNothing = false
         stashWork?.cancel()
         stashWork = nil
         stash?(nil)
@@ -1128,7 +1164,7 @@ final class DraftController {
             findTargets: vim.pendingFind.map { Vim.findTargets(kind: $0, in: buffer) } ?? [],
             pending: vim.isPending, speech: speechState, input: inputName, level: level,
             inputs: inputs, systemInput: systemInputName, chosenInput: inputDevice,
-            micOn: micWanted,
+            micOn: micWanted, silent: hearsNothing,
             destination: card == nil ? front.map { ($0.name, $0.icon) } : nil,
             replacing: (origin?.pulled ?? false) && front?.pid == origin?.pid,
             card: card, width: doorWidth, standsAbove: standsAbove))

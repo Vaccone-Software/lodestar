@@ -10,14 +10,16 @@ import Speech
 /// hold it against the watchdog's wait run on any macOS.
 enum SpeechStart {
     /// One attempt's budget. The engine lands in half a second when it
-    /// lands at all, and one and a half is generous for a Bluetooth
-    /// radio changing profile — measured starts in the field finish
-    /// inside 1.5s including a failed first try. Three attempts and the
-    /// two settles between them must still come in under
-    /// `DraftController.listenWatchdogSeconds`, or the watchdog would
-    /// kill a start that was going to land.
-    static let deadline: TimeInterval = 1.5
-    static let attempts = 3
+    /// lands at all; a Bluetooth radio bringing its telephone link up
+    /// cold takes longer, and the evening it took 2.8 to 4.1 seconds the
+    /// old 1.5 second budget failed every start on the headset, retried,
+    /// and the retry's stop wrote the headset off as deaf before its
+    /// first buffer could arrive. Two and a half covers the cold link
+    /// measured on this machine; the attempts and the settle between
+    /// them must still come in under `DraftController.listenWatchdogSeconds`,
+    /// or the watchdog would kill a start that was going to land.
+    static let deadline: TimeInterval = 2.5
+    static let attempts = 2
     static let settleSeconds: TimeInterval = 0.65
 
     /// What the recognizer's own preparation is given before it is
@@ -204,11 +206,20 @@ final class AudioInput: @unchecked Sendable {
     /// stamps the next number and observes its own engine by object, so
     /// a notice from an engine already discarded is dropped by number.
     private var engineGeneration = 0
-    /// Buffers this start has delivered, and the lock the audio thread
-    /// increments it under. Fifteen touches a second at the buffer size
-    /// this installs, so the lock costs nothing and the count is honest.
+    /// Buffers this start has delivered, whether any carried signal, and
+    /// the lock the audio thread touches them under. Fifteen touches a
+    /// second at the buffer size this installs, so the lock costs
+    /// nothing and the counts are honest. Signal is the fact that
+    /// matters: a microphone the lid has switched off delivers buffers
+    /// at the full rate, every sample exactly zero, and counting them
+    /// called it alive for an entire evening.
     private let deliveryLock = NSLock()
     private var delivered = 0
+    private var signalled = false
+    /// When the engine last started and reported running; nil while it
+    /// is not. What a stop measures the run against before believing
+    /// the device heard nothing.
+    private var runningSince: Date?
     /// The engine ran and heard nothing, so the next start builds a new
     /// one rather than restarting this.
     private var deaf = false
@@ -224,11 +235,42 @@ final class AudioInput: @unchecked Sendable {
     private var forced: AudioDeviceID?
     /// Devices already proved deaf, so a fallback is never made to one.
     private var deafDevices: Set<AudioDeviceID> = []
-    /// How long a running engine may deliver nothing before it is not
-    /// believed. Buffers arrive about fifteen times a second; a second
-    /// and a half of none, with the engine claiming to run, is not a
-    /// quiet room, it is a deaf engine.
+    /// How long a running engine may deliver no signal before it is not
+    /// believed. Buffers arrive about fifteen times a second and a live
+    /// room never reads below -97 dBFS; a second and a half of exact
+    /// silence, with the engine claiming to run, is not a quiet room, it
+    /// is a deaf engine or a device with no microphone behind it.
     static let deafnessSeconds: TimeInterval = 1.5
+    /// The same watch on a Bluetooth radio, whose telephone link comes
+    /// up cold in a second and a half from a fresh process and took
+    /// three inside the app the evening this was measured. Silence
+    /// inside that window is the link, not the device.
+    static let radioDeafnessSeconds: TimeInterval = 4
+
+    /// Whether a device that ran and stayed silent is to be written off.
+    /// Nothing is held against a device the engine never ran on, or ran
+    /// on for less than the window: a start that timed out and was
+    /// retried proves nothing about the device, and one evening it wrote
+    /// a headset off twice inside ten seconds.
+    static func indicts(ranFor: TimeInterval?, signalled: Bool, window: TimeInterval) -> Bool {
+        guard let ranFor, !signalled else { return false }
+        return ranFor >= window
+    }
+
+    static func deafnessWindow(bluetooth: Bool) -> TimeInterval {
+        bluetooth ? radioDeafnessSeconds : deafnessSeconds
+    }
+
+    /// Whether a buffer carries anything but zeros: the feed's own alive
+    /// test, -100 dBFS, applied here so the engine's keeper knows what
+    /// the feed knows.
+    static func hasSignal(_ buffer: AVAudioPCMBuffer) -> Bool {
+        guard let data = buffer.floatChannelData, buffer.frameLength > 0 else { return false }
+        let samples = UnsafeBufferPointer(start: data[0], count: Int(buffer.frameLength))
+        var sum: Float = 0
+        for sample in samples { sum += sample * sample }
+        return (sum / Float(samples.count)).squareRoot() > 1e-5
+    }
 
     init() {}
 
@@ -256,6 +298,16 @@ final class AudioInput: @unchecked Sendable {
         deliveryLock.lock()
         defer { deliveryLock.unlock() }
         return delivered
+    }
+
+    private func heardSignal() -> Bool {
+        deliveryLock.lock()
+        defer { deliveryLock.unlock() }
+        return signalled
+    }
+
+    private var deafnessWindow: TimeInterval {
+        Self.deafnessWindow(bluetooth: engineDevice.map(Self.isBluetooth) ?? false)
     }
 
     /// Watch `fresh` for the hardware under it changing.
@@ -316,6 +368,7 @@ final class AudioInput: @unchecked Sendable {
         do {
             try engine.start()
             rebuildPending = false
+            runningSince = engine.isRunning ? Date() : nil
             Log.info("draft", ["speech": "audio configuration changed", "restarted": true, "attempt": attempt])
         } catch {
             Log.info("draft", ["speech": "audio configuration changed",
@@ -430,18 +483,25 @@ final class AudioInput: @unchecked Sendable {
     /// always works, so when the chosen one delivers nothing it is
     /// better to be heard somewhere than to be silent faithfully.
     static func builtInInput() -> AudioDeviceID? {
-        for (id, _) in inputDevices() {
-            var address = AudioObjectPropertyAddress(
-                mSelector: kAudioDevicePropertyTransportType,
-                mScope: kAudioObjectPropertyScopeGlobal,
-                mElement: kAudioObjectPropertyElementMain)
-            var transport: UInt32 = 0
-            var size = UInt32(MemoryLayout<UInt32>.size)
-            guard AudioObjectGetPropertyData(id, &address, 0, nil, &size, &transport) == noErr
-            else { continue }
-            if transport == kAudioDeviceTransportTypeBuiltIn { return id }
-        }
-        return nil
+        inputDevices().first { transport(of: $0.id) == kAudioDeviceTransportTypeBuiltIn }?.id
+    }
+
+    static func transport(of id: AudioDeviceID) -> UInt32? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyTransportType,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var transport: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        guard AudioObjectGetPropertyData(id, &address, 0, nil, &size, &transport) == noErr
+        else { return nil }
+        return transport
+    }
+
+    static func isBluetooth(_ id: AudioDeviceID) -> Bool {
+        let transport = transport(of: id)
+        return transport == kAudioDeviceTransportTypeBluetooth
+            || transport == kAudioDeviceTransportTypeBluetoothLE
     }
 
     static func defaultInput() -> AudioDeviceID? {
@@ -500,7 +560,7 @@ final class AudioInput: @unchecked Sendable {
         dispatchPrecondition(condition: .onQueue(queue))
         stopNow()
         inFlight = (device, sink)
-        deliveryLock.lock(); delivered = 0; deliveryLock.unlock()
+        deliveryLock.lock(); delivered = 0; signalled = false; deliveryLock.unlock()
         if fresh { discard() }
         let wanted = device.flatMap { name in Self.inputDevices().first { $0.name == name }?.id }
         if device != nil, wanted == nil {
@@ -539,6 +599,9 @@ final class AudioInput: @unchecked Sendable {
                 if let self {
                     self.deliveryLock.lock()
                     self.delivered += 1
+                    // Read until one carries signal, never after: the
+                    // sum is a few thousand multiplies on the audio thread.
+                    if !self.signalled, Self.hasSignal(buffer) { self.signalled = true }
                     self.deliveryLock.unlock()
                 }
                 sink(buffer)
@@ -564,6 +627,7 @@ final class AudioInput: @unchecked Sendable {
                            "inCh": Int(input.inputFormat(forBus: 0).channelCount),
                            "voiceProcessing": input.isVoiceProcessingEnabled])
         deaf = false
+        runningSince = engine.isRunning ? Date() : nil
         watchForSilence(generation: engineGeneration)
         return (format, name)
     }
@@ -585,10 +649,11 @@ final class AudioInput: @unchecked Sendable {
     /// same cap, so a machine whose microphone is genuinely gone does
     /// not rebuild forever.
     private func watchForSilence(generation: Int) {
-        queue.asyncAfter(deadline: .now() + Self.deafnessSeconds) { [weak self] in
+        let window = deafnessWindow
+        queue.asyncAfter(deadline: .now() + window) { [weak self] in
             guard let self, self.engineGeneration == generation, self.inFlight != nil,
                   let engine = self.engine, engine.isRunning else { return }
-            guard self.deliveredCount() == 0 else { return }
+            guard !self.heardSignal() else { return }
             self.deaf = true
             // Rebuilding the same device is only worth doing once: an
             // engine can be born deaf, but a device that is deaf twice is
@@ -606,8 +671,8 @@ final class AudioInput: @unchecked Sendable {
                                        "falling back to": Self.name(of: builtIn) ?? "built-in"])
                 }
             }
-            Log.info("draft", ["speech": "engine heard nothing",
-                               "seconds": Self.deafnessSeconds, "rebuilds": self.rebuilds])
+            Log.info("draft", ["speech": "engine heard nothing", "buffers": self.deliveredCount(),
+                               "seconds": window, "rebuilds": self.rebuilds])
             self.rebuild(attempt: 1)
         }
     }
@@ -620,6 +685,7 @@ final class AudioInput: @unchecked Sendable {
         queue.async {
             guard self.tapInstalled, let engine = self.engine else { return }
             try? engine.start()
+            self.runningSince = engine.isRunning ? Date() : nil
             // Coming back from a pause is a start like any other, and an
             // engine can be deaf on either side of one.
             self.watchForSilence(generation: self.engineGeneration)
@@ -646,11 +712,15 @@ final class AudioInput: @unchecked Sendable {
 
     private func stopNow() {
         dispatchPrecondition(condition: .onQueue(queue))
-        // A session that heard nothing at all indicts the engine it used,
-        // so the next one does not inherit it — and indicts the device
-        // too, which is what stops the next draft opening the same
-        // silence.
-        if inFlight != nil, deliveredCount() == 0, engine != nil {
+        // A session that ran a whole window and heard no signal indicts
+        // the engine it used, so the next one does not inherit it — and
+        // indicts the device too, which is what stops the next draft
+        // opening the same silence. A session stopped sooner, which is
+        // what a timed-out start's retry is, says nothing about either.
+        let ran = runningSince.map { Date().timeIntervalSince($0) }
+        runningSince = nil
+        if inFlight != nil, engine != nil,
+           Self.indicts(ranFor: ran, signalled: heardSignal(), window: deafnessWindow) {
             deaf = true
             if let device = engineDevice {
                 let alreadyKnown = deafDevices.contains(device)

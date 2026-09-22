@@ -59,4 +59,48 @@ final class DeafEngineTests: XCTestCase {
         XCTAssertLessThan(AudioInput.deafnessSeconds, DraftController.listenWatchdogSeconds,
                           "and short enough to rebuild before the draft gives up on the session")
     }
+
+    /// A Bluetooth radio brings its telephone link up cold in a second
+    /// and a half from a fresh process, and took three inside the app
+    /// the evening this was measured. Silence inside that is the link.
+    func testARadioIsGivenLongerBeforeItIsCalledDeaf() {
+        XCTAssertEqual(AudioInput.deafnessWindow(bluetooth: false), AudioInput.deafnessSeconds)
+        XCTAssertGreaterThan(AudioInput.deafnessWindow(bluetooth: true), 3,
+                             "a cold hands-free link needs the room")
+        XCTAssertLessThan(AudioInput.deafnessWindow(bluetooth: true), DraftController.listenWatchdogSeconds,
+                          "and the draft must still outlast the watch")
+    }
+
+    /// The evening this was written the headset was written off twice in
+    /// ten seconds by starts that timed out and were retried: the retry
+    /// stopped a session whose first buffer had not arrived yet, and the
+    /// stop read "no buffers" as "deaf". Only a run past the window with
+    /// no signal in it says anything about a device.
+    func testATimedOutStartProvesNothingAboutTheDevice() {
+        let window = AudioInput.deafnessSeconds
+        XCTAssertFalse(AudioInput.indicts(ranFor: nil, signalled: false, window: window),
+                       "the engine never ran")
+        XCTAssertFalse(AudioInput.indicts(ranFor: window * 0.5, signalled: false, window: window),
+                       "stopped before the window closed")
+        XCTAssertTrue(AudioInput.indicts(ranFor: window, signalled: false, window: window),
+                      "ran the whole window and heard nothing")
+        XCTAssertFalse(AudioInput.indicts(ranFor: window * 10, signalled: true, window: window),
+                       "anything heard clears the device, however long it ran")
+    }
+
+    /// Buffers are not the fact. A microphone the lid has switched off
+    /// delivers them at the full rate with every sample exactly zero,
+    /// and reads -140 dBFS where a live room never reads below -97.
+    func testSilenceIsExactZerosAndARoomIsNot() throws {
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1))
+        let zeros = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1024))
+        zeros.frameLength = 1024
+        XCTAssertFalse(AudioInput.hasSignal(zeros), "a lid-closed microphone")
+        let room = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1024))
+        room.frameLength = 1024
+        for i in 0..<1024 { room.floatChannelData![0][i] = (i % 2 == 0 ? 1 : -1) * 0.0001 } // -80 dBFS
+        XCTAssertTrue(AudioInput.hasSignal(room), "the quietest live room")
+        let empty = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1024))
+        XCTAssertFalse(AudioInput.hasSignal(empty), "no frames is no signal")
+    }
 }

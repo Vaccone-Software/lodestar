@@ -88,6 +88,39 @@ final class DeafEngineTests: XCTestCase {
                        "anything heard clears the device, however long it ran")
     }
 
+    /// The evening this was written the app had written the headset off
+    /// and pinned every session to the Mac's microphone for the life of
+    /// the process, and four edits to `draft.input` changed nothing: the
+    /// pin overrode the name. A device a hand named is read as named.
+    func testANamedInputIsReadNotRedirected() {
+        let headset: AudioDeviceID = 7, builtIn: AudioDeviceID = 42
+        XCTAssertEqual(AudioInput.choose(wanted: headset, systemDefault: builtIn,
+                                         writtenOff: [headset], builtIn: builtIn), headset,
+                       "written off or not, the name is the instruction")
+        XCTAssertEqual(AudioInput.choose(wanted: nil, systemDefault: headset,
+                                         writtenOff: [headset], builtIn: builtIn), builtIn,
+                       "the default, written off, is read elsewhere")
+        XCTAssertEqual(AudioInput.choose(wanted: nil, systemDefault: headset,
+                                         writtenOff: [], builtIn: builtIn), headset,
+                       "and followed while it hears")
+        XCTAssertEqual(AudioInput.choose(wanted: nil, systemDefault: headset,
+                                         writtenOff: [headset, builtIn], builtIn: builtIn), headset,
+                       "with nowhere better to go, the default is still the default")
+        XCTAssertEqual(AudioInput.choose(wanted: nil, systemDefault: nil,
+                                         writtenOff: [], builtIn: builtIn), builtIn,
+                       "no default at all: the Mac's own")
+    }
+
+    /// The write-off lasts only while the inputs it was charged under
+    /// are the inputs the machine has.
+    func testTheWriteOffEndsWhenTheInputsChange() {
+        XCTAssertTrue(AudioInput.writeOffHolds(roster: [1, 2], chargedUnder: [1, 2]))
+        XCTAssertFalse(AudioInput.writeOffHolds(roster: [1, 2, 3], chargedUnder: [1, 2]), "a headset arrived")
+        XCTAssertFalse(AudioInput.writeOffHolds(roster: [1], chargedUnder: [1, 2]), "or a dock left")
+        XCTAssertEqual(AudioInput.windowsToWriteOff, 2,
+                       "once is an engine that may have been born deaf; twice is the device")
+    }
+
     /// Buffers are not the fact. A microphone the lid has switched off
     /// delivers them at the full rate with every sample exactly zero,
     /// and reads -140 dBFS where a live room never reads below -97.

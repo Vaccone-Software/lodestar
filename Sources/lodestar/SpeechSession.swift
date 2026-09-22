@@ -223,18 +223,28 @@ final class AudioInput: @unchecked Sendable {
     /// The engine ran and heard nothing, so the next start builds a new
     /// one rather than restarting this.
     private var deaf = false
-    /// A device to use instead of the one that would be chosen.
+    /// How many whole windows each device has run through in silence.
     ///
-    /// Set when a device proves deaf, and kept for the life of the
-    /// process: a system default that delivers nothing will deliver
-    /// nothing on the next draft too, and retrying it every time is how
-    /// a dictation feature spends a whole evening hearing silence. A
-    /// monitor or a dock that presents an input with no microphone
-    /// behind it is the ordinary way to end up here, and it can be the
-    /// system default without anyone having chosen it.
-    private var forced: AudioDeviceID?
-    /// Devices already proved deaf, so a fallback is never made to one.
-    private var deafDevices: Set<AudioDeviceID> = []
+    /// A system default that delivers nothing will deliver nothing on
+    /// the next draft too, and retrying it every time is how a dictation
+    /// feature spends a whole evening hearing silence: a monitor or a
+    /// dock that presents an input with no microphone behind it is the
+    /// ordinary way to end up here, and it can be the default without
+    /// anyone having chosen it. Once is an engine that may have been
+    /// born deaf and is rebuilt; twice is the device, and the default is
+    /// read elsewhere. Never a device a hand named on the register line:
+    /// `choose` reads that one as named, whatever this says about it.
+    private var silentWindows: [AudioDeviceID: Int] = [:]
+    /// The inputs the machine had when the last window was charged. The
+    /// write-off lasts only while that set stands: a device arriving or
+    /// leaving clears it, so a headset that was slow once is not held
+    /// against it after it reconnects, and a pin made under one set of
+    /// devices never outlives them. It used to last the process, and
+    /// one evening that pinned every session to a microphone the lid
+    /// had switched off, whatever the register line was set to.
+    private var silentRoster: Set<AudioDeviceID> = []
+    /// Windows in silence before a device is read no more.
+    static let windowsToWriteOff = 2
     /// How long a running engine may deliver no signal before it is not
     /// believed. Buffers arrive about fifteen times a second and a live
     /// room never reads below -97 dBFS; a second and a half of exact
@@ -259,6 +269,31 @@ final class AudioInput: @unchecked Sendable {
 
     static func deafnessWindow(bluetooth: Bool) -> TimeInterval {
         bluetooth ? radioDeafnessSeconds : deafnessSeconds
+    }
+
+    /// Which device a start reads.
+    ///
+    /// A device named on the register line is read as named, always: a
+    /// hand that chose it is telling the app what to read, and silently
+    /// reading something else is the failure the name was there to
+    /// prevent. The system default is followed unless it has been
+    /// written off, and then the Mac's own microphone is read instead,
+    /// being heard somewhere beating being silent faithfully; nil is
+    /// the engine's own default. `writtenOff` never contains anything a
+    /// hand named, and it never survives a change to the set of inputs.
+    static func choose(wanted: AudioDeviceID?, systemDefault: AudioDeviceID?,
+                       writtenOff: Set<AudioDeviceID>, builtIn: AudioDeviceID?) -> AudioDeviceID? {
+        if let wanted { return wanted }
+        guard let systemDefault else { return builtIn }
+        guard writtenOff.contains(systemDefault) else { return systemDefault }
+        if let builtIn, !writtenOff.contains(builtIn) { return builtIn }
+        return systemDefault
+    }
+
+    /// Whether the write-off still applies: only while the inputs it was
+    /// charged under are the inputs the machine has.
+    static func writeOffHolds(roster: Set<AudioDeviceID>, chargedUnder: Set<AudioDeviceID>) -> Bool {
+        roster == chargedUnder
     }
 
     /// Whether a buffer carries anything but zeros: the feed's own alive
@@ -562,15 +597,25 @@ final class AudioInput: @unchecked Sendable {
         inFlight = (device, sink)
         deliveryLock.lock(); delivered = 0; signalled = false; deliveryLock.unlock()
         if fresh { discard() }
-        let wanted = device.flatMap { name in Self.inputDevices().first { $0.name == name }?.id }
+        let devices = Self.inputDevices()
+        let wanted = device.flatMap { name in devices.first { $0.name == name }?.id }
         if device != nil, wanted == nil {
             Log.info("draft", ["speech": "input not found", "wanted": device ?? ""])
         }
-        // A device proved deaf is not chosen again while this process
-        // lives, whoever named it.
-        var target = wanted ?? Self.defaultInput()
-        if let chosen = target, deafDevices.contains(chosen) { target = forced ?? chosen }
-        if target == nil { target = forced }
+        let roster = Set(devices.map(\.id))
+        if !silentWindows.isEmpty, !Self.writeOffHolds(roster: roster, chargedUnder: silentRoster) {
+            Log.info("draft", ["speech": "inputs changed", "silence forgotten": silentWindows.count])
+            silentWindows = [:]
+        }
+        let writtenOff = Set(silentWindows.filter { $0.value >= Self.windowsToWriteOff }.map(\.key))
+        let systemDefault = Self.defaultInput()
+        let target = Self.choose(wanted: wanted, systemDefault: systemDefault,
+                                 writtenOff: writtenOff, builtIn: Self.builtInInput())
+        if let target, wanted == nil, target != systemDefault {
+            Log.info("draft", ["speech": "default written off",
+                               "was": systemDefault.flatMap(Self.name(of:)) ?? "none",
+                               "reading": Self.name(of: target) ?? "unknown"])
+        }
         var attempt = 0
         var format = AVAudioFormat()
         while true {
@@ -656,25 +701,26 @@ final class AudioInput: @unchecked Sendable {
             guard !self.heardSignal() else { return }
             self.deaf = true
             // Rebuilding the same device is only worth doing once: an
-            // engine can be born deaf, but a device that is deaf twice is
-            // a device with no microphone behind it, and a monitor or a
-            // dock can be the system default without anyone choosing it.
-            // After that, the Mac's own microphone, which is always
-            // there and always works.
-            if let device = self.engineDevice {
-                let alreadyKnown = self.deafDevices.contains(device)
-                self.deafDevices.insert(device)
-                if alreadyKnown, let builtIn = Self.builtInInput(), builtIn != device {
-                    self.forced = builtIn
-                    Log.info("draft", ["speech": "input heard nothing twice",
-                                       "was": Self.name(of: device) ?? "unknown",
-                                       "falling back to": Self.name(of: builtIn) ?? "built-in"])
-                }
-            }
+            // engine can be born deaf, but a device silent through two
+            // windows is a device with no microphone behind it, and the
+            // rebuild's own start reads the default elsewhere.
+            self.charge(self.engineDevice)
             Log.info("draft", ["speech": "engine heard nothing", "buffers": self.deliveredCount(),
                                "seconds": window, "rebuilds": self.rebuilds])
             self.rebuild(attempt: 1)
         }
+    }
+
+    /// One whole window of silence, against the device that ran it.
+    private func charge(_ device: AudioDeviceID?) {
+        dispatchPrecondition(condition: .onQueue(queue))
+        guard let device else { return }
+        silentWindows[device, default: 0] += 1
+        silentRoster = Set(Self.inputDevices().map(\.id))
+        Log.info("draft", ["speech": "input heard nothing",
+                           "input": Self.name(of: device) ?? "unknown",
+                           "windows": silentWindows[device] ?? 0,
+                           "writtenOff": (silentWindows[device] ?? 0) >= Self.windowsToWriteOff])
     }
 
     func pause() {
@@ -722,16 +768,7 @@ final class AudioInput: @unchecked Sendable {
         if inFlight != nil, engine != nil,
            Self.indicts(ranFor: ran, signalled: heardSignal(), window: deafnessWindow) {
             deaf = true
-            if let device = engineDevice {
-                let alreadyKnown = deafDevices.contains(device)
-                deafDevices.insert(device)
-                if alreadyKnown, forced == nil, let builtIn = Self.builtInInput(), builtIn != device {
-                    forced = builtIn
-                    Log.info("draft", ["speech": "input heard nothing twice",
-                                       "was": Self.name(of: device) ?? "unknown",
-                                       "falling back to": Self.name(of: builtIn) ?? "built-in"])
-                }
-            }
+            charge(engineDevice)
         }
         inFlight = nil
         guard let engine else { return }

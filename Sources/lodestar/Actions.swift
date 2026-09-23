@@ -955,6 +955,8 @@ final class Actions {
         sessionClaimed.insert(window.id)
         switch action {
         case .add:
+            // Read before the add: the members the arrival stands beside.
+            let beside = layout.members(on: active.id).compactMap { model.windows[$0]?.appName }
             // The tenth window is prevented, not absorbed: nine is the cap
             // because the digits are the addresses. The refusal leaves the
             // world exactly as it was — a half-acted gesture would be
@@ -963,6 +965,8 @@ final class Actions {
                 hud.flash("✕ nine windows is the cap · plain summon replaces")
                 return
             }
+            // The hand composed a pair: what a breath offer is priced on.
+            observations?.composed(app: window.appName, beside: beside)
         case .replace:
             // The summon takes its strays with it: session-claimed
             // windows still standing on this display park alongside the

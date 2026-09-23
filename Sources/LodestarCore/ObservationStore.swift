@@ -153,6 +153,19 @@ public final class ObservationStore {
         record(event)
     }
 
+    /// The hand stood `app` beside `beside` — the apps already in the
+    /// layout it joined. Only apps other than the arrival count; two
+    /// windows of one app side by side are not a pair a breath could hold.
+    public func composed(app: String, beside: [String], at now: Date = Date()) {
+        let arrival = app.lowercased()
+        let others = Set(beside.map { $0.lowercased() }).subtracting([arrival, ""])
+        guard !arrival.isEmpty, !others.isEmpty else { return }
+        var event = ObservationEvent(t: now, kind: .compose)
+        event.app = arrival
+        event.apps = others.sorted()
+        record(event)
+    }
+
     /// The launcher opened, took typing, and was escaped without a pick.
     public func launcherAbandoned(typed: Int, at now: Date = Date()) {
         var event = ObservationEvent(t: now, kind: .launcherAbandon)

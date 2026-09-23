@@ -311,4 +311,36 @@ final class CoachPacingTests: XCTestCase {
             offers: 1, status: "accepted", acceptedWeek: 0)
         XCTAssertEqual(Coach.acceptStreak(observations: observations([undated])), 0)
     }
+
+    // MARK: - A breath is judged by its use
+
+    func testAnAcceptedBreathNobodyRecallsIsALoss() {
+        let day = 86_400.0
+        var o = observations([
+            answered("breath:brave browser + ghostty", kind: "breath", status: "accepted",
+                     at: start.addingTimeInterval(-30 * day)),
+        ])
+        o.ledger[0].chain = "g"
+        // Before this, the accept alone was the win: 0.5 + 2/3.
+        XCTAssertEqual(Coach.kindWeight(observations: o, kind: .breath, now: start),
+                       0.5 + 1.0 / 3.0, accuracy: 0.001, "four weeks unrecalled: a loss")
+        var recall = ObservationEvent(t: start.addingTimeInterval(-20 * day), kind: .reach)
+        recall.route = Observations.Route.breath.rawValue
+        recall.chain = ["x"]
+        recall.apps = ["ghostty", "brave browser", "slack"]
+        for _ in 0..<Coach.bentBreathRecalls { o.apply(recall) }
+        XCTAssertEqual(Coach.kindWeight(observations: o, kind: .breath, now: start),
+                       0.5 + 2.0 / 3.0, accuracy: 0.001,
+                       "recalled at any letter, in a layout that grew: taken")
+    }
+
+    func testAFreshBreathHoldsTheLearningSlot() {
+        var o = observations([
+            answered("breath:brave browser + ghostty", kind: "breath", status: "accepted",
+                     at: start.addingTimeInterval(-86_400)),
+        ])
+        o.ledger[0].chain = "g"
+        XCTAssertTrue(Coach.slotBusy(observations: o, now: start),
+                      "one habit at a time: the next breath waits for this one to be used or stall")
+    }
 }

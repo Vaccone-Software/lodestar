@@ -30,6 +30,10 @@ public enum Coach {
     public static let stallWeeks = 3
     /// Completions at the new binding before its curve counts as bent.
     public static let bentCompletions = 15
+    /// Restores of an accepted breath before it counts as taken. Lower
+    /// than a chain's bar because a breath replaces a composition, which
+    /// happens a few times a day, not a switch, which happens hundreds.
+    public static let bentBreathRecalls = 5
     /// Showings of one suggestion before it parks on its own.
     public static let maxOffers = 3
     /// Days between showings of the same suggestion. Unanswered is not
@@ -579,6 +583,7 @@ public enum Coach {
             || kind == Recommendation.Kind.rebind.rawValue
             || kind == Recommendation.Kind.flatten.rawValue
             || kind == Recommendation.Kind.nudge.rawValue
+            || kind == Recommendation.Kind.breath.rawValue
     }
 
     /// Has the habit an accepted entry asked for demonstrably taken? For
@@ -588,6 +593,17 @@ public enum Coach {
     /// is completions *since* the acceptance, off the week ring.
     static func bent(observations: Observations, entry: Observations.LedgerEntry) -> Bool {
         guard let chain = entry.chain else { return false }
+        if entry.kind == Recommendation.Kind.breath.rawValue {
+            // An accept arranges the pair and saves it; whether it was
+            // wanted is whether it comes back. Judged by the combination,
+            // not the letter, so a breath the hand moved or grew still
+            // answers — and an accept nobody recalls is a loss, which the
+            // accept alone used to count as a win.
+            guard let accepted = entry.acceptedWeek else { return false }
+            let apps = entry.target.components(separatedBy: " + ")
+            return observations.breathRecalls(holding: apps, sinceWeek: accepted)
+                >= bentBreathRecalls
+        }
         if entry.kind == Recommendation.Kind.nudge.rawValue {
             return completions(observations: observations, chain: chain,
                                sinceWeek: entry.acceptedWeek) >= bentCompletions

@@ -118,6 +118,12 @@ public struct ObservationEvent: Codable, Equatable {
         /// `era` carries all of it, so a change in the data can be told
         /// from a change in the hand without reading a log.
         case era
+        /// A window joined a layout beside others by the hand — a shift
+        /// summon, a chord letter, a beside move: `app` the arrival,
+        /// `apps` the members it joined. Never a breath restore, which
+        /// the breath road records. The evidence a breath offer needs:
+        /// the pair is wanted side by side, not merely used in turn.
+        case compose
     }
 
     /// The kinds that are the health record: what leaves a retired

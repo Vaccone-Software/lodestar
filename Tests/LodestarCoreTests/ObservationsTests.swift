@@ -471,4 +471,47 @@ final class ObservationsTests: XCTestCase {
         XCTAssertEqual(o.transitionPulls?["ghostty"]?["brave"] ?? 0, 1, accuracy: 0.0001)
         XCTAssertNil(o.transitionPulls?["brave"]?["ghostty"], "a switch to a visible window is not a pull")
     }
+
+    func testACompositionCountsEachNewPairOnceInNameOrder() {
+        var o = Observations()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        func compose(_ app: String, beside: [String]) {
+            var event = ObservationEvent(t: start, kind: .compose)
+            event.app = app
+            event.apps = beside
+            o.apply(event)
+        }
+        XCTAssertNil(o.composed("ghostty", "brave"), "nothing seen yet")
+        // A chord of three: brave joins ghostty, then slack joins both.
+        compose("brave", beside: ["ghostty"])
+        compose("slack", beside: ["ghostty", "brave"])
+        XCTAssertEqual(o.composed("ghostty", "brave") ?? 0, 1, accuracy: 0.0001,
+                       "the pair counted when it formed, not again when a third joined")
+        XCTAssertEqual(o.composed("brave", "ghostty"), o.composed("ghostty", "brave"))
+        XCTAssertEqual(o.composed("slack", "brave") ?? 0, 1, accuracy: 0.0001)
+        XCTAssertEqual(o.composed("telegram", "brave"), 0, "seen table, unseen pair")
+        XCTAssertEqual(Observations.rebuild(from: []).compositions, nil)
+    }
+
+    func testBreathRecallsFollowTheCombinationNotTheLetter() {
+        var o = Observations()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        func restore(_ path: String, _ apps: [String]) {
+            var event = ObservationEvent(t: start, kind: .reach)
+            event.route = Observations.Route.breath.rawValue
+            event.chain = [path]
+            event.apps = apps
+            event.app = apps.first
+            o.apply(event)
+        }
+        restore("g", ["Ghostty", "Brave Browser"])
+        restore("x", ["Brave Browser", "Ghostty"])
+        restore("a", ["Brave Browser", "Slack", "Ghostty"])
+        restore("t", ["Telegram", "Ghostty"])
+        let week = Observations.week(start)
+        XCTAssertEqual(o.breathRecalls(holding: ["ghostty", "brave browser"], sinceWeek: week), 3,
+                       "either letter, either order, and a breath that grew a third member")
+        XCTAssertEqual(o.breathRecalls(holding: ["ghostty", "brave browser"], sinceWeek: week + 1), 0)
+        XCTAssertEqual(o.breathRecalls(holding: ["telegram", "brave browser"], sinceWeek: week), 0)
+    }
 }

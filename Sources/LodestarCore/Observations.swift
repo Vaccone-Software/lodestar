@@ -379,6 +379,19 @@ public struct Observations: Codable, Equatable {
     /// with nothing pulled is a pair already side by side, and a breath
     /// can save it nothing.
     public var transitionPulls: [String: [String: Double]]?
+    /// Pairs the hand stood side by side itself — a shift summon, a
+    /// chord, a beside move — keyed in name order (the lesser name
+    /// first), decayed and capped with `transitions`. What a breath
+    /// actually replaces: a pair used in turn is not a pair wanted
+    /// together, and only this table can tell the two apart. nil until
+    /// the first composition is seen.
+    public var compositions: [String: [String: Double]]?
+    /// Breath restores by the combination they brought back — the apps
+    /// sorted and joined " + " — then by week. Keyed by the combination,
+    /// never the letter, so a breath moved to a new key keeps its record,
+    /// and so an accepted breath offer can be judged by use rather than
+    /// by the accept.
+    public var breathRecalls: [String: [Int: Int]]?
     var transitionsDecayedAt = Date.distantPast
     var lastApp: String?
     public var launcherAbandons = 0
@@ -483,6 +496,15 @@ public struct Observations: Codable, Equatable {
             }()
             guard let name = names.first else { return }
             touch(now)
+            if route == .breath {
+                let combination = Self.combination(names)
+                var recalls = breathRecalls ?? [:]
+                var weeks = recalls[combination] ?? [:]
+                weeks[Self.week(now), default: 0] += 1
+                Self.prune(&weeks)
+                recalls[combination] = weeks
+                breathRecalls = recalls
+            }
             for other in names.dropFirst() {
                 var record = apps[other] ?? AppRecord()
                 record.firstWeek = record.firstWeek ?? Self.week(now)
@@ -661,6 +683,25 @@ public struct Observations: Codable, Equatable {
             record.lastUsed = now
             selects[name] = record
 
+        case .compose:
+            guard let arrival = event.app?.lowercased(), !arrival.isEmpty,
+                  let others = event.apps else { return }
+            touch(now)
+            decayTransitions(to: now)
+            var table = compositions ?? [:]
+            for other in others.map({ $0.lowercased() }) where !other.isEmpty && other != arrival {
+                let (a, b) = arrival < other ? (arrival, other) : (other, arrival)
+                // The same bound as the transitions: a new name joins only
+                // while the table has room for it.
+                if table[a]?[b] == nil {
+                    let known = Set(table.keys).union(table.values.flatMap(\.keys))
+                    let need = (known.contains(a) ? 0 : 1) + (known.contains(b) ? 0 : 1)
+                    if need > 0, known.count + need > Self.transitionAppCap { continue }
+                }
+                table[a, default: [:]][b, default: 0] += 1
+            }
+            compositions = table
+
         case .meeting:
             // Kept in the log for the retrospective and for lead-time
             // calibration, both of which read events directly. The live
@@ -784,6 +825,35 @@ public struct Observations: Codable, Equatable {
         return Double(abandons) / Double(total)
     }
 
+    /// How often the hand stood these two apps side by side itself, as
+    /// decayed mass (~two weeks of it). nil while no composition has
+    /// been seen at all, zero for a pair never composed since.
+    public func composed(_ one: String, _ two: String) -> Double? {
+        guard let table = compositions else { return nil }
+        let a = one.lowercased(), b = two.lowercased()
+        let (x, y) = a < b ? (a, b) : (b, a)
+        return table[x]?[y] ?? 0
+    }
+
+    /// Restores since `week` of any breath holding every one of `apps` —
+    /// a breath that grew a third member still answers for the pair.
+    public func breathRecalls(holding apps: [String], sinceWeek week: Int) -> Int {
+        let wanted = Set(apps.map { $0.lowercased() })
+        var total = 0
+        for (combination, weeks) in breathRecalls ?? [:] {
+            let held = Set(combination.components(separatedBy: " + "))
+            guard wanted.isSubset(of: held) else { continue }
+            total += weeks.filter { $0.key >= week }.values.reduce(0, +)
+        }
+        return total
+    }
+
+    /// The key a set of apps is recorded under: lowercased, sorted,
+    /// joined " + ", the same spelling the breath offers use.
+    public static func combination(_ apps: [String]) -> String {
+        Set(apps.map { $0.lowercased() }).subtracting([""]).sorted().joined(separator: " + ")
+    }
+
     /// The share of an app's reaches that went through the launcher.
     public func routeShare(_ app: String, minimumReaches: Int = 5) -> Double? {
         guard let record = apps[app.lowercased()], record.reaches >= minimumReaches else {
@@ -891,6 +961,14 @@ public struct Observations: Codable, Equatable {
                 if !decayed.isEmpty { kept[from] = decayed }
             }
             transitionPulls = kept
+        }
+        if let table = compositions {
+            var kept: [String: [String: Double]] = [:]
+            for (from, row) in table {
+                let decayed = row.mapValues { $0 * factor }.filter { $0.value > 0.01 }
+                if !decayed.isEmpty { kept[from] = decayed }
+            }
+            compositions = kept
         }
         transitionsDecayedAt = now
     }

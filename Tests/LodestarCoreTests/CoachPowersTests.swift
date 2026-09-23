@@ -129,6 +129,7 @@ final class CoachPowersTests: XCTestCase {
         var o = Observations()
         o.transitions = ["ghostty": ["brave browser": 30],
                          "brave browser": ["ghostty": 25]]
+        o.compositions = ["brave browser": ["ghostty": 6]]
         return Advisor.Context(observations: o, events: [], leaves: [],
                                meetingsEnabled: false, breathPaths: paths, now: start)
     }

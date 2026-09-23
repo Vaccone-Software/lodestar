@@ -559,6 +559,7 @@ final class AnalysisTests: XCTestCase {
             "brave": ["ghostty": 90, "slack": 20],
             "slack": ["ghostty": 40, "brave": 15],
         ]
+        o.compositions = ["brave": ["ghostty": 6]]
         let context = Advisor.Context(observations: o, events: [], leaves: [],
                                       webRoutes: [:], now: start)
         let breath = Advisor.recommend(context).first { $0.kind == .breath }
@@ -566,24 +567,29 @@ final class AnalysisTests: XCTestCase {
         XCTAssertTrue(breath?.target.contains("ghostty") ?? false)
     }
 
-    func testBreathIsSilentWhenEverySwitchStoodInView() {
-        // The pulled table exists and holds nothing for the pair: every
-        // switch reached a window already on screen, which a breath
-        // cannot make cheaper. Still tested, never offered.
+    func testBreathIsSilentForAPairOnlyUsedInTurn() {
+        // Heavy co-use, never once stood side by side by the hand: the
+        // pair is switched between full-screen, and a breath composed for
+        // it is a layout nobody asked for. Still tested, never offered.
         var o = Observations()
         o.transitions = [
             "ghostty": ["brave": 100, "slack": 35],
             "brave": ["ghostty": 90, "slack": 20],
             "slack": ["ghostty": 40, "brave": 15],
         ]
-        o.transitionPulls = [:]
         let context = Advisor.Context(observations: o, events: [], leaves: [],
                                       webRoutes: [:], now: start)
         XCTAssertNil(Advisor.recommend(context).first { $0.kind == .breath },
-                     "a pair already side by side has nothing a breath can save")
+                     "no composition seen at all: nothing proven")
+        o.compositions = ["brave": ["ghostty": 2], "ghostty": ["slack": 9]]
+        let sparse = Advisor.Context(observations: o, events: [], leaves: [],
+                                     webRoutes: [:], now: start)
+        let offers = Advisor.recommend(sparse).filter { $0.kind == .breath }
+        XCTAssertEqual(offers.map(\.target), ["ghostty + slack"],
+                       "the pair composed rarely stays quiet; the one composed often is offered")
     }
 
-    func testBreathPricesThePullsNotTheSwitches() {
+    func testBreathPricesTheCompositionsNotTheSwitches() {
         var o = Observations()
         o.transitions = [
             "ghostty": ["brave": 100, "slack": 35],
@@ -591,12 +597,13 @@ final class AnalysisTests: XCTestCase {
             "slack": ["ghostty": 40, "brave": 15],
         ]
         o.transitionPulls = ["ghostty": ["brave": 30], "brave": ["ghostty": 10]]
+        o.compositions = ["brave": ["ghostty": 8]]
         let context = Advisor.Context(observations: o, events: [], leaves: [],
                                       webRoutes: [:], now: start)
         let breath = Advisor.recommend(context).first { $0.kind == .breath }
-        XCTAssertEqual(breath?.secondsPerWeek ?? 0, 40, accuracy: 0.001,
-                       "both directions of pulls, at two seconds each")
-        XCTAssertTrue(breath?.detail.contains("40 pulled into view") ?? false)
+        XCTAssertEqual(breath?.secondsPerWeek ?? 0, 8, accuracy: 0.001,
+                       "four arrangements a week at two seconds, not 190 switches")
+        XCTAssertTrue(breath?.detail.contains("composed side by side 8×") ?? false)
     }
 
     func testAGestureQuietForASeasonIsNamedNeverActed() {

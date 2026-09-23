@@ -971,20 +971,29 @@ public enum Advisor {
         return out
     }
 
-    /// A lift-3 gate reads well until a real user arrives with 78% of
-    /// their attention in three apps — there, expected co-occurrence is
-    /// already so high that lift is bounded below 2 and the user's most
-    /// obvious pattern can never fire. The z-score against independence
-    /// carries the evidence at any concentration; lift keeps only a
-    /// sanity floor.
+    /// Compositions a pair needs, as decayed mass (~two weeks), before a
+    /// breath is offered for it: about two a week of the hand arranging
+    /// the pair itself. Below it the pair is used in turn, not together.
+    static let breathComposedFloor = 4.0
+
+    /// A breath is offered for a pair the hand already stands side by
+    /// side, never for one it merely uses in turn. Co-use was the old
+    /// evidence and it named every heavy pair on the machine: two apps
+    /// switched between full-screen travel together at any lift, and the
+    /// breaths composed for them were accepted and never recalled — the
+    /// hand wanted one window at a time, and the chord already composes
+    /// the rare pair it wants together. So the co-use test stays as the
+    /// family's p, and the offer needs the compositions: the value is the
+    /// arranging a breath replaces, not the switching it never touched.
+    ///
+    /// On the test: a lift-3 gate reads well until a real user arrives
+    /// with 78% of their attention in three apps — there, expected
+    /// co-occurrence is already so high that lift is bounded below 2 and
+    /// the user's most obvious pattern can never fire. The z-score
+    /// against independence carries the evidence at any concentration;
+    /// lift keeps only a sanity floor.
     static func breathCandidates(_ context: Context) -> [Candidate] {
         let pairs = Transitions.strongPairs(context.observations.transitions)
-        // The switches that pulled a window into view, both directions:
-        // what a breath actually saves. A pair already side by side is
-        // switched by focus alone, and the old count priced those too —
-        // the top finding on the machine this was built on promised
-        // eighteen minutes a week for a breath that already existed.
-        let pulls = context.observations.transitionPulls
         var out: [Candidate] = []
         // Directional pairs, undirected suggestion: A→B and B→A are one
         // finding, kept at the stronger direction's evidence.
@@ -1010,11 +1019,14 @@ public enum Advisor {
             let z = (pair.count - expected) / max(1, expected).squareRoot()
             let p = 1 - Maths.normalCDF(z)
             let probability = min(0.95, Maths.normalCDF(z))
-            let pulled = pulls.map { ($0[pair.from]?[pair.to] ?? 0) + ($0[pair.to]?[pair.from] ?? 0) }
-            // The lift floor is a sanity gate, not the test (see the
-            // z-score note above); the cap is presentation. Nothing pulled
-            // means nothing to save: not offerable, still in the family.
-            let offerable = pair.lift >= 1.3 && offered < 3 && (pulled ?? 1) > 0 && !held
+            // Nil until the first composition is ever seen: nothing proven,
+            // nothing offered.
+            let composed = context.observations.composed(apps[0], apps[1]) ?? 0
+            // The lift floor is a sanity gate, not the test (see above);
+            // the cap is presentation. Not composed by hand, nothing for a
+            // breath to save: not offerable, still in the family.
+            let offerable = pair.lift >= 1.3 && offered < 3
+                && composed >= breathComposedFloor && !held
             if offerable { offered += 1 }
             // The accept: compose the pair side by side and save it at a
             // free breath letter. No free letter, no edit — the finding
@@ -1026,16 +1038,16 @@ public enum Advisor {
                 kind: .breath, target: name,
                 detail: "\(pair.from) and \(pair.to) travel together "
                     + String(format: "%.0f× at lift %.1f", pair.count, pair.lift)
-                    + (pulled.map { String(format: " · %.0f pulled into view", $0) } ?? "")
+                    + String(format: " · composed side by side %.0f×", composed)
                     + (held ? " · a saved breath already holds them"
-                            : " · a breath would pin them side by side"),
+                            : " · a breath would bring them back with one key"),
                 // A weekly-halved mass is ~a two-week window, so the rate
-                // is half of it — at two seconds a transition, the count:
-                // the pulled count where the table exists, since a switch
-                // between two visible windows costs a breath nothing.
-                secondsPerWeek: pulled ?? pair.count,
+                // is half of it — at two seconds an arrangement (two
+                // summons against one recall), the count.
+                secondsPerWeek: composed,
                 probability: probability,
-                evidence: [String(format: "lift %.1f over independent use", pair.lift)],
+                evidence: [String(format: "lift %.1f over independent use", pair.lift),
+                           String(format: "composed by hand %.0f× in two weeks", composed)],
                 display: name,
                 edit: edit),
                 p: p, offerable: offerable))

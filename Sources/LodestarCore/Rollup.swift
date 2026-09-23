@@ -792,6 +792,10 @@ public struct Rollup: Codable, Equatable {
             month.versions.append(era.appVersion)
             month.versions.sort()
 
+        case .compose:
+            // The live view keeps the pairs; the archive needs nothing yet.
+            return
+
         case .clicks:
             guard let app = event.app else { return }
             var record = month.health.clicksByApp[app] ?? ClickMonth()

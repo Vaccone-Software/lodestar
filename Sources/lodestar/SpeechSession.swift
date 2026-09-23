@@ -86,7 +86,7 @@ protocol SpeechSession: AnyObject {
     /// probe found; the draft repairs tokens itself either way).
     func listen(words: [String], input: String?,
                 onState: @escaping (SpeechState) -> Void,
-                onLevel: @escaping (Float) -> Void,
+                onLevel: @escaping (Float, Double) -> Void,
                 onAlive: @escaping () -> Void,
                 onVolatile: @escaping (String) -> Void,
                 onSettled: @escaping (String) -> Void)
@@ -124,7 +124,7 @@ final class AnalyzerSpeechSession: SpeechSession {
 
     func listen(words: [String], input: String?,
                 onState: @escaping (SpeechState) -> Void,
-                onLevel: @escaping (Float) -> Void,
+                onLevel: @escaping (Float, Double) -> Void,
                 onAlive: @escaping () -> Void,
                 onVolatile: @escaping (String) -> Void,
                 onSettled: @escaping (String) -> Void) {
@@ -865,7 +865,7 @@ private actor AnalyzerBox {
     func listen(words: [String], input wanted: String?,
                 stillWanted: @escaping @MainActor () -> Bool,
                 onState: @escaping (SpeechState) -> Void,
-                onLevel: @escaping (Float) -> Void,
+                onLevel: @escaping (Float, Double) -> Void,
                 onAlive: @escaping () -> Void,
                 onVolatile: @escaping (String) -> Void,
                 onSettled: @escaping (String) -> Void) async {
@@ -1118,7 +1118,7 @@ private actor AnalyzerBox {
 private final class AudioFeed: @unchecked Sendable {
     private let outFormat: AVAudioFormat
     private let continuation: AsyncStream<AnalyzerInput>.Continuation
-    private let onLevel: (Float) -> Void
+    private let onLevel: (Float, Double) -> Void
     /// Fired once, on the first buffer with signal. A device the system
     /// names can deliver nothing but zeros (a dock, a monitor, a radio
     /// mid-flip), and the engine reports running on it all the same:
@@ -1134,7 +1134,7 @@ private final class AudioFeed: @unchecked Sendable {
     private(set) var peak: Float = 0
 
     init(outFormat: AVAudioFormat, continuation: AsyncStream<AnalyzerInput>.Continuation,
-         onLevel: @escaping (Float) -> Void, onAlive: @escaping () -> Void) {
+         onLevel: @escaping (Float, Double) -> Void, onAlive: @escaping () -> Void) {
         self.outFormat = outFormat
         self.continuation = continuation
         self.onLevel = onLevel
@@ -1188,7 +1188,7 @@ private final class AudioFeed: @unchecked Sendable {
         let db = 20 * log10(max(rms, 1e-7))
         let level = max(0, min(1, (db + 55) / 45))
         peak = max(peak, rms)
-        DispatchQueue.main.async { self.onLevel(level) }
+        DispatchQueue.main.async { self.onLevel(level, Double(db)) }
     }
 }
 

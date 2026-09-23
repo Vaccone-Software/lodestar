@@ -219,7 +219,7 @@ public final class ObservationStore {
     public func drafted(app: String, door: String, action: String, row: String?,
                         seconds: TimeInterval, typed: Int, words: Int, backspaces: Int,
                         switches: Int, firstKey: TimeInterval?, firstWord: TimeInterval?,
-                        warm: Bool, at now: Date = Date()) {
+                        warm: Bool, peakDb: Double? = nil, at now: Date = Date()) {
         var event = ObservationEvent(t: now, kind: .draft)
         event.app = app.lowercased()
         event.source = door
@@ -233,6 +233,7 @@ public final class ObservationStore {
         event.openToFirstKey = firstKey
         event.firstWord = firstWord
         event.warm = warm
+        event.peakDb = peakDb
         record(event)
     }
 

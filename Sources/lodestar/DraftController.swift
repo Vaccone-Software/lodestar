@@ -328,7 +328,7 @@ final class DraftController {
         provisional = nil
         openedAt = clock.now()
         typedCharacters = 0; spokenWords = 0; backspaces = 0; modeSwitches = 0
-        firstKeyAt = nil; firstWordAt = nil
+        firstKeyAt = nil; firstWordAt = nil; peakDb = nil
 
         // What is under the cursor: a selection through either door, the
         // whole field through edit.
@@ -402,7 +402,7 @@ final class DraftController {
         doorWidth = panel.width(for: text)
         openedAt = clock.now()
         typedCharacters = 0; spokenWords = 0; backspaces = 0; modeSwitches = 0
-        firstKeyAt = nil; firstWordAt = nil
+        firstKeyAt = nil; firstWordAt = nil; peakDb = nil
         mode = .insert
         vim.startInsert(buffer)
         Log.info("draft", ["open": Draft.Door.clip.rawValue, "characters": text.count])
@@ -508,6 +508,10 @@ final class DraftController {
     /// Whether this session's microphone delivered signal: the listening
     /// note plays once on it, and the landing note only after it.
     private var heardAlive = false
+    /// The loudest the microphone read this draft, in dBFS: kept past
+    /// `close()` for the record, so an empty draft can say whether the
+    /// device was deaf (-140) or the room was only quiet.
+    private var peakDb: Double?
     /// Listening this long with nothing but zeros is said on the register
     /// line: "hearing nothing on <input>". Three seconds is past the
     /// engine's own watch on a wired input and inside a hand's patience;
@@ -546,9 +550,10 @@ final class DraftController {
                 if self.mode == .normal || !self.micWanted { self.speech.pause() }
             }
             self.render()
-        }, onLevel: { [weak self] level in
+        }, onLevel: { [weak self] level, db in
             guard let self, self.isOpen, self.session == mine else { return }
             self.level = level
+            if db.isFinite { self.peakDb = max(self.peakDb ?? db, db) }
             if level > Self.voiceFloor { self.lastVoiceAt = self.clock.now() }
             self.panel.setLevel(level)
         }, onAlive: { [weak self] in
@@ -1130,9 +1135,10 @@ final class DraftController {
             backspaces: backspaces, switches: modeSwitches,
             firstKey: firstKeyAt.map { $0.timeIntervalSince(openedAt) },
             firstWord: firstWordAt.map { $0.timeIntervalSince(openedAt) },
-            warm: wasWarm, at: now)
+            warm: wasWarm, peakDb: peakDb.map { $0.rounded() }, at: now)
         Log.info("draft", ["end": action, "words": spokenWords, "typed": typedCharacters,
-                           "seconds": Int(now.timeIntervalSince(openedAt))])
+                           "seconds": Int(now.timeIntervalSince(openedAt)),
+                           "peakDb": peakDb.map { Int($0) } ?? "none"])
     }
 
     // MARK: - Drawing

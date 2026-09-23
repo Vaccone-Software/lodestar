@@ -204,6 +204,11 @@ public struct ObservationEvent: Codable, Equatable {
     /// A select event: the pointer rested over the window that was read.
     public var pointerOn: Bool?
     public var warm: Bool?
+    /// A draft: the loudest the microphone read, in dBFS, sampled at the
+    /// meter's ten a second. -140 is a deaf device delivering zeros, a
+    /// quiet room reads about -60, speech about -30. nil when no audio
+    /// arrived at all, or the door never opened the microphone.
+    public var peakDb: Double?
     /// Key hold time — press to release, seconds — as moments and as a
     /// histogram. The one keyboard measurement with a clinical track
     /// record behind it, and it needs no key identity to take: how long

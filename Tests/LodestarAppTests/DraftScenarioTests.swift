@@ -137,6 +137,37 @@ final class DraftScenarioTests: XCTestCase {
         XCTAssertEqual(stage.hud.owner, .flash)
     }
 
+    func testAnEmptyDraftRecordsHowLoudTheMicrophoneWas() {
+        // The two empties the record could not tell apart: a deaf device
+        // delivering zeros, and a live one in a room nobody spoke into.
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.level(0, db: -140)
+        cmd(stage, "escape"); cmd(stage, "escape")
+        XCTAssertEqual(stage.lastDraft?.action, "empty")
+        XCTAssertEqual(stage.lastDraft?.peakDb, -140, "a deaf device, said as one")
+
+        stage.lode(".")
+        stage.speech.level(0, db: -61.4)
+        stage.speech.level(0.2, db: -46.2)
+        stage.speech.level(0, db: -58)
+        cmd(stage, "escape"); cmd(stage, "escape")
+        XCTAssertEqual(stage.lastDraft?.peakDb, -46, "the loudest moment of this draft, not the last")
+    }
+
+    func testADraftWithNoAudioRecordsNoLevel() {
+        // Nothing flowed: a different fact from a deaf device, and the
+        // previous draft's level must not leak into this one.
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.level(0.5, db: -32)
+        cmd(stage, "escape"); cmd(stage, "escape")
+        stage.lode(".")
+        cmd(stage, "escape"); cmd(stage, "escape")
+        XCTAssertEqual(stage.lastDraft?.action, "empty")
+        XCTAssertNil(stage.lastDraft?.peakDb)
+    }
+
     func testEditDoorOpensInsertAndSilentWithTheFieldPulledIn() {
         let stage = Stage()
         stage.field = DraftController.Field(selection: nil, value: "fix me")

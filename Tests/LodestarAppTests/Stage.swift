@@ -89,7 +89,7 @@ final class FakeSpeech: SpeechSession {
     /// must be matched by a stop, or a microphone stays on.
     var openSessions: Int { listens - stops }
     private var onState: ((SpeechState) -> Void)?
-    private var onLevel: ((Float) -> Void)?
+    private var onLevel: ((Float, Double) -> Void)?
     private var onAlive: (() -> Void)?
     private var onVolatile: ((String) -> Void)?
     private var onSettled: ((String) -> Void)?
@@ -111,7 +111,7 @@ final class FakeSpeech: SpeechSession {
     func warm(input: String?) {}
     private(set) var lastInput: String?
     func listen(words: [String], input: String?, onState: @escaping (SpeechState) -> Void,
-                onLevel: @escaping (Float) -> Void, onAlive: @escaping () -> Void,
+                onLevel: @escaping (Float, Double) -> Void, onAlive: @escaping () -> Void,
                 onVolatile: @escaping (String) -> Void, onSettled: @escaping (String) -> Void) {
         listens += 1
         lastInput = input
@@ -141,7 +141,11 @@ final class FakeSpeech: SpeechSession {
         pendingStop = nil
     }
     func feed(file: URL) -> Bool { false }
-    func level(_ value: Float) { onLevel?(value) }
+    /// The meter's reading; `db` defaults to what the level maps back
+    /// to on the meter's scale, so older scenarios need not name it.
+    func level(_ value: Float, db: Double? = nil) {
+        onLevel?(value, db ?? Double(value) * 45 - 55)
+    }
     /// The first buffer with signal: the microphone is live.
     func alive() { onAlive?() }
     /// A final from the session before this one, arriving late.

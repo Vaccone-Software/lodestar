@@ -1,7 +1,7 @@
 name: Release
 
 # Push a tag `vX.Y.Z` that matches Version.swift and this ships it: test,
-# universal build, Developer ID sign, notarize, staple, DMG, GitHub
+# Apple silicon build, Developer ID sign, notarize, staple, DMG, GitHub
 # release from notes/vX.Y.Z.md, cask bump. Then a second job on a clean
 # runner downloads what was actually published and proves it: Gatekeeper
 # accepts it, the staple is attached, the binary runs and reports the
@@ -112,6 +112,12 @@ jobs:
             echo "✕ no notary secrets configured"; exit 1
           fi
 
+      - name: Metal toolchain
+        # MLX compiles its GPU kernels with `metal`, a separate download
+        # since Xcode 26; a runner image may not carry it.
+        if: steps.existing.outputs.skip != 'true'
+        run: xcrun -f metal >/dev/null 2>&1 || xcodebuild -downloadComponent MetalToolchain
+
       - name: Test, build, sign, notarize, staple
         if: steps.existing.outputs.skip != 'true'
         run: ./scripts/release.sh
@@ -178,8 +184,11 @@ jobs:
           APP=unpacked/lodestar.app
           BUNDLE=$(plutil -extract CFBundleShortVersionString raw "$APP/Contents/Info.plist")
           [ "$BUNDLE" = "$VERSION" ] || { echo "✕ bundle says $BUNDLE, tag says $VERSION"; exit 1; }
-          lipo -archs "$APP/Contents/MacOS/lodestar" | grep -q x86_64 || { echo "✕ not universal"; exit 1; }
-          lipo -archs "$APP/Contents/MacOS/lodestar" | grep -q arm64 || { echo "✕ not universal"; exit 1; }
+          # Apple silicon only since 0.37 (MLX), and the bundle must say
+          # so, or an older Mac would be offered a build it cannot open.
+          lipo -archs "$APP/Contents/MacOS/lodestar" | grep -q arm64 || { echo "✕ no arm64 slice"; exit 1; }
+          MINOS=$(plutil -extract LSMinimumSystemVersion raw "$APP/Contents/Info.plist")
+          [ "$MINOS" = "14.0" ] || { echo "✕ LSMinimumSystemVersion is $MINOS, the build needs 14.0"; exit 1; }
           # `schema` touches no config, no socket, no permission: the
           # cheapest proof the binary links and starts on a clean machine.
           "$APP/Contents/MacOS/lodestar" schema | python3 -c 'import json,sys; json.load(sys.stdin)'

@@ -12,7 +12,13 @@ jobs:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+      - name: Metal toolchain
+        # MLX compiles its GPU kernels with `metal`, a separate download
+        # since Xcode 26; a runner image may not carry it.
+        run: xcrun -f metal >/dev/null 2>&1 || xcodebuild -downloadComponent MetalToolchain
       - name: Build
         run: swift build
       - name: Test
-        run: swift test
+        # Sharded across a few xctest processes: the same suite, about a
+        # quarter of the wall time.
+        run: ./scripts/test.sh

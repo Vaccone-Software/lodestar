@@ -63,6 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// False until the boot's own apply, so the card greets a switch turned
     /// on, never a launch that found it on.
     private var editorAnnounced = false
+    private var draftEditor: DraftEditor?
     private let editorConsent = EditorConsent()
     private let editorDownload = EditorDownload()
     private var lastSettingsProgress = Date.distantPast
@@ -333,9 +334,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         editorDownload.finished = { [weak self] engine in
             EditorModels.removeAll(except: engine)
             self?.editorController?.refreshModel()
+            if let self { self.applyEditor(self.config) }
             self?.hud.flash("✓ the \(engine.name) model is ready, grammar is marked now")
         }
-        applyEditor(config)
         let scroller = ScrollController(model: model)
         scroller.latency = { [weak self] surface, seconds in
             self?.observationStore?.latency(surface: surface, seconds: seconds)
@@ -398,6 +399,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                               select: selectController,
                               clipboard: clipboardController,
                               draft: draft)
+
+        // The editor inside the draft: the same model, the same words, its
+        // marks drawn by the draft, lode ⇥ letters them while it is open.
+        if let editor = editorController {
+            let inDraft = DraftEditor(proofreader: editor.proofreader)
+            inDraft.draft = draft
+            inDraft.observations = observationStore
+            inDraft.learnName = editor.learnName
+            draft.onTextChange = { [weak inDraft] text, caret, ghost in
+                inDraft?.textChanged(text, caret: caret, ghost: ghost) ?? []
+            }
+            draft.onSpellKey = { [weak inDraft] range, keep in inDraft?.spellKey(on: range, keep: keep) }
+            engine.appEditor = editor
+            engine.draftEditor = inDraft
+            draftEditor = inDraft
+        }
+        // Both editors exist now: the config applies to them together.
+        applyEditor(config)
 
         engine.observations = observationStore
         engine.roads = roads
@@ -1076,10 +1095,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let engines = EditorEngine.allCases
             let reasons = engines.map { EditorEngine.unavailable($0) }
             state.editorEngines = engines.map(\.rawValue)
-            state.editorEngineLabels = zip(engines, reasons).map { engine, why in why.map { "\(engine.name) · \($0)" } ?? engine.name }
+            state.editorEngineLabels = zip(engines, reasons).map { engine, why in engine.menuLabel(unavailable: why) }
             state.editorEnginesUnavailable = Set(zip(engines, reasons).filter { $0.1 != nil }.map(\.0.rawValue))
             let engine = self?.editorController?.engine ?? EditorEngine.resolved(self?.config.editorModel ?? "")
             state.editorEngineCurrent = engine.rawValue
+            state.editorRegionInferred = EditorRegion.inferred()
+            state.unitsInferred = ClipQuantity.System.regional().rawValue
             let waiting = (self?.config.editorEnabled ?? false) && !(self?.store.editorConsented ?? true)
             state.editorModelStatus = waiting ? "\(engine.name) · waiting for Accept or Decline"
                 : self?.editorDownload.status
@@ -1759,9 +1780,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                           detail: editorDetail(engine), rows: [], owner: .flash, seconds: 9)
         }
         editorAnnounced = true
-        editorController?.apply(enabled: running, engine: engine, language: config.editorLanguage,
+        // Switched to an engine that needs no download: the model's files
+        // go now, rather than holding gigabytes for an engine not in use.
+        // (Switched to the other model, the old one stays until the new is
+        // whole, so the editor is never left with neither.)
+        if let previous = editorController?.engine, previous != engine, EditorManifest.forEngine(engine) == nil {
+            let removed = EditorModels.removeAll(except: engine)
+            if let (gone, gb) = removed.first {
+                hud.flash(String(format: "✓ removed the %@ model's %.1f GB", gone.name, gb))
+            }
+        }
+        let language = EditorRegion.resolved(config.editorLanguage)
+        editorController?.apply(enabled: running, engine: engine, language: language,
                                 vocabulary: config.draftWords,
                                 skipApps: config.editorSkipApps)
+        draftEditor?.apply(enabled: running, engine: engine, language: language,
+                           vocabulary: config.draftWords, modelReady: EditorModels.isReady(engine))
         // The model's files arrive once the editor runs. Turned off, the
         // fetch stops and keeps what came; another model chosen, the old
         // partial goes.

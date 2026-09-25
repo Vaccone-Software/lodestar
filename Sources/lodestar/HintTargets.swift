@@ -88,7 +88,7 @@ enum HintTargets {
         let pid = window.pid
         DispatchQueue.global(qos: .userInitiated).async {
             let app = AXUIElementCreateApplication(pid)
-            AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+            AXWarmer.ask(app, pid: pid)
             AXUIElementSetMessagingTimeout(app, 0.5)
             var found: [Target] = []
             var visited = 0
@@ -139,7 +139,7 @@ enum HintTargets {
 
         DispatchQueue.global(qos: .userInitiated).async {
             let app = AXUIElementCreateApplication(pid)
-            AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+            AXWarmer.ask(app, pid: pid)
 
             var found: [Target] = []
             var seenFrames = Set<String>()

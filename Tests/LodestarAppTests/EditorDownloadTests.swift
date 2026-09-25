@@ -315,3 +315,23 @@ final class EditorDownloadLiveTests: XCTestCase {
         XCTAssertEqual(answer, "They're going to push it.")
     }
 }
+
+final class EditorModelRemovalTests: XCTestCase {
+    /// Switching to an engine with no download clears Lodestar's own
+    /// model folders, partials included, and says how much it freed.
+    func testSwitchingAwayRemovesTheModelsFiles() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("remove-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let full = root.appendingPathComponent("Qwen3.6-35B-A3B-4bit")
+        let partial = root.appendingPathComponent(".gemma-4-e2b-it-4bit.partial")
+        for folder in [full, partial] {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try Data(count: 2_000_000).write(to: folder.appendingPathComponent("model.safetensors"))
+        }
+        let removed = EditorModels.removeAll(except: .spelling, root: root)
+        XCTAssertEqual(removed.map(\.0), [.full], "the whole model is reported; a partial just goes")
+        XCTAssertEqual(removed.first?.1 ?? 0, 0.002, accuracy: 0.0005)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: full.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: partial.path))
+    }
+}

@@ -135,12 +135,14 @@ public enum ControlParse {
 
         case "draft":
             guard let head = args.first else {
-                return .failure(ControlError("draft needs speak, edit, close, commit, state, type, key, or audio"))
+                return .failure(ControlError("draft needs speak, revise, close, commit, state, type, key, or audio"))
             }
             let rest = Array(args.dropFirst())
             switch head {
             case "speak": return .success(.draft(.open(.speak)))
-            case "edit": return .success(.draft(.open(.edit)))
+            // The revise door (lode ⇧.); "edit" is its old name, kept for
+            // scripts written before the rename.
+            case "revise", "edit": return .success(.draft(.open(.edit)))
             case "close": return .success(.draft(.close))
             case "commit": return .success(.draft(.commit))
             case "state": return .success(.draft(.state))

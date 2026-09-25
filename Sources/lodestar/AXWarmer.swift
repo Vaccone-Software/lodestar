@@ -1,3 +1,4 @@
+import AppKit
 import ApplicationServices
 import Foundation
 
@@ -45,8 +46,46 @@ enum AXWarmer {
         lock.unlock()
         let app = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(app, timeout)
-        AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString,
-                                     kCFBooleanTrue)
+        ask(app, pid: pid)
         return true
+    }
+
+    /// The flag that builds the tree, for the app that answers it. Electron
+    /// apps answer `AXManualAccessibility`. Chromium browsers do not:
+    /// measured on Brave (2026-09-24), that flag is refused (-25205) and the
+    /// window keeps 51 nodes and no web area, while `AXEnhancedUserInterface`
+    /// — the flag VoiceOver sets — builds the page at once. So a browser
+    /// gets that one too. Its one side effect, macOS animating a window
+    /// moved through accessibility, the window mover already undoes by
+    /// dropping the flag around each move. Unthrottled: the doors call it
+    /// as they open.
+    static func ask(_ app: AXUIElement, pid: pid_t) {
+        AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+        if let bundle = NSRunningApplication(processIdentifier: pid)?.bundleURL, isChromiumBrowser(bundle) {
+            AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
+        }
+    }
+
+    nonisolated(unsafe) private static var browserBundles: [String: Bool] = [:]
+
+    /// A Chromium browser: renderer helpers inside its frameworks, and no
+    /// Electron framework (Electron apps answer the manual flag).
+    static func isChromiumBrowser(_ bundle: URL) -> Bool {
+        if let known = lock.withLock({ browserBundles[bundle.path] }) { return known }
+        let frameworks = bundle.appendingPathComponent("Contents/Frameworks")
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: frameworks.path)) ?? []
+        var chromium = false
+        if !names.contains("Electron Framework.framework") {
+            for name in names where name.hasSuffix(" Framework.framework") {
+                let versions = frameworks.appendingPathComponent(name).appendingPathComponent("Versions")
+                for version in (try? FileManager.default.contentsOfDirectory(atPath: versions.path)) ?? [] {
+                    let helpers = versions.appendingPathComponent(version).appendingPathComponent("Helpers")
+                    let apps = (try? FileManager.default.contentsOfDirectory(atPath: helpers.path)) ?? []
+                    if apps.contains(where: { $0.hasSuffix("Helper (Renderer).app") }) { chromium = true }
+                }
+            }
+        }
+        lock.withLock { browserBundles[bundle.path] = chromium }
+        return chromium
     }
 }

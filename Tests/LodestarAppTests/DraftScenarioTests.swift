@@ -1241,3 +1241,19 @@ final class DraftInterleaveTests: XCTestCase {
                        "said, typed, said — in the order it happened")
     }
 }
+
+/// A field that blocks synthetic input (Secure Keyboard Entry) gets no
+/// keystroke: the draft leaves its text on the pasteboard and says so.
+final class DraftSecureInputTests: XCTestCase {
+    func testASecureFieldGetsTheClipboardAndNoKeystroke() {
+        let stage = Stage()
+        stage.draft.secureInput = { true }
+        stage.lode(".")
+        stage.speech.settle("Hello there.")
+        stage.press("return")
+        XCTAssertFalse(stage.draft.isOpen)
+        XCTAssertEqual(stage.pasteboard, ["Hello there."], "the text is on the pasteboard")
+        XCTAssertTrue(stage.posted.isEmpty, "no ⌘V into a field that blocks it")
+        XCTAssertEqual(stage.lastDraft?.row, "secure")
+    }
+}

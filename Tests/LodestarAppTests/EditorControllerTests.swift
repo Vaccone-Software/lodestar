@@ -106,6 +106,9 @@ final class FakeProofreader: EditorProofreader, @unchecked Sendable {
     }
 
     func setEngine(_ engine: EditorEngine) async { lock.withLock { _engines.append(engine) } }
+    private var _languages: [String] = []
+    func setLanguage(_ language: String) async { lock.withLock { _languages.append(language) } }
+    var languagesSet: [String] { lock.withLock { _languages } }
     private var _prepared = 0
     var prepared: Int { lock.withLock { _prepared } }
     func prepare() async { lock.withLock { _prepared += 1 } }
@@ -408,7 +411,7 @@ final class EditorControllerTests: XCTestCase {
         rig.beat()
         // The model read the first sentence: its mark replaces the spell
         // checker's there.
-        rig.settle("the model's mark") { rig.controller.lensMarks.map(\.issue.original) == ["Their", "recieve"] }
+        rig.settle("the model's mark") { Set(rig.controller.lensMarks.map(\.issue.original)) == ["Their", "recieve"] }
         let marks = rig.controller.lensMarks
         rig.controller.dismiss(try XCTUnwrap(marks.first { $0.issue.original == "Their" }, "\(marks.map(\.issue))"))
         rig.controller.dismiss(try XCTUnwrap(marks.first { $0.issue.original == "recieve" }, "\(marks.map(\.issue))"))
@@ -454,7 +457,7 @@ final class EditorControllerTests: XCTestCase {
         rig.beat()
         rig.drain()
         XCTAssertTrue(rig.reader.asked.isEmpty)
-        XCTAssertEqual(rig.controller.lensMarks.map(\.issue.replacement), ["to", "receive"],
+        XCTAssertEqual(Set(rig.controller.lensMarks.map(\.issue.replacement)), ["to", "receive"],
                        "the doubled word and the typo; the grammar waits for a model")
     }
 
@@ -487,11 +490,11 @@ final class EditorPrivacyTests: XCTestCase {
         rig.settle("answered") { rig.reader.asked.count == 2 }
         rig.drain()
         rig.beat()
-        rig.settle("the marks") { rig.controller.lensMarks.map(\.issue.original) == ["Their", "recieve"] }
+        rig.settle("the marks") { Set(rig.controller.lensMarks.map(\.issue.original)) == ["Their", "recieve"] }
         var done: Bool?
-        rig.controller.fix(rig.controller.lensMarks[1]) { done = $0 }
+        rig.controller.fix(rig.controller.lensMarks.first { $0.issue.original == "recieve" }!) { done = $0 }
         rig.settle("the fix") { done != nil }
-        rig.controller.dismiss(rig.controller.lensMarks[0])
+        rig.controller.dismiss(rig.controller.lensMarks.first { $0.issue.original == "Their" }!)
         rig.type("Hello there, all good.", pid: 777, app: "Notes", bundle: "com.apple.Notes")
         rig.drain()
 
@@ -542,7 +545,7 @@ final class EditorModelTests: XCTestCase {
     /// A backend that echoes, or sleeps first.
     private struct Echo: EditorBackend {
         var delay: TimeInterval = 0
-        func respond(to sentence: String) async throws -> String {
+        func respond(to sentence: String, instructions: String) async throws -> String {
             if delay > 0 { try await Task.sleep(for: .seconds(delay)) }
             return sentence.replacingOccurrences(of: "Their", with: "They're")
         }
@@ -1111,5 +1114,60 @@ final class EditorWakeTests: XCTestCase {
         if FileManager.default.fileExists(atPath: "/Applications/Slack.app") {
             XCTAssertFalse(EditorAX.isChromiumBrowser(URL(fileURLWithPath: "/Applications/Slack.app")))
         }
+    }
+}
+
+final class EditorPromptRegionTests: XCTestCase {
+    /// The accuracy fixture was recorded with the US instructions: they
+    /// must stay word for word.
+    func testUSEnglishKeepsTheRecordedInstructions() {
+        XCTAssertEqual(EditorPrompt.instructions(for: "en_US"), EditorPrompt.instructions)
+        XCTAssertTrue(EditorPrompt.instructions(for: "en_GB").hasPrefix(EditorPrompt.instructions))
+        XCTAssertTrue(EditorPrompt.instructions(for: "en_GB").hasSuffix("do not change it to American spelling."))
+    }
+
+    func testTheRegionReachesTheModel() {
+        let rig = EditorRig()
+        rig.controller.apply(enabled: true, engine: .standard, language: "en_GB", vocabulary: [], skipApps: [])
+        rig.settle("told") { rig.reader.languagesSet.last == "en_GB" }
+    }
+}
+
+final class EditorLetterOrderTests: XCTestCase {
+    private func mark(_ at: Int, _ length: Int) -> EditorController.Mark {
+        EditorController.Mark(issue: EditorIssue(range: NSRange(location: at, length: length), original: "x",
+                                                 replacement: "y", kind: .spelling), rect: .zero)
+    }
+
+    /// The lens hands out its easiest letters in order, so the mark nearest
+    /// the caret comes first; a tie goes to the one just written.
+    func testTheMarkNearestTheCaretGetsTheFirstLetter() {
+        let marks = [mark(0, 5), mark(20, 5), mark(40, 5), mark(60, 5)]
+        let order = EditorController.nearestFirst(marks, caret: 47).map(\.issue.range.location)
+        XCTAssertEqual(order, [40, 60, 20, 0], "the one the caret just left, then outward")
+        let tie = EditorController.nearestFirst([mark(10, 5), mark(25, 5)], caret: 20).map(\.issue.range.location)
+        XCTAssertEqual(tie, [10, 25], "five before and five after: the written one first")
+        XCTAssertEqual(EditorController.nearestFirst(marks, caret: nil).map(\.issue.range.location), [0, 20, 40, 60],
+                       "no caret: reading order")
+    }
+
+    func testTheFieldsLensLettersTheNearestMarkFirst() {
+        let rig = EditorRig()
+        rig.type("We recieve it. Then we sheduled more.", caret: 37)
+        rig.settle("both marks") { rig.controller.lensMarks.count == 2 }
+        XCTAssertEqual(rig.controller.lensMarks.map(\.issue.original), ["sheduled", "recieve"])
+    }
+}
+
+final class EditorMenuLabelTests: XCTestCase {
+    /// The menu says what each choice costs, and what a Mac lacks for one.
+    func testTheModelMenuShowsSizes() {
+        XCTAssertEqual(EditorEngine.spelling.menuLabel(unavailable: nil), "Spelling · no download")
+        XCTAssertEqual(EditorEngine.minimal.menuLabel(unavailable: nil), "Minimal · built into macOS")
+        XCTAssertEqual(EditorEngine.standard.menuLabel(unavailable: nil), "Standard · 3.6 GB download · holds 4 GB")
+        XCTAssertEqual(EditorEngine.full.menuLabel(unavailable: nil), "Full · 20.4 GB download · holds 20 GB")
+        XCTAssertEqual(EditorEngine.full.menuLabel(unavailable: "needs 64 GB"), "Full · 20.4 GB download · needs 64 GB")
+        XCTAssertEqual(EditorEngine.minimal.menuLabel(unavailable: "needs Apple Intelligence"),
+                       "Minimal · needs Apple Intelligence")
     }
 }

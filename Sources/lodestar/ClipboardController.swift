@@ -9,6 +9,11 @@ import LodestarCore
 /// expensive (writing representations, building thumbnails) happens off the
 /// main thread; everything sensitive is refused before it is ever read.
 final class ClipboardController {
+    /// Is a field blocking synthetic input (Secure Keyboard Entry)? The
+    /// system's answer in the app; the stage's own in the tests, so a
+    /// locked screen (loginwindow holds it) cannot fail a paste scenario.
+    var secureInput: () -> Bool = { IsSecureEventInputEnabled() }
+
     private let store: ClipboardStore
 
     /// A clipboard index that had to be quarantined at boot. Surfaced
@@ -300,7 +305,7 @@ final class ClipboardController {
         // Secure input blocks synthetic keystrokes entirely, so a password
         // field would swallow the paste in silence. The clip is on the
         // pasteboard either way — hand off rather than fail.
-        if IsSecureEventInputEnabled() {
+        if secureInput() {
             flash("press ⌘V to paste, this field blocks synthetic input")
             return
         }

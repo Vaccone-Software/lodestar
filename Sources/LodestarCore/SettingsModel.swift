@@ -28,6 +28,7 @@ public enum SettingsModel {
         case draftWords
         case keyRemaps
         case editorSkipApps
+        case clipboardTimeZones
     }
 
     public struct TableEntry: Equatable {
@@ -210,6 +211,10 @@ public enum SettingsModel {
         /// Engines this Mac cannot run (too little memory, no Apple
         /// Intelligence): listed, greyed.
         public var editorEnginesUnavailable: Set<String> = []
+        /// The English the Mac's own languages point to, for Automatic.
+        public var editorRegionInferred = "en_US"
+        /// The units the Mac's region measures in, for Units until one is chosen.
+        public var unitsInferred = ClipQuantity.System.imperial.rawValue
 
         public init(accessibility: String = "unknown", screenRecording: String = "unknown",
                     calendars: String = "unknown", browserRole: String = "unknown",
@@ -251,7 +256,7 @@ public enum SettingsModel {
                     "Type a destination or a question. It opens in the "
                     + "right browser profile."),
         "commands": ("Commands", ["lode", "-"], nil),
-        "draft": ("Draft", ["lode", "."], "Speak into it and ⏎ pastes where your cursor was. ⇧. edits the field."),
+        "draft": ("Draft", ["lode", "."], "Speak into it and ⏎ pastes where your cursor was. ⇧. revises the field."),
         "scroll": ("Scroll", ["lode", "`"], nil),
         "hints": ("Click hints", ["lode", ";"], nil),
         "select": ("Select text", ["lode", "/"], nil),
@@ -388,8 +393,8 @@ public enum SettingsModel {
                 isDefault: config.draftWords.isEmpty),
         ]
 
-        // 10 · The editor, its own pane, addressed by 0: the digit after
-        // 9, so no pane that came before it moved.
+        // 9 · The editor, its own pane, above Advanced: the last pane is
+        // the one most people never open, and it keeps the end of the row.
         var editorRows: [Row] = [
             Row(title: "Enable editor", path: "editor.enabled",
                 control: .toggle(config.editorEnabled),
@@ -403,10 +408,9 @@ public enum SettingsModel {
             var model = Row(title: "Model", path: "editor.model",
                 control: .choice(options: machine.editorEngines, labels: machine.editorEngineLabels,
                                  current: machine.editorEngineCurrent),
-                detail: machine.editorModelStatus + ". Spelling needs no model: typos, doubled words and a "
-                    + "few set phrases, but no grammar. Minimal is Apple's own model. Standard holds about "
-                    + "4 GB of memory while you write and needs a 16 GB Mac. Full holds about 20 GB, reads "
-                    + "most precisely, and needs 64 GB.",
+                detail: machine.editorModelStatus + ". Spelling reads typos without a model; the others "
+                    + "read grammar too. A model loads when you write and lets its memory go two minutes "
+                    + "after you stop.",
                 isDefault: config.editorModel.isEmpty)
             model.disabledChoices = machine.editorEnginesUnavailable
             editorRows.append(model)
@@ -418,9 +422,12 @@ public enum SettingsModel {
         }
         editorRows += [
             Row(title: "Spelling", path: "editor.language",
-                control: .choice(options: ["en_US", "en_GB"], labels: ["English (US)", "English (UK)"],
+                control: .choice(options: [""] + EditorRegion.choices.map(\.code),
+                                 labels: ["Automatic · \(EditorRegion.name(of: machine.editorRegionInferred))"]
+                                    + EditorRegion.choices.map(\.name),
                                  current: config.editorLanguage),
-                isDefault: config.editorLanguage == "en_US"),
+                detail: "Automatic follows your Mac's language and region.",
+                isDefault: config.editorLanguage.isEmpty),
             Row(title: "Words", path: "draft.words",
                 control: .table(kind: .draftWords, entries: config.draftWords.map { TableEntry(key: $0, display: $0) }),
                 detail: "Shared with the draft. Names and terms that are never marked.",
@@ -482,6 +489,12 @@ public enum SettingsModel {
                 detail: "A clip whose text contains one of these is never "
                     + "recorded. Matching ignores case.",
                 isDefault: config.clipboardExcludePatterns.isEmpty),
+            Row(title: "Time zones", path: "clipboard.time-zones",
+                control: .table(kind: .clipboardTimeZones, entries: config.clipboardTimeZones.compactMap { id in
+                    TimeZone(identifier: id).map { TableEntry(key: id, display: ClipTime.label($0)) }
+                }),
+                detail: "A timestamp on a card is read into your zone, UTC, and these.",
+                isDefault: config.clipboardTimeZones.isEmpty),
         ])
         sections.append(Section(name: "Clipboard", rows: clipboardRows))
 
@@ -641,19 +654,26 @@ public enum SettingsModel {
                 group: "Health"),
         ]))
 
-        // 9 · Advanced
+        sections.append(Section(name: "Editor", rows: editorRows))
+
+        // 10 · Advanced, on 0
         let remapEntries = config.keyOverrides.sorted { $0.key < $1.key }
             .map { TableEntry(key: String($0.key), display: "keycode \($0.key)",
                               sub: "types \($0.value)") }
         sections.append(Section(name: "Advanced", rows: [
+            Row(title: "Units", path: "app.units",
+                control: .choice(options: ClipQuantity.System.allCases.reversed().map(\.rawValue),
+                                 labels: ["Imperial", "Metric"],
+                                 current: config.units.isEmpty ? machine.unitsInferred : config.units),
+                detail: "What a copied measurement is read into on its clipboard card. "
+                    + "Your region's until you choose.",
+                isDefault: config.units.isEmpty),
             Row(title: "Key remaps", path: "keys",
                 control: .table(kind: .keyRemaps, entries: remapEntries),
                 detail: "Keycode to key name, for keyboards the built-in "
                     + "table misreads. Most people never need one.",
                 isDefault: config.keyOverrides.isEmpty),
         ]))
-
-        sections.append(Section(name: "Editor", rows: editorRows))
         return sections
     }
 

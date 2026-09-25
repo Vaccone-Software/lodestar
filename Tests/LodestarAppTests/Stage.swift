@@ -290,9 +290,15 @@ final class Stage {
         // the general pasteboard and posted ⌘V would type into whatever
         // the machine had focused.
         clipboard.pasteboard = NSPasteboard(name: NSPasteboard.Name("lodestar-stage-\(UUID().uuidString)"))
+        // Secure Keyboard Entry is the machine's: a locked screen turns it
+        // on (loginwindow holds it) and every paste scenario would read
+        // "secure". The stage answers for itself; a test that wants the
+        // secure ending sets it.
+        clipboard.secureInput = { false }
         self.clipboard = clipboard
         scroller = ScrollController(model: model)
         draft = DraftController(speech: speech, clock: clock.clock)
+        draft.secureInput = { false }
         engine = HotkeyEngine(config: config, actions: actions, hud: hud,
                               searcher: searcher, webBar: webBar, commandsBar: commandsBar,
                               scroller: scroller,

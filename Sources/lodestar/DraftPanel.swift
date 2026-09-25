@@ -12,6 +12,9 @@ struct DraftView {
     /// The letters a pending find could land on, lit while the hand
     /// decides which one to name; the lights go out the moment it acts.
     var findTargets: [Int] = []
+    /// The editor's marks, as UTF-16 ranges of the settled text: a thin
+    /// line in the accent under each, drawn only with no ghost standing.
+    var editorMarks: [NSRange] = []
     /// A command is half typed (an operator, a count, a find).
     var pending = false
     /// The recognizer's state while the speak door is open; nil when the
@@ -301,6 +304,34 @@ final class DraftPanel {
         return text.substring(to: min(landingUTF16, text.length)).count
     }
 
+    /// Where UTF-16 ranges of the settled text are drawn, in quartz screen
+    /// coordinates (top-left origin), as the editor's lens places chips.
+    /// Nil for a range the panel is not showing.
+    func screenRects(for ranges: [NSRange]) -> [CGRect?] {
+        guard panel.isVisible, let layout = textView.layoutManager, let container = textView.textContainer,
+              let storage = textView.textStorage, let primary = NSScreen.screens.first else {
+            return ranges.map { _ in nil }
+        }
+        return ranges.map { range in
+            guard range.location + range.length <= storage.length, range.length > 0 else { return nil }
+            let glyphs = layout.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+            var rect = layout.boundingRect(forGlyphRange: glyphs, in: container)
+            rect.origin.x += textView.textContainerOrigin.x
+            rect.origin.y += textView.textContainerOrigin.y
+            let inWindow = textView.convert(rect, to: nil)
+            let onScreen = panel.convertToScreen(inWindow)
+            return CGRect(x: onScreen.minX, y: primary.frame.maxY - onScreen.maxY,
+                          width: onScreen.width, height: onScreen.height)
+        }
+    }
+
+    /// The panel's frame in quartz screen coordinates.
+    var quartzFrame: CGRect? {
+        guard panel.isVisible, let primary = NSScreen.screens.first else { return nil }
+        let frame = panel.frame
+        return CGRect(x: frame.minX, y: primary.frame.maxY - frame.maxY, width: frame.width, height: frame.height)
+    }
+
     /// The last frame rendered, so the keys can re-render the panel once
     /// the glass has finished growing.
     private var lastView: DraftView?
@@ -355,6 +386,15 @@ final class DraftPanel {
             }
             for target in view.findTargets where target < view.buffer.count {
                 attributed.addAttributes(accent, range: characterRange(target..<target + 1))
+            }
+            // The editor's line, drawn by the text itself like the find
+            // lights, so the glass cannot wash it out, and it follows the
+            // words as they wrap.
+            for mark in view.editorMarks where mark.location + mark.length <= attributed.length {
+                attributed.addAttributes([
+                    .underlineStyle: NSUnderlineStyle.thick.rawValue,
+                    .underlineColor: BarTheme.accent,
+                ], range: mark)
             }
         }
         // The glyph under a block cursor is drawn in the panel's ground,

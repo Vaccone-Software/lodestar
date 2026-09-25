@@ -13,6 +13,11 @@ import LodestarCore
 /// on the register line as it changes. Both endings put the text on the
 /// pasteboard, so nothing said or typed here is ever lost.
 final class DraftController {
+    /// Is a field blocking synthetic input (Secure Keyboard Entry)? The
+    /// system's answer in the app; the stage's own in the tests, so a
+    /// locked screen (loginwindow holds it) cannot fail a paste scenario.
+    var secureInput: () -> Bool = { IsSecureEventInputEnabled() }
+
     // MARK: Seams
 
     var flash: ((String) -> Void)?
@@ -93,6 +98,48 @@ final class DraftController {
     // MARK: State
 
     private let panel = DraftPanel()
+
+    // MARK: - The editor, inside the draft
+
+    /// The settled text changed: (text, caret as UTF-16, ghost standing).
+    /// Answers with the marks for it, read at once (spelling, the rules,
+    /// sentences already answered); a model's later answers arrive through
+    /// setEditorMarks.
+    var onTextChange: ((String, Int, Bool) -> [NSRange])?
+    /// The editor's marks, UTF-16 ranges of the settled text.
+    private(set) var editorMarks: [NSRange] = []
+    /// `z=` (keep false) or `zg` (keep true) on the mark at this range.
+    var onSpellKey: ((NSRange, Bool) -> Void)?
+    private var editorTextSeen = ""
+    private var editorGhostCleared = true
+
+    func setEditorMarks(_ marks: [NSRange]) {
+        guard marks != editorMarks else { return }
+        editorMarks = marks
+        render()
+    }
+
+    /// Where marks are on screen (quartz), for the lens's chips.
+    func editorRects(for ranges: [NSRange]) -> [CGRect?] {
+        buffer.ghost.isEmpty ? panel.screenRects(for: ranges) : ranges.map { _ in nil }
+    }
+
+    /// The panel, for the lens to draw over.
+    var editorCanvas: CGRect? { isOpen ? panel.quartzFrame : nil }
+
+    /// A fix: the range must still read `expected`, and becomes `text` in
+    /// one undo step with the cursor where the hand left it.
+    @discardableResult
+    func editorReplace(_ range: NSRange, expected: String, with text: String) -> Bool {
+        guard isOpen, buffer.ghost.isEmpty else { return false }
+        let settled = buffer.text
+        guard let span = Range(range, in: settled), String(settled[span]) == expected else { return false }
+        let lower = settled.distance(from: settled.startIndex, to: span.lowerBound)
+        let upper = settled.distance(from: settled.startIndex, to: span.upperBound)
+        vim.replaceKeepingCursor(lower..<upper, with: text, buffer: &buffer)
+        render()
+        return true
+    }
     /// `lode ?` while the draft is open: its own keys, in its own glass.
     /// The draft carries no legend now, so this is the only way they are
     /// read — and the only way they are ever asked for.
@@ -946,6 +993,14 @@ final class DraftController {
             guard let typed = Keys.character(for: key, shift: shift), let c = typed.first else { return true }
             vimKey = control ? .control(c) : .char(c)
         }
+        // The editor's marks as the editor keys see them: character ranges.
+        let settled = buffer.text
+        vim.spellMarks = editorMarks.compactMap { mark -> Range<Int>? in
+            guard let span = Range(mark, in: settled) else { return nil }
+            let lower = settled.distance(from: settled.startIndex, to: span.lowerBound)
+            return lower..<(lower + settled[span].count)
+        }
+        let marksAtKey = editorMarks
         let effects = vim.key(vimKey, buffer: &buffer, pasteboard: pasteboardForDraft)
         for effect in effects {
             switch effect {
@@ -956,6 +1011,12 @@ final class DraftController {
                 flash?("⌂ copied")
             case .flash(let text):
                 flashPasteVerdict(text)
+            case .spellFix(let index), .spellKeep(let index):
+                if marksAtKey.indices.contains(index) {
+                    var keep = false
+                    if case .spellKeep = effect { keep = true }
+                    onSpellKey?(marksAtKey[index], keep)
+                }
             case .unhandled:
                 if vimKey == .escape { cancel(reason: "escape"); return true }
             }
@@ -1026,7 +1087,7 @@ final class DraftController {
             // Nothing may be selected or posted into a field that blocks
             // synthetic input; the text is on the pasteboard, and that is
             // the whole ending.
-            let secure = ending != .clipboard && IsSecureEventInputEnabled()
+            let secure = ending != .clipboard && secureInput()
             switch ending {
             case .clipboard:
                 flash?("⌂ copied, nothing to paste into")
@@ -1145,6 +1206,15 @@ final class DraftController {
 
     private func render() {
         guard isOpen else { return }
+        // The editor reads the settled text as it changes; a ghost still
+        // standing is words the recognizer may yet rewrite.
+        let text = buffer.text
+        if text != editorTextSeen || buffer.ghost.isEmpty != editorGhostCleared {
+            editorTextSeen = text
+            editorGhostCleared = buffer.ghost.isEmpty
+            let caret = (String(buffer.characters[..<buffer.cursor]) as NSString).length
+            if let marks = onTextChange?(text, caret, !buffer.ghost.isEmpty) { editorMarks = marks }
+        }
         // The clip door stashes nothing: its text is already a card, and a
         // stash returned via the pasteboard at the next boot would put it
         // there, which the door promises never to do.
@@ -1168,6 +1238,7 @@ final class DraftController {
         panel.show(DraftView(
             buffer: buffer, mode: mode, editor: vim.mode, selection: vim.selection(in: buffer),
             findTargets: vim.pendingFind.map { Vim.findTargets(kind: $0, in: buffer) } ?? [],
+            editorMarks: buffer.ghost.isEmpty ? editorMarks : [],
             pending: vim.isPending, speech: speechState, input: inputName, level: level,
             inputs: inputs, systemInput: systemInputName, chosenInput: inputDevice,
             micOn: micWanted, silent: hearsNothing,

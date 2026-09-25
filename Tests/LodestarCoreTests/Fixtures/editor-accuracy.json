@@ -3,11 +3,11 @@
   "cases" : [
     {
       "answers" : {
+        "full" : {
+          "let's keep the scope small and see how people use it" : "Let's keep the scope small and see how people use it."
+        },
         "minimal" : {
           "let's keep the scope small and see how people use it" : "let's keep the scope small and see how people use it."
-        },
-        "full" : {
-          "let's keep the scope small and see how people use it" : ""
         },
         "standard" : {
           "let's keep the scope small and see how people use it" : "Let's keep the scope small and see how people use it."
@@ -20,10 +20,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "I tested it on my laptop and it works as expecred." : "I tested it on my laptop and it works as expected."
         },
-        "full" : {
+        "minimal" : {
           "I tested it on my laptop and it works as expecred." : "I tested it on my laptop and it works as expected."
         },
         "standard" : {
@@ -37,10 +37,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "can you take a look at the PR when you get a cahnce?" : "can you take a look at the PR when you get a chance?"
         },
-        "full" : {
+        "minimal" : {
           "can you take a look at the PR when you get a cahnce?" : "can you take a look at the PR when you get a chance?"
         },
         "standard" : {
@@ -54,10 +54,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "The river was higher than anyone could remember." : "The river was higher than anyone could remember."
         },
-        "full" : {
+        "minimal" : {
           "The river was higher than anyone could remember." : "The river was higher than anyone could remember."
         },
         "standard" : {
@@ -71,10 +71,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "What are the tradeoffs between a monorepo and seaprate repositories?" : "What are the tradeoffs between a monorepo and separate repositories?"
         },
-        "full" : {
+        "minimal" : {
           "What are the tradeoffs between a monorepo and seaprate repositories?" : "What are the tradeoffs between a monorepo and separate repositories?"
         },
         "standard" : {
@@ -88,11 +88,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "Write a short email declining the invitation poitely." : "Subject: Decline Invitation\n\nHi [Name],\n\nThanks for the invite—I’m really sorry, but I can’t make it.\n\nBest regards,  \n[Name]"
-        },
         "full" : {
           "Write a short email declining the invitation poitely." : "Write a short email declining the invitation politely."
+        },
+        "minimal" : {
+          "Write a short email declining the invitation poitely." : "Subject: Decline Invitation\n\nHi [Name],\n\nThanks for the invite—I’m really sorry, but I can’t make it.\n\nBest regards,  \n[Name]"
         },
         "standard" : {
           "Write a short email declining the invitation poitely." : "Write a short email declining the invitation politely."
@@ -105,11 +105,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "Summarize this article in three bullet points for a busy reader." : "- The study highlights the impact of sleep deprivation on cognitive performance.  \n- Participants showed reduced attention and memory recall after limited rest.  \n- Findings suggest the need for better sleep hygiene to support mental clarity."
-        },
         "full" : {
           "Summarize this article in three bullet points for a busy reader." : "Summarize this article in three bullet points for a busy reader."
+        },
+        "minimal" : {
+          "Summarize this article in three bullet points for a busy reader." : "- The study highlights the impact of sleep deprivation on cognitive performance.  \n- Participants showed reduced attention and memory recall after limited rest.  \n- Findings suggest the need for better sleep hygiene to support mental clarity."
         },
         "standard" : {
           "Summarize this article in three bullet points for a busy reader." : "Summarize this article in three bullet points for a busy reader."
@@ -122,10 +122,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "I merged the branch and deleeted the old one." : "I merged the branch and deleted the old one."
         },
-        "full" : {
+        "minimal" : {
           "I merged the branch and deleeted the old one." : "I merged the branch and deleted the old one."
         },
         "standard" : {
@@ -139,11 +139,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "Help me plan a week of dinners that take less then thirty minutes." : "Plan a week of dinners that take less than thirty minutes."
-        },
         "full" : {
           "Help me plan a week of dinners that take less then thirty minutes." : "Help me plan a week of dinners that take less than thirty minutes."
+        },
+        "minimal" : {
+          "Help me plan a week of dinners that take less then thirty minutes." : "Plan a week of dinners that take less than thirty minutes."
         },
         "standard" : {
           "Help me plan a week of dinners that take less then thirty minutes." : "Help me plan a week of dinners that take less than thirty minutes."
@@ -156,10 +156,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "She kept a notebook by the door for ideas that arrived on walks." : "She kept a notebook by the door for ideas that arrived on walks."
         },
-        "full" : {
+        "minimal" : {
           "She kept a notebook by the door for ideas that arrived on walks." : "She kept a notebook by the door for ideas that arrived on walks."
         },
         "standard" : {
@@ -173,10 +173,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "np, I'll handle release notes tonight" : "np, I'll handle release notes tonight"
         },
-        "full" : {
+        "minimal" : {
           "np, I'll handle release notes tonight" : "np, I'll handle release notes tonight"
         },
         "standard" : {
@@ -190,11 +190,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "don't forget we have the vet appoinmtent tomorrow" : "don't forget we have the vet appointment tomorrow"
-        },
         "full" : {
           "don't forget we have the vet appoinmtent tomorrow" : "Don't forget we have the vet appointment tomorrow"
+        },
+        "minimal" : {
+          "don't forget we have the vet appoinmtent tomorrow" : "don't forget we have the vet appointment tomorrow"
         },
         "standard" : {
           "don't forget we have the vet appoinmtent tomorrow" : "Don't forget we have the vet appointment tomorrow."
@@ -207,10 +207,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "A clear question is often more useful than a quick answer." : "A clear question is often more useful than a quick answer."
         },
-        "full" : {
+        "minimal" : {
           "A clear question is often more useful than a quick answer." : "A clear question is often more useful than a quick answer."
         },
         "standard" : {
@@ -224,10 +224,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "I boked the room for two hours just in case" : "I booked the room for two hours just in case"
         },
-        "full" : {
+        "minimal" : {
           "I boked the room for two hours just in case" : "I booked the room for two hours just in case"
         },
         "standard" : {
@@ -241,13 +241,13 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "hapyp birthday!!" : "Happy birthday!!",
-          "hope you have the best day" : "hope you have the best day."
-        },
         "full" : {
           "hapyp birthday!!" : "happy birthday!!",
           "hope you have the best day" : "Hope you have the best day."
+        },
+        "minimal" : {
+          "hapyp birthday!!" : "Happy birthday!!",
+          "hope you have the best day" : "hope you have the best day."
         },
         "standard" : {
           "hapyp birthday!!" : "Happy birthday!",
@@ -261,11 +261,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "we can revisit the pricing question next quarter" : "we can revisit the pricing question next quarter"
-        },
         "full" : {
           "we can revisit the pricing question next quarter" : "We can revisit the pricing question next quarter."
+        },
+        "minimal" : {
+          "we can revisit the pricing question next quarter" : "we can revisit the pricing question next quarter"
         },
         "standard" : {
           "we can revisit the pricing question next quarter" : "We can revisit the pricing question next quarter."
@@ -278,10 +278,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "The workshop will begin at nine and and finish before lunch." : "The workshop will begin at nine and finish before lunch."
         },
-        "full" : {
+        "minimal" : {
           "The workshop will begin at nine and and finish before lunch." : "The workshop will begin at nine and finish before lunch."
         },
         "standard" : {
@@ -295,10 +295,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "Give me five ideas for a team lumch that works for vegetarians." : "Give me five ideas for a team lunch that works for vegetarians."
         },
-        "full" : {
+        "minimal" : {
           "Give me five ideas for a team lumch that works for vegetarians." : "Give me five ideas for a team lunch that works for vegetarians."
         },
         "standard" : {
@@ -312,10 +312,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "Please find the meeting notes and action items below." : "Please find the meeting notes and action items below."
         },
-        "full" : {
+        "minimal" : {
           "Please find the meeting notes and action items below." : "Please find the meeting notes and action items below."
         },
         "standard" : {
@@ -329,10 +329,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "The cofee shop switched to paper cups last year." : "The coffee shop switched to paper cups last year."
         },
-        "full" : {
+        "minimal" : {
           "The cofee shop switched to paper cups last year." : "The coffee shop switched to paper cups last year."
         },
         "standard" : {
@@ -346,10 +346,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "its fine for now, but we need a real fix before the launch" : "It's fine for now, but we need a real fix before the launch."
         },
-        "full" : {
+        "minimal" : {
           "its fine for now, but we need a real fix before the launch" : "It's fine for now, but we need a real fix before the launch."
         },
         "standard" : {
@@ -363,10 +363,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "Please let me know if the revised timeline works for your team." : "Please let me know if the revised timeline works for your team."
         },
-        "full" : {
+        "minimal" : {
           "Please let me know if the revised timeline works for your team." : "Please let me know if the revised timeline works for your team."
         },
         "standard" : {
@@ -380,11 +380,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "give me ten minutes and I'll send you numbers" : "give me ten minutes and I'll send you numbers"
-        },
         "full" : {
           "give me ten minutes and I'll send you numbers" : "Give me ten minutes and I'll send you numbers."
+        },
+        "minimal" : {
+          "give me ten minutes and I'll send you numbers" : "give me ten minutes and I'll send you numbers"
         },
         "standard" : {
           "give me ten minutes and I'll send you numbers" : "Give me ten minutes and I'll send you numbers."
@@ -397,11 +397,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "running to the store, need anythung?" : "running to the store, need anything?"
-        },
         "full" : {
           "running to the store, need anythung?" : "Running to the store, need anything?"
+        },
+        "minimal" : {
+          "running to the store, need anythung?" : "running to the store, need anything?"
         },
         "standard" : {
           "running to the store, need anythung?" : "Running to the store, need anything?"
@@ -414,11 +414,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "the meeting ran long so I missed your message, sorry" : "the meeting ran long so I missed your message, sorry"
-        },
         "full" : {
           "the meeting ran long so I missed your message, sorry" : "The meeting ran long, so I missed your message. Sorry."
+        },
+        "minimal" : {
+          "the meeting ran long so I missed your message, sorry" : "the meeting ran long so I missed your message, sorry"
         },
         "standard" : {
           "the meeting ran long so I missed your message, sorry" : "The meeting ran long, so I missed your message, sorry."
@@ -431,11 +431,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "honsetly the simpler version reads better" : "Honestly, the simpler version reads better"
-        },
         "full" : {
           "honsetly the simpler version reads better" : "honestly the simpler version reads better"
+        },
+        "minimal" : {
+          "honsetly the simpler version reads better" : "Honestly, the simpler version reads better"
         },
         "standard" : {
           "honsetly the simpler version reads better" : "Honestly, the simpler version reads better."
@@ -448,10 +448,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "Small habits comppound in ways that are hard to see at first." : "Small habits compound in ways that are hard to see at first."
         },
-        "full" : {
+        "minimal" : {
           "Small habits comppound in ways that are hard to see at first." : "Small habits compound in ways that are hard to see at first."
         },
         "standard" : {
@@ -465,10 +465,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "The bakery on the corner opens before the sun comes up." : "The bakery on the corner opens before the sun comes up."
         },
-        "full" : {
+        "minimal" : {
           "The bakery on the corner opens before the sun comes up." : "The bakery on the corner opens before the sun comes up."
         },
         "standard" : {
@@ -482,11 +482,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "Turn these meeting notes into a a list of action items with owners." : "- Review the budget with Sarah  \n- Finalize the timeline with Tom  \n- Confirm the agenda with the team"
-        },
         "full" : {
           "Turn these meeting notes into a a list of action items with owners." : "Turn these meeting notes into a list of action items with owners."
+        },
+        "minimal" : {
+          "Turn these meeting notes into a a list of action items with owners." : "- Review the budget with Sarah  \n- Finalize the timeline with Tom  \n- Confirm the agenda with the team"
         },
         "standard" : {
           "Turn these meeting notes into a a list of action items with owners." : "Turn these meeting notes into a list of action items with owners."
@@ -499,10 +499,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "The city planted trees along the avenue to cool the streeet." : "The city planted trees along the avenue to cool the street."
         },
-        "full" : {
+        "minimal" : {
           "The city planted trees along the avenue to cool the streeet." : "The city planted trees along the avenue to cool the street."
         },
         "standard" : {
@@ -516,10 +516,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "The train was quiet except for the sound of pages turning." : "The train was quiet except for the sound of pages turning."
         },
-        "full" : {
+        "minimal" : {
           "The train was quiet except for the sound of pages turning." : "The train was quiet except for the sound of pages turning."
         },
         "standard" : {
@@ -533,10 +533,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "the flight lanedd early, I'll grab a taxi" : "The flight landed early, I'll grab a taxi"
-        },
         "full" : {
+          "the flight lanedd early, I'll grab a taxi" : "The flight landed early, I'll grab a taxi."
+        },
+        "minimal" : {
           "the flight lanedd early, I'll grab a taxi" : "The flight landed early, I'll grab a taxi"
         },
         "standard" : {
@@ -550,10 +550,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "The team spent a week measurring before changing a single line." : "The team spent a week measuring before changing a single line."
         },
-        "full" : {
+        "minimal" : {
           "The team spent a week measurring before changing a single line." : "The team spent a week measuring before changing a single line."
         },
         "standard" : {
@@ -567,10 +567,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "The session was recorded, and the link will be shared tomorrow." : "The session was recorded, and the link will be shared tomorrow."
         },
-        "full" : {
+        "minimal" : {
           "The session was recorded, and the link will be shared tomorrow." : "The session was recorded, and the link will be shared tomorrow."
         },
         "standard" : {
@@ -584,10 +584,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "Let me know if your free for a quick call after lunch." : "Let me know if you're free for a quick call after lunch."
         },
-        "full" : {
+        "minimal" : {
           "Let me know if your free for a quick call after lunch." : "Let me know if you're free for a quick call after lunch."
         },
         "standard" : {
@@ -601,11 +601,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "I have attached signed agreement to this message." : "I have attached signed agreement to this message."
-        },
         "full" : {
           "I have attached signed agreement to this message." : "I have attached the signed agreement to this message."
+        },
+        "minimal" : {
+          "I have attached signed agreement to this message." : "I have attached signed agreement to this message."
         },
         "standard" : {
           "I have attached signed agreement to this message." : "I have attached the signed agreement to this message."
@@ -618,11 +618,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "the movie starts at eight so let's grab food before" : "the movie starts at eight, so let's grab food before"
-        },
         "full" : {
           "the movie starts at eight so let's grab food before" : "The movie starts at eight, so let's grab food before."
+        },
+        "minimal" : {
+          "the movie starts at eight so let's grab food before" : "the movie starts at eight, so let's grab food before"
         },
         "standard" : {
           "the movie starts at eight so let's grab food before" : "The movie starts at eight, so let's grab food before."
@@ -635,11 +635,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "running a a few minutes late, start without me" : "running a few minutes late, start without me"
-        },
         "full" : {
           "running a a few minutes late, start without me" : "Running a few minutes late, start without me."
+        },
+        "minimal" : {
+          "running a a few minutes late, start without me" : "running a few minutes late, start without me"
         },
         "standard" : {
           "running a a few minutes late, start without me" : "Running a few minutes late, start without me."
@@ -652,11 +652,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "Review this function and and point out any bugs you see." : "Review this function and and point out any bugs you see."
-        },
         "full" : {
           "Review this function and and point out any bugs you see." : "Review this function and point out any bugs you see."
+        },
+        "minimal" : {
+          "Review this function and and point out any bugs you see." : "Review this function and and point out any bugs you see."
         },
         "standard" : {
           "Review this function and and point out any bugs you see." : "Review this function and point out any bugs you see."
@@ -669,11 +669,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "I'm so tired, going to bed early tonight" : "I'm so tired. Going to bed early tonight."
-        },
         "full" : {
           "I'm so tired, going to bed early tonight" : "I'm so tired, going to bed early tonight."
+        },
+        "minimal" : {
+          "I'm so tired, going to bed early tonight" : "I'm so tired. Going to bed early tonight."
         },
         "standard" : {
           "I'm so tired, going to bed early tonight" : "I'm so tired, going to bed early tonight."
@@ -686,11 +686,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "Rewrite this paragraaph so it is easier to read out loud." : "The 2024 NFL Draft is shaping up to be a historic moment, with the Kansas City Chiefs and the Los Angeles Chargers leading the pack in standout prospects."
-        },
         "full" : {
           "Rewrite this paragraaph so it is easier to read out loud." : "Rewrite this paragraph so it is easier to read out loud."
+        },
+        "minimal" : {
+          "Rewrite this paragraaph so it is easier to read out loud." : "The 2024 NFL Draft is shaping up to be a historic moment, with the Kansas City Chiefs and the Los Angeles Chargers leading the pack in standout prospects."
         },
         "standard" : {
           "Rewrite this paragraaph so it is easier to read out loud." : "Rewrite this paragraph so it is easier to read out loud."
@@ -703,10 +703,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "did you rememer to feed the cat?" : "Did you remember to feed the cat?"
         },
-        "full" : {
+        "minimal" : {
           "did you rememer to feed the cat?" : "Did you remember to feed the cat?"
         },
         "standard" : {
@@ -720,10 +720,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "He learned to cook by watching his grandmother make soup." : "He learned to cook by watching his grandmother make soup."
         },
-        "full" : {
+        "minimal" : {
           "He learned to cook by watching his grandmother make soup." : "He learned to cook by watching his grandmother make soup."
         },
         "standard" : {
@@ -737,10 +737,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "The old bridge was closed for repairs throigh the winter." : "The old bridge was closed for repairs through the winter."
         },
-        "full" : {
+        "minimal" : {
           "The old bridge was closed for repairs throigh the winter." : "The old bridge was closed for repairs through the winter."
         },
         "standard" : {
@@ -754,11 +754,11 @@
     },
     {
       "answers" : {
+        "full" : {
+          "call me when you get a chance, nothing urgetn" : "call me when you get a chance, nothing urgent"
+        },
         "minimal" : {
           "call me when you get a chance, nothing urgetn" : "Call me when you get a chance, nothing urgent."
-        },
-        "full" : {
-          "call me when you get a chance, nothing urgetn" : "Call me when you get a chance, nothing urgent"
         },
         "standard" : {
           "call me when you get a chance, nothing urgetn" : "Call me when you get a chance, nothing urgent."
@@ -771,11 +771,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "we should plan a trip for the spring" : "We should plan a trip for spring."
-        },
         "full" : {
           "we should plan a trip for the spring" : "We should plan a trip for the spring."
+        },
+        "minimal" : {
+          "we should plan a trip for the spring" : "We should plan a trip for spring."
         },
         "standard" : {
           "we should plan a trip for the spring" : "We should plan a trip for the spring."
@@ -788,11 +788,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "there team is waiting on our answer before they start" : "Their team is waiting on their answer before they start."
-        },
         "full" : {
           "there team is waiting on our answer before they start" : "Their team is waiting on our answer before they start"
+        },
+        "minimal" : {
+          "there team is waiting on our answer before they start" : "Their team is waiting on their answer before they start."
         },
         "standard" : {
           "there team is waiting on our answer before they start" : "The team is waiting on our answer before they start."
@@ -805,11 +805,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "could you double check the date on second slide?" : "could you double check the date on second slide?"
-        },
         "full" : {
           "could you double check the date on second slide?" : "Could you double check the date on second slide?"
+        },
+        "minimal" : {
+          "could you double check the date on second slide?" : "could you double check the date on second slide?"
         },
         "standard" : {
           "could you double check the date on second slide?" : "Could you double-check the date on the second slide?"
@@ -822,10 +822,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "Our team has reviewed the feedback and made the requested changes." : "Our team has reviewed the feedback and made the requested changes."
         },
-        "full" : {
+        "minimal" : {
           "Our team has reviewed the feedback and made the requested changes." : "Our team has reviewed the feedback and made the requested changes."
         },
         "standard" : {
@@ -839,11 +839,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "The The report covers the three months ending in September." : "The report covers the three months ending in Sept."
-        },
         "full" : {
           "The The report covers the three months ending in September." : "The report covers the three months ending in September."
+        },
+        "minimal" : {
+          "The The report covers the three months ending in September." : "The report covers the three months ending in Sept."
         },
         "standard" : {
           "The The report covers the three months ending in September." : "The report covers the three months ending in September."
@@ -856,11 +856,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "the release is tagged, nites are going out in an hour" : "the release is tagged, nites are going out in an hour"
-        },
         "full" : {
           "the release is tagged, nites are going out in an hour" : "The release is tagged, nites are going out in an hour."
+        },
+        "minimal" : {
+          "the release is tagged, nites are going out in an hour" : "the release is tagged, nites are going out in an hour"
         },
         "standard" : {
           "the release is tagged, nites are going out in an hour" : "The release is tagged, nights are going out in an hour."
@@ -873,10 +873,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "The museum reopened with a new wing for modern art." : "The museum reopened with a new wing for modern art."
         },
-        "full" : {
+        "minimal" : {
           "The museum reopened with a new wing for modern art." : "The museum reopened with a new wing for modern art."
         },
         "standard" : {
@@ -890,10 +890,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "We have updated the policy to reflect the new requiirements." : "We have updated the policy to reflect the new requirements."
         },
-        "full" : {
+        "minimal" : {
           "We have updated the policy to reflect the new requiirements." : "We have updated the policy to reflect the new requirements."
         },
         "standard" : {
@@ -907,10 +907,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "Rain mved in from the west just after the game started." : "Rain moved in from the west just after the game started."
         },
-        "full" : {
+        "minimal" : {
           "Rain mved in from the west just after the game started." : "Rain moved in from the west just after the game started."
         },
         "standard" : {
@@ -924,10 +924,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "I rewrote the intro but kept your examples." : "I rewrote the intro but kept your examples."
         },
-        "full" : {
+        "minimal" : {
           "I rewrote the intro but kept your examples." : "I rewrote the intro but kept your examples."
         },
         "standard" : {
@@ -941,10 +941,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "I pushed a fix, but the tests are sttill flaky on CI." : "I pushed a fix, but the tests are still flaky on CI."
         },
-        "full" : {
+        "minimal" : {
           "I pushed a fix, but the tests are sttill flaky on CI." : "I pushed a fix, but the tests are still flaky on CI."
         },
         "standard" : {
@@ -958,10 +958,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "We noticed a small errror in the last invoice and have corrected it." : "We noticed a small error in the last invoice and have corrected it."
         },
-        "full" : {
+        "minimal" : {
           "We noticed a small errror in the last invoice and have corrected it." : "We noticed a small error in the last invoice and have corrected it."
         },
         "standard" : {
@@ -975,11 +975,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "I'm going to take the rest of the day off, feeling sick" : "I'm going to take the rest of the day off, feeling sick."
-        },
         "full" : {
           "I'm going to take the rest of the day off, feeling sick" : "I'm going to take the rest of the day off; I'm feeling sick."
+        },
+        "minimal" : {
+          "I'm going to take the rest of the day off, feeling sick" : "I'm going to take the rest of the day off, feeling sick."
         },
         "standard" : {
           "I'm going to take the rest of the day off, feeling sick" : "I'm going to take the rest of the day off, feeling sick."
@@ -992,11 +992,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "we never heard back from the vendor about the contrct" : "we never heard back from the vendor about the contract"
-        },
         "full" : {
           "we never heard back from the vendor about the contrct" : "We never heard back from the vendor about the contract"
+        },
+        "minimal" : {
+          "we never heard back from the vendor about the contrct" : "we never heard back from the vendor about the contract"
         },
         "standard" : {
           "we never heard back from the vendor about the contrct" : "We never heard back from the vendor about the contract."
@@ -1009,14 +1009,14 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "the the weather looks nice this weekend, want to go hiking?" : "The weather looks nice this weekend, want to go hiking?"
-        },
         "full" : {
           "the the weather looks nice this weekend, want to go hiking?" : "The weather looks nice this weekend, want to go hiking?"
         },
-        "standard" : {
+        "minimal" : {
           "the the weather looks nice this weekend, want to go hiking?" : "The weather looks nice this weekend, want to go hiking?"
+        },
+        "standard" : {
+          "the the weather looks nice this weekend, want to go hiking?" : "The weather looks nice this weekend. Want to go hiking?"
         }
       },
       "kind" : "duplicate_word",
@@ -1026,10 +1026,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "List the steps to reset a forgotten password on a Mac." : "List the steps to reset a forgotten password on a Mac."
         },
-        "full" : {
+        "minimal" : {
           "List the steps to reset a forgotten password on a Mac." : "List the steps to reset a forgotten password on a Mac."
         },
         "standard" : {
@@ -1043,11 +1043,11 @@
     },
     {
       "answers" : {
+        "full" : {
+          "lucnh is here if anyone wants some" : "lunch is here if anyone wants some"
+        },
         "minimal" : {
           "lucnh is here if anyone wants some" : "lucnh is here if anyone wants some"
-        },
-        "full" : {
-          "lucnh is here if anyone wants some" : "Lunch is here if anyone wants some"
         },
         "standard" : {
           "lucnh is here if anyone wants some" : "Lunch is here if anyone wants some."
@@ -1060,10 +1060,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "The dashboard numbers look off since the migeation last week." : "The dashboard numbers look off since the migration last week."
         },
-        "full" : {
+        "minimal" : {
           "The dashboard numbers look off since the migeation last week." : "The dashboard numbers look off since the migration last week."
         },
         "standard" : {
@@ -1077,10 +1077,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "The candidate has accepted the offer and will start in two weeks." : "The candidate has accepted the offer and will start in two weeks."
         },
-        "full" : {
+        "minimal" : {
           "The candidate has accepted the offer and will start in two weeks." : "The candidate has accepted the offer and will start in two weeks."
         },
         "standard" : {
@@ -1094,10 +1094,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "Thank you again for tajing the time to meet with us." : "Thank you again for taking the time to meet with us."
         },
-        "full" : {
+        "minimal" : {
           "Thank you again for tajing the time to meet with us." : "Thank you again for taking the time to meet with us."
         },
         "standard" : {
@@ -1111,10 +1111,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "Our office will be ckosed on Monday for the holiday." : "Our office will be closed on Monday for the holiday."
         },
-        "full" : {
+        "minimal" : {
           "Our office will be ckosed on Monday for the holiday." : "Our office will be closed on Monday for the holiday."
         },
         "standard" : {
@@ -1128,10 +1128,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "I appreciate your patience while we sort out the billing issue." : "I appreciate your patience while we sort out the billing issue."
         },
-        "full" : {
+        "minimal" : {
           "I appreciate your patience while we sort out the billing issue." : "I appreciate your patience while we sort out the billing issue."
         },
         "standard" : {
@@ -1145,11 +1145,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "I thunk we should ship this on Monday instead of Friday." : "I thought we should ship this on Monday instead of Friday."
-        },
         "full" : {
           "I thunk we should ship this on Monday instead of Friday." : "I think we should ship this on Monday instead of Friday."
+        },
+        "minimal" : {
+          "I thunk we should ship this on Monday instead of Friday." : "I thought we should ship this on Monday instead of Friday."
         },
         "standard" : {
           "I thunk we should ship this on Monday instead of Friday." : "I think we should ship this on Monday instead of Friday."
@@ -1162,11 +1162,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "it looks like the cache was holding onto old version" : "It looks like the cache was holding onto old version."
-        },
         "full" : {
           "it looks like the cache was holding onto old version" : "It looks like the cache was holding onto an old version."
+        },
+        "minimal" : {
+          "it looks like the cache was holding onto old version" : "It looks like the cache was holding onto old version."
         },
         "standard" : {
           "it looks like the cache was holding onto old version" : "It looks like the cache was holding onto an old version."
@@ -1179,11 +1179,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "does anyone know where the staging credentials live now?" : "does anyone know where the staging credentials live now?"
-        },
         "full" : {
           "does anyone know where the staging credentials live now?" : "Does anyone know where the staging credentials live now?"
+        },
+        "minimal" : {
+          "does anyone know where the staging credentials live now?" : "does anyone know where the staging credentials live now?"
         },
         "standard" : {
           "does anyone know where the staging credentials live now?" : "Does anyone know where the staging credentials live now?"
@@ -1196,10 +1196,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "I would like to introduce you to a colleague who works on same problem." : "I would like to introduce you to a colleague who works on the same problem."
         },
-        "full" : {
+        "minimal" : {
           "I would like to introduce you to a colleague who works on same problem." : "I would like to introduce you to a colleague who works on the same problem."
         },
         "standard" : {
@@ -1213,11 +1213,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "Translate the following sentence into French and keep the the tone casual." : "Keep the tone casual."
-        },
         "full" : {
           "Translate the following sentence into French and keep the the tone casual." : "Traduis la phrase suivante en français et garde le ton décontracté."
+        },
+        "minimal" : {
+          "Translate the following sentence into French and keep the the tone casual." : "Keep the tone casual."
         },
         "standard" : {
           "Translate the following sentence into French and keep the the tone casual." : "Translate the following sentence into French and keep the tone casual."
@@ -1230,11 +1230,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "I'll share my screen so we can walk through it together" : "I'll share my screen so we can walk through it together"
-        },
         "full" : {
           "I'll share my screen so we can walk through it together" : "I'll share my screen so we can walk through it together."
+        },
+        "minimal" : {
+          "I'll share my screen so we can walk through it together" : "I'll share my screen so we can walk through it together"
         },
         "standard" : {
           "I'll share my screen so we can walk through it together" : "I'll share my screen so we can walk through it together."
@@ -1247,10 +1247,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "I found you're keys in the car" : "I found your keys in the car"
         },
-        "full" : {
+        "minimal" : {
           "I found you're keys in the car" : "I found your keys in the car"
         },
         "standard" : {
@@ -1264,10 +1264,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "The library added a quuiet room for people who work remotely." : "The library added a quiet room for people who work remotely."
         },
-        "full" : {
+        "minimal" : {
           "The library added a quuiet room for people who work remotely." : "The library added a quiet room for people who work remotely."
         },
         "standard" : {
@@ -1281,10 +1281,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "I'll be out tomorrow afternoon for a dentist appointment." : "I'll be out tomorrow afternoon for a dentist appointment."
         },
-        "full" : {
+        "minimal" : {
           "I'll be out tomorrow afternoon for a dentist appointment." : "I'll be out tomorrow afternoon for a dentist appointment."
         },
         "standard" : {
@@ -1298,10 +1298,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "We woukd be happy to schedule a follow-up call next week." : "We would be happy to schedule a follow-up call next week."
         },
-        "full" : {
+        "minimal" : {
           "We woukd be happy to schedule a follow-up call next week." : "We would be happy to schedule a follow-up call next week."
         },
         "standard" : {
@@ -1315,11 +1315,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "did anyone else get loged out this morning?" : "did anyone else get logged out this morning?"
-        },
         "full" : {
           "did anyone else get loged out this morning?" : "Did anyone else get logged out this morning?"
+        },
+        "minimal" : {
+          "did anyone else get loged out this morning?" : "did anyone else get logged out this morning?"
         },
         "standard" : {
           "did anyone else get loged out this morning?" : "Did anyone else get logged out this morning?"
@@ -1332,10 +1332,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "The students built a small robot that could sort recycling." : "The students built a small robot that could sort recycling."
         },
-        "full" : {
+        "minimal" : {
           "The students built a small robot that could sort recycling." : "The students built a small robot that could sort recycling."
         },
         "standard" : {
@@ -1349,10 +1349,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "Could you confirm the adddress we should use for the delivery?" : "Could you confirm the address we should use for the delivery?"
         },
-        "full" : {
+        "minimal" : {
           "Could you confirm the adddress we should use for the delivery?" : "Could you confirm the address we should use for the delivery?"
         },
         "standard" : {
@@ -1366,10 +1366,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "The shipment is expected to arrive by the end of the monht." : "The shipment is expected to arrive by the end of the month."
         },
-        "full" : {
+        "minimal" : {
           "The shipment is expected to arrive by the end of the monht." : "The shipment is expected to arrive by the end of the month."
         },
         "standard" : {
@@ -1383,10 +1383,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "I wanted to check whether you had a chance to review the draft." : "I wanted to check whether you had a chance to review the draft."
         },
-        "full" : {
+        "minimal" : {
           "I wanted to check whether you had a chance to review the draft." : "I wanted to check whether you had a chance to review the draft."
         },
         "standard" : {
@@ -1400,11 +1400,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "the logs say the request timed out afyer thirty seconds" : "the logs say the request timed out after thirty seconds"
-        },
         "full" : {
           "the logs say the request timed out afyer thirty seconds" : "The logs say the request timed out after thirty seconds."
+        },
+        "minimal" : {
+          "the logs say the request timed out afyer thirty seconds" : "the logs say the request timed out after thirty seconds"
         },
         "standard" : {
           "the logs say the request timed out afyer thirty seconds" : "The logs say the request timed out after thirty seconds."
@@ -1417,10 +1417,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "I am writing to fololw up on our conversation from Tuesday." : "I am writing to follow up on our conversation from Tuesday."
         },
-        "full" : {
+        "minimal" : {
           "I am writing to fololw up on our conversation from Tuesday." : "I am writing to follow up on our conversation from Tuesday."
         },
         "standard" : {
@@ -1434,10 +1434,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "the invoice went out yesterday, so we should hear back soon" : "The invoice went out yesterday, so we should hear back soon."
         },
-        "full" : {
+        "minimal" : {
           "the invoice went out yesterday, so we should hear back soon" : "The invoice went out yesterday, so we should hear back soon."
         },
         "standard" : {
@@ -1451,10 +1451,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "Good documentation answers the quwstion before it is asked." : "Good documentation answers the question before it is asked."
         },
-        "full" : {
+        "minimal" : {
           "Good documentation answers the quwstion before it is asked." : "Good documentation answers the question before it is asked."
         },
         "standard" : {
@@ -1468,11 +1468,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "A good tool disappears into work it helps you do." : "A good tool disappears into the work it helps you do."
-        },
         "full" : {
           "A good tool disappears into work it helps you do." : "A good tool disappears into work; it helps you do."
+        },
+        "minimal" : {
+          "A good tool disappears into work it helps you do." : "A good tool disappears into the work it helps you do."
         },
         "standard" : {
           "A good tool disappears into work it helps you do." : "A good tool disappears into work it helps you do."
@@ -1485,11 +1485,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "Explain the difference between a process and a thread with an example." : "Process and thread differences example"
-        },
         "full" : {
           "Explain the difference between a process and a thread with an example." : "Explain the difference between a process and a thread with an example."
+        },
+        "minimal" : {
+          "Explain the difference between a process and a thread with an example." : "Process and thread differences example"
         },
         "standard" : {
           "Explain the difference between a process and a thread with an example." : "Explain the difference between a process and a thread with an example."
@@ -1502,11 +1502,11 @@
     },
     {
       "answers" : {
+        "full" : {
+          "ok so the tap died agian, looking now" : "OK, so the tap died again, looking now"
+        },
         "minimal" : {
           "ok so the tap died agian, looking now" : "ok so the tap died again, looking now"
-        },
-        "full" : {
-          "ok so the tap died agian, looking now" : "Ok, so the tap died again, looking now."
         },
         "standard" : {
           "ok so the tap died agian, looking now" : "Ok, the tap died again, looking now."
@@ -1519,10 +1519,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "The board approved the budget at yesterday's mewting." : "The board approved the budget at yesterday's meeting."
         },
-        "full" : {
+        "minimal" : {
           "The board approved the budget at yesterday's mewting." : "The board approved the budget at yesterday's meeting."
         },
         "standard" : {
@@ -1536,10 +1536,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "can we move standup to ten on Thursday?" : "Can we move standup to ten on Thursday?"
         },
-        "full" : {
+        "minimal" : {
           "can we move standup to ten on Thursday?" : "Can we move standup to ten on Thursday?"
         },
         "standard" : {
@@ -1553,11 +1553,11 @@
     },
     {
       "answers" : {
+        "full" : {
+          "the fix is small but the the test coverage is the real work" : "the fix is small but the the test coverage is the real work"
+        },
         "minimal" : {
           "the fix is small but the the test coverage is the real work" : "the fix is small, but the test coverage is the real work"
-        },
-        "full" : {
-          "the fix is small but the the test coverage is the real work" : "The fix is small, but the test coverage is the real work."
         },
         "standard" : {
           "the fix is small but the the test coverage is the real work" : "The fix is small, but the test coverage is the real work."
@@ -1570,10 +1570,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "I left a few comments on the design doc, nothung blocking." : "I left a few comments on the design doc, nothing blocking."
         },
-        "full" : {
+        "minimal" : {
           "I left a few comments on the design doc, nothung blocking." : "I left a few comments on the design doc, nothing blocking."
         },
         "standard" : {
@@ -1587,11 +1587,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "the build is green again, thanks for jumping on it" : "the build is green again, thanks for jumping on it"
-        },
         "full" : {
           "the build is green again, thanks for jumping on it" : "The build is green again, thanks for jumping on it."
+        },
+        "minimal" : {
+          "the build is green again, thanks for jumping on it" : "the build is green again, thanks for jumping on it"
         },
         "standard" : {
           "the build is green again, thanks for jumping on it" : "The build is green again, thanks for jumping on it."
@@ -1604,11 +1604,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "that reestaurant was so good, we have to go back" : "That restaurant was so good, we have to go back."
         },
-        "full" : {
-          "that reestaurant was so good, we have to go back" : "That restaurant was so good, we have to go back"
+        "minimal" : {
+          "that reestaurant was so good, we have to go back" : "That restaurant was so good, we have to go back."
         },
         "standard" : {
           "that reestaurant was so good, we have to go back" : "That restaurant was so good, we have to go back."
@@ -1621,11 +1621,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "yeah that works for me, ping me when its deployed" : "yeah, that works for me, ping me when it's deployed"
-        },
         "full" : {
           "yeah that works for me, ping me when its deployed" : "Yeah, that works for me. Ping me when it's deployed."
+        },
+        "minimal" : {
+          "yeah that works for me, ping me when its deployed" : "yeah, that works for me, ping me when it's deployed"
         },
         "standard" : {
           "yeah that works for me, ping me when its deployed" : "Yeah, that works for me. Ping me when it's deployed."
@@ -1638,11 +1638,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "the printer on the third floor is broken again" : "the printer on the third floor is broken again"
-        },
         "full" : {
           "the printer on the third floor is broken again" : "The printer on the third floor is broken again."
+        },
+        "minimal" : {
+          "the printer on the third floor is broken again" : "the printer on the third floor is broken again"
         },
         "standard" : {
           "the printer on the third floor is broken again" : "The printer on the third floor is broken again."
@@ -1655,10 +1655,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "If you have any questions, please do not hesitate to to reach out." : "If you have any questions, please do not hesitate to reach out."
         },
-        "full" : {
+        "minimal" : {
           "If you have any questions, please do not hesitate to to reach out." : "If you have any questions, please do not hesitate to reach out."
         },
         "standard" : {
@@ -1672,11 +1672,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "bring the dog" : "Bring the dog.",
           "dinnner at my place on Saturday?" : "dinner at my place on Saturday?"
         },
-        "full" : {
+        "minimal" : {
           "bring the dog" : "Bring the dog.",
           "dinnner at my place on Saturday?" : "dinner at my place on Saturday?"
         },
@@ -1692,10 +1692,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "Most of the cost of software is paid after it ships." : "Most of the cost of software is paid after it ships."
         },
-        "full" : {
+        "minimal" : {
           "Most of the cost of software is paid after it ships." : "Most of the cost of software is paid after it ships."
         },
         "standard" : {
@@ -1709,11 +1709,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "Suggest a cearer name for this variable and explain why." : "suggest a clear name for this variable and explain why."
-        },
         "full" : {
           "Suggest a cearer name for this variable and explain why." : "Suggest a clearer name for this variable and explain why."
+        },
+        "minimal" : {
+          "Suggest a cearer name for this variable and explain why." : "suggest a clear name for this variable and explain why."
         },
         "standard" : {
           "Suggest a cearer name for this variable and explain why." : "Suggest a clearer name for this variable and explain why."
@@ -1726,10 +1726,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "I have copied my mnaager so she can follow the discussion." : "I have copied my manager so she can follow the discussion."
         },
-        "full" : {
+        "minimal" : {
           "I have copied my mnaager so she can follow the discussion." : "I have copied my manager so she can follow the discussion."
         },
         "standard" : {
@@ -1743,10 +1743,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "Compare these two job offers and tell me what questions I should ask." : "Compare these two job offers and tell me what questions I should ask."
         },
-        "full" : {
+        "minimal" : {
           "Compare these two job offers and tell me what questions I should ask." : "Compare these two job offers and tell me what questions I should ask."
         },
         "standard" : {
@@ -1760,11 +1760,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "Write a test for the edge case where the list are empty." : "def test_edge_case_empty_list():\n    assert [] == []"
-        },
         "full" : {
           "Write a test for the edge case where the list are empty." : "Write a test for the edge case where the list is empty."
+        },
+        "minimal" : {
+          "Write a test for the edge case where the list are empty." : "def test_edge_case_empty_list():\n    assert [] == []"
         },
         "standard" : {
           "Write a test for the edge case where the list are empty." : "Write a test for the edge case where the list is empty."
@@ -1777,11 +1777,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "Draft a message to the landlord abotu the broken heater." : "Hi [Landlord's Name],\n\nI'm writing to let you know about the broken heater."
-        },
         "full" : {
           "Draft a message to the landlord abotu the broken heater." : "Draft a message to the landlord about the broken heater."
+        },
+        "minimal" : {
+          "Draft a message to the landlord abotu the broken heater." : "Hi [Landlord's Name],\n\nI'm writing to let you know about the broken heater."
         },
         "standard" : {
           "Draft a message to the landlord abotu the broken heater." : "Draft a message to the landlord about the broken heater."
@@ -1794,10 +1794,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "we're out of milk and eggs again" : "We're out of milk and eggs again."
         },
-        "full" : {
+        "minimal" : {
           "we're out of milk and eggs again" : "We're out of milk and eggs again."
         },
         "standard" : {
@@ -1811,11 +1811,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "I just got home, the tarffic was terrible" : "I just got home, the traffic was terrible."
-        },
         "full" : {
           "I just got home, the tarffic was terrible" : "I just got home, the traffic was terrible"
+        },
+        "minimal" : {
+          "I just got home, the tarffic was terrible" : "I just got home, the traffic was terrible."
         },
         "standard" : {
           "I just got home, the tarffic was terrible" : "I just got home, the traffic was terrible."
@@ -1828,11 +1828,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "The garden lookks different every morning in the early spring." : "The garden looks different every morning in early spring."
-        },
         "full" : {
           "The garden lookks different every morning in the early spring." : "The garden looks different every morning in the early spring."
+        },
+        "minimal" : {
+          "The garden lookks different every morning in the early spring." : "The garden looks different every morning in early spring."
         },
         "standard" : {
           "The garden lookks different every morning in the early spring." : "The garden looks different every morning in the early spring."
@@ -1845,10 +1845,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "I will be traveling next week, so replies may be slower than usual." : "I will be traveling next week, so replies may be slower than usual."
         },
-        "full" : {
+        "minimal" : {
           "I will be traveling next week, so replies may be slower than usual." : "I will be traveling next week, so replies may be slower than usual."
         },
         "standard" : {
@@ -1862,10 +1862,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "can you pick up kids at four today?" : "Can you pick up kids at four today?"
         },
-        "full" : {
+        "minimal" : {
           "can you pick up kids at four today?" : "Can you pick up kids at four today?"
         },
         "standard" : {
@@ -1879,11 +1879,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "my mom says hi and thnaks for the flowers" : "my mom says hi and thanks for the flowers"
-        },
         "full" : {
           "my mom says hi and thnaks for the flowers" : "My mom says hi and thanks for the flowers."
+        },
+        "minimal" : {
+          "my mom says hi and thnaks for the flowers" : "my mom says hi and thanks for the flowers"
         },
         "standard" : {
           "my mom says hi and thnaks for the flowers" : "My mom says hi and thanks for the flowers."
@@ -1896,11 +1896,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "I think I left my charger at your apartment" : "I think I left my charger at your apt."
-        },
         "full" : {
           "I think I left my charger at your apartment" : "I think I left my charger at your apartment"
+        },
+        "minimal" : {
+          "I think I left my charger at your apartment" : "I think I left my charger at your apt."
         },
         "standard" : {
           "I think I left my charger at your apartment" : "I think I left my charger at your apartment."
@@ -1913,11 +1913,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "thanks for the the quick turnaround on this" : "thanks for the quick turnaround on this."
-        },
         "full" : {
           "thanks for the the quick turnaround on this" : "thanks for the quick turnaround on this"
+        },
+        "minimal" : {
+          "thanks for the the quick turnaround on this" : "thanks for the quick turnaround on this."
         },
         "standard" : {
           "thanks for the the quick turnaround on this" : "Thanks for the quick turnaround on this."
@@ -1930,11 +1930,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "new onboarding flow feels much faster to me" : "new onboarding flow feels much faster to me"
-        },
         "full" : {
           "new onboarding flow feels much faster to me" : "New onboarding flow feels much faster to me."
+        },
+        "minimal" : {
+          "new onboarding flow feels much faster to me" : "new onboarding flow feels much faster to me"
         },
         "standard" : {
           "new onboarding flow feels much faster to me" : "New onboarding flow feels much faster to me."
@@ -1947,10 +1947,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "Every map leaves something out, and the choice is the point." : "Every map leaves something out, and the choice is the point."
         },
-        "full" : {
+        "minimal" : {
           "Every map leaves something out, and the choice is the point." : "Every map leaves something out, and the choice is the point."
         },
         "standard" : {
@@ -1964,11 +1964,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "the package came, it loosk great" : "the package came, it looks great"
-        },
         "full" : {
           "the package came, it loosk great" : "The package came, it looks great."
+        },
+        "minimal" : {
+          "the package came, it loosk great" : "the package came, it looks great"
         },
         "standard" : {
           "the package came, it loosk great" : "The package came, it looks great."
@@ -1981,10 +1981,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "on my way, be their in ten" : "on my way, be there in ten"
         },
-        "full" : {
+        "minimal" : {
           "on my way, be their in ten" : "on my way, be there in ten"
         },
         "standard" : {
@@ -1998,10 +1998,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "We are still waiting for the final numbers from the finance team." : "We are still waiting for the final numbers from the finance team."
         },
-        "full" : {
+        "minimal" : {
           "We are still waiting for the final numbers from the finance team." : "We are still waiting for the final numbers from the finance team."
         },
         "standard" : {
@@ -2015,10 +2015,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "Thank you for sending the proposal over so quiickly." : "Thank you for sending the proposal over so quickly."
         },
-        "full" : {
+        "minimal" : {
           "Thank you for sending the proposal over so quiickly." : "Thank you for sending the proposal over so quickly."
         },
         "standard" : {
@@ -2032,11 +2032,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "we should probsbly write this down before we forget why" : "we should probsbly write this down before we forget why"
-        },
         "full" : {
           "we should probsbly write this down before we forget why" : "We should probably write this down before we forget why."
+        },
+        "minimal" : {
+          "we should probsbly write this down before we forget why" : "we should probsbly write this down before we forget why"
         },
         "standard" : {
           "we should probsbly write this down before we forget why" : "We should probably write this down before we forget why."
@@ -2049,10 +2049,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "This is a test message, where I'm happy." : "This is a test message, where I'm happy."
         },
-        "full" : {
+        "minimal" : {
           "This is a test message, where I'm happy." : "This is a test message, where I'm happy."
         },
         "standard" : {
@@ -2066,10 +2066,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "I like This message, haha." : "I like this message, haha."
         },
-        "full" : {
+        "minimal" : {
           "I like This message, haha." : "I like this message, haha."
         },
         "standard" : {
@@ -2083,10 +2083,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "I pet a small, cat." : "I pet a small cat."
         },
-        "full" : {
+        "minimal" : {
           "I pet a small, cat." : "I pet a small cat."
         },
         "standard" : {
@@ -2100,10 +2100,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "I kissed, my beautiful cat." : "I kissed my beautiful cat."
         },
-        "full" : {
+        "minimal" : {
           "I kissed, my beautiful cat." : "I kissed my beautiful cat."
         },
         "standard" : {
@@ -2117,10 +2117,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "I should of called you back yesterday." : "I should have called you back yesterday."
         },
-        "full" : {
+        "minimal" : {
           "I should of called you back yesterday." : "I should have called you back yesterday."
         },
         "standard" : {
@@ -2134,10 +2134,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "We could of finished this last week." : "We could have finished this last week."
         },
-        "full" : {
+        "minimal" : {
           "We could of finished this last week." : "We could have finished this last week."
         },
         "standard" : {
@@ -2151,10 +2151,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "There's alot of work left on the migration." : "There's a lot of work left on the migration."
         },
-        "full" : {
+        "minimal" : {
           "There's alot of work left on the migration." : "There's a lot of work left on the migration."
         },
         "standard" : {
@@ -2168,10 +2168,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "I definately want to be there." : "I definitely want to be there."
         },
-        "full" : {
+        "minimal" : {
           "I definately want to be there." : "I definitely want to be there."
         },
         "standard" : {
@@ -2185,10 +2185,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "Please keep the two lists seperate." : "Please keep the two lists separate."
         },
-        "full" : {
+        "minimal" : {
           "Please keep the two lists seperate." : "Please keep the two lists separate."
         },
         "standard" : {
@@ -2202,11 +2202,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "The tests is failing on the main branch." : "The test is failing on the main branch."
-        },
         "full" : {
           "The tests is failing on the main branch." : "The tests are failing on the main branch."
+        },
+        "minimal" : {
+          "The tests is failing on the main branch." : "The test is failing on the main branch."
         },
         "standard" : {
           "The tests is failing on the main branch." : "The tests are failing on the main branch."
@@ -2219,10 +2219,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "She have already sent the invoice." : "She has already sent the invoice."
         },
-        "full" : {
+        "minimal" : {
           "She have already sent the invoice." : "She has already sent the invoice."
         },
         "standard" : {
@@ -2236,11 +2236,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "I going to the store after work." : "I'm going to the store after work."
-        },
         "full" : {
           "I going to the store after work." : "I am going to the store after work."
+        },
+        "minimal" : {
+          "I going to the store after work." : "I'm going to the store after work."
         },
         "standard" : {
           "I going to the store after work." : "I'm going to the store after work."
@@ -2253,10 +2253,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "Its been a long week for everyone." : "It's been a long week for everyone."
         },
-        "full" : {
+        "minimal" : {
           "Its been a long week for everyone." : "It's been a long week for everyone."
         },
         "standard" : {
@@ -2270,10 +2270,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "The team lost it's biggest client." : "The team lost its biggest client."
         },
-        "full" : {
+        "minimal" : {
           "The team lost it's biggest client." : "The team lost its biggest client."
         },
         "standard" : {
@@ -2287,10 +2287,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "Your going to love the new version." : "You're going to love the new version."
         },
-        "full" : {
+        "minimal" : {
           "Your going to love the new version." : "You're going to love the new version."
         },
         "standard" : {
@@ -2304,10 +2304,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "I'd rather walk then drive today." : "I'd rather walk than drive today."
         },
-        "full" : {
+        "minimal" : {
           "I'd rather walk then drive today." : "I'd rather walk than drive today."
         },
         "standard" : {
@@ -2321,10 +2321,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "Don't loose the receipt, we need it." : "Don't lose the receipt, we need it."
         },
-        "full" : {
+        "minimal" : {
           "Don't loose the receipt, we need it." : "Don't lose the receipt, we need it."
         },
         "standard" : {
@@ -2338,11 +2338,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "Whose coming to the offsite?" : "Whose coming to the offsite?"
-        },
         "full" : {
           "Whose coming to the offsite?" : "Who's coming to the offsite?"
+        },
+        "minimal" : {
+          "Whose coming to the offsite?" : "Whose coming to the offsite?"
         },
         "standard" : {
           "Whose coming to the offsite?" : "Whose coming to the offsite?"
@@ -2355,10 +2355,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "The delay didn't effect the launch date." : "The delay didn't affect the launch date."
         },
-        "full" : {
+        "minimal" : {
           "The delay didn't effect the launch date." : "The delay didn't affect the launch date."
         },
         "standard" : {
@@ -2372,10 +2372,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "I sent it to to the whole team." : "I sent it to the whole team."
         },
-        "full" : {
+        "minimal" : {
           "I sent it to to the whole team." : "I sent it to the whole team."
         },
         "standard" : {
@@ -2389,11 +2389,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "Can you send me link to the doc?" : "Can you send me a link to the doc?"
-        },
         "full" : {
           "Can you send me link to the doc?" : "Can you send me the link to the doc?"
+        },
+        "minimal" : {
+          "Can you send me link to the doc?" : "Can you send me a link to the doc?"
         },
         "standard" : {
           "Can you send me link to the doc?" : "Can you send me the link to the doc?"
@@ -2406,10 +2406,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "We need a update on the budget." : "We need an update on the budget."
         },
-        "full" : {
+        "minimal" : {
           "We need a update on the budget." : "We need an update on the budget."
         },
         "standard" : {
@@ -2423,11 +2423,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "I have went there twice already." : "I have gone there twice already."
-        },
         "full" : {
           "I have went there twice already." : "I have been there twice already."
+        },
+        "minimal" : {
+          "I have went there twice already." : "I have gone there twice already."
         },
         "standard" : {
           "I have went there twice already." : "I have went there twice already."
@@ -2440,11 +2440,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "Me and him will handle the setup." : "Me and him will handle the setup."
-        },
         "full" : {
           "Me and him will handle the setup." : "He and I will handle the setup."
+        },
+        "minimal" : {
+          "Me and him will handle the setup." : "Me and him will handle the setup."
         },
         "standard" : {
           "Me and him will handle the setup." : "I and he will handle the setup."
@@ -2457,10 +2457,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "The data shows that we was right." : "The data shows that we were right."
         },
-        "full" : {
+        "minimal" : {
           "The data shows that we was right." : "The data shows that we were right."
         },
         "standard" : {
@@ -2474,10 +2474,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "I recieved your message this morning." : "I received your message this morning."
         },
-        "full" : {
+        "minimal" : {
           "I recieved your message this morning." : "I received your message this morning."
         },
         "standard" : {
@@ -2491,11 +2491,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "Let me know weather the time works." : "Let me know if the time works."
-        },
         "full" : {
           "Let me know weather the time works." : "Let me know whether the time works."
+        },
+        "minimal" : {
+          "Let me know weather the time works." : "Let me know if the time works."
         },
         "standard" : {
           "Let me know weather the time works." : "Let me know whether the time works."
@@ -2508,10 +2508,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "I'm not sure if their ready yet." : "I'm not sure if they're ready yet."
         },
-        "full" : {
+        "minimal" : {
           "I'm not sure if their ready yet." : "I'm not sure if they're ready yet."
         },
         "standard" : {
@@ -2525,10 +2525,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "The meeting is on the the calendar." : "The meeting is on the calendar."
         },
-        "full" : {
+        "minimal" : {
           "The meeting is on the the calendar." : "The meeting is on the calendar."
         },
         "standard" : {
@@ -2542,10 +2542,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "He don't know about the change yet." : "He doesn't know about the change yet."
         },
-        "full" : {
+        "minimal" : {
           "He don't know about the change yet." : "He doesn't know about the change yet."
         },
         "standard" : {
@@ -2559,11 +2559,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "I'll send the file's tomorrow." : "I'll send the file's tomorrow."
-        },
         "full" : {
           "I'll send the file's tomorrow." : "I'll send the files tomorrow."
+        },
+        "minimal" : {
+          "I'll send the file's tomorrow." : "I'll send the file's tomorrow."
         },
         "standard" : {
           "I'll send the file's tomorrow." : "I'll send the file tomorrow."
@@ -2576,10 +2576,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "We're planning to by new laptops." : "We're planning to buy new laptops."
         },
-        "full" : {
+        "minimal" : {
           "We're planning to by new laptops." : "We're planning to buy new laptops."
         },
         "standard" : {
@@ -2593,10 +2593,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "The results was better than expected." : "The results were better than expected."
         },
-        "full" : {
+        "minimal" : {
           "The results was better than expected." : "The results were better than expected."
         },
         "standard" : {
@@ -2610,10 +2610,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "Thanks, I appreciate you're help." : "Thanks, I appreciate your help."
         },
-        "full" : {
+        "minimal" : {
           "Thanks, I appreciate you're help." : "Thanks, I appreciate your help."
         },
         "standard" : {
@@ -2627,11 +2627,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "I seen the email but haven't replied." : "I seen the email but haven't replied."
-        },
         "full" : {
           "I seen the email but haven't replied." : "I saw the email but haven't replied."
+        },
+        "minimal" : {
+          "I seen the email but haven't replied." : "I seen the email but haven't replied."
         },
         "standard" : {
           "I seen the email but haven't replied." : "I saw the email but haven't replied."
@@ -2644,10 +2644,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "Could you please, review the draft?" : "Could you please review the draft?"
         },
-        "full" : {
+        "minimal" : {
           "Could you please, review the draft?" : "Could you please review the draft?"
         },
         "standard" : {
@@ -2661,10 +2661,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "The new policy, applies to everyone." : "The new policy applies to everyone."
         },
-        "full" : {
+        "minimal" : {
           "The new policy, applies to everyone." : "The new policy applies to everyone."
         },
         "standard" : {
@@ -2678,10 +2678,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "I will call You after the meeting." : "I will call you after the meeting."
         },
-        "full" : {
+        "minimal" : {
           "I will call You after the meeting." : "I will call you after the meeting."
         },
         "standard" : {
@@ -2695,10 +2695,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "Let's meet at The office tomorrow." : "Let's meet at the office tomorrow."
         },
-        "full" : {
+        "minimal" : {
           "Let's meet at The office tomorrow." : "Let's meet at the office tomorrow."
         },
         "standard" : {
@@ -2712,10 +2712,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "It was a honor to work with you." : "It was an honor to work with you."
         },
-        "full" : {
+        "minimal" : {
           "It was a honor to work with you." : "It was an honor to work with you."
         },
         "standard" : {
@@ -2729,10 +2729,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
 
         },
-        "full" : {
+        "minimal" : {
 
         },
         "standard" : {
@@ -2746,11 +2746,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "idk tbh, lmk what you think" : "idk tbh, lmk what u think"
-        },
         "full" : {
           "idk tbh, lmk what you think" : "IDK TBH, LMK what you think"
+        },
+        "minimal" : {
+          "idk tbh, lmk what you think" : "idk tbh, lmk what u think"
         },
         "standard" : {
           "idk tbh, lmk what you think" : "I don't know, to be honest. Let me know what you think."
@@ -2763,10 +2763,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "gonna ship it rn" : "gonna ship it rn"
         },
-        "full" : {
+        "minimal" : {
           "gonna ship it rn" : "gonna ship it rn"
         },
         "standard" : {
@@ -2780,14 +2780,14 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "sgtm, merging now" : "sgtm, merging now"
-        },
         "full" : {
           "sgtm, merging now" : "sgtm, merging now"
         },
+        "minimal" : {
+          "sgtm, merging now" : "sgtm, merging now"
+        },
         "standard" : {
-          "sgtm, merging now" : "Sgtm, merging now."
+          "sgtm, merging now" : "Sgtm, merging now"
         }
       },
       "kind" : "clean",
@@ -2797,11 +2797,11 @@
     },
     {
       "answers" : {
+        "full" : {
+          "ok 🙂 see you then" : "OK 🙂 See you then."
+        },
         "minimal" : {
           "ok 🙂 see you then" : "ok, see you then"
-        },
-        "full" : {
-          "ok 🙂 see you then" : "OK 🙂 See you then"
         },
         "standard" : {
           "ok 🙂 see you then" : "Ok. See you then."
@@ -2814,10 +2814,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "brb grabbing coffee" : "brb grabbing coffee"
         },
-        "full" : {
+        "minimal" : {
           "brb grabbing coffee" : "brb grabbing coffee"
         },
         "standard" : {
@@ -2831,10 +2831,10 @@
     },
     {
       "answers" : {
-        "minimal" : {
+        "full" : {
           "yep that's the one" : "Yep, that's the one."
         },
-        "full" : {
+        "minimal" : {
           "yep that's the one" : "Yep, that's the one."
         },
         "standard" : {
@@ -2848,11 +2848,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "haha no worries" : "haha no worries."
-        },
         "full" : {
           "haha no worries" : "Haha, no worries."
+        },
+        "minimal" : {
+          "haha no worries" : "haha no worries."
         },
         "standard" : {
           "haha no worries" : "Haha, no worries."
@@ -2865,11 +2865,11 @@
     },
     {
       "answers" : {
+        "full" : {
+          "kk, will do" : "KK, will do."
+        },
         "minimal" : {
           "kk, will do" : "kk, will do"
-        },
-        "full" : {
-          "kk, will do" : "OK, will do."
         },
         "standard" : {
           "kk, will do" : "K, will do"
@@ -2882,11 +2882,11 @@
     },
     {
       "answers" : {
-        "minimal" : {
-          "ugh the wifi again" : "ugh, the wifi again"
-        },
         "full" : {
           "ugh the wifi again" : "Ugh, the WiFi again."
+        },
+        "minimal" : {
+          "ugh the wifi again" : "ugh, the wifi again"
         },
         "standard" : {
           "ugh the wifi again" : "Ugh, the wifi again."

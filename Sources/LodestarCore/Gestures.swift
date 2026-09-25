@@ -35,7 +35,7 @@ public enum Gestures {
         Verb(name: "tabs", keys: ["tab"], about: "lode tab, a letter on every tab of the window, ⇧tab its windows"),
         Verb(name: "web-bar", keys: ["return"], about: "lode ⏎, links and search"),
         Verb(name: "commands", keys: ["-"], about: "lode - the commands bar, the focused app's verbs"),
-        Verb(name: "draft", keys: ["."], about: "lode . speak into the draft, ⇧. edit the field in it"),
+        Verb(name: "draft", keys: ["."], about: "lode . speak into the draft, ⇧. revise the field in it"),
         Verb(name: "scroll", keys: ["`"], about: "lode ` , keyboard scrolling"),
         Verb(name: "hints", keys: [";"], about: "lode ; click hints, ⇧; sticky"),
         Verb(name: "breaths", keys: ["'"], about: "lode ', saved layouts"),

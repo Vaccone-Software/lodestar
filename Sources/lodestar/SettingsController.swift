@@ -166,7 +166,9 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     }
 
     func open(atPane index: Int = 0) {
-        pane = max(0, min(index, 8))
+        // Bounded by the panes there are, not a count written down: the
+        // Editor made ten, and a fixed 8 kept Advanced out of reach.
+        pane = max(0, min(index, SettingsModel.catalog(config: config, machine: machineState()).count - 1))
         layer = .browsing
         highlightRow = nil
         // Nothing survives from the last visit: a window that opens into
@@ -700,6 +702,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         case .excludeApps: return ["clipboard", "exclude-apps", key]
         case .excludePatterns: return ["clipboard", "exclude", key]
         case .draftWords: return ["draft", "words", key]
+        case .clipboardTimeZones: return ["clipboard", "time-zones", key]
         case .keyRemaps: return ["keys", key]
         case .editorSkipApps: return ["editor", "skip-apps", key]
         }
@@ -1404,7 +1407,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             "calendars": .calendars, "excludeApps": .excludeApps,
             "excludePatterns": .excludePatterns, "keyRemaps": .keyRemaps,
             "draftWords": .draftWords,
-            "editorSkipApps": .editorSkipApps,
+            "editorSkipApps": .editorSkipApps, "clipboardTimeZones": .clipboardTimeZones,
         ][parts[0]]
         if let kind { removeEntry(kind: kind, key: parts[1]) }
     }
@@ -1509,6 +1512,10 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             let word = field("Word", width: 170)
             bar.addArrangedSubview(word)
             addInputs[addKey(kind)] = word
+        case .clipboardTimeZones:
+            let zone = field("City or zone", width: 170)
+            bar.addArrangedSubview(zone)
+            addInputs[addKey(kind)] = zone
         case .keyRemaps:
             let code = field("Keycode", width: 80)
             let name = popup(Set(Keys.ansi.values).sorted(), width: 90)
@@ -1610,6 +1617,16 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             let word = fieldText("draftWords").trimmingCharacters(in: .whitespaces)
             guard !word.isEmpty else { return }
             writeEntries(set: [(entryPath(.draftWords, word), .bool(true))])
+        case "clipboardTimeZones":
+            // A city, an identifier, or an abbreviation, stored as the zone's
+            // identifier so the config says one thing for one place.
+            // A name that is no zone is refused the way a Mac refuses a key,
+            // with the text left in the field to correct.
+            guard let zone = ClipTime.zone(named: fieldText("clipboardTimeZones")) else {
+                NSSound.beep()
+                return
+            }
+            writeEntries(set: [(entryPath(.clipboardTimeZones, zone.identifier), .bool(true))])
         case "keyRemaps":
             let code = fieldText("keyRemaps")
             let name = popupChoice("keys.name")

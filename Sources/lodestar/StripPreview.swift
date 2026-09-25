@@ -320,8 +320,9 @@ enum StripPreview {
             app.run()
         }
 
-        // 70…78 the settings window, one pane per variant.
-        if (70...78).contains(variant) {
+        // 70…79 the settings window, one pane per variant: 78 the Editor,
+        // 79 Advanced.
+        if (70...79).contains(variant) {
             let held = SettingsController.preview(variant - 70)
             _ = held
             app.run()
@@ -382,6 +383,44 @@ enum StripPreview {
                                  recents[0], recents[2], recents[4]],
                        pins: pins, thumbnail: { _ in nil },
                        band: .search("report"), selection: 0)
+        } else if variant == 82 {
+            // 82: the cards read as a moment, with Tokyo kept: Unix seconds
+            // and milliseconds, an ISO date, the mail format, a day, and a
+            // time from last week.
+            strip.timeZones = [TimeZone(identifier: "Asia/Tokyo")!]
+            let hour = 3600.0
+            let unix = { (seconds: Double) in String(Int(Date().timeIntervalSince1970 - seconds)) }
+            strip.show(recents: [clip("t0", unix(6 * hour), app: "com.mitchellh.ghostty", minutes: 1),
+                                 clip("t1", unix(30 * hour) + "000", minutes: 4),
+                                 clip("t2", "2026-09-25T13:14:17.123+09:00", minutes: 6),
+                                 clip("t3", "Fri, 25 Sep 2026 13:14:17 +0000", minutes: 30),
+                                 clip("t4", "2026-10-02", minutes: 50),
+                                 clip("t5", unix(9 * 24 * hour), minutes: 70)],
+                       pins: pins, thumbnail: { _ in nil }, band: .none, selection: 0)
+        } else if variant == 84 {
+            // 84: measurements read into imperial, one already imperial
+            // left plain, and arithmetic read as its answer.
+            strip.units = .imperial
+            strip.show(recents: [clip("m0", "5 km", minutes: 1),
+                                 clip("m1", "180 cm", minutes: 3),
+                                 clip("m2", "500 mL", minutes: 8),
+                                 clip("m3", "22 °C", minutes: 12),
+                                 clip("m4", "3 mi", minutes: 20),
+                                 clip("m5", "1234 * 1.08", minutes: 30),
+                                 clip("m6", "(12 + 7) / 3", minutes: 45)],
+                       pins: pins, thumbnail: { _ in nil }, band: .none, selection: 0)
+        } else if variant == 83 {
+            // 83: the cards drawn as a color, named, in each notation,
+            // white and near black for the edge, a translucent one, and an
+            // issue number that stays text.
+            strip.show(recents: [clip("c0", "#FF4F00", minutes: 1),
+                                 clip("c1", "3478F6", minutes: 3),
+                                 clip("c2", "rgb(52 199 89 / 50%)", minutes: 8),
+                                 clip("c3", "hsl(280deg 60% 55%)", minutes: 20),
+                                 clip("c4", "#FFFFFF", minutes: 40),
+                                 clip("c5", "#1E1E1E", minutes: 45),
+                                 clip("c6", "#123", minutes: 55)],
+                       pins: pins, thumbnail: { _ in nil }, band: .none, selection: 0)
         } else {
             strip.show(recents: recents, pins: pins, thumbnail: { _ in nil },
                        band: .actions(actions), selection: 0, actingOn: target.id)

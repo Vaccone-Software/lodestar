@@ -9,19 +9,20 @@ final class SettingsModelTests: XCTestCase {
     func testTenPanesInTheAgreedOrder() {
         XCTAssertEqual(sections.map(\.name),
                        ["General", "Permissions", "Gestures", "Interaction", "Clipboard",
-                        "Web", "Meetings", "Coach", "Advanced", "Editor"])
+                        "Web", "Meetings", "Coach", "Editor", "Advanced"])
         XCTAssertLessThanOrEqual(sections.count, SettingsModel.paneKeys.count,
                                  "the number row addresses panes; an eleventh has no key")
     }
 
-    /// 1 through 9, then 0: the editor came tenth so no pane moved.
+    /// 1 through 9, then 0: the editor sits above Advanced, which keeps
+    /// the end of the row on 0.
     func testTheNumberRowAddressesThePanes() {
         XCTAssertEqual((0..<sections.count).compactMap(SettingsModel.paneKey),
                        ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"])
-        XCTAssertEqual(SettingsModel.pane(forKey: "0", count: sections.count),
-                       sections.firstIndex { $0.name == "Editor" })
         XCTAssertEqual(SettingsModel.pane(forKey: "9", count: sections.count),
-                       sections.firstIndex { $0.name == "Advanced" }, "Advanced keeps its 9")
+                       sections.firstIndex { $0.name == "Editor" })
+        XCTAssertEqual(SettingsModel.pane(forKey: "0", count: sections.count),
+                       sections.firstIndex { $0.name == "Advanced" }, "Advanced is last, on 0")
         XCTAssertNil(SettingsModel.pane(forKey: "0", count: 9), "no tenth pane, no 0")
         XCTAssertNil(SettingsModel.pane(forKey: "a", count: 10))
     }
@@ -56,6 +57,39 @@ final class SettingsModelTests: XCTestCase {
             .first { $0.name == "Coach" }!.rows.filter { $0.group == "Health" }
         XCTAssertFalse(filled[0].isDefault)
         if case .text(let year, _) = filled[0].control { XCTAssertEqual(year, "1990") }
+    }
+
+    /// Units show the region's system until one is chosen.
+    func testUnitsFollowTheRegionUntilChosen() {
+        var machine = SettingsModel.MachineState()
+        machine.unitsInferred = "metric"
+        let row = SettingsModel.catalog(config: Config(), machine: machine)
+            .first { $0.name == "Advanced" }!.rows.first { $0.path == "app.units" }!
+        guard case .choice(let options, let labels, let current) = row.control else { return XCTFail("a dropdown") }
+        XCTAssertEqual(options, ["imperial", "metric"])
+        XCTAssertEqual(labels, ["Imperial", "Metric"])
+        XCTAssertEqual(current, "metric", "the region's")
+        XCTAssertTrue(row.isDefault)
+        var chosen = Config()
+        chosen.units = "imperial"
+        let set = SettingsModel.catalog(config: chosen, machine: machine)
+            .first { $0.name == "Advanced" }!.rows.first { $0.path == "app.units" }!
+        guard case .choice(_, _, let now) = set.control else { return XCTFail("a dropdown") }
+        XCTAssertEqual(now, "imperial")
+        XCTAssertFalse(set.isDefault)
+    }
+
+    /// A kept zone is listed by its city and offset, never its identifier.
+    func testKeptTimeZonesAreListedByPlace() {
+        var config = Config()
+        config.clipboardTimeZones = ["Asia/Tokyo", "Asia/Kolkata"]
+        let row = SettingsModel.catalog(config: config, machine: .init())
+            .first { $0.name == "Clipboard" }!.rows.first { $0.path == "clipboard.time-zones" }!
+        guard case .table(let kind, let entries) = row.control else { return XCTFail("time zones are a list") }
+        XCTAssertEqual(kind, .clipboardTimeZones)
+        XCTAssertEqual(entries.map(\.key), ["Asia/Tokyo", "Asia/Kolkata"])
+        XCTAssertEqual(entries.map(\.display), ["Tokyo · UTC+9", "Kolkata · UTC+5:30"])
+        XCTAssertFalse(row.isDefault)
     }
 
     func testEveryConfigRowWearsItsPath() {

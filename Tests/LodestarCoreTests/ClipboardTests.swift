@@ -688,20 +688,28 @@ final class ClipboardSearchTests: XCTestCase {
     func testSearchingAFullHistoryStaysInteractive() {
         let filler = String(repeating: "the quick brown fox jumps over it. ", count: 55)
         let clips = (0..<10_000).map { clip("c\($0)", filler + "marker\($0)", minutesAgo: Double($0)) }
-        let started = Date()
-        let hits = Clipboard.search(clips, query: "marker9999")
+        // The strip keeps one index: the first search folds every clip once,
+        // and each keystroke after it compares bytes.
+        let index = ClipboardSearchIndex()
+        var started = Date()
+        _ = Clipboard.search(clips, query: "m", index: index)
+        let folding = Date().timeIntervalSince(started)
+        started = Date()
+        let hits = Clipboard.search(clips, query: "marker9999", index: index)
         let elapsed = Date().timeIntervalSince(started)
         XCTAssertEqual(hits.first?.id, "c9999")
         // The shipped app is optimized; a debug run carries bounds checks and
         // no inlining and lands roughly ten times slower, so the number that
         // matters is the release one.
         #if DEBUG
-        let ceiling = 3.0
+        let (ceiling, foldCeiling) = (1.0, 3.0)
         #else
-        let ceiling = 0.3
+        let (ceiling, foldCeiling) = (0.05, 0.3)
         #endif
-        XCTAssertLessThan(elapsed, ceiling, "10k long clips searched in \(elapsed)s")
-        print("search over 10k × \(filler.count) chars: \(String(format: "%.3f", elapsed))s")
+        XCTAssertLessThan(elapsed, ceiling, "a keystroke over 10k long clips took \(elapsed)s")
+        XCTAssertLessThan(folding, foldCeiling, "folding 10k long clips took \(folding)s")
+        print("keystroke over 10k × \(filler.count) chars: \(String(format: "%.3f", elapsed))s, "
+              + "first fold \(String(format: "%.3f", folding))s")
     }
 }
 
@@ -907,6 +915,35 @@ extension ClipboardTests {
                        ["says", "code"],
                        "a literal hit in the text outranks the page; the page still answers")
         XCTAssertEqual(Clipboard.search([other, fromGitHub], query: "hub").map(\.id), ["code"])
+    }
+
+    /// A color is found by what it is called, as a page is by its host.
+    func testAColorIsFoundByItsName() {
+        let hex = clip("hex", preview: "#FF4F00")
+        let says = clip("says", preview: "orange juice")
+        let other = clip("other", preview: "lunch")
+        XCTAssertEqual(Clipboard.search([other, hex, says], query: "orange").map(\.id), ["says", "hex"],
+                       "a literal hit outranks the name; the name still answers")
+        XCTAssertEqual(Clipboard.search([other, hex], query: "international").map(\.id), ["hex"])
+        XCTAssertEqual(Clipboard.search([other, hex], query: "Orange").map(\.id), ["hex"], "any case")
+    }
+
+    /// The kept index answers exactly as a fresh one, and a clip edited in
+    /// the door is searched by its new text.
+    func testTheKeptIndexFollowsAnEditedClip() {
+        let index = ClipboardSearchIndex()
+        var edited = clip("a", preview: "first draft")
+        XCTAssertEqual(Clipboard.search([edited], query: "draft", index: index).map(\.id), ["a"])
+        edited.preview = "final copy"
+        XCTAssertEqual(Clipboard.search([edited], query: "draft", index: index).map(\.id), [])
+        XCTAssertEqual(Clipboard.search([edited], query: "copy", index: index).map(\.id), ["a"])
+    }
+
+    /// Outside ASCII the search keeps Unicode's folding, which bytes cannot do.
+    func testANonASCIIQueryStillFolds() {
+        let clips = [clip("a", preview: "Über alles"), clip("b", preview: "naïve plan")]
+        XCTAssertEqual(Clipboard.search(clips, query: "über").map(\.id), ["a"])
+        XCTAssertEqual(Clipboard.search(clips, query: "NAÏVE").map(\.id), ["b"])
     }
 
     func testARestoreIsRecognizedByItsMarker() {

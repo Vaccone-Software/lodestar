@@ -45,6 +45,10 @@ if [ "$PHASE" = "build" ] || [ "$PHASE" = "all" ]; then
     # harness, on the exact bytes that ship.
     echo "→ self-test on the signed build"
     "$APP/Contents/MacOS/lodestar" --self-test || { echo "✕ self-test failed — refusing to release"; exit 1; }
+
+    # What the site reads from a release: the schema the binary emits, and
+    # the download fallback's version, written to the site checkout.
+    ./scripts/site-sync.sh "$APP"
 fi
 if [ "$PHASE" = "build" ]; then
     echo "✓ built and signed: $APP — smoke it (scripts/smoke.sh), then release.sh publish"

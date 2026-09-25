@@ -551,3 +551,60 @@ final class VimTests: XCTestCase {
         XCTAssertEqual(buffer.text, "", "even a surround finds nothing to wrap")
     }
 }
+
+/// Vim's spelling keys over the editor's marks.
+final class VimSpellingTests: XCTestCase {
+    private var vim = Vim()
+    private var buffer = Draft.Buffer()
+
+    private func type(_ keys: String) -> [Vim.Effect] {
+        var effects: [Vim.Effect] = []
+        for c in keys { effects = vim.key(.char(c), buffer: &buffer, pasteboard: { nil }) }
+        return effects
+    }
+
+    override func setUp() {
+        // "We recieve it. Then we sheduled it." — two marks.
+        buffer = Draft.Buffer(text: "We recieve it. Then we sheduled it.", cursor: 0)
+        vim = Vim()
+        vim.spellMarks = [3..<10, 23..<31]
+    }
+
+    func testBracketSMovesToTheNextMarkAndWraps() {
+        XCTAssertEqual(type("]s"), [])
+        XCTAssertEqual(buffer.cursor, 3)
+        _ = type("]s")
+        XCTAssertEqual(buffer.cursor, 23)
+        _ = type("]s")
+        XCTAssertEqual(buffer.cursor, 3, "past the last, around to the first, as vim's search wraps")
+    }
+
+    func testOpenBracketSMovesToThePreviousMark() {
+        buffer.setCursor(30)
+        _ = type("[s")
+        XCTAssertEqual(buffer.cursor, 23)
+        _ = type("[s")
+        XCTAssertEqual(buffer.cursor, 3)
+        _ = type("[s")
+        XCTAssertEqual(buffer.cursor, 23, "before the first, around to the last")
+    }
+
+    func testZEqualsFixesAndZGKeepsTheMarkUnderTheCursor() {
+        buffer.setCursor(25)
+        XCTAssertEqual(type("z="), [.spellFix(1)])
+        XCTAssertEqual(type("zg"), [.spellKeep(1)])
+        buffer.setCursor(12)
+        XCTAssertEqual(type("z="), [.flash("⌂ no mark under the cursor")])
+    }
+
+    func testNothingMarkedSaysSo() {
+        vim.spellMarks = []
+        XCTAssertEqual(type("]s"), [.flash("⌂ nothing marked")])
+    }
+
+    func testAnUnknownSecondKeyDoesNothingAndLeavesNothingPending() {
+        XCTAssertEqual(type("]x"), [])
+        XCTAssertFalse(vim.isPending)
+        XCTAssertEqual(buffer.cursor, 0)
+    }
+}

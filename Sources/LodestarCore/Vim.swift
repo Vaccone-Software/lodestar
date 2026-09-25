@@ -36,6 +36,10 @@ public struct Vim {
         /// Text for the pasteboard.
         case yank(String)
         case flash(String)
+        /// `z=` and `zg` on the editor's mark at this index of `spellMarks`:
+        /// apply its fix, or keep the word.
+        case spellFix(Int)
+        case spellKeep(Int)
         /// The key meant nothing here; the shell may use it.
         case unhandled
     }
@@ -48,6 +52,11 @@ public struct Vim {
     private var opCount: Int?
     private var awaiting: Character?
     private var pendingG = false
+    /// `]`, `[` or `z`, waiting for the second half of a spelling key.
+    private var pendingSpell: Character?
+    /// The editor's marks, as character ranges of the buffer, set by the
+    /// shell before each key: what `]s`, `[s`, `z=` and `zg` act on.
+    public var spellMarks: [Range<Int>] = []
     private var pendingObject: Character?
     /// mini.surround's half-typed states: `s` awaiting its verb, `sd`
     /// or `sr` awaiting delimiters, and a span waiting for its wrap.
@@ -136,7 +145,7 @@ public struct Vim {
     /// A command is half typed: an operator, a count, a find waiting for
     /// its character. Escape clears it rather than closing anything.
     public var isPending: Bool {
-        count != nil || op != nil || awaiting != nil || pendingG || pendingObject != nil
+        count != nil || op != nil || awaiting != nil || pendingG || pendingObject != nil || pendingSpell != nil
             || surround != nil || wrapRange != nil
     }
 
@@ -230,6 +239,26 @@ public struct Vim {
     public mutating func markInsertBoundary(_ buffer: Draft.Buffer) {
         guard mode == .insert, !replaying else { return }
         snapshot(buffer)
+    }
+
+    /// A fix from the editor: the range becomes the text in one undo step,
+    /// and the cursor stays where the hand left it — before the fix,
+    /// untouched; after it, moved by the change in length; inside it, at
+    /// its new end.
+    public mutating func replaceKeepingCursor(_ range: Range<Int>, with text: String,
+                                              buffer: inout Draft.Buffer) {
+        snapshot(buffer)
+        let cursor = buffer.cursor
+        let target = min(range.lowerBound, buffer.count)..<min(range.upperBound, buffer.count)
+        buffer.replace(target, with: text)
+        let delta = text.count - target.count
+        if cursor <= target.lowerBound {
+            buffer.setCursor(cursor)
+        } else if cursor >= target.upperBound {
+            buffer.setCursor(cursor + delta)
+        } else {
+            buffer.setCursor(target.lowerBound + text.count)
+        }
     }
 
     /// Speech landing on a visual selection: the words replace it and
@@ -329,6 +358,11 @@ public struct Vim {
             default: clearPending(); return []
             }
         }
+        if let prefix = pendingSpell {
+            pendingSpell = nil
+            guard case .char(let c) = key else { clearPending(); return [] }
+            return spell(prefix, c, &buffer)
+        }
 
         switch key {
         case .escape:
@@ -393,6 +427,7 @@ public struct Vim {
         case "$": return applyMotion(.lineEnd, &buffer, pasteboard: pasteboard)
         case "G": return applyMotion(count.map { .line($0 - 1) } ?? .lastLine, &buffer, pasteboard: pasteboard)
         case "g": pendingG = true; return []
+        case "]", "[", "z": pendingSpell = c; return []
         case "f", "t", "F", "T": awaiting = c; return []
         case ";":
             guard let find = lastFind else { return [] }
@@ -1212,6 +1247,35 @@ public struct Vim {
         return [.enterInsert]
     }
 
+    // MARK: - Spelling
+
+    /// Vim's spelling keys, over the editor's marks: `]s` and `[s` move to
+    /// the next and the previous mark, wrapping as vim's search does; `z=`
+    /// applies the fix under the cursor and `zg` keeps the word — the
+    /// shell does both, since the marks and their fixes are the editor's.
+    private mutating func spell(_ prefix: Character, _ c: Character, _ buffer: inout Draft.Buffer) -> [Effect] {
+        count = nil
+        let marks = spellMarks.enumerated().sorted { $0.element.lowerBound < $1.element.lowerBound }
+        switch (prefix, c) {
+        case ("]", "s"), ("[", "s"):
+            guard !marks.isEmpty else { return [.flash("⌂ nothing marked")] }
+            let forward = prefix == "]"
+            let target = forward
+                ? (marks.first { $0.element.lowerBound > buffer.cursor } ?? marks[0])
+                : (marks.last { $0.element.lowerBound < buffer.cursor } ?? marks[marks.count - 1])
+            buffer.setCursor(target.element.lowerBound)
+            return []
+        case ("z", "="), ("z", "g"):
+            guard let under = spellMarks.firstIndex(where: { $0.contains(buffer.cursor) }) else {
+                return [.flash("⌂ no mark under the cursor")]
+            }
+            return [c == "=" ? .spellFix(under) : .spellKeep(under)]
+        default:
+            clearPending()
+            return []
+        }
+    }
+
     // MARK: - History
 
     private mutating func snapshot(_ buffer: Draft.Buffer) {
@@ -1416,7 +1480,7 @@ public struct Vim {
     // MARK: - Helpers
 
     private mutating func clearPending() {
-        count = nil; op = nil; opCount = nil; awaiting = nil; pendingG = false; pendingObject = nil
+        count = nil; op = nil; opCount = nil; awaiting = nil; pendingG = false; pendingObject = nil; pendingSpell = nil
         surround = nil; surroundFrom = nil; wrapRange = nil
         recording = []
     }

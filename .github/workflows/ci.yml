@@ -16,9 +16,41 @@ jobs:
         # MLX compiles its GPU kernels with `metal`, a separate download
         # since Xcode 26; a runner image may not carry it.
         run: xcrun -f metal >/dev/null 2>&1 || xcodebuild -downloadComponent MetalToolchain
+
+      - name: Toolchain
+        id: toolchain
+        # A different Xcode is a different compiler: its build is not ours
+        # to reuse, so its version is part of the cache key.
+        run: echo "xcode=$(xcodebuild -version | tr '\n' ' ' | tr -cs 'A-Za-z0-9.' '-')" >> "$GITHUB_OUTPUT"
+
+      # The dependencies (MLX's C++ above all) are most of a clean build and
+      # never change between our commits, so .build is restored from the
+      # last run with the same toolchain and the same resolved packages.
+      # Our own sources come from a fresh checkout, newer than anything in
+      # the cache, so they always rebuild; a dependency bump misses the
+      # exact key and starts from the nearest cache instead.
+      - name: Restore the build
+        uses: actions/cache/restore@v4
+        with:
+          path: .build
+          key: spm-${{ runner.os }}-${{ steps.toolchain.outputs.xcode }}-${{ hashFiles('Package.resolved') }}-${{ github.sha }}
+          restore-keys: |
+            spm-${{ runner.os }}-${{ steps.toolchain.outputs.xcode }}-${{ hashFiles('Package.resolved') }}-
+            spm-${{ runner.os }}-${{ steps.toolchain.outputs.xcode }}-
+
       - name: Build
         run: swift build
       - name: Test
         # Sharded across a few xctest processes: the same suite, about a
         # quarter of the wall time.
         run: ./scripts/test.sh
+
+      # Saved from main only: pull requests restore main's build and add
+      # nothing, so the repository's cache holds a few recent builds, not
+      # one per branch.
+      - name: Save the build
+        if: github.event_name == 'push' && success()
+        uses: actions/cache/save@v4
+        with:
+          path: .build
+          key: spm-${{ runner.os }}-${{ steps.toolchain.outputs.xcode }}-${{ hashFiles('Package.resolved') }}-${{ github.sha }}

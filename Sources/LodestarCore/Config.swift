@@ -41,6 +41,9 @@ public struct Config {
     public var showMenuBar = true
     /// How the active display is chosen: pointer | focus.
     public var activeDisplayMode = ActivePolicy.Mode.pointer
+    /// "metric" or "imperial": the units a copied measurement is read
+    /// into. Empty until chosen, and then the region's.
+    public var units = ""
     /// The one appearance setting: the Mac's accent, or Lodestar's own
     /// international orange. An appearance setting may change how
     /// Lodestar looks to you, never what it asks of you; this is the
@@ -110,6 +113,9 @@ public struct Config {
     public var clipboardMaxBytes = 500_000_000
     public var clipboardExcludedApps: Set<String> = []
     public var clipboardExcludePatterns: [String] = []
+    /// Zones a timestamp card also reads into, beside yours and UTC, as
+    /// IANA identifiers ("Asia/Tokyo").
+    public var clipboardTimeZones: [String] = []
     /// Where an image saved from the strip lands, unless the name typed
     /// says otherwise. `~` is the home folder.
     public var clipboardSaveFolder = "~/Downloads"
@@ -124,7 +130,8 @@ public struct Config {
     /// suits.
     public var editorModel = ""
     /// The spell checker's language: en_US or en_GB.
-    public var editorLanguage = "en_US"
+    /// Empty: the Mac's own English (EditorRegion.inferred).
+    public var editorLanguage = ""
     /// Apps whose fields the editor never reads, by name, lowercased.
     public var editorSkipApps: Set<String> = []
     /// Changes the hand said were meant, as "original→replacement".
@@ -197,6 +204,8 @@ public struct Config {
             "start-at-login": .boolean(description: "Keep the login LaunchAgent installed (installed app only)."),
             "show-menu-bar": .boolean(description: "Show the status item permanently; false hides it until lodestar is picked in the launcher."),
             "active-display": .string(allowed: ["pointer", "focus"], description: "How the active display is chosen."),
+            "units": .string(allowed: ["", "metric", "imperial"],
+                             description: "The units a copied measurement is read into on its card. Empty follows your region."),
         ], description: "App behavior."),
         "appearance": .table([
             "accent": .string(allowed: ["system", "orange"],
@@ -241,12 +250,13 @@ public struct Config {
             "input": .string(allowed: nil, description: "The microphone the draft listens to, by its name in Sound settings. Empty follows the system default input."),
             "words": .freeTable(value: .boolean(description: "true to keep this word in the draft's vocabulary."),
                                 description: "Word → true. Names and terms speech gets wrong; a settled result within a letter or two of one is repaired to it, case and all."),
-        ], description: "The draft: lode . speaks, lode ⇧. edits."),
+        ], description: "The draft: lode . speaks, lode ⇧. revises."),
         "editor": .table([
             "enabled": .boolean(description: "Mark mistakes as you write, in every app; lode ⇥ letters the marks."),
             "model": .string(allowed: ["", "spelling", "minimal", "standard", "full"],
                              description: "How the editor reads: spelling (no model, any Mac), minimal (Apple's own model), standard (16 GB Macs and up) or full (64 GB and up). Empty picks the one this Mac suits; one this Mac cannot run falls back the same way."),
-            "language": .string(allowed: ["en_US", "en_GB"], description: "The spelling the editor holds you to."),
+            "language": .string(allowed: ["", "en_US", "en_GB", "en_CA", "en_AU", "en_NZ", "en_IN", "en_ZA", "en_SG"],
+                                description: "The spelling the editor holds you to. Empty follows the Mac's language and region."),
             "skip-apps": .freeTable(value: .boolean(description: "true to never read fields in this app."),
                                     description: "App name → true. Fields in these apps are never read."),
         ], description: "The editor: marks under mistakes, lode ⇥ to fix."),
@@ -258,6 +268,8 @@ public struct Config {
             "save-to": .string(allowed: nil, description: "The folder an image saved from the clipboard strip lands in. A name typed with a slash in it, or starting with / or ~, chooses another place for that save."),
             "exclude": .freeTable(value: .boolean(description: "true to never record clips containing this text."),
                                   description: "Substring → true, matched case-insensitively against the clip. The same shape web.routes uses."),
+            "time-zones": .freeTable(value: .boolean(description: "true to read timestamps into this zone too."),
+                                     description: "Zone identifier (Asia/Tokyo) → true. A clip that is only a timestamp is read into your zone, UTC, and these."),
         ], description: "Clipboard history."),
         "observations": .table([
             "enabled": .boolean(description: "Watch how you reach things, on this machine only, to suggest improvements later."),
@@ -395,6 +407,9 @@ public struct Config {
         if let showMenuBar = effective.value(at: ["app", "show-menu-bar"])?.bool {
             config.showMenuBar = showMenuBar
         }
+        if let units = effective.value(at: ["app", "units"])?.string {
+            config.units = ClipQuantity.System(rawValue: units) != nil ? units : ""
+        }
         if let active = effective.value(at: ["app", "active-display"])?.string {
             if let mode = ActivePolicy.Mode(rawValue: active) {
                 config.activeDisplayMode = mode
@@ -440,6 +455,10 @@ public struct Config {
         if let patterns = effective.value(at: ["clipboard", "exclude"])?.table {
             config.clipboardExcludePatterns = patterns.filter { $0.value.bool == true }.keys.sorted()
         }
+        if let zones = effective.value(at: ["clipboard", "time-zones"])?.table {
+            config.clipboardTimeZones = zones.filter { $0.value.bool == true && TimeZone(identifier: $0.key) != nil }
+                .keys.sorted()
+        }
         if let words = effective.value(at: ["draft", "words"])?.table {
             config.draftWords = words.filter { $0.value.bool == true }.keys.sorted()
         }
@@ -453,7 +472,7 @@ public struct Config {
             config.editorModel = model.trimmingCharacters(in: .whitespaces).lowercased()
         }
         if let language = effective.value(at: ["editor", "language"])?.string {
-            config.editorLanguage = language == "en_GB" ? "en_GB" : "en_US"
+            config.editorLanguage = EditorRegion.choices.contains { $0.code == language } ? language : ""
         }
         if let apps = effective.value(at: ["editor", "skip-apps"])?.table {
             config.editorSkipApps = Set(apps.filter { $0.value.bool == true }.keys.map { $0.lowercased() })

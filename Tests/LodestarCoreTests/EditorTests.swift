@@ -461,3 +461,36 @@ final class EditorRulesTests: XCTestCase {
         XCTAssertEqual(found.map(\.replacement), ["a lot"])
     }
 }
+
+/// Which English the editor holds you to, inferred from the Mac.
+final class EditorRegionTests: XCTestCase {
+    func testTheMacsFirstEnglishDecides() {
+        XCTAssertEqual(EditorRegion.inferred(preferredLanguages: ["en-US"], region: "US"), "en_US")
+        XCTAssertEqual(EditorRegion.inferred(preferredLanguages: ["en-GB"], region: "GB"), "en_GB")
+        XCTAssertEqual(EditorRegion.inferred(preferredLanguages: ["fr-FR", "en-CA"], region: "FR"), "en_CA",
+                       "the first English, after another language")
+        XCTAssertEqual(EditorRegion.inferred(preferredLanguages: ["en"], region: "AU"), "en_AU",
+                       "a bare en takes the Mac's region")
+        XCTAssertEqual(EditorRegion.inferred(preferredLanguages: ["en-IE"], region: "IE"), "en_GB",
+                       "no Irish dictionary: Ireland spells the British way")
+        XCTAssertEqual(EditorRegion.inferred(preferredLanguages: ["en-PH"], region: "PH"), "en_US")
+        XCTAssertEqual(EditorRegion.inferred(preferredLanguages: ["de-DE"], region: "DE"), "en_US",
+                       "no English at all: US English")
+    }
+
+    func testAChoiceStandsAndEmptyFollowsTheMac() {
+        XCTAssertEqual(EditorRegion.resolved("en_NZ"), "en_NZ")
+        XCTAssertEqual(EditorRegion.resolved(""), EditorRegion.inferred())
+        XCTAssertEqual(EditorRegion.resolved("klingon"), EditorRegion.inferred())
+    }
+
+    func testTheModelIsToldOnlyWhenItIsNotUSEnglish() {
+        XCTAssertNil(EditorRegion.instruction(for: "en_US"))
+        XCTAssertTrue(EditorRegion.instruction(for: "en_GB")?.contains("colour and organise") == true)
+        XCTAssertTrue(EditorRegion.instruction(for: "en_CA")?.contains("organize") == true)
+    }
+
+    func testTheConfigTakesAnyDictionaryAndDefaultsToAutomatic() {
+        XCTAssertEqual(Config().editorLanguage, "")
+    }
+}

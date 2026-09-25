@@ -103,3 +103,15 @@ final class ControlVerbTests: XCTestCase {
         if case .failure = parse() {} else { XCTFail("an empty argument list is not a verb") }
     }
 }
+
+final class ReviseDoorVerbTests: XCTestCase {
+    /// lode ⇧. is the revise door; scripts written when it was "edit" still work.
+    func testTheReviseDoorAnswersToItsNameAndItsOldOne() {
+        for word in ["revise", "edit"] {
+            guard case .success(let verb) = ControlParse.parse(["draft", word]) else { return XCTFail(word) }
+            XCTAssertEqual("\(verb)", "\(ControlVerb.draft(.open(.edit)))", word)
+        }
+        guard case .failure(let error) = ControlParse.parse(["draft"]) else { return XCTFail("needs a door") }
+        XCTAssertTrue("\(error)".contains("revise"))
+    }
+}

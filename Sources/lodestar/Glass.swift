@@ -363,8 +363,8 @@ enum BarTheme {
     static let typedFont = handFont(17, weight: .medium)
     /// Lodestar's voice: the system's serif, New York, reached by design
     /// so nothing ships. Reserved for sentences Lodestar says when it
-    /// asks, teaches or reflects; facts, addresses, keys and the hand's
-    /// words never wear it.
+    /// asks, teaches or reflects, and the note on a clip it has read;
+    /// facts, addresses, keys and the hand's words never wear it.
     static let voiceFont: NSFont = {
         let size: CGFloat = 20
         let descriptor = NSFont.systemFont(ofSize: size).fontDescriptor.withDesign(.serif)
@@ -481,6 +481,9 @@ enum BarTheme {
     /// The draft's face, and any other mono text the eye rests on.
     static let readingMono = NSFont.monospacedSystemFont(ofSize: Scale.body, weight: .regular)
     static let readingMonoAccent = NSFont.monospacedSystemFont(ofSize: Scale.body, weight: .semibold)
+    /// Mono at the caption size, for a copied value longer than a card is
+    /// wide: still the hand's face, a step down the scale.
+    static let metaMono = handFont(Scale.meta)
 }
 
 /// Chips you can move, and put back by ignoring.

@@ -62,3 +62,40 @@ final class EditorAccuracyLiveTests: XCTestCase {
         }
     }
 }
+
+/// The region's instruction on the real model: British sentences stay
+/// British when the model is told, on demand (LODESTAR_EDITOR_LIVE=standard).
+final class EditorRegionLiveTests: XCTestCase {
+    static let british = [
+        "The colour of the new logo is grey.",
+        "We need to organise the travel before the programme starts.",
+        "Please analyse the behaviour of the cache.",
+        "I travelled to the centre on Monday.",
+        "The catalogue arrives in the autumn.",
+    ]
+
+    @MainActor
+    func testBritishSpellingStaysBritishWhenTheModelIsTold() async throws {
+        guard let name = ProcessInfo.processInfo.environment["LODESTAR_EDITOR_LIVE"],
+              let engine = EditorEngine(rawValue: name), engine.usesModel else {
+            throw XCTSkip("LODESTAR_EDITOR_LIVE=standard runs the real model")
+        }
+        func americanized(_ language: String) async -> [String] {
+            let model = EditorModel(engine: engine)
+            await model.setLanguage(language)
+            var changed: [String] = []
+            for sentence in Self.british {
+                let answer = await model.correct(sentence) ?? sentence
+                let issues = EditorDiff.issues(text: sentence as NSString, sentence: NSRange(location: 0, length: (sentence as NSString).length),
+                                               corrected: answer, guards: EditorGuards(), protected: [])
+                changed += issues.map { "\($0.original) → \($0.replacement)" }
+            }
+            await model.release(reason: "test")
+            return changed
+        }
+        let untold = await americanized("en_US")
+        let told = await americanized("en_GB")
+        print("editor region · told nothing: \(untold) · told British: \(told)")
+        XCTAssertTrue(told.isEmpty, "British spelling marked as wrong: \(told)")
+    }
+}

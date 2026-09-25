@@ -5,9 +5,16 @@ import LodestarCore
 protocol EditorLens: AnyObject {
     var enabled: Bool { get }
     var lensMarks: [EditorController.Mark] { get }
+    /// Where the chips are drawn, in quartz screen coordinates, when not
+    /// over the focused window (the draft draws over its own panel).
+    var lensCanvas: CGRect? { get }
     func fix(_ mark: EditorController.Mark, completion: @escaping (Bool) -> Void)
     func dismiss(_ mark: EditorController.Mark)
     func undoLastFix(completion: @escaping (Bool) -> Void)
+}
+
+extension EditorLens {
+    var lensCanvas: CGRect? { nil }
 }
 
 /// The editor: reads the field the hand is typing in, marks what reads
@@ -40,6 +47,7 @@ final class EditorController: EditorLens {
     var learnName: (String) -> Void = { _ in }
 
     private(set) var enabled = false
+    private var languageSent = false
     private var skipApps: Set<String> = []
     private let session = EditorSession()
     private(set) var engine = EditorEngine.standard
@@ -50,7 +58,8 @@ final class EditorController: EditorLens {
     /// is measured by. `polls` is false when a test hands fields in itself.
     private let source: EditorFieldSource
     private let axQueue: DispatchQueue
-    private let proofreader: EditorProofreader
+    /// Shared with the draft's editor: one model, loaded once for both.
+    let proofreader: EditorProofreader
     private let drawing: EditorMarksDrawing
     let hover: EditorHover?
     private let clock: Clock
@@ -119,6 +128,11 @@ final class EditorController: EditorLens {
 
     func apply(enabled: Bool, engine: EditorEngine, language: String, vocabulary: [String],
                skipApps: Set<String>) {
+        if language != session.language || !languageSent {
+            languageSent = true
+            let proofreader = self.proofreader
+            Task { await proofreader.setLanguage(language) }
+        }
         session.language = language
         session.guards = EditorGuards(vocabulary: Set(vocabulary))
         self.skipApps = skipApps
@@ -370,8 +384,25 @@ final class EditorController: EditorLens {
 
     // MARK: - The lens
 
-    /// What the lens letters: the marks standing now, in reading order.
-    var lensMarks: [Mark] { marks }
+    /// What the lens letters: the marks standing now, nearest the caret
+    /// first, since the lens hands out its easiest letters in order.
+    var lensMarks: [Mark] { Self.nearestFirst(marks, caret: field?.caret) }
+
+    /// The mark just written is the one most likely wanted, so it gets the
+    /// home-row letter: marks by distance from the caret, a tie going to
+    /// the one before it (written) over the one after (read), then reading
+    /// order. No caret (a selection), reading order.
+    static func nearestFirst(_ marks: [Mark], caret: Int?) -> [Mark] {
+        guard let caret else { return marks }
+        func rank(_ range: NSRange) -> (Int, Int) {
+            if caret < range.location { return (range.location - caret, 1) }
+            return (max(0, caret - (range.location + range.length)), 0)
+        }
+        return marks.enumerated().sorted { a, b in
+            let (ra, rb) = (rank(a.element.issue.range), rank(b.element.issue.range))
+            return ra != rb ? ra < rb : a.offset < b.offset
+        }.map(\.element)
+    }
 
     /// Apply the fix a letter named. Asynchronous: the text changes, and
     /// the next beat reads it.

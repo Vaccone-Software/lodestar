@@ -115,6 +115,15 @@ final class ClipboardStrip {
     private(set) var shownBadges: [String: String] = [:]
     private(set) var shownSources: [String: String] = [:]
     private(set) var shownCaptions: [String: String] = [:]
+    /// Cards drawn as a color, by clip id: the color's hex.
+    private(set) var shownSwatches: [String: String] = [:]
+    /// Lodestar's note on each card it has read, by clip id: the voice
+    /// line first, then the exact lines, as drawn.
+    private(set) var shownNotes: [String: [String]] = [:]
+    /// The zones a timestamp is read into beside yours and UTC.
+    var timeZones: [TimeZone] = []
+    /// The units a measurement is read into.
+    var units = ClipQuantity.System.regional()
     /// Every plate's veil, in the order the cards were made — the tests
     /// read that a lit card is raised and the rest are the launcher's.
     private(set) var shownWeights: [Glass.Weight] = []
@@ -157,6 +166,8 @@ final class ClipboardStrip {
         shownBadges = [:]
         shownSources = [:]
         shownCaptions = [:]
+        shownSwatches = [:]
+        shownNotes = [:]
         shownWeights = []
         shownCards = [:]
 
@@ -246,8 +257,10 @@ final class ClipboardStrip {
 
         for (offset, clip) in visibleRecents.enumerated() {
             let label = Self.labels[offset]
+            // Only an image has a thumbnail: asking for a text card's
+            // looked for a file on disk on every keystroke of a search.
             let card = makeCard(clip: clip, label: address + label, height: Self.cardHeight,
-                                thumbnail: thumbnail(clip.id),
+                                thumbnail: clip.kind == .image ? thumbnail(clip.id) : nil,
                                 highlighted: clip.id == actingOn
                                     || (query != nil && offset == selection))
             card.frame = NSRect(x: CGFloat(offset) * (Self.cardWidth + Self.gap),
@@ -281,7 +294,7 @@ final class ClipboardStrip {
             let card: NSView
             if let clip = shownPins[slot] {
                 card = makeCard(clip: clip, label: address + "\(slot)", height: Self.cardHeight,
-                                thumbnail: thumbnail(clip.id),
+                                thumbnail: clip.kind == .image ? thumbnail(clip.id) : nil,
                                 highlighted: clip.id == actingOn)
             } else {
                 card = makeEmptyPin(slot: slot)
@@ -327,33 +340,43 @@ final class ClipboardStrip {
             card.addSubview(count)
         }
 
-        if let thumbnail {
+        let body = NSRect(x: 11, y: Self.cardFoot, width: Self.cardWidth - 22,
+                          height: height - Self.cardHead - Self.cardFoot)
+        if let color = clip.color {
+            // The clip where every card has it; the color, its name and
+            // its other notation beneath, as Lodestar's note.
+            let text = clip.preview.trimmingCharacters(in: .whitespacesAndNewlines)
+            let other = text.hasPrefix("#") || text.lowercased().hasPrefix("0x") || !text.contains("(")
+                ? color.rgb : color.hex
+            let note = addNote(voice: color.name, lines: [other], swatch: color, for: clip.id, to: card, in: body)
+            addPreview(clip, to: card, in: body, above: note)
+            shownSwatches[clip.id] = color.hex
+        } else if let time = clip.time {
+            let read = time.note(zones: timeZones)
+            // The clip's own lines come first: the note gets what is left,
+            // its voice and your clock always, the zones as they fit.
+            let room = body.height - Self.previewHeight(clip, width: body.width) - Self.noteGap
+            let lines = Self.pack([read.local] + read.zones, width: body.width,
+                                  rows: Int((room - Self.voiceHeight - 2) / Self.metaHeight))
+            let note = addNote(voice: read.voice, lines: lines, swatch: nil, for: clip.id,
+                               to: card, in: body)
+            addPreview(clip, to: card, in: body, above: note)
+        } else if let read = clip.quantity?.note(into: units) {
+            // Only a measurement in the other system: one in yours is
+            // already what you would read, and stays a plain card.
+            let note = addNote(voice: read.voice, lines: read.exact.map { [$0] } ?? [], swatch: nil, for: clip.id,
+                               to: card, in: body)
+            addPreview(clip, to: card, in: body, above: note)
+        } else if let sum = clip.sum {
+            let note = addNote(voice: sum.voice(), lines: [], swatch: nil, for: clip.id, to: card, in: body)
+            addPreview(clip, to: card, in: body, above: note)
+        } else if let thumbnail {
             let view = NSImageView(image: thumbnail)
             view.imageScaling = .scaleProportionallyUpOrDown
-            view.frame = NSRect(x: 11, y: Self.cardFoot, width: Self.cardWidth - 22,
-                                height: height - Self.cardHead - Self.cardFoot)
+            view.frame = body
             card.addSubview(view)
         } else {
-            let preview = NSTextField(wrappingLabelWithString: String(clip.preview.prefix(220)))
-            // Not BarTheme.secondaryFont: that size is for supporting text
-            // under a title. Here the preview *is* the content, so it takes
-            // a reading size rather than a captioning one.
-            //
-            // A point below the menus' 13: a card is read at a glance to
-            // tell clips apart, and the extra line it buys is worth more
-            // than the point of size it costs.
-            preview.font = BarTheme.bodyFont
-            preview.textColor = BarTheme.secondaryColor
-            // Wrap to the card, ellipsize only the last line. Assigning
-            // .byTruncatingTail here collapses the field to a single line
-            // whatever the line limit says — the ellipsis has to come from
-            // the cell instead, or a taller card buys nothing but air.
-            preview.lineBreakMode = .byWordWrapping
-            preview.maximumNumberOfLines = 5
-            preview.cell?.truncatesLastVisibleLine = true
-            preview.frame = NSRect(x: 11, y: Self.cardFoot, width: Self.cardWidth - 22,
-                                   height: height - Self.cardHead - Self.cardFoot)
-            card.addSubview(preview)
+            addPreview(clip, to: card, in: body, above: nil)
         }
 
         // Where it came from, beside the icon that says so: the page a
@@ -404,6 +427,135 @@ final class ClipboardStrip {
         card.addSubview(foot)
         return card
     }
+
+    /// A card's text, drawn the one way every card draws it, from the top
+    /// of the body down. A card with a note beneath gives up the lines
+    /// the note stands in, never its place or its face.
+    private func addPreview(_ clip: Clipboard.Clip, to card: NSView, in body: NSRect, above note: CGFloat?) {
+        let preview = NSTextField(wrappingLabelWithString: String(clip.preview.prefix(220)))
+        // Not BarTheme.secondaryFont: that size is for supporting text
+        // under a title. Here the preview *is* the content, so it takes
+        // a reading size rather than a captioning one.
+        //
+        // A point below the menus' 13: a card is read at a glance to
+        // tell clips apart, and the extra line it buys is worth more
+        // than the point of size it costs.
+        preview.font = BarTheme.bodyFont
+        preview.textColor = BarTheme.secondaryColor
+        // Wrap to the card, ellipsize only the last line. Assigning
+        // .byTruncatingTail here collapses the field to a single line
+        // whatever the line limit says — the ellipsis has to come from
+        // the cell instead, or a taller card buys nothing but air.
+        preview.lineBreakMode = .byWordWrapping
+        preview.maximumNumberOfLines = 5
+        preview.cell?.truncatesLastVisibleLine = true
+        var frame = body
+        if let note {
+            frame.origin.y = note + Self.noteGap
+            frame.size.height = body.maxY - frame.minY
+            preview.maximumNumberOfLines = max(1, Int(frame.height / Self.bodyLine))
+        }
+        preview.frame = frame
+        card.addSubview(preview)
+    }
+
+    /// Lodestar's note on a card it has read: at the foot of the body, so
+    /// the clip above it keeps its place. The first line is Lodestar
+    /// speaking, in its voice and in the clip's own grey, so the two are
+    /// told apart by face and never by loudness; the exact values ride
+    /// beneath in the interface's face, the way a measurement rides under
+    /// the coach's sentence. A color stands beside its note as a swatch.
+    /// Returns the note's top edge.
+    private func addNote(voice: String?, lines: [String], swatch color: ClipColor?, for id: String,
+                         to card: NSView, in body: NSRect) -> CGFloat {
+        var x = body.minX
+        var drawn: [String] = []
+        var labels: [NSTextField] = []
+        let swatchSide: CGFloat = 40
+        if color != nil { x += swatchSide + 10 }
+        let width = body.maxX - x
+        if let voice {
+            let label = NSTextField(wrappingLabelWithString: voice)
+            label.font = BarTheme.voiceFont
+            label.textColor = BarTheme.secondaryColor
+            label.lineBreakMode = .byWordWrapping
+            label.maximumNumberOfLines = 2
+            label.frame.size = label.sizeThatFits(NSSize(width: width, height: .greatestFiniteMagnitude))
+            labels.append(label)
+            drawn.append(voice)
+        }
+        for line in lines {
+            let label = NSTextField(labelWithString: line)
+            label.font = BarTheme.secondaryFont
+            label.textColor = BarTheme.secondaryColor
+            label.lineBreakMode = .byTruncatingTail
+            label.sizeToFit()
+            label.frame.size.width = min(label.frame.width, width)
+            labels.append(label)
+            drawn.append(line)
+        }
+        // Stacked up from the foot of the body, the voice two points
+        // clear of the lines beneath it.
+        var y = body.minY
+        for (index, label) in labels.enumerated().reversed() {
+            label.frame.origin = NSPoint(x: x, y: y)
+            card.addSubview(label)
+            y += label.frame.height + (index == 1 && voice != nil ? 2 : 0)
+        }
+        var top = y
+        if let color {
+            // Centered on its note, the way an icon stands beside two lines.
+            let middle = (body.minY + y) / 2
+            let swatch = NSView(frame: NSRect(x: body.minX, y: max(body.minY, middle - swatchSide / 2),
+                                              width: swatchSide, height: swatchSide))
+            swatch.wantsLayer = true
+            swatch.layer?.cornerRadius = BarTheme.wellRadius
+            swatch.layer?.backgroundColor = NSColor(srgbRed: color.red, green: color.green, blue: color.blue,
+                                                    alpha: color.alpha).cgColor
+            // A hairline, so white and black both have an edge on the glass.
+            swatch.layer?.borderWidth = 0.5
+            swatch.layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.2).cgColor
+            card.addSubview(swatch)
+            top = max(top, swatch.frame.maxY)
+        }
+        shownNotes[id] = drawn
+        return top
+    }
+
+    /// The exact lines, as few as hold them: each part joins the line
+    /// above when it fits beside it, measured as a label draws it, and
+    /// what does not fit in `rows` is left off.
+    private static func pack(_ parts: [String], width: CGFloat, rows: Int) -> [String] {
+        func fits(_ text: String) -> Bool {
+            let label = NSTextField(labelWithString: text)
+            label.font = BarTheme.secondaryFont
+            label.sizeToFit()
+            return label.frame.width <= width
+        }
+        var lines: [String] = []
+        for part in parts {
+            if let last = lines.last, fits(Caption.line([last, part])) {
+                lines[lines.count - 1] = Caption.line([last, part])
+            } else {
+                lines.append(part)
+            }
+        }
+        return Array(lines.prefix(max(1, rows)))
+    }
+
+    /// How tall a card's text stands, measured as the card will draw it.
+    private static func previewHeight(_ clip: Clipboard.Clip, width: CGFloat) -> CGFloat {
+        let preview = NSTextField(wrappingLabelWithString: String(clip.preview.prefix(220)))
+        preview.font = BarTheme.bodyFont
+        preview.lineBreakMode = .byWordWrapping
+        preview.maximumNumberOfLines = 2
+        return ceil(preview.sizeThatFits(NSSize(width: width, height: .greatestFiniteMagnitude)).height)
+    }
+
+    private static let noteGap: CGFloat = 8
+    private static var bodyLine: CGFloat { ceil(BarTheme.bodyFont.ascender - BarTheme.bodyFont.descender + BarTheme.bodyFont.leading) }
+    private static var metaHeight: CGFloat { 16 }
+    private static var voiceHeight: CGFloat { ceil(BarTheme.voiceFont.ascender - BarTheme.voiceFont.descender) + 2 }
 
     /// An empty slot keeps the material and loses the frosting. An outline
     /// drew a hard rectangle on the content behind it, half opacity faded

@@ -10,6 +10,11 @@ import LodestarCore
 /// every single time; the persistent guide panel is the state made visible.
 /// Holding lode alone peeks the top-level guide: the system teaches itself.
 final class HotkeyEngine {
+    /// The editor for the app's field, and the one inside the draft: with
+    /// the draft open, lode ⇥ letters the draft's marks.
+    weak var appEditor: EditorLens?
+    weak var draftEditor: EditorLens?
+
     /// Fires when a chain starts or ends — the menu bar wears the state.
     var onChainActive: ((Bool) -> Void)?
     /// Where observations land. Nil until the app wires one, so the engine
@@ -191,7 +196,7 @@ final class HotkeyEngine {
     }
 
     var config: Config {
-        didSet { applyGrammarConfig() }
+        didSet { applyGrammarConfig(); applyStripConfig() }
     }
     private let actions: EngineActions
     private let hud: HUD
@@ -205,6 +210,8 @@ final class HotkeyEngine {
     private let draft: DraftController
     /// Internal for the tests, which read what the strip shows.
     let strip = ClipboardStrip()
+    /// Each clip folded once for the strip's search, kept across searches.
+    private let searchIndex = ClipboardSearchIndex()
     /// The grammar's state, for the tests.
     var grammarState: EngineCore.State { core.state }
     private var pasteQuery: String?
@@ -300,10 +307,16 @@ final class HotkeyEngine {
             _ = self.apply(self.core.aimLanded(), event: nil)
         }
         applyGrammarConfig()
+        applyStripConfig()
     }
 
     private func applyGrammarConfig() {
         core.disabledGestures = config.disabledGestures
+    }
+
+    private func applyStripConfig() {
+        strip.timeZones = config.clipboardTimeZones.compactMap(TimeZone.init(identifier:))
+        strip.units = .chosen(config.units)
     }
 
     private var anyKeyBarVisible: Bool {
@@ -1500,7 +1513,7 @@ final class HotkeyEngine {
         let verbs: [GuideRow] = [
             row("␣", "launcher", gesture: "launcher"),
             row("⏎", "ask: links · domains · search", gesture: "web-bar"),
-            row(".", "draft: speak, ⏎ pastes · ⇧. edits the field", gesture: "draft"),
+            row(".", "draft: speak, ⏎ pastes · ⇧. revises the field", gesture: "draft"),
             row("-", "commands: the frontmost app's menus", gesture: "commands"),
             row("⇥", "windows of the focused app"),
             row("1…9", "jump to window by position", gesture: "index-jump"),
@@ -1618,6 +1631,12 @@ final class HotkeyEngine {
                     GuideRow(key: "i a", label: "inside · around, after a verb"),
                     GuideRow(key: "q b", label: "any quote · any bracket"),
                     GuideRow(keys: ["s", "a"], label: "wrap · sd unwrap · sr swap"),
+                ]),
+                // The editor's marks, by vim's own spelling keys.
+                .init(header: "Marks", rows: [
+                    GuideRow(key: "]s [s", label: "next mark · the one before"),
+                    GuideRow(key: "z=", label: "take its fix"),
+                    GuideRow(key: "zg", label: "keep the word"),
                 ]),
             ]
         case .visual:
@@ -1750,7 +1769,7 @@ extension HotkeyEngine: EngineWorld {
         // it, and comes back the moment the door closes.
         guard imageDoorClip == nil else { return }
         let all = clipboard.history.clips
-        let recents = pasteQuery.map { Clipboard.search(all, query: $0) } ?? Clipboard.recents(all)
+        let recents = pasteQuery.map { Clipboard.search(all, query: $0, index: searchIndex) } ?? Clipboard.recents(all)
         pasteSelection = max(0, min(pasteSelection, max(0, recents.count - 1)))
 
         // One band, whichever of its three jobs applies right now.
@@ -2064,9 +2083,14 @@ extension HotkeyEngine: EngineWorld {
         return select.enter(door: .tabs)
     }
 
-    var editorActive: Bool { select.editor?.enabled == true }
+    private var currentEditor: EditorLens? {
+        draft.isOpen ? (draftEditor ?? appEditor ?? select.editor) : (appEditor ?? select.editor)
+    }
+
+    var editorActive: Bool { currentEditor?.enabled == true }
 
     func enterEditor() -> Bool {
+        select.editor = currentEditor
         select.letters = KeyboardLayout.chipAlphabet()
         return select.enter(door: .editor, sticky: true)
     }

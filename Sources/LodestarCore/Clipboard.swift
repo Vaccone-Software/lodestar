@@ -600,31 +600,33 @@ public enum Clipboard {
     /// is what you typed sitting in the text, and above a letters-in-order
     /// match, which is a guess.
     static let hostRelevance = 550.0
+    /// A color's name — "orange" finds the orange copied as a hex — is
+    /// scored as the page is: what the clip is, not what it says.
+    static let nameRelevance = hostRelevance
 
     /// How well a clip answers a query: its preview first, and then the
     /// page it came from — "github" finds the clips copied on GitHub even
     /// when none of them says so.
     public static func relevance(of clip: Clip, to needle: String) -> Double? {
         let text = relevance(of: clip.preview, to: needle)
+        var score = text
         if let host = clip.sourceHost, !needle.isEmpty, host.contains(needle) {
-            return max(text ?? 0, hostRelevance)
+            score = max(score ?? 0, hostRelevance)
         }
-        return text
+        if !needle.isEmpty, let name = clip.color?.name.lowercased(), name.contains(needle) {
+            score = max(score ?? 0, nameRelevance)
+        }
+        return score
     }
 
     /// Newest-first among equals, so an untyped strip and a searched one
     /// order the same way and the labels stay where the eye expects them.
-    public static func search(_ clips: [Clip], query: String) -> [Clip] {
-        let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !needle.isEmpty else { return recents(clips) }
-        return recents(clips)
-            .enumerated()
-            .compactMap { position, clip -> (Clip, Double, Int)? in
-                guard let score = relevance(of: clip, to: needle) else { return nil }
-                return (clip, score, position)
-            }
-            .sorted { $0.1 == $1.1 ? $0.2 < $1.2 : $0.1 > $1.1 }
-            .map(\.0)
+    /// The strip keeps one index for the life of the app, so each clip is
+    /// folded once; a caller without one gets a fresh index, which folds
+    /// what it searches and gives the same answer.
+    public static func search(_ clips: [Clip], query: String,
+                              index: ClipboardSearchIndex = ClipboardSearchIndex()) -> [Clip] {
+        index.search(clips, query: query)
     }
 }
 

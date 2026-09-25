@@ -163,54 +163,14 @@ enum EditorAX {
 
     // MARK: - Waking Chromium
 
-    private static let wakeLock = NSLock()
-    nonisolated(unsafe) private static var wokenAt: [pid_t: Date] = [:]
-    nonisolated(unsafe) private static var browserBundles: [String: Bool] = [:]
-
-    /// Ask an app to build the tree of its pages' fields. Electron apps
-    /// answer `AXManualAccessibility` (the warmer's flag). Chromium
-    /// browsers do not: measured on Brave (2026-09-24), that flag is
-    /// refused (-25205) and the window keeps 51 nodes and no web area,
-    /// while `AXEnhancedUserInterface` — the flag VoiceOver sets — builds
-    /// the page at once. So a browser gets that one. Its only side effect
-    /// the window mover already handles (it drops the flag around a move).
-    /// Throttled per app to one ask a half minute, like the warmer.
+    /// Ask an app to build the tree of its pages' fields, the way every
+    /// door does (AXWarmer.ask: Electron's flag, and VoiceOver's for a
+    /// Chromium browser), throttled per app like the focus warmer.
     static func wake(_ pid: pid_t) {
         AXWarmer.warm(pid)
-        let now = Date()
-        let due: Bool = wakeLock.withLock {
-            wokenAt = wokenAt.filter { now.timeIntervalSince($0.value) < 30 }
-            guard wokenAt[pid] == nil else { return false }
-            wokenAt[pid] = now
-            return true
-        }
-        guard due, let bundle = NSRunningApplication(processIdentifier: pid)?.bundleURL,
-              isChromiumBrowser(bundle) else { return }
-        let app = AXUIElementCreateApplication(pid)
-        AXUIElementSetMessagingTimeout(app, timeout)
-        AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
     }
 
-    /// A Chromium browser: renderer helpers inside its frameworks, and no
-    /// Electron framework (Electron apps answer the warmer's flag).
-    static func isChromiumBrowser(_ bundle: URL) -> Bool {
-        if let known = wakeLock.withLock({ browserBundles[bundle.path] }) { return known }
-        let frameworks = bundle.appendingPathComponent("Contents/Frameworks")
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: frameworks.path)) ?? []
-        var chromium = false
-        if !names.contains("Electron Framework.framework") {
-            for name in names where name.hasSuffix(" Framework.framework") {
-                let versions = frameworks.appendingPathComponent(name).appendingPathComponent("Versions")
-                for version in (try? FileManager.default.contentsOfDirectory(atPath: versions.path)) ?? [] {
-                    let helpers = versions.appendingPathComponent(version).appendingPathComponent("Helpers")
-                    let apps = (try? FileManager.default.contentsOfDirectory(atPath: helpers.path)) ?? []
-                    if apps.contains(where: { $0.hasSuffix("Helper (Renderer).app") }) { chromium = true }
-                }
-            }
-        }
-        wakeLock.withLock { browserBundles[bundle.path] = chromium }
-        return chromium
-    }
+    static func isChromiumBrowser(_ bundle: URL) -> Bool { AXWarmer.isChromiumBrowser(bundle) }
 
     // MARK: - Geometry
 

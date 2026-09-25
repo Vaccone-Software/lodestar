@@ -183,6 +183,7 @@ public enum ConfigDefaults {
             "start-at-login": .bool(true),
             "show-menu-bar": .bool(true),
             "active-display": .string("pointer"),
+            "units": .string(""),
         ]),
         "graph": .table([:]),
         "web": .table([
@@ -216,6 +217,7 @@ public enum ConfigDefaults {
             "save-to": .string("~/Downloads"),
             "exclude-apps": .table([:]),
             "exclude": .table([:]),
+            "time-zones": .table([:]),
         ]),
         "observations": .table([
             "enabled": .bool(true),
@@ -224,7 +226,7 @@ public enum ConfigDefaults {
         "editor": .table([
             "enabled": .bool(false),
             "model": .string(""),
-            "language": .string("en_US"),
+            "language": .string(""),
             "skip-apps": .table([:]),
         ]),
         "meetings": .table([

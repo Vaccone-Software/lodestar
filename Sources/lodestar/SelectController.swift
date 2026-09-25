@@ -245,40 +245,16 @@ final class SelectController {
     // MARK: - Lifecycle
 
     func enter(door: Door = .anchor, sticky: Bool = false) -> Bool {
+        // The draft's lens draws over the draft, whatever window is or is
+        // not beneath it.
+        if door == .editor, let editor, let canvas = editor.lensCanvas {
+            begin(door: door, sticky: sticky, frame: canvas, appName: "Lodestar", pid: getpid())
+            guard !editor.lensMarks.isEmpty else { return false }
+            labelEditor(editor.lensMarks)
+            return true
+        }
         guard let window = model.focusedWindowNow() else { return false }
-        self.door = door
-        self.sticky = sticky
-        entryTargets = []
-        entryLabeled = []
-        entryHarvest = nil
-        entryChipsSettled = false
-        entryLabels = []
-        entryTyped = ""
-        entryChipsAtEntry = 0
-        firstKeyAt = nil
-        pendingKeys = []
-        dissolveGhost()
-        core = nil
-        units = []
-        windowFrame = window.frame
-        focusedFrame = window.frame
-        appName = window.appName
-        let mouse = NSEvent.mouseLocation
-        let primaryHeight = NSScreen.screens.first?.frame.maxY ?? 0
-        let read = Displays.display(containing: window.frame)?.bounds ?? window.frame
-        pointerOnWindow = read.contains(CGPoint(x: mouse.x, y: primaryHeight - mouse.y))
-        generation += 1
-        copyGeneration += 1
-        frozen = nil
-        lastPassLeaves = -1
-        ocrAdopted = false
-        world = "none"
-        focusedPid = window.pid
-        modeEnteredAt = Date()
-        capturedAt = nil
-        typedInMode = 0
-        committedOutcome = nil
-        observations?.verbUsed(Self.verbName(for: door))
+        begin(door: door, sticky: sticky, frame: window.frame, appName: window.appName, pid: window.pid)
         if door == .click {
             let expected = generation
             HintTargets.harvest(
@@ -303,6 +279,7 @@ final class SelectController {
         if door == .editor {
             // The marks are already placed: the lens only letters them.
             guard let editor, !editor.lensMarks.isEmpty else { return false }
+            if let canvas = editor.lensCanvas { windowFrame = canvas }
             labelEditor(editor.lensMarks)
             return true
         }
@@ -640,6 +617,44 @@ final class SelectController {
         case .none:
             return .pending
         }
+    }
+
+    /// Every door starts here: the typing, the chips and the counters
+    /// cleared, and the frame the chips are drawn over.
+    private func begin(door: Door, sticky: Bool, frame: CGRect, appName: String, pid: pid_t) {
+        self.door = door
+        self.sticky = sticky
+        entryTargets = []
+        entryLabeled = []
+        entryHarvest = nil
+        entryChipsSettled = false
+        entryLabels = []
+        entryTyped = ""
+        entryChipsAtEntry = 0
+        firstKeyAt = nil
+        pendingKeys = []
+        dissolveGhost()
+        core = nil
+        units = []
+        windowFrame = frame
+        focusedFrame = frame
+        self.appName = appName
+        let mouse = NSEvent.mouseLocation
+        let primaryHeight = NSScreen.screens.first?.frame.maxY ?? 0
+        let read = Displays.display(containing: frame)?.bounds ?? frame
+        pointerOnWindow = read.contains(CGPoint(x: mouse.x, y: primaryHeight - mouse.y))
+        generation += 1
+        copyGeneration += 1
+        frozen = nil
+        lastPassLeaves = -1
+        ocrAdopted = false
+        world = "none"
+        focusedPid = pid
+        modeEnteredAt = Date()
+        capturedAt = nil
+        typedInMode = 0
+        committedOutcome = nil
+        observations?.verbUsed(Self.verbName(for: door))
     }
 
     // MARK: - The editor door
@@ -1506,8 +1521,7 @@ final class SelectController {
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let app = AXUIElementCreateApplication(pid)
-            AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString,
-                                         kCFBooleanTrue)
+            AXWarmer.ask(app, pid: pid)
 
             struct Harvested {
                 let element: AXUIElement

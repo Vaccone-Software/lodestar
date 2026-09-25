@@ -56,6 +56,12 @@ final class ConfigCoverageTests: XCTestCase {
         Probe(path: ["clipboard", "exclude", "hunter2"], value: .bool(true)) {
             $0.clipboardExcludePatterns.contains("hunter2")
         },
+        Probe(path: ["app", "units"], value: .string("metric")) {
+            $0.units == "metric"
+        },
+        Probe(path: ["clipboard", "time-zones", "Asia/Tokyo"], value: .bool(true)) {
+            $0.clipboardTimeZones == ["Asia/Tokyo"]
+        },
         Probe(path: ["draft", "words", "Ghostty"], value: .bool(true)) {
             $0.draftWords.contains("Ghostty")
         },

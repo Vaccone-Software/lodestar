@@ -109,6 +109,12 @@ final class ConfigCoverageTests: XCTestCase {
         Probe(path: ["web", "clicks", "browser"], value: .string("com.brave.Browser")) {
             $0.webClickBrowser == "com.brave.Browser"
         },
+        Probe(path: ["editor", "enabled"], value: .bool(true)) { $0.editorEnabled },
+        Probe(path: ["editor", "model"], value: .string("full")) { $0.editorModel == "full" },
+        Probe(path: ["editor", "language"], value: .string("en_GB")) { $0.editorLanguage == "en_GB" },
+        Probe(path: ["editor", "skip-apps", "com.apple.mail"], value: .bool(true)) {
+            $0.editorSkipApps.contains("com.apple.mail")
+        },
         Probe(path: ["health", "keyboards", "7504:24926:782ec294", "enter"], value: .string("right thumb")) {
             $0.fingerMap.keyboards["7504:24926:782ec294"]?[.enter] == FingerMap.Placement(.right, .thumb)
         },

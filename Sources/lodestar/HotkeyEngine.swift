@@ -2064,6 +2064,13 @@ extension HotkeyEngine: EngineWorld {
         return select.enter(door: .tabs)
     }
 
+    var editorActive: Bool { select.editor?.enabled == true }
+
+    func enterEditor() -> Bool {
+        select.letters = KeyboardLayout.chipAlphabet()
+        return select.enter(door: .editor, sticky: true)
+    }
+
     func enterSelect() -> Bool {
         select.letters = KeyboardLayout.chipAlphabet()
         select.commitOnUnique = config.selectCommitOnUnique

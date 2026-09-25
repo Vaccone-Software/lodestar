@@ -215,6 +215,11 @@ public protocol EngineWorld: AnyObject {
     func enterHints(sticky: Bool) -> Bool
     /// `lode ⇥`: a letter on every tab of the focused window.
     func enterTabs() -> Bool
+    /// The editor is on: `lode ⇥` is its lens instead of the tabs door.
+    var editorActive: Bool { get }
+    /// `lode ⇥` with the editor on: a letter on every mark. False when
+    /// there are none.
+    func enterEditor() -> Bool
     /// Open the clipboard strip; false when nothing has been copied yet.
     func enterPaste() -> Bool
     /// Does a card answer to this address at this moment? Letters address
@@ -246,6 +251,12 @@ public protocol EngineWorld: AnyObject {
     var draftVisible: Bool { get }
     var cheatVisible: Bool { get }
     var hasFocusedApp: Bool { get }
+}
+
+public extension EngineWorld {
+    /// Worlds without an editor keep `lode ⇥` for the tabs.
+    var editorActive: Bool { false }
+    func enterEditor() -> Bool { false }
 }
 
 public struct EngineCore {
@@ -613,6 +624,15 @@ public struct EngineCore {
                 // list was walked through three times a month; the tabs
                 // are what the key means everywhere else on the Mac.
                 effects.append(world.hasFocusedApp ? .openWindowChooser : .flash("✕ no focused window"))
+            } else if world.editorActive {
+                // The editor's lens: it stands while marks remain, so a
+                // message with three mistakes is three letters.
+                effects.append(.hideBars)
+                if world.enterEditor() {
+                    state = .hints(sticky: true)
+                } else {
+                    effects.append(.flash("✓ nothing marked here"))
+                }
             } else {
                 effects.append(.hideBars)
                 if world.enterTabs() {

@@ -59,6 +59,10 @@ public struct PersistedState: Codable {
     /// the walk once, because what the deck taught was not this.
     public var walkStep: Int?
     public var walkCompletedVersion: String?
+    /// When the hand accepted the editor reading its fields on this Mac.
+    /// Machine owned, like the walk: consent is given by a person at a
+    /// Mac, not carried in a config file copied to another one.
+    public var editorConsentAt: Date?
     /// Meeting occurrences already joined or dismissed — the chip never
     /// resurrects one. Pruned to live occurrences on every write.
     public var meetingSpent: [String]?
@@ -236,6 +240,15 @@ public final class StateStore {
 
     public func markWalkCompleted(version: String) {
         state.walkCompletedVersion = version
+        save()
+    }
+
+    // MARK: - The editor's consent
+
+    public var editorConsented: Bool { state.editorConsentAt != nil }
+
+    public func setEditorConsent(_ at: Date?) {
+        state.editorConsentAt = at
         save()
     }
 

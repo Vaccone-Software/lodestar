@@ -58,6 +58,10 @@ final class HUD {
     private(set) var owner: SurfaceOwner = .none
     /// The sentence the voice surface shows, for the stage.
     private(set) var voiceSentence: String?
+    /// Which voice card is on the glass, when its speaker named it: a
+    /// card answered by lode lode must still be the one showing, and any
+    /// other drawing clears this.
+    private(set) var voiceTag: String?
     /// The last flash or guide title as drawn: its mark and its words.
     private(set) var titleSymbol: String?
     private(set) var titleText: String?
@@ -106,8 +110,9 @@ final class HUD {
     /// it is a note that goes on its own, the way a flash does; without,
     /// it stands like a guide.
     func showVoice(sentence: String, keymap: Coach.Keymap? = nil, detail: String?, rows: [GuideRow],
-                   owner: SurfaceOwner = .coach, seconds: TimeInterval? = nil) {
+                   owner: SurfaceOwner = .coach, seconds: TimeInterval? = nil, tag: String? = nil) {
         handOver(to: owner)
+        voiceTag = tag
         hideWork?.cancel()
         hideWork = nil
         showingFlash = false
@@ -146,6 +151,7 @@ final class HUD {
     /// responds by hiding the panel — which the coach does — finds the
     /// handover already recorded and stops, instead of recurring.
     private func handOver(to next: SurfaceOwner) {
+        voiceTag = nil
         let previous = owner
         cameFromCoach = previous == .coach
         owner = next

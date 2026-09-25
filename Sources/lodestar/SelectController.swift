@@ -162,7 +162,14 @@ final class SelectController {
     /// `tabs` is the fourth: `lode ⇥` puts a letter on every tab of the
     /// window, and the letter presses it. No sensing, no search — the tree
     /// names the tabs and there is nothing to read past them.
-    enum Door { case anchor, click, aim, tabs }
+    /// `editor` is the fifth: `lode ⇥` with the editor on puts a letter on
+    /// every mark; the letter fixes it, ⇧ and the letter says it is right,
+    /// ⌫ takes the last fix back. The lens stands while marks remain.
+    enum Door { case anchor, click, aim, tabs, editor }
+
+    /// The editor whose marks the fifth door letters.
+    weak var editor: EditorLens?
+    private var editorMarks: [EditorController.Mark] = []
     private(set) var door: Door = .anchor
     /// The pill every lens wears: this machine drives it for its three
     /// doors, saying which door, over which app, and what the hand has
@@ -293,6 +300,13 @@ final class SelectController {
             }
         }
 
+        if door == .editor {
+            // The marks are already placed: the lens only letters them.
+            guard let editor, !editor.lensMarks.isEmpty else { return false }
+            labelEditor(editor.lensMarks)
+            return true
+        }
+
         if door == .tabs {
             // No capture, no OCR: the tabs are the tree's to name, and the
             // pill stands while they are read.
@@ -396,7 +410,7 @@ final class SelectController {
         // The aim door leaves no select record: its sessions would read
         // as selections in the copy ledger, and the verb count is what
         // its verdict rests on.
-        if modeEnteredAt != .distantPast, door != .aim {
+        if modeEnteredAt != .distantPast, door != .aim, door != .editor {
             observations?.selected(
                 app: appName, action: committedOutcome == nil ? "abandoned" : "completed",
                 source: ocrAdopted ? "ocr" : "ax", outcome: committedOutcome,
@@ -415,6 +429,7 @@ final class SelectController {
         case .click: return "hints"
         case .aim: return "aim"
         case .tabs: return "tabs"
+        case .editor: return "editor"
         }
     }
 
@@ -427,6 +442,7 @@ final class SelectController {
         case .click: mode = .click
         case .aim: mode = .scroll
         case .tabs: mode = .tabs
+        case .editor: mode = .editor
         }
         pill?.show(ModePill.State(mode: mode, app: appName,
                                   icon: NSRunningApplication(processIdentifier: focusedPid)?.icon,
@@ -508,6 +524,19 @@ final class SelectController {
     }
 
     func backspace() {
+        if door == .editor {
+            if !entryTyped.isEmpty {
+                entryTyped.removeLast()
+                renderEditor()
+            } else {
+                // ⌫ with nothing typed: the last fix, taken back.
+                editor?.undoLastFix { [weak self] done in
+                    guard done else { return }
+                    self?.relabelEditor(after: 0.35)
+                }
+            }
+            return
+        }
         if door == .click, !entryTyped.isEmpty {
             entryTyped.removeLast()
             renderEntry()
@@ -532,6 +561,11 @@ final class SelectController {
            key.count == 1, key.first?.isLetter == true,
            shift || !entryTyped.isEmpty {
             return entryPick(letter: key)
+        }
+        // The editor's lens: a letter fixes, ⇧ and a letter keeps.
+        if door == .editor {
+            guard key.count == 1, key.first?.isLetter == true else { return .pending }
+            return editorPick(letter: key, keep: shift)
         }
         // The tabs door has no search to type into: a letter, any case,
         // is a pick; anything else waits with the chips standing.
@@ -604,6 +638,63 @@ final class SelectController {
             render()
             return .pending
         case .none:
+            return .pending
+        }
+    }
+
+    // MARK: - The editor door
+
+    private func labelEditor(_ marks: [EditorController.Mark]) {
+        editorMarks = marks
+        entryTyped = ""
+        entryLabels = HintLabels.labels(count: marks.count, alphabet: letters)
+        renderEditor()
+    }
+
+    /// Each mark wears its letter and its fix, so the hand reads what a
+    /// letter will do before it presses one.
+    private func renderEditor() {
+        let chips: [SelectOverlay.Chip] = zip(entryLabels, editorMarks).compactMap { label, mark in
+            guard entryTyped.isEmpty || label.hasPrefix(entryTyped) else { return nil }
+            return SelectOverlay.Chip(label: "\(label) · \(mark.issue.shown)", frames: [mark.rect],
+                                      style: .match)
+        }
+        showPill(text: nil)
+        overlay.show(chips: chips, anchor: [], over: windowFrame, typed: entryTyped)
+    }
+
+    /// After a fix the text moves: the marks are read again once the field
+    /// has settled, and lettered afresh.
+    private func relabelEditor(after delay: Double) {
+        let expected = generation
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self, self.generation == expected, self.door == .editor, let editor = self.editor else { return }
+            let marks = editor.lensMarks
+            if marks.isEmpty { self.overlay.hide(); return }
+            self.labelEditor(marks)
+        }
+    }
+
+    private func editorPick(letter: String, keep: Bool) -> SelectStep {
+        let candidate = entryTyped + letter.lowercased()
+        switch HintLabels.match(typed: candidate, labels: entryLabels) {
+        case .exact(let index):
+            let mark = editorMarks[index]
+            entryTyped = ""
+            editorMarks.remove(at: index)
+            entryLabels = HintLabels.labels(count: editorMarks.count, alphabet: letters)
+            if keep { editor?.dismiss(mark) } else { editor?.fix(mark) { _ in } }
+            // The last mark ends the lens; otherwise it stands and letters
+            // what remains once the text settles.
+            firedTextInput = editorMarks.isEmpty
+            if editorMarks.isEmpty { overlay.hide() } else { renderEditor() }
+            return .done
+        case .partial:
+            entryTyped = candidate
+            renderEditor()
+            return .pending
+        case .none:
+            entryTyped = ""
             return .pending
         }
     }
@@ -799,6 +890,7 @@ final class SelectController {
     /// Sticky `lode ⇧;` after a fire: the app may have changed — a beat,
     /// then the whole capture again, entry chips and all.
     func rescanClick() {
+        if door == .editor { relabelEditor(after: 0.35); return }
         let expected = generation
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             guard let self, self.generation == expected else { return }

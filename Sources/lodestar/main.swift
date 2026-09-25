@@ -59,6 +59,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var webBar: WebBarController!
     private var engine: HotkeyEngine!
     private var draftController: DraftController?
+    private var editorController: EditorController?
+    /// False until the boot's own apply, so the card greets a switch turned
+    /// on, never a launch that found it on.
+    private var editorAnnounced = false
+    private let editorConsent = EditorConsent()
+    private let editorDownload = EditorDownload()
+    private var lastSettingsProgress = Date.distantPast
     private var coach: CoachController!
     private var updater: UpdateController!
     private var clipboardController: ClipboardController!
@@ -283,6 +290,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let selectController = SelectController(model: model)
         selectController.flash = { [weak self] text in self?.hud.flash(text) }
         selectController.observations = observationStore
+        let editor = EditorController()
+        editor.flash = { [weak self] text in self?.hud.flash(text) }
+        editor.observations = observationStore
+        editor.learnName = { [weak self] word in
+            self?.editorLearn(path: ["draft", "words", word], flash: "✓ \(word) is one of your words now")
+        }
+        selectController.editor = editor
+        editorController = editor
+        // Asked before anything is read: the card, answered by lode lode
+        // and lode ⌫ or the mouse. A coach chip on the glass steps aside
+        // the recorded way, so it never thinks it is still showing.
+        editorConsent.present = { [weak self] sentence, detail, rows in
+            guard let self else { return }
+            if self.hud.owner == .coach { self.hud.hide() }
+            self.hud.showVoice(sentence: sentence, detail: detail, rows: rows, owner: .coach, tag: EditorConsent.tag)
+        }
+        editorConsent.isShowing = { [weak self] in self?.hud.voiceTag == EditorConsent.tag }
+        editorConsent.clear = { [weak self] in self?.hud.hide() }
+        editorConsent.accepted = { [weak self] in
+            guard let self else { return }
+            self.store.setEditorConsent(Date())
+            Log.info("editor", ["consent": "accepted"])
+            self.applyEditor(self.config)
+        }
+        editorConsent.declined = { [weak self] in
+            Log.info("editor", ["consent": "declined"])
+            self?.setEditorEnabled(false, flash: "The editor stays off")
+        }
+        // The model's files, fetched in the background once the editor
+        // runs. Whole, the other models' files go, the editor starts asking
+        // it, and the hand is told once.
+        editorDownload.changed = { [weak self] in
+            guard let self else { return }
+            // Progress redraws Settings at most every two seconds; a change
+            // of state (waiting, checking, failed) at once.
+            if case .downloading = self.editorDownload.state,
+               Date().timeIntervalSince(self.lastSettingsProgress) < 2 { return }
+            self.lastSettingsProgress = Date()
+            self.settings.machineStateChanged()
+        }
+        editorDownload.finished = { [weak self] engine in
+            EditorModels.removeAll(except: engine)
+            self?.editorController?.refreshModel()
+            self?.hud.flash("✓ the \(engine.name) model is ready, grammar is marked now")
+        }
+        applyEditor(config)
         let scroller = ScrollController(model: model)
         scroller.latency = { [weak self] surface, seconds in
             self?.observationStore?.latency(surface: surface, seconds: seconds)
@@ -441,6 +494,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                       return true
                   },
                   dismiss: { [weak self] in self?.walk.pass() ?? false }),
+            // The editor's question is the hand's own doing (it just
+            // turned the editor on), so it answers before any offer.
+            Voice(assent: { [weak self] in self?.editorConsent.assent() ?? false },
+                  dismiss: { [weak self] in self?.editorConsent.dismiss() ?? false }),
             Voice(assent: { [weak self] in self?.meetings.join() ?? false },
                   dismiss: { [weak self] in self?.meetings.dismiss() ?? false }),
             Voice(assent: { [weak self] in self?.linkChip.take() ?? false },
@@ -1014,6 +1071,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         settings.machineState = { [weak self] in
             var state = SettingsModel.MachineState()
+            // All three, always: one this Mac cannot run is listed with
+            // what it needs, and greyed.
+            let engines = EditorEngine.allCases
+            let reasons = engines.map { EditorEngine.unavailable($0) }
+            state.editorEngines = engines.map(\.rawValue)
+            state.editorEngineLabels = zip(engines, reasons).map { engine, why in why.map { "\(engine.name) · \($0)" } ?? engine.name }
+            state.editorEnginesUnavailable = Set(zip(engines, reasons).filter { $0.1 != nil }.map(\.0.rawValue))
+            let engine = self?.editorController?.engine ?? EditorEngine.resolved(self?.config.editorModel ?? "")
+            state.editorEngineCurrent = engine.rawValue
+            let waiting = (self?.config.editorEnabled ?? false) && !(self?.store.editorConsented ?? true)
+            state.editorModelStatus = waiting ? "\(engine.name) · waiting for Accept or Decline"
+                : self?.editorDownload.status
+                ?? EditorEngine.unavailable(engine).map { "\(engine.name) \($0), so only spelling is marked" }
+                ?? EditorModels.status(for: engine)
             state.inputDevices = AudioInput.inputDevices().map(\.name)
             state.defaultInput = AudioInput.defaultInputName
             state.accessibility = Permissions.isTrusted ? "Granted" : "Not granted"
@@ -1656,6 +1727,98 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return nil
     }
 
+    /// The editor follows the config: on or off, which model, and the
+    /// words it leaves alone — the draft's vocabulary, shared.
+    private func applyEditor(_ config: Config) {
+        let engine = EditorEngine.resolved(config.editorModel)
+        if !config.editorModel.isEmpty, engine.rawValue != config.editorModel {
+            Log.info("editor", ["model": config.editorModel, "unavailable": EditorEngine(rawValue: config.editorModel)
+                                    .flatMap { EditorEngine.unavailable($0) } ?? "unknown", "using": engine.rawValue])
+        }
+        // Nothing is read until the hand accepts, once per Mac. At launch
+        // the card waits for the glass to settle.
+        let consented = store.editorConsented
+        if config.editorEnabled, !consented {
+            if !editorConsent.isShowing() {
+                if editorAnnounced {
+                    editorConsent.ask(detail: editorDetail(engine))
+                    askEditorConsentWhenClear(after: 30)
+                } else {
+                    askEditorConsentWhenClear(after: 3)
+                }
+            }
+        } else {
+            editorConsent.withdraw()
+        }
+        let running = config.editorEnabled && consented
+        // Turned on just now, not found on at launch: the card teaches the
+        // key and says what it holds.
+        if running, editorController?.enabled == false, editorAnnounced {
+            hud.showVoice(sentence: "Mistakes get a line beneath them in anything you write, in every app",
+                          keymap: Coach.Keymap(keys: ["lode", "⇥"], target: "put a letter on each mark"),
+                          detail: editorDetail(engine), rows: [], owner: .flash, seconds: 9)
+        }
+        editorAnnounced = true
+        editorController?.apply(enabled: running, engine: engine, language: config.editorLanguage,
+                                vocabulary: config.draftWords,
+                                skipApps: config.editorSkipApps)
+        // The model's files arrive once the editor runs. Turned off, the
+        // fetch stops and keeps what came; another model chosen, the old
+        // partial goes.
+        if running, EditorManifest.forEngine(engine) != nil, EditorModels.directory(for: engine) == nil {
+            editorDownload.fetch(engine)
+        } else if let fetching = editorDownload.engine {
+            editorDownload.cancel(keepingPartial: !running && fetching == engine)
+        }
+        editorController?.refreshModel()
+    }
+
+    /// The question, put back until it is answered: a card another surface
+    /// took the glass from is asked again once the glass is clear, so a
+    /// switch left on never means an editor silently off.
+    private func askEditorConsentWhenClear(after seconds: TimeInterval) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
+            guard let self, self.config.editorEnabled, !self.store.editorConsented,
+                  !self.editorConsent.isShowing() else { return }
+            guard self.hud.owner == .none else {
+                self.askEditorConsentWhenClear(after: 30)
+                return
+            }
+            self.editorConsent.ask(detail: self.editorDetail(EditorEngine.resolved(self.config.editorModel)))
+            self.askEditorConsentWhenClear(after: 30)
+        }
+    }
+
+    /// The line under the editor's cards: the engine, what it downloads,
+    /// what it holds.
+    private func editorDetail(_ engine: EditorEngine) -> String {
+        "\(EditorModels.status(for: engine)) · \(engine.memoryHeld)"
+    }
+
+    /// The editor's switch, written as Settings would write it.
+    private func setEditorEnabled(_ on: Bool, flash: String) {
+        if let problem = rewriteConfig(flash: flash, logged: "editor.enabled", edit: { tree in
+            guard let updated = Json.setting(tree, path: ["editor", "enabled"], to: .bool(on)) else {
+                throw Config.EditError.unparsed("editor.enabled")
+            }
+            return updated
+        }) {
+            hud.flash("✕ \(problem)")
+        }
+    }
+
+    /// ⇧ and a letter in the editor's lens, written where Settings shows it.
+    private func editorLearn(path: [String], flash: String) {
+        if let problem = rewriteConfig(flash: flash, logged: path.prefix(2).joined(separator: ".")) { tree in
+            guard let updated = Json.setting(tree, path: path, to: .bool(true)) else {
+                throw Config.EditError.unparsed(path.prefix(2).joined(separator: "."))
+            }
+            return updated
+        } {
+            hud.flash("✕ \(problem)")
+        }
+    }
+
     @objc private func reloadConfig() {
         applyConfigReload(successFlash: "✓ config reloaded")
     }
@@ -1681,6 +1844,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         clipboardController.excludedApps = loaded.clipboardExcludedApps
         clipboardController.excludedPatterns = loaded.clipboardExcludePatterns
         draftController?.words = loaded.draftWords
+        applyEditor(loaded)
         draftController?.inputDevice = loaded.draftInput.isEmpty ? nil : loaded.draftInput
         draftController?.sounds = loaded.sounds
         clipboardController.maxBytes = loaded.clipboardMaxBytes
@@ -2104,6 +2268,7 @@ func printUsage() {
       observations clear   delete everything noticed so far
       config-path      print the config file path
       apps             list every app name the graph can bind
+      editor check     load the editor's model and ask it one sentence
       --self-test      prove the input path cannot freeze, on real threads
 
     Scripted verbs — these drive the running instance:
@@ -2144,6 +2309,17 @@ if cliArguments.first == "config" {
 // this file has ever used.
 if let first = cliArguments.first, ControlClient.verbs.contains(first) {
     ControlClient.run(Array(cliArguments))
+}
+if Array(cliArguments.prefix(2)) == ["editor", "check"] {
+    Log.stdoutEnabled = false
+    let done = DispatchSemaphore(value: 0)
+    nonisolated(unsafe) var code: Int32 = 1
+    Task.detached {
+        code = await EditorCheck.run()
+        done.signal()
+    }
+    done.wait()
+    exit(code)
 }
 if cliArguments.contains("--check") || cliArguments.contains("check") {
     runConfigCheck(json: cliArguments.contains("--json"))

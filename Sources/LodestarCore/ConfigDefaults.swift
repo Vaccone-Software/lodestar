@@ -221,6 +221,12 @@ public enum ConfigDefaults {
             "enabled": .bool(true),
             "health": .bool(true),
         ]),
+        "editor": .table([
+            "enabled": .bool(false),
+            "model": .string(""),
+            "language": .string("en_US"),
+            "skip-apps": .table([:]),
+        ]),
         "meetings": .table([
             "enabled": .bool(false),
             "lead-minutes": .int(5),

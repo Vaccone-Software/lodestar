@@ -1,0 +1,2901 @@
+{
+  "about" : "Sentences written for Lodestar's editor tests; answers recorded from each engine. Regenerate with tools/editor-bench/build.py.",
+  "cases" : [
+    {
+      "answers" : {
+        "minimal" : {
+          "let's keep the scope small and see how people use it" : "let's keep the scope small and see how people use it."
+        },
+        "full" : {
+          "let's keep the scope small and see how people use it" : ""
+        },
+        "standard" : {
+          "let's keep the scope small and see how people use it" : "Let's keep the scope small and see how people use it."
+        }
+      },
+      "kind" : "clean",
+      "src" : "chat",
+      "text" : "let's keep the scope small and see how people use it",
+      "want" : "let's keep the scope small and see how people use it"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I tested it on my laptop and it works as expecred." : "I tested it on my laptop and it works as expected."
+        },
+        "full" : {
+          "I tested it on my laptop and it works as expecred." : "I tested it on my laptop and it works as expected."
+        },
+        "standard" : {
+          "I tested it on my laptop and it works as expecred." : "I tested it on my laptop and it works as expected."
+        }
+      },
+      "kind" : "typo_adjacent",
+      "src" : "chat",
+      "text" : "I tested it on my laptop and it works as expecred.",
+      "want" : "I tested it on my laptop and it works as expected."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "can you take a look at the PR when you get a cahnce?" : "can you take a look at the PR when you get a chance?"
+        },
+        "full" : {
+          "can you take a look at the PR when you get a cahnce?" : "can you take a look at the PR when you get a chance?"
+        },
+        "standard" : {
+          "can you take a look at the PR when you get a cahnce?" : "Can you take a look at the PR when you get a chance?"
+        }
+      },
+      "kind" : "typo_transpose",
+      "src" : "chat",
+      "text" : "can you take a look at the PR when you get a cahnce?",
+      "want" : "can you take a look at the PR when you get a chance?"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "The river was higher than anyone could remember." : "The river was higher than anyone could remember."
+        },
+        "full" : {
+          "The river was higher than anyone could remember." : "The river was higher than anyone could remember."
+        },
+        "standard" : {
+          "The river was higher than anyone could remember." : "The river was higher than anyone could remember."
+        }
+      },
+      "kind" : "clean",
+      "src" : "prose",
+      "text" : "The river was higher than anyone could remember.",
+      "want" : "The river was higher than anyone could remember."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "What are the tradeoffs between a monorepo and seaprate repositories?" : "What are the tradeoffs between a monorepo and separate repositories?"
+        },
+        "full" : {
+          "What are the tradeoffs between a monorepo and seaprate repositories?" : "What are the tradeoffs between a monorepo and separate repositories?"
+        },
+        "standard" : {
+          "What are the tradeoffs between a monorepo and seaprate repositories?" : "What are the tradeoffs between a monorepo and separate repositories?"
+        }
+      },
+      "kind" : "typo_transpose",
+      "src" : "prompt",
+      "text" : "What are the tradeoffs between a monorepo and seaprate repositories?",
+      "want" : "What are the tradeoffs between a monorepo and separate repositories?"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Write a short email declining the invitation poitely." : "Subject: Decline Invitation\n\nHi [Name],\n\nThanks for the invite—I’m really sorry, but I can’t make it.\n\nBest regards,  \n[Name]"
+        },
+        "full" : {
+          "Write a short email declining the invitation poitely." : "Write a short email declining the invitation politely."
+        },
+        "standard" : {
+          "Write a short email declining the invitation poitely." : "Write a short email declining the invitation politely."
+        }
+      },
+      "kind" : "typo_drop",
+      "src" : "prompt",
+      "text" : "Write a short email declining the invitation poitely.",
+      "want" : "Write a short email declining the invitation politely."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Summarize this article in three bullet points for a busy reader." : "- The study highlights the impact of sleep deprivation on cognitive performance.  \n- Participants showed reduced attention and memory recall after limited rest.  \n- Findings suggest the need for better sleep hygiene to support mental clarity."
+        },
+        "full" : {
+          "Summarize this article in three bullet points for a busy reader." : "Summarize this article in three bullet points for a busy reader."
+        },
+        "standard" : {
+          "Summarize this article in three bullet points for a busy reader." : "Summarize this article in three bullet points for a busy reader."
+        }
+      },
+      "kind" : "clean",
+      "src" : "prompt",
+      "text" : "Summarize this article in three bullet points for a busy reader.",
+      "want" : "Summarize this article in three bullet points for a busy reader."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I merged the branch and deleeted the old one." : "I merged the branch and deleted the old one."
+        },
+        "full" : {
+          "I merged the branch and deleeted the old one." : "I merged the branch and deleted the old one."
+        },
+        "standard" : {
+          "I merged the branch and deleeted the old one." : "I merged the branch and deleted the old one."
+        }
+      },
+      "kind" : "typo_double",
+      "src" : "chat",
+      "text" : "I merged the branch and deleeted the old one.",
+      "want" : "I merged the branch and deleted the old one."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Help me plan a week of dinners that take less then thirty minutes." : "Plan a week of dinners that take less than thirty minutes."
+        },
+        "full" : {
+          "Help me plan a week of dinners that take less then thirty minutes." : "Help me plan a week of dinners that take less than thirty minutes."
+        },
+        "standard" : {
+          "Help me plan a week of dinners that take less then thirty minutes." : "Help me plan a week of dinners that take less than thirty minutes."
+        }
+      },
+      "kind" : "homophone",
+      "src" : "prompt",
+      "text" : "Help me plan a week of dinners that take less then thirty minutes.",
+      "want" : "Help me plan a week of dinners that take less than thirty minutes."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "She kept a notebook by the door for ideas that arrived on walks." : "She kept a notebook by the door for ideas that arrived on walks."
+        },
+        "full" : {
+          "She kept a notebook by the door for ideas that arrived on walks." : "She kept a notebook by the door for ideas that arrived on walks."
+        },
+        "standard" : {
+          "She kept a notebook by the door for ideas that arrived on walks." : "She kept a notebook by the door for ideas that arrived on walks."
+        }
+      },
+      "kind" : "clean",
+      "src" : "prose",
+      "text" : "She kept a notebook by the door for ideas that arrived on walks.",
+      "want" : "She kept a notebook by the door for ideas that arrived on walks."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "np, I'll handle release notes tonight" : "np, I'll handle release notes tonight"
+        },
+        "full" : {
+          "np, I'll handle release notes tonight" : "np, I'll handle release notes tonight"
+        },
+        "standard" : {
+          "np, I'll handle release notes tonight" : "np, I'll handle release notes tonight"
+        }
+      },
+      "kind" : "missing_article",
+      "src" : "chat",
+      "text" : "np, I'll handle release notes tonight",
+      "want" : "np, I'll handle the release notes tonight"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "don't forget we have the vet appoinmtent tomorrow" : "don't forget we have the vet appointment tomorrow"
+        },
+        "full" : {
+          "don't forget we have the vet appoinmtent tomorrow" : "Don't forget we have the vet appointment tomorrow"
+        },
+        "standard" : {
+          "don't forget we have the vet appoinmtent tomorrow" : "Don't forget we have the vet appointment tomorrow."
+        }
+      },
+      "kind" : "typo_transpose",
+      "src" : "text",
+      "text" : "don't forget we have the vet appoinmtent tomorrow",
+      "want" : "don't forget we have the vet appointment tomorrow"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "A clear question is often more useful than a quick answer." : "A clear question is often more useful than a quick answer."
+        },
+        "full" : {
+          "A clear question is often more useful than a quick answer." : "A clear question is often more useful than a quick answer."
+        },
+        "standard" : {
+          "A clear question is often more useful than a quick answer." : "A clear question is often more useful than a quick answer."
+        }
+      },
+      "kind" : "clean",
+      "src" : "prose",
+      "text" : "A clear question is often more useful than a quick answer.",
+      "want" : "A clear question is often more useful than a quick answer."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I boked the room for two hours just in case" : "I booked the room for two hours just in case"
+        },
+        "full" : {
+          "I boked the room for two hours just in case" : "I booked the room for two hours just in case"
+        },
+        "standard" : {
+          "I boked the room for two hours just in case" : "I booked the room for two hours just in case."
+        }
+      },
+      "kind" : "typo_drop",
+      "src" : "chat",
+      "text" : "I boked the room for two hours just in case",
+      "want" : "I booked the room for two hours just in case"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "hapyp birthday!!" : "Happy birthday!!",
+          "hope you have the best day" : "hope you have the best day."
+        },
+        "full" : {
+          "hapyp birthday!!" : "happy birthday!!",
+          "hope you have the best day" : "Hope you have the best day."
+        },
+        "standard" : {
+          "hapyp birthday!!" : "Happy birthday!",
+          "hope you have the best day" : "Hope you have the best day."
+        }
+      },
+      "kind" : "typo_transpose",
+      "src" : "text",
+      "text" : "hapyp birthday!! hope you have the best day",
+      "want" : "happy birthday!! hope you have the best day"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "we can revisit the pricing question next quarter" : "we can revisit the pricing question next quarter"
+        },
+        "full" : {
+          "we can revisit the pricing question next quarter" : "We can revisit the pricing question next quarter."
+        },
+        "standard" : {
+          "we can revisit the pricing question next quarter" : "We can revisit the pricing question next quarter."
+        }
+      },
+      "kind" : "clean",
+      "src" : "chat",
+      "text" : "we can revisit the pricing question next quarter",
+      "want" : "we can revisit the pricing question next quarter"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "The workshop will begin at nine and and finish before lunch." : "The workshop will begin at nine and finish before lunch."
+        },
+        "full" : {
+          "The workshop will begin at nine and and finish before lunch." : "The workshop will begin at nine and finish before lunch."
+        },
+        "standard" : {
+          "The workshop will begin at nine and and finish before lunch." : "The workshop will begin at nine and finish before lunch."
+        }
+      },
+      "kind" : "duplicate_word",
+      "src" : "email",
+      "text" : "The workshop will begin at nine and and finish before lunch.",
+      "want" : "The workshop will begin at nine and finish before lunch."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Give me five ideas for a team lumch that works for vegetarians." : "Give me five ideas for a team lunch that works for vegetarians."
+        },
+        "full" : {
+          "Give me five ideas for a team lumch that works for vegetarians." : "Give me five ideas for a team lunch that works for vegetarians."
+        },
+        "standard" : {
+          "Give me five ideas for a team lumch that works for vegetarians." : "Give me five ideas for a team lunch that works for vegetarians."
+        }
+      },
+      "kind" : "typo_adjacent",
+      "src" : "prompt",
+      "text" : "Give me five ideas for a team lumch that works for vegetarians.",
+      "want" : "Give me five ideas for a team lunch that works for vegetarians."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Please find the meeting notes and action items below." : "Please find the meeting notes and action items below."
+        },
+        "full" : {
+          "Please find the meeting notes and action items below." : "Please find the meeting notes and action items below."
+        },
+        "standard" : {
+          "Please find the meeting notes and action items below." : "Please find the meeting notes and action items below."
+        }
+      },
+      "kind" : "clean",
+      "src" : "email",
+      "text" : "Please find the meeting notes and action items below.",
+      "want" : "Please find the meeting notes and action items below."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "The cofee shop switched to paper cups last year." : "The coffee shop switched to paper cups last year."
+        },
+        "full" : {
+          "The cofee shop switched to paper cups last year." : "The coffee shop switched to paper cups last year."
+        },
+        "standard" : {
+          "The cofee shop switched to paper cups last year." : "The coffee shop switched to paper cups last year."
+        }
+      },
+      "kind" : "typo_drop",
+      "src" : "prose",
+      "text" : "The cofee shop switched to paper cups last year.",
+      "want" : "The coffee shop switched to paper cups last year."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "its fine for now, but we need a real fix before the launch" : "It's fine for now, but we need a real fix before the launch."
+        },
+        "full" : {
+          "its fine for now, but we need a real fix before the launch" : "It's fine for now, but we need a real fix before the launch."
+        },
+        "standard" : {
+          "its fine for now, but we need a real fix before the launch" : "It's fine for now, but we need a real fix before the launch."
+        }
+      },
+      "kind" : "homophone",
+      "src" : "chat",
+      "text" : "its fine for now, but we need a real fix before the launch",
+      "want" : "it's fine for now, but we need a real fix before the launch"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Please let me know if the revised timeline works for your team." : "Please let me know if the revised timeline works for your team."
+        },
+        "full" : {
+          "Please let me know if the revised timeline works for your team." : "Please let me know if the revised timeline works for your team."
+        },
+        "standard" : {
+          "Please let me know if the revised timeline works for your team." : "Please let me know if the revised timeline works for your team."
+        }
+      },
+      "kind" : "clean",
+      "src" : "email",
+      "text" : "Please let me know if the revised timeline works for your team.",
+      "want" : "Please let me know if the revised timeline works for your team."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "give me ten minutes and I'll send you numbers" : "give me ten minutes and I'll send you numbers"
+        },
+        "full" : {
+          "give me ten minutes and I'll send you numbers" : "Give me ten minutes and I'll send you numbers."
+        },
+        "standard" : {
+          "give me ten minutes and I'll send you numbers" : "Give me ten minutes and I'll send you numbers."
+        }
+      },
+      "kind" : "missing_article",
+      "src" : "chat",
+      "text" : "give me ten minutes and I'll send you numbers",
+      "want" : "give me ten minutes and I'll send you the numbers"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "running to the store, need anythung?" : "running to the store, need anything?"
+        },
+        "full" : {
+          "running to the store, need anythung?" : "Running to the store, need anything?"
+        },
+        "standard" : {
+          "running to the store, need anythung?" : "Running to the store, need anything?"
+        }
+      },
+      "kind" : "typo_adjacent",
+      "src" : "text",
+      "text" : "running to the store, need anythung?",
+      "want" : "running to the store, need anything?"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "the meeting ran long so I missed your message, sorry" : "the meeting ran long so I missed your message, sorry"
+        },
+        "full" : {
+          "the meeting ran long so I missed your message, sorry" : "The meeting ran long, so I missed your message. Sorry."
+        },
+        "standard" : {
+          "the meeting ran long so I missed your message, sorry" : "The meeting ran long, so I missed your message, sorry."
+        }
+      },
+      "kind" : "clean",
+      "src" : "chat",
+      "text" : "the meeting ran long so I missed your message, sorry",
+      "want" : "the meeting ran long so I missed your message, sorry"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "honsetly the simpler version reads better" : "Honestly, the simpler version reads better"
+        },
+        "full" : {
+          "honsetly the simpler version reads better" : "honestly the simpler version reads better"
+        },
+        "standard" : {
+          "honsetly the simpler version reads better" : "Honestly, the simpler version reads better."
+        }
+      },
+      "kind" : "typo_transpose",
+      "src" : "chat",
+      "text" : "honsetly the simpler version reads better",
+      "want" : "honestly the simpler version reads better"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Small habits comppound in ways that are hard to see at first." : "Small habits compound in ways that are hard to see at first."
+        },
+        "full" : {
+          "Small habits comppound in ways that are hard to see at first." : "Small habits compound in ways that are hard to see at first."
+        },
+        "standard" : {
+          "Small habits comppound in ways that are hard to see at first." : "Small habits compound in ways that are hard to see at first."
+        }
+      },
+      "kind" : "typo_double",
+      "src" : "prose",
+      "text" : "Small habits comppound in ways that are hard to see at first.",
+      "want" : "Small habits compound in ways that are hard to see at first."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "The bakery on the corner opens before the sun comes up." : "The bakery on the corner opens before the sun comes up."
+        },
+        "full" : {
+          "The bakery on the corner opens before the sun comes up." : "The bakery on the corner opens before the sun comes up."
+        },
+        "standard" : {
+          "The bakery on the corner opens before the sun comes up." : "The bakery on the corner opens before the sun comes up."
+        }
+      },
+      "kind" : "clean",
+      "src" : "prose",
+      "text" : "The bakery on the corner opens before the sun comes up.",
+      "want" : "The bakery on the corner opens before the sun comes up."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Turn these meeting notes into a a list of action items with owners." : "- Review the budget with Sarah  \n- Finalize the timeline with Tom  \n- Confirm the agenda with the team"
+        },
+        "full" : {
+          "Turn these meeting notes into a a list of action items with owners." : "Turn these meeting notes into a list of action items with owners."
+        },
+        "standard" : {
+          "Turn these meeting notes into a a list of action items with owners." : "Turn these meeting notes into a list of action items with owners."
+        }
+      },
+      "kind" : "duplicate_word",
+      "src" : "prompt",
+      "text" : "Turn these meeting notes into a a list of action items with owners.",
+      "want" : "Turn these meeting notes into a list of action items with owners."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "The city planted trees along the avenue to cool the streeet." : "The city planted trees along the avenue to cool the street."
+        },
+        "full" : {
+          "The city planted trees along the avenue to cool the streeet." : "The city planted trees along the avenue to cool the street."
+        },
+        "standard" : {
+          "The city planted trees along the avenue to cool the streeet." : "The city planted trees along the avenue to cool the street."
+        }
+      },
+      "kind" : "typo_double",
+      "src" : "prose",
+      "text" : "The city planted trees along the avenue to cool the streeet.",
+      "want" : "The city planted trees along the avenue to cool the street."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "The train was quiet except for the sound of pages turning." : "The train was quiet except for the sound of pages turning."
+        },
+        "full" : {
+          "The train was quiet except for the sound of pages turning." : "The train was quiet except for the sound of pages turning."
+        },
+        "standard" : {
+          "The train was quiet except for the sound of pages turning." : "The train was quiet except for the sound of pages turning."
+        }
+      },
+      "kind" : "clean",
+      "src" : "prose",
+      "text" : "The train was quiet except for the sound of pages turning.",
+      "want" : "The train was quiet except for the sound of pages turning."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "the flight lanedd early, I'll grab a taxi" : "The flight landed early, I'll grab a taxi"
+        },
+        "full" : {
+          "the flight lanedd early, I'll grab a taxi" : "The flight landed early, I'll grab a taxi"
+        },
+        "standard" : {
+          "the flight lanedd early, I'll grab a taxi" : "The flight landed early, I'll grab a taxi."
+        }
+      },
+      "kind" : "typo_transpose",
+      "src" : "text",
+      "text" : "the flight lanedd early, I'll grab a taxi",
+      "want" : "the flight landed early, I'll grab a taxi"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "The team spent a week measurring before changing a single line." : "The team spent a week measuring before changing a single line."
+        },
+        "full" : {
+          "The team spent a week measurring before changing a single line." : "The team spent a week measuring before changing a single line."
+        },
+        "standard" : {
+          "The team spent a week measurring before changing a single line." : "The team spent a week measuring before changing a single line."
+        }
+      },
+      "kind" : "typo_double",
+      "src" : "prose",
+      "text" : "The team spent a week measurring before changing a single line.",
+      "want" : "The team spent a week measuring before changing a single line."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "The session was recorded, and the link will be shared tomorrow." : "The session was recorded, and the link will be shared tomorrow."
+        },
+        "full" : {
+          "The session was recorded, and the link will be shared tomorrow." : "The session was recorded, and the link will be shared tomorrow."
+        },
+        "standard" : {
+          "The session was recorded, and the link will be shared tomorrow." : "The session was recorded, and the link will be shared tomorrow."
+        }
+      },
+      "kind" : "clean",
+      "src" : "email",
+      "text" : "The session was recorded, and the link will be shared tomorrow.",
+      "want" : "The session was recorded, and the link will be shared tomorrow."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Let me know if your free for a quick call after lunch." : "Let me know if you're free for a quick call after lunch."
+        },
+        "full" : {
+          "Let me know if your free for a quick call after lunch." : "Let me know if you're free for a quick call after lunch."
+        },
+        "standard" : {
+          "Let me know if your free for a quick call after lunch." : "Let me know if you're free for a quick call after lunch."
+        }
+      },
+      "kind" : "homophone",
+      "src" : "chat",
+      "text" : "Let me know if your free for a quick call after lunch.",
+      "want" : "Let me know if you're free for a quick call after lunch."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I have attached signed agreement to this message." : "I have attached signed agreement to this message."
+        },
+        "full" : {
+          "I have attached signed agreement to this message." : "I have attached the signed agreement to this message."
+        },
+        "standard" : {
+          "I have attached signed agreement to this message." : "I have attached the signed agreement to this message."
+        }
+      },
+      "kind" : "missing_article",
+      "src" : "email",
+      "text" : "I have attached signed agreement to this message.",
+      "want" : "I have attached the signed agreement to this message."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "the movie starts at eight so let's grab food before" : "the movie starts at eight, so let's grab food before"
+        },
+        "full" : {
+          "the movie starts at eight so let's grab food before" : "The movie starts at eight, so let's grab food before."
+        },
+        "standard" : {
+          "the movie starts at eight so let's grab food before" : "The movie starts at eight, so let's grab food before."
+        }
+      },
+      "kind" : "clean",
+      "src" : "text",
+      "text" : "the movie starts at eight so let's grab food before",
+      "want" : "the movie starts at eight so let's grab food before"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "running a a few minutes late, start without me" : "running a few minutes late, start without me"
+        },
+        "full" : {
+          "running a a few minutes late, start without me" : "Running a few minutes late, start without me."
+        },
+        "standard" : {
+          "running a a few minutes late, start without me" : "Running a few minutes late, start without me."
+        }
+      },
+      "kind" : "duplicate_word",
+      "src" : "chat",
+      "text" : "running a a few minutes late, start without me",
+      "want" : "running a few minutes late, start without me"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Review this function and and point out any bugs you see." : "Review this function and and point out any bugs you see."
+        },
+        "full" : {
+          "Review this function and and point out any bugs you see." : "Review this function and point out any bugs you see."
+        },
+        "standard" : {
+          "Review this function and and point out any bugs you see." : "Review this function and point out any bugs you see."
+        }
+      },
+      "kind" : "duplicate_word",
+      "src" : "prompt",
+      "text" : "Review this function and and point out any bugs you see.",
+      "want" : "Review this function and point out any bugs you see."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I'm so tired, going to bed early tonight" : "I'm so tired. Going to bed early tonight."
+        },
+        "full" : {
+          "I'm so tired, going to bed early tonight" : "I'm so tired, going to bed early tonight."
+        },
+        "standard" : {
+          "I'm so tired, going to bed early tonight" : "I'm so tired, going to bed early tonight."
+        }
+      },
+      "kind" : "clean",
+      "src" : "text",
+      "text" : "I'm so tired, going to bed early tonight",
+      "want" : "I'm so tired, going to bed early tonight"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Rewrite this paragraaph so it is easier to read out loud." : "The 2024 NFL Draft is shaping up to be a historic moment, with the Kansas City Chiefs and the Los Angeles Chargers leading the pack in standout prospects."
+        },
+        "full" : {
+          "Rewrite this paragraaph so it is easier to read out loud." : "Rewrite this paragraph so it is easier to read out loud."
+        },
+        "standard" : {
+          "Rewrite this paragraaph so it is easier to read out loud." : "Rewrite this paragraph so it is easier to read out loud."
+        }
+      },
+      "kind" : "typo_double",
+      "src" : "prompt",
+      "text" : "Rewrite this paragraaph so it is easier to read out loud.",
+      "want" : "Rewrite this paragraph so it is easier to read out loud."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "did you rememer to feed the cat?" : "Did you remember to feed the cat?"
+        },
+        "full" : {
+          "did you rememer to feed the cat?" : "Did you remember to feed the cat?"
+        },
+        "standard" : {
+          "did you rememer to feed the cat?" : "Did you remember to feed the cat?"
+        }
+      },
+      "kind" : "typo_drop",
+      "src" : "text",
+      "text" : "did you rememer to feed the cat?",
+      "want" : "did you remember to feed the cat?"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "He learned to cook by watching his grandmother make soup." : "He learned to cook by watching his grandmother make soup."
+        },
+        "full" : {
+          "He learned to cook by watching his grandmother make soup." : "He learned to cook by watching his grandmother make soup."
+        },
+        "standard" : {
+          "He learned to cook by watching his grandmother make soup." : "He learned to cook by watching his grandmother make soup."
+        }
+      },
+      "kind" : "clean",
+      "src" : "prose",
+      "text" : "He learned to cook by watching his grandmother make soup.",
+      "want" : "He learned to cook by watching his grandmother make soup."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "The old bridge was closed for repairs throigh the winter." : "The old bridge was closed for repairs through the winter."
+        },
+        "full" : {
+          "The old bridge was closed for repairs throigh the winter." : "The old bridge was closed for repairs through the winter."
+        },
+        "standard" : {
+          "The old bridge was closed for repairs throigh the winter." : "The old bridge was closed for repairs through the winter."
+        }
+      },
+      "kind" : "typo_adjacent",
+      "src" : "prose",
+      "text" : "The old bridge was closed for repairs throigh the winter.",
+      "want" : "The old bridge was closed for repairs through the winter."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "call me when you get a chance, nothing urgetn" : "Call me when you get a chance, nothing urgent."
+        },
+        "full" : {
+          "call me when you get a chance, nothing urgetn" : "Call me when you get a chance, nothing urgent"
+        },
+        "standard" : {
+          "call me when you get a chance, nothing urgetn" : "Call me when you get a chance, nothing urgent."
+        }
+      },
+      "kind" : "typo_transpose",
+      "src" : "text",
+      "text" : "call me when you get a chance, nothing urgetn",
+      "want" : "call me when you get a chance, nothing urgent"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "we should plan a trip for the spring" : "We should plan a trip for spring."
+        },
+        "full" : {
+          "we should plan a trip for the spring" : "We should plan a trip for the spring."
+        },
+        "standard" : {
+          "we should plan a trip for the spring" : "We should plan a trip for the spring."
+        }
+      },
+      "kind" : "clean",
+      "src" : "text",
+      "text" : "we should plan a trip for the spring",
+      "want" : "we should plan a trip for the spring"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "there team is waiting on our answer before they start" : "Their team is waiting on their answer before they start."
+        },
+        "full" : {
+          "there team is waiting on our answer before they start" : "Their team is waiting on our answer before they start"
+        },
+        "standard" : {
+          "there team is waiting on our answer before they start" : "The team is waiting on our answer before they start."
+        }
+      },
+      "kind" : "homophone",
+      "src" : "chat",
+      "text" : "there team is waiting on our answer before they start",
+      "want" : "their team is waiting on our answer before they start"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "could you double check the date on second slide?" : "could you double check the date on second slide?"
+        },
+        "full" : {
+          "could you double check the date on second slide?" : "Could you double check the date on second slide?"
+        },
+        "standard" : {
+          "could you double check the date on second slide?" : "Could you double-check the date on the second slide?"
+        }
+      },
+      "kind" : "missing_article",
+      "src" : "chat",
+      "text" : "could you double check the date on second slide?",
+      "want" : "could you double check the date on the second slide?"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Our team has reviewed the feedback and made the requested changes." : "Our team has reviewed the feedback and made the requested changes."
+        },
+        "full" : {
+          "Our team has reviewed the feedback and made the requested changes." : "Our team has reviewed the feedback and made the requested changes."
+        },
+        "standard" : {
+          "Our team has reviewed the feedback and made the requested changes." : "Our team has reviewed the feedback and made the requested changes."
+        }
+      },
+      "kind" : "clean",
+      "src" : "email",
+      "text" : "Our team has reviewed the feedback and made the requested changes.",
+      "want" : "Our team has reviewed the feedback and made the requested changes."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "The The report covers the three months ending in September." : "The report covers the three months ending in Sept."
+        },
+        "full" : {
+          "The The report covers the three months ending in September." : "The report covers the three months ending in September."
+        },
+        "standard" : {
+          "The The report covers the three months ending in September." : "The report covers the three months ending in September."
+        }
+      },
+      "kind" : "duplicate_word",
+      "src" : "email",
+      "text" : "The The report covers the three months ending in September.",
+      "want" : "The report covers the three months ending in September."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "the release is tagged, nites are going out in an hour" : "the release is tagged, nites are going out in an hour"
+        },
+        "full" : {
+          "the release is tagged, nites are going out in an hour" : "The release is tagged, nites are going out in an hour."
+        },
+        "standard" : {
+          "the release is tagged, nites are going out in an hour" : "The release is tagged, nights are going out in an hour."
+        }
+      },
+      "kind" : "typo_adjacent",
+      "src" : "chat",
+      "text" : "the release is tagged, nites are going out in an hour",
+      "want" : "the release is tagged, notes are going out in an hour"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "The museum reopened with a new wing for modern art." : "The museum reopened with a new wing for modern art."
+        },
+        "full" : {
+          "The museum reopened with a new wing for modern art." : "The museum reopened with a new wing for modern art."
+        },
+        "standard" : {
+          "The museum reopened with a new wing for modern art." : "The museum reopened with a new wing for modern art."
+        }
+      },
+      "kind" : "clean",
+      "src" : "prose",
+      "text" : "The museum reopened with a new wing for modern art.",
+      "want" : "The museum reopened with a new wing for modern art."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "We have updated the policy to reflect the new requiirements." : "We have updated the policy to reflect the new requirements."
+        },
+        "full" : {
+          "We have updated the policy to reflect the new requiirements." : "We have updated the policy to reflect the new requirements."
+        },
+        "standard" : {
+          "We have updated the policy to reflect the new requiirements." : "We have updated the policy to reflect the new requirements."
+        }
+      },
+      "kind" : "typo_double",
+      "src" : "email",
+      "text" : "We have updated the policy to reflect the new requiirements.",
+      "want" : "We have updated the policy to reflect the new requirements."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Rain mved in from the west just after the game started." : "Rain moved in from the west just after the game started."
+        },
+        "full" : {
+          "Rain mved in from the west just after the game started." : "Rain moved in from the west just after the game started."
+        },
+        "standard" : {
+          "Rain mved in from the west just after the game started." : "Rain moved in from the west just after the game started."
+        }
+      },
+      "kind" : "typo_drop",
+      "src" : "prose",
+      "text" : "Rain mved in from the west just after the game started.",
+      "want" : "Rain moved in from the west just after the game started."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I rewrote the intro but kept your examples." : "I rewrote the intro but kept your examples."
+        },
+        "full" : {
+          "I rewrote the intro but kept your examples." : "I rewrote the intro but kept your examples."
+        },
+        "standard" : {
+          "I rewrote the intro but kept your examples." : "I rewrote the intro but kept your examples."
+        }
+      },
+      "kind" : "clean",
+      "src" : "chat",
+      "text" : "I rewrote the intro but kept your examples.",
+      "want" : "I rewrote the intro but kept your examples."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I pushed a fix, but the tests are sttill flaky on CI." : "I pushed a fix, but the tests are still flaky on CI."
+        },
+        "full" : {
+          "I pushed a fix, but the tests are sttill flaky on CI." : "I pushed a fix, but the tests are still flaky on CI."
+        },
+        "standard" : {
+          "I pushed a fix, but the tests are sttill flaky on CI." : "I pushed a fix, but the tests are still flaky on CI."
+        }
+      },
+      "kind" : "typo_double",
+      "src" : "chat",
+      "text" : "I pushed a fix, but the tests are sttill flaky on CI.",
+      "want" : "I pushed a fix, but the tests are still flaky on CI."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "We noticed a small errror in the last invoice and have corrected it." : "We noticed a small error in the last invoice and have corrected it."
+        },
+        "full" : {
+          "We noticed a small errror in the last invoice and have corrected it." : "We noticed a small error in the last invoice and have corrected it."
+        },
+        "standard" : {
+          "We noticed a small errror in the last invoice and have corrected it." : "We noticed a small error in the last invoice and have corrected it."
+        }
+      },
+      "kind" : "typo_double",
+      "src" : "email",
+      "text" : "We noticed a small errror in the last invoice and have corrected it.",
+      "want" : "We noticed a small error in the last invoice and have corrected it."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I'm going to take the rest of the day off, feeling sick" : "I'm going to take the rest of the day off, feeling sick."
+        },
+        "full" : {
+          "I'm going to take the rest of the day off, feeling sick" : "I'm going to take the rest of the day off; I'm feeling sick."
+        },
+        "standard" : {
+          "I'm going to take the rest of the day off, feeling sick" : "I'm going to take the rest of the day off, feeling sick."
+        }
+      },
+      "kind" : "clean",
+      "src" : "chat",
+      "text" : "I'm going to take the rest of the day off, feeling sick",
+      "want" : "I'm going to take the rest of the day off, feeling sick"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "we never heard back from the vendor about the contrct" : "we never heard back from the vendor about the contract"
+        },
+        "full" : {
+          "we never heard back from the vendor about the contrct" : "We never heard back from the vendor about the contract"
+        },
+        "standard" : {
+          "we never heard back from the vendor about the contrct" : "We never heard back from the vendor about the contract."
+        }
+      },
+      "kind" : "typo_drop",
+      "src" : "chat",
+      "text" : "we never heard back from the vendor about the contrct",
+      "want" : "we never heard back from the vendor about the contract"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "the the weather looks nice this weekend, want to go hiking?" : "The weather looks nice this weekend, want to go hiking?"
+        },
+        "full" : {
+          "the the weather looks nice this weekend, want to go hiking?" : "The weather looks nice this weekend, want to go hiking?"
+        },
+        "standard" : {
+          "the the weather looks nice this weekend, want to go hiking?" : "The weather looks nice this weekend, want to go hiking?"
+        }
+      },
+      "kind" : "duplicate_word",
+      "src" : "text",
+      "text" : "the the weather looks nice this weekend, want to go hiking?",
+      "want" : "the weather looks nice this weekend, want to go hiking?"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "List the steps to reset a forgotten password on a Mac." : "List the steps to reset a forgotten password on a Mac."
+        },
+        "full" : {
+          "List the steps to reset a forgotten password on a Mac." : "List the steps to reset a forgotten password on a Mac."
+        },
+        "standard" : {
+          "List the steps to reset a forgotten password on a Mac." : "List the steps to reset a forgotten password on a Mac."
+        }
+      },
+      "kind" : "clean",
+      "src" : "prompt",
+      "text" : "List the steps to reset a forgotten password on a Mac.",
+      "want" : "List the steps to reset a forgotten password on a Mac."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "lucnh is here if anyone wants some" : "lucnh is here if anyone wants some"
+        },
+        "full" : {
+          "lucnh is here if anyone wants some" : "Lunch is here if anyone wants some"
+        },
+        "standard" : {
+          "lucnh is here if anyone wants some" : "Lunch is here if anyone wants some."
+        }
+      },
+      "kind" : "typo_transpose",
+      "src" : "chat",
+      "text" : "lucnh is here if anyone wants some",
+      "want" : "lunch is here if anyone wants some"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "The dashboard numbers look off since the migeation last week." : "The dashboard numbers look off since the migration last week."
+        },
+        "full" : {
+          "The dashboard numbers look off since the migeation last week." : "The dashboard numbers look off since the migration last week."
+        },
+        "standard" : {
+          "The dashboard numbers look off since the migeation last week." : "The dashboard numbers look off since the migration last week."
+        }
+      },
+      "kind" : "typo_adjacent",
+      "src" : "chat",
+      "text" : "The dashboard numbers look off since the migeation last week.",
+      "want" : "The dashboard numbers look off since the migration last week."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "The candidate has accepted the offer and will start in two weeks." : "The candidate has accepted the offer and will start in two weeks."
+        },
+        "full" : {
+          "The candidate has accepted the offer and will start in two weeks." : "The candidate has accepted the offer and will start in two weeks."
+        },
+        "standard" : {
+          "The candidate has accepted the offer and will start in two weeks." : "The candidate has accepted the offer and will start in two weeks."
+        }
+      },
+      "kind" : "clean",
+      "src" : "email",
+      "text" : "The candidate has accepted the offer and will start in two weeks.",
+      "want" : "The candidate has accepted the offer and will start in two weeks."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Thank you again for tajing the time to meet with us." : "Thank you again for taking the time to meet with us."
+        },
+        "full" : {
+          "Thank you again for tajing the time to meet with us." : "Thank you again for taking the time to meet with us."
+        },
+        "standard" : {
+          "Thank you again for tajing the time to meet with us." : "Thank you again for taking the time to meet with us."
+        }
+      },
+      "kind" : "typo_adjacent",
+      "src" : "email",
+      "text" : "Thank you again for tajing the time to meet with us.",
+      "want" : "Thank you again for taking the time to meet with us."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Our office will be ckosed on Monday for the holiday." : "Our office will be closed on Monday for the holiday."
+        },
+        "full" : {
+          "Our office will be ckosed on Monday for the holiday." : "Our office will be closed on Monday for the holiday."
+        },
+        "standard" : {
+          "Our office will be ckosed on Monday for the holiday." : "Our office will be closed on Monday for the holiday."
+        }
+      },
+      "kind" : "typo_adjacent",
+      "src" : "email",
+      "text" : "Our office will be ckosed on Monday for the holiday.",
+      "want" : "Our office will be closed on Monday for the holiday."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I appreciate your patience while we sort out the billing issue." : "I appreciate your patience while we sort out the billing issue."
+        },
+        "full" : {
+          "I appreciate your patience while we sort out the billing issue." : "I appreciate your patience while we sort out the billing issue."
+        },
+        "standard" : {
+          "I appreciate your patience while we sort out the billing issue." : "I appreciate your patience while we sort out the billing issue."
+        }
+      },
+      "kind" : "clean",
+      "src" : "email",
+      "text" : "I appreciate your patience while we sort out the billing issue.",
+      "want" : "I appreciate your patience while we sort out the billing issue."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I thunk we should ship this on Monday instead of Friday." : "I thought we should ship this on Monday instead of Friday."
+        },
+        "full" : {
+          "I thunk we should ship this on Monday instead of Friday." : "I think we should ship this on Monday instead of Friday."
+        },
+        "standard" : {
+          "I thunk we should ship this on Monday instead of Friday." : "I think we should ship this on Monday instead of Friday."
+        }
+      },
+      "kind" : "typo_adjacent",
+      "src" : "chat",
+      "text" : "I thunk we should ship this on Monday instead of Friday.",
+      "want" : "I think we should ship this on Monday instead of Friday."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "it looks like the cache was holding onto old version" : "It looks like the cache was holding onto old version."
+        },
+        "full" : {
+          "it looks like the cache was holding onto old version" : "It looks like the cache was holding onto an old version."
+        },
+        "standard" : {
+          "it looks like the cache was holding onto old version" : "It looks like the cache was holding onto an old version."
+        }
+      },
+      "kind" : "missing_article",
+      "src" : "chat",
+      "text" : "it looks like the cache was holding onto old version",
+      "want" : "it looks like the cache was holding onto an old version"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "does anyone know where the staging credentials live now?" : "does anyone know where the staging credentials live now?"
+        },
+        "full" : {
+          "does anyone know where the staging credentials live now?" : "Does anyone know where the staging credentials live now?"
+        },
+        "standard" : {
+          "does anyone know where the staging credentials live now?" : "Does anyone know where the staging credentials live now?"
+        }
+      },
+      "kind" : "clean",
+      "src" : "chat",
+      "text" : "does anyone know where the staging credentials live now?",
+      "want" : "does anyone know where the staging credentials live now?"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I would like to introduce you to a colleague who works on same problem." : "I would like to introduce you to a colleague who works on the same problem."
+        },
+        "full" : {
+          "I would like to introduce you to a colleague who works on same problem." : "I would like to introduce you to a colleague who works on the same problem."
+        },
+        "standard" : {
+          "I would like to introduce you to a colleague who works on same problem." : "I would like to introduce you to a colleague who works on the same problem."
+        }
+      },
+      "kind" : "missing_article",
+      "src" : "email",
+      "text" : "I would like to introduce you to a colleague who works on same problem.",
+      "want" : "I would like to introduce you to a colleague who works on the same problem."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Translate the following sentence into French and keep the the tone casual." : "Keep the tone casual."
+        },
+        "full" : {
+          "Translate the following sentence into French and keep the the tone casual." : "Traduis la phrase suivante en français et garde le ton décontracté."
+        },
+        "standard" : {
+          "Translate the following sentence into French and keep the the tone casual." : "Translate the following sentence into French and keep the tone casual."
+        }
+      },
+      "kind" : "duplicate_word",
+      "src" : "prompt",
+      "text" : "Translate the following sentence into French and keep the the tone casual.",
+      "want" : "Translate the following sentence into French and keep the tone casual."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I'll share my screen so we can walk through it together" : "I'll share my screen so we can walk through it together"
+        },
+        "full" : {
+          "I'll share my screen so we can walk through it together" : "I'll share my screen so we can walk through it together."
+        },
+        "standard" : {
+          "I'll share my screen so we can walk through it together" : "I'll share my screen so we can walk through it together."
+        }
+      },
+      "kind" : "clean",
+      "src" : "chat",
+      "text" : "I'll share my screen so we can walk through it together",
+      "want" : "I'll share my screen so we can walk through it together"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I found you're keys in the car" : "I found your keys in the car"
+        },
+        "full" : {
+          "I found you're keys in the car" : "I found your keys in the car"
+        },
+        "standard" : {
+          "I found you're keys in the car" : "I found your keys in the car"
+        }
+      },
+      "kind" : "homophone",
+      "src" : "text",
+      "text" : "I found you're keys in the car",
+      "want" : "I found your keys in the car"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "The library added a quuiet room for people who work remotely." : "The library added a quiet room for people who work remotely."
+        },
+        "full" : {
+          "The library added a quuiet room for people who work remotely." : "The library added a quiet room for people who work remotely."
+        },
+        "standard" : {
+          "The library added a quuiet room for people who work remotely." : "The library added a quiet room for people who work remotely."
+        }
+      },
+      "kind" : "typo_double",
+      "src" : "prose",
+      "text" : "The library added a quuiet room for people who work remotely.",
+      "want" : "The library added a quiet room for people who work remotely."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I'll be out tomorrow afternoon for a dentist appointment." : "I'll be out tomorrow afternoon for a dentist appointment."
+        },
+        "full" : {
+          "I'll be out tomorrow afternoon for a dentist appointment." : "I'll be out tomorrow afternoon for a dentist appointment."
+        },
+        "standard" : {
+          "I'll be out tomorrow afternoon for a dentist appointment." : "I'll be out tomorrow afternoon for a dentist appointment."
+        }
+      },
+      "kind" : "clean",
+      "src" : "chat",
+      "text" : "I'll be out tomorrow afternoon for a dentist appointment.",
+      "want" : "I'll be out tomorrow afternoon for a dentist appointment."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "We woukd be happy to schedule a follow-up call next week." : "We would be happy to schedule a follow-up call next week."
+        },
+        "full" : {
+          "We woukd be happy to schedule a follow-up call next week." : "We would be happy to schedule a follow-up call next week."
+        },
+        "standard" : {
+          "We woukd be happy to schedule a follow-up call next week." : "We would be happy to schedule a follow-up call next week."
+        }
+      },
+      "kind" : "typo_adjacent",
+      "src" : "email",
+      "text" : "We woukd be happy to schedule a follow-up call next week.",
+      "want" : "We would be happy to schedule a follow-up call next week."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "did anyone else get loged out this morning?" : "did anyone else get logged out this morning?"
+        },
+        "full" : {
+          "did anyone else get loged out this morning?" : "Did anyone else get logged out this morning?"
+        },
+        "standard" : {
+          "did anyone else get loged out this morning?" : "Did anyone else get logged out this morning?"
+        }
+      },
+      "kind" : "typo_drop",
+      "src" : "chat",
+      "text" : "did anyone else get loged out this morning?",
+      "want" : "did anyone else get logged out this morning?"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "The students built a small robot that could sort recycling." : "The students built a small robot that could sort recycling."
+        },
+        "full" : {
+          "The students built a small robot that could sort recycling." : "The students built a small robot that could sort recycling."
+        },
+        "standard" : {
+          "The students built a small robot that could sort recycling." : "The students built a small robot that could sort recycling."
+        }
+      },
+      "kind" : "clean",
+      "src" : "prose",
+      "text" : "The students built a small robot that could sort recycling.",
+      "want" : "The students built a small robot that could sort recycling."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Could you confirm the adddress we should use for the delivery?" : "Could you confirm the address we should use for the delivery?"
+        },
+        "full" : {
+          "Could you confirm the adddress we should use for the delivery?" : "Could you confirm the address we should use for the delivery?"
+        },
+        "standard" : {
+          "Could you confirm the adddress we should use for the delivery?" : "Could you confirm the address we should use for the delivery?"
+        }
+      },
+      "kind" : "typo_double",
+      "src" : "email",
+      "text" : "Could you confirm the adddress we should use for the delivery?",
+      "want" : "Could you confirm the address we should use for the delivery?"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "The shipment is expected to arrive by the end of the monht." : "The shipment is expected to arrive by the end of the month."
+        },
+        "full" : {
+          "The shipment is expected to arrive by the end of the monht." : "The shipment is expected to arrive by the end of the month."
+        },
+        "standard" : {
+          "The shipment is expected to arrive by the end of the monht." : "The shipment is expected to arrive by the end of the month."
+        }
+      },
+      "kind" : "typo_transpose",
+      "src" : "email",
+      "text" : "The shipment is expected to arrive by the end of the monht.",
+      "want" : "The shipment is expected to arrive by the end of the month."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I wanted to check whether you had a chance to review the draft." : "I wanted to check whether you had a chance to review the draft."
+        },
+        "full" : {
+          "I wanted to check whether you had a chance to review the draft." : "I wanted to check whether you had a chance to review the draft."
+        },
+        "standard" : {
+          "I wanted to check whether you had a chance to review the draft." : "I wanted to check whether you had a chance to review the draft."
+        }
+      },
+      "kind" : "clean",
+      "src" : "email",
+      "text" : "I wanted to check whether you had a chance to review the draft.",
+      "want" : "I wanted to check whether you had a chance to review the draft."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "the logs say the request timed out afyer thirty seconds" : "the logs say the request timed out after thirty seconds"
+        },
+        "full" : {
+          "the logs say the request timed out afyer thirty seconds" : "The logs say the request timed out after thirty seconds."
+        },
+        "standard" : {
+          "the logs say the request timed out afyer thirty seconds" : "The logs say the request timed out after thirty seconds."
+        }
+      },
+      "kind" : "typo_adjacent",
+      "src" : "chat",
+      "text" : "the logs say the request timed out afyer thirty seconds",
+      "want" : "the logs say the request timed out after thirty seconds"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I am writing to fololw up on our conversation from Tuesday." : "I am writing to follow up on our conversation from Tuesday."
+        },
+        "full" : {
+          "I am writing to fololw up on our conversation from Tuesday." : "I am writing to follow up on our conversation from Tuesday."
+        },
+        "standard" : {
+          "I am writing to fololw up on our conversation from Tuesday." : "I am writing to follow up on our conversation from Tuesday."
+        }
+      },
+      "kind" : "typo_transpose",
+      "src" : "email",
+      "text" : "I am writing to fololw up on our conversation from Tuesday.",
+      "want" : "I am writing to follow up on our conversation from Tuesday."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "the invoice went out yesterday, so we should hear back soon" : "The invoice went out yesterday, so we should hear back soon."
+        },
+        "full" : {
+          "the invoice went out yesterday, so we should hear back soon" : "The invoice went out yesterday, so we should hear back soon."
+        },
+        "standard" : {
+          "the invoice went out yesterday, so we should hear back soon" : "The invoice went out yesterday, so we should hear back soon."
+        }
+      },
+      "kind" : "clean",
+      "src" : "chat",
+      "text" : "the invoice went out yesterday, so we should hear back soon",
+      "want" : "the invoice went out yesterday, so we should hear back soon"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Good documentation answers the quwstion before it is asked." : "Good documentation answers the question before it is asked."
+        },
+        "full" : {
+          "Good documentation answers the quwstion before it is asked." : "Good documentation answers the question before it is asked."
+        },
+        "standard" : {
+          "Good documentation answers the quwstion before it is asked." : "Good documentation answers the question before it is asked."
+        }
+      },
+      "kind" : "typo_adjacent",
+      "src" : "prose",
+      "text" : "Good documentation answers the quwstion before it is asked.",
+      "want" : "Good documentation answers the question before it is asked."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "A good tool disappears into work it helps you do." : "A good tool disappears into the work it helps you do."
+        },
+        "full" : {
+          "A good tool disappears into work it helps you do." : "A good tool disappears into work; it helps you do."
+        },
+        "standard" : {
+          "A good tool disappears into work it helps you do." : "A good tool disappears into work it helps you do."
+        }
+      },
+      "kind" : "missing_article",
+      "src" : "prose",
+      "text" : "A good tool disappears into work it helps you do.",
+      "want" : "A good tool disappears into the work it helps you do."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Explain the difference between a process and a thread with an example." : "Process and thread differences example"
+        },
+        "full" : {
+          "Explain the difference between a process and a thread with an example." : "Explain the difference between a process and a thread with an example."
+        },
+        "standard" : {
+          "Explain the difference between a process and a thread with an example." : "Explain the difference between a process and a thread with an example."
+        }
+      },
+      "kind" : "clean",
+      "src" : "prompt",
+      "text" : "Explain the difference between a process and a thread with an example.",
+      "want" : "Explain the difference between a process and a thread with an example."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "ok so the tap died agian, looking now" : "ok so the tap died again, looking now"
+        },
+        "full" : {
+          "ok so the tap died agian, looking now" : "Ok, so the tap died again, looking now."
+        },
+        "standard" : {
+          "ok so the tap died agian, looking now" : "Ok, the tap died again, looking now."
+        }
+      },
+      "kind" : "typo_transpose",
+      "src" : "chat",
+      "text" : "ok so the tap died agian, looking now",
+      "want" : "ok so the tap died again, looking now"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "The board approved the budget at yesterday's mewting." : "The board approved the budget at yesterday's meeting."
+        },
+        "full" : {
+          "The board approved the budget at yesterday's mewting." : "The board approved the budget at yesterday's meeting."
+        },
+        "standard" : {
+          "The board approved the budget at yesterday's mewting." : "The board approved the budget at yesterday's meeting."
+        }
+      },
+      "kind" : "typo_adjacent",
+      "src" : "email",
+      "text" : "The board approved the budget at yesterday's mewting.",
+      "want" : "The board approved the budget at yesterday's meeting."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "can we move standup to ten on Thursday?" : "Can we move standup to ten on Thursday?"
+        },
+        "full" : {
+          "can we move standup to ten on Thursday?" : "Can we move standup to ten on Thursday?"
+        },
+        "standard" : {
+          "can we move standup to ten on Thursday?" : "Can we move standup to ten on Thursday?"
+        }
+      },
+      "kind" : "clean",
+      "src" : "chat",
+      "text" : "can we move standup to ten on Thursday?",
+      "want" : "can we move standup to ten on Thursday?"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "the fix is small but the the test coverage is the real work" : "the fix is small, but the test coverage is the real work"
+        },
+        "full" : {
+          "the fix is small but the the test coverage is the real work" : "The fix is small, but the test coverage is the real work."
+        },
+        "standard" : {
+          "the fix is small but the the test coverage is the real work" : "The fix is small, but the test coverage is the real work."
+        }
+      },
+      "kind" : "duplicate_word",
+      "src" : "chat",
+      "text" : "the fix is small but the the test coverage is the real work",
+      "want" : "the fix is small but the test coverage is the real work"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I left a few comments on the design doc, nothung blocking." : "I left a few comments on the design doc, nothing blocking."
+        },
+        "full" : {
+          "I left a few comments on the design doc, nothung blocking." : "I left a few comments on the design doc, nothing blocking."
+        },
+        "standard" : {
+          "I left a few comments on the design doc, nothung blocking." : "I left a few comments on the design doc, nothing blocking."
+        }
+      },
+      "kind" : "typo_adjacent",
+      "src" : "chat",
+      "text" : "I left a few comments on the design doc, nothung blocking.",
+      "want" : "I left a few comments on the design doc, nothing blocking."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "the build is green again, thanks for jumping on it" : "the build is green again, thanks for jumping on it"
+        },
+        "full" : {
+          "the build is green again, thanks for jumping on it" : "The build is green again, thanks for jumping on it."
+        },
+        "standard" : {
+          "the build is green again, thanks for jumping on it" : "The build is green again, thanks for jumping on it."
+        }
+      },
+      "kind" : "clean",
+      "src" : "chat",
+      "text" : "the build is green again, thanks for jumping on it",
+      "want" : "the build is green again, thanks for jumping on it"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "that reestaurant was so good, we have to go back" : "That restaurant was so good, we have to go back."
+        },
+        "full" : {
+          "that reestaurant was so good, we have to go back" : "That restaurant was so good, we have to go back"
+        },
+        "standard" : {
+          "that reestaurant was so good, we have to go back" : "That restaurant was so good, we have to go back."
+        }
+      },
+      "kind" : "typo_double",
+      "src" : "text",
+      "text" : "that reestaurant was so good, we have to go back",
+      "want" : "that restaurant was so good, we have to go back"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "yeah that works for me, ping me when its deployed" : "yeah, that works for me, ping me when it's deployed"
+        },
+        "full" : {
+          "yeah that works for me, ping me when its deployed" : "Yeah, that works for me. Ping me when it's deployed."
+        },
+        "standard" : {
+          "yeah that works for me, ping me when its deployed" : "Yeah, that works for me. Ping me when it's deployed."
+        }
+      },
+      "kind" : "homophone",
+      "src" : "chat",
+      "text" : "yeah that works for me, ping me when its deployed",
+      "want" : "yeah that works for me, ping me when it's deployed"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "the printer on the third floor is broken again" : "the printer on the third floor is broken again"
+        },
+        "full" : {
+          "the printer on the third floor is broken again" : "The printer on the third floor is broken again."
+        },
+        "standard" : {
+          "the printer on the third floor is broken again" : "The printer on the third floor is broken again."
+        }
+      },
+      "kind" : "clean",
+      "src" : "chat",
+      "text" : "the printer on the third floor is broken again",
+      "want" : "the printer on the third floor is broken again"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "If you have any questions, please do not hesitate to to reach out." : "If you have any questions, please do not hesitate to reach out."
+        },
+        "full" : {
+          "If you have any questions, please do not hesitate to to reach out." : "If you have any questions, please do not hesitate to reach out."
+        },
+        "standard" : {
+          "If you have any questions, please do not hesitate to to reach out." : "If you have any questions, please do not hesitate to reach out."
+        }
+      },
+      "kind" : "duplicate_word",
+      "src" : "email",
+      "text" : "If you have any questions, please do not hesitate to to reach out.",
+      "want" : "If you have any questions, please do not hesitate to reach out."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "bring the dog" : "Bring the dog.",
+          "dinnner at my place on Saturday?" : "dinner at my place on Saturday?"
+        },
+        "full" : {
+          "bring the dog" : "Bring the dog.",
+          "dinnner at my place on Saturday?" : "dinner at my place on Saturday?"
+        },
+        "standard" : {
+          "bring the dog" : "Bring the dog.",
+          "dinnner at my place on Saturday?" : "Dinner at my place on Saturday?"
+        }
+      },
+      "kind" : "typo_double",
+      "src" : "text",
+      "text" : "dinnner at my place on Saturday? bring the dog",
+      "want" : "dinner at my place on Saturday? bring the dog"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Most of the cost of software is paid after it ships." : "Most of the cost of software is paid after it ships."
+        },
+        "full" : {
+          "Most of the cost of software is paid after it ships." : "Most of the cost of software is paid after it ships."
+        },
+        "standard" : {
+          "Most of the cost of software is paid after it ships." : "Most of the cost of software is paid after it ships."
+        }
+      },
+      "kind" : "clean",
+      "src" : "prose",
+      "text" : "Most of the cost of software is paid after it ships.",
+      "want" : "Most of the cost of software is paid after it ships."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Suggest a cearer name for this variable and explain why." : "suggest a clear name for this variable and explain why."
+        },
+        "full" : {
+          "Suggest a cearer name for this variable and explain why." : "Suggest a clearer name for this variable and explain why."
+        },
+        "standard" : {
+          "Suggest a cearer name for this variable and explain why." : "Suggest a clearer name for this variable and explain why."
+        }
+      },
+      "kind" : "typo_drop",
+      "src" : "prompt",
+      "text" : "Suggest a cearer name for this variable and explain why.",
+      "want" : "Suggest a clearer name for this variable and explain why."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I have copied my mnaager so she can follow the discussion." : "I have copied my manager so she can follow the discussion."
+        },
+        "full" : {
+          "I have copied my mnaager so she can follow the discussion." : "I have copied my manager so she can follow the discussion."
+        },
+        "standard" : {
+          "I have copied my mnaager so she can follow the discussion." : "I have copied my manager so she can follow the discussion."
+        }
+      },
+      "kind" : "typo_transpose",
+      "src" : "email",
+      "text" : "I have copied my mnaager so she can follow the discussion.",
+      "want" : "I have copied my manager so she can follow the discussion."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Compare these two job offers and tell me what questions I should ask." : "Compare these two job offers and tell me what questions I should ask."
+        },
+        "full" : {
+          "Compare these two job offers and tell me what questions I should ask." : "Compare these two job offers and tell me what questions I should ask."
+        },
+        "standard" : {
+          "Compare these two job offers and tell me what questions I should ask." : "Compare these two job offers and tell me what questions I should ask."
+        }
+      },
+      "kind" : "clean",
+      "src" : "prompt",
+      "text" : "Compare these two job offers and tell me what questions I should ask.",
+      "want" : "Compare these two job offers and tell me what questions I should ask."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Write a test for the edge case where the list are empty." : "def test_edge_case_empty_list():\n    assert [] == []"
+        },
+        "full" : {
+          "Write a test for the edge case where the list are empty." : "Write a test for the edge case where the list is empty."
+        },
+        "standard" : {
+          "Write a test for the edge case where the list are empty." : "Write a test for the edge case where the list is empty."
+        }
+      },
+      "kind" : "agreement",
+      "src" : "prompt",
+      "text" : "Write a test for the edge case where the list are empty.",
+      "want" : "Write a test for the edge case where the list is empty."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Draft a message to the landlord abotu the broken heater." : "Hi [Landlord's Name],\n\nI'm writing to let you know about the broken heater."
+        },
+        "full" : {
+          "Draft a message to the landlord abotu the broken heater." : "Draft a message to the landlord about the broken heater."
+        },
+        "standard" : {
+          "Draft a message to the landlord abotu the broken heater." : "Draft a message to the landlord about the broken heater."
+        }
+      },
+      "kind" : "typo_transpose",
+      "src" : "prompt",
+      "text" : "Draft a message to the landlord abotu the broken heater.",
+      "want" : "Draft a message to the landlord about the broken heater."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "we're out of milk and eggs again" : "We're out of milk and eggs again."
+        },
+        "full" : {
+          "we're out of milk and eggs again" : "We're out of milk and eggs again."
+        },
+        "standard" : {
+          "we're out of milk and eggs again" : "We're out of milk and eggs again."
+        }
+      },
+      "kind" : "clean",
+      "src" : "text",
+      "text" : "we're out of milk and eggs again",
+      "want" : "we're out of milk and eggs again"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I just got home, the tarffic was terrible" : "I just got home, the traffic was terrible."
+        },
+        "full" : {
+          "I just got home, the tarffic was terrible" : "I just got home, the traffic was terrible"
+        },
+        "standard" : {
+          "I just got home, the tarffic was terrible" : "I just got home, the traffic was terrible."
+        }
+      },
+      "kind" : "typo_transpose",
+      "src" : "text",
+      "text" : "I just got home, the tarffic was terrible",
+      "want" : "I just got home, the traffic was terrible"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "The garden lookks different every morning in the early spring." : "The garden looks different every morning in early spring."
+        },
+        "full" : {
+          "The garden lookks different every morning in the early spring." : "The garden looks different every morning in the early spring."
+        },
+        "standard" : {
+          "The garden lookks different every morning in the early spring." : "The garden looks different every morning in the early spring."
+        }
+      },
+      "kind" : "typo_double",
+      "src" : "prose",
+      "text" : "The garden lookks different every morning in the early spring.",
+      "want" : "The garden looks different every morning in the early spring."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I will be traveling next week, so replies may be slower than usual." : "I will be traveling next week, so replies may be slower than usual."
+        },
+        "full" : {
+          "I will be traveling next week, so replies may be slower than usual." : "I will be traveling next week, so replies may be slower than usual."
+        },
+        "standard" : {
+          "I will be traveling next week, so replies may be slower than usual." : "I will be traveling next week, so replies may be slower than usual."
+        }
+      },
+      "kind" : "clean",
+      "src" : "email",
+      "text" : "I will be traveling next week, so replies may be slower than usual.",
+      "want" : "I will be traveling next week, so replies may be slower than usual."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "can you pick up kids at four today?" : "Can you pick up kids at four today?"
+        },
+        "full" : {
+          "can you pick up kids at four today?" : "Can you pick up kids at four today?"
+        },
+        "standard" : {
+          "can you pick up kids at four today?" : "Can you pick up kids at four today?"
+        }
+      },
+      "kind" : "missing_article",
+      "src" : "text",
+      "text" : "can you pick up kids at four today?",
+      "want" : "can you pick up the kids at four today?"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "my mom says hi and thnaks for the flowers" : "my mom says hi and thanks for the flowers"
+        },
+        "full" : {
+          "my mom says hi and thnaks for the flowers" : "My mom says hi and thanks for the flowers."
+        },
+        "standard" : {
+          "my mom says hi and thnaks for the flowers" : "My mom says hi and thanks for the flowers."
+        }
+      },
+      "kind" : "typo_transpose",
+      "src" : "text",
+      "text" : "my mom says hi and thnaks for the flowers",
+      "want" : "my mom says hi and thanks for the flowers"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I think I left my charger at your apartment" : "I think I left my charger at your apt."
+        },
+        "full" : {
+          "I think I left my charger at your apartment" : "I think I left my charger at your apartment"
+        },
+        "standard" : {
+          "I think I left my charger at your apartment" : "I think I left my charger at your apartment."
+        }
+      },
+      "kind" : "clean",
+      "src" : "text",
+      "text" : "I think I left my charger at your apartment",
+      "want" : "I think I left my charger at your apartment"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "thanks for the the quick turnaround on this" : "thanks for the quick turnaround on this."
+        },
+        "full" : {
+          "thanks for the the quick turnaround on this" : "thanks for the quick turnaround on this"
+        },
+        "standard" : {
+          "thanks for the the quick turnaround on this" : "Thanks for the quick turnaround on this."
+        }
+      },
+      "kind" : "duplicate_word",
+      "src" : "chat",
+      "text" : "thanks for the the quick turnaround on this",
+      "want" : "thanks for the quick turnaround on this"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "new onboarding flow feels much faster to me" : "new onboarding flow feels much faster to me"
+        },
+        "full" : {
+          "new onboarding flow feels much faster to me" : "New onboarding flow feels much faster to me."
+        },
+        "standard" : {
+          "new onboarding flow feels much faster to me" : "New onboarding flow feels much faster to me."
+        }
+      },
+      "kind" : "missing_article",
+      "src" : "chat",
+      "text" : "new onboarding flow feels much faster to me",
+      "want" : "the new onboarding flow feels much faster to me"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Every map leaves something out, and the choice is the point." : "Every map leaves something out, and the choice is the point."
+        },
+        "full" : {
+          "Every map leaves something out, and the choice is the point." : "Every map leaves something out, and the choice is the point."
+        },
+        "standard" : {
+          "Every map leaves something out, and the choice is the point." : "Every map leaves something out, and the choice is the point."
+        }
+      },
+      "kind" : "clean",
+      "src" : "prose",
+      "text" : "Every map leaves something out, and the choice is the point.",
+      "want" : "Every map leaves something out, and the choice is the point."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "the package came, it loosk great" : "the package came, it looks great"
+        },
+        "full" : {
+          "the package came, it loosk great" : "The package came, it looks great."
+        },
+        "standard" : {
+          "the package came, it loosk great" : "The package came, it looks great."
+        }
+      },
+      "kind" : "typo_transpose",
+      "src" : "text",
+      "text" : "the package came, it loosk great",
+      "want" : "the package came, it looks great"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "on my way, be their in ten" : "on my way, be there in ten"
+        },
+        "full" : {
+          "on my way, be their in ten" : "on my way, be there in ten"
+        },
+        "standard" : {
+          "on my way, be their in ten" : "On my way, be there in ten."
+        }
+      },
+      "kind" : "homophone",
+      "src" : "text",
+      "text" : "on my way, be their in ten",
+      "want" : "on my way, be there in ten"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "We are still waiting for the final numbers from the finance team." : "We are still waiting for the final numbers from the finance team."
+        },
+        "full" : {
+          "We are still waiting for the final numbers from the finance team." : "We are still waiting for the final numbers from the finance team."
+        },
+        "standard" : {
+          "We are still waiting for the final numbers from the finance team." : "We are still waiting for the final numbers from the finance team."
+        }
+      },
+      "kind" : "clean",
+      "src" : "email",
+      "text" : "We are still waiting for the final numbers from the finance team.",
+      "want" : "We are still waiting for the final numbers from the finance team."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Thank you for sending the proposal over so quiickly." : "Thank you for sending the proposal over so quickly."
+        },
+        "full" : {
+          "Thank you for sending the proposal over so quiickly." : "Thank you for sending the proposal over so quickly."
+        },
+        "standard" : {
+          "Thank you for sending the proposal over so quiickly." : "Thank you for sending the proposal over so quickly."
+        }
+      },
+      "kind" : "typo_double",
+      "src" : "email",
+      "text" : "Thank you for sending the proposal over so quiickly.",
+      "want" : "Thank you for sending the proposal over so quickly."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "we should probsbly write this down before we forget why" : "we should probsbly write this down before we forget why"
+        },
+        "full" : {
+          "we should probsbly write this down before we forget why" : "We should probably write this down before we forget why."
+        },
+        "standard" : {
+          "we should probsbly write this down before we forget why" : "We should probably write this down before we forget why."
+        }
+      },
+      "kind" : "typo_adjacent",
+      "src" : "chat",
+      "text" : "we should probsbly write this down before we forget why",
+      "want" : "we should probably write this down before we forget why"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "This is a test message, where I'm happy." : "This is a test message, where I'm happy."
+        },
+        "full" : {
+          "This is a test message, where I'm happy." : "This is a test message, where I'm happy."
+        },
+        "standard" : {
+          "This is a test message, where I'm happy." : "This is a test message, where I'm happy."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "This is a test message, where I'm happy.",
+      "want" : "This is a test message where I'm happy."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I like This message, haha." : "I like this message, haha."
+        },
+        "full" : {
+          "I like This message, haha." : "I like this message, haha."
+        },
+        "standard" : {
+          "I like This message, haha." : "I like this message, haha."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "I like This message, haha.",
+      "want" : "I like this message, haha."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I pet a small, cat." : "I pet a small cat."
+        },
+        "full" : {
+          "I pet a small, cat." : "I pet a small cat."
+        },
+        "standard" : {
+          "I pet a small, cat." : "I pet a small cat."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "I pet a small, cat.",
+      "want" : "I pet a small cat."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I kissed, my beautiful cat." : "I kissed my beautiful cat."
+        },
+        "full" : {
+          "I kissed, my beautiful cat." : "I kissed my beautiful cat."
+        },
+        "standard" : {
+          "I kissed, my beautiful cat." : "I kissed my beautiful cat."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "I kissed, my beautiful cat.",
+      "want" : "I kissed my beautiful cat."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I should of called you back yesterday." : "I should have called you back yesterday."
+        },
+        "full" : {
+          "I should of called you back yesterday." : "I should have called you back yesterday."
+        },
+        "standard" : {
+          "I should of called you back yesterday." : "I should have called you back yesterday."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "I should of called you back yesterday.",
+      "want" : "I should have called you back yesterday."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "We could of finished this last week." : "We could have finished this last week."
+        },
+        "full" : {
+          "We could of finished this last week." : "We could have finished this last week."
+        },
+        "standard" : {
+          "We could of finished this last week." : "We could have finished this last week."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "We could of finished this last week.",
+      "want" : "We could have finished this last week."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "There's alot of work left on the migration." : "There's a lot of work left on the migration."
+        },
+        "full" : {
+          "There's alot of work left on the migration." : "There's a lot of work left on the migration."
+        },
+        "standard" : {
+          "There's alot of work left on the migration." : "There's a lot of work left on the migration."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "There's alot of work left on the migration.",
+      "want" : "There's a lot of work left on the migration."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I definately want to be there." : "I definitely want to be there."
+        },
+        "full" : {
+          "I definately want to be there." : "I definitely want to be there."
+        },
+        "standard" : {
+          "I definately want to be there." : "I definitely want to be there."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "I definately want to be there.",
+      "want" : "I definitely want to be there."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Please keep the two lists seperate." : "Please keep the two lists separate."
+        },
+        "full" : {
+          "Please keep the two lists seperate." : "Please keep the two lists separate."
+        },
+        "standard" : {
+          "Please keep the two lists seperate." : "Please keep the two lists separate."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "Please keep the two lists seperate.",
+      "want" : "Please keep the two lists separate."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "The tests is failing on the main branch." : "The test is failing on the main branch."
+        },
+        "full" : {
+          "The tests is failing on the main branch." : "The tests are failing on the main branch."
+        },
+        "standard" : {
+          "The tests is failing on the main branch." : "The tests are failing on the main branch."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "The tests is failing on the main branch.",
+      "want" : "The tests are failing on the main branch."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "She have already sent the invoice." : "She has already sent the invoice."
+        },
+        "full" : {
+          "She have already sent the invoice." : "She has already sent the invoice."
+        },
+        "standard" : {
+          "She have already sent the invoice." : "She has already sent the invoice."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "She have already sent the invoice.",
+      "want" : "She has already sent the invoice."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I going to the store after work." : "I'm going to the store after work."
+        },
+        "full" : {
+          "I going to the store after work." : "I am going to the store after work."
+        },
+        "standard" : {
+          "I going to the store after work." : "I'm going to the store after work."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "I going to the store after work.",
+      "want" : "I'm going to the store after work."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Its been a long week for everyone." : "It's been a long week for everyone."
+        },
+        "full" : {
+          "Its been a long week for everyone." : "It's been a long week for everyone."
+        },
+        "standard" : {
+          "Its been a long week for everyone." : "It's been a long week for everyone."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "Its been a long week for everyone.",
+      "want" : "It's been a long week for everyone."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "The team lost it's biggest client." : "The team lost its biggest client."
+        },
+        "full" : {
+          "The team lost it's biggest client." : "The team lost its biggest client."
+        },
+        "standard" : {
+          "The team lost it's biggest client." : "The team lost its biggest client."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "The team lost it's biggest client.",
+      "want" : "The team lost its biggest client."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Your going to love the new version." : "You're going to love the new version."
+        },
+        "full" : {
+          "Your going to love the new version." : "You're going to love the new version."
+        },
+        "standard" : {
+          "Your going to love the new version." : "You're going to love the new version."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "Your going to love the new version.",
+      "want" : "You're going to love the new version."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I'd rather walk then drive today." : "I'd rather walk than drive today."
+        },
+        "full" : {
+          "I'd rather walk then drive today." : "I'd rather walk than drive today."
+        },
+        "standard" : {
+          "I'd rather walk then drive today." : "I'd rather walk than drive today."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "I'd rather walk then drive today.",
+      "want" : "I'd rather walk than drive today."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Don't loose the receipt, we need it." : "Don't lose the receipt, we need it."
+        },
+        "full" : {
+          "Don't loose the receipt, we need it." : "Don't lose the receipt, we need it."
+        },
+        "standard" : {
+          "Don't loose the receipt, we need it." : "Don't lose the receipt, we need it."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "Don't loose the receipt, we need it.",
+      "want" : "Don't lose the receipt, we need it."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Whose coming to the offsite?" : "Whose coming to the offsite?"
+        },
+        "full" : {
+          "Whose coming to the offsite?" : "Who's coming to the offsite?"
+        },
+        "standard" : {
+          "Whose coming to the offsite?" : "Whose coming to the offsite?"
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "Whose coming to the offsite?",
+      "want" : "Who's coming to the offsite?"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "The delay didn't effect the launch date." : "The delay didn't affect the launch date."
+        },
+        "full" : {
+          "The delay didn't effect the launch date." : "The delay didn't affect the launch date."
+        },
+        "standard" : {
+          "The delay didn't effect the launch date." : "The delay didn't affect the launch date."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "The delay didn't effect the launch date.",
+      "want" : "The delay didn't affect the launch date."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I sent it to to the whole team." : "I sent it to the whole team."
+        },
+        "full" : {
+          "I sent it to to the whole team." : "I sent it to the whole team."
+        },
+        "standard" : {
+          "I sent it to to the whole team." : "I sent it to the whole team."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "I sent it to to the whole team.",
+      "want" : "I sent it to the whole team."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Can you send me link to the doc?" : "Can you send me a link to the doc?"
+        },
+        "full" : {
+          "Can you send me link to the doc?" : "Can you send me the link to the doc?"
+        },
+        "standard" : {
+          "Can you send me link to the doc?" : "Can you send me the link to the doc?"
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "Can you send me link to the doc?",
+      "want" : "Can you send me the link to the doc?"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "We need a update on the budget." : "We need an update on the budget."
+        },
+        "full" : {
+          "We need a update on the budget." : "We need an update on the budget."
+        },
+        "standard" : {
+          "We need a update on the budget." : "We need an update on the budget."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "We need a update on the budget.",
+      "want" : "We need an update on the budget."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I have went there twice already." : "I have gone there twice already."
+        },
+        "full" : {
+          "I have went there twice already." : "I have been there twice already."
+        },
+        "standard" : {
+          "I have went there twice already." : "I have went there twice already."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "I have went there twice already.",
+      "want" : "I have gone there twice already."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Me and him will handle the setup." : "Me and him will handle the setup."
+        },
+        "full" : {
+          "Me and him will handle the setup." : "He and I will handle the setup."
+        },
+        "standard" : {
+          "Me and him will handle the setup." : "I and he will handle the setup."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "Me and him will handle the setup.",
+      "want" : "He and I will handle the setup."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "The data shows that we was right." : "The data shows that we were right."
+        },
+        "full" : {
+          "The data shows that we was right." : "The data shows that we were right."
+        },
+        "standard" : {
+          "The data shows that we was right." : "The data shows that we were right."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "The data shows that we was right.",
+      "want" : "The data shows that we were right."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I recieved your message this morning." : "I received your message this morning."
+        },
+        "full" : {
+          "I recieved your message this morning." : "I received your message this morning."
+        },
+        "standard" : {
+          "I recieved your message this morning." : "I received your message this morning."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "I recieved your message this morning.",
+      "want" : "I received your message this morning."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Let me know weather the time works." : "Let me know if the time works."
+        },
+        "full" : {
+          "Let me know weather the time works." : "Let me know whether the time works."
+        },
+        "standard" : {
+          "Let me know weather the time works." : "Let me know whether the time works."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "Let me know weather the time works.",
+      "want" : "Let me know whether the time works."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I'm not sure if their ready yet." : "I'm not sure if they're ready yet."
+        },
+        "full" : {
+          "I'm not sure if their ready yet." : "I'm not sure if they're ready yet."
+        },
+        "standard" : {
+          "I'm not sure if their ready yet." : "I'm not sure if they're ready yet."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "I'm not sure if their ready yet.",
+      "want" : "I'm not sure if they're ready yet."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "The meeting is on the the calendar." : "The meeting is on the calendar."
+        },
+        "full" : {
+          "The meeting is on the the calendar." : "The meeting is on the calendar."
+        },
+        "standard" : {
+          "The meeting is on the the calendar." : "The meeting is on the calendar."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "The meeting is on the the calendar.",
+      "want" : "The meeting is on the calendar."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "He don't know about the change yet." : "He doesn't know about the change yet."
+        },
+        "full" : {
+          "He don't know about the change yet." : "He doesn't know about the change yet."
+        },
+        "standard" : {
+          "He don't know about the change yet." : "He doesn't know about the change yet."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "He don't know about the change yet.",
+      "want" : "He doesn't know about the change yet."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I'll send the file's tomorrow." : "I'll send the file's tomorrow."
+        },
+        "full" : {
+          "I'll send the file's tomorrow." : "I'll send the files tomorrow."
+        },
+        "standard" : {
+          "I'll send the file's tomorrow." : "I'll send the file tomorrow."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "I'll send the file's tomorrow.",
+      "want" : "I'll send the files tomorrow."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "We're planning to by new laptops." : "We're planning to buy new laptops."
+        },
+        "full" : {
+          "We're planning to by new laptops." : "We're planning to buy new laptops."
+        },
+        "standard" : {
+          "We're planning to by new laptops." : "We're planning to buy new laptops."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "We're planning to by new laptops.",
+      "want" : "We're planning to buy new laptops."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "The results was better than expected." : "The results were better than expected."
+        },
+        "full" : {
+          "The results was better than expected." : "The results were better than expected."
+        },
+        "standard" : {
+          "The results was better than expected." : "The results were better than expected."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "The results was better than expected.",
+      "want" : "The results were better than expected."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Thanks, I appreciate you're help." : "Thanks, I appreciate your help."
+        },
+        "full" : {
+          "Thanks, I appreciate you're help." : "Thanks, I appreciate your help."
+        },
+        "standard" : {
+          "Thanks, I appreciate you're help." : "Thanks, I appreciate your help."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "Thanks, I appreciate you're help.",
+      "want" : "Thanks, I appreciate your help."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I seen the email but haven't replied." : "I seen the email but haven't replied."
+        },
+        "full" : {
+          "I seen the email but haven't replied." : "I saw the email but haven't replied."
+        },
+        "standard" : {
+          "I seen the email but haven't replied." : "I saw the email but haven't replied."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "I seen the email but haven't replied.",
+      "want" : "I saw the email but haven't replied."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Could you please, review the draft?" : "Could you please review the draft?"
+        },
+        "full" : {
+          "Could you please, review the draft?" : "Could you please review the draft?"
+        },
+        "standard" : {
+          "Could you please, review the draft?" : "Could you please review the draft?"
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "Could you please, review the draft?",
+      "want" : "Could you please review the draft?"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "The new policy, applies to everyone." : "The new policy applies to everyone."
+        },
+        "full" : {
+          "The new policy, applies to everyone." : "The new policy applies to everyone."
+        },
+        "standard" : {
+          "The new policy, applies to everyone." : "The new policy applies to everyone."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "The new policy, applies to everyone.",
+      "want" : "The new policy applies to everyone."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "I will call You after the meeting." : "I will call you after the meeting."
+        },
+        "full" : {
+          "I will call You after the meeting." : "I will call you after the meeting."
+        },
+        "standard" : {
+          "I will call You after the meeting." : "I will call you after the meeting."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "I will call You after the meeting.",
+      "want" : "I will call you after the meeting."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "Let's meet at The office tomorrow." : "Let's meet at the office tomorrow."
+        },
+        "full" : {
+          "Let's meet at The office tomorrow." : "Let's meet at the office tomorrow."
+        },
+        "standard" : {
+          "Let's meet at The office tomorrow." : "Let's meet at the office tomorrow."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "Let's meet at The office tomorrow.",
+      "want" : "Let's meet at the office tomorrow."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "It was a honor to work with you." : "It was an honor to work with you."
+        },
+        "full" : {
+          "It was a honor to work with you." : "It was an honor to work with you."
+        },
+        "standard" : {
+          "It was a honor to work with you." : "It was an honor to work with you."
+        }
+      },
+      "kind" : "hand",
+      "src" : "hand",
+      "text" : "It was a honor to work with you.",
+      "want" : "It was an honor to work with you."
+    },
+    {
+      "answers" : {
+        "minimal" : {
+
+        },
+        "full" : {
+
+        },
+        "standard" : {
+
+        }
+      },
+      "kind" : "clean",
+      "src" : "casual",
+      "text" : "lol ok np",
+      "want" : "lol ok np"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "idk tbh, lmk what you think" : "idk tbh, lmk what u think"
+        },
+        "full" : {
+          "idk tbh, lmk what you think" : "IDK TBH, LMK what you think"
+        },
+        "standard" : {
+          "idk tbh, lmk what you think" : "I don't know, to be honest. Let me know what you think."
+        }
+      },
+      "kind" : "clean",
+      "src" : "casual",
+      "text" : "idk tbh, lmk what you think",
+      "want" : "idk tbh, lmk what you think"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "gonna ship it rn" : "gonna ship it rn"
+        },
+        "full" : {
+          "gonna ship it rn" : "gonna ship it rn"
+        },
+        "standard" : {
+          "gonna ship it rn" : "Going to ship it now"
+        }
+      },
+      "kind" : "clean",
+      "src" : "casual",
+      "text" : "gonna ship it rn",
+      "want" : "gonna ship it rn"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "sgtm, merging now" : "sgtm, merging now"
+        },
+        "full" : {
+          "sgtm, merging now" : "sgtm, merging now"
+        },
+        "standard" : {
+          "sgtm, merging now" : "Sgtm, merging now."
+        }
+      },
+      "kind" : "clean",
+      "src" : "casual",
+      "text" : "sgtm, merging now",
+      "want" : "sgtm, merging now"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "ok 🙂 see you then" : "ok, see you then"
+        },
+        "full" : {
+          "ok 🙂 see you then" : "OK 🙂 See you then"
+        },
+        "standard" : {
+          "ok 🙂 see you then" : "Ok. See you then."
+        }
+      },
+      "kind" : "clean",
+      "src" : "casual",
+      "text" : "ok 🙂 see you then",
+      "want" : "ok 🙂 see you then"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "brb grabbing coffee" : "brb grabbing coffee"
+        },
+        "full" : {
+          "brb grabbing coffee" : "brb grabbing coffee"
+        },
+        "standard" : {
+          "brb grabbing coffee" : "BRB grabbing coffee"
+        }
+      },
+      "kind" : "clean",
+      "src" : "casual",
+      "text" : "brb grabbing coffee",
+      "want" : "brb grabbing coffee"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "yep that's the one" : "Yep, that's the one."
+        },
+        "full" : {
+          "yep that's the one" : "Yep, that's the one."
+        },
+        "standard" : {
+          "yep that's the one" : "Yep, that's the one."
+        }
+      },
+      "kind" : "clean",
+      "src" : "casual",
+      "text" : "yep that's the one",
+      "want" : "yep that's the one"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "haha no worries" : "haha no worries."
+        },
+        "full" : {
+          "haha no worries" : "Haha, no worries."
+        },
+        "standard" : {
+          "haha no worries" : "Haha, no worries."
+        }
+      },
+      "kind" : "clean",
+      "src" : "casual",
+      "text" : "haha no worries",
+      "want" : "haha no worries"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "kk, will do" : "kk, will do"
+        },
+        "full" : {
+          "kk, will do" : "OK, will do."
+        },
+        "standard" : {
+          "kk, will do" : "K, will do"
+        }
+      },
+      "kind" : "clean",
+      "src" : "casual",
+      "text" : "kk, will do",
+      "want" : "kk, will do"
+    },
+    {
+      "answers" : {
+        "minimal" : {
+          "ugh the wifi again" : "ugh, the wifi again"
+        },
+        "full" : {
+          "ugh the wifi again" : "Ugh, the WiFi again."
+        },
+        "standard" : {
+          "ugh the wifi again" : "Ugh, the wifi again."
+        }
+      },
+      "kind" : "clean",
+      "src" : "casual",
+      "text" : "ugh the wifi again",
+      "want" : "ugh the wifi again"
+    }
+  ]
+}

@@ -124,6 +124,12 @@ public struct ObservationEvent: Codable, Equatable {
         /// the breath road records. The evidence a breath offer needs:
         /// the pair is wanted side by side, not merely used in turn.
         case compose
+        /// The editor at work: `action` (shown | applied | dismissed |
+        /// undone), `rec` the issue's kind (spelling | grammar) or a
+        /// dismissal's reach (name: the word
+        /// learned · sentence: quiet in that sentence only), `app` where. Counts,
+        /// never the words.
+        case editor
     }
 
     /// The kinds that are the health record: what leaves a retired

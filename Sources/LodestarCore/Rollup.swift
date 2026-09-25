@@ -792,8 +792,9 @@ public struct Rollup: Codable, Equatable {
             month.versions.append(era.appVersion)
             month.versions.sort()
 
-        case .compose:
-            // The live view keeps the pairs; the archive needs nothing yet.
+        case .compose, .editor:
+            // Read from the log while the editor is in development; the
+            // archive needs nothing yet.
             return
 
         case .clicks:

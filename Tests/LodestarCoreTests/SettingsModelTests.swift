@@ -6,17 +6,36 @@ final class SettingsModelTests: XCTestCase {
         SettingsModel.catalog(config: Config(), machine: .init())
     }
 
-    func testNinePanesInTheAgreedOrder() {
+    func testTenPanesInTheAgreedOrder() {
         XCTAssertEqual(sections.map(\.name),
                        ["General", "Permissions", "Gestures", "Interaction", "Clipboard",
-                        "Web", "Meetings", "Coach", "Advanced"])
-        XCTAssertLessThanOrEqual(sections.count, 9,
-                                 "digits address panes; a tenth pane has no key")
+                        "Web", "Meetings", "Coach", "Advanced", "Editor"])
+        XCTAssertLessThanOrEqual(sections.count, SettingsModel.paneKeys.count,
+                                 "the number row addresses panes; an eleventh has no key")
+    }
+
+    /// 1 through 9, then 0: the editor came tenth so no pane moved.
+    func testTheNumberRowAddressesThePanes() {
+        XCTAssertEqual((0..<sections.count).compactMap(SettingsModel.paneKey),
+                       ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"])
+        XCTAssertEqual(SettingsModel.pane(forKey: "0", count: sections.count),
+                       sections.firstIndex { $0.name == "Editor" })
+        XCTAssertEqual(SettingsModel.pane(forKey: "9", count: sections.count),
+                       sections.firstIndex { $0.name == "Advanced" }, "Advanced keeps its 9")
+        XCTAssertNil(SettingsModel.pane(forKey: "0", count: 9), "no tenth pane, no 0")
+        XCTAssertNil(SettingsModel.pane(forKey: "a", count: 10))
+    }
+
+    func testTheEditorPaneHoldsTheEditorsRows() {
+        let editor = sections.first { $0.name == "Editor" }!
+        XCTAssertEqual(editor.rows.first?.path, "editor.enabled")
+        XCTAssertTrue(editor.rows.contains { $0.path == "editor.skip-apps" })
+        let interaction = sections.first { $0.name == "Interaction" }!
+        XCTAssertFalse(interaction.rows.contains { $0.path.hasPrefix("editor.") }, "moved, not copied")
     }
 
     /// About you, for the health record: two optional facts and the door
-    /// to the keyboards, in their own group of the Coach pane, since
-    /// digits address panes and a tenth pane has no key.
+    /// to the keyboards, in their own group of the Coach pane.
     func testTheHealthGroupHoldsTwoOptionalFactsAndTheKeyboardsDoor() {
         let coach = sections.first { $0.name == "Coach" }!
         let health = coach.rows.filter { $0.group == "Health" }

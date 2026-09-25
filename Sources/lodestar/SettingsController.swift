@@ -317,12 +317,11 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             if key == "escape" {
                 showingChanged = false
                 render()
-            } else if let digit = Int(key), (1...9).contains(digit),
-                      digit <= sections.count {
+            } else if let index = SettingsModel.pane(forKey: key, count: sections.count) {
                 // The changed view is a stop, not a mode: any pane
                 // address leaves it and goes there.
                 showingChanged = false
-                pane = digit - 1
+                pane = index
                 render()
             }
             return true
@@ -351,8 +350,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             if let searchField { panel.makeFirstResponder(searchField) }
             return true
         }
-        if let digit = Int(key), (1...9).contains(digit), digit <= sections.count {
-            pane = digit - 1
+        if let index = SettingsModel.pane(forKey: key, count: sections.count) {
+            pane = index
             openPage = nil
             highlightRow = nil
             listFocus = nil
@@ -406,9 +405,9 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             }
         default:
             // A digit is a pane address everywhere, list mode included.
-            if let digit = Int(key), (1...9).contains(digit), digit <= sections.count {
+            if let index = SettingsModel.pane(forKey: key, count: sections.count) {
                 listFocus = nil
-                pane = digit - 1
+                pane = index
                 highlightRow = nil
                 render()
                 panel.makeFirstResponder(nil)
@@ -702,6 +701,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         case .excludePatterns: return ["clipboard", "exclude", key]
         case .draftWords: return ["draft", "words", key]
         case .keyRemaps: return ["keys", key]
+        case .editorSkipApps: return ["editor", "skip-apps", key]
         }
     }
 
@@ -885,7 +885,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             row.orientation = .horizontal
             row.alignment = .centerY
             row.spacing = 10
-            row.addArrangedSubview(chip(String(index + 1), lit: index == pane))
+            row.addArrangedSubview(chip(SettingsModel.paneKey(index) ?? "", lit: index == pane))
             row.addArrangedSubview(label(section.name, size: BarTheme.Scale.body,
                                          weight: index == pane ? .semibold : .regular,
                                          color: index == pane ? .labelColor : BarTheme.secondaryColor))
@@ -1196,6 +1196,14 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                     }
                 }
             }
+            // Shown and greyed: an editor model this Mac is too small for
+            // says what it needs rather than vanishing.
+            if !row.disabledChoices.isEmpty {
+                popup.autoenablesItems = false
+                for (item, option) in zip(popup.itemArray, options) where row.disabledChoices.contains(option) {
+                    item.isEnabled = false
+                }
+            }
             if let at = options.firstIndex(of: current) {
                 popup.selectItem(at: at)
             }
@@ -1298,7 +1306,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             row.spacing = 10
             var display = entry.display
             var sub = entry.sub
-            if kind == .excludeApps {
+            if kind == .excludeApps || kind == .editorSkipApps {
                 if let name = appDisplayName(entry.key) {
                     display = name
                     sub = entry.key
@@ -1396,6 +1404,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             "calendars": .calendars, "excludeApps": .excludeApps,
             "excludePatterns": .excludePatterns, "keyRemaps": .keyRemaps,
             "draftWords": .draftWords,
+            "editorSkipApps": .editorSkipApps,
         ][parts[0]]
         if let kind { removeEntry(kind: kind, key: parts[1]) }
     }
@@ -1488,7 +1497,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             addInputs[addKey(kind)] = calendar
             addInputs["calendars.profile"] = profile
             popupTokens["calendars.profile"] = tokens
-        case .excludeApps:
+        case .excludeApps, .editorSkipApps:
             let app = popup(appChoices().map(\.name), width: 170)
             bar.addArrangedSubview(app)
             addInputs[addKey(kind)] = app
@@ -1588,6 +1597,11 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             guard let bundleID = appChoices().first(where: { $0.name == name })?.bundleID
             else { return }
             writeEntries(set: [(entryPath(.excludeApps, bundleID.lowercased()), .bool(true))])
+        case "editorSkipApps":
+            let name = popupChoice("editorSkipApps")
+            guard let bundleID = appChoices().first(where: { $0.name == name })?.bundleID
+            else { return }
+            writeEntries(set: [(entryPath(.editorSkipApps, bundleID.lowercased()), .bool(true))])
         case "excludePatterns":
             let pattern = fieldText("excludePatterns")
             guard !pattern.isEmpty else { return }
@@ -1772,4 +1786,13 @@ extension SettingsController {
     func switchView(for path: String) -> AccentSwitch? { switches[path] }
     /// For the tests: a render, the way a config write causes one.
     func rerender() { render() }
+
+    /// Machine state moved (a model downloading): drawn again when the
+    /// pane is open and nothing is being typed into it — a render
+    /// rebuilds the fields, and a half-typed word must not be lost to a
+    /// progress figure.
+    func machineStateChanged() {
+        guard panel.isVisible, layer != .editing else { return }
+        render()
+    }
 }

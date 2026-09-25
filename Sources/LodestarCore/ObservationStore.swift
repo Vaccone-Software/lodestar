@@ -166,6 +166,18 @@ public final class ObservationStore {
         record(event)
     }
 
+    /// The editor showed, applied, dismissed or took back a mark. Never
+    /// the text: the words are the writer's.
+    public func edited(action: String, kind: String?, app: String, via: String? = nil, at now: Date = Date()) {
+        var event = ObservationEvent(t: now, kind: .editor)
+        event.action = action
+        event.rec = kind
+        event.app = app.lowercased()
+        // Which road the answer took: the lens's keys or the card's mouse.
+        event.row = via
+        record(event)
+    }
+
     /// The launcher opened, took typing, and was escaped without a pick.
     public func launcherAbandoned(typed: Int, at now: Date = Date()) {
         var event = ObservationEvent(t: now, kind: .launcherAbandon)

@@ -28,6 +28,10 @@ func usage() -> Never {
                                        select's bench: capture a window by id, read it with both
                                        recognition passes, type every visible word through the
                                        auto-anchoring grammar and report where uniqueness landed
+      probe editor survey [--app A]    every editable field: readable, settable, word rects, attributes
+      probe editor field <app> [--find T] [--write] [--undo] [--notify] [--long] [--image P]
+                                       one field: word rects checked against OCR, a one-word fix,
+                                       ⌘Z, change notifications; writes only with --write, restores
       probe speech [--seconds N] [--words a,b] [--dictation] [--cycle] [--auth]
                                        the draft's questions: latency to first word, revisions,
                                        restart cost, contextual vocabulary, which TCC grant
@@ -65,6 +69,7 @@ case "key": runKey(&arguments)
 case "owners": runOwners(&arguments)
 case "ocrlive": runOCRLive(&arguments)
 case "speech": runSpeech(&arguments)
+case "editor": runEditor(&arguments)
 case "help", "--help", "-h": usage()
 default:
     fputs("probe: unknown command '\(command)'\n\n", stderr)

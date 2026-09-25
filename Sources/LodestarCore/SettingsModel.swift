@@ -27,6 +27,7 @@ public enum SettingsModel {
         case excludePatterns
         case draftWords
         case keyRemaps
+        case editorSkipApps
     }
 
     public struct TableEntry: Equatable {
@@ -107,6 +108,9 @@ public enum SettingsModel {
         /// The doctor's finding about this row, rendered where it can be
         /// fixed rather than in a terminal nobody runs on a good day.
         public let problem: String?
+        /// Choices shown and not choosable: an editor model too big for
+        /// this Mac is listed with what it needs, and greyed.
+        public var disabledChoices: Set<String> = []
 
         public init(title: String, path: String = "", control: Control,
                     detail: String? = nil, keycaps: [String] = [],
@@ -124,6 +128,14 @@ public enum SettingsModel {
             self.presets = presets
             self.problem = problem
         }
+
+        /// The same row under a subgroup heading.
+        public func inGroup(_ group: String) -> Row {
+            var row = Row(title: title, path: path, control: control, detail: detail, keycaps: keycaps,
+                          isDefault: isDefault, dimmed: dimmed, group: group, presets: presets, problem: problem)
+            row.disabledChoices = disabledChoices
+            return row
+        }
     }
 
     public struct Section: Equatable {
@@ -131,7 +143,7 @@ public enum SettingsModel {
         public let rows: [Row]
         /// A page rather than a pane: reached from a row of the named
         /// pane, never listed on the rail, and escape returns to its
-        /// parent. Nil for the nine panes the digits address.
+        /// parent. Nil for the panes the number row addresses.
         public let parent: String?
 
         public init(name: String, rows: [Row], parent: String? = nil) {
@@ -189,6 +201,15 @@ public enum SettingsModel {
         /// attached, by the roster, and the ones the config has declared
         /// keys for, attached or not.
         public var keyboards: [Keyboard] = []
+        /// The editor's engines this Mac may run, their names, and where
+        /// the one in use stands.
+        public var editorEngines: [String] = []
+        public var editorEngineLabels: [String] = []
+        public var editorEngineCurrent = ""
+        public var editorModelStatus = ""
+        /// Engines this Mac cannot run (too little memory, no Apple
+        /// Intelligence): listed, greyed.
+        public var editorEnginesUnavailable: Set<String> = []
 
         public init(accessibility: String = "unknown", screenRecording: String = "unknown",
                     calendars: String = "unknown", browserRole: String = "unknown",
@@ -367,6 +388,49 @@ public enum SettingsModel {
                 isDefault: config.draftWords.isEmpty),
         ]
 
+        // 10 · The editor, its own pane, addressed by 0: the digit after
+        // 9, so no pane that came before it moved.
+        var editorRows: [Row] = [
+            Row(title: "Enable editor", path: "editor.enabled",
+                control: .toggle(config.editorEnabled),
+                detail: "Marks mistakes as you write, in every app. Your text never leaves "
+                    + "this Mac and is never kept.",
+                keycaps: ["lode", "⇥"],
+                isDefault: !config.editorEnabled,
+                problem: problem(at: "editor.enabled")),
+        ]
+        if !machine.editorEngines.isEmpty {
+            var model = Row(title: "Model", path: "editor.model",
+                control: .choice(options: machine.editorEngines, labels: machine.editorEngineLabels,
+                                 current: machine.editorEngineCurrent),
+                detail: machine.editorModelStatus + ". Spelling needs no model: typos, doubled words and a "
+                    + "few set phrases, but no grammar. Minimal is Apple's own model. Standard holds about "
+                    + "4 GB of memory while you write and needs a 16 GB Mac. Full holds about 20 GB, reads "
+                    + "most precisely, and needs 64 GB.",
+                isDefault: config.editorModel.isEmpty)
+            model.disabledChoices = machine.editorEnginesUnavailable
+            editorRows.append(model)
+        } else {
+            editorRows.append(Row(title: "Model", path: "editor.model",
+                control: .readout(machine.editorModelStatus, sub: nil),
+                detail: "Loads when you start writing and lets go of its memory two minutes after you stop.",
+                isDefault: config.editorModel.isEmpty))
+        }
+        editorRows += [
+            Row(title: "Spelling", path: "editor.language",
+                control: .choice(options: ["en_US", "en_GB"], labels: ["English (US)", "English (UK)"],
+                                 current: config.editorLanguage),
+                isDefault: config.editorLanguage == "en_US"),
+            Row(title: "Words", path: "draft.words",
+                control: .table(kind: .draftWords, entries: config.draftWords.map { TableEntry(key: $0, display: $0) }),
+                detail: "Shared with the draft. Names and terms that are never marked.",
+                isDefault: config.draftWords.isEmpty),
+            Row(title: "Skip in", path: "editor.skip-apps",
+                control: .table(kind: .editorSkipApps, entries: config.editorSkipApps.sorted().map {
+                    TableEntry(key: $0, display: $0) }),
+                detail: "Fields in these apps are never read.",
+                isDefault: config.editorSkipApps.isEmpty),
+        ]
         // 4 · Interaction
         sections.append(Section(name: "Interaction", rows: [
             Row(title: "Smooth scrolling", path: "scroll.smooth",
@@ -388,6 +452,7 @@ public enum SettingsModel {
                     + "anchor lands.",
                 isDefault: !config.selectCopyOnComplete),
         ] + draftRows))
+
 
         // 5 · Clipboard
         var clipboardRows: [Row] = []
@@ -588,6 +653,7 @@ public enum SettingsModel {
                 isDefault: config.keyOverrides.isEmpty),
         ]))
 
+        sections.append(Section(name: "Editor", rows: editorRows))
         return sections
     }
 
@@ -661,6 +727,19 @@ public enum SettingsModel {
     /// items in the order the eye meets them. No digits: those address
     /// panes.
     public static let labelAlphabet = "abcdefghijklmnopqrstuvwxyz".map(String.init)
+
+    /// The key that addresses a pane: 1 through 9, then 0 for the tenth —
+    /// the number row's own order, one key each.
+    public static let paneKeys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]
+
+    public static func paneKey(_ index: Int) -> String? {
+        paneKeys.indices.contains(index) ? paneKeys[index] : nil
+    }
+
+    public static func pane(forKey key: String, count: Int) -> Int? {
+        guard let index = paneKeys.firstIndex(of: key), index < count else { return nil }
+        return index
+    }
 
     public static func labels(for count: Int) -> [String] {
         Array(labelAlphabet.prefix(count))

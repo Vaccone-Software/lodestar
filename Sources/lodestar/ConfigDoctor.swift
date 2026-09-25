@@ -625,6 +625,36 @@ func runObservations(clear: Bool, engine: Bool) -> Never {
         print("")
     }
 
+    // The editor, as counts: marks shown, fixed by a letter, kept with ⇧,
+    // taken back with ⌫ — by kind and by app. How effective it is reads
+    // here: fixes over marks is the share the hand agreed with, and a high
+    // keep rate in one app says where the editor reads wrong.
+    let editorCutoff = Date().addingTimeInterval(-28 * 86_400)
+    let edits = events.filter { $0.kind == .editor && $0.t >= editorCutoff }
+    if !edits.isEmpty {
+        print("editor")
+        func count(_ action: String, _ kind: String? = nil) -> Int {
+            edits.filter { $0.action == action && (kind == nil || $0.rec == kind) }.count
+        }
+        let shown = count("shown"), applied = count("applied"), kept = count("dismissed"), undone = count("undone")
+        let share = shown > 0 ? " · \(Int(Double(applied) / Double(shown) * 100))% of marks fixed" : ""
+        print("  \(shown) marks · \(applied) fixed · \(kept) kept as written · \(undone) fixes taken back\(share)")
+        print("  spelling \(count("shown", "spelling")) shown, \(count("applied", "spelling")) fixed"
+              + " · grammar \(count("shown", "grammar")) shown, \(count("applied", "grammar")) fixed"
+              + " · kept: \(count("dismissed", "name")) words learned, \(count("dismissed", "sentence")) in their sentence")
+        let byMouse = edits.filter { ($0.action == "applied" || $0.action == "dismissed") && $0.row == "mouse" }.count
+        let byKeys = edits.filter { ($0.action == "applied" || $0.action == "dismissed") && $0.row != "mouse" }.count
+        print("  answered by the keys \(byKeys) · by the mouse \(byMouse)")
+        let apps = Dictionary(grouping: edits.filter { $0.action == "shown" }, by: { $0.app ?? "?" })
+            .mapValues(\.count).sorted { $0.value > $1.value }
+        for (app, marks) in apps.prefix(6) {
+            let fixed = edits.filter { $0.action == "applied" && $0.app == app }.count
+            let keptHere = edits.filter { $0.action == "dismissed" && $0.app == app }.count
+            print("  \(pad(app, 22))\(pad("\(marks) marks", 11))\(pad("\(fixed) fixed", 10))\(keptHere) kept")
+        }
+        print("")
+    }
+
     // The draft, as counts: how often each door opens, how it ends, how
     // much was said, and the two waits — to the first word, to the first
     // key. Never the text; there is none in the record to print.

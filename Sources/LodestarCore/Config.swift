@@ -118,6 +118,16 @@ public struct Config {
     /// `draft.input`: the microphone by name; empty means the system's
     /// default input, whatever it is at the moment of use.
     public var draftInput = ""
+    /// The editor: marks mistakes in any field, fixed by `lode ⇥`.
+    public var editorEnabled = false
+    /// standard | full | apple, or empty for the engine this Mac's memory
+    /// suits.
+    public var editorModel = ""
+    /// The spell checker's language: en_US or en_GB.
+    public var editorLanguage = "en_US"
+    /// Apps whose fields the editor never reads, by name, lowercased.
+    public var editorSkipApps: Set<String> = []
+    /// Changes the hand said were meant, as "original→replacement".
     /// Watch how you reach things, locally, to make suggestions later. Off
     /// means nothing is recorded and no file is written.
     public var observationsEnabled = true
@@ -232,6 +242,14 @@ public struct Config {
             "words": .freeTable(value: .boolean(description: "true to keep this word in the draft's vocabulary."),
                                 description: "Word → true. Names and terms speech gets wrong; a settled result within a letter or two of one is repaired to it, case and all."),
         ], description: "The draft: lode . speaks, lode ⇧. edits."),
+        "editor": .table([
+            "enabled": .boolean(description: "Mark mistakes as you write, in every app; lode ⇥ letters the marks."),
+            "model": .string(allowed: ["", "spelling", "minimal", "standard", "full"],
+                             description: "How the editor reads: spelling (no model, any Mac), minimal (Apple's own model), standard (16 GB Macs and up) or full (64 GB and up). Empty picks the one this Mac suits; one this Mac cannot run falls back the same way."),
+            "language": .string(allowed: ["en_US", "en_GB"], description: "The spelling the editor holds you to."),
+            "skip-apps": .freeTable(value: .boolean(description: "true to never read fields in this app."),
+                                    description: "App name → true. Fields in these apps are never read."),
+        ], description: "The editor: marks under mistakes, lode ⇥ to fix."),
         "clipboard": .table([
             "enabled": .boolean(description: "⇧⌘V opens the clipboard strip. The one Lodestar binding outside the lode key, so it is also the one that can collide with an app; false gives ⇧⌘V back."),
             "max-size-mb": .number(min: 10, max: 20_000, description: "Disk the clipboard history may claim; the oldest clips are dropped to stay under it. Pins are never dropped."),
@@ -427,6 +445,18 @@ public struct Config {
         }
         if let input = effective.value(at: ["draft", "input"])?.string {
             config.draftInput = input.trimmingCharacters(in: .whitespaces)
+        }
+        if let enabled = effective.value(at: ["editor", "enabled"])?.bool {
+            config.editorEnabled = enabled
+        }
+        if let model = effective.value(at: ["editor", "model"])?.string {
+            config.editorModel = model.trimmingCharacters(in: .whitespaces).lowercased()
+        }
+        if let language = effective.value(at: ["editor", "language"])?.string {
+            config.editorLanguage = language == "en_GB" ? "en_GB" : "en_US"
+        }
+        if let apps = effective.value(at: ["editor", "skip-apps"])?.table {
+            config.editorSkipApps = Set(apps.filter { $0.value.bool == true }.keys.map { $0.lowercased() })
         }
         if let gestures = effective.value(at: ["gestures"])?.table {
             // Unknown names and non-boolean values are the schema walk's

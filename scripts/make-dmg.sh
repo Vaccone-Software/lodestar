@@ -42,8 +42,12 @@ rm "$STAGE/root/.background/background.png" "$STAGE/root/.background/background@
 cp packaging/lodestar.icns "$STAGE/root/.VolumeIcon.icns"
 
 echo "→ building image"
+# Sized from what it holds, with room for Finder's layout files: a fixed
+# 48 MB held every build until MLX made the app bigger than that, and
+# hdiutil -quiet failed without a word (0.37.0).
+SIZE=$(( $(du -sm "$STAGE/root" | cut -f1) + 24 ))
 hdiutil create -srcfolder "$STAGE/root" -volname "$VOLUME" -fs HFS+ \
-    -format UDRW -size 48m "$STAGE/rw.dmg" -quiet
+    -format UDRW -size "${SIZE}m" "$STAGE/rw.dmg" -quiet
 ATTACH=$(hdiutil attach -readwrite -noverify -noautoopen "$STAGE/rw.dmg")
 DEVICE=$(echo "$ATTACH" | awk '/\/Volumes\//{print $1}')
 MOUNT=$(echo "$ATTACH" | grep -o '/Volumes/.*')

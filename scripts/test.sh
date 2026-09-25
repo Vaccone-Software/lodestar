@@ -29,6 +29,21 @@ if ! build=$(swift build --build-tests 2>&1); then
     exit 1
 fi
 BIN=$(swift build --show-bin-path)
+# One bundle per test target (Xcode 27's SwiftPM), or every target in one
+# lodestarPackageTests.xctest (older toolchains, CI's runner among them).
+# Test names are Bundle.Class either way, so -XCTest filters the same.
+APP_BUNDLE="$BIN/LodestarAppTests.xctest"
+CORE_BUNDLE="$BIN/LodestarCoreTests.xctest"
+if [ ! -d "$APP_BUNDLE" ]; then
+    ONE=$(ls -d "$BIN"/*PackageTests.xctest 2>/dev/null | head -1)
+    APP_BUNDLE="$ONE"
+    CORE_BUNDLE="$ONE"
+fi
+if [ ! -d "$APP_BUNDLE" ] || [ ! -d "$CORE_BUNDLE" ]; then
+    echo "✕ no test bundles in $BIN"
+    ls "$BIN" | grep -i xctest
+    exit 1
+fi
 
 rm -rf "$OUT"
 mkdir -p "$OUT"
@@ -67,8 +82,8 @@ pids=()
 logs=()
 for list in "$OUT"/app*.list "$OUT/core.list"; do
     name=$(basename "$list" .list)
-    bundle="$BIN/LodestarAppTests.xctest"
-    [ "$name" = core ] && bundle="$BIN/LodestarCoreTests.xctest"
+    bundle="$APP_BUNDLE"
+    [ "$name" = core ] && bundle="$CORE_BUNDLE"
     xcrun xctest -XCTest "$(cat "$list")" "$bundle" > "$OUT/$name.log" 2>&1 &
     pids+=($!)
     logs+=("$OUT/$name.log")

@@ -60,8 +60,11 @@ final class EditorController: EditorLens {
     private var pressure: DispatchSourceMemoryPressure?
     private let watch: EditorWatch
     /// A read is on its way: notifications arrive in bursts (a keystroke
-    /// is a value change and a caret move), and one read answers them all.
+    /// is a value change and a caret move), and one read answers them all
+    /// — plus one more when any arrived after that read had looked, or the
+    /// last keystroke of a burst would wait for the next beat.
     private var readQueued = false
+    private var readAgain = false
     /// Is this engine's model here and able to answer? Asked when the
     /// engine changes and when a download finishes, not every beat.
     private let modelReady: (EditorEngine) -> Bool
@@ -194,15 +197,23 @@ final class EditorController: EditorLens {
     /// One read: the focused field, off the main thread, taken on it. A
     /// read already on its way answers this call too. Main thread.
     func poll() {
-        guard !readQueued else { return }
+        guard !readQueued else {
+            readAgain = true
+            return
+        }
         readQueued = true
         let source = self.source
         let frontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier
         axQueue.async { [weak self] in
             let read = source.focusedField(frontmost: frontmost)
             DispatchQueue.main.async {
-                self?.readQueued = false
-                self?.receive(read)
+                guard let self else { return }
+                self.readQueued = false
+                self.receive(read)
+                if self.readAgain {
+                    self.readAgain = false
+                    self.poll()
+                }
             }
         }
     }

@@ -953,15 +953,34 @@ final class EditorReadinessTests: XCTestCase {
         XCTAssertEqual(rig.reader.prepared, 2)
     }
 
-    /// Notifications come in bursts; one read answers a burst.
-    func testABurstOfNotificationsIsOneRead() {
+    /// Notifications come in bursts: one read answers a burst, and one
+    /// more reads what arrived after it had looked.
+    func testABurstOfNotificationsIsOneReadAndOneAfter() {
         let rig = EditorRig()
         rig.source.field = EditorRig.field("Hello there.")
         rig.source.stall = 0.2
         for _ in 0..<8 { rig.controller.poll() }
-        rig.settle("the read") { rig.controller.field != nil }
-        rig.drain()
-        XCTAssertEqual(rig.source.reads, 1)
+        rig.settle("both reads") { rig.source.reads == 2 }
+        for _ in 0..<10 { rig.drain() }
+        XCTAssertEqual(rig.source.reads, 2, "eight notices, two reads")
+        rig.controller.poll()
+        rig.settle("a lone notice is one read") { rig.source.reads == 3 }
+        for _ in 0..<10 { rig.drain() }
+        XCTAssertEqual(rig.source.reads, 3)
+    }
+
+    /// The keystroke that lands while a read is on its way is read too,
+    /// not left for the next beat.
+    func testAChangeDuringAReadIsReadAfterIt() {
+        let rig = EditorRig()
+        rig.source.field = EditorRig.field("We ship")
+        rig.source.stall = 0.15
+        rig.controller.poll()
+        // The read has looked at "We ship"; the hand types on.
+        rig.settle("the first read looked") { rig.source.reads == 1 }
+        rig.source.field = EditorRig.field("We ship it.")
+        rig.controller.noticed(kAXValueChangedNotification)
+        rig.settle("the change is read") { rig.controller.field?.text == "We ship it." }
     }
 
     /// A terminal's output is not the hand writing: with no readable

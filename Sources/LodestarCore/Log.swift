@@ -38,9 +38,17 @@ public enum Log {
     /// CLI commands print reports, not log streams.
     public static var stdoutEnabled = true
 
+    /// Every line as written — for a test that reads what the app said,
+    /// the editor's promise that no line carries the writer's words.
+    public static var listener: ((String) -> Void)?
+
+    /// Off under any test runner. `swift test` says so in the environment;
+    /// `xcrun xctest` run directly (scripts/test.sh's shards) does not, so
+    /// the loaded XCTest framework is asked too — the app never links it.
     public static var fileEnabled: Bool = {
         let env = ProcessInfo.processInfo.environment
         return env["XCTestConfigurationFilePath"] == nil && env["SWIFT_TESTING_ENABLED"] == nil
+            && NSClassFromString("XCTestCase") == nil
     }()
 
     public static func info(_ event: String, _ fields: KeyValuePairs<String, Any> = [:]) {
@@ -57,6 +65,7 @@ public enum Log {
             line += " \(key)=\(format(value))"
         }
         line += "\n"
+        listener?(line)
         if stdoutEnabled { print(line, terminator: "") }
         guard fileEnabled, let data = line.data(using: .utf8) else { return }
         io.sync {

@@ -339,6 +339,22 @@ final class UpdateController {
             return
         }
 
+        // The fourth lock: this Mac can run it. A build it cannot run is
+        // refused by its tag, so it is not fetched again, and said once.
+        if let why = Updater.incompatibility(
+            architectures: Self.architectures(of: bundle),
+            minimumSystem: plist?["LSMinimumSystemVersion"] as? String,
+            appleSilicon: Self.appleSilicon, system: ProcessInfo.processInfo.operatingSystemVersion) {
+            Log.info("update", ["phase": "refused", "version": stagedVersion, "reason": why])
+            try? release.tag.write(to: Self.refusedFile, atomically: true, encoding: .utf8)
+            clearStaging()
+            DispatchQueue.main.async {
+                self.phase = .idle
+                self.flash("Lodestar \(stagedVersion) \(why), so this Mac stays on \(Lodestar.version)", 10)
+            }
+            return
+        }
+
         Log.info("update", ["phase": "staged", "version": stagedVersion])
         DispatchQueue.main.async {
             self.stagedBundle = bundle
@@ -354,6 +370,25 @@ final class UpdateController {
             self.phase = .idle
             if force { self.flash("✕ update failed verification, see the log", 4) }
         }
+    }
+
+    /// The architectures a bundle's executable was built for.
+    static func architectures(of bundle: URL) -> Set<String> {
+        let types = Bundle(url: bundle)?.executableArchitectures?.map(\.intValue) ?? []
+        return Set(types.compactMap { type -> String? in
+            switch type {
+            case NSBundleExecutableArchitectureARM64: return "arm64"
+            case NSBundleExecutableArchitectureX86_64: return "x86_64"
+            default: return nil
+            }
+        })
+    }
+
+    /// Apple silicon, even when this build runs translated.
+    static var appleSilicon: Bool {
+        var value: Int32 = 0
+        var size = MemoryLayout<Int32>.size
+        return sysctlbyname("hw.optional.arm64", &value, &size, nil, 0) == 0 && value == 1
     }
 
     private func clearStaging() {

@@ -139,6 +139,26 @@ public enum Updater {
         return !sameVersion(release.version, refused)
     }
 
+    /// Can this Mac run a staged build? Nil when it can; otherwise what the
+    /// build needs, for the one note the person sees. A build for Apple
+    /// silicon alone on an Intel Mac, or one asking a newer macOS, would
+    /// fail to launch, be rolled back by the watchdog, and — refused only
+    /// by its tag — come back with every later release. Checked from the
+    /// staged bundle itself, so it holds for any release after this one.
+    public static func incompatibility(architectures: Set<String>, minimumSystem: String?,
+                                       appleSilicon: Bool, system: OperatingSystemVersion) -> String? {
+        var needs: [String] = []
+        let runs = appleSilicon ? !architectures.isDisjoint(with: ["arm64", "x86_64"])
+                                : architectures.contains("x86_64")
+        if !runs { needs.append("a Mac with Apple silicon") }
+        if let minimumSystem, let wanted = parseVersion(minimumSystem),
+           isNewer(wanted, than: [system.majorVersion, system.minorVersion, system.patchVersion]) {
+            let shown = wanted.count > 1 && wanted[1] == 0 ? "\(wanted[0])" : minimumSystem
+            needs.append("macOS \(shown)")
+        }
+        return needs.isEmpty ? nil : "needs " + needs.joined(separator: " and ")
+    }
+
     /// Place-by-place equality, missing places reading as zero — the same
     /// rule `isNewer` uses, so `0.18` and `0.18.0` are one version.
     public static func sameVersion(_ a: [Int], _ b: [Int]) -> Bool {

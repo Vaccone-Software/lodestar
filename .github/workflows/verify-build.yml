@@ -1,0 +1,67 @@
+name: Verify build
+
+# The gate before a release is public. ship.sh uploads the notarized zip
+# to a DRAFT release — invisible to the updater, the site and Homebrew —
+# and runs this: the app is unpacked and started on every macOS it claims
+# to support. Only if all pass does ship.sh publish the draft.
+#
+# Why: releases are immutable once published, and 0.37.0 was built by
+# Xcode 27 against a dependency (swift-collections 1.7) that linked a
+# Swift runtime entry point only macOS 27 has. It started on the machine
+# that built it and nowhere older. A build is proven where it will run,
+# not where it was made.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The draft release's tag, e.g. v0.37.1"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  run:
+    strategy:
+      fail-fast: false
+      matrix:
+        # Apple silicon runners, from the oldest macOS the build claims
+        # (LSMinimumSystemVersion 14.0) to the newest the runners offer.
+        os: [macos-14, macos-15, macos-26]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - name: The draft's zip
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          # A draft has no tag yet, so it is found in the list by name.
+          URL=$(gh api "repos/$GITHUB_REPOSITORY/releases" --jq \
+            ".[] | select(.tag_name == \"$TAG\") | .assets[] | select(.name | endswith(\".zip\")) | .url" | head -1)
+          [ -n "$URL" ] || { echo "✕ no zip on a release tagged $TAG"; exit 1; }
+          curl -sfL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/octet-stream" "$URL" -o build.zip
+          ditto -x -k build.zip unpacked
+
+      - name: It starts on this macOS and knows its version
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          sw_vers
+          APP=unpacked/lodestar.app
+          BIN="$APP/Contents/MacOS/lodestar"
+          VERSION="${TAG#v}"
+          BUNDLE=$(plutil -extract CFBundleShortVersionString raw "$APP/Contents/Info.plist")
+          [ "$BUNDLE" = "$VERSION" ] || { echo "✕ bundle says $BUNDLE, tag says $VERSION"; exit 1; }
+          lipo -archs "$BIN" | grep -q arm64 || { echo "✕ no arm64 slice"; exit 1; }
+          # Every symbol must bind here: a missing one fails at launch,
+          # before any of Lodestar's code runs.
+          "$BIN" --help | head -1 | grep -q "Lodestar $VERSION" || { echo "✕ it did not start"; "$BIN" --help; exit 1; }
+          "$BIN" schema | python3 -c 'import json,sys; json.load(sys.stdin)'
+          echo "✓ $TAG starts on $(sw_vers -productVersion)"
+
+      - name: Gatekeeper accepts it
+        run: |
+          xcrun stapler validate unpacked/lodestar.app
+          spctl -a -vv -t exec unpacked/lodestar.app

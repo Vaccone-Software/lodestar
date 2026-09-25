@@ -14,6 +14,11 @@ let package = Package(
         .package(url: "https://github.com/ml-explore/mlx-swift-lm", .upToNextMinor(from: "3.31.3")),
         .package(url: "https://github.com/huggingface/swift-huggingface", from: "0.9.0"),
         .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.0"),
+        // Held below 1.4, which adopted Swift 6.4's borrowing iteration: built
+        // by Xcode 27, it links runtime entry points only macOS 27 has
+        // (swift_initBorrow), and 0.37.0 would not start on anything older.
+        // The tokenizer and template packages that use it accept any 1.x.
+        .package(url: "https://github.com/apple/swift-collections", "1.3.0"..<"1.4.0"),
     ],
     targets: [
         // The AX layer every slice builds on. No dependencies, by design.
@@ -26,6 +31,7 @@ let package = Package(
             .product(name: "MLXHuggingFace", package: "mlx-swift-lm"),
             .product(name: "HuggingFace", package: "swift-huggingface"),
             .product(name: "Tokenizers", package: "swift-transformers"),
+            .product(name: "OrderedCollections", package: "swift-collections"),
         ]),
         // Slice 0: the window-identity probe. Throwaway by design.
         .executableTarget(name: "probe", dependencies: ["LodestarCore"]),

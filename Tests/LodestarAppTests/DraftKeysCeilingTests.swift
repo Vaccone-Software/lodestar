@@ -136,8 +136,10 @@ final class DraftKeysCeilingTests: XCTestCase {
         panel.showKeys(HotkeyEngine.draftSections(editor: .insert, card: true))
         settle()
         XCTAssertLessThanOrEqual(panel.frame.maxY, screen.maxY)
-        XCTAssertGreaterThanOrEqual(panel.frame.minY, 220,
-                                    "the door stands above the strip, keys or no keys")
+        // Measured from the screen's own floor: a display arranged below
+        // or beside the main one does not start at zero.
+        XCTAssertGreaterThanOrEqual(panel.frame.minY - screen.minY, 220,
+                                    "the door stands above the strip, keys or no keys (screen at \(screen.minY))")
         XCTAssertGreaterThanOrEqual(panel.textFrame.minY, panel.keysFrame.maxY)
     }
 

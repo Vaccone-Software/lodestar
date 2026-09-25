@@ -32,7 +32,7 @@ One private API call, [documented](FINDINGS.md).
 
 ## Install
 
-Requires macOS 13 or later. Best on macOS 26.
+Requires a Mac with Apple silicon and macOS 14 or later. Best on macOS 26.
 
 ```sh
 git clone https://github.com/Vaccone-Software/lodestar.git && cd lodestar

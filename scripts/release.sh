@@ -30,10 +30,10 @@ fi
 
 if [ "$PHASE" = "build" ] || [ "$PHASE" = "all" ]; then
     echo "→ testing"
-    swift test >/dev/null 2>&1 || { echo "✕ tests failed — no release from a red suite (run: swift test)"; exit 1; }
+    ./scripts/test.sh || { echo "✕ tests failed — no release from a red suite (run: scripts/test.sh)"; exit 1; }
 
     echo "→ building v$VERSION"
-    ./scripts/make-app.sh --universal >/dev/null
+    ./scripts/make-app.sh --release >/dev/null
 
     echo "→ signing with: $IDENTITY"
     codesign --force --options runtime --timestamp \

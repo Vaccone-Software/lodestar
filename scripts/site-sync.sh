@@ -2,7 +2,8 @@
 # What the website reads from a release, written from the built app:
 #   dist/lodestar-schema.json            the config schema (`lodestar schema`)
 #   <site>/data/schema.json              the same, for the guide's option lists
-#   <site>/app/page.tsx                  the download fallback's version
+#   <site>/lib/releases.ts               the download fallback's version
+#                                        (app/page.tsx before the redesign)
 # The site checkout is $LODESTAR_SITE or ../lodestar-site; without one only
 # the dist copy is written. Nothing is committed: the site is published by
 # hand, after the release is. release.sh runs this after the self-test.
@@ -21,20 +22,22 @@ mv "$SCHEMA.tmp" "$SCHEMA"
 echo "→ schema: $SCHEMA"
 
 SITE="${LODESTAR_SITE:-../lodestar-site}"
-if [ ! -d "$SITE/data" ] || [ ! -f "$SITE/app/page.tsx" ]; then
+FALLBACK="$SITE/lib/releases.ts"
+[ -f "$FALLBACK" ] || FALLBACK="$SITE/app/page.tsx"
+if [ ! -d "$SITE/data" ] || [ ! -f "$FALLBACK" ]; then
     echo "  no site checkout at $SITE; set LODESTAR_SITE to update it"
     exit 0
 fi
 cp "$SCHEMA" "$SITE/data/schema.json"
 # The fallback the download button shows when GitHub cannot be reached.
-python3 - "$SITE/app/page.tsx" "v$VERSION" <<'PY'
+python3 - "$FALLBACK" "v$VERSION" <<'PY'
 import re, sys
 path, tag = sys.argv[1], sys.argv[2]
 s = open(path).read()
 new, count = re.subn(r'return \{ tag: "v[0-9.]+", date: "" \};', f'return {{ tag: "{tag}", date: "" }};', s)
 if count != 1:
-    sys.exit("✕ the download fallback line in app/page.tsx has moved; update site-sync.sh")
+    sys.exit(f"✕ the download fallback line in {path} has moved; update site-sync.sh")
 open(path, "w").write(new)
 PY
-CHANGED=$(git -C "$SITE" status --short -- data/schema.json app/page.tsx | wc -l | tr -d ' ')
+CHANGED=$(git -C "$SITE" status --short -- data/schema.json "${FALLBACK#$SITE/}" | wc -l | tr -d ' ')
 echo "→ site: schema and download fallback (v$VERSION) written to $SITE, $CHANGED file(s) changed, not committed"

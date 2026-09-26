@@ -961,6 +961,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.acceptStarterGraph(proposals)
         }
         walk.persistStep = { [weak self] step in self?.store.setWalkStep(step) }
+        walk.persistDoor = { [weak self] door in self?.store.setWalkDoor(door) }
+        walk.openDoor = { [weak self] door in self?.openWalkDoor(door) }
+        walk.grammarOffer = { Self.walkGrammarOffer() }
+        walk.describeEngine = { Self.walkEngineAnswer($0) }
+        walk.chooseEngine = { [weak self] engine in self?.setEditorModel(engine) }
+        walk.enableEditor = { [weak self] in self?.setEditorEnabled(true, flash: "✓ the editor is on") }
+        // The Write, Keep and Speak walks each wait on one real moment:
+        // a mark drawn and a fix taken, a copy kept, words landed.
+        editorController?.onMarked = { [weak self] in self?.walk.notice(.editorMarked) }
+        editorController?.onFixed = { [weak self] in self?.walk.notice(.editorFixed) }
+        clipboardController.onCopied = { [weak self] in self?.walk.notice(.clipCopied) }
+        draftController?.onLanded = { [weak self] in self?.walk.notice(.draftLanded) }
         walk.markCompleted = { [weak self] in
             self?.store.markWalkCompleted(version: Lodestar.version)
         }
@@ -978,10 +990,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         coach.lessonDue = { [weak self] in
             guard let self else { return nil }
             let record = self.observationStore.observations
+            // A door already walked through is not taught again: the
+            // launcher to whoever chose Switch, the editor to anyone who
+            // has it on.
+            var settled: Set<Curriculum.Lesson> = []
+            if self.store.walkDoor == .switcher { settled.insert(.launcher) }
+            if self.config.editorEnabled { settled.insert(.editor) }
             return Curriculum.next(now: Date(), since: record.since,
                                    verbsLastUsed: record.verbsLastUsed ?? [:],
                                    records: self.store.curriculumRecords,
-                                   walkDone: self.store.walkCompletedVersion != nil)
+                                   walkDone: self.store.walkCompletedVersion != nil,
+                                   settled: settled)
         }
         coach.showLesson = { [weak self] lesson in
             guard let self else { return }
@@ -1187,8 +1206,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func showWalk() {
         walk.config = config
-        let resume = store.walkCompletedVersion == nil ? store.walkStep : nil
-        walk.show(resumeAt: resume)
+        let unfinished = store.walkCompletedVersion == nil
+        walk.show(resumeAt: unfinished ? store.walkStep : nil, door: unfinished ? store.walkDoor : nil)
+    }
+
+    /// The Write door, chosen: the editor on, reading spelling first. The
+    /// welcome and the permission said what it reads and that nothing is
+    /// kept, which is the consent the editor's own card would ask for.
+    /// A closer model is offered once a fix has been taken.
+    private func openWalkDoor(_ door: Walk.Door) {
+        guard door == .write else { return }
+        if !store.editorConsented { store.setEditorConsent(Date()) }
+        guard !config.editorEnabled else { return }
+        let noModel = config.editorModel.isEmpty
+        if let problem = rewriteConfig(flash: "", logged: "editor.enabled", edit: { tree in
+            guard var updated = Json.setting(tree, path: ["editor", "enabled"], to: .bool(true)) else {
+                throw Config.EditError.unparsed("editor.enabled")
+            }
+            if noModel,
+               let spelling = Json.setting(updated, path: ["editor", "model"], to: .string(EditorEngine.spelling.rawValue)) {
+                updated = spelling
+            }
+            return updated
+        }) {
+            hud.flash("✕ \(problem)")
+        }
+    }
+
+    /// The engine the Write walk offers after its first fix: the closest
+    /// reader this Mac can run, or nothing when that is spelling alone.
+    static func walkGrammarOffer() -> String? {
+        let best = EditorEngine.resolved("")
+        return best == .spelling ? nil : best.rawValue
+    }
+
+    /// The offer's answer, as the card says it.
+    static func walkEngineAnswer(_ raw: String) -> String {
+        guard let engine = EditorEngine(rawValue: raw) else { return raw }
+        if let manifest = EditorManifest.forEngine(engine) {
+            return String(format: "download %@, %.1f GB", engine.name, Double(manifest.total) / 1e9)
+        }
+        return "use \(engine.name), Apple's own model"
+    }
+
+    /// The editor's engine, written as Settings would write it.
+    private func setEditorModel(_ engine: String) {
+        if let problem = rewriteConfig(flash: "✓ the editor reads with \(engine)", logged: "editor.model", edit: { tree in
+            guard let updated = Json.setting(tree, path: ["editor", "model"], to: .string(engine)) else {
+                throw Config.EditError.unparsed("editor.model")
+            }
+            return updated
+        }) {
+            hud.flash("✕ \(problem)")
+        }
     }
 
 
@@ -1912,7 +1982,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         for problem in problems { Log.error("config", ["problem": problem]) }
         if problems.isEmpty {
-            hud.flash(successFlash)
+            // A write the person did not make by hand (the walk opening a
+            // door) reloads without a word.
+            if !successFlash.isEmpty { hud.flash(successFlash) }
         } else {
             hud.flash("config: \(problems[0])\(problems.count > 1 ? " (+\(problems.count - 1) more, see log)" : "")", seconds: 4)
         }

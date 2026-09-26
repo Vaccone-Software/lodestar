@@ -34,6 +34,9 @@ cp packaging/lodestar.icns "$APP/Contents/Resources/lodestar.icns"
 cp packaging/Lodestar.aiff "$APP/Contents/Resources/Lodestar.aiff"
 # The draft's two notes (app.sounds).
 cp packaging/Listening.aiff packaging/Landed.aiff "$APP/Contents/Resources/"
+# The first launch's four doors, rendered from the website's scene
+# (the Blender renders behind the site's door loops).
+cp packaging/doors/door-*.png "$APP/Contents/Resources/"
 # The packages' resource bundles — MLX's compiled GPU kernels above all,
 # which it finds in the main bundle's Resources.
 for bundle in "$(dirname "$BIN")"/*.bundle; do

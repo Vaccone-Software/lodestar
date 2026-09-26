@@ -30,6 +30,8 @@ final class ClipboardController {
     var flash: (String) -> Void = { _ in }
     /// Fired after a clip is recorded, so an open strip can show it at once.
     var onCapture: (() -> Void)?
+    /// A copy the hand made, recorded: the Keep walk's first step.
+    var onCopied: (() -> Void)?
     /// The board a paste writes and the keystroke that lands it — the
     /// system's, except on the stage, where a test must never paste into
     /// whatever window the machine has focused.
@@ -237,6 +239,7 @@ final class ClipboardController {
                      lines: counted?.lines, characters: counted?.characters)
         store.trim(maxBytes: maxBytes, maxItems: maxItems)
         onCapture?()
+        onCopied?()
     }
 
     // MARK: - Pasting

@@ -68,7 +68,7 @@ enum NextSheet {
     private static func lesson() {
         let which = env("LESSON", "scroll")
         let lessons = Curriculum.order.map(\.lesson)
-        let index = which == "done" ? 16 : 8 + (lessons.firstIndex { $0.rawValue == which } ?? 0)
+        let index = which == "done" ? 10 + lessons.count : 10 + (lessons.firstIndex { $0.rawValue == which } ?? 0)
         held.append(WalkController.preview(index))
     }
 

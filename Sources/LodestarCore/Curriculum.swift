@@ -2,9 +2,12 @@ import Foundation
 
 /// The first weeks, one lesson at a time.
 ///
-/// The walk teaches three things and stops: the key, the launcher, a few
-/// letters. Everything else Lodestar can do is taught later, by the same
-/// companion card, one gesture at a time, on a calendar the hand sets.
+/// The walk teaches the one door the person chose and stops. Everything
+/// else Lodestar can do is taught later, by the same companion card, one
+/// gesture at a time, on a calendar the hand sets. The other doors come
+/// first: the launcher for someone who did not choose Switch, the editor
+/// for someone who did not choose Write, then the draft and the strip in
+/// their places among the rest.
 /// A lesson is due when the record is old enough for it, the gesture has
 /// never once fired, the walk is finished, and nothing else was offered
 /// in the last couple of days. A lesson passed over retries once, days
@@ -15,7 +18,7 @@ import Foundation
 /// machine-owned state beside the walk's.
 public enum Curriculum {
     public enum Lesson: String, CaseIterable, Codable, Equatable {
-        case inside, web, clipboard, sheet, draft, select, commands, scroll
+        case launcher, editor, inside, web, clipboard, sheet, draft, select, commands, scroll
     }
 
     public struct Record: Codable, Equatable {
@@ -44,7 +47,9 @@ public enum Curriculum {
     /// and the sheet comes last: by then it is the map of everything the
     /// hand has been shown.
     public static let order: [Entry] = [
+        Entry(lesson: .launcher, verb: nil, day: 1),
         Entry(lesson: .inside, verb: "hints", day: 2),
+        Entry(lesson: .editor, verb: nil, day: 3),
         Entry(lesson: .web, verb: "web", day: 4),
         Entry(lesson: .draft, verb: "draft", day: 6),
         Entry(lesson: .select, verb: "select", day: 8),
@@ -72,8 +77,11 @@ public enum Curriculum {
     /// - `verbsLastUsed`: the record's stamp per verb; a stamp at all means
     ///   the hand found the gesture itself.
     /// - `walkDone`: the day-one walk is finished. Lessons wait for it.
+    /// - `settled`: lessons whose door is already open by other evidence,
+    ///   the walk that taught it or a switch already on.
     public static func next(now: Date, since: Date, verbsLastUsed: [String: Date],
-                            records: [Lesson: Record], walkDone: Bool) -> Lesson? {
+                            records: [Lesson: Record], walkDone: Bool,
+                            settled: Set<Lesson> = []) -> Lesson? {
         guard walkDone, since != .distantPast else { return nil }
         let lastOffer = records.values.compactMap(\.lastOfferedAt).max()
         if let lastOffer, now.timeIntervalSince(lastOffer) < Double(spacingDays) * 86_400 {
@@ -81,7 +89,7 @@ public enum Curriculum {
         }
         for entry in order {
             let record = records[entry.lesson] ?? Record()
-            if record.completedAt != nil { continue }
+            if record.completedAt != nil || settled.contains(entry.lesson) { continue }
             if let verb = entry.verb, verbsLastUsed[verb] != nil { continue }
             if record.offers >= maxOffers { continue }
             if now.timeIntervalSince(since) < Double(entry.day) * 86_400 { continue }

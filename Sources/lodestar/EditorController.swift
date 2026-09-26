@@ -43,6 +43,10 @@ final class EditorController: EditorLens {
 
     var flash: (String) -> Void = { _ in }
     var observations: ObservationStore?
+    /// A mark put under a word, and a fix taken: the first launch's Write
+    /// walk waits on each once.
+    var onMarked: () -> Void = {}
+    var onFixed: () -> Void = {}
     /// Writes a name into the shared vocabulary (draft.words).
     var learnName: (String) -> Void = { _ in }
 
@@ -378,6 +382,7 @@ final class EditorController: EditorLens {
             if countedShown.insert(key).inserted {
                 observations?.edited(action: "shown", kind: mark.issue.kind.rawValue, app: field.appName,
                                      at: clock.now())
+                onMarked()
             }
         }
     }
@@ -430,6 +435,7 @@ final class EditorController: EditorLens {
                     self.issuesText = ""
                     self.observations?.edited(action: "applied", kind: issue.kind.rawValue, app: field.appName,
                                               via: via, at: self.clock.now())
+                    self.onFixed()
                 } else {
                     self.flash("✕ the text changed under the mark")
                 }

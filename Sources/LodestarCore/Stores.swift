@@ -59,6 +59,10 @@ public struct PersistedState: Codable {
     /// the walk once, because what the deck taught was not this.
     public var walkStep: Int?
     public var walkCompletedVersion: String?
+    /// The door chosen on the welcome (`Walk.Door`'s raw value). A walk
+    /// resumes only inside the door it began in; without one, the welcome
+    /// asks again.
+    public var walkDoor: String?
     /// When the hand accepted the editor reading its fields on this Mac.
     /// Machine owned, like the walk: consent is given by a person at a
     /// Mac, not carried in a config file copied to another one.
@@ -232,9 +236,15 @@ public final class StateStore {
 
     public var walkStep: Int? { state.walkStep }
     public var walkCompletedVersion: String? { state.walkCompletedVersion }
+    public var walkDoor: Walk.Door? { state.walkDoor.flatMap(Walk.Door.init(rawValue:)) }
 
     public func setWalkStep(_ step: Int) {
         state.walkStep = step
+        saveSoon()
+    }
+
+    public func setWalkDoor(_ door: Walk.Door) {
+        state.walkDoor = door.rawValue
         saveSoon()
     }
 

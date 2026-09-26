@@ -7,9 +7,28 @@ final class CurriculumTests: XCTestCase {
 
     private func next(after days: Double, used: [String: Date] = [:],
                       records: [Curriculum.Lesson: Curriculum.Record] = [:],
-                      walkDone: Bool = true) -> Curriculum.Lesson? {
+                      walkDone: Bool = true,
+                      settled: Set<Curriculum.Lesson> = [.launcher, .editor]) -> Curriculum.Lesson? {
         Curriculum.next(now: since.addingTimeInterval(days * day), since: since,
-                        verbsLastUsed: used, records: records, walkDone: walkDone)
+                        verbsLastUsed: used, records: records, walkDone: walkDone, settled: settled)
+    }
+
+    // MARK: - The other doors
+
+    func testTheLauncherComesFirstForWhoeverDidNotChooseSwitch() {
+        XCTAssertEqual(next(after: 1, settled: [.editor]), .launcher,
+                       "the Switch door's core, the day after the walk")
+        XCTAssertNil(next(after: 1), "whoever walked through Switch already has it")
+    }
+
+    func testTheEditorIsOfferedToWhoeverDidNotChooseWrite() {
+        let launcherDone: [Curriculum.Lesson: Curriculum.Record] = [
+            .launcher: Curriculum.completed(nil, at: since.addingTimeInterval(day)),
+            .inside: Curriculum.completed(nil, at: since.addingTimeInterval(2 * day)),
+        ]
+        XCTAssertEqual(next(after: 3, records: launcherDone, settled: []), .editor)
+        XCTAssertEqual(next(after: 4, records: launcherDone, settled: [.editor]), .web,
+                       "an editor already on is never offered")
     }
 
     func testNothingBeforeTheWalkIsDone() {
@@ -71,7 +90,7 @@ final class CurriculumTests: XCTestCase {
         var seen: [Curriculum.Lesson] = []
         var days = 0.0
         while days < 60 {
-            if let lesson = next(after: days, records: records) {
+            if let lesson = next(after: days, records: records, settled: []) {
                 seen.append(lesson)
                 records[lesson] = Curriculum.completed(
                     Curriculum.offered(records[lesson], at: since.addingTimeInterval(days * day)),
@@ -83,7 +102,7 @@ final class CurriculumTests: XCTestCase {
     }
 
     func testPositionNamesTheLessonsPlace() {
-        XCTAssertEqual(Curriculum.position(of: .inside).0, 1)
+        XCTAssertEqual(Curriculum.position(of: .launcher).0, 1)
         XCTAssertEqual(Curriculum.position(of: .sheet).0, Curriculum.order.count,
                        "the sheet is last: the map of everything shown before it")
     }

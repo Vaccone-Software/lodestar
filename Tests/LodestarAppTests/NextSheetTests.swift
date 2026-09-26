@@ -28,7 +28,7 @@ final class NextSheetTests: XCTestCase {
 
     func testTheCurriculumEndsOnTheSheetWithTheClipboardBeforeIt() {
         let lessons = Curriculum.order.map(\.lesson)
-        XCTAssertEqual(lessons.first, .inside)
+        XCTAssertEqual(lessons.first, .launcher, "the Switch door's core comes first for whoever did not walk it")
         XCTAssertEqual(lessons.suffix(2), [.clipboard, .sheet],
                        "the one gesture outside lode comes late; the map of everything comes last")
         XCTAssertEqual(Curriculum.order.map(\.day), Curriculum.order.map(\.day).sorted(),

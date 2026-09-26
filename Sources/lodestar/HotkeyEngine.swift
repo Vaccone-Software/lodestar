@@ -1283,7 +1283,6 @@ final class HotkeyEngine {
                 self.isPeeking = true
                 self.lastActivityAt = self.clock.now()
                 self.onSurfaceClaimed?()
-                self.walkSignal?(.peeked)
                 // The peek is the root guide: lode held, its map. The verbs
                 // it once listed in a footer live on the sheet, behind lode ?.
                 self.hud.showGuide(keys: ["lode"], rows: self.actions.graphGuideRows(self.config.graph))

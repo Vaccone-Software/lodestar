@@ -42,6 +42,9 @@ final class DraftController {
     var readPasteboard: () -> String?
     /// Settled speech is activity too, for the engine's idle clock.
     var onActivity: (() -> Void)?
+    /// The words placed where the cursor was: pasted or replaced, not left
+    /// on the pasteboard.
+    var onLanded: (() -> Void)?
     /// The machine's inputs, by name, and the one the system calls
     /// default, delivered on the main thread. Off it in the app: the
     /// enumeration is a CoreAudio roll call, which waits on the HAL while
@@ -1114,6 +1117,7 @@ final class DraftController {
         }
         close()
         record(action: action, row: row, destination: destination)
+        if action == "pasted" || action == "replaced" { onLanded?() }
     }
 
     private func paste() {

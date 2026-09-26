@@ -1,16 +1,16 @@
 import AppKit
 import LodestarCore
 
-/// The walk's two surfaces. Neither decides anything — `Walk` (LodestarCore)
-/// owns the sequence; these draw it and translate clicks.
+/// The first launch's two surfaces. Neither decides anything — `Walk`
+/// (LodestarCore) owns the sequence; these draw it and translate clicks.
 ///
-/// **The door** (act one) is a small centered card, mouse-first and keyable,
+/// **The door** (act one) is a centered card, mouse-first and keyable,
 /// because before the Accessibility grant there is no event tap and AppKit
-/// is all there is. It asks for exactly one permission, and while the user
-/// is inside System Settings it parks at the screen edge and *stays
-/// visible* — the old full-screen deck had to hide itself for the grant,
-/// which left the user alone in the settings pane with the instructions
-/// gone. That single difference is most of why the door is a card.
+/// is all there is. It opens on the welcome, which asks what the person
+/// would like to do first, Write, Switch, Keep or Speak, and then asks for
+/// exactly one permission, in words that name what that door needs it for.
+/// While the user is inside System Settings it parks at the screen edge and
+/// *stays visible*, so the instructions are never left behind.
 ///
 /// **The companion** (act two) is never key and swallows nothing. It issues
 /// one instruction and watches the engine for the real gesture happening in
@@ -23,12 +23,28 @@ final class WalkController: NSObject {
     /// Accept the drafted graph. An error string, or nil on success.
     var acceptGraph: ([StarterGraph.Proposal]) -> String? = { _ in "the graph is unavailable" }
     var persistStep: ((Int) -> Void)?
+    var persistDoor: ((Walk.Door) -> Void)?
     var markCompleted: (() -> Void)?
+    /// The door chosen and the grant in hand: whatever the door's walk
+    /// needs switched on before its first step (the editor, for Write).
+    var openDoor: ((Walk.Door) -> Void)?
+    /// The engine the Write walk offers after its first fix, when this Mac
+    /// can run something closer than spelling, and how to name it.
+    var grammarOffer: () -> String? = { nil }
+    var describeEngine: (String) -> String = { $0 }
+    /// Assent on the grammar step: the editor reads with this engine.
+    var chooseEngine: ((String) -> Void)?
     /// The curriculum's answers, wired to its record.
     var lessonCompleted: ((Curriculum.Lesson) -> Void)?
     var lessonPassed: ((Curriculum.Lesson) -> Void)?
+    /// The editor lesson's assent: the editor turned on, which asks its
+    /// own consent before it reads anything.
+    var enableEditor: (() -> Void)?
 
     private var walk: Walk?
+    /// The door the welcome has selected. Nothing is selected until the
+    /// person chooses: the app never learns it from the download.
+    private var chosen: Walk.Door?
     /// A lesson standing on the card, after the walk is done. The card is
     /// the same one; the sequence is the curriculum's.
     private var lesson: Curriculum.Lesson?
@@ -37,8 +53,8 @@ final class WalkController: NSObject {
 
     // MARK: - Windows
 
-    /// The door: keyable on purpose, exactly like the deck's panel was —
-    /// pre-grant, AppKit key handling is the only keyboard there is.
+    /// The door: keyable on purpose — pre-grant, AppKit key handling is
+    /// the only keyboard there is.
     private let door = KeyablePanel(
         contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
@@ -48,15 +64,17 @@ final class WalkController: NSObject {
     private let card = Glass.makePanel(level: .floating)
     private let cardRoot = NSView()
 
-    private static let doorWidth: CGFloat = 460
-    private static let cardWidth: CGFloat = 330
+    private static let welcomeWidth: CGFloat = 660
+    private static let doorWidth: CGFloat = 480
+    private static let cardWidth: CGFloat = 340
     private static let inset: CGFloat = 26
-    /// What the wrapping labels wrap at — the card width minus its insets,
-    /// so the measured height is the height of the card that ships.
-    private static let doorText: CGFloat = doorWidth - inset * 2
     private static let cardText: CGFloat = cardWidth - 40
 
-    // MARK: - Grant flow (ported from the deck, card-sized)
+    /// Which of the door's pages is showing.
+    private enum Page { case welcome, permission, waiting }
+    private var page: Page = .welcome
+
+    // MARK: - Grant flow
 
     /// macOS shows its Accessibility prompt once per app. After that the
     /// only way through is the settings pane, so the button offers that.
@@ -70,11 +88,13 @@ final class WalkController: NSObject {
     private var sawSettings = false
     private var waited: Double = 0
     private var trustPoll: Timer?
+    private var noteCopied = false
 
     #if DEBUG
     /// The door's untrusted copy, on a machine that granted long ago — the
     /// one state a preview cannot reach by looking.
     private var forceUntrusted = false
+    private var forceStandardAccount = false
     #endif
 
     /// The one state that cannot be reached by looking: a machine that has
@@ -85,6 +105,13 @@ final class WalkController: NSObject {
         if ProcessInfo.processInfo.environment["LODESTAR_UNTRUSTED"] != nil { return false }
         #endif
         return Permissions.isTrusted
+    }
+
+    private var administrator: Bool {
+        #if DEBUG
+        if forceStandardAccount { return false }
+        #endif
+        return Permissions.isAdministrator
     }
 
     override init() {
@@ -114,9 +141,10 @@ final class WalkController: NSObject {
     /// The coach yields while any walk surface is up.
     var isUp: Bool { doorVisible || cardVisible }
 
-    /// From the boot trigger or the menu. `resumeAt` is the persisted step
-    /// of an unfinished walk; nil means start from the greeting.
-    func show(resumeAt: Int? = nil) {
+    /// From the boot trigger or the menu. `resumeAt` and `door` are an
+    /// unfinished walk's persisted place; without both it begins at the
+    /// welcome.
+    func show(resumeAt: Int? = nil, door resumeDoor: Walk.Door? = nil) {
         guard !isUp else {
             // Asked for again while the grant is pending: bring the door
             // back rather than decline, or the walk is unreachable until
@@ -125,19 +153,20 @@ final class WalkController: NSObject {
             return
         }
         #if DEBUG
-        if let jump = ProcessInfo.processInfo.environment["LODESTAR_WALK_STEP"],
-           let step = Int(jump) {
-            beginWalk(at: step)
+        if let jump = ProcessInfo.processInfo.environment["LODESTAR_WALK_STEP"], let step = Int(jump) {
+            let named = ProcessInfo.processInfo.environment["LODESTAR_WALK_DOOR"].flatMap(Walk.Door.init(rawValue:))
+            beginWalk(named ?? .switcher, at: step)
             return
         }
         #endif
-        if !trusted {
-            showDoor()
-        } else if let step = resumeAt, step > 0 {
-            // Mid-walk: straight back to the step they left. The greeting
+        if trusted, let resumeDoor, let step = resumeAt, step > 0 {
+            // Mid-walk: straight back to the step they left. The welcome
             // is for arrivals, not returns.
-            beginWalk(at: step)
+            chosen = resumeDoor
+            beginWalk(resumeDoor, at: step)
         } else {
+            chosen = nil
+            page = .welcome
             showDoor()
         }
     }
@@ -169,6 +198,7 @@ final class WalkController: NSObject {
         lessonDone = true
         lessonCompleted?(lesson)
         Log.info("walk", ["lesson": lesson.rawValue, "completed": true])
+        if lesson == .editor { enableEditor?() }
         renderCard()
         // The finished card is seen, then goes: unlike the walk's close it
         // has no decision on it, and a card that outstays its gesture is
@@ -185,9 +215,12 @@ final class WalkController: NSObject {
         card.orderOut(nil)
     }
 
-    /// The real gesture that proves each lesson.
+    /// The real gesture that proves each lesson. The editor's is the assent
+    /// itself: turning it on is the whole of that lesson.
     static func completion(of lesson: Curriculum.Lesson) -> Walk.Signal {
         switch lesson {
+        case .launcher: return .launcherPick
+        case .editor: return .assent
         case .inside: return .hintsEnded
         case .web: return .webBarOpened
         case .clipboard: return .clipboardOpened
@@ -215,6 +248,8 @@ final class WalkController: NSObject {
                 if let problem = acceptGraph(proposals) {
                     Log.error("walk", ["graph": problem])
                 }
+            case .chooseEngine(let engine):
+                chooseEngine?(engine)
             case .stepChanged:
                 persistStep?(walk!.stepIndex)
             case .completed:
@@ -222,7 +257,7 @@ final class WalkController: NSObject {
                 // user closes it, and a restart clears it, because the
                 // walk is complete and never auto shows again.
                 markCompleted?()
-                Log.info("walk", ["completed": Lodestar.version])
+                Log.info("walk", ["completed": Lodestar.version, "door": walk!.door.rawValue])
             }
         }
         renderCard()
@@ -230,30 +265,37 @@ final class WalkController: NSObject {
 
     // MARK: - The walk itself
 
-    private func beginWalk(at index: Int) {
+    private func beginWalk(_ chosenDoor: Walk.Door, at index: Int) {
         door.orderOut(nil)
-        // The offer appears while the graph is still thin, fewer than four
-        // bound apps, and proposes only from unbound running apps. A built
-        // graph is a person who knows how to add letters, and the offer
-        // would be noise on top of knowledge.
-        let leaves = config.graph.leaves()
-        let running = NSWorkspace.shared.runningApplications
-            .filter { $0.activationPolicy == .regular }
-            .compactMap(\.localizedName)
-        let proposals = leaves.count < 4
-            ? StarterGraph.propose(running: running, existing: config.graph,
-                                   reserved: Config.reservedTopLevel)
-            : []
-        // A few of their own addresses for the graph card, shortest first.
-        // The card offers and never prescribes: "press A" once told
-        // somebody to open an app they had no wish to open.
-        let existing = leaves
-            .sorted { ($0.chain.count, $0.target.label) < ($1.chain.count, $1.target.label) }
-            .prefix(4)
-            .map { Walk.GraphChoice(path: $0.chain.joined(separator: " "),
-                                    label: $0.target.label) }
-        walk = Walk(proposals: proposals, existing: Array(existing), resumeAt: index)
+        persistDoor?(chosenDoor)
+        openDoor?(chosenDoor)
+        switch chosenDoor {
+        case .switcher:
+            // The offer appears while the graph is still thin, fewer than
+            // four bound apps, and proposes only from unbound running apps.
+            // A built graph is a person who knows how to add letters.
+            let leaves = config.graph.leaves()
+            let running = NSWorkspace.shared.runningApplications
+                .filter { $0.activationPolicy == .regular }
+                .compactMap(\.localizedName)
+            let proposals = leaves.count < 4
+                ? StarterGraph.propose(running: running, existing: config.graph,
+                                       reserved: Config.reservedTopLevel)
+                : []
+            // A few of their own addresses for the graph card, shortest
+            // first. The card offers and never prescribes.
+            let existing = leaves
+                .sorted { ($0.chain.count, $0.target.label) < ($1.chain.count, $1.target.label) }
+                .prefix(4)
+                .map { Walk.GraphChoice(path: $0.chain.joined(separator: " "), label: $0.target.label) }
+            walk = Walk(door: .switcher, proposals: proposals, existing: Array(existing), resumeAt: index)
+        case .write:
+            walk = Walk(door: .write, grammar: grammarOffer(), resumeAt: index)
+        case .keep, .speak:
+            walk = Walk(door: chosenDoor, resumeAt: index)
+        }
         persistStep?(walk!.stepIndex)
+        Log.info("walk", ["door": chosenDoor.rawValue, "step": walk!.stepIndex])
         renderCard()
     }
 
@@ -284,7 +326,8 @@ final class WalkController: NSObject {
         walk = nil
     }
 
-    /// Lode-lode, routed here while the walk is up. Only the offer answers.
+    /// Lode-lode, routed here while the walk is up. The offer, the grammar
+    /// step and the editor's lesson answer it.
     func assent() {
         notice(.assent)
     }
@@ -296,40 +339,83 @@ final class WalkController: NSObject {
         // Nothing is swallowed while the keyboard is somebody else's: the
         // user followed the grant into System Settings, and a card that
         // keeps eating keys then is a locked keyboard in another app.
-        // The deck learned this from its first outside user.
         guard door.isKeyWindow else { return false }
-        switch key {
-        case "escape":
-            if awaitingGrant { stopWaiting(granted: false) } else { notNow() }
-            return true
-        case "return":
-            if trusted { begin() } else { grantAccess() }
-            return true
-        case "space" where !trusted:
+        switch (page, key) {
+        case (.welcome, "1"), (.welcome, "2"), (.welcome, "3"), (.welcome, "4"):
+            choose(Walk.Door.allCases[Int(key)! - 1])
+        case (.welcome, "left"), (.welcome, "right"):
+            let doors = Walk.Door.allCases
+            let at = chosen.flatMap { doors.firstIndex(of: $0) } ?? (key == "left" ? doors.count : -1)
+            choose(doors[(at + (key == "left" ? doors.count - 1 : 1)) % doors.count])
+        case (.welcome, "return"):
+            proceed()
+        case (.permission, "return"), (.permission, "space"):
             grantAccess()
-            return true
+        case (.waiting, "escape"):
+            stopWaiting(granted: false)
+        case (.permission, "escape"):
+            page = .welcome
+            renderDoor()
+        case (.welcome, "escape"):
+            notNow()
         default:
-            return true
+            break
         }
+        return true
     }
 
     private func showDoor() {
-        renderDoor(waiting: false)
+        renderDoor()
         door.makeKeyAndOrderFront(nil)
         pollTrust()
     }
 
-    @objc private func grantPressed() { grantAccess() }
-    @objc private func beginPressed() { begin() }
-    @objc private func notNowPressed() { notNow() }
-    @objc private func skipPressed() { _ = pass() }
-
-    private func begin() {
-        beginWalk(at: 0)
+    private func choose(_ selected: Walk.Door) {
+        chosen = selected
+        renderDoor()
     }
 
+    /// Continue from the welcome: straight into the door's walk when the
+    /// grant is already here, else the one permission.
+    private func proceed() {
+        guard let chosen else { return }
+        Log.info("walk", ["chose": chosen.rawValue])
+        if trusted {
+            beginWalk(chosen, at: 0)
+        } else {
+            page = .permission
+            renderDoor()
+        }
+    }
+
+    @objc private func continuePressed() { proceed() }
+    @objc private func grantPressed() { grantAccess() }
+    @objc private func notNowPressed() { notNow() }
+    @objc private func skipPressed() { _ = pass() }
+    @objc private func tilePressed(_ sender: NSButton) {
+        let doors = Walk.Door.allCases
+        guard doors.indices.contains(sender.tag) else { return }
+        choose(doors[sender.tag])
+    }
+
+    /// The note an administrator needs, on the pasteboard: what Lodestar
+    /// is, the one permission, and why.
+    @objc private func copyNotePressed() {
+        let board = NSPasteboard.general
+        board.clearContents()
+        board.setString(Self.itNote, forType: .string)
+        noteCopied = true
+        renderDoor()
+    }
+
+    static let itNote = "Could Lodestar be allowed on my Mac? It is a free app from "
+        + "lodestar.vaccone.software, signed with a Developer ID and notarized by Apple. "
+        + "It needs one permission, Accessibility (System Settings, Privacy & Security, "
+        + "Accessibility), to read the text field being typed in and to bring windows "
+        + "forward. It asks for nothing else to start."
+
     /// "Not now" leaves the walk unfinished on purpose: nothing is marked,
-    /// so the next boot offers the door again, and the menu always can.
+    /// so the next boot offers the welcome again, and the menu always can.
     private func notNow() {
         hideAll()
     }
@@ -340,8 +426,12 @@ final class WalkController: NSObject {
     /// this opens the pane instead. Either way the door parks at the
     /// screen's edge and waits where the instructions stay readable.
     private func grantAccess() {
-        guard !trusted else { return }
+        guard !trusted else {
+            if let chosen { beginWalk(chosen, at: 0) }
+            return
+        }
         awaitingGrant = true
+        page = .waiting
         settingsIsOurs = NSRunningApplication.runningApplications(
             withBundleIdentifier: Self.settingsBundleID).isEmpty
         if !prompted {
@@ -351,7 +441,7 @@ final class WalkController: NSObject {
             "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
         }
-        renderDoor(waiting: true)
+        renderDoor()
         pollTrust()
     }
 
@@ -365,9 +455,19 @@ final class WalkController: NSObject {
             }
         }
         settingsIsOurs = false
-        renderDoor(waiting: false)
+        if granted {
+            Log.info("walk", ["accessibility": "granted"])
+            // The card said it would continue the moment the switch moved.
+            if let chosen {
+                beginWalk(chosen, at: 0)
+                return
+            }
+            page = .welcome
+        } else {
+            page = chosen == nil ? .welcome : .permission
+        }
+        renderDoor()
         door.makeKeyAndOrderFront(nil)
-        if granted { Log.info("walk", ["accessibility": "granted"]) }
     }
 
     /// The one clock. The grant can arrive because we asked or because they
@@ -383,7 +483,7 @@ final class WalkController: NSObject {
             guard let self else { return }
             if self.trusted {
                 self.trustPoll?.invalidate(); self.trustPoll = nil
-                self.stopWaiting(granted: true)
+                if self.awaitingGrant || self.page == .permission { self.stopWaiting(granted: true) }
                 return
             }
             guard self.awaitingGrant else { return }
@@ -400,78 +500,195 @@ final class WalkController: NSObject {
         }
     }
 
+    // MARK: - Door copy
+
+    /// What each door needs Accessibility for, said before macOS asks.
+    static func permissionReason(_ door: Walk.Door) -> String {
+        switch door {
+        case .write:
+            return "To read the field you are writing in and draw a line under a word, "
+                + "macOS asks you to allow Accessibility. The reading happens on this Mac, "
+                + "and nothing you write is kept."
+        case .switcher:
+            return "To bring a window forward and arrange your windows, macOS asks you "
+                + "to allow Accessibility."
+        case .keep:
+            return "To paste where you are typing, macOS asks you to allow Accessibility."
+        case .speak:
+            return "To put your words where your cursor is, macOS asks you to allow "
+                + "Accessibility. The microphone comes later, the first time you speak."
+        }
+    }
+
+    static let standardAccountNote = "This account is not an administrator, so turning it on "
+        + "needs an administrator's name and password. On a Mac from work, that is usually "
+        + "your IT team."
+
+    /// Each door's line on the welcome.
+    static func doorLine(_ door: Walk.Door) -> String {
+        switch door {
+        case .write: return "Checks your spelling and grammar as you type"
+        case .switcher: return "Any app or window, with one key and a letter"
+        case .keep: return "Everything you copy, ready to paste again"
+        case .speak: return "Say it, shape it, and it lands where you were"
+        }
+    }
+
     // MARK: - Door drawing
 
-    private func renderDoor(waiting: Bool) {
+    private func renderDoor() {
         for view in doorRoot.subviews where view is NSStackView { view.removeFromSuperview() }
+        let width = page == .welcome ? Self.welcomeWidth : Self.doorWidth
+        let text = width - Self.inset * 2
         let stack = NSStackView()
         stack.orientation = .vertical
-        stack.alignment = .centerX
+        stack.alignment = .leading
         stack.spacing = 10
         stack.translatesAutoresizingMaskIntoConstraints = false
 
-        let star = label("✦", size: 22, weight: .medium, color: BarTheme.accent)
-        stack.addArrangedSubview(star)
-        stack.addArrangedSubview(label("Lodestar", size: 26, weight: .semibold, color: .labelColor))
-        stack.addArrangedSubview(wrapped(
-            "Every app you use gets a permanent key.\nPress it and you are there.",
-            size: BarTheme.Scale.body, color: .labelColor, alignment: .center, width: Self.doorText))
-        stack.setCustomSpacing(20, after: stack.arrangedSubviews.last!)
-
-        if waiting {
+        switch page {
+        case .welcome:
+            stack.addArrangedSubview(heading("Welcome to Lodestar"))
+            stack.addArrangedSubview(voice("What would you like to do first? Lodestar starts with that one.", width: text))
+            stack.setCustomSpacing(18, after: stack.arrangedSubviews.last!)
+            stack.addArrangedSubview(tiles(width: text))
+            stack.setCustomSpacing(18, after: stack.arrangedSubviews.last!)
+            let footer = NSStackView()
+            footer.orientation = .horizontal
+            footer.spacing = 12
+            footer.addArrangedSubview(wrapped(chosen == nil
+                    ? "Choose one. The other three wait until they would help."
+                    : "The other three wait. Lodestar brings up each one later, when it would help.",
+                size: BarTheme.Scale.meta, color: BarTheme.secondaryColor, alignment: .left, width: text - 150))
+            let spacer = NSView()
+            spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            footer.addArrangedSubview(spacer)
+            let go = bigButton("Continue", action: #selector(continuePressed))
+            go.isEnabled = chosen != nil
+            footer.addArrangedSubview(go)
+            footer.widthAnchor.constraint(equalToConstant: text).isActive = true
+            stack.addArrangedSubview(footer)
+            stack.addArrangedSubview(smallLink("not now", action: #selector(notNowPressed)))
+        case .permission:
+            stack.addArrangedSubview(heading("One permission"))
+            stack.addArrangedSubview(wrapped(Self.permissionReason(chosen ?? .switcher), size: BarTheme.Scale.body,
+                                             color: .labelColor, alignment: .left, width: text))
+            if !administrator {
+                stack.addArrangedSubview(wrapped(Self.standardAccountNote, size: BarTheme.Scale.body,
+                                                 color: BarTheme.secondaryColor, alignment: .left, width: text))
+            }
             stack.addArrangedSubview(wrapped(
-                "In System Settings: Privacy & Security → Accessibility → "
-                + "switch Lodestar on.",
-                size: BarTheme.Scale.body, color: BarTheme.secondaryColor, alignment: .center, width: Self.doorText))
+                "Nothing else is asked for now. Anything more is asked the first time you use the thing that needs it.",
+                size: BarTheme.Scale.meta, color: BarTheme.secondaryColor, alignment: .left, width: text))
+            stack.setCustomSpacing(16, after: stack.arrangedSubviews.last!)
+            stack.addArrangedSubview(bigButton(prompted ? "Open System Settings" : "Allow Accessibility",
+                                               action: #selector(grantPressed)))
+            if !administrator {
+                stack.addArrangedSubview(smallLink(noteCopied ? "note copied, paste it to your IT team" : "copy a note for IT",
+                                                   action: #selector(copyNotePressed)))
+            }
+            stack.addArrangedSubview(smallLink("not now", action: #selector(notNowPressed)))
+        case .waiting:
+            stack.addArrangedSubview(heading("Turn on Lodestar"))
             stack.addArrangedSubview(wrapped(
-                "This card waits with you. It notices the moment the grant lands.",
-                size: BarTheme.Scale.meta, color: BarTheme.secondaryColor, alignment: .center, width: Self.doorText))
+                "In System Settings, switch Lodestar on in the Accessibility list. "
+                    + "This card continues the moment you do.",
+                size: BarTheme.Scale.body, color: .labelColor, alignment: .left, width: text))
+            stack.addArrangedSubview(wrapped("No restart needed.", size: BarTheme.Scale.meta,
+                                             color: BarTheme.secondaryColor, alignment: .left, width: text))
             stack.setCustomSpacing(16, after: stack.arrangedSubviews.last!)
             stack.addArrangedSubview(smallLink("cancel", action: #selector(notNowPressed)))
-        } else if trusted {
-            stack.addArrangedSubview(wrapped(
-                "Accessibility is granted. The walk takes about a minute, "
-                + "on your own apps. A few small steps, each one a gesture "
-                + "your hand keeps.",
-                size: BarTheme.Scale.body, color: BarTheme.secondaryColor, alignment: .center, width: Self.doorText))
-            stack.setCustomSpacing(16, after: stack.arrangedSubviews.last!)
-            stack.addArrangedSubview(bigButton("Begin", action: #selector(beginPressed)))
-            stack.addArrangedSubview(smallLink("not now", action: #selector(notNowPressed)))
-        } else {
-            stack.addArrangedSubview(wrapped(
-                "To see your windows and move them, macOS needs you to allow "
-                + "Accessibility. Nothing leaves your Mac.\n\nOne more "
-                + "permission exists. Screen Recording, for selecting text "
-                + "you can see. Lodestar asks the first time you use that "
-                + "feature, never before.",
-                size: BarTheme.Scale.body, color: BarTheme.secondaryColor, alignment: .center, width: Self.doorText))
-            stack.setCustomSpacing(16, after: stack.arrangedSubviews.last!)
-            stack.addArrangedSubview(bigButton(prompted ? "Open System Settings" : "Grant Access",
-                                               action: #selector(grantPressed)))
-            stack.addArrangedSubview(smallLink("not now", action: #selector(notNowPressed)))
         }
 
         doorRoot.addSubview(stack)
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: doorRoot.topAnchor, constant: Self.inset + 6),
+            stack.topAnchor.constraint(equalTo: doorRoot.topAnchor, constant: Self.inset),
             stack.leadingAnchor.constraint(equalTo: doorRoot.leadingAnchor, constant: Self.inset),
             stack.trailingAnchor.constraint(equalTo: doorRoot.trailingAnchor, constant: -Self.inset),
         ])
         doorRoot.layoutSubtreeIfNeeded()
-        presentDoor(waiting: waiting,
-                    height: stack.fittingSize.height + Self.inset * 2 + 6)
+        presentDoor(width: width, height: stack.fittingSize.height + Self.inset * 2)
     }
 
     /// Centered to be read; parked at the trailing edge to wait, so System
     /// Settings has the middle of the screen and the instructions stay on it.
-    private func presentDoor(waiting: Bool, height: CGFloat) {
-        let size = NSSize(width: Self.doorWidth, height: height)
+    private func presentDoor(width: CGFloat, height: CGFloat) {
+        let size = NSSize(width: width, height: height)
         let visible = ActivePolicy.presentationFrame
-        let origin = waiting
+        let origin = page == .waiting
             ? NSPoint(x: visible.maxX - size.width - 20, y: visible.midY - size.height / 2)
             : NSPoint(x: visible.midX - size.width / 2, y: visible.midY - size.height / 2 + 40)
         door.setFrame(NSRect(origin: origin, size: size), display: true)
         door.orderFrontRegardless()
+    }
+
+    /// The four doors, side by side: each its picture, its name and one
+    /// line, the chosen one ringed in the accent. Clickable, and 1 to 4
+    /// and the arrows choose from the keys.
+    private func tiles(width: CGFloat) -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.spacing = 10
+        row.distribution = .fillEqually
+        let tileWidth = (width - 30) / 4
+        for (index, option) in Walk.Door.allCases.enumerated() {
+            let selected = option == chosen
+            let column = NSStackView()
+            column.orientation = .vertical
+            column.alignment = .leading
+            column.spacing = 4
+            column.edgeInsets = NSEdgeInsets(top: 10, left: 10, bottom: 12, right: 10)
+            if let picture = Self.picture(option) {
+                let image = NSImageView(image: picture)
+                image.imageScaling = .scaleProportionallyUpOrDown
+                image.translatesAutoresizingMaskIntoConstraints = false
+                image.widthAnchor.constraint(equalToConstant: tileWidth - 20).isActive = true
+                image.heightAnchor.constraint(equalToConstant: (tileWidth - 20) * 0.75).isActive = true
+                column.addArrangedSubview(image)
+            }
+            column.addArrangedSubview(label(option.name, size: BarTheme.Scale.body, weight: .semibold,
+                                            color: .labelColor))
+            column.addArrangedSubview(wrapped(Self.doorLine(option), size: BarTheme.Scale.meta,
+                                              color: BarTheme.secondaryColor, alignment: .left, width: tileWidth - 20))
+            column.wantsLayer = true
+            column.layer?.cornerRadius = BarTheme.surfaceRadius
+            column.layer?.borderWidth = selected ? 1.5 : 1
+            column.layer?.borderColor = (selected ? BarTheme.accent : NSColor.labelColor.withAlphaComponent(0.1)).cgColor
+            column.layer?.backgroundColor = (selected ? BarTheme.accent.withAlphaComponent(0.08)
+                                                      : NSColor.labelColor.withAlphaComponent(0.03)).cgColor
+            column.translatesAutoresizingMaskIntoConstraints = false
+            column.widthAnchor.constraint(equalToConstant: tileWidth).isActive = true
+
+            // The whole tile is the target: a borderless button over it.
+            let hit = HandButton(title: "", target: self, action: #selector(tilePressed(_:)))
+            hit.isBordered = false
+            hit.tag = index
+            hit.setAccessibilityLabel(option.name)
+            hit.translatesAutoresizingMaskIntoConstraints = false
+            column.addSubview(hit)
+            NSLayoutConstraint.activate([
+                hit.leadingAnchor.constraint(equalTo: column.leadingAnchor),
+                hit.trailingAnchor.constraint(equalTo: column.trailingAnchor),
+                hit.topAnchor.constraint(equalTo: column.topAnchor),
+                hit.bottomAnchor.constraint(equalTo: column.bottomAnchor),
+            ])
+            row.addArrangedSubview(column)
+        }
+        // Four tiles, one height: a door whose line wraps longer does not
+        // stand taller than the rest.
+        row.alignment = .top
+        for column in row.arrangedSubviews {
+            column.heightAnchor.constraint(equalTo: row.heightAnchor).isActive = true
+        }
+        return row
+    }
+
+    /// The door's picture, rendered from the same scene as the website's,
+    /// shipped in the app's resources. Absent (a test run, a bare build),
+    /// the tile is its name and line alone.
+    private static func picture(_ door: Walk.Door) -> NSImage? {
+        guard let url = Bundle.main.url(forResource: "door-\(door.rawValue)", withExtension: "png") else { return nil }
+        return NSImage(contentsOf: url)
     }
 
     // MARK: - Companion copy
@@ -482,8 +699,8 @@ final class WalkController: NSObject {
         var illustration: NSView?
         /// The gesture that answers this card, shown as caps + meaning
         /// rows. A row carrying an action is pressable as well as typable —
-        /// which matters most on the first card, where the gesture being
-        /// taught is the only way out and has not been learned yet.
+        /// which matters most on the first cards, where the gesture being
+        /// taught has not been learned yet.
         var keys: [KeyRow] = []
     }
 
@@ -499,61 +716,92 @@ final class WalkController: NSObject {
         }
     }
 
-    private func content(for step: Walk.Step) -> CardContent {
+    private func content(for step: Walk.Step, door chosenDoor: Walk.Door) -> CardContent {
         switch step {
-        case .lodeKey:
-            return CardContent(
-                title: "The lode key",
-                body: "Lodestar lives on one key, your right command key. "
-                    + "Hold it and the keyboard speaks to Lodestar. Release "
-                    + "it and the keyboard is yours again.\n\nHold it now, "
-                    + "until the map appears.",
-                illustration: keyboardRow())
         case .launcher:
             return CardContent(
-                title: "The launcher",
-                body: "That map was your graph. More on it in a moment.\n\n"
-                    + "Hold lode and tap space. Type a few letters of any "
-                    + "app, then return. The app arrives maximized, "
-                    + "launching first if needed.",
-                illustration: capsRow([("lode", false), ("space", true)]))
+                title: "Hold right ⌘ and press space",
+                body: "That key is lode, Lodestar's own. Type a few letters of any app, "
+                    + "then press return. It opens filling the screen, and ⇧⏎ puts it "
+                    + "beside what you have instead.",
+                illustration: keyboardRow())
         case .graphOffer(let proposals):
             return CardContent(
-                title: "Your letters",
-                body: "Search works. Letters are faster. Each is a permanent "
-                    + "address your hand learns. These were drafted from the "
-                    + "apps you have open.",
+                title: "A letter for each app",
+                body: "Apps you open often can each have a letter of their own. These are "
+                    + "suggestions, drafted from the apps you have open.",
                 illustration: proposalList(proposals),
-                keys: [KeyRow("lode lode", "tap lode twice to take these letters",
+                keys: [KeyRow("lode lode", "tap lode twice to keep these",
                               action: { [weak self] in self?.assent() }),
-                       KeyRow("lode ⌫", "pass",
+                       KeyRow("lode ⌫", "not these",
                               action: { [weak self] in _ = self?.pass() })])
         case .graphGo(let options):
             return CardContent(
-                title: "The graph",
-                body: "Some of your letters. Hold lode and press one. No "
-                    + "list, no search. You are simply there.\n\nThis is "
-                    + "the core of Lodestar. The letters become muscle "
-                    + "memory, and navigation disappears.",
+                title: "Hold right ⌘ and press a letter",
+                body: "The app comes forward from anywhere, and opens if it is closed. "
+                    + "Every app keeps its letter, so your hand learns it once.",
                 illustration: choiceList(options))
+        case .typo:
+            return CardContent(
+                title: "Try it anywhere",
+                body: "Type a word wrong, in any app. A thin line appears under it.\n\n"
+                    + "Lodestar reads the field you are writing in, on this Mac, and keeps none of it.")
+        case .fix:
+            return CardContent(
+                title: "Rest the pointer on the line",
+                body: "The fix appears. Accept puts it right, and Keep as written leaves it alone.",
+                keys: [KeyRow("lode ⇥", "or put a letter on each mark from the keys")])
+        case .grammar(let engine):
+            return CardContent(
+                title: "Fixed where you wrote it",
+                body: "No line means nothing needs your attention.\n\n"
+                    + "For grammar, Lodestar can read each sentence closely with a language "
+                    + "model that runs on this Mac. A download continues in the background.",
+                keys: [KeyRow("lode lode", describeEngine(engine),
+                              action: { [weak self] in self?.assent() }),
+                       KeyRow("lode ⌫", "spelling only for now",
+                              action: { [weak self] in _ = self?.pass() })])
+        case .copy:
+            return CardContent(
+                title: "Copy anything",
+                body: "Select some text and press ⌘C, as always. Lodestar keeps it.")
+        case .strip:
+            return CardContent(
+                title: "Press ⇧⌘V",
+                body: "Everything you copied, along the bottom of the screen. Press A and "
+                    + "the newest pastes where you were typing.",
+                illustration: capsRow([("⇧⌘V", true), ("A", false)]))
+        case .draft:
+            return CardContent(
+                title: "Hold right ⌘ and press period",
+                body: "Click into any text field first. The draft opens where you can see it, "
+                    + "and you will hear a soft note when it starts listening.\n\n"
+                    + "The first time, macOS asks for the microphone. What you say is turned "
+                    + "into text on this Mac, and no audio is kept.",
+                illustration: capsRow([("lode", false), (".", true)]))
+        case .land:
+            return CardContent(
+                title: "Talk, then press return",
+                body: "Words arrive grey while they are heard, then settle. Type into the same "
+                    + "draft to fix anything. Return puts it where your cursor was, and a second "
+                    + "note says it arrived.",
+                illustration: capsRow([("⏎", true)]))
         case .done:
             return CardContent(
-                title: "You are ready",
-                body: "The launcher when you need to search. Letters when "
-                    + "you do not. That is the whole first day.\n\nThe rest "
-                    + "arrives one lesson at a time, on this card, as you "
-                    + "are ready for it. Press lode ? whenever you need a "
-                    + "reminder.",
+                title: "\(chosenDoor.name) is ready",
+                body: "Lodestar lives in the menu bar and starts with your Mac. Your right ⌘ is "
+                    + "its key now: hold it whenever you want to see what it can reach.\n\n"
+                    + "The other three stay out of the way. Lodestar brings up each one later, "
+                    + "when it would help.",
                 keys: [KeyRow("lode ⌫", "close this card",
                               action: { [weak self] in _ = self?.pass() })])
         }
     }
 
     /// The curriculum's cards: one gesture each, proved by the real
-    /// gesture happening.
-    /// One lesson as Lodestar speaking: what the lesson is for, in the
-    /// voice, never naming a key; the keys it teaches as rows beneath,
-    /// drawn as keys; the count quiet in the detail.
+    /// gesture happening. One lesson as Lodestar speaking: what the lesson
+    /// is for, in the voice, never naming a key; the keys it teaches as
+    /// rows beneath, drawn as keys; the count quiet in the detail.
     struct LessonCard: Equatable {
         let sentence: String
         let detail: String
@@ -569,6 +817,14 @@ final class WalkController: NSObject {
         let count = "Lesson \(position) of \(total)"
         func row(_ keys: [String], _ label: String) -> LessonCard.Row { .init(keys: keys, label: label) }
         switch lesson {
+        case .launcher:
+            return LessonCard(sentence: "Any app, from one line",
+                              detail: "A few letters of its name, and it opens filling the screen. \(count)",
+                              rows: [row(["lode", "space"], "Launcher"), row(["⏎"], "Open")])
+        case .editor:
+            return LessonCard(sentence: "Spelling and grammar, checked as you type",
+                              detail: "A thin line under what reads wrong, in every app, read on this Mac. \(count)",
+                              rows: [row(["lode", "lode"], "Turn it on")])
         case .inside:
             return LessonCard(sentence: "Buttons and links can wear a letter",
                               detail: "Press the letter to click what wears it. \(count)",
@@ -624,7 +880,12 @@ final class WalkController: NSObject {
             stack = VoiceCard.build(sentence: note.sentence, detail: note.detail, rows: [])
         } else {
             let card = Self.lessonCard(lesson)
-            var rows = card.rows.map { GuideRow(keys: $0.keys, label: $0.label) }
+            var rows = card.rows.enumerated().map { index, row in
+                // The editor's one row is its answer, pressable as well.
+                lesson == .editor && index == 0
+                    ? GuideRow(keys: row.keys, label: row.label, action: { [weak self] in self?.assent() })
+                    : GuideRow(keys: row.keys, label: row.label)
+            }
             // Later on the same keys every ask answers to, pressable as
             // well: passing a lesson is the walk's one decision.
             rows.append(GuideRow(keys: ["lode", "⌫"], label: "Later", action: { [weak self] in _ = self?.pass() }))
@@ -651,22 +912,18 @@ final class WalkController: NSObject {
     // MARK: - Companion drawing
 
     private func renderCard() {
-        let content: CardContent
-        let header: String?
-        let footer: (title: String, action: Selector)
         if let lesson {
             renderLesson(lesson)
             return
-        } else {
-            guard let walk else { return }
-            content = self.content(for: walk.step)
-            let progress = walk.progress
-            header = walk.step == .done ? nil
-                : "⌖ the walk · \(progress.position) of \(progress.total)"
-            footer = walk.step == .done
-                ? ("done", #selector(donePressed))
-                : ("skip this step", #selector(skipPressed))
         }
+        guard let walk else { return }
+        let content = self.content(for: walk.step, door: walk.door)
+        let progress = walk.progress
+        let header: String? = walk.step == .done ? nil
+            : "⌖ \(walk.door.name) · \(progress.position) of \(progress.total)"
+        let footer: (title: String, action: Selector) = walk.step == .done
+            ? ("done", #selector(donePressed))
+            : ("skip this step", #selector(skipPressed))
         for view in cardRoot.subviews where view is NSStackView { view.removeFromSuperview() }
 
         let stack = NSStackView()
@@ -696,9 +953,8 @@ final class WalkController: NSObject {
 
         // The footer: skipping is per step and the walk cannot be
         // dismissed. The click target exists because lode ⌫ requires the
-        // very key the first card is still teaching. The finished card
-        // trades it for a close, and is never on a clock. A lesson's
-        // footer says "later", which is what passing one means.
+        // very key a first card may still be teaching. The finished card
+        // trades it for a close, and is never on a clock.
         stack.setCustomSpacing(12, after: stack.arrangedSubviews.last!)
         stack.addArrangedSubview(smallLink(footer.title, action: footer.action))
 
@@ -712,8 +968,9 @@ final class WalkController: NSObject {
         cardRoot.layoutSubtreeIfNeeded()
         let size = NSSize(width: Self.cardWidth,
                           height: stack.fittingSize.height + 18 + 16)
-        // Top-right corner: the launcher owns the middle, the HUD and the
-        // clipboard own the bottom, so this is the quiet quarter.
+        // Top-right corner: the launcher owns the middle, the HUD, the
+        // draft and the clipboard own the bottom, so this is the quiet
+        // quarter.
         Movable.place(card, size: size) {
             let visible = ActivePolicy.presentationFrame
             return NSPoint(x: visible.maxX - size.width - 20,
@@ -723,6 +980,29 @@ final class WalkController: NSObject {
     }
 
     // MARK: - Pieces
+
+    private func heading(_ text: String) -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.spacing = 10
+        if let icon = NSApp.applicationIconImage {
+            let image = NSImageView(image: icon)
+            image.translatesAutoresizingMaskIntoConstraints = false
+            image.widthAnchor.constraint(equalToConstant: 30).isActive = true
+            image.heightAnchor.constraint(equalToConstant: 30).isActive = true
+            row.addArrangedSubview(image)
+        }
+        row.addArrangedSubview(label(text, size: 22, weight: .semibold, color: .labelColor))
+        return row
+    }
+
+    /// Lodestar's own sentence, in its voice.
+    private func voice(_ text: String, width: CGFloat) -> NSTextField {
+        let field = wrapped(text, size: BarTheme.Scale.body, color: BarTheme.secondaryColor,
+                            alignment: .left, width: width)
+        field.font = BarTheme.voiceFont
+        return field
+    }
 
     private func label(_ text: String, size: CGFloat, weight: NSFont.Weight,
                        color: NSColor) -> NSTextField {
@@ -804,9 +1084,8 @@ final class WalkController: NSObject {
         return row
     }
 
-    /// The bottom row of a keyboard, the right command key lit: the one
-    /// illustration the first card cannot do without, because "the lode
-    /// key" is a name and a location is what the hand needs.
+    /// The bottom row of a keyboard, the right command key lit: "the lode
+    /// key" is a name, and a location is what the hand needs.
     private func keyboardRow() -> NSView {
         let column = NSStackView()
         column.orientation = .vertical
@@ -820,7 +1099,7 @@ final class WalkController: NSObject {
         row.addArrangedSubview(keycap("⌃"))
         row.addArrangedSubview(keycap("⌥"))
         row.addArrangedSubview(keycap("⌘"))
-        row.addArrangedSubview(keycap("space", wide: true))
+        row.addArrangedSubview(keycap("space", lit: true, wide: true))
         row.addArrangedSubview(keycap("⌘", lit: true))
         row.addArrangedSubview(keycap("⌥"))
         column.addArrangedSubview(row)
@@ -894,36 +1173,50 @@ final class WalkController: NSObject {
 
     #if DEBUG
     /// `lodestar __strip-preview N` puts every walk surface on screen
-    /// without a fresh install: 20 the door asking, 21 waiting at the edge,
-    /// 22 granted, 23…30 the companion's eight steps, 31 the closing card,
-    /// 40…51 the same with no graph.
+    /// without a fresh install: 20 the welcome, 21 a door chosen, 22 the
+    /// permission, 23 the permission on an account that is not an
+    /// administrator, 24 waiting at the edge; 25…28 a door's walk from its
+    /// first step (`LODESTAR_WALK_DOOR`, Switch by default), 29 its close;
+    /// 30 on the curriculum's cards in order, then a proven one.
     static func preview(_ index: Int, empty: Bool = false) -> WalkController {
         let controller = WalkController()
         var (config, _) = Config.load()
         if empty { config.graph = GraphNode() }
         controller.config = config
+        controller.describeEngine = { AppDelegate.walkEngineAnswer($0) }
+        let previewDoor = ProcessInfo.processInfo.environment["LODESTAR_WALK_DOOR"]
+            .flatMap(Walk.Door.init(rawValue:)) ?? .switcher
+        controller.grammarOffer = { "standard" }
         // After the run loop is up: a window ordered in before the app
         // finishes launching never reaches the window server.
         DispatchQueue.main.async {
             switch index {
             case 0:
-                controller.forceUntrusted = true
-                controller.renderDoor(waiting: false)
+                controller.renderDoor()
                 controller.door.makeKeyAndOrderFront(nil)
             case 1:
-                controller.forceUntrusted = true
-                controller.awaitingGrant = true
-                controller.renderDoor(waiting: true)
-            case 2:
-                controller.renderDoor(waiting: false)
+                controller.chosen = previewDoor
+                controller.renderDoor()
                 controller.door.makeKeyAndOrderFront(nil)
-            case 3...7:
-                controller.beginWalk(at: index - 3)
+            case 2, 3:
+                controller.forceUntrusted = true
+                controller.forceStandardAccount = index == 3
+                controller.chosen = previewDoor
+                controller.page = .permission
+                controller.renderDoor()
+                controller.door.makeKeyAndOrderFront(nil)
+            case 4:
+                controller.forceUntrusted = true
+                controller.chosen = previewDoor
+                controller.awaitingGrant = true
+                controller.page = .waiting
+                controller.renderDoor()
+            case 5...9:
+                controller.beginWalk(previewDoor, at: index - 5)
             default:
-                // 8…15: the curriculum's cards, in order; 16 the proven card.
                 let lessons = Curriculum.order.map(\.lesson)
-                if index - 8 < lessons.count {
-                    controller.showLesson(lessons[index - 8])
+                if index - 10 < lessons.count {
+                    controller.showLesson(lessons[index - 10])
                 } else {
                     controller.lesson = lessons[0]
                     controller.lessonDone = true

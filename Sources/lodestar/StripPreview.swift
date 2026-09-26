@@ -230,11 +230,13 @@ enum StripPreview {
             app.run()
         }
 
-        // 20…36 stage the walk: the door's three states, the companion's
-        // four steps and the closing card, then the curriculum's eight
-        // lessons and a proven one. 40…56 the same, with no graph.
-        if (20...56).contains(variant) {
-            let held = WalkController.preview(variant % 20, empty: variant >= 40)
+        // 20…40 stage the first launch (see `WalkController.preview`): the
+        // welcome, the permission and the wait, a door's walk
+        // (LODESTAR_WALK_DOOR), then the curriculum's lessons and a proven
+        // one. LODESTAR_EMPTY_GRAPH stages them with no graph.
+        if (20...40).contains(variant) {
+            let held = WalkController.preview(variant - 20,
+                                              empty: ProcessInfo.processInfo.environment["LODESTAR_EMPTY_GRAPH"] != nil)
             _ = held
             app.run()
         }

@@ -78,13 +78,34 @@ succinct.
 ## Development
 
 ```sh
-swift build && swift test    # 163 tests: grammar, layout, resilience, hints
+swift build && ./scripts/test.sh   # the whole suite, sharded, about 20 s
 ```
 
 The gesture grammar, layout engine, and state stores are pure and tested in
 `LodestarCore`. The app target is a thin AppKit shell. Once installed,
 `lodestar diagnose`, `reload`, `reset-config`, and friends work from any
 shell.
+
+### The mark
+
+The mark is defined once, in `Sources/LodestarCore/Mark.swift`, and every
+copy is drawn from it: the menu bar at runtime, and the app icon, the disk
+image and the website's assets by script. Its color is a parameter.
+
+```sh
+./scripts/make-icon.sh                     # International Orange, into .build/mark/
+./scripts/make-icon.sh --accent '#0A84FF'  # any color, by hex
+./scripts/make-icon.sh --preset green      # a named color (Mark.presets)
+./scripts/make-icon.sh --all               # every preset, one folder each
+./scripts/make-icon.sh --install           # the shipped color, into packaging/
+                                           # and the site checkout
+```
+
+Each run writes the `.icns` and its iconset, a 1024 preview, the favicon
+(`icon.svg`), the bare mark (`mark.svg`) and the faces with their fills
+(`mark.json`). Changing the mark means changing `Mark.swift`; `MarkTests`
+pins it so that is a decision, not an accident. DESIGN.md, "The mark", has
+the reasoning.
 
 ## License
 

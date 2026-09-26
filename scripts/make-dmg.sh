@@ -34,7 +34,7 @@ mkdir "$STAGE/root"
 cp -R "$APP" "$STAGE/root/lodestar.app"
 ln -s /Applications "$STAGE/root/Applications"
 mkdir "$STAGE/root/.background"
-swift scripts/make-dmg-background.swift "$STAGE/root/.background" "$VERSION" >/dev/null
+./scripts/swift-with-mark.sh scripts/make-dmg-background.swift "$STAGE/root/.background" "$VERSION" >/dev/null
 tiffutil -cathidpicheck "$STAGE/root/.background/background.png" \
     "$STAGE/root/.background/background@2x.png" \
     -out "$STAGE/root/.background/background.tiff" >/dev/null 2>&1

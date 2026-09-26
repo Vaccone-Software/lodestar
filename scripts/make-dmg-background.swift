@@ -2,7 +2,7 @@ import AppKit
 
 // The DMG window background, drawn — not designed in an editor — so it is
 // versioned, reproducible, and in lockstep with the icon and the site: the
-// same near-black ground, the same compass mark, the same sparse northern
+// same near-black ground, the same star, the same sparse northern
 // sky with international orange beacons.
 //
 // The pane is a plotting sheet, not a poster. The two icons are stations on
@@ -26,25 +26,23 @@ let height: CGFloat = 400
 let appSlot = CGPoint(x: 165, y: height - 200)
 let folderSlot = CGPoint(x: 495, y: height - 200)
 
-/// The compass star — same geometry as the icon and the menu bar mark.
-func starPath(center: CGPoint, cardinal: CGFloat) -> NSBezierPath {
-    let path = NSBezierPath()
-    for i in 0..<16 {
-        let angle = CGFloat(i) * .pi / 8 + .pi / 2
-        let radius: CGFloat
-        if i % 2 == 1 {
-            radius = cardinal * (2.3 / 8.2)
-        } else if i % 4 == 0 {
-            radius = cardinal
-        } else {
-            radius = cardinal * (4.4 / 8.2)
+/// The mark, small: its faces in International Orange, drawn from Mark.swift
+/// (make-dmg.sh compiles this script beside it), so the pane's star is the
+/// icon's star.
+func drawMark(center: CGPoint, radius: CGFloat) {
+    for face in Mark.faces {
+        let path = NSBezierPath()
+        for (i, p) in face.points.enumerated() {
+            let point = CGPoint(x: center.x + p.x * radius, y: center.y - p.y * radius)
+            if i == 0 { path.move(to: point) } else { path.line(to: point) }
         }
-        let point = CGPoint(x: center.x + cos(angle) * radius,
-                            y: center.y + sin(angle) * radius)
-        if i == 0 { path.move(to: point) } else { path.line(to: point) }
+        path.close()
+        let c = Mark.fill(tone: face.tone, accent: Mark.internationalOrange)
+        let color = NSColor(srgbRed: c.red, green: c.green, blue: c.blue, alpha: 1)
+        color.setFill(); color.setStroke()
+        path.lineWidth = 0.3
+        path.fill(); path.stroke()
     }
-    path.close()
-    return path
 }
 
 /// Deterministic stars: the same sky every render, every release.
@@ -151,7 +149,6 @@ func draw() {
     // The course: a hairline span across the gap between the two icons, at
     // their centerline, held clear of both by a margin so it reads as
     // measured distance rather than a rule under them.
-    let accent = NSColor(calibratedRed: 1.0, green: 0.31, blue: 0.0, alpha: 0.92)
     let origin = CGPoint(x: appSlot.x + 64, y: appSlot.y)
     let destination = CGPoint(x: folderSlot.x - 64, y: folderSlot.y)
 
@@ -176,8 +173,7 @@ func draw() {
 
     // The destination: the mark itself, small and lit, standing where the
     // arrowhead used to point. You are dragging toward the lodestar.
-    accent.setFill()
-    starPath(center: destination, cardinal: 7.5).fill()
+    drawMark(center: destination, radius: 9)
 
     drawCaps("DRAG TO INSTALL", center: CGPoint(x: width / 2, y: appSlot.y + 26), size: 8, alpha: 0.38)
 
@@ -210,7 +206,7 @@ func draw() {
     NSColor.white.withAlphaComponent(0.09).setStroke()
     rule.stroke()
     drawCaps("KEYBOARD NAVIGATION FOR MACOS", at: CGPoint(x: margin, y: 34), size: 7.5, alpha: 0.30)
-    let particulars = version.isEmpty ? "MACOS 13 OR LATER" : "V\(version) · MACOS 13 OR LATER"
+    let particulars = version.isEmpty ? "APPLE SILICON · MACOS 14 OR LATER" : "V\(version) · APPLE SILICON · MACOS 14 OR LATER"
     drawCaps(particulars, rightAlignedAt: CGPoint(x: width - margin, y: 34), size: 7.5, alpha: 0.30)
 }
 

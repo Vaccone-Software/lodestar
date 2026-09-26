@@ -1,114 +1,116 @@
 import AppKit
 
-// The lodestar app icon, drawn — not designed in an editor — so it is
-// versioned, reproducible, and always in lockstep with the menu-bar mark.
+// The Lodestar app icon and the website's marks, drawn from Mark.swift, never
+// designed in an editor, so they are versioned, reproducible, and always the
+// mark the menu bar draws. Run it through scripts/make-icon.sh, which
+// compiles it beside Mark.swift; see that script for the options.
 //
-// Influences, deliberately: NASA's standards-manual discipline (one mark,
-// hairline technical detail), US Graphics Company restraint (near-mono
-// palette, precision), SpaceX darkness, Apple materials (squircle, a
-// breath of gradient — never a circus).
-//
-// Usage: swift scripts/make-icon.swift <output-dir>
-//   Writes lodestar.iconset/ PNGs and preview.png; iconutil finishes it.
+// The icon: the star with depth on charcoal that carries a little of the
+// accent, on Apple's macOS grid (an 824-point plate, corner 185, on 1024),
+// with the plate's faint top sheen and hairline edge, a soft shadow under
+// the star, and the faintest wash of the accent behind it.
 
-let outputDir = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "."
-let iconsetDir = "\(outputDir)/lodestar.iconset"
-try? FileManager.default.createDirectory(atPath: iconsetDir, withIntermediateDirectories: true)
-
-/// The compass star — same geometry as the menu bar mark: 16 vertices,
-/// long cardinals, mid diagonals, tight waist.
-func starPath(center: CGPoint, cardinal: CGFloat) -> NSBezierPath {
-    let path = NSBezierPath()
-    for i in 0..<16 {
-        let angle = CGFloat(i) * .pi / 8 + .pi / 2
-        let radius: CGFloat
-        if i % 2 == 1 {
-            radius = cardinal * (2.3 / 8.2)
-        } else if i % 4 == 0 {
-            radius = cardinal
-        } else {
-            radius = cardinal * (4.4 / 8.2)
+var accent = Mark.internationalOrange
+var name = "international-orange"
+var outputDir = ".build/mark"
+var all = false
+var arguments = Array(CommandLine.arguments.dropFirst())
+while !arguments.isEmpty {
+    let flag = arguments.removeFirst()
+    switch flag {
+    case "--accent":
+        guard let value = arguments.first, let color = Mark.RGB(hex: value) else {
+            FileHandle.standardError.write("--accent takes a hex color such as #FF4F00\n".data(using: .utf8)!)
+            exit(64)
         }
-        let point = CGPoint(x: center.x + cos(angle) * radius,
-                            y: center.y + sin(angle) * radius)
-        if i == 0 { path.move(to: point) } else { path.line(to: point) }
+        arguments.removeFirst()
+        accent = color
+        name = value.hasPrefix("#") ? String(value.dropFirst()).lowercased() : value.lowercased()
+    case "--preset":
+        guard let value = arguments.first, let preset = Mark.presets.first(where: { $0.name == value }) else {
+            FileHandle.standardError.write("--preset takes one of: \(Mark.presets.map(\.name).joined(separator: ", "))\n".data(using: .utf8)!)
+            exit(64)
+        }
+        arguments.removeFirst()
+        accent = preset.color
+        name = preset.name
+    case "--out":
+        outputDir = arguments.removeFirst()
+    case "--all":
+        all = true
+    default:
+        FileHandle.standardError.write("unknown option \(flag)\n".data(using: .utf8)!)
+        exit(64)
     }
-    path.close()
-    return path
 }
 
-func drawIcon(canvas: CGFloat) -> NSImage {
-    let image = NSImage(size: NSSize(width: canvas, height: canvas))
-    image.lockFocus()
-    defer { image.unlockFocus() }
+func color(_ c: Mark.RGB, alpha: CGFloat = 1) -> NSColor {
+    NSColor(srgbRed: c.red, green: c.green, blue: c.blue, alpha: alpha)
+}
 
-    let scale = canvas / 1024
-    let center = CGPoint(x: canvas / 2, y: canvas / 2)
-    let small = canvas <= 64
-
-    // Apple's macOS icon canvas: the squircle floats inside the square
-    // with transparent margins (Big Sur grid: 824pt plate on 1024).
-    let plateSize = canvas * (824.0 / 1024.0)
-    let plate = NSBezierPath(
-        roundedRect: NSRect(x: (canvas - plateSize) / 2, y: (canvas - plateSize) / 2,
-                            width: plateSize, height: plateSize),
-        xRadius: canvas * (185.0 / 1024.0), yRadius: canvas * (185.0 / 1024.0)
-    )
-    plate.addClip()
-
-    // Deep space, barely blue — darkness with a floor light.
-    NSGradient(colors: [
-        NSColor(calibratedRed: 0.10, green: 0.13, blue: 0.22, alpha: 1),
-        NSColor(calibratedRed: 0.03, green: 0.04, blue: 0.08, alpha: 1),
-    ])!.draw(in: plate, angle: -90)
-
-    if !small {
-        // The technical layer: one hairline graticule ring with cardinal
-        // ticks — an instrument, not a decoration.
-        let ringRadius = canvas * 0.335
-        let ring = NSBezierPath(ovalIn: NSRect(x: center.x - ringRadius, y: center.y - ringRadius,
-                                               width: ringRadius * 2, height: ringRadius * 2))
-        ring.lineWidth = max(1, 2 * scale)
-        NSColor.white.withAlphaComponent(0.12).setStroke()
-        ring.stroke()
-
-        let tick = NSBezierPath()
-        for i in 0..<16 {
-            let angle = CGFloat(i) * .pi / 8 + .pi / 2
-            let isCardinal = i % 4 == 0
-            let inner = ringRadius - (isCardinal ? 14 : 7) * scale
-            let outer = ringRadius + (isCardinal ? 14 : 7) * scale
-            tick.move(to: CGPoint(x: center.x + cos(angle) * inner, y: center.y + sin(angle) * inner))
-            tick.line(to: CGPoint(x: center.x + cos(angle) * outer, y: center.y + sin(angle) * outer))
+/// The mark's faces into a rect, back to front, in `accent`. Each face is
+/// stroked in its own color a hair wide so neighbours meet without a seam.
+func drawFaces(center: CGPoint, radius: CGFloat, accent: Mark.RGB, seam: CGFloat) {
+    for face in Mark.faces {
+        let path = NSBezierPath()
+        for (i, p) in face.points.enumerated() {
+            let point = CGPoint(x: center.x + p.x * radius, y: center.y - p.y * radius)
+            if i == 0 { path.move(to: point) } else { path.line(to: point) }
         }
-        tick.lineWidth = max(1, 2 * scale)
-        NSColor.white.withAlphaComponent(0.18).setStroke()
-        tick.stroke()
+        path.close()
+        let fill = color(Mark.fill(tone: face.tone, accent: accent))
+        fill.setFill()
+        path.fill()
+        fill.setStroke()
+        path.lineWidth = seam
+        path.lineJoinStyle = .round
+        path.stroke()
     }
+}
 
-    // The star: near-white, one breath of gradient, a faint lift.
-    let cardinal = canvas * (small ? 0.34 : 0.26)
-    let star = starPath(center: center, cardinal: cardinal)
-    if !small {
+func drawIcon(canvas: CGFloat, accent: Mark.RGB) -> NSImage {
+    NSImage(size: NSSize(width: canvas, height: canvas), flipped: false) { _ in
+        let scale = canvas / 1024
+        let plateRect = NSRect(x: 100 * scale, y: 100 * scale, width: 824 * scale, height: 824 * scale)
+        let plate = NSBezierPath(roundedRect: plateRect, xRadius: 185 * scale, yRadius: 185 * scale)
+        NSGraphicsContext.current?.saveGraphicsState()
+        plate.addClip()
+
+        let ground = Mark.ground(accent: accent)
+        NSGradient(colors: [color(ground.top), color(ground.bottom)])!.draw(in: plateRect, angle: -90)
+
+        // The faintest wash of the accent behind the star.
+        let wash = NSGradient(colors: [color(accent, alpha: 0.07), color(accent, alpha: 0)])!
+        wash.draw(fromCenter: CGPoint(x: 512 * scale, y: 554 * scale), radius: 0,
+                  toCenter: CGPoint(x: 512 * scale, y: 554 * scale), radius: 470 * scale, options: [])
+
+        // The star, with a soft shadow under it as one piece.
         NSGraphicsContext.current?.saveGraphicsState()
         let shadow = NSShadow()
-        shadow.shadowColor = NSColor(calibratedRed: 0.75, green: 0.83, blue: 1.0, alpha: 0.22)
-        shadow.shadowBlurRadius = 13 * scale
-        shadow.shadowOffset = .zero
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.5)
+        shadow.shadowBlurRadius = 36 * scale
+        shadow.shadowOffset = NSSize(width: 0, height: -16 * scale)
         shadow.set()
-        NSColor.white.setFill()
-        star.fill()
+        NSGraphicsContext.current?.cgContext.beginTransparencyLayer(auxiliaryInfo: nil)
+        drawFaces(center: CGPoint(x: 512 * scale, y: 502 * scale), radius: 294 * scale, accent: accent,
+                  seam: max(0.35, 1.2 * scale))
+        NSGraphicsContext.current?.cgContext.endTransparencyLayer()
         NSGraphicsContext.current?.restoreGraphicsState()
-        NSGradient(colors: [
-            NSColor(calibratedRed: 1.0, green: 1.0, blue: 1.0, alpha: 1),
-            NSColor(calibratedRed: 0.78, green: 0.83, blue: 0.93, alpha: 1),
-        ])!.draw(in: star, angle: -90)
-    } else {
-        NSColor.white.setFill()
-        star.fill()
-    }
 
-    return image
+        // The plate's top sheen.
+        NSGradient(colors: [NSColor.white.withAlphaComponent(0.08), NSColor.white.withAlphaComponent(0)])!
+            .draw(in: NSRect(x: plateRect.minX, y: plateRect.maxY - plateRect.height * 0.45,
+                             width: plateRect.width, height: plateRect.height * 0.45), angle: -90)
+        NSGraphicsContext.current?.restoreGraphicsState()
+
+        // The hairline edge.
+        let edge = NSBezierPath(roundedRect: plateRect.insetBy(dx: 1.5 * scale, dy: 1.5 * scale),
+                                xRadius: 184 * scale, yRadius: 184 * scale)
+        edge.lineWidth = max(0.5, 3 * scale)
+        NSColor.white.withAlphaComponent(0.16).setStroke()
+        edge.stroke()
+        return true
+    }
 }
 
 func writePNG(_ image: NSImage, to path: String, pixels: Int) {
@@ -123,15 +125,47 @@ func writePNG(_ image: NSImage, to path: String, pixels: Int) {
     try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: path))
 }
 
-let entries: [(pixels: Int, name: String)] = [
-    (16, "icon_16x16"), (32, "icon_16x16@2x"),
-    (32, "icon_32x32"), (64, "icon_32x32@2x"),
-    (128, "icon_128x128"), (256, "icon_128x128@2x"),
-    (256, "icon_256x256"), (512, "icon_256x256@2x"),
-    (512, "icon_512x512"), (1024, "icon_512x512@2x"),
-]
-for entry in entries {
-    writePNG(drawIcon(canvas: CGFloat(entry.pixels)), to: "\(iconsetDir)/\(entry.name).png", pixels: entry.pixels)
+/// The website's data: every face with its fill, and the ground, so the
+/// site's logo and touch icon are drawn from the same faces.
+func siteData(accent: Mark.RGB) -> String {
+    let ground = Mark.ground(accent: accent)
+    let faces = Mark.faces.map { face in
+        let points = face.points.map { String(format: "[%.4f,%.4f]", $0.x, $0.y) }.joined(separator: ",")
+        return "{\"points\":[\(points)],\"fill\":\"\(Mark.fill(tone: face.tone, accent: accent).hex)\"}"
+    }.joined(separator: ",\n    ")
+    return """
+    {
+      "_": "Generated by scripts/make-icon.sh from Sources/LodestarCore/Mark.swift. Do not edit.",
+      "accent": "\(accent.hex)",
+      "ground": { "top": "\(ground.top.hex)", "bottom": "\(ground.bottom.hex)" },
+      "faces": [
+        \(faces)
+      ]
+    }
+
+    """
 }
-writePNG(drawIcon(canvas: 512), to: "\(outputDir)/preview.png", pixels: 512)
-print("iconset + preview written to \(outputDir)")
+
+func render(accent: Mark.RGB, into dir: String) {
+    let iconset = "\(dir)/lodestar.iconset"
+    try? FileManager.default.createDirectory(atPath: iconset, withIntermediateDirectories: true)
+    let entries: [(pixels: Int, name: String)] = [
+        (16, "icon_16x16"), (32, "icon_16x16@2x"), (32, "icon_32x32"), (64, "icon_32x32@2x"),
+        (128, "icon_128x128"), (256, "icon_128x128@2x"), (256, "icon_256x256"), (512, "icon_256x256@2x"),
+        (512, "icon_512x512"), (1024, "icon_512x512@2x"),
+    ]
+    for entry in entries {
+        writePNG(drawIcon(canvas: CGFloat(entry.pixels), accent: accent), to: "\(iconset)/\(entry.name).png", pixels: entry.pixels)
+    }
+    writePNG(drawIcon(canvas: 1024, accent: accent), to: "\(dir)/preview.png", pixels: 1024)
+    try! Mark.svg(accent: accent, size: 64, ground: true).write(toFile: "\(dir)/icon.svg", atomically: true, encoding: .utf8)
+    try! Mark.svg(accent: accent, size: 64).write(toFile: "\(dir)/mark.svg", atomically: true, encoding: .utf8)
+    try! siteData(accent: accent).write(toFile: "\(dir)/mark.json", atomically: true, encoding: .utf8)
+    print("\(dir): iconset, preview.png, icon.svg, mark.svg, mark.json")
+}
+
+if all {
+    for preset in Mark.presets { render(accent: preset.color, into: "\(outputDir)/\(preset.name)") }
+} else {
+    render(accent: accent, into: "\(outputDir)/\(name)")
+}

@@ -1,42 +1,40 @@
 import AppKit
 import LodestarCore
 
-/// The lodestar mark: an eight-pointed compass star, drawn as a template so
-/// the menu bar styles it. While a chain is pending, the star sits knocked
-/// out of a filled disc — the quiet ambient "you're in something".
+/// The lodestar mark in the menu bar: the star with depth as one
+/// silhouette (Mark.faces, every face filled in the template color), so the
+/// bar's glyph is the icon's star. While a chain is pending, the star sits
+/// knocked out of a filled disc: the quiet ambient "you're in something".
 enum StatusIcon {
     static let idle = make(active: false)
     static let active = make(active: true)
 
+    private static func star(center: NSPoint, radius: CGFloat) -> [NSBezierPath] {
+        Mark.faces.map { face in
+            let path = NSBezierPath()
+            for (i, p) in face.points.enumerated() {
+                let point = NSPoint(x: center.x + p.x * radius, y: center.y - p.y * radius)
+                if i == 0 { path.move(to: point) } else { path.line(to: point) }
+            }
+            path.close()
+            // A hairline in the same ink closes the seams between faces.
+            path.lineWidth = 0.35
+            path.lineJoinStyle = .round
+            return path
+        }
+    }
+
     private static func make(active: Bool) -> NSImage {
         let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { rect in
             let center = NSPoint(x: rect.midX, y: rect.midY)
-            let star = NSBezierPath()
-            for i in 0..<16 {
-                let angle = CGFloat(i) * .pi / 8 + .pi / 2
-                let radius: CGFloat
-                if i % 2 == 1 {
-                    radius = 2.3
-                } else if i % 4 == 0 {
-                    radius = 8.2
-                } else {
-                    radius = 4.4
-                }
-                let point = NSPoint(x: center.x + cos(angle) * radius,
-                                    y: center.y + sin(angle) * radius)
-                if i == 0 { star.move(to: point) } else { star.line(to: point) }
-            }
-            star.close()
-
             NSColor.black.setFill()
+            NSColor.black.setStroke()
             if active {
-                let disc = NSBezierPath(ovalIn: NSRect(x: center.x - 8.6, y: center.y - 8.6,
-                                                       width: 17.2, height: 17.2))
-                disc.fill()
+                NSBezierPath(ovalIn: NSRect(x: center.x - 8.6, y: center.y - 8.6, width: 17.2, height: 17.2)).fill()
                 NSGraphicsContext.current?.compositingOperation = .destinationOut
-                star.fill()
+                for face in star(center: center, radius: 6.2) { face.fill(); face.stroke() }
             } else {
-                star.fill()
+                for face in star(center: center, radius: 8.2) { face.fill(); face.stroke() }
             }
             return true
         }

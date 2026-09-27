@@ -1,52 +1,52 @@
 # Lodestar
 
-**Keyboard navigation for macOS. Destination over process.**
+**Master your Mac.** Free tools that make your Mac second nature: Write,
+Switch, Keep and Speak. [lodestar.vaccone.software](https://lodestar.vaccone.software)
 
-Lodestar navigates to the application you want without distraction. Anything
-you open or focus through it arrives maximized and hides the others, and
-everything else about your windows keeps working the way you are used to.
-Applications you use constantly can be assigned a letter, or a short set of
-letters, and opened directly without a list.
+<!-- TODO: demo GIF. Ten seconds of one door working. -->
 
-Its commands are designed to become muscle memory. Navigation that begins as a
-deliberate sequence turns into a single practised gesture, until you are
-choosing a destination rather than the steps that lead to it.
+- **Write**: spelling and grammar checked as you type, in every app. A thin
+  line under what reads wrong, fixed with a click, or with `lode ⇥` and a
+  letter. Checked on your Mac.
+- **Switch**: `lode space` opens any app, filling the screen, and `lode S` goes
+  straight to Slack once S is its letter. Breaths (`lode ' W`) bring back whole
+  layouts, relaunching what is not running.
+- **Keep**: everything you copy, on `⇧⌘V`. A letter pastes, `/` searches, and a
+  clip that is a color, a time or a measurement arrives read.
+- **Speak**: `lode .` opens the draft. Talk and type into one cursor, edit with
+  Vim keys, and `⏎` puts it where your cursor was. Turned into text on this
+  Mac, and no audio is kept.
 
-<!-- TODO: demo GIF. Thirty seconds of hands owning a machine. -->
+The first launch asks which one you came for and walks you through it. The
+rest arrive later, one lesson at a time, when they would help.
 
-- **`lode S`**: you are in Slack, maximized. Not launching, not arranging.
-- **`lode space`**: the launcher, a list of your applications ordered by what
-  you actually use, teaching the faster gesture for everything you pick.
-- **`lode ' W`**: breaths. Saved layouts that restore whole worlds, even
-  relaunching apps that are not running.
-- **`lode ;`**: click hints. Every pressable element wears a label. Type the
-  label to click it.
-- **``lode ` ``** / **`lode -`** / **`lode ⏎`**: scroll mode, menu search,
-  and Ask, which routes each destination to the right browser profile.
-- **`lode .`**: the draft. Speak, type into the same cursor, and `⏎` pastes
-  it where your cursor already was. On-device; nothing leaves the Mac.
-
-One grammar spans applications, the inside of a window, the web, and what you
-have copied. Learn it once. Your hands know it everywhere. SIP stays on. Spaces stay untouched.
-One private API call, [documented](FINDINGS.md).
+Underneath all four is one grammar on one key. Lode is your right ⌘: hold it,
+press a letter, and you are there. The same key reaches click hints
+(`lode ;`), scroll mode (``lode ` ``), menu search (`lode -`) and Ask
+(`lode ⏎`), which routes each web destination to the right browser profile.
+Learn it once and your hands know it everywhere. SIP stays on. Spaces stay
+untouched. One private API call, [documented](FINDINGS.md).
 
 ## Install
 
 Requires a Mac with Apple silicon and macOS 14 or later. Best on macOS 26.
 
-```sh
-git clone https://github.com/Vaccone-Software/lodestar.git && cd lodestar
-./scripts/install-app.sh
-```
-
-Grant Accessibility when prompted. Lodestar wakes on its own the moment the
-grant lands. Lode is right ⌘ by default, which means right ⌘ stops being a
-command key. That is the trade, and it is configurable.
-
-Or with Homebrew:
+[Download it from the website](https://lodestar.vaccone.software), or with
+Homebrew:
 
 ```sh
 brew install --cask vaccone-software/tap/lodestar
+```
+
+Lodestar asks for one permission, Accessibility, and continues the moment the
+grant lands. Lode is right ⌘ by default, which means right ⌘ stops being a
+command key. That is the trade, and it is configurable.
+
+From source:
+
+```sh
+git clone https://github.com/Vaccone-Software/lodestar.git && cd lodestar
+./scripts/install-app.sh
 ```
 
 ## Learn it

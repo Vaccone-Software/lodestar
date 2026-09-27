@@ -252,7 +252,7 @@ public struct Config {
                                 description: "Word → true. Names and terms speech gets wrong; a settled result within a letter or two of one is repaired to it, case and all."),
         ], description: "The draft: lode . speaks, lode ⇧. revises."),
         "editor": .table([
-            "enabled": .boolean(description: "Mark mistakes as you write, in every app; lode ⇥ letters the marks."),
+            "enabled": .boolean(description: "Mark mistakes as you write; lode ⇥ letters the marks."),
             "model": .string(allowed: ["", "spelling", "minimal", "standard", "full"],
                              description: "How the editor reads: spelling (no model, any Mac), minimal (Apple's own model), standard (16 GB Macs and up) or full (64 GB and up). Empty picks the one this Mac suits; one this Mac cannot run falls back the same way."),
             "language": .string(allowed: ["", "en_US", "en_GB", "en_CA", "en_AU", "en_NZ", "en_IN", "en_ZA", "en_SG"],

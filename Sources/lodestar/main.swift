@@ -80,6 +80,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// is what stops that link from being the one that vanishes.
     private var pendingClicks: [URL] = []
     private let walk = WalkController()
+    private let feedback = FeedbackController()
     private let meetings = MeetingController()
     private let linkChip = LinkChip()
     private let presenting = Presenting()
@@ -795,22 +796,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     #endif
 
-    @objc private func reportIssue() {
-        let os = ProcessInfo.processInfo.operatingSystemVersionString
-        let body = """
-        <!-- Please run `lodestar diagnose` in a terminal, review the output \
-        (the log tail may contain window titles), and paste it here. -->
-
-        lodestar \(Lodestar.version) · macOS \(os)
-        displays: \(Displays.ordered().count) · trusted: \(Permissions.isTrusted)
-
-        **What happened:**
-
-        **What I expected:**
-        """
-        var components = URLComponents(string: Lodestar.issuesURL)!
-        components.queryItems = [URLQueryItem(name: "body", value: body)]
-        if let url = components.url { NSWorkspace.shared.open(url) }
+    @objc private func sendFeedback() {
+        feedback.show()
     }
 
     // MARK: - Status item
@@ -837,7 +824,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(makeItem("How Lodestar Works", #selector(showWalk), key: ""))
         menu.addItem(makeItem("Settings", #selector(openSettingsWindow), key: ""))
         menu.addItem(makeItem("Check for Updates", #selector(checkForUpdates), key: ""))
-        menu.addItem(makeItem("Report an Issue", #selector(reportIssue), key: ""))
+        menu.addItem(makeItem("Send Feedback", #selector(sendFeedback), key: ""))
         // The coach's inbox of at most one: a suggestion whose moment was
         // missed parks here instead of being lost. Hidden when empty.
         let coachItem = makeItem("", #selector(presentCoachSuggestion), key: "")

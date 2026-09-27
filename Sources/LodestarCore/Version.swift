@@ -10,7 +10,6 @@ public enum Lodestar {
 
     /// Repository home — swap to the company org at the public split.
     public static let repository = "https://github.com/Vaccone-Software/lodestar"
-    public static let issuesURL = repository + "/issues/new"
 
     /// The Developer ID team every release is signed under. The updater
     /// refuses any download whose signature chains to anyone else.

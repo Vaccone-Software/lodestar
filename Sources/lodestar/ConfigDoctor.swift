@@ -147,6 +147,14 @@ func runConfigCheck(json: Bool) -> Never {
 /// One paste-able report: everything a bug conversation needs to start
 /// with evidence instead of archaeology.
 func runDiagnose() -> Never {
+    print(diagnoseReport())
+    exit(0)
+}
+
+/// What `lodestar diagnose` prints, and what Send Feedback attaches when
+/// asked to. The log tail can name windows that were open, which is why
+/// the window offers it and never sends it on its own.
+func diagnoseReport() -> String {
     var lines: [String] = []
     lines.append("═══ Lodestar diagnose · v\(Lodestar.version) · \(ISO8601DateFormatter().string(from: Date()))")
     lines.append("")
@@ -188,8 +196,7 @@ func runDiagnose() -> Never {
     } else {
         lines.append("  (no log)")
     }
-    print(lines.joined(separator: "\n"))
-    exit(0)
+    return lines.joined(separator: "\n")
 }
 
 /// Back up the current config, write fresh defaults, reload if running.

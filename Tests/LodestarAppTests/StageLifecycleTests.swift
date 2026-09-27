@@ -39,7 +39,12 @@ final class StageLifecycleTests: XCTestCase {
         XCTAssertNil(hud)
         XCTAssertNil(health)
         XCTAssertNil(observations)
-        XCTAssertEqual(NSApplication.shared.windows.count, 0, "no panel outlives its stage")
+        // The text system's input indicator (TUINSWindow) is made for the
+        // whole process the first time any text view in it takes focus, and
+        // no close removes it: it is macOS's, not a stage's, and whether an
+        // earlier test in this process typed decides whether it is here.
+        let ours = NSApplication.shared.windows.filter { String(describing: type(of: $0)) != "TUINSWindow" }
+        XCTAssertEqual(ours.count, 0, "no panel outlives its stage")
         let after = pumpCost()
         XCTAssertLessThan(after, max(0.5, baseline * 2), "thirty dead stages must not slow the run loop")
     }

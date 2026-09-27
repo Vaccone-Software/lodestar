@@ -123,14 +123,16 @@ final class StripTimeTests: XCTestCase {
         var config = stage.engine.config
         config.clipboardTimeZones = ["Asia/Tokyo"]
         stage.engine.config = config
-        let unix = stage.seedClip(String(Int(Date().timeIntervalSince1970) - 6 * 3600))
+        // Five hours, not six: under six the voice counts hours whatever the
+        // day, and six hours ago after midnight is rightly "Yesterday evening".
+        let unix = stage.seedClip(String(Int(Date().timeIntervalSince1970) - 5 * 3600))
         let text = stage.seedClip("just some words")
         let phone = stage.seedClip("2125551234")
         let sentence = stage.seedClip("deployed at 1790342057")
         stage.openStrip()
         let notes = stage.engine.strip.shownNotes
         let note = try XCTUnwrap(notes[unix.id])
-        XCTAssertEqual(note.first, "6 hours ago", "the voice first")
+        XCTAssertEqual(note.first, "5 hours ago", "the voice first")
         XCTAssertTrue(note.contains { $0.contains("Tokyo") }, "the kept zone: \(note)")
         XCTAssertEqual(textFrame(stage, unix)?.maxY, textFrame(stage, text)?.maxY,
                        "the clip starts where every card's text starts")

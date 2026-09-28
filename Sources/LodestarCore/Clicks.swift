@@ -207,12 +207,13 @@ extension Health {
     }
 
     public static func clicks(events: [ObservationEvent], days: Int,
-                              now: Date = Date()) -> Clicks? {
+                              now: Date = Date(), calendar: Calendar = .current) -> Clicks? {
         let cutoff = now.addingTimeInterval(-Double(days) * 86_400)
         let pulses = events.filter { $0.kind == .clicks && $0.t >= cutoff }
         guard !pulses.isEmpty else { return nil }
         var out = Clicks()
-        var dayOrdinals: Set<Int> = []
+        // Days on the hand's clock, from four in the morning.
+        var dayOrdinals: Set<String> = []
         for pulse in pulses {
             guard let app = pulse.app else { continue }
             var record = out.apps[app] ?? ClickApp()
@@ -232,7 +233,7 @@ extension Health {
             out.apps[app] = record
             out.clicks += pulse.clicks ?? 0
             out.trips += pulse.trips ?? 0
-            dayOrdinals.insert(Int(pulse.t.timeIntervalSince1970 / 86_400))
+            dayOrdinals.insert(DayFile.day(of: pulse.t, calendar: calendar))
         }
         out.days = dayOrdinals.count
         return out

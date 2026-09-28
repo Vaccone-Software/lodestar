@@ -550,7 +550,10 @@ public enum Health {
         let pulses = events.filter { $0.kind == .pulse && $0.t >= cutoff }
         guard !pulses.isEmpty else { return nil }
         var out = Summary()
-        var dayOrdinals: Set<Int> = []
+        // Days on the hand's clock, from four in the morning, the day the
+        // key store files under: counted by UTC days they began at 8 pm
+        // here, and an evening at the keys counted twice.
+        var dayOrdinals: Set<String> = []
         var ikN = 0
         var ikSum = 0.0
         var ikSumSq = 0.0
@@ -592,7 +595,7 @@ public enum Health {
             out.scrollMomentum += pulse.scrollMomentum ?? 0
             out.clicksPosted += pulse.clicksPosted ?? 0
             for id in pulse.keyboards ?? [] { out.keyboards.insert(id) }
-            dayOrdinals.insert(Int(pulse.t.timeIntervalSince1970 / 86_400))
+            dayOrdinals.insert(DayFile.day(of: pulse.t, calendar: calendar))
             let hour = calendar.component(.hour, from: pulse.t)
             out.hourMinutes[min(23, max(0, hour))] += active
             let weekday = calendar.component(.weekday, from: pulse.t) - 1

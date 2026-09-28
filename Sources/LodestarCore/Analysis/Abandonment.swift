@@ -41,10 +41,10 @@ public struct Abandonment: Equatable {
     }
 
     public static func compute(events: [ObservationEvent], days: Int = 28,
-                               now: Date = Date()) -> Abandonment {
+                               now: Date = Date(), calendar: Calendar = .current) -> Abandonment {
         let cutoff = now.addingTimeInterval(-Double(days) * 86_400)
         let window = events.filter { $0.t >= cutoff }
-        var stamps: Set<Int> = []
+        var stamps: Set<String> = []
 
         // Counters per surface: finished, abandoned, wasted seconds.
         var navDone = 0, navGaveUp = 0; var navSeconds = 0.0
@@ -57,27 +57,27 @@ public struct Abandonment: Equatable {
             switch event.kind {
             case .chain:
                 navDone += 1
-                stamps.insert(day(event.t))
+                stamps.insert(day(event.t, calendar))
             case .abandon:
                 navGaveUp += 1
                 navSeconds += min(max(0, event.hover ?? 0), Observations.recallCeiling)
-                stamps.insert(day(event.t))
+                stamps.insert(day(event.t, calendar))
             case .reach where event.route == "searcher":
                 searchDone += 1
-                stamps.insert(day(event.t))
+                stamps.insert(day(event.t, calendar))
             case .launcherAbandon:
                 searchGaveUp += 1
-                stamps.insert(day(event.t))
+                stamps.insert(day(event.t, calendar))
             case .select:
                 guard let s = event.seconds, s >= 0, s < Overhead.selectCeiling else { continue }
                 if event.action == "completed" { selectDone += 1 }
                 else { selectGaveUp += 1; selectSeconds += s }
-                stamps.insert(day(event.t))
+                stamps.insert(day(event.t, calendar))
             case .paste:
                 guard let s = event.seconds, s >= 0, s < Overhead.pasteCeiling else { continue }
                 if event.action == "abandoned" { pasteGaveUp += 1; pasteSeconds += s }
                 else { pasteDone += 1 }
-                stamps.insert(day(event.t))
+                stamps.insert(day(event.t, calendar))
             case .draft where event.source == "speak":
                 guard let s = event.seconds, s >= 0, s < Overhead.draftCeiling else { continue }
                 if event.action == "empty" || event.action == "cancelled" {
@@ -85,7 +85,7 @@ public struct Abandonment: Equatable {
                 } else {
                     draftDone += 1
                 }
-                stamps.insert(day(event.t))
+                stamps.insert(day(event.t, calendar))
             default:
                 continue
             }
@@ -113,5 +113,7 @@ public struct Abandonment: Equatable {
             days: max(1, stamps.count))
     }
 
-    private static func day(_ date: Date) -> Int { Int(date.timeIntervalSince1970 / 86_400) }
+    /// A day on the hand's clock, from four in the morning — not a UTC
+    /// day, which split an evening in two and lowered every per-day waste.
+    private static func day(_ date: Date, _ calendar: Calendar) -> String { DayFile.day(of: date, calendar: calendar) }
 }

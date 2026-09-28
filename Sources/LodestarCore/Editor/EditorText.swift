@@ -89,7 +89,30 @@ public enum EditorText {
 
     /// A sentence confidently in another language: it is not read — a
     /// Spanish sentence is not an English one full of mistakes.
+    ///
+    /// Remembered per sentence. The editor asks about every sentence in
+    /// the field on every keystroke, twice (the issues and the sentences
+    /// to send), on the main thread the key tap shares, and a recognizer
+    /// is about two milliseconds a sentence: 60 of the 80 ms a keystroke
+    /// cost in a 1,500-character field, and a second in a long one — long
+    /// enough for macOS to switch the tap off. Only the sentence under
+    /// the caret is new; the rest are answered from here.
     public static func isForeign(_ sentence: String) -> Bool {
+        if let known = foreignLock.withLock({ foreignKnown[sentence] }) { return known }
+        let answer = recognizesForeign(sentence)
+        foreignLock.withLock {
+            if foreignKnown.updateValue(answer, forKey: sentence) == nil { foreignOrder.append(sentence) }
+            if foreignOrder.count > foreignCapacity { foreignKnown[foreignOrder.removeFirst()] = nil }
+        }
+        return answer
+    }
+
+    private static let foreignLock = NSLock()
+    nonisolated(unsafe) private static var foreignKnown: [String: Bool] = [:]
+    nonisolated(unsafe) private static var foreignOrder: [String] = []
+    private static let foreignCapacity = 2_048
+
+    private static func recognizesForeign(_ sentence: String) -> Bool {
         guard sentence.split(whereSeparator: \.isWhitespace).count >= 3 else { return false }
         let recognizer = NLLanguageRecognizer()
         recognizer.processString(sentence)

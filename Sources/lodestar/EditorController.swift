@@ -188,7 +188,8 @@ final class EditorController: EditorLens {
         Log.info("editor", ["enabled": false])
     }
 
-    /// macOS says memory is short: the model goes now, not in two minutes.
+    /// macOS says memory is short: the model goes now, not at its idle
+    /// release twenty minutes on. The long hold is affordable because of this.
     func memoryPressure() {
         let proofreader = self.proofreader
         Task { await proofreader.release(reason: "memory pressure") }

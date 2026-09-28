@@ -192,9 +192,14 @@ enum EditorModelError: Error, CustomStringConvertible {
 ///
 /// One request at a time: a burst of typing cannot queue GPU work behind
 /// itself. The weights load at the first sentence that needs them and are
-/// released two minutes after the last one — measured on the maker's own
-/// nine days, that holds the memory about a quarter of the working day —
-/// and at once when macOS says memory is short. An answer that has not
+/// released twenty minutes after the last one, and at once when macOS
+/// says memory is short. Two minutes was the first hold, and on the full
+/// model it cost more than it saved: 158 reloads of 20 GB in a week, and
+/// the first check after each took a median 4.3 s against 0.73 s for the
+/// rest, because a sentence is typed faster than five seconds of load.
+/// Replayed over 3.7 days of the maker's use, twenty minutes cuts loads
+/// from 47 a day to 8 and holds the memory about 7 hours a day instead
+/// of 3 — the memory-pressure release is what keeps that affordable. An answer that has not
 /// come in eight seconds is abandoned: a stuck model costs one sentence,
 /// never the rest of the field.
 actor EditorModel: EditorProofreader {
@@ -216,7 +221,7 @@ actor EditorModel: EditorProofreader {
     let idleRelease: TimeInterval
     let answerDeadline: TimeInterval
 
-    init(engine: EditorEngine, idleRelease: TimeInterval = 120, answerDeadline: TimeInterval = 8,
+    init(engine: EditorEngine, idleRelease: TimeInterval = 20 * 60, answerDeadline: TimeInterval = 8,
          loader: @escaping Loader = EditorModel.load,
          clearCache: @escaping @Sendable () -> Void = { MLX.GPU.clearCache() }) {
         self.engine = engine

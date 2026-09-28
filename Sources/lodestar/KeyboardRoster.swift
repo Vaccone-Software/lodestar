@@ -37,17 +37,15 @@ class DeviceRoster {
 
     static let cacheSeconds: TimeInterval = 30
 
-    private let manager: IOHIDManager
+    private let matching: CFArray
     private var cached: [Device] = []
     private var cachedAt = Date.distantPast
     private let lock = NSLock()
 
     init(usages: [Int]) {
-        manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
-        let matching = usages.map {
+        matching = usages.map {
             [kIOHIDDeviceUsagePageKey: kHIDPage_GenericDesktop, kIOHIDDeviceUsageKey: $0] as CFDictionary
-        }
-        IOHIDManagerSetDeviceMatchingMultiple(manager, matching as CFArray)
+        } as CFArray
     }
 
     /// The devices present, refreshed at most every half minute. One
@@ -75,7 +73,17 @@ class DeviceRoster {
     }
 
     /// The registry read itself. The lock is held.
+    ///
+    /// A manager enumerates once, when its matching is set, and hears of
+    /// arrivals and departures only when scheduled on a run loop. This
+    /// one is never scheduled (scheduling is for a manager that opens
+    /// devices), so a kept manager answers with the devices of the
+    /// moment it was made: a Bluetooth board that reconnected after
+    /// launch never appeared and one that left never went. A fresh
+    /// manager per read costs a few milliseconds a half minute.
     private func reload(now: Date) -> [Device] {
+        let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
+        IOHIDManagerSetDeviceMatchingMultiple(manager, matching)
         let devices = (IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice>) ?? []
         var seen: Set<String> = []
         // An interface that names a keyboard type is the one to keep.

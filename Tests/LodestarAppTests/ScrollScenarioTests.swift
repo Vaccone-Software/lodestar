@@ -224,10 +224,12 @@ final class ScrollScenarioTests: XCTestCase {
         stage.pump(until: { false }, turns: 5)
 
         let hung = DispatchSemaphore(value: 0)
-        stage.scroller.readNaturalScroll = { _ = hung.wait(timeout: .now() + 2); return false }
+        stage.scroller.readNaturalScroll = { _ = hung.wait(timeout: .now() + 5); return false }
         let started = Date()
         enterScroll(stage)
-        XCTAssertLessThan(Date().timeIntervalSince(started), 0.5, "entry came straight back")
+        // A loaded machine makes entry slow; only a read held inside it
+        // makes it as slow as the hang.
+        XCTAssertLessThan(Date().timeIntervalSince(started), 2, "entry did not wait on the read")
         stage.keyDown("j")
         stage.pump(until: { !stage.wheel.isEmpty })
         let natural = stage.wheel.first?.dy ?? 0

@@ -729,8 +729,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         store?.save()
         health.flush()
         observationStore?.flush()
+        // The watchdog guards a running app, not one on its way out: past
+        // eight seconds of restoring it would abort half-way, leave the
+        // rest of the parked windows off screen, and launchd would start
+        // the app the person just quit.
+        watchdog.stop()
         Log.info("terminating: restoring parked windows")
+        let restoreStarted = Date()
         actions?.restoreAllParked()
+        Log.info("terminating: restored", ["ms": Int(Date().timeIntervalSince(restoreStarted) * 1000)])
         store?.save() // flush any coalesced write before the process dies
         // Only clear the pid file while it is still ours — in a takeover
         // (manual reinstall or self-update) the successor has already

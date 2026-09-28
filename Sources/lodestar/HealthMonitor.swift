@@ -175,11 +175,7 @@ final class HealthMonitor {
     private var eraInFlight = false
     /// The system's input settings. Replaced by the tests, to hang.
     var readSettings: () -> InputSettings = Environment.inputSettings
-    private lazy var systemWide: AXUIElement = {
-        let element = AXUIElementCreateSystemWide()
-        AXUIElementSetMessagingTimeout(element, 0.25)
-        return element
-    }()
+    private let systemWide = AX.systemWide()
 
     // MARK: - Switch
 
@@ -625,8 +621,7 @@ final class HealthMonitor {
     /// lookup queue. A role, never a title or a value.
     private func sampleRole() {
         lookup.async { [weak self] in
-            let system = AXUIElementCreateSystemWide()
-            AXUIElementSetMessagingTimeout(system, 0.1)
+            let system = AX.systemWide()
             var focused: CFTypeRef?
             guard AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
                   let element = focused else { return }

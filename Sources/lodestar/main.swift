@@ -146,8 +146,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             ])
         }
 
-        // One hung app must never freeze the switcher.
-        setGlobalAXTimeout(1.0)
+        // One hung app must never freeze the switcher: one value, set once.
+        setGlobalAXTimeout()
 
         // Before anything opens a file: settle where files live.
         Paths.migrateIfNeeded()

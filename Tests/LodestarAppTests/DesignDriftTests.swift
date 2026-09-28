@@ -98,4 +98,24 @@ final class DesignDriftTests: XCTestCase {
                       "Lodestar speaks in New York")
         XCTAssertFalse(BarTheme.voiceFont.isFixedPitch)
     }
+
+    /// A messaging timeout set on a system-wide element is the whole
+    /// process's. Only `AX.swift` makes one and only launch sets it; a
+    /// helper that wants a short leash sets it on the element it asks.
+    func testNoHelperResetsTheProcessWideAXTimeout() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        var files: [URL] = []
+        for dir in ["Sources/lodestar", "Sources/LodestarCore"] {
+            let url = root.appendingPathComponent(dir)
+            let found = FileManager.default.enumerator(at: url, includingPropertiesForKeys: nil)?
+                .compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" && $0.lastPathComponent != "AX.swift" } ?? []
+            files += found
+        }
+        XCTAssertGreaterThan(files.count, 40, "the sources were found")
+        XCTAssertEqual(try offenders(#"AXUIElementCreateSystemWide\(\)"#, in: files), [],
+                       "the system-wide element comes from AX.systemWide()")
+        XCTAssertEqual(try offenders(#"AXUIElementSetMessagingTimeout\(\s*(AX\.)?system"#, in: files), [],
+                       "a timeout on the system-wide element is the process's")
+    }
 }

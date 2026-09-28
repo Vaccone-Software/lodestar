@@ -8,6 +8,11 @@ import CoreGraphics
 /// in place: `setGlobalAXTimeout` bounds each call, and `WindowModel` keeps
 /// the cached model that answers most questions without calling at all.
 public enum AX {
+    /// The system-wide element, for asking what is focused or what is at
+    /// a point. Never set a messaging timeout on it: that sets the whole
+    /// process's (see `globalAXTimeout`). Set one on the element it returns.
+    public static func systemWide() -> AXUIElement { AXUIElementCreateSystemWide() }
+
     public static func copy(_ element: AXUIElement, _ attribute: String) -> CFTypeRef? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else {
@@ -78,8 +83,21 @@ public enum AX {
     }
 }
 
-/// Default messaging timeout for every AX call from this process. Without it,
+/// The process-wide messaging timeout, set once at launch.
+///
+/// A timeout set on a system-wide element is not that element's: it is the
+/// default for every element in the process. Measured 2026-09-28 against a
+/// hung app: 0.2 s set on a separate system-wide element cut an unrelated
+/// app element's call from 1.52 s to 0.22 s. Four helpers once set their
+/// own "short leash" that way (0.1 s and 0.25 s) and silently replaced
+/// launch's 1 s for the whole app within the first 90 s of every run. One
+/// value now, set in one place: 0.25 s is longer than what actually ran for
+/// weeks, and short enough that tracking one hung app's window (about eleven
+/// calls) stays well inside the main-thread watchdog.
+public let globalAXTimeout: Float = 0.25
+
+/// Sets `globalAXTimeout` for every AX call from this process. Without it,
 /// a single hung app blocks callers for the system default (several seconds).
-public func setGlobalAXTimeout(_ seconds: Float) {
+public func setGlobalAXTimeout(_ seconds: Float = globalAXTimeout) {
     AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), seconds)
 }

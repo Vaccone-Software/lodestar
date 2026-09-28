@@ -1246,8 +1246,7 @@ final class SelectController {
     ]
 
     private static func textLike(at point: CGPoint) -> Bool {
-        let system = AXUIElementCreateSystemWide()
-        AXUIElementSetMessagingTimeout(system, 0.25)
+        let system = AX.systemWide()
         var element: AXUIElement?
         guard AXUIElementCopyElementAtPosition(system, Float(point.x), Float(point.y), &element) == .success,
               let element else { return false }

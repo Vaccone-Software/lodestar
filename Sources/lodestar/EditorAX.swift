@@ -63,11 +63,7 @@ struct AXFieldSource: EditorFieldSource {
 enum EditorAX {
     static let queue = DispatchQueue(label: "com.vaccone.lodestar.editor.ax", qos: .userInitiated)
     static let timeout: Float = 0.25
-    private static let systemWide: AXUIElement = {
-        let element = AXUIElementCreateSystemWide()
-        AXUIElementSetMessagingTimeout(element, timeout)
-        return element
-    }()
+    private static let systemWide = AX.systemWide()
 
     private static let editableRoles: Set<String> = ["AXTextArea", "AXTextField", "AXComboBox"]
 

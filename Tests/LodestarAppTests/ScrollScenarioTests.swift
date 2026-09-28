@@ -210,4 +210,37 @@ final class ScrollScenarioTests: XCTestCase {
         let full = abs(stage.wheel[0].dy)
         XCTAssertLessThanOrEqual(abs(full - 2 * half), 1)
     }
+
+    /// Entry reads the system's scroll direction, a preference that waits
+    /// on cfprefsd. A read that hangs must not hold the key tap: entry
+    /// uses the value last read, and the direction follows the setting
+    /// from the next entry on.
+    func testAHungDirectionReadNeverHoldsEntry() {
+        let stage = Stage()
+        // A known setting first, whatever this Mac's is.
+        stage.scroller.readNaturalScroll = { true }
+        enterScroll(stage)
+        stage.press("escape")
+        stage.pump(until: { false }, turns: 5)
+
+        let hung = DispatchSemaphore(value: 0)
+        stage.scroller.readNaturalScroll = { _ = hung.wait(timeout: .now() + 2); return false }
+        let started = Date()
+        enterScroll(stage)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 0.5, "entry came straight back")
+        stage.keyDown("j")
+        stage.pump(until: { !stage.wheel.isEmpty })
+        let natural = stage.wheel.first?.dy ?? 0
+        stage.keyUp("j")
+        stage.press("escape")
+        hung.signal()
+        stage.pump(until: { false }, turns: 5)
+
+        stage.wheel = []
+        enterScroll(stage)
+        stage.keyDown("j")
+        stage.pump(until: { !stage.wheel.isEmpty })
+        XCTAssertEqual(stage.wheel.first?.dy ?? 0, -natural, "the setting read late applies on the next entry")
+        stage.keyUp("j")
+    }
 }

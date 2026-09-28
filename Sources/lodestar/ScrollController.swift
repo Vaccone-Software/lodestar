@@ -74,6 +74,40 @@ final class ScrollController {
 
     init(model: WindowModel) {
         self.model = model
+        refreshNaturalScroll()
+    }
+
+    /// The system's scroll direction. A global-domain preference read
+    /// waits on cfprefsd, and one such read on main never came back after
+    /// a Bluetooth restart (the 2026-09-28 crash): this one ran inside the
+    /// key tap on every entry. Entry uses the value last read and asks
+    /// again on a queue of its own for next time; a change in System
+    /// Settings shows up one entry late. Replaced by the tests, to hang.
+    var readNaturalScroll: () -> Bool = {
+        CFPreferencesCopyAppValue("com.apple.swipescrolldirection" as CFString,
+                                  kCFPreferencesAnyApplication) as? Bool ?? true
+    }
+    private let directionLock = NSLock()
+    private var naturalScroll = true
+    private var readingDirection = false
+    private let directionReads = DispatchQueue(label: "lodestar.scroll.direction", qos: .utility)
+
+    private func refreshNaturalScroll() {
+        let start = directionLock.withLock { () -> Bool in
+            guard !readingDirection else { return false }
+            readingDirection = true
+            return true
+        }
+        guard start else { return }
+        let read = readNaturalScroll
+        directionReads.async { [weak self] in
+            let natural = read()
+            guard let self else { return }
+            self.directionLock.withLock {
+                self.naturalScroll = natural
+                self.readingDirection = false
+            }
+        }
     }
 
     private var discoveryGeneration = 0
@@ -116,11 +150,8 @@ final class ScrollController {
         aimsLanded = 0
         aimsAway = 0
         discoveryGeneration += 1
-        let natural = CFPreferencesCopyAppValue(
-            "com.apple.swipescrolldirection" as CFString,
-            kCFPreferencesAnyApplication
-        ) as? Bool ?? true
-        sign = natural ? 1 : -1
+        sign = directionLock.withLock { naturalScroll } ? 1 : -1
+        refreshNaturalScroll()
         if let focused = model.focusedWindowNow() {
             appName = focused.appName
             appIcon = NSRunningApplication(processIdentifier: focused.pid)?.icon

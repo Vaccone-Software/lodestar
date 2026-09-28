@@ -96,12 +96,6 @@ class DeviceRoster {
 
     var ids: [String] { current().map { $0.id } }
 
-    /// The one-based index, in `ids`, of the device an act is charged
-    /// to; zero when two could have made it. See the static form.
-    func attribute(lidClosed: Bool?, builtIn: Bool? = nil, keyboardType: Int = 0) -> Int {
-        Self.attribute(current(), lidClosed: lidClosed, builtIn: builtIn, keyboardType: keyboardType)
-    }
-
     /// The one-based index, in `devices`, of the device an act is
     /// charged to; zero when two could have made it.
     ///

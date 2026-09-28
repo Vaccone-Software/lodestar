@@ -131,6 +131,8 @@ final class HealthMonitor {
         var momentum: Bool
         let device: PointerStore.DeviceKind
         let index: Int
+        /// The list `index` points into, as it stood when it was chosen.
+        let roster: [String]
     }
 
     /// What a tap callback copies off the event before it returns.
@@ -262,10 +264,12 @@ final class HealthMonitor {
             var press = press
             let lid = lidClosedLocked(now: press.down)
             press.lid = lid ?? false
-            press.keyboard = roster.attribute(lidClosed: lid, keyboardType: press.keyboardType)
+            // One read: the index and the list it points into must agree.
+            let devices = roster.current(now: press.down)
+            press.keyboard = DeviceRoster.attribute(devices, lidClosed: lid, keyboardType: press.keyboardType)
             // The finger the tap named is the convention's; the board
             // this press came from may put the key under another digit.
-            let ids = roster.ids
+            let ids = devices.map(\.id)
             let attributed = press.keyboard > 0 && press.keyboard <= ids.count ? ids[press.keyboard - 1] : nil
             if let id = forcedKeyboard ?? attributed {
                 press = fingerMap.apply(to: press, keyboard: id)
@@ -358,7 +362,7 @@ final class HealthMonitor {
                 let on = deviceLocked(pressureAt: r.precise ? r.at : nil, now: r.at)
                 pendingScrolls.append(PendingScroll(start: r.at, last: r.at, pid: nil,
                                                     precise: r.precise, momentum: r.momentum,
-                                                    device: on.kind, index: on.index))
+                                                    device: on.kind, index: on.index, roster: on.roster))
                 let start = r.at
                 let location = r.location
                 lookup.async { [weak self] in
@@ -392,7 +396,7 @@ final class HealthMonitor {
                                        device: on.kind, index: on.index,
                                        stage: staged ? (pressure?.stage ?? 0) : 0,
                                        pressure: staged ? (pressure?.pressure ?? 0) : 0),
-                                roster: pointers.ids)
+                                roster: on.roster)
             let location = r.location
             let at = r.at
             lookup.async { [weak self] in
@@ -419,20 +423,26 @@ final class HealthMonitor {
     /// entry: the trackpad when a pressure stage preceded it or nothing
     /// external is attached; the one external device when there is
     /// exactly one; otherwise unknown, said plainly.
-    private func deviceLocked(pressureAt: Date?, now: Date) -> (kind: PointerStore.DeviceKind, index: Int) {
+    private func deviceLocked(pressureAt: Date?, now: Date)
+        -> (kind: PointerStore.DeviceKind, index: Int, roster: [String]) {
         let lid = lidClosedLocked(now: now)
-        if let pressureAt, now.timeIntervalSince(pressureAt) <= 0.5 {
-            return (.trackpad, pointers.attribute(lidClosed: lid, builtIn: true))
-        }
+        // One read: the index and the list it points into must agree.
         let devices = pointers.current(now: now)
+        let ids = devices.map(\.id)
+        func charge(builtIn: Bool) -> Int {
+            DeviceRoster.attribute(devices, lidClosed: lid, builtIn: builtIn)
+        }
+        if let pressureAt, now.timeIntervalSince(pressureAt) <= 0.5 {
+            return (.trackpad, charge(builtIn: true), ids)
+        }
         let external = devices.filter { !$0.builtIn }
         if external.isEmpty, !devices.isEmpty {
-            return (.trackpad, pointers.attribute(lidClosed: lid, builtIn: true))
+            return (.trackpad, charge(builtIn: true), ids)
         }
         if external.count == 1 {
-            return (.mouse, pointers.attribute(lidClosed: lid, builtIn: false))
+            return (.mouse, charge(builtIn: false), ids)
         }
-        return (.unknown, 0)
+        return (.unknown, 0, ids)
     }
 
     /// Queue. The lid, cached for half a minute.
@@ -490,7 +500,7 @@ final class HealthMonitor {
                                         seconds: burst.last.timeIntervalSince(burst.start),
                                         precise: burst.precise, momentum: burst.momentum,
                                         device: burst.device, index: burst.index),
-                                roster: pointers.ids)
+                                roster: burst.roster)
         }
         return out
     }

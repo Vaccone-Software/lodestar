@@ -47,7 +47,7 @@ final class EditorLensScenarioTests: XCTestCase {
         stand(stage)
         let lens = FakeLens()
         lens.lensMarks = marks
-        stage.engine.select.editor = lens
+        stage.engine.appEditor = lens
         return (stage, lens)
     }
 

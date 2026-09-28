@@ -200,6 +200,16 @@ final class Stage {
     /// The window model the engine reads; `stand` puts a window in front.
     let model: WindowModel
     let draft: DraftController
+    /// Both editors, the real ones, wired by `SurfaceWiring.wireEditors`
+    /// as the app wires them: the one over every app reads the field
+    /// `editorSource` names, the one inside the draft reads the draft,
+    /// and both ask one proofreader. Off until a test turns one on. A
+    /// kept name reaches the engine's config the way the app's reload
+    /// sets it, so a keep that re-enters the engine is caught here.
+    let editorSource = FakeFieldSource()
+    let proofreader = FakeProofreader()
+    let appEditor: EditorController
+    let draftEditor: DraftEditor
     /// The real clipboard history, on a store in the stage's own directory.
     let clipboard: ClipboardController
     /// Every paste the strip landed: the keystroke, never the system.
@@ -299,6 +309,10 @@ final class Stage {
         scroller = ScrollController(model: model)
         draft = DraftController(speech: speech, clock: clock.clock)
         draft.secureInput = { false }
+        appEditor = EditorController(source: editorSource, queue: DispatchQueue(label: "stage-editor"),
+                                     proofreader: proofreader, drawing: FakeMarksDrawing(), hover: nil,
+                                     clock: clock.clock, polls: false, modelReady: { $0.usesModel })
+        draftEditor = DraftEditor(proofreader: proofreader, clock: clock.clock)
         engine = HotkeyEngine(config: config, actions: actions, hud: hud,
                               searcher: searcher, webBar: webBar, commandsBar: commandsBar,
                               scroller: scroller,
@@ -388,6 +402,16 @@ final class Stage {
 
         SurfaceWiring.wire(engine: engine, hud: hud, coach: coach,
                            voices: voices, clock: clock.clock)
+        appEditor.observations = observations
+        draftEditor.observations = observations
+        SurfaceWiring.wireEditors(engine: engine, draft: draft, app: appEditor, inDraft: draftEditor) { [weak self] word in
+            // What the app's config reload does with a kept name: the
+            // engine takes the new config, the editors the new words.
+            guard let self else { return }
+            var config = self.engine.config
+            config.draftWords = Array(Set(config.draftWords + [word])).sorted()
+            self.engine.config = config
+        }
     }
 
     deinit {

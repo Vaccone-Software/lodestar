@@ -293,9 +293,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let editor = EditorController()
         editor.flash = { [weak self] text in self?.hud.flash(text) }
         editor.observations = observationStore
-        editor.learnName = { [weak self] word in
-            self?.editorLearn(path: ["draft", "words", word], flash: "✓ \(word) is one of your words now")
-        }
         selectController.editor = editor
         editorController = editor
         // Asked before anything is read: the card, answered by lode lode
@@ -403,15 +400,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // marks drawn by the draft, lode ⇥ letters them while it is open.
         if let editor = editorController {
             let inDraft = DraftEditor(proofreader: editor.proofreader)
-            inDraft.draft = draft
             inDraft.observations = observationStore
-            inDraft.learnName = editor.learnName
-            draft.onTextChange = { [weak inDraft] text, caret, ghost in
-                inDraft?.textChanged(text, caret: caret, ghost: ghost) ?? []
+            SurfaceWiring.wireEditors(engine: engine, draft: draft, app: editor, inDraft: inDraft) { [weak self] word in
+                self?.editorLearn(path: ["draft", "words", word], flash: "✓ \(word) is one of your words now")
             }
-            draft.onSpellKey = { [weak inDraft] range, keep in inDraft?.spellKey(on: range, keep: keep) }
-            engine.appEditor = editor
-            engine.draftEditor = inDraft
             draftEditor = inDraft
         }
         // Both editors exist now: the config applies to them together.

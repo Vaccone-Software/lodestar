@@ -7,18 +7,11 @@ import XCTest
 /// lode ⇥ letters them over the draft, and a letter fixes the draft's own
 /// text in one undo step.
 final class DraftEditorScenarioTests: XCTestCase {
+    /// The stage's own draft editor, wired as the app wires it, turned on.
     private func stage() -> (Stage, DraftEditor, FakeProofreader, [String]) {
         let stage = Stage()
-        let reader = FakeProofreader()
-        let editor = DraftEditor(proofreader: reader, clock: stage.clock.clock)
-        editor.draft = stage.draft
-        stage.draft.onTextChange = { [weak editor] text, caret, ghost in
-            editor?.textChanged(text, caret: caret, ghost: ghost) ?? []
-        }
-        stage.engine.draftEditor = editor
-        editor.apply(enabled: true, engine: .standard, language: "en_US", vocabulary: [], modelReady: true)
-        addTeardownBlock { withExtendedLifetime(editor) {} }
-        return (stage, editor, reader, [])
+        stage.draftEditor.apply(enabled: true, engine: .standard, language: "en_US", vocabulary: [], modelReady: true)
+        return (stage, stage.draftEditor, stage.proofreader, [])
     }
 
     private func marked(_ stage: Stage) -> [String] {
@@ -69,16 +62,19 @@ final class DraftEditorScenarioTests: XCTestCase {
         XCTAssertEqual(stage.draft.buffer.text, "We need to recieve the the files.", "⌫ takes the fix back")
     }
 
+    /// Through the wiring that ships: the kept word is written to the
+    /// config and the engine takes the new config. Written inside the
+    /// keystroke, that re-entered the engine's core and aborted the app.
     func testShiftAndALetterKeepsAWord() throws {
-        let (stage, editor, _, _) = stage()
-        var learned: [String] = []
-        editor.learnName = { learned.append($0) }
+        let (stage, _, _, _) = stage()
         stage.lode(".")
         stage.speech.settle("We ship lodestr today.")
         stage.lode("tab")
         let letter = try XCTUnwrap(stage.engine.select.shownChips.first?.label.first)
         XCTAssertTrue(stage.press(letter.description, shift: true))
-        XCTAssertEqual(learned, ["lodestr"], "a word the dictionary did not know is one of your words now")
+        Stage.pump()
+        XCTAssertEqual(stage.engine.config.draftWords, ["lodestr"],
+                       "a word the dictionary did not know is one of your words now")
         XCTAssertTrue(stage.draft.editorMarks.isEmpty)
         XCTAssertEqual(stage.draft.buffer.text, "We ship lodestr today.", "nothing changed")
     }

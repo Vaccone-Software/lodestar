@@ -85,4 +85,30 @@ enum SurfaceWiring {
             return coach?.lodeDelete() ?? false
         }
     }
+
+    /// The two editors — the one over every app and the one inside the
+    /// draft — joined to the engine that letters their marks, the draft
+    /// whose text one of them reads, and the config a kept name is
+    /// written to.
+    ///
+    /// `learn` writes the config and reloads it, and a reload sets the
+    /// engine's config. A keep arrives inside the engine's own keystroke
+    /// (route → core.keyDown → the lens → dismiss), with the engine's core
+    /// mid-mutation, so a synchronous write reached into that core again
+    /// and Swift's exclusivity check aborted the app (0.39.1, 2026-09-28).
+    /// The word is written on the next turn of the main loop instead: the
+    /// flash that confirms it comes a beat later and nothing else changes.
+    static func wireEditors(engine: HotkeyEngine, draft: DraftController, app: EditorController,
+                            inDraft: DraftEditor, learn: @escaping (String) -> Void) {
+        let learnAfterTheKey: (String) -> Void = { word in DispatchQueue.main.async { learn(word) } }
+        app.learnName = learnAfterTheKey
+        inDraft.learnName = learnAfterTheKey
+        inDraft.draft = draft
+        draft.onTextChange = { [weak inDraft] text, caret, ghost in
+            inDraft?.textChanged(text, caret: caret, ghost: ghost) ?? []
+        }
+        draft.onSpellKey = { [weak inDraft] range, keep in inDraft?.spellKey(on: range, keep: keep) }
+        engine.appEditor = app
+        engine.draftEditor = inDraft
+    }
 }

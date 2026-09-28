@@ -2,11 +2,20 @@ import ApplicationServices
 import Foundation
 
 /// Wraps AXObserver for one process; delivers notifications on the main run loop.
-public final class AppObserver {
+///
+/// Registering and dropping a notification is a message to the app, so
+/// the window model makes those calls on the app's own queue while main
+/// may invalidate the observer: the handle is read under a lock.
+public final class AppObserver: @unchecked Sendable {
     public typealias Handler = (_ notification: String, _ element: AXUIElement) -> Void
 
     public let pid: pid_t
-    private var observer: AXObserver?
+    private var _observer: AXObserver?
+    private let lock = NSLock()
+    private var observer: AXObserver? {
+        get { lock.withLock { _observer } }
+        set { lock.withLock { _observer = newValue } }
+    }
     private let handler: Handler
 
     public init?(pid: pid_t, handler: @escaping Handler) {
@@ -19,7 +28,7 @@ public final class AppObserver {
             me.handler(notification as String, element)
         }
         guard AXObserverCreate(pid, callback, &created) == .success, let created else { return nil }
-        observer = created
+        _observer = created
         CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(created), .defaultMode)
     }
 

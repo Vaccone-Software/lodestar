@@ -101,3 +101,14 @@ public let globalAXTimeout: Float = 0.25
 public func setGlobalAXTimeout(_ seconds: Float = globalAXTimeout) {
     AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), seconds)
 }
+
+extension CGRect {
+    /// Whether a frame another app reported can be turned into whole
+    /// numbers. Accessibility frames are the other app's word: an infinite
+    /// or absurd size passes a size minimum and an overlap test, and then
+    /// traps at the first `Int(...)`. Nothing on a screen is a million
+    /// points from its origin.
+    public var isOnAScreensScale: Bool {
+        [minX, minY, width, height].allSatisfy { $0.isFinite && abs($0) < 1_000_000 }
+    }
+}

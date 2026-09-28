@@ -165,6 +165,7 @@ enum HintTargets {
                 // Past the chips' capacity only owners join, and an owner
                 // is a target the tree named by role.
                 if found.count >= capacity, viaAction || isTextInput { return false }
+                guard frame.isOnAScreensScale else { return false }
                 let key = "\(Int(frame.minX)):\(Int(frame.minY)):\(Int(frame.width))"
                 guard !seenFrames.contains(key) else { return false }
                 seenFrames.insert(key)

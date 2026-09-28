@@ -353,7 +353,9 @@ final class ScrollController {
     func page(down: Bool, fraction: CGFloat) {
         cancelGlide()
         pages += 1
-        let distance = Int32(currentPaneFrame.height * fraction)
+        let pane = currentPaneFrame
+        guard pane.isOnAScreensScale else { return }
+        let distance = Int32(pane.height * fraction)
         postVertical(down ? distance : -distance)
     }
 

@@ -47,6 +47,7 @@ struct AXFieldSource: EditorFieldSource {
         for down in [true, false] {
             guard let event = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: down) else { continue }
             event.keyboardSetUnicodeString(stringLength: units.count, unicodeString: units)
+            event.flags = event.flags.withoutModifiers
             event.setIntegerValueField(.eventSourceUserData, value: SelectController.ownMark)
             event.postToPid(pid)
             usleep(15_000)

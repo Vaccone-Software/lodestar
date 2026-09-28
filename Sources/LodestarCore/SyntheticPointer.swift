@@ -40,22 +40,25 @@ public enum SyntheticPointer {
                 Step(.leftMouseUp, end)]
     }
 
-    /// The flags a posted pointer event may carry: the ones it was built
-    /// with, minus every modifier. A mouse event made without a source
-    /// copies the modifiers held at that instant, and a pick is typed as
-    /// a capital, so ⇧ is still down when a one-letter pick's click
-    /// leaves: measured 2026-09-28, the event was built with ⇧ and
-    /// arrived with it. Brave read ⇧-click on a link as open-in-a-new-
-    /// window; the verified copy's drag would read as ⇧-drag, extending
-    /// a selection. The button is the whole verb: a right-click is the
-    /// right button, never ⌃ on the left.
-    public static func unmodified(_ flags: CGEventFlags) -> CGEventFlags {
-        flags.subtracting([.maskShift, .maskControl, .maskAlternate, .maskCommand, .maskSecondaryFn])
-    }
-
     /// The pointer returned to where the hand left it — a move, not a
     /// warp, so the app under it hears the same thing the press told it.
     public static func home(_ origin: CGPoint) -> [Step] {
         [Step(.mouseMoved, origin)]
+    }
+}
+
+extension CGEventFlags {
+    /// These flags minus every modifier: what an event Lodestar posts may
+    /// carry. An event made without a source copies the modifiers held at
+    /// that instant, and the gestures that post one are typed — a pick is
+    /// a capital, so ⇧ is down; lode is ⌃⌥⇧, and the next gesture's thumb
+    /// may already be on it. Measured 2026-09-28: a click built with ⇧
+    /// held arrived with ⇧, and Brave read it as open-in-a-new-window; ⌃
+    /// makes a left click a context menu, ⇧ makes a drag extend the
+    /// selection already there, and a held key under typed text turns it
+    /// into a shortcut. The event says what it is by itself: the button
+    /// names the click, the string names the text.
+    public var withoutModifiers: CGEventFlags {
+        subtracting([.maskShift, .maskControl, .maskAlternate, .maskCommand, .maskSecondaryFn])
     }
 }

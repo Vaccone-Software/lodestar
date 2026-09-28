@@ -54,8 +54,8 @@ final class SyntheticPointerTests: XCTestCase {
     func testAPostedPressCarriesNoHeldModifier() {
         let held: CGEventFlags = [.maskShift, .maskControl, .maskAlternate, .maskCommand,
                                   .maskSecondaryFn, .maskNonCoalesced]
-        XCTAssertEqual(SyntheticPointer.unmodified(held), .maskNonCoalesced,
+        XCTAssertEqual(held.withoutModifiers, .maskNonCoalesced,
                        "modifiers go, the event's own bits stay")
-        XCTAssertEqual(SyntheticPointer.unmodified([.maskShift]), [])
+        XCTAssertEqual(CGEventFlags.maskShift.withoutModifiers, [])
     }
 }

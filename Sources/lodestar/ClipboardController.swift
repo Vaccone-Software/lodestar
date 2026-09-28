@@ -125,6 +125,18 @@ final class ClipboardController {
         guard count != lastChangeCount else { return }
         lastChangeCount = count
         guard count != selfWrittenChangeCount else { return }
+        // Every read below is on main, and it has to be: AppKit's
+        // pasteboard is main-thread only. A type an app provides lazily —
+        // a promise, a Universal Clipboard copy from another device — makes
+        // the read wait on that app or the network, with no timeout of our
+        // own. Nothing measured it, so a copy that held the key tap would
+        // look like any other freeze. A slow one now says so, by its shape.
+        let captureStarted = Date()
+        var shape = (items: 0, types: 0)
+        defer {
+            let ms = Int(Date().timeIntervalSince(captureStarted) * 1000)
+            if ms >= 250 { Log.info("clipboard", ["slow-capture-ms": ms, "items": shape.items, "types": shape.types]) }
+        }
         // A copy is not always one thing. Three files selected in Finder
         // arrive as three items, and reading only the first filed a third
         // of what was copied — a card that pasted one file where three
@@ -135,6 +147,7 @@ final class ClipboardController {
         // below is kept for the whole copy: one concealed item conceals
         // all of it.
         let types = boardItems.flatMap { $0.types.map(\.rawValue) }
+        shape = (boardItems.count, types.count)
         let source = NSWorkspace.shared.frontmostApplication
 
         // Before a single byte: a concealed clip, or one from an app the

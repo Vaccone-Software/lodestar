@@ -2083,6 +2083,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Log.error("running translocated — asked the user to move the app")
             return
         }
+        // Only the installed app speaks for the install. A signed build run
+        // from dist/ to be smoked pointed the LaunchAgent and the CLI link
+        // at itself, so quitting it and reloading the agent started the
+        // build under test again, not the app in Applications (2026-09-28,
+        // and every hand smoke before it).
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        guard bundlePath.hasPrefix("/Applications/") || bundlePath.hasPrefix(home + "/Applications/") else {
+            Log.info("login-item", ["skipped": "not installed in an Applications folder"])
+            return
+        }
         // The zip install path has no installer: the app maintains its own
         // CLI link in a writable bin, best effort.
         for bin in ["/opt/homebrew/bin", "/usr/local/bin"] {

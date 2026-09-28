@@ -166,6 +166,15 @@ final class HealthMonitor {
     /// Where a click's target is asked for. Off every tap: the
     /// accessibility call blocks on the clicked app's event loop.
     private let lookup = DispatchQueue(label: "lodestar.health.lookup", qos: .utility)
+    /// Where the era's system reads run, and the only place `eras` is
+    /// touched after init. Its own queue: a read that hangs here must not
+    /// hold up the role and pid lookups either.
+    private let eraReads = DispatchQueue(label: "lodestar.health.era", qos: .utility)
+    /// Main. A check still out on `eraReads`; the next one is skipped, not
+    /// queued behind it, so a hung read costs one check and not a backlog.
+    private var eraInFlight = false
+    /// The system's input settings. Replaced by the tests, to hang.
+    var readSettings: () -> InputSettings = Environment.inputSettings
     private lazy var systemWide: AXUIElement = {
         let element = AXUIElementCreateSystemWide()
         AXUIElementSetMessagingTimeout(element, 0.25)
@@ -574,16 +583,42 @@ final class HealthMonitor {
 
     /// Main. The instrument's own state, written down when it differs
     /// from the last time it was: at enable and once a minute.
+    ///
+    /// Only the layout (Text Input Sources) and the screens (AppKit) are
+    /// read here, because they belong to the main thread. The rest waits
+    /// on other processes — preferences on cfprefsd, the devices and the
+    /// lid on the IO registry — and a minute after launch, with Bluetooth
+    /// just restarted, a preferences read on main never came back: the
+    /// watchdog ended the app (0.39.1, 2026-09-28 08:30:51). Those reads
+    /// run on `eraReads`; the event comes back to main to be recorded.
     private func checkEra() {
-        let info = EraInfo(appVersion: Lodestar.version, keySchema: Int(KeyStore.version),
-                           pointerSchema: Int(PointerStore.version), layout: Environment.layoutID(),
-                           keyboards: roster.ids, pointers: pointers.ids,
-                           displays: Environment.displays(), settings: Environment.inputSettings(),
-                           lid: Lid.isClosed(), fingerMap: declaredFingers.fingerprint)
-        if let event = eras.check(info) {
-            Log.info("health: era", ["reason": event.era?.reason ?? "?", "version": info.appVersion])
-            observations?.era(event)
+        guard !eraInFlight else { return }
+        eraInFlight = true
+        let layout = Environment.layoutID()
+        let displays = Environment.displays()
+        let fingerprint = declaredFingers.fingerprint
+        let readSettings = readSettings
+        eraReads.async { [weak self] in
+            guard let self else { return }
+            let info = EraInfo(appVersion: Lodestar.version, keySchema: Int(KeyStore.version),
+                               pointerSchema: Int(PointerStore.version), layout: layout,
+                               keyboards: roster.ids, pointers: pointers.ids,
+                               displays: displays, settings: readSettings(),
+                               lid: Lid.isClosed(), fingerMap: fingerprint)
+            let event = eras.check(info)
+            DispatchQueue.main.async {
+                self.eraInFlight = false
+                guard let event else { return }
+                Log.info("health: era", ["reason": event.era?.reason ?? "?", "version": info.appVersion])
+                self.observations?.era(event)
+            }
         }
+    }
+
+    /// Tests: every era read sent out has finished; its event is then on
+    /// its way back to main.
+    func drainErasForTesting() {
+        eraReads.sync {}
     }
 
     /// The focused element's role class, asked with a short leash on the

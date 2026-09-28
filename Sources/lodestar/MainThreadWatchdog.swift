@@ -39,15 +39,33 @@ final class MainThreadWatchdog {
         abort()
     }
 
+    /// An answer this late is not a freeze, but it is long enough for the
+    /// system to switch the key tap off, and keystrokes fall through to
+    /// the app in front. Four times in a week the log said only "tap had
+    /// stopped", right after a select or hints session, with nothing on
+    /// what held main or for how long. A late answer is now written down,
+    /// so a dropped keystroke has a duration and a neighbour in the log.
+    let lateThreshold: TimeInterval
+    /// What happens on a late answer, with how late and whether it was the
+    /// launch's. The default logs; a test substitutes a hook.
+    var onLate: (TimeInterval, Bool) -> Void = { seconds, launch in
+        Log.error("main thread late", ["ms": Int(seconds * 1000), "during": launch ? "launch" : "run"])
+    }
+
     private var thread: Thread?
     private var running = false
     private let lock = NSLock()
-    private var answered = false
+    private var answeredAt: Date?
 
-    init(interval: TimeInterval = 2, ceiling: TimeInterval = 8, launchCeiling: TimeInterval = 60) {
+    /// Asked every half second: a stall shorter than the gap between asks
+    /// is caught only if it covers an ask, and the tap goes off in about
+    /// a second.
+    init(interval: TimeInterval = 0.5, ceiling: TimeInterval = 8, launchCeiling: TimeInterval = 60,
+         lateThreshold: TimeInterval = 1) {
         self.interval = interval
         self.ceiling = ceiling
         self.launchCeiling = max(ceiling, launchCeiling)
+        self.lateThreshold = lateThreshold
     }
 
     func start() {
@@ -67,30 +85,38 @@ final class MainThreadWatchdog {
 
     private func loop() {
         var limit = launchCeiling
+        var launching = true
         while running {
             lock.lock()
-            answered = false
+            answeredAt = nil
             lock.unlock()
+            let asked = Date()
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.lock.lock()
-                self.answered = true
+                self.answeredAt = Date()
                 self.lock.unlock()
             }
             // Wait for the pong in small steps, so a stop is honoured and
             // a prompt answer costs no more than the interval.
             let deadline = Date().addingTimeInterval(limit)
             var ok = false
+            var answer: Date?
             while running, Date() < deadline {
                 Thread.sleep(forTimeInterval: 0.05)
                 lock.lock()
-                ok = answered
+                answer = answeredAt
                 lock.unlock()
+                ok = answer != nil
                 if ok { break }
             }
             guard running else { return }
             if !ok { onStall(limit) }
+            if let answer, answer.timeIntervalSince(asked) >= lateThreshold {
+                onLate(answer.timeIntervalSince(asked), launching)
+            }
             limit = ceiling
+            launching = false
             Thread.sleep(forTimeInterval: interval)
         }
     }

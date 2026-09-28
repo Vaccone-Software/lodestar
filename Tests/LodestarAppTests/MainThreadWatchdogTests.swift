@@ -45,4 +45,37 @@ final class MainThreadWatchdogTests: XCTestCase {
         watchdog.stop()
         XCTAssertGreaterThan(lock.withLock { stalls }, 0, "the ordinary ceiling is back")
     }
+
+    /// An answer late enough to cost the key tap, short of the ceiling, is
+    /// written down with how late it was, and the launch's is told apart.
+    func testALateAnswerIsReportedWithItsLength() {
+        let watchdog = MainThreadWatchdog(interval: 0.05, ceiling: 2, launchCeiling: 2, lateThreshold: 0.2)
+        let lock = NSLock()
+        var late: [(seconds: TimeInterval, launch: Bool)] = []
+        var stalls = 0
+        watchdog.onLate = { seconds, launch in lock.withLock { late.append((seconds, launch)) } }
+        watchdog.onStall = { _ in lock.withLock { stalls += 1 } }
+        watchdog.start()
+        Thread.sleep(forTimeInterval: 0.4)                        // a slow launch
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.2))
+        Thread.sleep(forTimeInterval: 0.5)                        // a hitch while running
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.3))
+        watchdog.stop()
+        let seen = lock.withLock { late }
+        XCTAssertEqual(lock.withLock { stalls }, 0, "late is not frozen")
+        XCTAssertEqual(seen.first?.launch, true, "the launch's own")
+        XCTAssertEqual(seen.dropFirst().first?.launch, false, "then one while running")
+        XCTAssertGreaterThanOrEqual(seen.dropFirst().first?.seconds ?? 0, 0.3, "with how long it held")
+    }
+
+    func testAnOnTimeAnswerSaysNothing() {
+        let watchdog = MainThreadWatchdog(interval: 0.05, ceiling: 1, launchCeiling: 1, lateThreshold: 0.2)
+        let lock = NSLock()
+        var late = 0
+        watchdog.onLate = { _, _ in lock.withLock { late += 1 } }
+        watchdog.start()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.5))
+        watchdog.stop()
+        XCTAssertEqual(lock.withLock { late }, 0)
+    }
 }

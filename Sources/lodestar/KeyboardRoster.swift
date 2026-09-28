@@ -38,14 +38,29 @@ class DeviceRoster {
     static let cacheSeconds: TimeInterval = 30
 
     private let matching: CFArray
+    private let foreign: Set<Int>
     private var cached: [Device] = []
     private var cachedAt = Date.distantPast
     private let lock = NSLock()
 
-    init(usages: [Int]) {
+    /// `foreign`: the primary usages of devices that match `usages`
+    /// only by a secondary interface and are some other kind of thing.
+    /// A split keyboard carries a mouse interface for its mouse keys, a
+    /// mouse a keyboard one for its buttons, and neither makes it the
+    /// other; counted, the Adv360 was a second mouse beside the real
+    /// one and every click beside them went unattributed.
+    init(usages: [Int], foreign: [Int]) {
         matching = usages.map {
             [kIOHIDDeviceUsagePageKey: kHIDPage_GenericDesktop, kIOHIDDeviceUsageKey: $0] as CFDictionary
         } as CFArray
+        self.foreign = Set(foreign)
+    }
+
+    /// Whether a device whose primary usage is `page`:`usage` belongs on
+    /// a list that leaves out `foreign` generic-desktop usages.
+    static func kept(page: Int?, usage: Int?, foreign: Set<Int>) -> Bool {
+        guard page == kHIDPage_GenericDesktop, let usage else { return true }
+        return !foreign.contains(usage)
     }
 
     /// The devices present, refreshed at most every half minute. One
@@ -84,7 +99,11 @@ class DeviceRoster {
     private func reload(now: Date) -> [Device] {
         let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
         IOHIDManagerSetDeviceMatchingMultiple(manager, matching)
-        let devices = (IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice>) ?? []
+        let devices = ((IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice>) ?? []).filter {
+            Self.kept(page: IOHIDDeviceGetProperty($0, kIOHIDPrimaryUsagePageKey as CFString) as? Int,
+                      usage: IOHIDDeviceGetProperty($0, kIOHIDPrimaryUsageKey as CFString) as? Int,
+                      foreign: foreign)
+        }
         var seen: Set<String> = []
         // An interface that names a keyboard type is the one to keep.
         cached = devices.map(Self.describe)
@@ -162,10 +181,13 @@ class DeviceRoster {
 
 /// The keyboards attached.
 final class KeyboardRoster: DeviceRoster {
-    init() { super.init(usages: [kHIDUsage_GD_Keyboard]) }
+    init() { super.init(usages: [kHIDUsage_GD_Keyboard], foreign: [kHIDUsage_GD_Mouse, kHIDUsage_GD_Pointer]) }
 }
 
 /// The pointing devices attached: mice, trackpads, trackballs.
 final class PointerRoster: DeviceRoster {
-    init() { super.init(usages: [kHIDUsage_GD_Mouse, kHIDUsage_GD_Pointer]) }
+    init() {
+        super.init(usages: [kHIDUsage_GD_Mouse, kHIDUsage_GD_Pointer],
+                   foreign: [kHIDUsage_GD_Keyboard, kHIDUsage_GD_Keypad])
+    }
 }

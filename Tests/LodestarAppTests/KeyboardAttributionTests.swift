@@ -47,3 +47,27 @@ final class KeyboardAttributionTests: XCTestCase {
         XCTAssertEqual(charge([builtIn], lid: false, type: 0), 1)
     }
 }
+
+/// A device is on the list of what it primarily is, not of every
+/// interface it carries (measured: the Adv360 is 1:6 with a 1:2 mouse
+/// interface; the ProtoArc and the built-in trackpad are 1:2).
+final class RosterMembershipTests: XCTestCase {
+    private let desktop = kHIDPage_GenericDesktop
+    private let pointers: Set<Int> = [kHIDUsage_GD_Keyboard, kHIDUsage_GD_Keypad]
+    private let keyboards: Set<Int> = [kHIDUsage_GD_Mouse, kHIDUsage_GD_Pointer]
+
+    func testAKeyboardWithMouseKeysIsNotAPointer() {
+        XCTAssertFalse(DeviceRoster.kept(page: desktop, usage: kHIDUsage_GD_Keyboard, foreign: pointers))
+        XCTAssertTrue(DeviceRoster.kept(page: desktop, usage: kHIDUsage_GD_Mouse, foreign: pointers))
+    }
+
+    func testAMouseWithKeyButtonsIsNotAKeyboard() {
+        XCTAssertFalse(DeviceRoster.kept(page: desktop, usage: kHIDUsage_GD_Mouse, foreign: keyboards))
+        XCTAssertTrue(DeviceRoster.kept(page: desktop, usage: kHIDUsage_GD_Keyboard, foreign: keyboards))
+    }
+
+    func testADeviceThatSaysNothingStays() {
+        XCTAssertTrue(DeviceRoster.kept(page: nil, usage: nil, foreign: pointers))
+        XCTAssertTrue(DeviceRoster.kept(page: kHIDPage_Consumer, usage: 1, foreign: keyboards))
+    }
+}

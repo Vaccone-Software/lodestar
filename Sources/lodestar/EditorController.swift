@@ -194,6 +194,7 @@ final class EditorController: EditorLens {
     }
 
     private func stop() {
+        if let summary = readCost.flush() { logReadCost(summary) }
         timer?.cancel()
         timer = nil
         watch.stop()
@@ -243,10 +244,13 @@ final class EditorController: EditorLens {
         let source = self.source
         let frontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier
         axQueue.async { [weak self] in
+            let started = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
             let read = source.focusedField(frontmost: frontmost)
+            let ms = Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - started) / 1e6
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.readQueued = false
+                self.noteReadCost(ms, read: read, frontmost: frontmost)
                 self.receive(read)
                 if self.readAgain {
                     self.readAgain = false
@@ -254,6 +258,22 @@ final class EditorController: EditorLens {
                 }
             }
         }
+    }
+
+    /// What each read cost the app it asked, gathered per app and logged
+    /// when the hand moves on — the app's own main thread answered it.
+    private var readCost = EditorReadCost()
+
+    private func noteReadCost(_ ms: Double, read: EditorField?, frontmost: pid_t?) {
+        let app = read?.appName
+            ?? frontmost.flatMap { NSRunningApplication(processIdentifier: $0)?.localizedName } ?? "?"
+        if let summary = readCost.add(app: app, ms: ms) { logReadCost(summary) }
+    }
+
+    private func logReadCost(_ s: EditorReadCost.Summary) {
+        Log.info("editor", ["read-cost": s.app, "reads": s.reads,
+                            "p50-ms": (s.p50 * 10).rounded() / 10, "p90-ms": (s.p90 * 10).rounded() / 10,
+                            "max-ms": Int(s.max.rounded()), "total-ms": Int(s.totalMs.rounded())])
     }
 
     /// Nothing to read: every mark and card about the last field goes.

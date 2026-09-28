@@ -29,6 +29,7 @@ func runEditor(_ args: inout [String]) {
     case "field": editorField(&args)
     case "residency": editorResidency(&args)
     case "bench": editorBench(&args)
+    case "cost": editorCost(&args)
     case let other: fail("probe editor: unknown subcommand '\(other)'")
     }
 }
@@ -1111,4 +1112,68 @@ private func lemma(_ word: String) -> String {
     tagger.string = word
     let (tag, _) = tagger.tag(at: word.startIndex, unit: .word, scheme: .lemma)
     return tag?.rawValue.lowercased() ?? word
+}
+
+// MARK: - What one read costs the app being read
+
+/// The editor's read of the focused field, timed call by call, in every
+/// app that has a text field focused — nothing typed, nothing written.
+/// Each call is answered on that app's main thread, the thread that also
+/// takes its keystrokes, so the time a read takes is roughly the time the
+/// app spends answering instead of typing. The editor reads on every
+/// change the field announces: about once a keystroke.
+func editorCost(_ args: inout [String]) {
+    let rounds = Int(args.first ?? "") ?? 10
+    AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 1.0)
+    func timed<T>(_ body: () -> T) -> (T, Double) {
+        let start = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+        let value = body()
+        return (value, Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - start) / 1e6)
+    }
+    func copy(_ element: AXUIElement, _ attribute: String) -> CFTypeRef? {
+        var value: CFTypeRef?
+        return AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success ? value : nil
+    }
+    for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        guard var element = copy(appElement, kAXFocusedUIElementAttribute).map({ $0 as! AXUIElement }) else { continue }
+        if let ancestor = copy(element, "AXEditableAncestor") { element = ancestor as! AXUIElement }
+        guard let role = copy(element, kAXRoleAttribute) as? String, editableRoles.contains(role),
+              let text = copy(element, kAXValueAttribute) as? String else { continue }
+        var perCall: [String: [Double]] = [:]
+        var perRead: [Double] = []
+        for _ in 0..<rounds {
+            var total = 0.0
+            func step(_ name: String, _ body: () -> Void) {
+                let (_, ms) = timed(body)
+                perCall[name, default: []].append(ms)
+                total += ms
+            }
+            var focused = element
+            step("focused element") { _ = copy(appElement, kAXFocusedUIElementAttribute) }
+            step("editable ancestor") { if let a = copy(element, "AXEditableAncestor") { focused = a as! AXUIElement } }
+            step("role") { _ = copy(focused, kAXRoleAttribute) }
+            step("subrole") { _ = copy(focused, kAXSubroleAttribute) }
+            step("value settable") { _ = settable(focused, kAXValueAttribute) }
+            step("range settable") { _ = settable(focused, kAXSelectedTextRangeAttribute) }
+            step("value (the text)") { _ = copy(focused, kAXValueAttribute) }
+            step("selected range") { _ = copy(focused, kAXSelectedTextRangeAttribute) }
+            step("position") { _ = copy(focused, kAXPositionAttribute) }
+            step("size") { _ = copy(focused, kAXSizeAttribute) }
+            var window: AXUIElement?
+            step("window") { window = copy(focused, kAXWindowAttribute).map { $0 as! AXUIElement } }
+            step("window frame") {
+                if let window { _ = copy(window, kAXPositionAttribute); _ = copy(window, kAXSizeAttribute) }
+            }
+            perRead.append(total)
+        }
+        perRead.sort()
+        let name = app.localizedName ?? "pid \(app.processIdentifier)"
+        print(String(format: "%@ · %@ · %d chars · one read: p50 %.1f ms, max %.1f ms", name, role,
+                     (text as NSString).length, perRead[perRead.count / 2], perRead.last ?? 0))
+        for (call, v) in perCall.sorted(by: { $0.value.reduce(0, +) > $1.value.reduce(0, +) }).prefix(4) {
+            let s = v.sorted()
+            print(String(format: "    %-18@ p50 %.2f ms  max %.2f ms", call as NSString, s[s.count / 2], s.last ?? 0))
+        }
+    }
 }

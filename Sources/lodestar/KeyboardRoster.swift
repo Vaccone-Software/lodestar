@@ -17,7 +17,10 @@ import IOKit.hid
 /// A laptop always has its own keyboard and trackpad attached, so most
 /// windows on a laptop name two of each; `attribute` says which one a
 /// press or a click can honestly be charged to, and says nothing when
-/// it cannot.
+/// it cannot. A key press names its keyboard itself: the event's
+/// keyboard type is the `HIDSubinterfaceID` of the device that sent it
+/// (91 on the built-in here, 40 on a Bluetooth board), and that beats
+/// anything the lid can say.
 class DeviceRoster {
     struct Device: Equatable {
         /// `vendor:product:hash`, the hash from the serial when there is
@@ -27,6 +30,9 @@ class DeviceRoster {
         let name: String
         let transport: String
         let builtIn: Bool
+        /// The type its key events carry, when the registry says; nil
+        /// when it does not. Only a keyboard's is ever read.
+        var keyboardType: Int? = nil
     }
 
     static let cacheSeconds: TimeInterval = 30
@@ -72,8 +78,9 @@ class DeviceRoster {
     private func reload(now: Date) -> [Device] {
         let devices = (IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice>) ?? []
         var seen: Set<String> = []
+        // An interface that names a keyboard type is the one to keep.
         cached = devices.map(Self.describe)
-            .sorted { $0.id < $1.id }
+            .sorted { ($0.id, $0.keyboardType == nil ? 1 : 0) < ($1.id, $1.keyboardType == nil ? 1 : 0) }
             .filter { seen.insert($0.id).inserted }
         cachedAt = now
         return cached
@@ -82,13 +89,34 @@ class DeviceRoster {
     var ids: [String] { current().map { $0.id } }
 
     /// The one-based index, in `ids`, of the device an act is charged
-    /// to; zero when two could have made it. A single device is itself.
-    /// With the lid closed the built-in one cannot have been the one, so
-    /// a single external is it. A caller that knows the act was the
-    /// built-in's — a trackpad's pressure stage — or knows it was not
-    /// says so with `builtIn`.
-    func attribute(lidClosed: Bool?, builtIn: Bool? = nil) -> Int {
-        let devices = current()
+    /// to; zero when two could have made it. See the static form.
+    func attribute(lidClosed: Bool?, builtIn: Bool? = nil, keyboardType: Int = 0) -> Int {
+        Self.attribute(current(), lidClosed: lidClosed, builtIn: builtIn, keyboardType: keyboardType)
+    }
+
+    /// The one-based index, in `devices`, of the device an act is
+    /// charged to; zero when two could have made it.
+    ///
+    /// A key press's own type decides first. The devices carrying that
+    /// type are the candidates, and one candidate is the keyboard. When
+    /// the type is known on the list and no device carries it, the
+    /// keyboard is one the list does not show (some Bluetooth boards
+    /// never enumerate), and the press is charged to nobody rather than
+    /// to the only keyboard that did. Without a type to go on: a single
+    /// device is itself, and with the lid closed the built-in one cannot
+    /// have been the one, so a single external is it. A caller that
+    /// knows the act was the built-in's — a trackpad's pressure stage —
+    /// or knows it was not says so with `builtIn`.
+    static func attribute(_ devices: [Device], lidClosed: Bool?, builtIn: Bool? = nil,
+                          keyboardType: Int = 0) -> Int {
+        let typed = devices.contains { $0.keyboardType != nil }
+        if keyboardType != 0, typed {
+            var candidates = devices.enumerated().filter { $0.element.keyboardType == keyboardType }
+            if candidates.count > 1, lidClosed == true {
+                candidates = candidates.filter { !$0.element.builtIn }
+            }
+            return candidates.count == 1 ? candidates[0].offset + 1 : 0
+        }
         if devices.count == 1 { return 1 }
         let wantExternal = builtIn == false || (builtIn == nil && lidClosed == true)
         if builtIn == true {
@@ -115,7 +143,18 @@ class DeviceRoster {
             id: "\(vendor):\(product):\(hash)",
             name: property(kIOHIDProductKey) as? String ?? "device",
             transport: property(kIOHIDTransportKey) as? String ?? "unknown",
-            builtIn: (property(kIOHIDBuiltInKey) as? Bool) ?? ((property(kIOHIDBuiltInKey) as? Int) == 1))
+            builtIn: (property(kIOHIDBuiltInKey) as? Bool) ?? ((property(kIOHIDBuiltInKey) as? Int) == 1),
+            keyboardType: subinterface(of: device))
+    }
+
+    /// The keyboard type the device's key events will carry. It lives on
+    /// the event service below the device, not on the device, and is read
+    /// from the registry without opening anything.
+    static func subinterface(of device: IOHIDDevice) -> Int? {
+        let found = IORegistryEntrySearchCFProperty(
+            IOHIDDeviceGetService(device), kIOServicePlane, "HIDEventServiceProperties" as CFString,
+            kCFAllocatorDefault, IOOptionBits(kIORegistryIterateRecursively))
+        return ((found as? [String: Any])?["HIDSubinterfaceID"] as? Int).flatMap { $0 > 0 ? $0 : nil }
     }
 }
 

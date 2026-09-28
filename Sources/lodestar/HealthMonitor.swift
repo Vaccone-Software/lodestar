@@ -254,15 +254,15 @@ final class HealthMonitor {
     }
 
     /// A hardware press, complete: the raw store keeps it, the window
-    /// describes it. The shell adds which keyboard, by the roster and
-    /// the lid, before either sees it.
+    /// describes it. The shell adds which keyboard, by the press's own
+    /// keyboard type and then the lid, before either sees it.
     func notePress(_ press: KeyPress) {
         guard enabled else { return }
         queue.async { [self] in
             var press = press
             let lid = lidClosedLocked(now: press.down)
             press.lid = lid ?? false
-            press.keyboard = roster.attribute(lidClosed: lid)
+            press.keyboard = roster.attribute(lidClosed: lid, keyboardType: press.keyboardType)
             // The finger the tap named is the convention's; the board
             // this press came from may put the key under another digit.
             let ids = roster.ids

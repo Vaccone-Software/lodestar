@@ -23,6 +23,14 @@ final class MainThreadWatchdog {
     let interval: TimeInterval
     /// How long main may take to answer before the process is given up.
     let ceiling: TimeInterval
+    /// The first answer's allowance. The watchdog starts inside
+    /// `applicationDidFinishLaunching`, so its first ping cannot be
+    /// answered until launch returns, and launch is not "legitimate work
+    /// of tens of milliseconds": it asks every app for its windows. After
+    /// a crash launches measured about 7 s, and under 0.35.2 two in a row
+    /// took past 8 and were killed before they finished, a crash loop the
+    /// watchdog made. A launch that never returns is still caught.
+    let launchCeiling: TimeInterval
     /// What happens on a stall. The default logs and aborts; a test
     /// substitutes a hook.
     var onStall: (TimeInterval) -> Void = { seconds in
@@ -36,9 +44,10 @@ final class MainThreadWatchdog {
     private let lock = NSLock()
     private var answered = false
 
-    init(interval: TimeInterval = 2, ceiling: TimeInterval = 8) {
+    init(interval: TimeInterval = 2, ceiling: TimeInterval = 8, launchCeiling: TimeInterval = 60) {
         self.interval = interval
         self.ceiling = ceiling
+        self.launchCeiling = max(ceiling, launchCeiling)
     }
 
     func start() {
@@ -57,6 +66,7 @@ final class MainThreadWatchdog {
     }
 
     private func loop() {
+        var limit = launchCeiling
         while running {
             lock.lock()
             answered = false
@@ -69,7 +79,7 @@ final class MainThreadWatchdog {
             }
             // Wait for the pong in small steps, so a stop is honoured and
             // a prompt answer costs no more than the interval.
-            let deadline = Date().addingTimeInterval(ceiling)
+            let deadline = Date().addingTimeInterval(limit)
             var ok = false
             while running, Date() < deadline {
                 Thread.sleep(forTimeInterval: 0.05)
@@ -79,7 +89,8 @@ final class MainThreadWatchdog {
                 if ok { break }
             }
             guard running else { return }
-            if !ok { onStall(ceiling) }
+            if !ok { onStall(limit) }
+            limit = ceiling
             Thread.sleep(forTimeInterval: interval)
         }
     }

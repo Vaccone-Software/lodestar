@@ -63,7 +63,7 @@ enum SelfTest {
         // The main thread must keep answering while both taps run.
         var pings = 0
         var stalled = false
-        let watchdog = MainThreadWatchdog(interval: 0.1, ceiling: 1)
+        let watchdog = MainThreadWatchdog(interval: 0.1, ceiling: 1, launchCeiling: 1)
         watchdog.onStall = { _ in stalled = true }
         watchdog.start()
         while Date() < deadline {

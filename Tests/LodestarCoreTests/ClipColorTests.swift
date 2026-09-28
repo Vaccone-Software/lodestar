@@ -55,4 +55,16 @@ final class ClipColorTests: XCTestCase {
                                   preview: "#FF4F00", bytes: 7)
         XCTAssertEqual(text.color?.hex, "#FF4F00")
     }
+
+    /// Swift reads "nan", "inf" and "1e999" as numbers. A hue that is not
+    /// finite reached `Int(h * 6)` and trapped, and a clip is recoloured on
+    /// every card drawn, so one copied line crashed the strip every time
+    /// it opened. Not a colour; nothing to draw.
+    func testANumberThatIsNotFiniteIsNotAColor() {
+        for text in ["hsl(nan 50% 50%)", "hsl(1e999, 50%, 50%)", "hsla(infinity 100% 50% / 1)",
+                     "hsl(-inf 50% 50%)", "rgb(nan, 0, 0)", "rgb(0 0 0 / inf)", "hsl(10 nan% 50%)"] {
+            XCTAssertNil(ClipColor.parse(text), text)
+        }
+        XCTAssertNotNil(ClipColor.parse("hsl(19deg 100% 50%)"), "a real one still reads")
+    }
 }

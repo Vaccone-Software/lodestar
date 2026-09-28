@@ -98,15 +98,21 @@ public struct ClipColor: Equatable {
             return ClipColor(red: r / 255, green: g / 255, blue: b / 255, alpha: alpha)
         }
         let hue = parts[0].replacingOccurrences(of: "deg", with: "")
-        guard let h = Double(hue), let s = number(parts[1], percentOf: 1), let l = number(parts[2], percentOf: 1),
+        guard let h = finite(hue), let s = number(parts[1], percentOf: 1), let l = number(parts[2], percentOf: 1),
               parts[1].hasSuffix("%"), parts[2].hasSuffix("%") else { return nil }
         return hsl(h, s, l, alpha)
     }
 
-    /// A number, or a percentage of `scale`.
+    /// A number, or a percentage of `scale`. Finite only: Swift reads
+    /// "nan", "inf" and "1e999" as numbers, and a hue that is not finite
+    /// traps at `Int(h * 6)`.
     private static func number(_ text: String, percentOf scale: Double) -> Double? {
-        if text.hasSuffix("%") { return Double(text.dropLast()).map { $0 / 100 * scale } }
-        return Double(text)
+        if text.hasSuffix("%") { return finite(String(text.dropLast())).map { $0 / 100 * scale } }
+        return finite(text)
+    }
+
+    private static func finite(_ text: String) -> Double? {
+        Double(text).flatMap { $0.isFinite ? $0 : nil }
     }
 
     private static func hsl(_ hue: Double, _ saturation: Double, _ lightness: Double, _ alpha: Double) -> ClipColor {

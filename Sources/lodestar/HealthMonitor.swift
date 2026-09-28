@@ -228,7 +228,7 @@ final class HealthMonitor {
             events.append(contentsOf: drainPendingLocked(all: true))
             if let final = pulse.flush() { events.append(dressedLocked(final)) }
             events.append(contentsOf: clickPulse.flush())
-            if let closed = window.close() { windows.append(closed) }
+            if let closed = window.close() { windows.append(dressedLocked(closed)) }
             keys.flushSync()
             pointerStore.flushSync()
         }
@@ -522,15 +522,21 @@ final class HealthMonitor {
     }
 
     private func emitWindow(_ stats: WindowStats) {
-        let lid = lidClosedLocked(now: stats.start)
-        let role = sampledRole
-        sampledRole = nil
+        let stats = dressedLocked(stats)
+        DispatchQueue.main.async { [weak self] in self?.deliverWindow(stats) }
+    }
+
+    /// Queue. A window closed: it leaves with the lid, the role sampled
+    /// when it opened, and the devices attached — on every path out,
+    /// shutdown's included, or the last window before a quit carries none.
+    private func dressedLocked(_ stats: WindowStats) -> WindowStats {
         var stats = stats
-        stats.lid = lid
-        stats.role = role
+        stats.lid = lidClosedLocked(now: stats.start)
+        stats.role = sampledRole
+        sampledRole = nil
         stats.keyboards = roster.ids
         stats.pointers = pointers.ids
-        DispatchQueue.main.async { [weak self] in self?.deliverWindow(stats) }
+        return stats
     }
 
     private func deliverAsync(_ event: ObservationEvent) {

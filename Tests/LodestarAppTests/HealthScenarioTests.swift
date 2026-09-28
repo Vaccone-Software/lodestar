@@ -81,6 +81,19 @@ final class HealthScenarioTests: XCTestCase {
         XCTAssertTrue(presses[1].modifiers.contains(.shift))
     }
 
+    /// The last window before a quit leaves the way every other does:
+    /// with the lid and the devices attached, not bare.
+    func testTheWindowAQuitClosesIsDressedLikeAnyOther() throws {
+        for key in ["a", "s", "d", "f", "j", "k", "l"] { stage.pressHeld(key, for: 0.09) }
+        stage.health.drainForTesting()
+        stage.health.flush()
+        stage.observations.flush()
+        let window = try XCTUnwrap(stage.observations.log.recent(days: 30, now: stage.clock.now.addingTimeInterval(1))
+            .last { $0.kind == .window }?.window)
+        XCTAssertNotNil(window.keyboards, "the devices attached")
+        XCTAssertNotNil(window.pointers)
+    }
+
     func testAGestureIsARawPressMarkedAsOne() {
         // A lode chain letter is swallowed by the engine: still a press
         // the hand made, kept, and marked so the typing habit excludes it.

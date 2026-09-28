@@ -356,10 +356,26 @@ actor EditorModel: EditorProofreader {
         }
     }
 
+    /// Collapse MLX's global random key into a value.
+    ///
+    /// Building a model's layers draws their placeholder weights from the
+    /// global key before the real weights replace them, and each draw
+    /// swaps the key for an unevaluated split of the one before
+    /// (`RandomState.next`). Nothing ever evaluates it, so every load
+    /// lengthened a chain the process could not free: 1,084 links for one
+    /// load of the full model, 17,344 after a morning, about 2.3 KB each,
+    /// surviving every release. Measured: 20,000 links held 45 MB and one
+    /// evaluation, 478 ms of it, let all but 1 MB go. Settled once per
+    /// load, the chain never grows past one load's worth.
+    static func settleRandomState() {
+        eval(MLXRandom.globalState)
+    }
+
     /// MLX weights from one folder.
     static func load(fromDirectory directory: URL, engine: EditorEngine) async throws -> any EditorBackend {
         let container = try await LLMModelFactory.shared.loadContainer(
             from: directory, using: #huggingFaceTokenizerLoader())
+        settleRandomState()
         return MLXBackend(container: container, engine: engine,
                           cachesInstructions: ProcessInfo.processInfo.environment["LODESTAR_EDITOR_NO_PREFIX"] == nil)
     }

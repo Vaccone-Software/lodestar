@@ -251,7 +251,7 @@ public enum Circadian {
     /// Which day a moment belongs to, with the boundary at
     /// `dayStartHour` rather than midnight.
     static func dayOrdinal(_ date: Date, calendar: Calendar) -> Int {
-        let shifted = date.addingTimeInterval(-Double(dayStartHour) * 3600)
+        let shifted = DayFile.countingDay(of: date, calendar: calendar, startHour: dayStartHour)
         var components = calendar.dateComponents([.year, .month, .day], from: shifted)
         components.timeZone = calendar.timeZone
         let day = calendar.date(from: components) ?? shifted
@@ -270,7 +270,7 @@ public enum Circadian {
         var day = Day(ordinal: ordinal)
         // The weekday of the day's own start, not of the moment — 1am on
         // a Saturday belongs to Friday's working day.
-        let shifted = date.addingTimeInterval(-Double(dayStartHour) * 3600)
+        let shifted = DayFile.countingDay(of: date, calendar: calendar, startHour: dayStartHour)
         let weekday = calendar.component(.weekday, from: shifted)
         day.weekend = (weekday == 1 || weekday == 7)
         return day

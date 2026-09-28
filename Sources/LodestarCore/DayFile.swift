@@ -204,11 +204,20 @@ public enum DayFile {
 
     // MARK: - Days
 
+    /// A moment on the calendar day it counts toward: itself, or the day
+    /// before when it falls earlier than `startHour` on the wall clock.
+    /// Asked of the calendar, never as hours of absolute time: on the days
+    /// the clock changes, four hours back from 03:30 is not "before four",
+    /// and an hour of presses was filed under the wrong day at each change.
+    public static func countingDay(of date: Date, calendar: Calendar, startHour: Int = dayStartHour) -> Date {
+        guard calendar.component(.hour, from: date) < startHour else { return date }
+        return calendar.date(byAdding: .day, value: -1, to: date) ?? date.addingTimeInterval(-86_400)
+    }
+
     /// The local day a moment belongs to, beginning at four in the
     /// morning.
     public static func day(of date: Date, calendar: Calendar) -> String {
-        let shifted = date.addingTimeInterval(-Double(dayStartHour) * 3600)
-        let parts = calendar.dateComponents([.year, .month, .day], from: shifted)
+        let parts = calendar.dateComponents([.year, .month, .day], from: countingDay(of: date, calendar: calendar))
         return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
     }
 

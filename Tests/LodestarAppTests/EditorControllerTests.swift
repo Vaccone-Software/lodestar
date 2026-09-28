@@ -294,6 +294,22 @@ final class EditorControllerTests: XCTestCase {
         XCTAssertFalse(rig.reader.asked.contains("Ten."), "one word is not a sentence to read")
     }
 
+    /// Every key on the Mac waits in the tap on the main thread, and the
+    /// marks were worked out there on every keystroke: a second for a
+    /// field at the limit. The read comes home at once; the marks follow.
+    func testALongFieldNeverHoldsTheMainThread() {
+        let rig = EditorRig()
+        var text = ""
+        while text.utf16.count < 19_000 {
+            text += "Thanks for the update \(text.count), we should of shipped it but their was a problem. "
+        }
+        text += "Can you recieve it."
+        let started = Date()
+        rig.type(text)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 0.05, "the keystroke's read came straight back")
+        rig.settle("the marks arrive") { rig.controller.lensMarks.contains { $0.issue.original == "recieve" } }
+    }
+
     func testASentenceGoneBeforeItsTurnIsNotAsked() {
         let rig = EditorRig()
         rig.reader.hold()

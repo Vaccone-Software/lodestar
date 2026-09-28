@@ -53,7 +53,21 @@ final class EditorController: EditorLens {
     private(set) var enabled = false
     private var languageSent = false
     private var skipApps: Set<String> = []
+    /// What the editor knows about the text: the model's answers, what was
+    /// kept, the words it leaves alone. Touched only on `axQueue`, never on
+    /// main: working out the marks spell-checks and diffs the whole field,
+    /// and it ran on every keystroke on the main thread the key tap shares
+    /// — 24 ms a keystroke in a chat message, 260 ms in a 5,000-character
+    /// email, a second at the limit — so every key on the Mac waited
+    /// behind it. The tap was a mean 3 ms late before the editor shipped
+    /// and 10 to 15 ms after. Main keeps a copy of the language for
+    /// telling a name from a slip.
     private let session = EditorSession()
+    private var language = ""
+    /// A computation out on `axQueue`, and the read that came in while it
+    /// was: the latest is computed next, the ones between never are.
+    private var computing = false
+    private var pendingCompute: (read: EditorField, issues: Bool, paused: Bool)?
     private(set) var engine = EditorEngine.standard
 
     /// The world the editor reads and writes, each a seam the tests fill:
@@ -132,13 +146,18 @@ final class EditorController: EditorLens {
 
     func apply(enabled: Bool, engine: EditorEngine, language: String, vocabulary: [String],
                skipApps: Set<String>) {
-        if language != session.language || !languageSent {
+        if language != self.language || !languageSent {
             languageSent = true
             let proofreader = self.proofreader
             Task { await proofreader.setLanguage(language) }
         }
-        session.language = language
-        session.guards = EditorGuards(vocabulary: Set(vocabulary))
+        self.language = language
+        let session = self.session
+        let guards = EditorGuards(vocabulary: Set(vocabulary))
+        axQueue.async {
+            session.language = language
+            session.guards = guards
+        }
         self.skipApps = skipApps
         if engine != self.engine {
             self.engine = engine
@@ -297,23 +316,51 @@ final class EditorController: EditorLens {
         if changed {
             // Typing moves on: a card about the old text goes.
             if read.text != issuesText { hover?.hide() }
-            issues = session.issues(text: read.text, caret: read.caret)
             issuesText = read.text
-            placeMarks()
         } else if now.timeIntervalSince(lastGeometry) > 0.5 {
             // Nothing typed: follow scrolling and moving windows.
             placeMarks()
         }
+        compute(read, issues: changed, paused: paused)
+    }
+
+    /// The marks and the sentences to send, worked out off the main thread
+    /// and brought home. A read that answers for text no longer in the
+    /// field is dropped: the next read is already on its way.
+    private func compute(_ read: EditorField, issues wantIssues: Bool, paused: Bool) {
+        guard !computing else {
+            pendingCompute = (read, wantIssues || (pendingCompute?.issues ?? false), paused)
+            return
+        }
+        computing = true
+        let session = self.session
         // Spelling reads without a model, and a model still downloading
         // cannot answer: the spell checker and the rules are all of it,
         // and the sentences wait unasked until the model is here.
-        guard modelReadyNow else { return }
-        for sentence in session.sentencesToCheck(text: read.text, caret: read.caret, paused: paused)
-        where !inFlight.contains(sentence) {
-            inFlight.insert(sentence)
-            queue.append(sentence)
+        let modelReady = modelReadyNow
+        axQueue.async { [weak self] in
+            let issues = wantIssues ? session.issues(text: read.text, caret: read.caret) : nil
+            let toCheck = modelReady ? session.sentencesToCheck(text: read.text, caret: read.caret, paused: paused) : []
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.computing = false
+                if self.enabled, self.field?.text == read.text {
+                    if let issues {
+                        self.issues = issues
+                        self.placeMarks()
+                    }
+                    for sentence in toCheck where !self.inFlight.contains(sentence) {
+                        self.inFlight.insert(sentence)
+                        self.queue.append(sentence)
+                    }
+                    self.drain()
+                }
+                if let next = self.pendingCompute {
+                    self.pendingCompute = nil
+                    self.compute(next.read, issues: next.issues, paused: next.paused)
+                }
+            }
         }
-        drain()
     }
 
     /// One sentence at a time through the model; a sentence no longer in
@@ -332,11 +379,20 @@ final class EditorController: EditorLens {
             let corrected = await proofreader.correct(next)
             guard let self else { return }
             self.working = false
-            self.inFlight.remove(next)
             // No answer is kept too: asked again, it would fail again,
-            // every beat. The spell checker still speaks there.
-            self.session.record(sentence: next, corrected: corrected)
-            self.issuesText = ""   // an answer landed: read again on the next beat
+            // every beat. The spell checker still speaks there. Recorded on
+            // the session's queue, and the sentence stays in flight until it
+            // is: a computation already queued ahead of the record still
+            // counts it unanswered, and its result comes home first.
+            let session = self.session
+            self.axQueue.async {
+                session.record(sentence: next, corrected: corrected)
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.inFlight.remove(next)
+                    self.issuesText = ""   // an answer landed: read again on the next beat
+                }
+            }
             self.drain()
         }
     }
@@ -455,12 +511,14 @@ final class EditorController: EditorLens {
     func dismiss(_ mark: Mark, via: String) {
         guard let field else { return }
         let issue = mark.issue
-        let isName = Self.isName(issue, language: session.language)
+        let isName = Self.isName(issue, language: language)
         // The config write says what was learned, in its own flash.
         if isName {
             learnName(Self.word(issue))
         } else {
-            session.dismissOnce(issue, in: field.text)
+            let session = self.session
+            let text = field.text
+            axQueue.async { session.dismissOnce(issue, in: text) }
         }
         marks.removeAll { $0.issue == issue }
         hover?.marksChanged()

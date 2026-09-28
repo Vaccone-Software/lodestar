@@ -12,6 +12,7 @@ func usage() -> Never {
 
     usage:
       probe check [--prompt]           accessibility trust + window-server reach
+      probe smoke [--seconds N] [--ceiling-ms N]  post inert events through the live taps, time them
       probe displays                   display bounds, their union, the parking point
       probe cg [--all]                 raw window-server list (works without accessibility)
       probe list                       every app's windows with CGWindowIDs (the private-call bridge)
@@ -70,6 +71,7 @@ case "owners": runOwners(&arguments)
 case "ocrlive": runOCRLive(&arguments)
 case "speech": runSpeech(&arguments)
 case "editor": runEditor(&arguments)
+case "smoke": runSmoke(&arguments)
 case "help", "--help", "-h": usage()
 default:
     fputs("probe: unknown command '\(command)'\n\n", stderr)

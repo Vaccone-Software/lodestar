@@ -51,7 +51,7 @@ if [ "$PHASE" = "build" ] || [ "$PHASE" = "all" ]; then
     ./scripts/site-sync.sh "$APP"
 fi
 if [ "$PHASE" = "build" ]; then
-    echo "✓ built and signed: $APP — smoke it (scripts/smoke.sh), then release.sh publish"
+    echo "✓ built and signed: $APP — smoke it (scripts/smoke.sh auto), then release.sh publish"
     exit 0
 fi
 

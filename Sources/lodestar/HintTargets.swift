@@ -283,6 +283,7 @@ enum Pointer {
                                       mouseCursorPosition: step.point,
                                       mouseButton: right ? .right : .left) else { continue }
             event.setIntegerValueField(.eventSourceUserData, value: SelectController.ownMark)
+            event.flags = SyntheticPointer.unmodified(event.flags)
             if step.type == .leftMouseDown || step.type == .leftMouseUp
                 || step.type == .rightMouseDown || step.type == .rightMouseUp {
                 event.setIntegerValueField(.mouseEventClickState, value: 1)

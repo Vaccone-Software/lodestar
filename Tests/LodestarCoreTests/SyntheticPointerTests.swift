@@ -48,4 +48,14 @@ final class SyntheticPointerTests: XCTestCase {
     func testHomeIsAMoveNotAWarp() {
         XCTAssertEqual(SyntheticPointer.home(a), [SyntheticPointer.Step(.mouseMoved, a)])
     }
+
+    /// A pick is typed as a capital: the ⇧ still down when its click is
+    /// built must not ride along, and neither may any other held key.
+    func testAPostedPressCarriesNoHeldModifier() {
+        let held: CGEventFlags = [.maskShift, .maskControl, .maskAlternate, .maskCommand,
+                                  .maskSecondaryFn, .maskNonCoalesced]
+        XCTAssertEqual(SyntheticPointer.unmodified(held), .maskNonCoalesced,
+                       "modifiers go, the event's own bits stay")
+        XCTAssertEqual(SyntheticPointer.unmodified([.maskShift]), [])
+    }
 }

@@ -633,7 +633,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         updater.lastActivity = { [weak self] in
             guard let self else { return Date() }
-            return max(self.engine.lastActivityAt, self.engine.lastHumanInputAt)
+            let idle = CGEventSource.secondsSinceLastEventType(
+                .hidSystemState, eventType: CGEventType(rawValue: ~0)!)
+            return Updater.lastSignOfLife(engineActivity: self.engine.lastActivityAt,
+                                          humanInput: self.engine.lastHumanInputAt,
+                                          systemIdleSeconds: idle, now: Date())
         }
         updater.flash = { [weak self] text, seconds in self?.hud.flash(text, seconds: seconds) }
         updater.voice = { [weak self] sentence, detail in self?.voice(sentence, detail: detail) }

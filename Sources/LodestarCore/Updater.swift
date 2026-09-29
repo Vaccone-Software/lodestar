@@ -103,6 +103,24 @@ public enum Updater {
         return false
     }
 
+    /// The last sign that someone may be at the Mac, for the quiet gate:
+    /// the latest of the engine's own actions, the last real key through
+    /// the tap, and the system's idle clock. The tap sees keys only, so ten
+    /// minutes of reading with the mouse read as away; and a process that
+    /// had just started knew of no key at all, so an update could swap it
+    /// three minutes after a launch with the hand on the trackpad. The
+    /// system's clock covers both. Posted events reset it too, which is
+    /// why it cannot prove someone is here, but here a false "someone"
+    /// only waits longer.
+    public static func lastSignOfLife(engineActivity: Date, humanInput: Date,
+                                      systemIdleSeconds: TimeInterval?, now: Date) -> Date {
+        var latest = max(engineActivity, humanInput)
+        if let idle = systemIdleSeconds, idle.isFinite, idle >= 0 {
+            latest = max(latest, now.addingTimeInterval(-idle))
+        }
+        return latest
+    }
+
     /// The quiet gate. A swap restarts the engine — losing the undo
     /// timeline and any pending chain — so it waits for a stretch with no
     /// chain, no panel, and no recent lode activity. Ten minutes of

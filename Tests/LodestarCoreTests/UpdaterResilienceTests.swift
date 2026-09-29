@@ -2,6 +2,24 @@ import XCTest
 @testable import LodestarCore
 
 final class UpdaterResilienceTests: XCTestCase {
+    /// Just launched, no key yet, a hand on the trackpad a minute ago: not
+    /// quiet. Away for two hours: quiet, whatever the process knows.
+    func testTheSystemIdleClockCountsTheHandTheTapDoesNotSee() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let never = Date.distantPast
+        let justMoved = Updater.lastSignOfLife(engineActivity: never, humanInput: never,
+                                               systemIdleSeconds: 60, now: now)
+        XCTAssertFalse(Updater.mayApply(engineQuiet: true, secondsSinceActivity: now.timeIntervalSince(justMoved)))
+        let away = Updater.lastSignOfLife(engineActivity: never, humanInput: never,
+                                          systemIdleSeconds: 7200, now: now)
+        XCTAssertTrue(Updater.mayApply(engineQuiet: true, secondsSinceActivity: now.timeIntervalSince(away)))
+        let typed = Updater.lastSignOfLife(engineActivity: never, humanInput: now.addingTimeInterval(-30),
+                                           systemIdleSeconds: 7200, now: now)
+        XCTAssertEqual(typed, now.addingTimeInterval(-30), "the latest sign wins")
+        XCTAssertEqual(Updater.lastSignOfLife(engineActivity: never, humanInput: never,
+                                              systemIdleSeconds: nil, now: now), never)
+    }
+
     func testAFailedCheckIsTriedAgainSoonThenDaily() {
         XCTAssertEqual(Updater.retryDelay(afterFailures: 1), 15 * 60)
         XCTAssertEqual(Updater.retryDelay(afterFailures: 2), 60 * 60)

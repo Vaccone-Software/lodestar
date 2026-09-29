@@ -1039,6 +1039,9 @@ private actor AnalyzerBox {
         var started: (format: AVAudioFormat, name: String?)?
         for attempt in 1...SpeechStart.attempts {
             if attempt > 1 {
+                // The headset's engine goes down and comes back: the bridge,
+                // if one is open, covers the gap.
+                gate.bridgeAgain()
                 try? await Task.sleep(for: .milliseconds(650))
                 guard !stopped else { return }
             }
@@ -1062,6 +1065,11 @@ private actor AnalyzerBox {
             bridge.stop()
             say(.failed("the microphone could not start")); return
         }
+        // The headset is up for good: the bridge is let go only now, not at
+        // the handover — a start that timed out after its engine began
+        // delivering is retried, and the retry takes the engine down again.
+        gate.closeBridge()
+        bridge.stop()
         let input = started.name
         Log.info("draft", ["speech": "audio", "input": input ?? "unknown",
                            "hz": Int(started.format.sampleRate),
@@ -1106,8 +1114,7 @@ private actor AnalyzerBox {
             Log.info("draft", ["speech": "bridge did not open", "for": headset])
             return
         }
-        gate.onHandover = { [bridge] ms in
-            bridge.stop()
+        gate.onHandover = { ms in
             Log.info("draft", ["speech": "bridge handed over", "to": headset, "ms": ms])
         }
         gate.openBridge()
@@ -1220,55 +1227,77 @@ private actor AnalyzerBox {
 }
 
 /// The Mac's own microphone, run beside the headset's engine while the
-/// headset wakes (see `AnalyzerBox.openBridge`). A plain engine, set to
-/// the built-in device, no configuration watch: it lives for a second or
-/// two. Let go the way `AudioInput` lets go, kept a while before it is
-/// freed, because a device notice in flight reaching a freed engine is
-/// how 0.39.3's first build died.
+/// headset wakes (see `AnalyzerBox.openBridge`).
+///
+/// An audio queue bound to the device by its UID, not an engine: an
+/// `AVAudioEngine` pointed at the built-in microphone while a headset is
+/// the default keeps the default's format on its input node (16 kHz, the
+/// headset's telephone rate, against the microphone's 48) and either
+/// refuses to start (-10868) or starts and delivers nothing — measured
+/// four ways on 2026-09-28. The queue started in 70 ms with its first
+/// buffer at 80. Let go the way `AudioInput` lets go of an engine, kept
+/// a while before it is disposed.
 final class BridgeMic: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.vaccone.lodestar.audio.bridge", qos: .userInitiated)
-    private var engine: AVAudioEngine?
+    private var audioQueue: AudioQueueRef?
+    private static let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48_000,
+                                              channels: 1, interleaved: false)!
+    private static let framesPerBuffer: UInt32 = 1024
 
     func start(device: AudioDeviceID, sink: @escaping (AVAudioPCMBuffer) -> Void,
                completion: @escaping (Bool) -> Void) {
         queue.async {
             self.stopNow()
-            let engine = AVAudioEngine()
-            guard let unit = engine.inputNode.audioUnit, AudioInput.use(device, on: unit) else {
-                self.retire(engine); completion(false); return
+            guard var uid = Self.uid(of: device) else { completion(false); return }
+            var description = Self.format.streamDescription.pointee
+            var made: AudioQueueRef?
+            let status = AudioQueueNewInputWithDispatchQueue(&made, &description, 0, self.queue) { aq, raw, _, _, _ in
+                let frames = raw.pointee.mAudioDataByteSize / UInt32(MemoryLayout<Float>.size)
+                if frames > 0, let buffer = AVAudioPCMBuffer(pcmFormat: Self.format, frameCapacity: frames),
+                   let channel = buffer.floatChannelData?[0] {
+                    buffer.frameLength = frames
+                    channel.update(from: raw.pointee.mAudioData.assumingMemoryBound(to: Float.self), count: Int(frames))
+                    sink(buffer)
+                }
+                AudioQueueEnqueueBuffer(aq, raw, 0, nil)
             }
-            let format = engine.inputNode.inputFormat(forBus: 0)
-            guard format.sampleRate > 0, format.channelCount > 0 else {
-                self.retire(engine); completion(false); return
+            guard status == noErr, let aq = made else { completion(false); return }
+            guard AudioQueueSetProperty(aq, kAudioQueueProperty_CurrentDevice, &uid,
+                                        UInt32(MemoryLayout<CFString>.size)) == noErr else {
+                AudioQueueDispose(aq, true); completion(false); return
             }
-            engine.inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { buffer, _ in sink(buffer) }
-            engine.prepare()
-            do {
-                try engine.start()
-                self.engine = engine
-                completion(true)
-            } catch {
-                engine.inputNode.removeTap(onBus: 0)
-                self.retire(engine)
-                completion(false)
+            for _ in 0..<3 {
+                var buffer: AudioQueueBufferRef?
+                AudioQueueAllocateBuffer(aq, Self.framesPerBuffer * UInt32(MemoryLayout<Float>.size), &buffer)
+                if let buffer { AudioQueueEnqueueBuffer(aq, buffer, 0, nil) }
             }
+            guard AudioQueueStart(aq, nil) == noErr else {
+                AudioQueueDispose(aq, true); completion(false); return
+            }
+            self.audioQueue = aq
+            completion(true)
         }
     }
 
-    func pause() { queue.async { self.engine?.pause() } }
-    func resume() { queue.async { if let engine = self.engine { try? engine.start() } } }
+    func pause() { queue.async { if let aq = self.audioQueue { AudioQueuePause(aq) } } }
+    func resume() { queue.async { if let aq = self.audioQueue { AudioQueueStart(aq, nil) } } }
     func stop() { queue.async { self.stopNow() } }
 
     private func stopNow() {
-        guard let engine else { return }
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
-        self.engine = nil
-        retire(engine)
+        guard let aq = audioQueue else { return }
+        audioQueue = nil
+        AudioQueueStop(aq, true)
+        queue.asyncAfter(deadline: .now() + AudioInput.retirement) { AudioQueueDispose(aq, true) }
     }
 
-    private func retire(_ engine: AVAudioEngine) {
-        queue.asyncAfter(deadline: .now() + AudioInput.retirement) { withExtendedLifetime(engine) {} }
+    private static func uid(of device: AudioDeviceID) -> CFString? {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyDeviceUID,
+                                                 mScope: kAudioObjectPropertyScopeGlobal,
+                                                 mElement: kAudioObjectPropertyElementMain)
+        var value: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        guard AudioObjectGetPropertyData(device, &address, 0, nil, &size, &value) == noErr else { return nil }
+        return value?.takeRetainedValue()
     }
 }
 
@@ -1285,6 +1314,7 @@ final class Handover: @unchecked Sendable {
     private let lock = NSLock()
     private let push: (AVAudioPCMBuffer) -> Void
     private var bridging = false
+    private var bridgeOpen = false
     private var headsetLive = false
     private var openedAt = Date()
     /// Runs on the audio thread, once, with how long the bridge stood in.
@@ -1294,8 +1324,27 @@ final class Handover: @unchecked Sendable {
 
     func openBridge() {
         lock.withLock {
+            bridgeOpen = true
             bridging = !headsetLive
             openedAt = Date()
+        }
+    }
+
+    /// The headset's start is being retried: its engine restarts, and
+    /// the bridge, still open, is heard again until it has a voice again.
+    func bridgeAgain() {
+        lock.withLock {
+            guard bridgeOpen else { return }
+            headsetLive = false
+            bridging = true
+        }
+    }
+
+    /// The headset's start is done: from now on only the headset.
+    func closeBridge() {
+        lock.withLock {
+            bridgeOpen = false
+            bridging = false
         }
     }
 

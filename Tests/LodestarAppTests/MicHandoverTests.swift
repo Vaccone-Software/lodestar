@@ -47,4 +47,23 @@ final class MicHandoverTests: XCTestCase {
         gate.fromBridge(buffer(9, voiced: true))
         XCTAssertEqual(heard, [2])
     }
+
+    /// A headset start retried after the handover takes its engine down:
+    /// the bridge, still open, is heard again until the headset has a
+    /// voice again, and once the start is done only the headset is.
+    func testARetriedHeadsetFallsBackToTheBridgeUntilItHasAVoiceAgain() {
+        var heard: [Float] = []
+        let gate = Handover { heard.append(self.tag($0)) }
+        gate.openBridge()
+        gate.fromHeadset(buffer(2, voiced: true))        // handed over
+        gate.fromBridge(buffer(9, voiced: true))         // not heard
+        gate.bridgeAgain()                               // the retry
+        gate.fromBridge(buffer(4, voiced: true))         // the bridge covers
+        gate.fromHeadset(buffer(0, voiced: false))       // restarting, silent
+        gate.fromHeadset(buffer(6, voiced: true))        // back
+        gate.closeBridge()
+        gate.fromBridge(buffer(9, voiced: true))
+        gate.fromHeadset(buffer(0, voiced: false))
+        XCTAssertEqual(heard, [2, 4, 6, 0])
+    }
 }

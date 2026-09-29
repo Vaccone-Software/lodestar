@@ -21,6 +21,16 @@ enum SpeechStart {
     static let deadline: TimeInterval = 2.5
     static let attempts = 2
     static let settleSeconds: TimeInterval = 0.65
+    /// The whole wait for the microphone, however it is spent: the two
+    /// attempts' deadlines and the settle between them, so the arithmetic
+    /// `SpeechStartBudgetTests` holds against the draft's watchdog is the
+    /// same. A start that is only slow is waited for inside it rather than
+    /// abandoned at the first deadline — abandoning it threw its success
+    /// away, and the retry that followed stopped the engine it had just
+    /// started. Only a start that fails is tried again.
+    static var startBudget: TimeInterval {
+        Double(attempts) * deadline + Double(attempts - 1) * settleSeconds
+    }
 
     /// What the recognizer's own preparation is given before it is
     /// treated as wedged. `prepareToAnalyze` and `start(inputSequence:)`
@@ -41,19 +51,47 @@ enum SpeechStart {
     /// Run `work`, or give up on it. Whatever is still waiting is left to
     /// the runtime: the point is that the caller stops waiting, so it can
     /// say what happened instead of never speaking again.
+    ///
+    /// Two unstructured tasks and whichever answers first. It was a task
+    /// group, and a task group does not return until every child has — so
+    /// a start stuck in a continuation held the "deadline" until the start
+    /// itself came back (measured: a one-second deadline on a four-second
+    /// wait returned after 4.3 s). Every microphone start past its
+    /// deadline was then thrown away when it finally landed, and retried.
     static func withDeadline<T: Sendable>(
         _ seconds: TimeInterval,
         _ work: @escaping @Sendable () async throws -> T
     ) async throws -> T {
-        try await withThrowingTaskGroup(of: T.self) { group in
-            group.addTask { try await work() }
-            group.addTask {
-                try await Task.sleep(for: .seconds(seconds))
-                throw TimedOut()
+        let once = FirstAnswer()
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, Error>) in
+            let worker = Task {
+                do {
+                    let value = try await work()
+                    if once.claim() { continuation.resume(returning: value) }
+                } catch {
+                    if once.claim() { continuation.resume(throwing: error) }
+                }
             }
-            defer { group.cancelAll() }
-            guard let first = try await group.next() else { throw TimedOut() }
-            return first
+            Task {
+                try? await Task.sleep(for: .seconds(seconds))
+                if once.claim() {
+                    worker.cancel()
+                    continuation.resume(throwing: TimedOut())
+                }
+            }
+        }
+    }
+
+    /// The one answer a race gives, whoever is first.
+    final class FirstAnswer: @unchecked Sendable {
+        private let lock = NSLock()
+        private var answered = false
+        func claim() -> Bool {
+            lock.withLock {
+                guard !answered else { return false }
+                answered = true
+                return true
+            }
         }
     }
 }
@@ -1037,32 +1075,47 @@ private actor AnalyzerBox {
         // that, so the settling happens here, off the main thread,
         // across a few attempts.
         var started: (format: AVAudioFormat, name: String?)?
-        for attempt in 1...SpeechStart.attempts {
+        let began = Date()
+        var attempt = 0
+        while started == nil, attempt < SpeechStart.attempts {
+            attempt += 1
             if attempt > 1 {
                 // The headset's engine goes down and comes back: the bridge,
                 // if one is open, covers the gap.
                 gate.bridgeAgain()
-                try? await Task.sleep(for: .milliseconds(650))
-                guard !stopped else { return }
+                try? await Task.sleep(for: .seconds(SpeechStart.settleSeconds))
+                guard !stopped else { bridge.stop(); return }
             }
+            let remaining = SpeechStart.startBudget - Date().timeIntervalSince(began)
+            guard remaining > 0.25 else { break }
             do {
-                started = try await Self.startMicrophone(microphone, device: wanted,
+                started = try await Self.startMicrophone(microphone, device: wanted, within: remaining,
                                                          stillWanted: stillWanted) { buffer in gate.fromHeadset(buffer) }
-                break
             } catch is CancellationError {
+                bridge.stop()
                 return
             } catch let off as AudioInput.InputOff {
                 // Not a start that failed: a start there is no device for.
                 // Another attempt would refuse the same way.
+                bridge.stop()
                 say(.failed(off.why)); return
+            } catch is SpeechStart.TimedOut {
+                // The start is still out on the engine's queue. Another one
+                // would queue behind it and then stop whatever it started;
+                // the whole budget is spent, so this is the end of it.
+                Log.info("draft", ["speech": "audio start timed out", "attempt": attempt,
+                                   "seconds": (Date().timeIntervalSince(began) * 10).rounded() / 10])
+                break
             } catch {
                 Log.info("draft", ["speech": "audio start failed", "attempt": attempt,
                                    "error": "\(error.localizedDescription)"])
             }
         }
         guard let started else {
-            // The bridge was only ever standing in.
+            // The bridge was only ever standing in, and a start still out
+            // there must not come alive after the draft has said it failed.
             bridge.stop()
+            microphone.stop()
             say(.failed("the microphone could not start")); return
         }
         // The headset is up for good: the bridge is let go only now, not at
@@ -1094,20 +1147,11 @@ private actor AnalyzerBox {
               let target = AudioInput.plannedTarget(device: wanted),
               target != builtIn, AudioInput.isBluetooth(target) else { return }
         let bridge = self.bridge
-        let opened = await withTaskGroup(of: Bool.self) { group in
-            group.addTask {
-                await withCheckedContinuation { continuation in
-                    bridge.start(device: builtIn, sink: { gate.fromBridge($0) }) { continuation.resume(returning: $0) }
-                }
+        let opened = (try? await SpeechStart.withDeadline(SpeechStart.bridgeDeadline) {
+            await withCheckedContinuation { continuation in
+                bridge.start(device: builtIn, sink: { gate.fromBridge($0) }) { continuation.resume(returning: $0) }
             }
-            group.addTask {
-                try? await Task.sleep(for: .seconds(SpeechStart.bridgeDeadline))
-                return false
-            }
-            let first = await group.next() ?? false
-            group.cancelAll()
-            return first
-        }
+        }) ?? false
         let headset = AudioInput.name(of: target) ?? "the headset"
         guard opened, !stopped else {
             bridge.stop()
@@ -1128,7 +1172,7 @@ private actor AnalyzerBox {
     /// because `stop` is queued from main too, a session superseded
     /// after that check still has its start queued ahead of the
     /// successor's stop, which then takes the tap off again.
-    private static func startMicrophone(_ microphone: AudioInput, device: String?,
+    private static func startMicrophone(_ microphone: AudioInput, device: String?, within seconds: TimeInterval,
                                         stillWanted: @escaping @MainActor () -> Bool,
                                         sink: @escaping (AVAudioPCMBuffer) -> Void) async throws
         -> (format: AVAudioFormat, name: String?) {
@@ -1142,24 +1186,15 @@ private actor AnalyzerBox {
         // the microphone" until it was closed and opened again. A
         // deadline turns that into an attempt that failed, which the
         // loop above can retry and the register line can report.
-        try await withThrowingTaskGroup(of: (format: AVAudioFormat, name: String?).self) { group in
-            group.addTask {
-                try await withCheckedThrowingContinuation { continuation in
-                    Task { @MainActor in
-                        guard stillWanted() else {
-                            continuation.resume(throwing: CancellationError()); return
-                        }
-                        microphone.start(device: device, sink: sink) { continuation.resume(with: $0) }
+        try await SpeechStart.withDeadline(seconds) {
+            try await withCheckedThrowingContinuation { continuation in
+                Task { @MainActor in
+                    guard stillWanted() else {
+                        continuation.resume(throwing: CancellationError()); return
                     }
+                    microphone.start(device: device, sink: sink) { continuation.resume(with: $0) }
                 }
             }
-            group.addTask {
-                try await Task.sleep(for: .seconds(SpeechStart.deadline))
-                throw SpeechStart.TimedOut()
-            }
-            defer { group.cancelAll() }
-            guard let first = try await group.next() else { throw SpeechStart.TimedOut() }
-            return first
         }
     }
 

@@ -24,7 +24,7 @@ final class UpdateController {
     private static let refusedFile = directory.appendingPathComponent("refused")
     private static let feedURL = URL(string: Lodestar.repository
         .replacingOccurrences(of: "https://github.com/", with: "https://api.github.com/repos/")
-        + "/releases?per_page=1")!
+        + "/releases?per_page=10")!
     private static let requirement = """
         anchor apple generic and identifier "com.vaccone.lodestar" \
         and certificate leaf[subject.OU] = "\(Lodestar.teamID)"
@@ -40,6 +40,7 @@ final class UpdateController {
         }
     }
     var engineQuiet: () -> Bool = { false }
+    /// The last moment a hand was at the keyboard, gesture or not.
     var lastActivity: () -> Date = { .distantPast }
     var flash: (String, TimeInterval) -> Void = { _, _ in }
     /// Lodestar speaking, briefly: a sentence in the voice and a line of
@@ -105,9 +106,31 @@ final class UpdateController {
     private let worker = DispatchQueue(label: "lodestar.update", qos: .utility)
 
     init() {
-        let path = Bundle.main.bundlePath
-        installURL = path.hasSuffix("lodestar.app") && !path.contains("/AppTranslocation/")
+        // Only the installed app updates itself. A signed build run from
+        // dist/ to be tested, older than the latest release, would have
+        // downloaded that release and replaced itself there.
+        installURL = Updater.isInstalled(bundlePath: Bundle.main.bundlePath,
+                                         home: FileManager.default.homeDirectoryForCurrentUser.path)
             ? Bundle.main.bundleURL : nil
+    }
+
+    /// Checks that failed in a row, and the retry waiting on them.
+    private var failedChecks = 0
+    private var retry: Timer?
+
+    /// A check that failed is asked again soon (`Updater.retryDelay`), not
+    /// the next day. Main.
+    private func scheduleRetry() {
+        failedChecks += 1
+        retry?.invalidate()
+        guard let delay = Updater.retryDelay(afterFailures: failedChecks) else {
+            retry = nil
+            return
+        }
+        Log.info("update", ["retry-in-minutes": Int(delay / 60), "failures": failedChecks])
+        retry = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+            self?.check(force: false)
+        }
     }
 
     func start() {
@@ -226,13 +249,16 @@ final class UpdateController {
         Log.info("update", ["phase": "checking", "force": "\(force)"])
         var request = URLRequest(url: Self.feedURL, timeoutInterval: 30)
         request.setValue("lodestar/\(Lodestar.version)", forHTTPHeaderField: "User-Agent")
-        network.dataTask(with: request) { [weak self] data, _, error in
+        network.dataTask(with: request) { [weak self] data, response, error in
             guard let self else { return }
-            guard let data, error == nil, let release = Updater.parseFeed(data) else {
+            let problem = error.map { String(describing: $0) }
+                ?? Updater.httpProblem(status: (response as? HTTPURLResponse)?.statusCode)
+            guard problem == nil, let data, let release = Updater.parseFeed(data) else {
                 self.finishCheck(force: force, note: "✕ update check failed, see the log",
-                                 log: "feed unreadable (\(error.map(String.init(describing:)) ?? "no release with a zip"))")
+                                 log: "feed unreadable (\(problem ?? "no release with a zip"))", failed: true)
                 return
             }
+            DispatchQueue.main.async { self.failedChecks = 0 }
             let local = Updater.parseVersion(Lodestar.version) ?? []
             guard Updater.isNewer(release.version, than: local) else {
                 self.finishCheck(force: force, voice: Voice.newest(Lodestar.version), log: nil)
@@ -264,11 +290,12 @@ final class UpdateController {
         return true
     }
 
-    private func finishCheck(force: Bool, note: String, log message: String?) {
+    private func finishCheck(force: Bool, note: String, log message: String?, failed: Bool = false) {
         if let message { Log.error("update check: \(message)") }
         DispatchQueue.main.async {
             self.phase = .idle
             if force { self.flash(note, 3) }
+            if failed { self.scheduleRetry() }
         }
     }
 
@@ -293,8 +320,11 @@ final class UpdateController {
         }
         let semaphore = DispatchSemaphore(value: 0)
         var fetched: URL?
-        network.downloadTask(with: url) { location, _, _ in
-            if let location {
+        var problem: String?
+        network.downloadTask(with: url) { location, response, error in
+            problem = error.map { String(describing: $0) }
+                ?? Updater.httpProblem(status: (response as? HTTPURLResponse)?.statusCode)
+            if problem == nil, let location {
                 let kept = Self.directory.appendingPathComponent("download.zip")
                 try? FileManager.default.removeItem(at: kept)
                 if (try? FileManager.default.moveItem(at: location, to: kept)) != nil {
@@ -305,7 +335,8 @@ final class UpdateController {
         }.resume()
         semaphore.wait()
         guard let zip = fetched else {
-            finishCheck(force: force, note: "✕ update download failed, see the log", log: "download failed")
+            finishCheck(force: force, note: "✕ update download failed, see the log",
+                        log: "download failed (\(problem ?? "no file"))", failed: true)
             return
         }
         stage(zip: zip, release: release, force: force)

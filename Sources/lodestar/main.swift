@@ -624,8 +624,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Accessibility prompt still deserves fixes.
         updater = UpdateController()
         updater.enabled = config.autoUpdate
-        updater.engineQuiet = { [weak self] in self?.engine.isQuiet ?? false }
-        updater.lastActivity = { [weak self] in self?.engine.lastActivityAt ?? Date() }
+        // Quiet means nobody at the keys and nobody on a call. Lode gestures
+        // alone set it before, so ten minutes of plain typing, or a long
+        // call, read as away and the swap restarted the app under the hand.
+        updater.engineQuiet = { [weak self] in
+            guard let self else { return false }
+            return self.engine.isQuiet && !self.presenting.isOn
+        }
+        updater.lastActivity = { [weak self] in
+            guard let self else { return Date() }
+            return max(self.engine.lastActivityAt, self.engine.lastHumanInputAt)
+        }
         updater.flash = { [weak self] text, seconds in self?.hud.flash(text, seconds: seconds) }
         updater.voice = { [weak self] sentence, detail in self?.voice(sentence, detail: detail) }
         updater.requiresRouting = { [weak self] in self?.config.webHandleClicks ?? false }
@@ -2088,8 +2097,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // at itself, so quitting it and reloading the agent started the
         // build under test again, not the app in Applications (2026-09-28,
         // and every hand smoke before it).
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        guard bundlePath.hasPrefix("/Applications/") || bundlePath.hasPrefix(home + "/Applications/") else {
+        guard Updater.isInstalled(bundlePath: bundlePath,
+                                  home: FileManager.default.homeDirectoryForCurrentUser.path) else {
             Log.info("login-item", ["skipped": "not installed in an Applications folder"])
             return
         }
@@ -2173,12 +2182,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         case .some(let pid):
             Log.info("login-item", ["action": "readopting", "agent-pid": pid])
-            handingOverToLaunchd = true
-            runLaunchctl(["kickstart", "gui/\(getuid())/com.vaccone.lodestar"])
+            handingOverToLaunchd = runLaunchctl(["kickstart", "gui/\(getuid())/com.vaccone.lodestar"])
         case .none:
             Log.info("login-item", ["action": "bootstrapping the agent"])
-            handingOverToLaunchd = true
-            runLaunchctl(["bootstrap", "gui/\(getuid())", agent.path])
+            handingOverToLaunchd = runLaunchctl(["bootstrap", "gui/\(getuid())", agent.path])
+        }
+        // A handover that launchctl refused hands over to nobody: this
+        // instance stays the resident, so it says ready and retires the
+        // update's markers like one. It used to go quiet as a relay whose
+        // successor never came, and re-announce the update every boot.
+        if !handingOverToLaunchd {
+            Log.error("login-item", ["handover": "failed, staying resident"])
         }
     }
 
@@ -2215,7 +2229,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                       seconds: Readability.flashSeconds(for: sentence))
     }
 
-    private func runLaunchctl(_ arguments: [String]) {
+    /// Whether launchctl did what it was asked.
+    @discardableResult
+    private func runLaunchctl(_ arguments: [String]) -> Bool {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/bin/launchctl")
         task.arguments = arguments
@@ -2223,12 +2239,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         task.standardError = Pipe()
         guard (try? task.run()) != nil else {
             Log.error("login-item", ["launchctl": "could not run"])
-            return
+            return false
         }
         task.waitUntilExit()
         if task.terminationStatus != 0 {
             Log.error("login-item", ["launchctl \(arguments.first ?? "")": "exit \(task.terminationStatus)"])
+            return false
         }
+        return true
     }
 
     /// The registry profile of the most recently focused browser window,

@@ -20,8 +20,10 @@ public enum Updater {
     }
 
     /// The newest release carrying a lodestar zip, from the releases list
-    /// (releases?per_page=1 — never releases/latest, which excludes
-    /// prereleases, and every release before 1.0 is one).
+    /// (releases?per_page=10 — never releases/latest, which excludes
+    /// prereleases, and every release before 1.0 is one). Ten, not one, so
+    /// the skip below can skip: a newest entry with no zip, or a tag that
+    /// is not a version, falls through to the one before it.
     public static func parseFeed(_ data: Data) -> Release? {
         struct Asset: Decodable {
             let name: String
@@ -42,6 +44,42 @@ public enum Updater {
                            zipName: zip.name, zipURL: zip.browser_download_url)
         }
         return nil
+    }
+
+    /// When to ask again after a check that failed, by how many have failed
+    /// in a row: a quarter of an hour, then an hour, then back to the daily
+    /// check. A failed check used to wait for the next day or the next
+    /// boot — on 2026-09-28 two timed out on a flaky network and 0.39.4
+    /// was only picked up by a check forced by hand.
+    public static func retryDelay(afterFailures failures: Int) -> TimeInterval? {
+        switch failures {
+        case 1: return 15 * 60
+        case 2: return 60 * 60
+        default: return nil
+        }
+    }
+
+    /// What is wrong with an HTTP answer, or nil when it is an answer. A
+    /// rate limit or an error page used to be read as "no release with a
+    /// zip", and a download's error page was unpacked as the update.
+    public static func httpProblem(status: Int?) -> String? {
+        guard let status else { return nil }
+        switch status {
+        case 200..<300: return nil
+        case 403, 429: return "HTTP \(status), GitHub's rate limit"
+        default: return "HTTP \(status)"
+        }
+    }
+
+    /// Whether a bundle is the installed app — in an Applications folder —
+    /// rather than a build under test. Only the installed app writes the
+    /// login item and the CLI link, and only it updates itself: a signed
+    /// build run from dist/ once pointed the login item at itself, and one
+    /// older than the latest release would have replaced itself in dist/.
+    public static func isInstalled(bundlePath: String, home: String) -> Bool {
+        (bundlePath.hasPrefix("/Applications/") || bundlePath.hasPrefix(home + "/Applications/"))
+            && bundlePath.hasSuffix("lodestar.app")
+            && !bundlePath.contains("/AppTranslocation/")
     }
 
     /// "0.9.9" or "v0.9.9" → [0, 9, 9]. Nil for anything that is not

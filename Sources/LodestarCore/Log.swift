@@ -17,7 +17,7 @@ public enum Log {
         return f
     }()
 
-    /// Everything that touches `handle` or `bytesWritten` runs here.
+    /// Everything that touches the appender runs here.
     ///
     /// Most of the app logs on main, but the updater does not: its worker
     /// queue and the URLSession completion queue both call straight into
@@ -30,8 +30,7 @@ public enum Log {
     /// Synchronous, not async: a log line must still be on disk when a
     /// crash follows it, which is exactly when the log matters most.
     private static let io = DispatchQueue(label: "lodestar.log")
-    private static var handle: FileHandle?
-    private static var bytesWritten: UInt64 = 0
+    private static let appender = AppendingFile(url: file, maxBytes: UInt64(maxBytes), keptRotations: keptRotations)
 
     /// Tests exercise the same classes; their log lines must never land in
     /// the user's live file. Under XCTest, stdout only.
@@ -68,21 +67,7 @@ public enum Log {
         listener?(line)
         if stdoutEnabled { print(line, terminator: "") }
         guard fileEnabled, let data = line.data(using: .utf8) else { return }
-        io.sync {
-            ensureHandle()
-            // `write(contentsOf:)` throws where the old `write(_:)` raised
-            // an Objective-C exception Swift cannot catch — a full disk or
-            // a closed descriptor used to abort the process outright.
-            do {
-                try handle?.write(contentsOf: data)
-            } catch {
-                return
-            }
-            bytesWritten += UInt64(data.count)
-            if bytesWritten > maxBytes {
-                rotate()
-            }
-        }
+        io.sync { appender.append(data) }
     }
 
     private static func format(_ value: Any) -> String {
@@ -98,39 +83,77 @@ public enum Log {
         }
         return text.isEmpty ? "\"\"" : text
     }
+}
 
-    /// Callers must already be on `io`.
-    private static func ensureHandle() {
-        dispatchPrecondition(condition: .onQueue(io))
-        guard handle == nil else { return }
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        if !FileManager.default.fileExists(atPath: file.path) {
-            FileManager.default.createFile(atPath: file.path, contents: nil,
-                                           attributes: [.posixPermissions: 0o600])
-        }
-        handle = try? FileHandle(forWritingTo: file)
-        handle?.seekToEndOfFile()
-        let size = (try? FileManager.default.attributesOfItem(atPath: file.path))?[.size] as? UInt64
-        bytesWritten = size ?? 0
+/// A text file more than one process appends to: the app, a successor
+/// taking over from it at an update, the CLI. It was a `FileHandle` opened
+/// once and sought to the end once, so each writer kept its own idea of
+/// where the end was and wrote over the other's bytes — the live log held
+/// lines like `NFO draft open=speak` and `24) did not exit in 5s`, and a
+/// writer whose file another had rotated away went on writing into `.1`.
+///
+/// Opened with `O_APPEND`, every write lands at the end as it is at that
+/// moment, whoever else is writing. The path is followed: when the file on
+/// disk is no longer the one open, it is opened afresh. A write that fails
+/// (a full disk) drops the line and never raises. The size that decides
+/// rotation is the file's, not this writer's count. Not thread-safe:
+/// callers serialize.
+public final class AppendingFile {
+    public let url: URL
+    private let maxBytes: UInt64
+    private let keptRotations: Int
+    private var descriptor: Int32 = -1
+    private var inode: ino_t = 0
+
+    public init(url: URL, maxBytes: UInt64, keptRotations: Int) {
+        self.url = url
+        self.maxBytes = maxBytes
+        self.keptRotations = keptRotations
     }
 
-    /// lodestar.log -> .1 -> .2, oldest dropped. Callers must already be
-    /// on `io` — closing the handle while another thread is mid-write is
-    /// precisely the race this queue exists to prevent.
-    private static func rotate() {
-        dispatchPrecondition(condition: .onQueue(io))
-        try? handle?.close()
-        handle = nil
-        let fm = FileManager.default
-        let oldest = directory.appendingPathComponent("lodestar.log.\(keptRotations)")
-        try? fm.removeItem(at: oldest)
-        for index in stride(from: keptRotations - 1, through: 1, by: -1) {
-            let from = directory.appendingPathComponent("lodestar.log.\(index)")
-            let to = directory.appendingPathComponent("lodestar.log.\(index + 1)")
-            try? fm.moveItem(at: from, to: to)
+    deinit { closeDescriptor() }
+
+    public func append(_ data: Data) {
+        openIfNeeded()
+        guard descriptor >= 0, !data.isEmpty else { return }
+        let written = data.withUnsafeBytes { Darwin.write(descriptor, $0.baseAddress, $0.count) }
+        guard written >= 0 else {
+            closeDescriptor()
+            return
         }
-        try? fm.moveItem(at: file, to: directory.appendingPathComponent("lodestar.log.1"))
-        bytesWritten = 0
-        ensureHandle()
+        var status = stat()
+        if fstat(descriptor, &status) == 0, UInt64(status.st_size) > maxBytes { rotate() }
+    }
+
+    private func openIfNeeded() {
+        if descriptor >= 0 {
+            var onDisk = stat()
+            if stat(url.path, &onDisk) == 0, onDisk.st_ino == inode { return }
+            closeDescriptor()
+        }
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                 withIntermediateDirectories: true)
+        descriptor = open(url.path, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0o600)
+        guard descriptor >= 0 else { return }
+        var status = stat()
+        inode = fstat(descriptor, &status) == 0 ? status.st_ino : 0
+    }
+
+    private func closeDescriptor() {
+        if descriptor >= 0 { close(descriptor) }
+        descriptor = -1
+    }
+
+    /// `name` → `name.1` → … → `name.<kept>`, the oldest dropped. The next
+    /// append opens a fresh file at the path.
+    private func rotate() {
+        closeDescriptor()
+        let fm = FileManager.default
+        let base = url.path
+        try? fm.removeItem(atPath: "\(base).\(keptRotations)")
+        for index in stride(from: keptRotations - 1, through: 1, by: -1) {
+            try? fm.moveItem(atPath: "\(base).\(index)", toPath: "\(base).\(index + 1)")
+        }
+        try? fm.moveItem(atPath: base, toPath: "\(base).1")
     }
 }

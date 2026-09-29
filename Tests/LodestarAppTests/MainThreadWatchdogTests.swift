@@ -88,6 +88,9 @@ final class MainThreadWatchdogTests: XCTestCase {
         let lock = NSLock()
         var late = 0
         watchdog.onLate = { _, _ in lock.withLock { late += 1 } }
+        // The default stall is abort(): on a loaded runner main can be
+        // starved past this ceiling, and that took the whole shard with it.
+        watchdog.onStall = { _ in }
         watchdog.start()
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.5))
         watchdog.stop()

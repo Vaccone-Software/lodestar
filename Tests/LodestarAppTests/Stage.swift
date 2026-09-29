@@ -277,6 +277,9 @@ final class Stage {
 
     init(voices: [Voice] = []) {
         _ = NSApplication.shared
+        // The screen every scenario is laid out on, whatever machine runs
+        // it: a runner's virtual display is narrower than a desk's.
+        ActivePolicy.frameOverride = NSRect(x: 0, y: 0, width: 1920, height: 1050)
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("lodestar-stage-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

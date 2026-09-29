@@ -39,6 +39,7 @@ public enum ActivePolicy {
     /// displays inside the window is 250ms of stale placement — below
     /// what a hand can notice, far below what the queries were costing.
     public static var presentationFrame: NSRect {
+        if let frameOverride { return frameOverride }
         let now = Date()
         if let cached = cachedPresentation, now.timeIntervalSince(cached.at) < 0.25 {
             return cached.frame
@@ -48,6 +49,13 @@ public enum ActivePolicy {
         cachedPresentation = (frame, now)
         return frame
     }
+
+    /// A fixed frame standing in for the screen. The harness sets it: how
+    /// many cards the strip draws, where a panel sits, and what fits are
+    /// all read off the display, and a test that ran on the developer's
+    /// 1920-wide screen failed on a CI runner's narrower virtual one for
+    /// three days, on the oldest clip's card being off the strip.
+    nonisolated(unsafe) public static var frameOverride: NSRect?
 
     private static var cachedPresentation: (frame: NSRect, at: Date)?
 }

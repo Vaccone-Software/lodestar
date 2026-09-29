@@ -94,6 +94,19 @@ for index in "${!pids[@]}"; do
     wait "${pids[$index]}" || failed=1
 done
 
+# A process that died mid-run (a crash, an abort, an exit) leaves the
+# summary of the last class it finished and no word of what killed it, so
+# its tests are silently missing from the total. Its log names the test it
+# was in: the last one started and never finished.
+for log in "${logs[@]}"; do
+    if ! grep -qE "Test Suite '(Selected tests|All tests)' (passed|failed)" "$log"; then
+        died=$(grep -E "^Test Case .* (started|passed|failed|skipped)" "$log" | tail -1)
+        echo "✕ $(basename "$log" .log) ended before its last test: $died"
+        tail -12 "$log" | cut -c1-240
+        failed=1
+    fi
+done
+
 executed=0
 for log in "${logs[@]}"; do
     # The bundle's own summary: the last "Executed N tests" line.

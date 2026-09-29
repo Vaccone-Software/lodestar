@@ -180,7 +180,13 @@ final class EditorRig {
 
     /// Spin the main queue until `condition` holds, or fail after a bound
     /// of wall time: the fakes answer on a real queue.
-    func settle(_ what: String = "condition", within seconds: TimeInterval = 3,
+    /// How long the fakes' answers are waited for. A hosted runner is a
+    /// shared virtual machine with every shard running on it, and the
+    /// editor's work (a spell check over twenty thousand characters, on a
+    /// debug build) took past three seconds there.
+    static let patience: TimeInterval = ProcessInfo.processInfo.environment["CI"] != nil ? 20 : 3
+
+    func settle(_ what: String = "condition", within seconds: TimeInterval = EditorRig.patience,
                 file: StaticString = #filePath, line: UInt = #line, until condition: () -> Bool) {
         let deadline = Date().addingTimeInterval(seconds)
         while !condition() {

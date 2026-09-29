@@ -147,6 +147,13 @@ final class HealthMonitor {
         var dy: Double
         var precise: Bool
         var momentum: Bool
+        /// The device's kind, read off the event: a touch surface marks
+        /// its pointer events subtype 3 and gives its scrolls phases; a
+        /// mouse does neither (measured 2026-09-28, trackpad then ProtoArc:
+        /// 157 moves, 2 clicks subtype 3 against 651 moves, 6 clicks
+        /// subtype 0; 823 phased scrolls against 177 unphased, both
+        /// continuous — so continuity names no device, the phase does).
+        var touch: Bool
 
         init(type: CGEventType, event: CGEvent, now: Date = Date()) {
             self.type = type
@@ -160,6 +167,11 @@ final class HealthMonitor {
             dy = Double(event.getIntegerValueField(.mouseEventDeltaY))
             precise = event.getIntegerValueField(.scrollWheelEventIsContinuous) != 0
             momentum = event.getIntegerValueField(.scrollWheelEventMomentumPhase) != 0
+            if type == .scrollWheel {
+                touch = momentum || event.getIntegerValueField(.scrollWheelEventScrollPhase) != 0
+            } else {
+                touch = event.getIntegerValueField(.mouseEventSubtype) == 3
+            }
         }
     }
 
@@ -364,7 +376,7 @@ final class HealthMonitor {
                 pendingScrolls[index].precise = pendingScrolls[index].precise || r.precise
                 pendingScrolls[index].momentum = pendingScrolls[index].momentum || r.momentum
             } else {
-                let on = deviceLocked(pressureAt: r.precise ? r.at : nil, now: r.at)
+                let on = deviceLocked(touch: r.touch, pressureAt: nil, now: r.at)
                 pendingScrolls.append(PendingScroll(start: r.at, last: r.at, pid: nil,
                                                     precise: r.precise, momentum: r.momentum,
                                                     device: on.kind, index: on.index, roster: on.roster))
@@ -395,7 +407,7 @@ final class HealthMonitor {
                                     roster: pointers.ids)
             }
             let pressure = lastPressure
-            let on = deviceLocked(pressureAt: pressure?.at, now: r.at)
+            let on = deviceLocked(touch: r.touch, pressureAt: pressure?.at, now: r.at)
             let staged = pressure.map { r.at.timeIntervalSince($0.at) <= 0.5 } ?? false
             pointerStore.append(.click(at: r.at, button: r.button, source: .human,
                                        device: on.kind, index: on.index,
@@ -424,30 +436,31 @@ final class HealthMonitor {
         }
     }
 
-    /// Queue. The pointing device a press was on, and which roster
-    /// entry: the trackpad when a pressure stage preceded it or nothing
-    /// external is attached; the one external device when there is
-    /// exactly one; otherwise unknown, said plainly.
-    private func deviceLocked(pressureAt: Date?, now: Date)
+    /// Queue. The pointing device an act was on, and which roster entry.
+    private func deviceLocked(touch: Bool, pressureAt: Date?, now: Date)
         -> (kind: PointerStore.DeviceKind, index: Int, roster: [String]) {
-        let lid = lidClosedLocked(now: now)
         // One read: the index and the list it points into must agree.
         let devices = pointers.current(now: now)
-        let ids = devices.map(\.id)
-        func charge(builtIn: Bool) -> Int {
-            DeviceRoster.attribute(devices, lidClosed: lid, builtIn: builtIn)
-        }
-        if let pressureAt, now.timeIntervalSince(pressureAt) <= 0.5 {
-            return (.trackpad, charge(builtIn: true), ids)
-        }
-        let external = devices.filter { !$0.builtIn }
-        if external.isEmpty, !devices.isEmpty {
-            return (.trackpad, charge(builtIn: true), ids)
-        }
-        if external.count == 1 {
-            return (.mouse, charge(builtIn: false), ids)
-        }
-        return (.unknown, 0, ids)
+        let pressed = pressureAt.map { now.timeIntervalSince($0) <= 0.5 } ?? false
+        let on = Self.pointerDevice(touch: touch || pressed, devices: devices)
+        return (on.kind, on.index, devices.map(\.id))
+    }
+
+    /// The kind the event names, and the one device of that kind charged
+    /// with it — or no index when two of the kind could have made it, or
+    /// none is listed. It used to be guessed from what was attached: with
+    /// a mouse and the trackpad both there, every reach was the mouse's,
+    /// and every continuous scroll the trackpad's — the ProtoArc's too.
+    static func pointerDevice(touch: Bool, devices: [DeviceRoster.Device])
+        -> (kind: PointerStore.DeviceKind, index: Int) {
+        let kind: PointerStore.DeviceKind = touch ? .trackpad : .mouse
+        let candidates = devices.enumerated().filter { isTrackpad($0.element) == touch }
+        return (kind, candidates.count == 1 ? candidates[0].offset + 1 : 0)
+    }
+
+    /// A touch surface on the list: the built-in one, or a Magic Trackpad.
+    static func isTrackpad(_ device: DeviceRoster.Device) -> Bool {
+        device.builtIn || device.name.localizedCaseInsensitiveContains("trackpad")
     }
 
     /// Queue. The lid, cached for half a minute.

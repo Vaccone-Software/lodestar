@@ -39,15 +39,22 @@ final class MainThreadWatchdogTests: XCTestCase {
     /// launch is not a hang: it gets the launch allowance, and the
     /// ordinary ceiling holds from the next ping on.
     func testASlowLaunchIsNotAStallButALaterStallIs() {
-        let watchdog = MainThreadWatchdog(interval: 0.05, ceiling: 0.3, launchCeiling: 2)
+        // Holds are long against the ceilings, and the stall is waited for
+        // with main still held: the watchdog's utility thread is scheduled
+        // late when the suite's shards all run, and a short hold could end
+        // before it looked.
+        let watchdog = MainThreadWatchdog(interval: 0.05, ceiling: 0.3, launchCeiling: 3)
         let lock = NSLock()
         var stalls = 0
         watchdog.onStall = { _ in lock.withLock { stalls += 1 } }
         watchdog.start()
-        Thread.sleep(forTimeInterval: 0.8)  // the launch: past the ceiling, inside the allowance
+        Thread.sleep(forTimeInterval: 1.0)  // the launch: past the ceiling, inside the allowance
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.3))
         XCTAssertEqual(lock.withLock { stalls }, 0, "a slow launch is left alone")
-        Thread.sleep(forTimeInterval: 0.6)  // after launch: a real stall
+        let held = Date()                   // after launch: a real stall, held until it is seen
+        while lock.withLock({ stalls }) == 0, Date().timeIntervalSince(held) < 4 {
+            Thread.sleep(forTimeInterval: 0.1)
+        }
         watchdog.stop()
         XCTAssertGreaterThan(lock.withLock { stalls }, 0, "the ordinary ceiling is back")
     }
@@ -64,7 +71,9 @@ final class MainThreadWatchdogTests: XCTestCase {
         watchdog.start()
         Thread.sleep(forTimeInterval: 0.4)                        // a slow launch
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.2))
-        Thread.sleep(forTimeInterval: 0.5)                        // a hitch while running
+        // A hitch while running, long against the 0.3 s asserted below: a
+        // late-scheduled watchdog can send its ask partway into the hitch.
+        Thread.sleep(forTimeInterval: 1.0)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.3))
         watchdog.stop()
         let seen = lock.withLock { late }

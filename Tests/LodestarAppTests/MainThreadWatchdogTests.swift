@@ -5,17 +5,23 @@ import XCTest
 /// reported inside the ceiling, on the watchdog's own thread.
 final class MainThreadWatchdogTests: XCTestCase {
     func testAStalledMainThreadIsReportedInsideTheCeiling() {
-        let watchdog = MainThreadWatchdog(interval: 0.1, ceiling: 0.3)
+        // No launch allowance here: under a loaded run the first ping can
+        // miss the 0.2 s it is given, and a 60 s allowance then swallowed
+        // the stall this test is about. The launch has its own test.
+        let watchdog = MainThreadWatchdog(interval: 0.1, ceiling: 0.3, launchCeiling: 0.3)
         let stalled = expectation(description: "stall reported")
+        stalled.assertForOverFulfill = false
         watchdog.onStall = { _ in stalled.fulfill() }
         watchdog.start()
-        // Launch answers first; the first ping has an allowance of its own.
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.2))
-        // Hold the main thread past the ceiling. The expectation is
-        // fulfilled from the watchdog's thread while we sleep.
-        Thread.sleep(forTimeInterval: 0.6)
+        // Hold the main thread well past the ceiling: the watchdog's thread
+        // runs at utility and, with the suite's shards all running, can be
+        // scheduled late — a 0.6 s hold was sometimes over before it looked.
+        // The expectation is fulfilled from the watchdog's thread while we
+        // sleep, and the watchdog is stopped only once it has.
+        Thread.sleep(forTimeInterval: 1.5)
+        wait(for: [stalled], timeout: 3)
         watchdog.stop()
-        wait(for: [stalled], timeout: 1)
     }
 
     func testAResponsiveMainThreadIsLeftAlone() {

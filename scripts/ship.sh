@@ -6,8 +6,18 @@
 # through its real taps (scripts/smoke.sh auto), before anything is
 # pushed. --no-smoke skips the gate and says so.
 #   ./scripts/ship.sh notes/v0.9.1.md [--no-smoke]
+#
+# It can be run again. Every network step is retried, and a ship that
+# stopped — a timeout mid-upload, a laptop that slept — is resumed by the
+# same command: a smoked build is kept, notarized artifacts that are still
+# current are not notarized again, an empty draft release is finished
+# rather than fought (scripts/github-release.sh), and a cask already at
+# this version is left alone. What it will not do is touch a release that
+# is already published: that is a version bump.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/retry.sh
+. scripts/retry.sh
 
 NOTES="${1:-}"
 if [ -z "$NOTES" ] || [ ! -f "$NOTES" ]; then
@@ -20,9 +30,27 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
 fi
 
 VERSION=$(grep 'public static let version' Sources/LodestarCore/Version.swift | cut -d'"' -f2)
-REPO=Vaccone-Software/lodestar
-PRERELEASE=""
-case "$VERSION" in 0.*) PRERELEASE="--prerelease";; esac
+
+# What CI and the release need of the notes, found out now and not after a
+# notarized build: named for this version, and committed — `git diff` does
+# not see an untracked file, so an uncommitted notes file passes here and
+# then the verify job on the clean runner cannot find it.
+if [ "$(basename "$NOTES")" != "v$VERSION.md" ]; then
+    echo "✕ $NOTES is not notes/v$VERSION.md, and Version.swift says $VERSION"
+    exit 1
+fi
+if ! git ls-files --error-unmatch "$NOTES" >/dev/null 2>&1; then
+    echo "✕ $NOTES is not committed — CI will not find it. git add and commit it first"
+    exit 1
+fi
+
+STEP="starting"
+trap 'rc=$?; [ "$rc" -eq 0 ] || echo "✕ ship stopped at: $STEP. Once that is sorted, run the same command again: it picks up from there." >&2' EXIT
+
+# Before minutes of building: is this version already out (published
+# releases are immutable), and can GitHub be reached at all?
+STEP="looking for v$VERSION on GitHub"
+./scripts/github-release.sh check "$VERSION"
 
 # The smoke gate. A marker that names this version and is newer than
 # the signed binary it vouches for means that binary was run and put
@@ -30,6 +58,7 @@ case "$VERSION" in 0.*) PRERELEASE="--prerelease";; esac
 # bytes that were smoked are the bytes that ship. No marker: build, sign,
 # self-test, then smoke it here, automatically — a release no longer
 # waits on a hand. --no-smoke builds and goes on.
+STEP="building and smoking"
 SMOKED="dist/.smoked"
 BIN="dist/lodestar.app/Contents/MacOS/lodestar"
 smoked() { [ -f "$SMOKED" ] && [ -f "$BIN" ] && [ "$(cat "$SMOKED")" = "$VERSION" ] && [ "$SMOKED" -nt "$BIN" ]; }
@@ -46,38 +75,36 @@ else
 fi
 
 # Pushed only once the build that ships has passed its gate.
+STEP="pushing main"
 echo "→ pushing main"
-git push -q origin main
+retry git push -q origin main
 
-./scripts/release.sh publish
+# Notarized artifacts left by a ship that stopped later are kept when they
+# are still the ones for this binary: newer than it, and both stapled.
+# Notarizing again is minutes for the same bytes.
+ZIP="dist/lodestar-$VERSION.zip"
+DMG="dist/lodestar-$VERSION.dmg"
+artifacts_current() {
+    [ -f "$ZIP" ] && [ -f "$DMG" ] && [ "$ZIP" -nt "$BIN" ] && [ "$DMG" -nt "$BIN" ] \
+        && xcrun stapler validate dist/lodestar.app >/dev/null 2>&1 \
+        && xcrun stapler validate "$DMG" >/dev/null 2>&1
+}
+STEP="notarizing"
+if artifacts_current; then
+    echo "→ notarized v$VERSION artifacts from an earlier run are current; not notarizing again"
+else
+    ./scripts/release.sh publish
+fi
 
 # A draft first: invisible to the updater, the site and Homebrew, and
 # the one stage at which a release can still change — published releases
 # are immutable. The build is started on every macOS it claims before it
 # is published (verify-build.yml); 0.37.0 started only where it was built.
-echo "→ drafting release v$VERSION"
-gh release create "v$VERSION" "dist/lodestar-$VERSION.zip" "dist/lodestar-$VERSION.dmg" \
-    $PRERELEASE --draft --title "Lodestar $VERSION" --notes-file "$NOTES" --repo "$REPO"
+# All of it, retried and resumable, is github-release.sh.
+STEP="the GitHub release"
+./scripts/github-release.sh publish "$VERSION" "$NOTES" "$ZIP" "$DMG"
 
-echo "→ starting it on macOS 14, 15 and 26 (verify-build.yml)"
-SINCE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-gh workflow run verify-build.yml -f tag="v$VERSION" --repo "$REPO"
-RUN=""
-for _ in $(seq 1 30); do
-    RUN=$(gh run list --repo "$REPO" --workflow verify-build.yml --event workflow_dispatch --limit 5 \
-        --json databaseId,createdAt -q "[.[] | select(.createdAt >= \"$SINCE\")][0].databaseId // empty")
-    [ -n "$RUN" ] && break
-    sleep 2
-done
-[ -n "$RUN" ] || { echo "✕ the verification run never started; v$VERSION stays a draft"; exit 1; }
-if ! gh run watch "$RUN" --repo "$REPO" --exit-status >/dev/null; then
-    echo "✕ v$VERSION did not start on every macOS it claims; it stays a draft (gh run view $RUN --repo $REPO)"
-    exit 1
-fi
-
-echo "→ publishing release v$VERSION"
-gh release edit "v$VERSION" --draft=false --repo "$REPO"
-
+STEP="bumping the cask"
 echo "→ bumping cask"
-./scripts/bump-cask.sh "$VERSION" "dist/lodestar-$VERSION.zip"
+retry ./scripts/bump-cask.sh "$VERSION" "$ZIP"
 echo "✓ shipped v$VERSION"

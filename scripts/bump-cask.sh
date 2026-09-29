@@ -52,6 +52,12 @@ if not arm_only:
     s = re.sub(r'\n\s*depends_on arch: :arm64', '', s)
 open(path, "w").write(s)
 PY
+# Already at this version: a push that reached the tap while its answer
+# was lost, run again, has nothing to commit — and is done, not failed.
+if git -C "$STAGE/tap" diff --quiet; then
+    echo "✓ cask already → $VERSION ($SHA)"
+    exit 0
+fi
 # ${arr[@]+...} rather than a bare expansion: macOS bash 3.2 under set -u
 # treats an empty array as unbound.
 git -C "$STAGE/tap" ${IDENTITY[@]+"${IDENTITY[@]}"} commit -qam "Lodestar $VERSION"

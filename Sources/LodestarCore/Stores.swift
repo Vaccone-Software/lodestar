@@ -336,10 +336,16 @@ public final class StateStore {
 
     // MARK: - Parking
 
+    /// Saved at once, not coalesced. The record is how a parked window —
+    /// moved to a one-point sliver at the screen's corner — comes back, and
+    /// a coalesced save half a second later is lost to an abort in that
+    /// half second, or to a stalled main thread that never runs the timer:
+    /// the window stays in the sliver with nothing that knows where it came
+    /// from. The file is small and written atomically.
     public func setParked(_ spots: [CGWindowID: CGRect]) {
         state.parked = Dictionary(uniqueKeysWithValues: spots.map { (UInt32($0.key), $0.value) })
         state.parkedSession = Lodestar.bootSession
-        saveSoon()
+        save()
     }
 
     /// Parked windows, but only the ones this boot could have parked.

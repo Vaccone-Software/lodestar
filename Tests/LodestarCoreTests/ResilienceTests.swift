@@ -47,6 +47,17 @@ final class StateStoreTests: XCTestCase {
         BreathRecord(path: path, orientation: "horizontal", members: [])
     }
 
+    /// A parked window's way back is on disk the moment it is parked, not
+    /// half a second later: an abort in that half second left the window
+    /// in its corner sliver with nothing that knew where it came from.
+    func testAParkedSpotIsOnDiskAtOnce() {
+        let store = StateStore(file: file)
+        store.setParked([42: CGRect(x: 10, y: 20, width: 300, height: 400)])
+        let reloaded = StateStore(file: file)
+        reloaded.load()
+        XCTAssertEqual(reloaded.parkedSpots[42], CGRect(x: 10, y: 20, width: 300, height: 400))
+    }
+
     func testRoundTripStampsVersion() {
         let store = StateStore(file: file)
         store.setBreath(makeBreath("q"))

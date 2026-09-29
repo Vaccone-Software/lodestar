@@ -634,6 +634,22 @@ final class ClipboardStoreEditTests: XCTestCase {
         XCTAssertEqual(store.clips.first?.lines, 2)
     }
 
+    /// The index was written half a second after a copy, on a background
+    /// queue, and quit waited for neither: a copy just before quitting was
+    /// a file on disk no index named. Quit writes it and waits.
+    func testQuitWritesTheIndexItHasNotSavedYet() {
+        let controller = ClipboardController(store: store)
+        let data = Data("copied just before quit".utf8)
+        let id = ClipboardStore.identity(for: data)
+        store.record(id: id, kind: .text, items: [.init(plain: data, natives: [])],
+                     imageData: nil, preview: "copied just before quit",
+                     sourceBundleID: nil, sourceAppName: nil, sourceHost: nil,
+                     lines: nil, characters: nil)
+        controller.flushForQuit()
+        XCTAssertTrue(ClipboardStore(root: directory).clips.contains { $0.id == id },
+                      "on disk without the main queue ever running the coalesced save")
+    }
+
     func testTheCountsSurviveAReload() {
         let clip = seed("one\ntwo")
         store.saveNow()

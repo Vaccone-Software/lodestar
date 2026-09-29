@@ -294,6 +294,22 @@ final class EditorControllerTests: XCTestCase {
         XCTAssertFalse(rig.reader.asked.contains("Ten."), "one word is not a sentence to read")
     }
 
+    /// Turning the editor off dropped the queue but kept its sentences
+    /// counted in flight, so once it came back on they were never asked.
+    func testSentencesWaitingAtOffAreAskedWhenTheEditorComesBack() {
+        let rig = EditorRig()
+        rig.reader.hold()
+        rig.type("One two three. Four five six. Seven eight nine. Ten.")
+        rig.settle("the first question") { rig.reader.waitingCount == 1 }
+        rig.controller.apply(enabled: false, engine: .standard, language: "en_US", vocabulary: [], skipApps: [])
+        rig.controller.apply(enabled: true, engine: .standard, language: "en_US", vocabulary: [], skipApps: [])
+        rig.reader.letGo()
+        rig.drain()
+        rig.type("One two three. Four five six. Seven eight nine. Ten.")
+        rig.settle("the waiting sentences asked") { rig.reader.asked.count == 3 }
+        XCTAssertEqual(rig.reader.asked, ["One two three.", "Four five six.", "Seven eight nine."])
+    }
+
     /// Every key on the Mac waits in the tap on the main thread, and the
     /// marks were worked out there on every keystroke: a second for a
     /// field at the limit. The read comes home at once; the marks follow.

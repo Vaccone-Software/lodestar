@@ -184,6 +184,29 @@ final class KeyStoreTests: XCTestCase {
         XCTAssertEqual(KeyStore.presses(day: day, in: directory).count, 2)
     }
 
+    /// Appending after a torn tail used to shift every later record: a
+    /// press written behind five stray bytes read back as garbage. The
+    /// torn segment is closed as it stands and the next press opens one.
+    func testAPressAfterATornTailOpensANewSegment() throws {
+        let store = store()
+        store.append(press(0))
+        store.flushSync()
+        let day = KeyStore.day(of: press(0).down, calendar: calendar())
+        let url = KeyStore.url(for: day, in: directory)
+        var data = try Data(contentsOf: url)
+        data.append(contentsOf: [1, 2, 3, 4, 5])
+        try data.write(to: url)
+
+        store.append(press(2, hand: .right, kind: .space))
+        store.flushSync()
+        XCTAssertEqual(KeyStore.segments(day: day, in: directory).count, 2)
+        let back = KeyStore.presses(day: day, in: directory)
+        XCTAssertEqual(back.count, 2)
+        XCTAssertEqual(back[1].down.timeIntervalSince1970, 1_700_000_002, accuracy: 1e-6)
+        XCTAssertEqual(back[1].hand, .right)
+        XCTAssertEqual(back[1].kind, .space)
+    }
+
     func testAnOlderDayIsCompressedWhenANewerOneOpens() throws {
         let store = store()
         let yesterday = press(0)

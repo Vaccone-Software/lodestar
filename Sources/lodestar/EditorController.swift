@@ -202,6 +202,9 @@ final class EditorController: EditorLens {
         pressure = nil
         clearField()
         queue = []
+        // In flight too: a sentence left there is never asked again after
+        // the editor comes back on, because the drain skips what it holds.
+        inFlight = []
         hover?.stop()
         let proofreader = self.proofreader
         Task { await proofreader.release(reason: "editor off") }

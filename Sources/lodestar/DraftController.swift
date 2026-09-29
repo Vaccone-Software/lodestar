@@ -1229,10 +1229,17 @@ final class DraftController {
         // The clip door stashes nothing: its text is already a card, and a
         // stash returned via the pasteboard at the next boot would put it
         // there, which the door promises never to do.
-        if stash != nil, clipOrigin == nil {
-            stashWork?.cancel()
+        // At most half a second behind, however long the words keep coming.
+        // It was a debounce — every render cancelled the pending write — so
+        // continuous dictation or typing wrote nothing until a pause, and an
+        // app that died mid-sentence (a watchdog abort is a stall, which is
+        // exactly a moment with no pause) had stashed nothing of it. The
+        // pending write reads the buffer as it is when it runs.
+        if stash != nil, clipOrigin == nil, stashWork == nil {
             let work = DispatchWorkItem { [weak self] in
-                guard let self, self.isOpen else { return }
+                guard let self else { return }
+                self.stashWork = nil
+                guard self.isOpen else { return }
                 let ghost = self.buffer.ghost
                 self.stash?(self.buffer.text + (ghost.isEmpty ? "" : " " + ghost))
             }

@@ -745,6 +745,26 @@ final class DraftScenarioTests: XCTestCase {
         XCTAssertEqual(stashed.last ?? nil, nil, "a clean close leaves nothing to recover")
     }
 
+    /// Continuous words never paused long enough for the old debounce, so a
+    /// draft that died mid-sentence had stashed nothing. The stash now runs
+    /// at most half a second behind, however long the words keep coming.
+    func testTheStashKeepsUpWithWordsThatNeverPause() {
+        let stage = Stage()
+        var stashed: [String?] = []
+        stage.draft.stash = { stashed.append($0) }
+        stage.lode(".")
+        for word in ["one", "two", "three", "four", "five", "six"] {
+            stage.speech.settle(word)
+            stage.clock.advance(by: 0.3)
+        }
+        // 1.8 s of words 0.3 s apart: a debounce wrote nothing until now.
+        XCTAssertGreaterThanOrEqual(stashed.compactMap { $0 }.count, 3,
+                                    "written while the words were still coming")
+        stage.clock.advance(by: 0.6)
+        XCTAssertEqual(stashed.last ?? nil, "one two three four five six",
+                       "the write reads the draft as it is when it runs")
+    }
+
     /// A stop the recognizer never completes used to leave the draft
     /// closing forever, swallowing every key on the machine. The backstop
     /// lands what the draft has, ghost included, and the late completion

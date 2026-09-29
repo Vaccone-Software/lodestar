@@ -180,8 +180,13 @@ public enum DayFile {
         var index = 0
         var needsHeader = true
         if let last {
+            // A segment that ends mid-record — the process died inside a
+            // write, or the disk filled — is closed as it stands: appended
+            // to, every record after the torn one would be read shifted.
             if !last.compressed, let existing = try? Data(contentsOf: last.url),
-               let onDisk = readHeader(existing), onDisk.fingerprint == header.fingerprint {
+               let onDisk = readHeader(existing), onDisk.fingerprint == header.fingerprint,
+               onDisk.recordSize > 0, existing.count >= onDisk.bodyOffset,
+               (existing.count - onDisk.bodyOffset) % Int(onDisk.recordSize) == 0 {
                 index = last.index
                 needsHeader = false
             } else {
@@ -192,12 +197,23 @@ public enum DayFile {
         var data = Data()
         if needsHeader { data.append(encode(header)) }
         data.append(records)
+        // `write(contentsOf:)` throws where `write(_:)` raised an Objective-C
+        // exception Swift cannot catch: a full disk took the process down,
+        // and the flush that failed ran again at the next launch.
         if !needsHeader, let handle = try? FileHandle(forWritingTo: target) {
-            handle.seekToEndOfFile()
-            handle.write(data)
+            do {
+                try handle.seekToEnd()
+                try handle.write(contentsOf: data)
+            } catch {
+                Log.error("\(prefix): could not append to \(target.lastPathComponent): \(error.localizedDescription)")
+            }
             try? handle.close()
         } else {
-            try? data.write(to: target)
+            do {
+                try data.write(to: target)
+            } catch {
+                Log.error("\(prefix): could not write \(target.lastPathComponent): \(error.localizedDescription)")
+            }
         }
         return index
     }

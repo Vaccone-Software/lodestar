@@ -95,6 +95,14 @@ final class ClipboardController {
         }
     }
 
+    /// Quit: the last copy's index entry is on disk before the process
+    /// ends. The index was written half a second after a copy, on a
+    /// background queue, and quit never waited for either.
+    func flushForQuit() {
+        store.saveNow()
+        store.flushIO()
+    }
+
     func stop() {
         poll?.invalidate()
         poll = nil

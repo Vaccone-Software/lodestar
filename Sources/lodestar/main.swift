@@ -738,6 +738,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         store?.save()
         health.flush()
         observationStore?.flush()
+        clipboardController?.flushForQuit()
         // The watchdog guards a running app, not one on its way out: past
         // eight seconds of restoring it would abort half-way, leave the
         // rest of the parked windows off screen, and launchd would start

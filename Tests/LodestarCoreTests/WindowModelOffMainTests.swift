@@ -14,6 +14,8 @@ final class WindowModelOffMainTests: XCTestCase {
         var titles: [pid_t: String] = [:]
         var reads = 0
         var focused: [pid_t: AXUIElement] = [:]       // app pid → focused element
+        var frames: [pid_t: CGRect] = [:]              // element pid → frame
+        var frameDelay: TimeInterval = 0
 
         private func pid(_ element: AXUIElement) -> pid_t {
             var pid: pid_t = 0
@@ -38,7 +40,14 @@ final class WindowModelOffMainTests: XCTestCase {
             wait(element)
             return lock.withLock { titles[pid(element)] }
         }
-        func frame(of element: AXUIElement) -> CGRect? { CGRect(x: 10, y: 10, width: 500, height: 400) }
+        /// The frame as it stood when the question was asked, answered late.
+        func frame(of element: AXUIElement) -> CGRect? {
+            let (seen, seconds) = lock.withLock {
+                (frames[pid(element)] ?? CGRect(x: 10, y: 10, width: 500, height: 400), frameDelay)
+            }
+            if seconds > 0 { Thread.sleep(forTimeInterval: seconds) }
+            return seen
+        }
         func windows(of pid: pid_t) -> [AXUIElement]? { [] }
         func focusedWindow(of pid: pid_t) -> AXUIElement? { lock.withLock { focused[pid] } }
     }
@@ -138,6 +147,47 @@ final class WindowModelOffMainTests: XCTestCase {
         pump { !changed.isEmpty }
         XCTAssertEqual(model.window(16)?.title, "Final")
         XCTAssertEqual(changed, [16])
+    }
+
+    /// A, then a new window N, then A again: the known window's focus
+    /// applies at once and N's when its reading lands, which used to leave
+    /// the model on N. The last notice is the one that stands.
+    func testFocusEndsWhereTheHandEnded() {
+        let reader = ScriptedReader()
+        let me = appPid
+        reader.ids[900_010] = 20
+        reader.ids[900_011] = 21
+        let model = model(reader)
+        model.frontmostPid = { me }
+        model.receiveForTesting(kAXWindowCreatedNotification, element: window(10), pid: me)
+        pump { model.window(20) != nil }
+        reader.lock.withLock { reader.delay[900_011] = 0.3 }
+        model.receiveForTesting(kAXFocusedWindowChangedNotification, element: window(11), pid: me)
+        model.receiveForTesting(kAXFocusedWindowChangedNotification, element: window(10), pid: me)
+        pump(until: { model.window(21) != nil })
+        pump(until: { false }, within: 0.2)
+        XCTAssertEqual(model.focusedID, 20, "the window focused last, not the one read last")
+    }
+
+    /// A drag that ends while its frame is being read is read again.
+    func testAMoveDuringAFrameReadIsReadAgain() {
+        let reader = ScriptedReader()
+        reader.ids[900_012] = 22
+        let model = model(reader)
+        model.receiveForTesting(kAXWindowCreatedNotification, element: window(12), pid: appPid)
+        pump { model.window(22) != nil }
+        let first = CGRect(x: 100, y: 100, width: 600, height: 400)
+        let last = CGRect(x: 300, y: 200, width: 600, height: 400)
+        reader.lock.withLock {
+            reader.frames[900_012] = first
+            reader.frameDelay = 0.25
+        }
+        model.receiveForTesting(kAXMovedNotification, element: window(12), pid: appPid)
+        Thread.sleep(forTimeInterval: 0.05)                 // the read is out, and has seen `first`
+        reader.lock.withLock { reader.frames[900_012] = last }
+        model.receiveForTesting(kAXMovedNotification, element: window(12), pid: appPid)
+        pump(until: { model.window(22)?.frame == last }, within: 2)
+        XCTAssertEqual(model.window(22)?.frame, last, "where the window ended, not where the first read found it")
     }
 
     func testTwoNoticesForOneWindowReadItOnce() {

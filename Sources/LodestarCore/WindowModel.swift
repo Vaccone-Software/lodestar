@@ -125,6 +125,9 @@ public final class WindowModel {
     /// Who is in front, for a fresh ask. A closure so the scenario harness,
     /// whose world never touches a real window, can answer nobody.
     public var frontmostApp: () -> NSRunningApplication? = { NSWorkspace.shared.frontmostApplication }
+    /// The pid in front, for the focus checks. Its own seam, because a test
+    /// cannot make an `NSRunningApplication` for a pid it chose.
+    public lazy var frontmostPid: () -> pid_t? = { [unowned self] in self.frontmostApp()?.processIdentifier }
 
     private var observers: [pid_t: AppObserver] = [:]
 
@@ -152,7 +155,16 @@ public final class WindowModel {
     /// Elements destroyed while their reading was out: never tracked.
     private var destroyedWhilePending: Set<ElementKey> = []
     /// Windows whose frame is being read: a burst of moves reads once.
-    private var pendingFrames: Set<CGWindowID> = []
+    /// Windows whose frame is being read, and whether another move came
+    /// in while it was: that one is read again when the first lands, or a
+    /// drag that ended during the read left the frame where the read found
+    /// it — hints sized to the old rect, parking keeping the wrong one.
+    private var pendingFrames: [CGWindowID: Bool] = [:]
+    /// Focus notices, numbered. A reading applies focus only if no newer
+    /// notice came while it was out: a known window's focus applies at
+    /// once and a new one's when its reading lands, so A, then a new N,
+    /// then A again used to end on N.
+    private var focusSerial = 0
     /// The launch scan: apps still being read, and when it began.
     private var seedsOutstanding = 0
     private var seedStarted = Date()
@@ -602,13 +614,17 @@ public final class WindowModel {
         guard app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
         let info = AppInfo(app)
         let reader = self.reader
+        focusSerial += 1
+        let serial = focusSerial
         queue(for: info.pid).async { [weak self] in
             let focused = reader.focusedWindow(of: info.pid)
             DispatchQueue.main.async {
                 guard let self, let focused else { return }
                 self.track(element: focused, app: info) { [weak self] id in
-                    // Still the app in front when the answer lands.
-                    guard let self, self.frontmostApp()?.processIdentifier == info.pid else { return }
+                    // Still the app in front, and still the latest word on
+                    // focus, when the answer lands.
+                    guard let self, serial == self.focusSerial,
+                          self.frontmostPid() == info.pid else { return }
                     self.setFocus(id)
                 }
             }
@@ -636,9 +652,13 @@ public final class WindowModel {
             guard let app = appLookup(pid) else { return }
             // Track always (this is how tab-revealed windows self-heal into
             // the model), but only a frontmost app's focus is global focus —
-            // asked when the reading lands, not when the news came.
+            // asked when the reading lands, not when the news came — and only
+            // if no later notice has spoken since.
+            focusSerial += 1
+            let serial = focusSerial
             track(element: element, app: app) { [weak self] id in
-                guard let self, self.frontmostApp()?.processIdentifier == pid else { return }
+                guard let self, serial == self.focusSerial,
+                      self.frontmostPid() == pid else { return }
                 self.setFocus(id)
             }
         case kAXUIElementDestroyedNotification:
@@ -662,25 +682,37 @@ public final class WindowModel {
                 }
             }
         case kAXMovedNotification, kAXResizedNotification:
-            guard let id = idByElement[ElementKey(element: element)],
-                  pendingFrames.insert(id).inserted else { return }
-            let reader = self.reader
-            queue(for: pid).async { [weak self] in
-                let frame = reader.frame(of: element)
-                DispatchQueue.main.async {
-                    guard let self else { return }
-                    self.pendingFrames.remove(id)
-                    guard let frame, var w = self.windows[id], w.isAlive else { return }
-                    w.frame = frame
-                    self.windows[id] = w
-                }
+            guard let id = idByElement[ElementKey(element: element)] else { return }
+            if pendingFrames[id] != nil {
+                pendingFrames[id] = true
+                return
             }
+            readFrame(id, element: element, pid: pid)
         case kAXWindowMiniaturizedNotification:
             mutate(element) { $0.isMinimized = true }
         case kAXWindowDeminiaturizedNotification:
             mutate(element) { $0.isMinimized = false }
         default:
             break
+        }
+    }
+
+    /// A window's frame, read on its app's queue. A move that came in while
+    /// the read was out marks it dirty, and it is read once more.
+    private func readFrame(_ id: CGWindowID, element: AXUIElement, pid: pid_t) {
+        pendingFrames[id] = false
+        let reader = self.reader
+        queue(for: pid).async { [weak self] in
+            let frame = reader.frame(of: element)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                let dirty = self.pendingFrames.removeValue(forKey: id) ?? false
+                if let frame, var w = self.windows[id], w.isAlive {
+                    w.frame = frame
+                    self.windows[id] = w
+                }
+                if dirty, self.windows[id]?.isAlive == true { self.readFrame(id, element: element, pid: pid) }
+            }
         }
     }
 

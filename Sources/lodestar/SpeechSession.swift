@@ -926,6 +926,8 @@ final class AudioInput: @unchecked Sendable {
 private actor AnalyzerBox {
     private let microphone: AudioInput
     private let bridge: BridgeMic
+    /// The ticket this session's bridge was asked for, if it asked.
+    private var bridgeTicket: Int?
     private var analyzer: SpeechAnalyzer?
     private var transcriber: SpeechTranscriber?
     private var continuation: AsyncStream<AnalyzerInput>.Continuation?
@@ -1084,7 +1086,7 @@ private actor AnalyzerBox {
                 // if one is open, covers the gap.
                 gate.bridgeAgain()
                 try? await Task.sleep(for: .seconds(SpeechStart.settleSeconds))
-                guard !stopped else { bridge.stop(); return }
+                guard !stopped else { stopOwnBridge(); return }
             }
             let remaining = SpeechStart.startBudget - Date().timeIntervalSince(began)
             guard remaining > 0.25 else { break }
@@ -1092,12 +1094,12 @@ private actor AnalyzerBox {
                 started = try await Self.startMicrophone(microphone, device: wanted, within: remaining,
                                                          stillWanted: stillWanted) { buffer in gate.fromHeadset(buffer) }
             } catch is CancellationError {
-                bridge.stop()
+                stopOwnBridge()
                 return
             } catch let off as AudioInput.InputOff {
                 // Not a start that failed: a start there is no device for.
                 // Another attempt would refuse the same way.
-                bridge.stop()
+                stopOwnBridge()
                 say(.failed(off.why)); return
             } catch is SpeechStart.TimedOut {
                 // The start is still out on the engine's queue. Another one
@@ -1114,15 +1116,17 @@ private actor AnalyzerBox {
         guard let started else {
             // The bridge was only ever standing in, and a start still out
             // there must not come alive after the draft has said it failed.
-            bridge.stop()
+            stopOwnBridge()
             microphone.stop()
             say(.failed("the microphone could not start")); return
         }
-        // The headset is up for good: the bridge is let go only now, not at
-        // the handover — a start that timed out after its engine began
-        // delivering is retried, and the retry takes the engine down again.
-        gate.closeBridge()
-        bridge.stop()
+        // The bridge is let go at the handover — the headset's first buffer
+        // with a voice in it — never when its start returns: `start`
+        // returns before a buffer has arrived, and the headset's link comes
+        // up silent before it comes up live, so cutting here lost the words
+        // in between. A headset that never hears keeps the bridge for the
+        // session: the words are still heard, and the engine's own silence
+        // watch rebuilds the headset and writes it off for the next draft.
         let input = started.name
         Log.info("draft", ["speech": "audio", "input": input ?? "unknown",
                            "hz": Int(started.format.sampleRate),
@@ -1147,23 +1151,33 @@ private actor AnalyzerBox {
               let target = AudioInput.plannedTarget(device: wanted),
               target != builtIn, AudioInput.isBluetooth(target) else { return }
         let bridge = self.bridge
+        let ticket = bridge.reserveTicket()
+        bridgeTicket = ticket
         let opened = (try? await SpeechStart.withDeadline(SpeechStart.bridgeDeadline) {
             await withCheckedContinuation { continuation in
-                bridge.start(device: builtIn, sink: { gate.fromBridge($0) }) { continuation.resume(returning: $0) }
+                bridge.start(device: builtIn, ticket: ticket, sink: { gate.fromBridge($0) }) {
+                    continuation.resume(returning: $0)
+                }
             }
         }) ?? false
         let headset = AudioInput.name(of: target) ?? "the headset"
         guard opened, !stopped else {
-            bridge.stop()
+            stopOwnBridge()
             Log.info("draft", ["speech": "bridge did not open", "for": headset])
             return
         }
-        gate.onHandover = { ms in
+        gate.onHandover = { [bridge] ms in
+            bridge.stop(ticket: ticket)
             Log.info("draft", ["speech": "bridge handed over", "to": headset, "ms": ms])
         }
         gate.openBridge()
         Log.info("draft", ["speech": "bridging", "on": AudioInput.name(of: builtIn) ?? "built-in", "for": headset])
         say(.listening(input: AudioInput.name(of: builtIn)))
+    }
+
+    /// This session's bridge, and no other session's.
+    private func stopOwnBridge() {
+        if let bridgeTicket { bridge.stop(ticket: bridgeTicket) }
     }
 
     /// The microphone starts on its own queue. The ask passes through
@@ -1230,7 +1244,7 @@ private actor AnalyzerBox {
 
     func stop() async {
         stopped = true
-        bridge.stop()
+        stopOwnBridge()
         if let feed {
             Log.info("draft", ["speech": "audio summary", "buffers": feed.buffers,
                                "peakDb": Int(20 * log10(max(feed.peak, 1e-7)))])
@@ -1275,11 +1289,26 @@ private actor AnalyzerBox {
 final class BridgeMic: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.vaccone.lodestar.audio.bridge", qos: .userInitiated)
     private var audioQueue: AudioQueueRef?
+    /// Whose bridge is open. One bridge serves every draft in turn, and a
+    /// draft winding down after the next one opened used to stop the new
+    /// draft's bridge along with its own. A ticket is taken before the
+    /// start, so a start that lands after its draft gave up on it is
+    /// stopped by that draft's ticket and nobody else's.
+    private var openTicket: Int?
+    private let ticketLock = NSLock()
+    private var nextTicket = 0
+
+    func reserveTicket() -> Int {
+        ticketLock.withLock {
+            nextTicket += 1
+            return nextTicket
+        }
+    }
     private static let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48_000,
                                               channels: 1, interleaved: false)!
     private static let framesPerBuffer: UInt32 = 1024
 
-    func start(device: AudioDeviceID, sink: @escaping (AVAudioPCMBuffer) -> Void,
+    func start(device: AudioDeviceID, ticket: Int, sink: @escaping (AVAudioPCMBuffer) -> Void,
                completion: @escaping (Bool) -> Void) {
         queue.async {
             self.stopNow()
@@ -1310,17 +1339,28 @@ final class BridgeMic: @unchecked Sendable {
                 AudioQueueDispose(aq, true); completion(false); return
             }
             self.audioQueue = aq
+            self.openTicket = ticket
             completion(true)
         }
     }
 
     func pause() { queue.async { if let aq = self.audioQueue { AudioQueuePause(aq) } } }
     func resume() { queue.async { if let aq = self.audioQueue { AudioQueueStart(aq, nil) } } }
+    /// Whatever is open: a new draft, or the session ending.
     func stop() { queue.async { self.stopNow() } }
+
+    /// Only the bridge this ticket opened.
+    func stop(ticket: Int) {
+        queue.async {
+            guard self.openTicket == ticket else { return }
+            self.stopNow()
+        }
+    }
 
     private func stopNow() {
         guard let aq = audioQueue else { return }
         audioQueue = nil
+        openTicket = nil
         AudioQueueStop(aq, true)
         queue.asyncAfter(deadline: .now() + AudioInput.retirement) { AudioQueueDispose(aq, true) }
     }
@@ -1372,14 +1412,6 @@ final class Handover: @unchecked Sendable {
             guard bridgeOpen else { return }
             headsetLive = false
             bridging = true
-        }
-    }
-
-    /// The headset's start is done: from now on only the headset.
-    func closeBridge() {
-        lock.withLock {
-            bridgeOpen = false
-            bridging = false
         }
     }
 

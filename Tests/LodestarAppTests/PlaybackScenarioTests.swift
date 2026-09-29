@@ -115,3 +115,40 @@ final class PlaybackScenarioTests: XCTestCase {
         XCTAssertEqual(stage.playedPlayers, ["com.apple.Music"], "one resume, after the last draft")
     }
 }
+
+/// The draft begins twice when the Mac's microphone stands in for a
+/// waking headset: on the Mac's microphone, then on the headset. The
+/// second arrives while the first question is still out.
+final class PlaybackHandoverTests: XCTestCase {
+    func testAHeadsetThatTakesOverWhileTheRouteIsAskedIsStillAsked() {
+        var asks: [(String?, (Bool) -> Void)] = []
+        var paused = 0
+        let world = PlaybackPause.World(
+            sharedRoute: { input, done in asks.append((input, done)) },
+            pausePlaying: { done in paused += 1; done(["com.apple.Music"]) },
+            resumePlayers: { owed, done in done(owed) },
+            outputRate: { done in done(44_100) },
+            watchRate: { _ in {} })
+        let pause = PlaybackPause(world: world, clock: VirtualClock().clock)
+        pause.dictationBegan(input: "MacBook Pro Microphone")
+        pause.dictationBegan(input: "Cypress")          // the headset, while the first ask is out
+        XCTAssertEqual(asks.map(\.0), ["MacBook Pro Microphone"])
+        asks[0].1(false)                                // the Mac's microphone shares no radio
+        XCTAssertEqual(asks.map(\.0), ["MacBook Pro Microphone", "Cypress"], "the headset is asked about too")
+        asks[1].1(true)
+        XCTAssertEqual(paused, 1, "and the music steps aside")
+    }
+
+    func testTheSameInputTwiceIsAskedOnce() {
+        var asks: [String?] = []
+        let world = PlaybackPause.World(
+            sharedRoute: { input, done in asks.append(input); DispatchQueue.main.async { done(false) } },
+            pausePlaying: { done in done([]) }, resumePlayers: { owed, done in done(owed) },
+            outputRate: { done in done(44_100) }, watchRate: { _ in {} })
+        let pause = PlaybackPause(world: world, clock: VirtualClock().clock)
+        pause.dictationBegan(input: "Cypress")
+        pause.dictationBegan(input: "Cypress")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(asks, ["Cypress"])
+    }
+}

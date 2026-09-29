@@ -115,6 +115,14 @@ final class PlaybackPause {
     private let clock: Clock
     private var state: State = .idle
     private var draftOpen = false
+    /// The input the route is being asked about, and a newer one that
+    /// arrived while it was. With the Mac's microphone standing in for a
+    /// waking headset the draft begins twice — on the Mac's microphone,
+    /// then on the headset — and the second came while the first ask was
+    /// still out: it was dropped, the first answered "no shared radio",
+    /// and the music played on through the telephone band.
+    private var askedInput: String?
+    private var newerInput: String??
     private var backstop: DispatchWorkItem?
     private var stopWatching: (() -> Void)?
 
@@ -135,16 +143,28 @@ final class PlaybackPause {
             // this one's own end.
             cancelResume()
         case .asking:
-            break
+            if input != askedInput { newerInput = .some(input) }
         case .idle:
-            state = .asking
-            world.sharedRoute(input) { [weak self] shared in self?.routeAnswered(shared) }
+            ask(input)
         }
+    }
+
+    private func ask(_ input: String?) {
+        state = .asking
+        askedInput = input
+        newerInput = nil
+        world.sharedRoute(input) { [weak self] shared in self?.routeAnswered(shared) }
     }
 
     private func routeAnswered(_ shared: Bool) {
         guard case .asking = state else { return }
         guard shared else {
+            // Not this input — but the session may have moved on to one
+            // that is, while the question was out.
+            if let newer = newerInput, draftOpen {
+                ask(newer)
+                return
+            }
             state = .idle
             Log.info("draft", ["playback": "no shared radio"])
             return

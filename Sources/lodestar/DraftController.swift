@@ -582,6 +582,7 @@ final class DraftController {
         session += 1
         let mine = session
         sessionStarted = true
+        listening = false
         heardAlive = false
         hearsNothing = false
         silenceWatch?.cancel()
@@ -589,14 +590,20 @@ final class DraftController {
             guard let self, self.isOpen, self.session == mine else { return }
             self.speechState = state
             if case .listening(let input) = state {
+                // Said twice when the Mac's microphone stands in for a
+                // waking headset: first for the bridge, then for the
+                // headset. The wait the hand felt is the first.
+                let first = !self.listening
                 self.listening = true
                 self.inputName = input
                 self.watchForSilence(session: mine)
                 // The device actually read, when the session named it:
                 // a pinned input that fell back gates on what is open.
                 self.playback?.dictationBegan(input: input ?? self.inputDevice)
-                self.observations?.latency(surface: "draft-listen",
-                                           seconds: self.clock.now().timeIntervalSince(self.openedAt))
+                if first {
+                    self.observations?.latency(surface: "draft-listen",
+                                               seconds: self.clock.now().timeIntervalSince(self.openedAt))
+                }
                 if self.mode == .normal || !self.micWanted { self.speech.pause() }
             }
             self.render()

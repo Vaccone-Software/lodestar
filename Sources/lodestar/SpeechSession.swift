@@ -30,6 +30,9 @@ enum SpeechStart {
     /// and the draft says the microphone did not start while the task
     /// that would have started it is parked for the life of the process.
     static let prepareDeadline: TimeInterval = 3
+    /// The Mac's own microphone opens in about 150 ms; a bridge that has
+    /// not opened in a second is not saving the wait it was for.
+    static let bridgeDeadline: TimeInterval = 1
 
     struct TimedOut: Error, CustomStringConvertible {
         var description: String { "the microphone did not answer" }
@@ -110,6 +113,8 @@ final class AnalyzerSpeechSession: SpeechSession {
     /// serial queue, in the order it was made — two sessions overlapping
     /// on one bus was a crash inside `installTapOnBus`.
     private let microphone = AudioInput()
+    /// The Mac's own microphone, standing in while a headset wakes.
+    private let bridge = BridgeMic()
 
     var isAvailable: Bool {
         if #available(macOS 26, *) { return SpeechTranscriber.isAvailable }
@@ -133,8 +138,9 @@ final class AnalyzerSpeechSession: SpeechSession {
         // one still preparing must be told it lost, or two would race for
         // the microphone and the loser would leak.
         microphone.stop()
+        bridge.stop()
         if let old = box as? AnalyzerBox { Task { await old.stop() } }
-        let box = AnalyzerBox(microphone: microphone)
+        let box = AnalyzerBox(microphone: microphone, bridge: bridge)
         self.box = box
         Task { await box.listen(words: words, input: input,
                                 stillWanted: { [weak self] in (self?.box as AnyObject?) === box },
@@ -144,10 +150,12 @@ final class AnalyzerSpeechSession: SpeechSession {
 
     func pause() {
         microphone.pause()
+        bridge.pause()
     }
 
     func resume() {
         microphone.resume()
+        bridge.resume()
     }
 
     func stop(completion: @escaping () -> Void) {
@@ -156,6 +164,7 @@ final class AnalyzerSpeechSession: SpeechSession {
         // The tap comes off first: queued now, ahead of anything the next
         // session queues, which may be before the recognizer has finished.
         microphone.stop()
+        bridge.stop()
         Task {
             await box.stop()
             await MainActor.run { completion() }
@@ -618,7 +627,7 @@ final class AudioInput: @unchecked Sendable {
         return status == noErr && id != kAudioObjectUnknown ? id : nil
     }
 
-    private static func use(_ id: AudioDeviceID, on unit: AudioUnit) -> Bool {
+    static func use(_ id: AudioDeviceID, on unit: AudioUnit) -> Bool {
         var device = id
         return AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice,
                                     kAudioUnitScope_Global, 0, &device,
@@ -652,13 +661,36 @@ final class AudioInput: @unchecked Sendable {
         inFlight = (device, sink)
         deliveryLock.lock(); delivered = 0; signalled = false; deliveryLock.unlock()
         if fresh { discard() }
+        let target = try resolveTarget(device: device, logs: true)
+        return try startEngine(target: target, sink: sink)
+    }
+
+    /// The device a start for `device` will most likely read, asked ahead
+    /// of it so the bridge can decide whether it is wanted: the same
+    /// choice as `startNow`'s, without the write-offs, which live on the
+    /// engine's queue and are not worth a wait on it. A write-off only
+    /// moves a start off a headset, so at worst the bridge stands in for a
+    /// start that did not need it. nil when the start would read nothing.
+    static func plannedTarget(device: String?) -> AudioDeviceID? {
+        let devices = inputDevices()
+        let wanted = device.flatMap { name in devices.first { $0.name == name }?.id }
+        let lidClosed = Lid.isClosed() == true
+        let headset = devices.map(\.id).first { isBluetooth($0) }
+        guard case .device(let chosen) = choose(wanted: wanted, systemDefault: defaultInput(), writtenOff: [],
+                                                builtIn: builtInInput(), lidClosed: lidClosed, headset: headset)
+        else { return nil }
+        return chosen ?? defaultInput()
+    }
+
+    private func resolveTarget(device: String?, logs: Bool) throws -> AudioDeviceID? {
+        dispatchPrecondition(condition: .onQueue(queue))
         let devices = Self.inputDevices()
         let wanted = device.flatMap { name in devices.first { $0.name == name }?.id }
-        if device != nil, wanted == nil {
+        if logs, device != nil, wanted == nil {
             Log.info("draft", ["speech": "input not found", "wanted": device ?? ""])
         }
         let roster = Set(devices.map(\.id))
-        if !silentWindows.isEmpty, !Self.writeOffHolds(roster: roster, chargedUnder: silentRoster) {
+        if logs, !silentWindows.isEmpty, !Self.writeOffHolds(roster: roster, chargedUnder: silentRoster) {
             Log.info("draft", ["speech": "inputs changed", "silence forgotten": silentWindows.count])
             silentWindows = [:]
         }
@@ -670,17 +702,23 @@ final class AudioInput: @unchecked Sendable {
         switch Self.choose(wanted: wanted, systemDefault: systemDefault, writtenOff: writtenOff,
                            builtIn: Self.builtInInput(), lidClosed: lidClosed, headset: headset) {
         case .off(let why):
-            Log.info("draft", ["speech": "input is off", "why": why])
+            if logs { Log.info("draft", ["speech": "input is off", "why": why]) }
             throw InputOff(why: why)
         case .device(let chosen):
             target = chosen
         }
-        if let target, wanted == nil, target != systemDefault {
+        if logs, let target, wanted == nil, target != systemDefault {
             Log.info("draft", ["speech": "default not read",
                                "was": systemDefault.flatMap(Self.name(of:)) ?? "none",
                                "reading": Self.name(of: target) ?? "unknown",
                                "lidClosed": lidClosed])
         }
+        return target
+    }
+
+    private func startEngine(target: AudioDeviceID?, sink: @escaping (AVAudioPCMBuffer) -> Void) throws
+        -> (format: AVAudioFormat, name: String?) {
+        dispatchPrecondition(condition: .onQueue(queue))
         var attempt = 0
         var format = AVAudioFormat()
         while true {
@@ -849,6 +887,7 @@ final class AudioInput: @unchecked Sendable {
 @available(macOS 26, *)
 private actor AnalyzerBox {
     private let microphone: AudioInput
+    private let bridge: BridgeMic
     private var analyzer: SpeechAnalyzer?
     private var transcriber: SpeechTranscriber?
     private var continuation: AsyncStream<AnalyzerInput>.Continuation?
@@ -857,7 +896,10 @@ private actor AnalyzerBox {
     private var format: AVAudioFormat?
     private var stopped = false
 
-    init(microphone: AudioInput) { self.microphone = microphone }
+    init(microphone: AudioInput, bridge: BridgeMic) {
+        self.microphone = microphone
+        self.bridge = bridge
+    }
 
     private static let options = SpeechAnalyzer.Options(priority: .userInitiated,
                                                         modelRetention: .processLifetime)
@@ -984,6 +1026,8 @@ private actor AnalyzerBox {
         let feed = AudioFeed(outFormat: outFormat, continuation: continuation,
                              onLevel: onLevel, onAlive: onAlive)
         self.feed = feed
+        let gate = Handover(push: { feed.push($0) })
+        await openBridge(for: wanted, gate: gate, say: say)
         // A Bluetooth radio resting on its music profile flips to the
         // hands-free profile when the input opens, and a start inside the
         // flip fails with -10868 — measured on the headset this was built
@@ -1000,7 +1044,7 @@ private actor AnalyzerBox {
             }
             do {
                 started = try await Self.startMicrophone(microphone, device: wanted,
-                                                         stillWanted: stillWanted) { buffer in feed.push(buffer) }
+                                                         stillWanted: stillWanted) { buffer in gate.fromHeadset(buffer) }
                 break
             } catch is CancellationError {
                 return
@@ -1014,6 +1058,8 @@ private actor AnalyzerBox {
             }
         }
         guard let started else {
+            // The bridge was only ever standing in.
+            bridge.stop()
             say(.failed("the microphone could not start")); return
         }
         let input = started.name
@@ -1022,6 +1068,50 @@ private actor AnalyzerBox {
                            "channels": Int(started.format.channelCount)])
         guard !stopped else { microphone.stop(); return }
         say(.listening(input: input))
+    }
+
+    /// A Bluetooth headset read with the lid open starts slowly: it has
+    /// to leave its music profile for its telephone one before it can
+    /// hear anything, 1.2 to 2.5 s on every slow start since 0.36.1 (all
+    /// seven over a second, of 99, were a headset at 16 kHz; the Mac's own
+    /// microphone started in a median 178 ms). The Mac's microphone opens
+    /// now and is fed to the recognizer until the headset's first buffer
+    /// with signal, then let go. Only with the lid open, where it hears;
+    /// closed, it reads zeros. The headset stays the input the session
+    /// names and is judged by its own silence watch; the bridge is never
+    /// charged and never charges it.
+    private func openBridge(for wanted: String?, gate: Handover, say: (SpeechState) -> Void) async {
+        guard let builtIn = AudioInput.builtInInput(), Lid.isClosed() == false,
+              let target = AudioInput.plannedTarget(device: wanted),
+              target != builtIn, AudioInput.isBluetooth(target) else { return }
+        let bridge = self.bridge
+        let opened = await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                await withCheckedContinuation { continuation in
+                    bridge.start(device: builtIn, sink: { gate.fromBridge($0) }) { continuation.resume(returning: $0) }
+                }
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(SpeechStart.bridgeDeadline))
+                return false
+            }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
+        }
+        let headset = AudioInput.name(of: target) ?? "the headset"
+        guard opened, !stopped else {
+            bridge.stop()
+            Log.info("draft", ["speech": "bridge did not open", "for": headset])
+            return
+        }
+        gate.onHandover = { [bridge] ms in
+            bridge.stop()
+            Log.info("draft", ["speech": "bridge handed over", "to": headset, "ms": ms])
+        }
+        gate.openBridge()
+        Log.info("draft", ["speech": "bridging", "on": AudioInput.name(of: builtIn) ?? "built-in", "for": headset])
+        say(.listening(input: AudioInput.name(of: builtIn)))
     }
 
     /// The microphone starts on its own queue. The ask passes through
@@ -1097,6 +1187,7 @@ private actor AnalyzerBox {
 
     func stop() async {
         stopped = true
+        bridge.stop()
         if let feed {
             Log.info("draft", ["speech": "audio summary", "buffers": feed.buffers,
                                "peakDb": Int(20 * log10(max(feed.peak, 1e-7)))])
@@ -1124,6 +1215,107 @@ private actor AnalyzerBox {
         results = nil
         analyzer = nil
         transcriber = nil
+    }
+}
+
+/// The Mac's own microphone, run beside the headset's engine while the
+/// headset wakes (see `AnalyzerBox.openBridge`). A plain engine, set to
+/// the built-in device, no configuration watch: it lives for a second or
+/// two. Let go the way `AudioInput` lets go, kept a while before it is
+/// freed, because a device notice in flight reaching a freed engine is
+/// how 0.39.3's first build died.
+final class BridgeMic: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "com.vaccone.lodestar.audio.bridge", qos: .userInitiated)
+    private var engine: AVAudioEngine?
+
+    func start(device: AudioDeviceID, sink: @escaping (AVAudioPCMBuffer) -> Void,
+               completion: @escaping (Bool) -> Void) {
+        queue.async {
+            self.stopNow()
+            let engine = AVAudioEngine()
+            guard let unit = engine.inputNode.audioUnit, AudioInput.use(device, on: unit) else {
+                self.retire(engine); completion(false); return
+            }
+            let format = engine.inputNode.inputFormat(forBus: 0)
+            guard format.sampleRate > 0, format.channelCount > 0 else {
+                self.retire(engine); completion(false); return
+            }
+            engine.inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { buffer, _ in sink(buffer) }
+            engine.prepare()
+            do {
+                try engine.start()
+                self.engine = engine
+                completion(true)
+            } catch {
+                engine.inputNode.removeTap(onBus: 0)
+                self.retire(engine)
+                completion(false)
+            }
+        }
+    }
+
+    func pause() { queue.async { self.engine?.pause() } }
+    func resume() { queue.async { if let engine = self.engine { try? engine.start() } } }
+    func stop() { queue.async { self.stopNow() } }
+
+    private func stopNow() {
+        guard let engine else { return }
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
+        self.engine = nil
+        retire(engine)
+    }
+
+    private func retire(_ engine: AVAudioEngine) {
+        queue.asyncAfter(deadline: .now() + AudioInput.retirement) { withExtendedLifetime(engine) {} }
+    }
+}
+
+/// Two microphones, one recognizer: whose buffers reach the feed.
+///
+/// Without a bridge the headset's go straight through, zeros and all, as
+/// they always have. With one, the Mac's microphone is heard until the
+/// headset's first buffer with signal — its telephone link comes up
+/// silent before it comes up live, and switching on its first buffer
+/// would trade a voice for silence — and from then on only the headset.
+/// Both taps call in on their own audio threads, so the feed, which is
+/// not thread-safe, is only ever pushed under the lock.
+final class Handover: @unchecked Sendable {
+    private let lock = NSLock()
+    private let push: (AVAudioPCMBuffer) -> Void
+    private var bridging = false
+    private var headsetLive = false
+    private var openedAt = Date()
+    /// Runs on the audio thread, once, with how long the bridge stood in.
+    var onHandover: ((Int) -> Void)?
+
+    init(push: @escaping (AVAudioPCMBuffer) -> Void) { self.push = push }
+
+    func openBridge() {
+        lock.withLock {
+            bridging = !headsetLive
+            openedAt = Date()
+        }
+    }
+
+    func fromBridge(_ buffer: AVAudioPCMBuffer) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard bridging, !headsetLive else { return }
+        push(buffer)
+    }
+
+    func fromHeadset(_ buffer: AVAudioPCMBuffer) {
+        var handedAfter: Int?
+        lock.lock()
+        if !headsetLive, !bridging || AudioInput.hasSignal(buffer) {
+            headsetLive = true
+            if bridging { handedAfter = Int(Date().timeIntervalSince(openedAt) * 1000) }
+            bridging = false
+        }
+        if headsetLive { push(buffer) }
+        lock.unlock()
+        if let handedAfter { onHandover?(handedAfter) }
     }
 }
 

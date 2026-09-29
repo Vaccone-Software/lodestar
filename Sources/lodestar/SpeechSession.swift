@@ -1081,7 +1081,8 @@ private actor AnalyzerBox {
     /// names and is judged by its own silence watch; the bridge is never
     /// charged and never charges it.
     private func openBridge(for wanted: String?, gate: Handover, say: (SpeechState) -> Void) async {
-        guard let builtIn = AudioInput.builtInInput(), Lid.isClosed() == false,
+        guard ProcessInfo.processInfo.environment["LODESTAR_NO_BRIDGE"] == nil,
+              let builtIn = AudioInput.builtInInput(), Lid.isClosed() == false,
               let target = AudioInput.plannedTarget(device: wanted),
               target != builtIn, AudioInput.isBluetooth(target) else { return }
         let bridge = self.bridge

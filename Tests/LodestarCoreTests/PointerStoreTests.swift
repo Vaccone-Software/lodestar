@@ -97,6 +97,61 @@ final class PointerStoreTests: XCTestCase {
         guard case .click = back[0] else { return XCTFail("the whole click survives") }
     }
 
+    /// A reach is as long as its samples, so a healthy day's body is
+    /// rarely a multiple of the record size. The torn-tail check once took
+    /// every such file for torn and opened a new segment at each flush:
+    /// thousands of files, each append listing them all. Whole reaches keep
+    /// one segment, flush after flush.
+    func testWholeReachesKeepOneSegmentAcrossFlushes() {
+        let store = store()
+        for i in 0..<5 {
+            let at = base.addingTimeInterval(Double(i))
+            store.append(.reach(start: at, screen: 0,
+                                samples: (0..<(3 + i)).map { _ in PointerStore.Sample(dt: 0.008, dx: 1, dy: 1) },
+                                end: at.addingTimeInterval(0.1)))
+            store.append(.click(at: at.addingTimeInterval(0.1), button: 0, source: .human, device: .mouse,
+                                index: 1, stage: 0, pressure: 0))
+            store.flushSync()
+        }
+        XCTAssertEqual(DayFile.segments(prefix: "pointer", in: directory).count, 1)
+        XCTAssertEqual(PointerStore.records(day: day, in: directory).count, 10)
+    }
+
+    /// And a reach cut inside its samples does close its segment: what
+    /// comes after is written to a new one and reads whole.
+    func testAClickAfterATornReachOpensANewSegment() throws {
+        let store = store()
+        store.append(.reach(start: base, screen: 0,
+                            samples: (0..<50).map { _ in PointerStore.Sample(dt: 0.008, dx: 1, dy: 1) },
+                            end: base.addingTimeInterval(0.4)))
+        store.flushSync()
+        let url = DayFile.url(prefix: "pointer", day: day, in: directory)
+        var data = try Data(contentsOf: url)
+        data.removeLast(40) // mid-samples
+        try data.write(to: url)
+        store.append(.click(at: base.addingTimeInterval(1), button: 2, source: .human, device: .mouse,
+                            index: 1, stage: 0, pressure: 0))
+        store.flushSync()
+        XCTAssertEqual(DayFile.segments(prefix: "pointer", in: directory).count, 2)
+        let back = PointerStore.records(day: day, in: directory)
+        guard case .click(_, let button, _, _, _, _, _)? = back.last else { return XCTFail("the click reads whole") }
+        XCTAssertEqual(button, 2)
+    }
+
+    func testWholeLengthStopsWhereDecodeStops() {
+        let reach = PointerStore.encode(.reach(start: base, screen: 0,
+                                               samples: [PointerStore.Sample(dt: 0.008, dx: 1, dy: 1)],
+                                               end: base))
+        let click = PointerStore.encode(.click(at: base, button: 0, source: .human, device: .mouse,
+                                               index: 1, stage: 0, pressure: 0))
+        let body = reach + click
+        XCTAssertEqual(PointerStore.wholeLength(body), body.count)
+        XCTAssertEqual(PointerStore.wholeLength(Array(body.dropLast(3))), reach.count, "a torn click")
+        XCTAssertEqual(PointerStore.wholeLength(Array(reach.dropLast(5))), reach.count - 16,
+                       "a torn trailer leaves the reach without it")
+        XCTAssertEqual(PointerStore.wholeLength(Array(reach.prefix(20))), 0, "a reach torn in its samples")
+    }
+
     func testARosterChangeOpensANewSegmentAndOlderDaysDeflate() {
         let store = store()
         store.append(.click(at: base, button: 0, source: .human, device: .trackpad, index: 1, stage: 0, pressure: 0),

@@ -129,7 +129,8 @@ public final class PointerStore {
             var bytes = Data()
             for record in run.records { bytes.append(contentsOf: Self.encode(record)) }
             DayFile.append(bytes, prefix: Self.prefix, day: run.day,
-                           header: header(for: run.day, roster: run.roster), in: directory)
+                           header: header(for: run.day, roster: run.roster), in: directory,
+                           wholeLength: Self.wholeLength)
             newest = max(newest, run.day)
         }
         if !newest.isEmpty { DayFile.compress(prefix: Self.prefix, before: newest, in: directory) }
@@ -211,6 +212,30 @@ public final class PointerStore {
             stamp(start)
         }
         return out
+    }
+
+    /// How many bytes of a body are whole records: where `decode` would
+    /// stop, walked by the heads alone. A reach is its head, its samples,
+    /// and a trailer when one follows, so a healthy body is rarely a
+    /// multiple of the record size; a reach cut inside its samples or its
+    /// trailer is where the whole part ends.
+    static func wholeLength(_ bytes: [UInt8]) -> Int {
+        var offset = 0
+        while offset + recordSize <= bytes.count {
+            guard bytes[offset] == 1 else {
+                offset += recordSize
+                continue
+            }
+            let count = Int(bytes[offset + 2]) | Int(bytes[offset + 3]) << 8
+            let next = offset + recordSize + count * sampleSize
+            guard next <= bytes.count else { return offset }
+            offset = next
+            if offset < bytes.count, bytes[offset] == 3 {
+                guard offset + recordSize <= bytes.count else { return offset }
+                offset += recordSize
+            }
+        }
+        return offset
     }
 
     /// The stream, stopping at the first record the tail cannot complete.

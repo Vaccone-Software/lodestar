@@ -491,12 +491,27 @@ final class AudioInput: @unchecked Sendable {
         if let engine {
             if tapInstalled { engine.inputNode.removeTap(onBus: 0) }
             engine.stop()
+            retire(engine)
         }
         engine = nil
         engineDevice = nil
         engineFormat = nil
         tapInstalled = false
     }
+
+    /// An engine let go is kept a while before it is freed. Its input unit
+    /// listens to the device, and a property change already on its way
+    /// when the engine goes is delivered after: AVFAudio's listener then
+    /// messaged a freed engine and the app died (0.39.3's first automated
+    /// smoke, 2026-09-28: warmed at launch, discarded idle on a device
+    /// change, a second change four seconds later — the installed app
+    /// letting go of the microphone). 399 idle discards in three weeks,
+    /// most right after the launch warm-up; five minutes outlasts any
+    /// notice in flight by far, and at most a few engines wait at once.
+    private func retire(_ engine: AVAudioEngine) {
+        queue.asyncAfter(deadline: .now() + Self.retirement) { withExtendedLifetime(engine) {} }
+    }
+    static let retirement: TimeInterval = 300
 
     private func build(for target: AudioDeviceID?) -> AVAudioEngine {
         dispatchPrecondition(condition: .onQueue(queue))

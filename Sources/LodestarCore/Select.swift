@@ -25,6 +25,35 @@ public enum SelectStep: Equatable {
 /// speak; the matcher goes through Foundation so Unicode case folding is
 /// someone else's solved problem.
 public struct SelectCore {
+    // MARK: - What a copy holds
+
+    /// A copy of a span holds the span without the spaces, tabs and line
+    /// breaks at its two ends: a word caught with the space beside it, or
+    /// a line with the indent before it, pastes as what it says. Nothing
+    /// inside the span changes, and a span that is nothing but whitespace
+    /// is left as it is rather than copied as nothing.
+    public static func trimmedForCopy(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? text : trimmed
+    }
+
+    /// The same trim on a range of a text, in UTF-16 as AX counts, so a
+    /// real selection in an app highlights exactly what its copy will hold.
+    public static func trimmedRange(_ range: NSRange, in text: String) -> NSRange {
+        let ns = text as NSString
+        guard range.location != NSNotFound, NSMaxRange(range) <= ns.length, range.length > 0 else { return range }
+        let edges = CharacterSet.whitespacesAndNewlines
+        var start = range.location
+        var end = NSMaxRange(range)
+        func isEdge(_ index: Int) -> Bool {
+            guard let scalar = Unicode.Scalar(ns.character(at: index)) else { return false }
+            return edges.contains(scalar)
+        }
+        while start < end, isEdge(start) { start += 1 }
+        while end > start, isEdge(end - 1) { end -= 1 }
+        return start == end ? range : NSRange(location: start, length: end - start)
+    }
+
     /// One text-bearing element, in reading order. The id is the caller's
     /// index into whatever geometry it keeps alongside.
     public struct Element: Equatable {

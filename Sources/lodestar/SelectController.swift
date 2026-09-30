@@ -1047,7 +1047,9 @@ final class SelectController {
             // A real selection: the app's own highlight, and every verb
             // the app knows — copy, replace, delete — from muscle memory.
             AX.set(editable, kAXFocusedAttribute, to: true)
-            var cfRange = CFRange(location: only.range.location, length: only.range.length)
+            // The highlight is what the copy will hold: no space at its ends.
+            let range = SelectCore.trimmedRange(only.range, in: unit.run.text)
+            var cfRange = CFRange(location: range.location, length: range.length)
             if let value = AXValueCreate(.cfRange, &cfRange) {
                 let error = AXUIElementSetAttributeValue(
                     editable, kAXSelectedTextRangeAttribute as CFString, value)
@@ -1067,7 +1069,7 @@ final class SelectController {
         // becomes a real native selection — the pixel sensor found it, the
         // accessibility truth commits it, and every editor verb works.
         let span = gather(pieces)
-        if case .ocr = unit.geometry, commitToFocusedEditable(span.text) {
+        if case .ocr = unit.geometry, commitToFocusedEditable(SelectCore.trimmedForCopy(span.text)) {
             Log.info("select", ["outcome": "grounded-selected", "chars": only.range.length])
             committedOutcome = "grounded"
             if copyOnComplete { serve(span.text) }
@@ -1205,7 +1207,10 @@ final class SelectController {
             if let truth = OCRSense.reconcile(pixel: attempt.pixel, app: app) {
                 attempt.settled = true
                 committedOutcome = "dragged"
-                if truth != app { serve(truth) }
+                // The app's copy stands when it already says exactly that;
+                // cut to the pixels or carrying a space at an end, it is
+                // served again as the trimmed text.
+                if SelectCore.trimmedForCopy(truth) != app { serve(truth) }
                 // Counts only, never the text: glyphs say whether the
                 // app restored a space the pixels dropped or a glyph.
                 Log.info("select", ["copy": "app", "chars": (truth as NSString).length,
@@ -1229,7 +1234,8 @@ final class SelectController {
         guard attempt.appDone, attempt.rereadDone else { return }
         attempt.settled = true
         let final = attempt.reread ?? attempt.pixel
-        if final != attempt.pixel || NSPasteboard.general.string(forType: .string) != final {
+        if final != attempt.pixel
+            || NSPasteboard.general.string(forType: .string) != SelectCore.trimmedForCopy(final) {
             serve(final)
         }
         Log.info("select", ["copy": attempt.reread == nil ? "pixel" : "reread",
@@ -1305,10 +1311,12 @@ final class SelectController {
         }
     }
 
-    /// The one pasteboard write, shared by every copying verb.
+    /// The one pasteboard write, shared by every copying verb, and the
+    /// one place a copy is trimmed: no space, tab or line break at its
+    /// ends (`SelectCore.trimmedForCopy`).
     private func serve(_ text: String) {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+        NSPasteboard.general.setString(SelectCore.trimmedForCopy(text), forType: .string)
     }
 
     /// ⌘C with a start anchored and no far end yet: take that word and end

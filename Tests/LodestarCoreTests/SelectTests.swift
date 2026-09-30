@@ -438,3 +438,31 @@ final class SelectEngineTests: XCTestCase {
         XCTAssertEqual(core.state, .idle)
     }
 }
+
+/// A copy from select holds what the span says, without the spaces, tabs
+/// and line breaks at its ends; the highlight in an app is trimmed the
+/// same way, so what lights up is what pastes.
+final class SelectCopyTrimTests: XCTestCase {
+    func testACopyLosesOnlyItsEdges() {
+        XCTAssertEqual(SelectCore.trimmedForCopy("  hello world \n"), "hello world")
+        XCTAssertEqual(SelectCore.trimmedForCopy("\tline one\n  line two  "), "line one\n  line two",
+                       "inside the span nothing changes")
+        XCTAssertEqual(SelectCore.trimmedForCopy("exact"), "exact")
+        XCTAssertEqual(SelectCore.trimmedForCopy("   "), "   ", "whitespace alone is not copied as nothing")
+        XCTAssertEqual(SelectCore.trimmedForCopy("\u{00A0}nbsp\u{00A0}"), "nbsp")
+    }
+
+    func testARangeLosesOnlyItsEdgesInUTF16() {
+        let text = "say  hi 👋 there  now"
+        let ns = text as NSString
+        let span = ns.range(of: "  hi 👋 there  ")
+        let trimmed = SelectCore.trimmedRange(span, in: text)
+        XCTAssertEqual(ns.substring(with: trimmed), "hi 👋 there")
+        XCTAssertEqual(SelectCore.trimmedRange(NSRange(location: 3, length: 2), in: text),
+                       NSRange(location: 3, length: 2), "a span of spaces alone stays as it was")
+        XCTAssertEqual(SelectCore.trimmedRange(NSRange(location: 0, length: 3), in: text),
+                       NSRange(location: 0, length: 3))
+        XCTAssertEqual(SelectCore.trimmedRange(NSRange(location: 100, length: 3), in: text),
+                       NSRange(location: 100, length: 3), "a range past the text is left alone")
+    }
+}

@@ -225,7 +225,13 @@ final class EditorController: EditorLens {
     /// twice a second (measured, Ghostty), and none of it is the hand
     /// writing. Focus, windows and a new app always read.
     func noticed(_ name: String) {
-        if field == nil, name == kAXValueChangedNotification || name == kAXSelectedTextChangedNotification { return }
+        // With no readable field, a text change is output — a terminal
+        // announces its own twice a second — and not the hand writing. But
+        // a read already on its way may be the one that finds the field:
+        // a keystroke landing in that window is the hand, and it is read
+        // after that read rather than left for the next beat.
+        if field == nil, !readQueued,
+           name == kAXValueChangedNotification || name == kAXSelectedTextChangedNotification { return }
         poll()
     }
 

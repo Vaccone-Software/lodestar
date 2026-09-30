@@ -24,6 +24,9 @@ final class FakeFieldSource: EditorFieldSource, @unchecked Sendable {
     }
     var reads: Int { lock.withLock { _reads } }
     var text: String? { field?.text }
+    /// Read the field as the read begins, then stall: the answer is what
+    /// was there when it looked, whatever the hand does during the wait.
+    var looksFirst = false
 
     private func wait() {
         let seconds = stall
@@ -31,6 +34,12 @@ final class FakeFieldSource: EditorFieldSource, @unchecked Sendable {
     }
 
     func focusedField(frontmost: pid_t?) -> EditorField? {
+        if looksFirst {
+            let seen = field
+            wait()
+            lock.withLock { _reads += 1 }
+            return seen
+        }
         wait()
         lock.withLock { _reads += 1 }
         return field
@@ -1022,6 +1031,26 @@ final class EditorReadinessTests: XCTestCase {
         rig.source.field = EditorRig.field("We ship it.")
         rig.controller.noticed(kAXValueChangedNotification)
         rig.settle("the change is read") { rig.controller.field?.text == "We ship it." }
+    }
+
+    /// The same, with no luck in it: the first read has looked at the
+    /// field and is still on its way, the editor knows no field yet, and
+    /// the keystroke's notice arrives. It is not a terminal's output to
+    /// ignore; it is read after the read in flight.
+    func testAKeystrokeWhileTheFirstReadIsInFlightIsNotDropped() {
+        let rig = EditorRig()
+        rig.source.looksFirst = true
+        rig.source.field = EditorRig.field("We ship")
+        rig.source.stall = 0.3
+        rig.controller.poll()
+        usleep(50_000) // the read has looked, and sleeps
+        XCTAssertNil(rig.controller.field, "no field known yet")
+        rig.source.field = EditorRig.field("We ship it.")
+        rig.controller.noticed(kAXValueChangedNotification)
+        rig.settle("the keystroke is read after the read in flight") {
+            rig.controller.field?.text == "We ship it."
+        }
+        XCTAssertEqual(rig.source.reads, 2)
     }
 
     /// A terminal's output is not the hand writing: with no readable

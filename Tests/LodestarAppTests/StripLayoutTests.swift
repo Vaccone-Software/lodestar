@@ -242,3 +242,26 @@ final class StripNoCutOffTests: XCTestCase {
         }
     }
 }
+
+/// A card holding a secret draws its middle as blocks, and is still found
+/// by what it holds.
+final class StripSecretTests: XCTestCase {
+    func testASecretDrawsItsEndsAndIsFoundByItsMiddle() {
+        let stage = Stage()
+        let key = stage.seedClip("export OPENAI_API_KEY=sk-proj-" + "AbCdEf1234567890GhIjKlMnOpQr")
+        let plain = stage.seedClip("de595f9a1b2c3d4e5f60718293a4b5c6d7e8f901")
+        stage.openStrip()
+        let b = ClipSecret.blocks
+        XCTAssertEqual(stage.engine.strip.shownMasked[key.id], "export OPENAI_API_KEY=sk-proj-\(b)OpQr")
+        XCTAssertNil(stage.engine.strip.shownMasked[plain.id], "a commit is pasted as it is")
+
+        stage.press("/")
+        for character in "1234567890gh" { stage.press(String(character)) }
+        XCTAssertEqual(stage.engine.strip.shownRecents.map(\.id), [key.id],
+                       "the search reads the whole clip, the middle included")
+        XCTAssertEqual(stage.engine.strip.shownMasked[key.id], "export OPENAI_API_KEY=sk-proj-\(b)OpQr",
+                       "and the card it finds stays masked")
+        stage.press("escape")
+        stage.press("escape")
+    }
+}

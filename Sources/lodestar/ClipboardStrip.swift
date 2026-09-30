@@ -120,6 +120,9 @@ final class ClipboardStrip {
     /// Lodestar's note on each card it has read, by clip id: the voice
     /// line first, then the exact lines, as drawn.
     private(set) var shownNotes: [String: [String]] = [:]
+    /// The text of each card that holds a secret, as drawn, with blocks
+    /// where the card draws its bar.
+    private(set) var shownMasked: [String: String] = [:]
     /// The zones a timestamp is read into beside yours and UTC.
     var timeZones: [TimeZone] = []
     /// The units a measurement is read into.
@@ -168,6 +171,7 @@ final class ClipboardStrip {
         shownCaptions = [:]
         shownSwatches = [:]
         shownNotes = [:]
+        shownMasked = [:]
         shownWeights = []
         shownCards = [:]
 
@@ -355,7 +359,7 @@ final class ClipboardStrip {
             let read = time.note(zones: timeZones)
             // The clip's own lines come first: the note gets what is left,
             // its voice and your clock always, the zones as they fit.
-            let room = body.height - Self.previewHeight(clip, width: body.width) - Self.noteGap
+            let room = body.height - Self.previewHeight(shown(clip).string, width: body.width) - Self.noteGap
             let lines = Self.pack([read.local] + read.zones, width: body.width,
                                   rows: Int((room - Self.voiceHeight - 2) / Self.metaHeight))
             let note = addNote(voice: read.voice, lines: lines, swatch: nil, for: clip.id,
@@ -432,7 +436,7 @@ final class ClipboardStrip {
     /// of the body down. A card with a note beneath gives up the lines
     /// the note stands in, never its place or its face.
     private func addPreview(_ clip: Clipboard.Clip, to card: NSView, in body: NSRect, above note: CGFloat?) {
-        let preview = NSTextField(wrappingLabelWithString: String(clip.preview.prefix(220)))
+        let preview = NSTextField(wrappingLabelWithString: "")
         // Not BarTheme.secondaryFont: that size is for supporting text
         // under a title. Here the preview *is* the content, so it takes
         // a reading size rather than a captioning one.
@@ -449,6 +453,9 @@ final class ClipboardStrip {
         preview.lineBreakMode = .byWordWrapping
         preview.maximumNumberOfLines = 5
         preview.cell?.truncatesLastVisibleLine = true
+        // After the face and the colour, which a field applies to its
+        // whole string: a secret's bar is an attachment of its own.
+        preview.attributedStringValue = shown(clip)
         var frame = body
         if let note {
             frame.origin.y = note + Self.noteGap
@@ -543,9 +550,67 @@ final class ClipboardStrip {
         return Array(lines.prefix(max(1, rows)))
     }
 
+    /// A card's text as drawn: as much as a card holds, with a secret's
+    /// middle as a bar (see `ClipSecret`). The clip keeps its whole text
+    /// and the search reads it; only the glass is spared it, because a
+    /// strip opened during a screen share is on everyone's screen.
+    ///
+    /// The bar is drawn, not typed. A run of block characters was the
+    /// first build, and block glyphs meet with a seam of antialiasing
+    /// between each pair, and stand from descender to ascender, taller
+    /// than the words around them. One rounded bar at the capital height,
+    /// in the text's own grey, reads as the words' own weight set over
+    /// them, and is the same width for every secret, so it never says
+    /// how long one is.
+    private func shown(_ clip: Clipboard.Clip) -> NSAttributedString {
+        let masked = masked(clip)
+        let text = String((masked?.text ?? clip.preview).prefix(Clipboard.cardCharacters))
+        let out = NSMutableAttributedString(string: text, attributes: [
+            .font: BarTheme.bodyFont, .foregroundColor: BarTheme.secondaryColor,
+        ])
+        guard let masked else { return out }
+        shownMasked[clip.id] = text
+        let length = (text as NSString).length
+        for range in masked.blocks.reversed() where range.location < length {
+            let drawn = NSIntersectionRange(range, NSRange(location: 0, length: length))
+            out.replaceCharacters(in: drawn, with: Self.secretBar())
+        }
+        return out
+    }
+
+    /// The bar a secret's middle draws as, drawn when the card is, so the
+    /// grey is the appearance's grey at that moment.
+    private static func secretBar() -> NSAttributedString {
+        let font = BarTheme.bodyFont
+        let size = NSSize(width: 33, height: ceil(font.capHeight))
+        let attachment = NSTextAttachment()
+        attachment.image = NSImage(size: size, flipped: false) { rect in
+            BarTheme.secondaryColor.setFill()
+            NSBezierPath(roundedRect: rect.insetBy(dx: 1.5, dy: 0), xRadius: 2, yRadius: 2).fill()
+            return true
+        }
+        attachment.bounds = NSRect(origin: .zero, size: size)
+        let bar = NSMutableAttributedString(attachment: attachment)
+        bar.addAttributes([.font: font, .foregroundColor: BarTheme.secondaryColor],
+                          range: NSRange(location: 0, length: bar.length))
+        return bar
+    }
+
+    /// Reading a card for secrets is a pass of patterns over its text,
+    /// and the strip redraws on every keystroke of a search, so each
+    /// clip's reading is kept while its text stands.
+    private var maskings: [String: (preview: String, masked: ClipSecret.Masked?)] = [:]
+
+    private func masked(_ clip: Clipboard.Clip) -> ClipSecret.Masked? {
+        if let kept = maskings[clip.id], kept.preview == clip.preview { return kept.masked }
+        let masked = clip.masked
+        maskings[clip.id] = (clip.preview, masked)
+        return masked
+    }
+
     /// How tall a card's text stands, measured as the card will draw it.
-    private static func previewHeight(_ clip: Clipboard.Clip, width: CGFloat) -> CGFloat {
-        let preview = NSTextField(wrappingLabelWithString: String(clip.preview.prefix(220)))
+    private static func previewHeight(_ text: String, width: CGFloat) -> CGFloat {
+        let preview = NSTextField(wrappingLabelWithString: text)
         preview.font = BarTheme.bodyFont
         preview.lineBreakMode = .byWordWrapping
         preview.maximumNumberOfLines = 2

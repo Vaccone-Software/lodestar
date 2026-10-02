@@ -1,0 +1,2438 @@
+[
+  {
+    "utterance_id": "n01",
+    "category": "names",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "Open DraftController.swift and find where settleGhostAsSeen is called, then tell me why the ghost text in Lodestar sticks around after I paste into Ghostty.",
+    "reference_clean": "Open DraftController.swift and find where settleGhostAsSeen is called, then tell me why the ghost text in Lodestar sticks around after I paste into Ghostty.",
+    "names": [
+      {
+        "name": "Lodestar",
+        "start": 106,
+        "end": 114,
+        "in_user_list": true
+      },
+      {
+        "name": "Ghostty",
+        "start": 148,
+        "end": 155,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Lodestar",
+        "start": 106,
+        "end": 114,
+        "in_user_list": true
+      },
+      {
+        "name": "Ghostty",
+        "start": 148,
+        "end": 155,
+        "in_user_list": true
+      }
+    ],
+    "terms": [
+      {
+        "written": "DraftController.swift",
+        "spoken": "draft controller dot swift"
+      },
+      {
+        "written": "settleGhostAsSeen",
+        "spoken": "settle ghost as seen"
+      }
+    ],
+    "tts_text": "Open draft controller dot swift and find where settle ghost as seen is called, then tell me why the ghost text in Lode star sticks around after I paste into Ghostee.",
+    "source_text": "Open DraftController.swift and find where settleGhostAsSeen is called, then tell me why the ghost text in Lodestar sticks around after I paste into Ghostty."
+  },
+  {
+    "utterance_id": "n02",
+    "category": "names",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "Can you check whether the Supabase migration ran on staging before we send the UAT build to Kindora?",
+    "reference_clean": "Can you check whether the Supabase migration ran on staging before we send the UAT build to Kindora?",
+    "names": [
+      {
+        "name": "Supabase",
+        "start": 26,
+        "end": 34,
+        "in_user_list": true
+      },
+      {
+        "name": "UAT",
+        "start": 79,
+        "end": 82,
+        "in_user_list": true
+      },
+      {
+        "name": "Kindora",
+        "start": 92,
+        "end": 99,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Supabase",
+        "start": 26,
+        "end": 34,
+        "in_user_list": true
+      },
+      {
+        "name": "UAT",
+        "start": 79,
+        "end": 82,
+        "in_user_list": true
+      },
+      {
+        "name": "Kindora",
+        "start": 92,
+        "end": 99,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "Can you check whether the Soopa base migration ran on staging before we send the U A T build to Kin dora?",
+    "source_text": "Can you check whether the Supabase migration ran on staging before we send the UAT build to Kindora?"
+  },
+  {
+    "utterance_id": "n03",
+    "category": "names",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "Pull the latest from main, rebase local/dev on top of it, and then rebuild the MLX model loader so the editor stops warming on launch.",
+    "reference_clean": "Pull the latest from main, rebase local/dev on top of it, and then rebuild the MLX model loader so the editor stops warming on launch.",
+    "names": [
+      {
+        "name": "MLX",
+        "start": 79,
+        "end": 82,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "MLX",
+        "start": 79,
+        "end": 82,
+        "in_user_list": true
+      }
+    ],
+    "terms": [
+      {
+        "written": "local/dev",
+        "spoken": "local slash dev"
+      }
+    ],
+    "tts_text": "Pull the latest from main, rebase local slash dev on top of it, and then rebuild the M L X model loader so the editor stops warming on launch.",
+    "source_text": "Pull the latest from main, rebase local/dev on top of it, and then rebuild the MLX model loader so the editor stops warming on launch."
+  },
+  {
+    "utterance_id": "n04",
+    "category": "names",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "Add a SwiftUI preview for the settings pane that shows the Keyboards page with a Kinesis Advantage and a ZMK board connected.",
+    "reference_clean": "Add a SwiftUI preview for the settings pane that shows the Keyboards page with a Kinesis Advantage and a ZMK board connected.",
+    "names": [
+      {
+        "name": "SwiftUI",
+        "start": 6,
+        "end": 13,
+        "in_user_list": true
+      },
+      {
+        "name": "Kinesis",
+        "start": 81,
+        "end": 88,
+        "in_user_list": true
+      },
+      {
+        "name": "ZMK",
+        "start": 105,
+        "end": 108,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "SwiftUI",
+        "start": 6,
+        "end": 13,
+        "in_user_list": true
+      },
+      {
+        "name": "Kinesis",
+        "start": 81,
+        "end": 88,
+        "in_user_list": true
+      },
+      {
+        "name": "ZMK",
+        "start": 105,
+        "end": 108,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "Add a Swift U I preview for the settings pane that shows the Keyboards page with a Kinesis Advantage and a Z M K board connected.",
+    "source_text": "Add a SwiftUI preview for the settings pane that shows the Keyboards page with a Kinesis Advantage and a ZMK board connected."
+  },
+  {
+    "utterance_id": "n05",
+    "category": "names",
+    "tags": [
+      "message"
+    ],
+    "reference_verbatim": "Hey team, the UAT environment for Xonar is back up, so please log your findings in Asana by end of day Thursday.",
+    "reference_clean": "Hey team, the UAT environment for Xonar is back up, so please log your findings in Asana by end of day Thursday.",
+    "names": [
+      {
+        "name": "UAT",
+        "start": 14,
+        "end": 17,
+        "in_user_list": true
+      },
+      {
+        "name": "Xonar",
+        "start": 34,
+        "end": 39,
+        "in_user_list": true
+      },
+      {
+        "name": "Asana",
+        "start": 83,
+        "end": 88,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "UAT",
+        "start": 14,
+        "end": 17,
+        "in_user_list": true
+      },
+      {
+        "name": "Xonar",
+        "start": 34,
+        "end": 39,
+        "in_user_list": true
+      },
+      {
+        "name": "Asana",
+        "start": 83,
+        "end": 88,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "Hey team, the U A T environment for Zonar is back up, so please log your findings in Asana by end of day Thursday.",
+    "source_text": "Hey team, the UAT environment for Xonar is back up, so please log your findings in Asana by end of day Thursday."
+  },
+  {
+    "utterance_id": "n06",
+    "category": "names",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "Open MongoDB Compass against the staging cluster and tell me how many documents are in the sessions collection.",
+    "reference_clean": "Open MongoDB Compass against the staging cluster and tell me how many documents are in the sessions collection.",
+    "names": [
+      {
+        "name": "MongoDB Compass",
+        "start": 5,
+        "end": 20,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "MongoDB Compass",
+        "start": 5,
+        "end": 20,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "Open Mongo D B Compass against the staging cluster and tell me how many documents are in the sessions collection.",
+    "source_text": "Open MongoDB Compass against the staging cluster and tell me how many documents are in the sessions collection."
+  },
+  {
+    "utterance_id": "n07",
+    "category": "names",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "The Raycast extension and Lodestar both grab command space, so make Lodestar back off when Raycast is running.",
+    "reference_clean": "The Raycast extension and Lodestar both grab command space, so make Lodestar back off when Raycast is running.",
+    "names": [
+      {
+        "name": "Raycast",
+        "start": 4,
+        "end": 11,
+        "in_user_list": true
+      },
+      {
+        "name": "Lodestar",
+        "start": 26,
+        "end": 34,
+        "in_user_list": true
+      },
+      {
+        "name": "Lodestar",
+        "start": 68,
+        "end": 76,
+        "in_user_list": true
+      },
+      {
+        "name": "Raycast",
+        "start": 91,
+        "end": 98,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Raycast",
+        "start": 4,
+        "end": 11,
+        "in_user_list": true
+      },
+      {
+        "name": "Lodestar",
+        "start": 26,
+        "end": 34,
+        "in_user_list": true
+      },
+      {
+        "name": "Lodestar",
+        "start": 68,
+        "end": 76,
+        "in_user_list": true
+      },
+      {
+        "name": "Raycast",
+        "start": 91,
+        "end": 98,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "The Ray cast extension and Lode star both grab command space, so make Lode star back off when Ray cast is running.",
+    "source_text": "The Raycast extension and Lodestar both grab command space, so make Lodestar back off when Raycast is running."
+  },
+  {
+    "utterance_id": "n08",
+    "category": "names",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "I moved my passwords into Proton Pass, so update the README to say the API key lives there and not in the keychain.",
+    "reference_clean": "I moved my passwords into Proton Pass, so update the README to say the API key lives there and not in the keychain.",
+    "names": [
+      {
+        "name": "Proton Pass",
+        "start": 26,
+        "end": 37,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Proton Pass",
+        "start": 26,
+        "end": 37,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "I moved my passwords into Proton Pass, so update the read me to say the A P I key lives there and not in the keychain.",
+    "source_text": "I moved my passwords into Proton Pass, so update the README to say the API key lives there and not in the keychain."
+  },
+  {
+    "utterance_id": "n09",
+    "category": "names",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "Ask Claude Code to write a migration that moves the Convex functions into Supabase edge functions, one table at a time.",
+    "reference_clean": "Ask Claude Code to write a migration that moves the Convex functions into Supabase edge functions, one table at a time.",
+    "names": [
+      {
+        "name": "Claude Code",
+        "start": 4,
+        "end": 15,
+        "in_user_list": true
+      },
+      {
+        "name": "Convex",
+        "start": 52,
+        "end": 58,
+        "in_user_list": true
+      },
+      {
+        "name": "Supabase",
+        "start": 74,
+        "end": 82,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Claude Code",
+        "start": 4,
+        "end": 15,
+        "in_user_list": true
+      },
+      {
+        "name": "Convex",
+        "start": 52,
+        "end": 58,
+        "in_user_list": true
+      },
+      {
+        "name": "Supabase",
+        "start": 74,
+        "end": 82,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "Ask Claude Code to write a migration that moves the Convex functions into Soopa base edge functions, one table at a time.",
+    "source_text": "Ask Claude Code to write a migration that moves the Convex functions into Supabase edge functions, one table at a time."
+  },
+  {
+    "utterance_id": "n10",
+    "category": "names",
+    "tags": [
+      "agent",
+      "numbers"
+    ],
+    "reference_verbatim": "Bump Lodestar to 0.39.6, update the release notes, and make sure the site fallback points at the new DMG.",
+    "reference_clean": "Bump Lodestar to 0.39.6, update the release notes, and make sure the site fallback points at the new DMG.",
+    "names": [
+      {
+        "name": "Lodestar",
+        "start": 5,
+        "end": 13,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Lodestar",
+        "start": 5,
+        "end": 13,
+        "in_user_list": true
+      }
+    ],
+    "terms": [
+      {
+        "written": "0.39.6",
+        "spoken": "zero point thirty-nine point six"
+      }
+    ],
+    "tts_text": "Bump Lode star to zero point thirty-nine point six, update the release notes, and make sure the site fallback points at the new D M G.",
+    "source_text": "Bump Lodestar to 0.39.6, update the release notes, and make sure the site fallback points at the new DMG."
+  },
+  {
+    "utterance_id": "n11",
+    "category": "names",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "Check whether AeroSpace is fighting Lodestar for window focus when I switch workspaces with the keyboard.",
+    "reference_clean": "Check whether AeroSpace is fighting Lodestar for window focus when I switch workspaces with the keyboard.",
+    "names": [
+      {
+        "name": "AeroSpace",
+        "start": 14,
+        "end": 23,
+        "in_user_list": true
+      },
+      {
+        "name": "Lodestar",
+        "start": 36,
+        "end": 44,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "AeroSpace",
+        "start": 14,
+        "end": 23,
+        "in_user_list": true
+      },
+      {
+        "name": "Lodestar",
+        "start": 36,
+        "end": 44,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "Check whether Aero space is fighting Lode star for window focus when I switch workspaces with the keyboard.",
+    "source_text": "Check whether AeroSpace is fighting Lodestar for window focus when I switch workspaces with the keyboard."
+  },
+  {
+    "utterance_id": "n12",
+    "category": "names",
+    "tags": [
+      "message",
+      "email"
+    ],
+    "reference_verbatim": "Hi Maria, I wanted to follow up on the Brex reimbursement for the Kinesis keyboard, the receipt is attached.",
+    "reference_clean": "Hi Maria, I wanted to follow up on the Brex reimbursement for the Kinesis keyboard, the receipt is attached.",
+    "names": [
+      {
+        "name": "Maria",
+        "start": 3,
+        "end": 8,
+        "in_user_list": false
+      },
+      {
+        "name": "Brex",
+        "start": 39,
+        "end": 43,
+        "in_user_list": true
+      },
+      {
+        "name": "Kinesis",
+        "start": 66,
+        "end": 73,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Maria",
+        "start": 3,
+        "end": 8,
+        "in_user_list": false
+      },
+      {
+        "name": "Brex",
+        "start": 39,
+        "end": 43,
+        "in_user_list": true
+      },
+      {
+        "name": "Kinesis",
+        "start": 66,
+        "end": 73,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "Hi Maria, I wanted to follow up on the Brex reimbursement for the Kinesis keyboard, the receipt is attached.",
+    "source_text": "Hi Maria, I wanted to follow up on the Brex reimbursement for the Kinesis keyboard, the receipt is attached."
+  },
+  {
+    "utterance_id": "n13",
+    "category": "names",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "Search Kagi for the ZMK documentation on hold tap timing and summarize the difference between balanced and tap preferred.",
+    "reference_clean": "Search Kagi for the ZMK documentation on hold tap timing and summarize the difference between balanced and tap preferred.",
+    "names": [
+      {
+        "name": "Kagi",
+        "start": 7,
+        "end": 11,
+        "in_user_list": true
+      },
+      {
+        "name": "ZMK",
+        "start": 20,
+        "end": 23,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Kagi",
+        "start": 7,
+        "end": 11,
+        "in_user_list": true
+      },
+      {
+        "name": "ZMK",
+        "start": 20,
+        "end": 23,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "Search Kahgee for the Z M K documentation on hold tap timing and summarize the difference between balanced and tap preferred.",
+    "source_text": "Search Kagi for the ZMK documentation on hold tap timing and summarize the difference between balanced and tap preferred."
+  },
+  {
+    "utterance_id": "n14",
+    "category": "names",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "Build the Expo app for iOS and send the TestFlight link to the Kindora channel on Telegram.",
+    "reference_clean": "Build the Expo app for iOS and send the TestFlight link to the Kindora channel on Telegram.",
+    "names": [
+      {
+        "name": "Expo",
+        "start": 10,
+        "end": 14,
+        "in_user_list": true
+      },
+      {
+        "name": "TestFlight",
+        "start": 40,
+        "end": 50,
+        "in_user_list": false
+      },
+      {
+        "name": "Kindora",
+        "start": 63,
+        "end": 70,
+        "in_user_list": true
+      },
+      {
+        "name": "Telegram",
+        "start": 82,
+        "end": 90,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Expo",
+        "start": 10,
+        "end": 14,
+        "in_user_list": true
+      },
+      {
+        "name": "TestFlight",
+        "start": 40,
+        "end": 50,
+        "in_user_list": false
+      },
+      {
+        "name": "Kindora",
+        "start": 63,
+        "end": 70,
+        "in_user_list": true
+      },
+      {
+        "name": "Telegram",
+        "start": 82,
+        "end": 90,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "Build the Expo app for eye O S and send the TestFlight link to the Kin dora channel on Telegram.",
+    "source_text": "Build the Expo app for iOS and send the TestFlight link to the Kindora channel on Telegram."
+  },
+  {
+    "utterance_id": "n15",
+    "category": "names",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "Why does Ghostty drop the first character when the draft panel pastes? Look at the paste path in DraftController.swift.",
+    "reference_clean": "Why does Ghostty drop the first character when the draft panel pastes? Look at the paste path in DraftController.swift.",
+    "names": [
+      {
+        "name": "Ghostty",
+        "start": 9,
+        "end": 16,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Ghostty",
+        "start": 9,
+        "end": 16,
+        "in_user_list": true
+      }
+    ],
+    "terms": [
+      {
+        "written": "DraftController.swift",
+        "spoken": "draft controller dot swift"
+      }
+    ],
+    "tts_text": "Why does Ghostee drop the first character when the draft panel pastes? Look at the paste path in draft controller dot swift.",
+    "source_text": "Why does Ghostty drop the first character when the draft panel pastes? Look at the paste path in DraftController.swift."
+  },
+  {
+    "utterance_id": "n16",
+    "category": "names",
+    "tags": [
+      "message"
+    ],
+    "reference_verbatim": "Rocco Vaccone here, I'm out Friday but reachable on Telegram if UAT blows up.",
+    "reference_clean": "Rocco Vaccone here, I'm out Friday but reachable on Telegram if UAT blows up.",
+    "names": [
+      {
+        "name": "Rocco",
+        "start": 0,
+        "end": 5,
+        "in_user_list": false
+      },
+      {
+        "name": "Vaccone",
+        "start": 6,
+        "end": 13,
+        "in_user_list": true
+      },
+      {
+        "name": "Telegram",
+        "start": 52,
+        "end": 60,
+        "in_user_list": true
+      },
+      {
+        "name": "UAT",
+        "start": 64,
+        "end": 67,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Rocco",
+        "start": 0,
+        "end": 5,
+        "in_user_list": false
+      },
+      {
+        "name": "Vaccone",
+        "start": 6,
+        "end": 13,
+        "in_user_list": true
+      },
+      {
+        "name": "Telegram",
+        "start": 52,
+        "end": 60,
+        "in_user_list": true
+      },
+      {
+        "name": "UAT",
+        "start": 64,
+        "end": 67,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "Rocco Vah cone here, I'm out Friday but reachable on Telegram if U A T blows up.",
+    "source_text": "Rocco Vaccone here, I'm out Friday but reachable on Telegram if UAT blows up."
+  },
+  {
+    "utterance_id": "n17",
+    "category": "names",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "Write a SwiftUI view that lists every MLX model we have pinned, with its size on disk and the last time it loaded.",
+    "reference_clean": "Write a SwiftUI view that lists every MLX model we have pinned, with its size on disk and the last time it loaded.",
+    "names": [
+      {
+        "name": "SwiftUI",
+        "start": 8,
+        "end": 15,
+        "in_user_list": true
+      },
+      {
+        "name": "MLX",
+        "start": 38,
+        "end": 41,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "SwiftUI",
+        "start": 8,
+        "end": 15,
+        "in_user_list": true
+      },
+      {
+        "name": "MLX",
+        "start": 38,
+        "end": 41,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "Write a Swift U I view that lists every M L X model we have pinned, with its size on disk and the last time it loaded.",
+    "source_text": "Write a SwiftUI view that lists every MLX model we have pinned, with its size on disk and the last time it loaded."
+  },
+  {
+    "utterance_id": "n18",
+    "category": "names",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "Move the Xonar onboarding tasks from Asana into the Kindora board and assign them to me.",
+    "reference_clean": "Move the Xonar onboarding tasks from Asana into the Kindora board and assign them to me.",
+    "names": [
+      {
+        "name": "Xonar",
+        "start": 9,
+        "end": 14,
+        "in_user_list": true
+      },
+      {
+        "name": "Asana",
+        "start": 37,
+        "end": 42,
+        "in_user_list": true
+      },
+      {
+        "name": "Kindora",
+        "start": 52,
+        "end": 59,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Xonar",
+        "start": 9,
+        "end": 14,
+        "in_user_list": true
+      },
+      {
+        "name": "Asana",
+        "start": 37,
+        "end": 42,
+        "in_user_list": true
+      },
+      {
+        "name": "Kindora",
+        "start": 52,
+        "end": 59,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "Move the Zonar onboarding tasks from Asana into the Kin dora board and assign them to me.",
+    "source_text": "Move the Xonar onboarding tasks from Asana into the Kindora board and assign them to me."
+  },
+  {
+    "utterance_id": "n19",
+    "category": "names",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "The Convex query is timing out in production, so add logging around the mutation and show me the slowest call from yesterday.",
+    "reference_clean": "The Convex query is timing out in production, so add logging around the mutation and show me the slowest call from yesterday.",
+    "names": [
+      {
+        "name": "Convex",
+        "start": 4,
+        "end": 10,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Convex",
+        "start": 4,
+        "end": 10,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "The Convex query is timing out in production, so add logging around the mutation and show me the slowest call from yesterday.",
+    "source_text": "The Convex query is timing out in production, so add logging around the mutation and show me the slowest call from yesterday."
+  },
+  {
+    "utterance_id": "n20",
+    "category": "names",
+    "tags": [
+      "agent",
+      "numbers"
+    ],
+    "reference_verbatim": "Open the Supabase dashboard and check if row level security is on for the invoices table before the UAT demo on October 14th.",
+    "reference_clean": "Open the Supabase dashboard and check if row level security is on for the invoices table before the UAT demo on October 14th.",
+    "names": [
+      {
+        "name": "Supabase",
+        "start": 9,
+        "end": 17,
+        "in_user_list": true
+      },
+      {
+        "name": "UAT",
+        "start": 100,
+        "end": 103,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Supabase",
+        "start": 9,
+        "end": 17,
+        "in_user_list": true
+      },
+      {
+        "name": "UAT",
+        "start": 100,
+        "end": 103,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "Open the Soopa base dashboard and check if row level security is on for the invoices table before the U A T demo on October fourteenth.",
+    "source_text": "Open the Supabase dashboard and check if row level security is on for the invoices table before the UAT demo on October 14th."
+  },
+  {
+    "utterance_id": "n21",
+    "category": "names",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "Make the Raycast script call the Lodestar CLI instead of AppleScript, and keep the output under one line.",
+    "reference_clean": "Make the Raycast script call the Lodestar CLI instead of AppleScript, and keep the output under one line.",
+    "names": [
+      {
+        "name": "Raycast",
+        "start": 9,
+        "end": 16,
+        "in_user_list": true
+      },
+      {
+        "name": "Lodestar",
+        "start": 33,
+        "end": 41,
+        "in_user_list": true
+      },
+      {
+        "name": "AppleScript",
+        "start": 57,
+        "end": 68,
+        "in_user_list": false
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Raycast",
+        "start": 9,
+        "end": 16,
+        "in_user_list": true
+      },
+      {
+        "name": "Lodestar",
+        "start": 33,
+        "end": 41,
+        "in_user_list": true
+      },
+      {
+        "name": "AppleScript",
+        "start": 57,
+        "end": 68,
+        "in_user_list": false
+      }
+    ],
+    "terms": [],
+    "tts_text": "Make the Ray cast script call the Lode star C L I instead of AppleScript, and keep the output under one line.",
+    "source_text": "Make the Raycast script call the Lodestar CLI instead of AppleScript, and keep the output under one line."
+  },
+  {
+    "utterance_id": "n22",
+    "category": "names",
+    "tags": [
+      "agent",
+      "numbers"
+    ],
+    "reference_verbatim": "Kill whatever is holding port 3000, restart the Expo dev server, and tail the logs in Ghostty.",
+    "reference_clean": "Kill whatever is holding port 3000, restart the Expo dev server, and tail the logs in Ghostty.",
+    "names": [
+      {
+        "name": "Expo",
+        "start": 48,
+        "end": 52,
+        "in_user_list": true
+      },
+      {
+        "name": "Ghostty",
+        "start": 86,
+        "end": 93,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Expo",
+        "start": 48,
+        "end": 52,
+        "in_user_list": true
+      },
+      {
+        "name": "Ghostty",
+        "start": 86,
+        "end": 93,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "Kill whatever is holding port three thousand, restart the Expo dev server, and tail the logs in Ghostee.",
+    "source_text": "Kill whatever is holding port 3000, restart the Expo dev server, and tail the logs in Ghostty."
+  },
+  {
+    "utterance_id": "n23",
+    "category": "names",
+    "tags": [
+      "message",
+      "email",
+      "numbers"
+    ],
+    "reference_verbatim": "Hi Sam, thanks for the intro to the Xonar team, I'd love to set up a call next Tuesday at 2 PM to walk through the Lodestar demo.",
+    "reference_clean": "Hi Sam, thanks for the intro to the Xonar team, I'd love to set up a call next Tuesday at 2 PM to walk through the Lodestar demo.",
+    "names": [
+      {
+        "name": "Sam",
+        "start": 3,
+        "end": 6,
+        "in_user_list": false
+      },
+      {
+        "name": "Xonar",
+        "start": 36,
+        "end": 41,
+        "in_user_list": true
+      },
+      {
+        "name": "Lodestar",
+        "start": 115,
+        "end": 123,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Sam",
+        "start": 3,
+        "end": 6,
+        "in_user_list": false
+      },
+      {
+        "name": "Xonar",
+        "start": 36,
+        "end": 41,
+        "in_user_list": true
+      },
+      {
+        "name": "Lodestar",
+        "start": 115,
+        "end": 123,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "Hi Sam, thanks for the intro to the Zonar team, I'd love to set up a call next Tuesday at two P M to walk through the Lode star demo.",
+    "source_text": "Hi Sam, thanks for the intro to the Xonar team, I'd love to set up a call next Tuesday at 2 PM to walk through the Lodestar demo."
+  },
+  {
+    "utterance_id": "n24",
+    "category": "names",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "Find every place we call the Brex API and wrap it so a rate limit error retries with backoff.",
+    "reference_clean": "Find every place we call the Brex API and wrap it so a rate limit error retries with backoff.",
+    "names": [
+      {
+        "name": "Brex",
+        "start": 29,
+        "end": 33,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Brex",
+        "start": 29,
+        "end": 33,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "Find every place we call the Brex A P I and wrap it so a rate limit error retries with backoff.",
+    "source_text": "Find every place we call the Brex API and wrap it so a rate limit error retries with backoff."
+  },
+  {
+    "utterance_id": "n25",
+    "category": "names",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "Write a Kagi search bang for the MongoDB Compass docs and add it to my notes.",
+    "reference_clean": "Write a Kagi search bang for the MongoDB Compass docs and add it to my notes.",
+    "names": [
+      {
+        "name": "Kagi",
+        "start": 8,
+        "end": 12,
+        "in_user_list": true
+      },
+      {
+        "name": "MongoDB Compass",
+        "start": 33,
+        "end": 48,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Kagi",
+        "start": 8,
+        "end": 12,
+        "in_user_list": true
+      },
+      {
+        "name": "MongoDB Compass",
+        "start": 33,
+        "end": 48,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "Write a Kahgee search bang for the Mongo D B Compass docs and add it to my notes.",
+    "source_text": "Write a Kagi search bang for the MongoDB Compass docs and add it to my notes."
+  },
+  {
+    "utterance_id": "n26",
+    "category": "names",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "Rename the AeroSpace config key in the README from gaps to outer gaps, and link the AeroSpace docs.",
+    "reference_clean": "Rename the AeroSpace config key in the README from gaps to outer gaps, and link the AeroSpace docs.",
+    "names": [
+      {
+        "name": "AeroSpace",
+        "start": 11,
+        "end": 20,
+        "in_user_list": true
+      },
+      {
+        "name": "AeroSpace",
+        "start": 84,
+        "end": 93,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "AeroSpace",
+        "start": 11,
+        "end": 20,
+        "in_user_list": true
+      },
+      {
+        "name": "AeroSpace",
+        "start": 84,
+        "end": 93,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "Rename the Aero space config key in the read me from gaps to outer gaps, and link the Aero space docs.",
+    "source_text": "Rename the AeroSpace config key in the README from gaps to outer gaps, and link the AeroSpace docs."
+  },
+  {
+    "utterance_id": "n27",
+    "category": "names",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "Did the ZMK firmware build finish on GitHub? If it did, flash the left half of the Kinesis first.",
+    "reference_clean": "Did the ZMK firmware build finish on GitHub? If it did, flash the left half of the Kinesis first.",
+    "names": [
+      {
+        "name": "ZMK",
+        "start": 8,
+        "end": 11,
+        "in_user_list": true
+      },
+      {
+        "name": "GitHub",
+        "start": 37,
+        "end": 43,
+        "in_user_list": false
+      },
+      {
+        "name": "Kinesis",
+        "start": 83,
+        "end": 90,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "ZMK",
+        "start": 8,
+        "end": 11,
+        "in_user_list": true
+      },
+      {
+        "name": "GitHub",
+        "start": 37,
+        "end": 43,
+        "in_user_list": false
+      },
+      {
+        "name": "Kinesis",
+        "start": 83,
+        "end": 90,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "Did the Z M K firmware build finish on GitHub? If it did, flash the left half of the Kinesis first.",
+    "source_text": "Did the ZMK firmware build finish on GitHub? If it did, flash the left half of the Kinesis first."
+  },
+  {
+    "utterance_id": "n28",
+    "category": "names",
+    "tags": [
+      "agent",
+      "numbers"
+    ],
+    "reference_verbatim": "Claude Code keeps reading the whole log file, so tell it to only read the last 200 lines of lodestar.log.",
+    "reference_clean": "Claude Code keeps reading the whole log file, so tell it to only read the last 200 lines of lodestar.log.",
+    "names": [
+      {
+        "name": "Claude Code",
+        "start": 0,
+        "end": 11,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Claude Code",
+        "start": 0,
+        "end": 11,
+        "in_user_list": true
+      }
+    ],
+    "terms": [
+      {
+        "written": "lodestar.log",
+        "spoken": "lodestar dot log"
+      }
+    ],
+    "tts_text": "Claude Code keeps reading the whole log file, so tell it to only read the last two hundred lines of lodestar dot log.",
+    "source_text": "Claude Code keeps reading the whole log file, so tell it to only read the last 200 lines of lodestar.log."
+  },
+  {
+    "utterance_id": "n29",
+    "category": "names",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "Store the Kindora staging password in Proton Pass and share it with the rest of the team.",
+    "reference_clean": "Store the Kindora staging password in Proton Pass and share it with the rest of the team.",
+    "names": [
+      {
+        "name": "Kindora",
+        "start": 10,
+        "end": 17,
+        "in_user_list": true
+      },
+      {
+        "name": "Proton Pass",
+        "start": 38,
+        "end": 49,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Kindora",
+        "start": 10,
+        "end": 17,
+        "in_user_list": true
+      },
+      {
+        "name": "Proton Pass",
+        "start": 38,
+        "end": 49,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "Store the Kin dora staging password in Proton Pass and share it with the rest of the team.",
+    "source_text": "Store the Kindora staging password in Proton Pass and share it with the rest of the team."
+  },
+  {
+    "utterance_id": "n30",
+    "category": "names",
+    "tags": [
+      "message"
+    ],
+    "reference_verbatim": "Quick update, the Supabase outage is over and the Expo build is green again, so message me on Telegram if you see anything weird.",
+    "reference_clean": "Quick update, the Supabase outage is over and the Expo build is green again, so message me on Telegram if you see anything weird.",
+    "names": [
+      {
+        "name": "Supabase",
+        "start": 18,
+        "end": 26,
+        "in_user_list": true
+      },
+      {
+        "name": "Expo",
+        "start": 50,
+        "end": 54,
+        "in_user_list": true
+      },
+      {
+        "name": "Telegram",
+        "start": 94,
+        "end": 102,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Supabase",
+        "start": 18,
+        "end": 26,
+        "in_user_list": true
+      },
+      {
+        "name": "Expo",
+        "start": 50,
+        "end": 54,
+        "in_user_list": true
+      },
+      {
+        "name": "Telegram",
+        "start": 94,
+        "end": 102,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "Quick update, the Soopa base outage is over and the Expo build is green again, so message me on Telegram if you see anything weird.",
+    "source_text": "Quick update, the Supabase outage is over and the Expo build is green again, so message me on Telegram if you see anything weird."
+  },
+  {
+    "utterance_id": "n31",
+    "category": "names",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "Refactor the MLX tokenizer loading out of the editor and into its own file called ModelStore.swift.",
+    "reference_clean": "Refactor the MLX tokenizer loading out of the editor and into its own file called ModelStore.swift.",
+    "names": [
+      {
+        "name": "MLX",
+        "start": 13,
+        "end": 16,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "MLX",
+        "start": 13,
+        "end": 16,
+        "in_user_list": true
+      }
+    ],
+    "terms": [
+      {
+        "written": "ModelStore.swift",
+        "spoken": "model store dot swift"
+      }
+    ],
+    "tts_text": "Refactor the M L X tokenizer loading out of the editor and into its own file called model store dot swift.",
+    "source_text": "Refactor the MLX tokenizer loading out of the editor and into its own file called ModelStore.swift."
+  },
+  {
+    "utterance_id": "n32",
+    "category": "names",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "Open the Asana task for the Xonar UAT sign off and paste the test results from today into the description.",
+    "reference_clean": "Open the Asana task for the Xonar UAT sign off and paste the test results from today into the description.",
+    "names": [
+      {
+        "name": "Asana",
+        "start": 9,
+        "end": 14,
+        "in_user_list": true
+      },
+      {
+        "name": "Xonar",
+        "start": 28,
+        "end": 33,
+        "in_user_list": true
+      },
+      {
+        "name": "UAT",
+        "start": 34,
+        "end": 37,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Asana",
+        "start": 9,
+        "end": 14,
+        "in_user_list": true
+      },
+      {
+        "name": "Xonar",
+        "start": 28,
+        "end": 33,
+        "in_user_list": true
+      },
+      {
+        "name": "UAT",
+        "start": 34,
+        "end": 37,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "Open the Asana task for the Zonar U A T sign off and paste the test results from today into the description.",
+    "source_text": "Open the Asana task for the Xonar UAT sign off and paste the test results from today into the description."
+  },
+  {
+    "utterance_id": "n33",
+    "category": "names",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "When Raycast opens its window, Lodestar should not count that as a focus change, so filter it out in the window model.",
+    "reference_clean": "When Raycast opens its window, Lodestar should not count that as a focus change, so filter it out in the window model.",
+    "names": [
+      {
+        "name": "Raycast",
+        "start": 5,
+        "end": 12,
+        "in_user_list": true
+      },
+      {
+        "name": "Lodestar",
+        "start": 31,
+        "end": 39,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Raycast",
+        "start": 5,
+        "end": 12,
+        "in_user_list": true
+      },
+      {
+        "name": "Lodestar",
+        "start": 31,
+        "end": 39,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "When Ray cast opens its window, Lode star should not count that as a focus change, so filter it out in the window model.",
+    "source_text": "When Raycast opens its window, Lodestar should not count that as a focus change, so filter it out in the window model."
+  },
+  {
+    "utterance_id": "n34",
+    "category": "names",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "Compare MongoDB Compass and the Convex dashboard for browsing data and tell me which one Kindora should use.",
+    "reference_clean": "Compare MongoDB Compass and the Convex dashboard for browsing data and tell me which one Kindora should use.",
+    "names": [
+      {
+        "name": "MongoDB Compass",
+        "start": 8,
+        "end": 23,
+        "in_user_list": true
+      },
+      {
+        "name": "Convex",
+        "start": 32,
+        "end": 38,
+        "in_user_list": true
+      },
+      {
+        "name": "Kindora",
+        "start": 89,
+        "end": 96,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "MongoDB Compass",
+        "start": 8,
+        "end": 23,
+        "in_user_list": true
+      },
+      {
+        "name": "Convex",
+        "start": 32,
+        "end": 38,
+        "in_user_list": true
+      },
+      {
+        "name": "Kindora",
+        "start": 89,
+        "end": 96,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "Compare Mongo D B Compass and the Convex dashboard for browsing data and tell me which one Kin dora should use.",
+    "source_text": "Compare MongoDB Compass and the Convex dashboard for browsing data and tell me which one Kindora should use."
+  },
+  {
+    "utterance_id": "n35",
+    "category": "names",
+    "tags": [
+      "agent",
+      "numbers"
+    ],
+    "reference_verbatim": "Write a commit message for the Ghostty paste fix, keep it under 72 characters, and don't mention Claude Code.",
+    "reference_clean": "Write a commit message for the Ghostty paste fix, keep it under 72 characters, and don't mention Claude Code.",
+    "names": [
+      {
+        "name": "Ghostty",
+        "start": 31,
+        "end": 38,
+        "in_user_list": true
+      },
+      {
+        "name": "Claude Code",
+        "start": 97,
+        "end": 108,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Ghostty",
+        "start": 31,
+        "end": 38,
+        "in_user_list": true
+      },
+      {
+        "name": "Claude Code",
+        "start": 97,
+        "end": 108,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "Write a commit message for the Ghostee paste fix, keep it under seventy two characters, and don't mention Claude Code.",
+    "source_text": "Write a commit message for the Ghostty paste fix, keep it under 72 characters, and don't mention Claude Code."
+  },
+  {
+    "utterance_id": "n36",
+    "category": "names",
+    "tags": [
+      "message",
+      "email",
+      "numbers"
+    ],
+    "reference_verbatim": "Dear Mr. Vaccone, your Brex card ending in 4417 has been approved for the SwiftUI conference in San Francisco.",
+    "reference_clean": "Dear Mr. Vaccone, your Brex card ending in 4417 has been approved for the SwiftUI conference in San Francisco.",
+    "names": [
+      {
+        "name": "Vaccone",
+        "start": 9,
+        "end": 16,
+        "in_user_list": true
+      },
+      {
+        "name": "Brex",
+        "start": 23,
+        "end": 27,
+        "in_user_list": true
+      },
+      {
+        "name": "SwiftUI",
+        "start": 74,
+        "end": 81,
+        "in_user_list": true
+      },
+      {
+        "name": "San Francisco",
+        "start": 96,
+        "end": 109,
+        "in_user_list": false
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Vaccone",
+        "start": 9,
+        "end": 16,
+        "in_user_list": true
+      },
+      {
+        "name": "Brex",
+        "start": 23,
+        "end": 27,
+        "in_user_list": true
+      },
+      {
+        "name": "SwiftUI",
+        "start": 74,
+        "end": 81,
+        "in_user_list": true
+      },
+      {
+        "name": "San Francisco",
+        "start": 96,
+        "end": 109,
+        "in_user_list": false
+      }
+    ],
+    "terms": [],
+    "tts_text": "Dear Mister Vah cone, your Brex card ending in forty four seventeen has been approved for the Swift U I conference in San Francisco.",
+    "source_text": "Dear Mr. Vaccone, your Brex card ending in 4417 has been approved for the SwiftUI conference in San Francisco."
+  },
+  {
+    "utterance_id": "n37",
+    "category": "names",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "Check whether AeroSpace and Raycast both register the same hotkey, and if so, move the AeroSpace one to hyper H.",
+    "reference_clean": "Check whether AeroSpace and Raycast both register the same hotkey, and if so, move the AeroSpace one to hyper H.",
+    "names": [
+      {
+        "name": "AeroSpace",
+        "start": 14,
+        "end": 23,
+        "in_user_list": true
+      },
+      {
+        "name": "Raycast",
+        "start": 28,
+        "end": 35,
+        "in_user_list": true
+      },
+      {
+        "name": "AeroSpace",
+        "start": 87,
+        "end": 96,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "AeroSpace",
+        "start": 14,
+        "end": 23,
+        "in_user_list": true
+      },
+      {
+        "name": "Raycast",
+        "start": 28,
+        "end": 35,
+        "in_user_list": true
+      },
+      {
+        "name": "AeroSpace",
+        "start": 87,
+        "end": 96,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "Check whether Aero space and Ray cast both register the same hotkey, and if so, move the Aero space one to hyper H.",
+    "source_text": "Check whether AeroSpace and Raycast both register the same hotkey, and if so, move the AeroSpace one to hyper H."
+  },
+  {
+    "utterance_id": "n38",
+    "category": "names",
+    "tags": [
+      "agent",
+      "numbers"
+    ],
+    "reference_verbatim": "Tell me what changed between Lodestar 0.39.5 and 0.39.6 and draft a Telegram message announcing it.",
+    "reference_clean": "Tell me what changed between Lodestar 0.39.5 and 0.39.6 and draft a Telegram message announcing it.",
+    "names": [
+      {
+        "name": "Lodestar",
+        "start": 29,
+        "end": 37,
+        "in_user_list": true
+      },
+      {
+        "name": "Telegram",
+        "start": 68,
+        "end": 76,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Lodestar",
+        "start": 29,
+        "end": 37,
+        "in_user_list": true
+      },
+      {
+        "name": "Telegram",
+        "start": 68,
+        "end": 76,
+        "in_user_list": true
+      }
+    ],
+    "terms": [
+      {
+        "written": "0.39.5",
+        "spoken": "zero point thirty-nine point five"
+      },
+      {
+        "written": "0.39.6",
+        "spoken": "zero point thirty-nine point six"
+      }
+    ],
+    "tts_text": "Tell me what changed between Lode star zero point thirty-nine point five and zero point thirty-nine point six and draft a Telegram message announcing it.",
+    "source_text": "Tell me what changed between Lodestar 0.39.5 and 0.39.6 and draft a Telegram message announcing it."
+  },
+  {
+    "utterance_id": "n39",
+    "category": "names",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "Set up the Kinesis layout in ZMK so the thumb key sends meh, then test it in Lodestar's key viewer.",
+    "reference_clean": "Set up the Kinesis layout in ZMK so the thumb key sends meh, then test it in Lodestar's key viewer.",
+    "names": [
+      {
+        "name": "Kinesis",
+        "start": 11,
+        "end": 18,
+        "in_user_list": true
+      },
+      {
+        "name": "ZMK",
+        "start": 29,
+        "end": 32,
+        "in_user_list": true
+      },
+      {
+        "name": "Lodestar",
+        "start": 77,
+        "end": 85,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Kinesis",
+        "start": 11,
+        "end": 18,
+        "in_user_list": true
+      },
+      {
+        "name": "ZMK",
+        "start": 29,
+        "end": 32,
+        "in_user_list": true
+      },
+      {
+        "name": "Lodestar",
+        "start": 77,
+        "end": 85,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "Set up the Kinesis layout in Z M K so the thumb key sends meh, then test it in Lode star's key viewer.",
+    "source_text": "Set up the Kinesis layout in ZMK so the thumb key sends meh, then test it in Lodestar's key viewer."
+  },
+  {
+    "utterance_id": "n40",
+    "category": "names",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "Ask Claude Code to explain why Xonar's dashboard uses Convex while Kindora uses Supabase.",
+    "reference_clean": "Ask Claude Code to explain why Xonar's dashboard uses Convex while Kindora uses Supabase.",
+    "names": [
+      {
+        "name": "Claude Code",
+        "start": 4,
+        "end": 15,
+        "in_user_list": true
+      },
+      {
+        "name": "Xonar",
+        "start": 31,
+        "end": 36,
+        "in_user_list": true
+      },
+      {
+        "name": "Convex",
+        "start": 54,
+        "end": 60,
+        "in_user_list": true
+      },
+      {
+        "name": "Kindora",
+        "start": 67,
+        "end": 74,
+        "in_user_list": true
+      },
+      {
+        "name": "Supabase",
+        "start": 80,
+        "end": 88,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Claude Code",
+        "start": 4,
+        "end": 15,
+        "in_user_list": true
+      },
+      {
+        "name": "Xonar",
+        "start": 31,
+        "end": 36,
+        "in_user_list": true
+      },
+      {
+        "name": "Convex",
+        "start": 54,
+        "end": 60,
+        "in_user_list": true
+      },
+      {
+        "name": "Kindora",
+        "start": 67,
+        "end": 74,
+        "in_user_list": true
+      },
+      {
+        "name": "Supabase",
+        "start": 80,
+        "end": 88,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "Ask Claude Code to explain why Zonar's dashboard uses Convex while Kin dora uses Soopa base.",
+    "source_text": "Ask Claude Code to explain why Xonar's dashboard uses Convex while Kindora uses Supabase."
+  },
+  {
+    "utterance_id": "p01",
+    "category": "pause",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "Open DraftController.swift and look at the function that decides when the panel closes.",
+    "reference_clean": "Open DraftController.swift and look at the function that decides when the panel closes.",
+    "names": [],
+    "names_verbatim": [],
+    "terms": [
+      {
+        "written": "DraftController.swift",
+        "spoken": "draft controller dot swift"
+      }
+    ],
+    "tts_text": "Open draft controller dot swift and look at [[slnc 2000]] the function that decides when the panel closes.",
+    "source_text": "Open DraftController.swift and look at {p2000} the function that decides when the panel closes."
+  },
+  {
+    "utterance_id": "p02",
+    "category": "pause",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "I want the Lodestar settings to remember which tab was open last time.",
+    "reference_clean": "I want the Lodestar settings to remember which tab was open last time.",
+    "names": [
+      {
+        "name": "Lodestar",
+        "start": 11,
+        "end": 19,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Lodestar",
+        "start": 11,
+        "end": 19,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "I want the Lode star settings to [[slnc 2500]] remember which tab was open last time.",
+    "source_text": "I want the Lodestar settings to {p2500} remember which tab was open last time."
+  },
+  {
+    "utterance_id": "p03",
+    "category": "pause",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "Run the tests again but this time only the shard that covers the editor.",
+    "reference_clean": "Run the tests again but this time only the shard that covers the editor.",
+    "names": [],
+    "names_verbatim": [],
+    "terms": [],
+    "tts_text": "Run the tests again but this time [[slnc 1800]] only the shard that covers the editor.",
+    "source_text": "Run the tests again but this time {p1800} only the shard that covers the editor."
+  },
+  {
+    "utterance_id": "p04",
+    "category": "pause",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "The problem is that when I stop talking for a second the draft adds a period and starts a new sentence.",
+    "reference_clean": "The problem is that when I stop talking for a second the draft adds a period and starts a new sentence.",
+    "names": [],
+    "names_verbatim": [],
+    "terms": [],
+    "tts_text": "The problem is that when I stop talking for a second [[slnc 2200]] the draft adds a period and starts a new sentence.",
+    "source_text": "The problem is that when I stop talking for a second {p2200} the draft adds a period and starts a new sentence."
+  },
+  {
+    "utterance_id": "p05",
+    "category": "pause",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "Tell Claude Code to check the Supabase logs for any failed auth calls since Monday.",
+    "reference_clean": "Tell Claude Code to check the Supabase logs for any failed auth calls since Monday.",
+    "names": [
+      {
+        "name": "Claude Code",
+        "start": 5,
+        "end": 16,
+        "in_user_list": true
+      },
+      {
+        "name": "Supabase",
+        "start": 30,
+        "end": 38,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Claude Code",
+        "start": 5,
+        "end": 16,
+        "in_user_list": true
+      },
+      {
+        "name": "Supabase",
+        "start": 30,
+        "end": 38,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "Tell Claude Code to check the Soopa base logs for [[slnc 3000]] any failed auth calls since Monday.",
+    "source_text": "Tell Claude Code to check the Supabase logs for {p3000} any failed auth calls since Monday."
+  },
+  {
+    "utterance_id": "p06",
+    "category": "pause",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "Can you make the hint labels a little bigger and use the accent color for the selected one?",
+    "reference_clean": "Can you make the hint labels a little bigger and use the accent color for the selected one?",
+    "names": [],
+    "names_verbatim": [],
+    "terms": [],
+    "tts_text": "Can you make the hint labels [[slnc 1500]] a little bigger and [[slnc 2000]] use the accent color for the selected one?",
+    "source_text": "Can you make the hint labels {p1500} a little bigger and {p2000} use the accent color for the selected one?"
+  },
+  {
+    "utterance_id": "p07",
+    "category": "pause",
+    "tags": [
+      "agent",
+      "trailing"
+    ],
+    "reference_verbatim": "We should probably move the Kindora onboarding into Asana and then maybe",
+    "reference_clean": "We should probably move the Kindora onboarding into Asana and then maybe",
+    "names": [
+      {
+        "name": "Kindora",
+        "start": 28,
+        "end": 35,
+        "in_user_list": true
+      },
+      {
+        "name": "Asana",
+        "start": 52,
+        "end": 57,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Kindora",
+        "start": 28,
+        "end": 35,
+        "in_user_list": true
+      },
+      {
+        "name": "Asana",
+        "start": 52,
+        "end": 57,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "We should probably move the Kin dora onboarding into Asana and then maybe [[slnc 1800]]",
+    "source_text": "We should probably move the Kindora onboarding into Asana and then maybe {trail1800}"
+  },
+  {
+    "utterance_id": "p08",
+    "category": "pause",
+    "tags": [
+      "agent",
+      "trailing"
+    ],
+    "reference_verbatim": "I think the issue is in how Ghostty handles bracketed paste but I'm not totally sure, it could also be the",
+    "reference_clean": "I think the issue is in how Ghostty handles bracketed paste but I'm not totally sure, it could also be the",
+    "names": [
+      {
+        "name": "Ghostty",
+        "start": 28,
+        "end": 35,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Ghostty",
+        "start": 28,
+        "end": 35,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "I think the issue is in how Ghostee handles bracketed paste but [[slnc 2000]] I'm not totally sure, it could also be the [[slnc 2000]]",
+    "source_text": "I think the issue is in how Ghostty handles bracketed paste but {p2000} I'm not totally sure, it could also be the {trail2000}"
+  },
+  {
+    "utterance_id": "p09",
+    "category": "pause",
+    "tags": [
+      "agent"
+    ],
+    "reference_verbatim": "Write a test that types into the panel while dictation is still running and check that nothing gets dropped.",
+    "reference_clean": "Write a test that types into the panel while dictation is still running and check that nothing gets dropped.",
+    "names": [],
+    "names_verbatim": [],
+    "terms": [],
+    "tts_text": "Write a test that types into the panel while [[slnc 2000]] dictation is still running and check that nothing gets dropped.",
+    "source_text": "Write a test that types into the panel while {p2000} dictation is still running and check that nothing gets dropped."
+  },
+  {
+    "utterance_id": "p10",
+    "category": "pause",
+    "tags": [
+      "message"
+    ],
+    "reference_verbatim": "Send the Xonar team a message saying the UAT build is ready and that the release notes are in the Lodestar repo.",
+    "reference_clean": "Send the Xonar team a message saying the UAT build is ready and that the release notes are in the Lodestar repo.",
+    "names": [
+      {
+        "name": "Xonar",
+        "start": 9,
+        "end": 14,
+        "in_user_list": true
+      },
+      {
+        "name": "UAT",
+        "start": 41,
+        "end": 44,
+        "in_user_list": true
+      },
+      {
+        "name": "Lodestar",
+        "start": 98,
+        "end": 106,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Xonar",
+        "start": 9,
+        "end": 14,
+        "in_user_list": true
+      },
+      {
+        "name": "UAT",
+        "start": 41,
+        "end": 44,
+        "in_user_list": true
+      },
+      {
+        "name": "Lodestar",
+        "start": 98,
+        "end": 106,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "Send the Zonar team a message saying the U A T build is ready and [[slnc 2800]] that the release notes are in the Lode star repo.",
+    "source_text": "Send the Xonar team a message saying the UAT build is ready and {p2800} that the release notes are in the Lodestar repo."
+  },
+  {
+    "utterance_id": "d01",
+    "category": "disfluency",
+    "tags": [
+      "self-correction",
+      "numbers"
+    ],
+    "reference_verbatim": "Schedule the UAT review for Monday, no wait, I mean Tuesday, at 10 AM.",
+    "reference_clean": "Schedule the UAT review for Tuesday at 10 AM.",
+    "names": [
+      {
+        "name": "UAT",
+        "start": 13,
+        "end": 16,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "UAT",
+        "start": 13,
+        "end": 16,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "Schedule the U A T review for Monday, no wait, I mean Tuesday, at ten A M.",
+    "source_text": "Schedule the UAT review for Monday, no wait, I mean Tuesday, at 10 AM."
+  },
+  {
+    "utterance_id": "d02",
+    "category": "disfluency",
+    "tags": [
+      "filler",
+      "repeat"
+    ],
+    "reference_verbatim": "Um, can you open the, uh, the SwiftUI file for the settings pane and add a toggle for sounds?",
+    "reference_clean": "Can you open the SwiftUI file for the settings pane and add a toggle for sounds?",
+    "names": [
+      {
+        "name": "SwiftUI",
+        "start": 17,
+        "end": 24,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "SwiftUI",
+        "start": 30,
+        "end": 37,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "Um, can you open the, uh, the Swift U I file for the settings pane and add a toggle for sounds?",
+    "source_text": "Um, can you open the, uh, the SwiftUI file for the settings pane and add a toggle for sounds?"
+  },
+  {
+    "utterance_id": "d03",
+    "category": "disfluency",
+    "tags": [
+      "self-correction",
+      "scratch-that"
+    ],
+    "reference_verbatim": "Push the branch to, scratch that, don't push anything, just commit it to local/dev.",
+    "reference_clean": "Don't push anything, just commit it to local/dev.",
+    "names": [],
+    "names_verbatim": [],
+    "terms": [
+      {
+        "written": "local/dev",
+        "spoken": "local slash dev"
+      }
+    ],
+    "tts_text": "Push the branch to, scratch that, don't push anything, just commit it to local slash dev.",
+    "source_text": "Push the branch to, scratch that, don't push anything, just commit it to local/dev."
+  },
+  {
+    "utterance_id": "d04",
+    "category": "disfluency",
+    "tags": [
+      "self-correction",
+      "filler"
+    ],
+    "reference_verbatim": "Use MongoDB Compass to, uh, actually let's use the Convex dashboard instead to look at the users table.",
+    "reference_clean": "Use the Convex dashboard to look at the users table.",
+    "names": [
+      {
+        "name": "Convex",
+        "start": 8,
+        "end": 14,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "MongoDB Compass",
+        "start": 4,
+        "end": 19,
+        "in_user_list": true
+      },
+      {
+        "name": "Convex",
+        "start": 51,
+        "end": 57,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "Use Mongo D B Compass to, uh, actually let's use the Convex dashboard instead to look at the users table.",
+    "source_text": "Use MongoDB Compass to, uh, actually let's use the Convex dashboard instead to look at the users table."
+  },
+  {
+    "utterance_id": "d05",
+    "category": "disfluency",
+    "tags": [
+      "self-correction",
+      "numbers"
+    ],
+    "reference_verbatim": "The meeting with Kindora is at 3, sorry, 4 PM on Thursday.",
+    "reference_clean": "The meeting with Kindora is at 4 PM on Thursday.",
+    "names": [
+      {
+        "name": "Kindora",
+        "start": 17,
+        "end": 24,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Kindora",
+        "start": 17,
+        "end": 24,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "The meeting with Kin dora is at three, sorry, four P M on Thursday.",
+    "source_text": "The meeting with Kindora is at 3, sorry, 4 PM on Thursday."
+  },
+  {
+    "utterance_id": "d06",
+    "category": "disfluency",
+    "tags": [
+      "filler",
+      "repeat"
+    ],
+    "reference_verbatim": "So, um, the thing is, uh, Lodestar keeps, keeps losing focus when, um, when Raycast opens.",
+    "reference_clean": "The thing is, Lodestar keeps losing focus when Raycast opens.",
+    "names": [
+      {
+        "name": "Lodestar",
+        "start": 14,
+        "end": 22,
+        "in_user_list": true
+      },
+      {
+        "name": "Raycast",
+        "start": 47,
+        "end": 54,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Lodestar",
+        "start": 26,
+        "end": 34,
+        "in_user_list": true
+      },
+      {
+        "name": "Raycast",
+        "start": 76,
+        "end": 83,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "So, um, the thing is, uh, Lode star keeps, keeps losing focus when, um, when Ray cast opens.",
+    "source_text": "So, um, the thing is, uh, Lodestar keeps, keeps losing focus when, um, when Raycast opens."
+  },
+  {
+    "utterance_id": "d07",
+    "category": "disfluency",
+    "tags": [
+      "self-correction",
+      "numbers"
+    ],
+    "reference_verbatim": "Bump the version to 0.39.7, no, I mean 0.40.0, because this changes what the app is.",
+    "reference_clean": "Bump the version to 0.40.0 because this changes what the app is.",
+    "names": [],
+    "names_verbatim": [],
+    "terms": [
+      {
+        "written": "0.40.0",
+        "spoken": "zero point forty point zero"
+      }
+    ],
+    "tts_text": "Bump the version to zero point thirty-nine point seven, no, I mean zero point forty point zero, because this changes what the app is.",
+    "source_text": "Bump the version to 0.39.7, no, I mean 0.40.0, because this changes what the app is."
+  },
+  {
+    "utterance_id": "d08",
+    "category": "disfluency",
+    "tags": [
+      "self-correction"
+    ],
+    "reference_verbatim": "Send it to the Xonar channel on Slack, or actually Telegram, they don't check Slack.",
+    "reference_clean": "Send it to the Xonar channel on Telegram, they don't check Slack.",
+    "names": [
+      {
+        "name": "Xonar",
+        "start": 15,
+        "end": 20,
+        "in_user_list": true
+      },
+      {
+        "name": "Telegram",
+        "start": 32,
+        "end": 40,
+        "in_user_list": true
+      },
+      {
+        "name": "Slack",
+        "start": 59,
+        "end": 64,
+        "in_user_list": false
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Xonar",
+        "start": 15,
+        "end": 20,
+        "in_user_list": true
+      },
+      {
+        "name": "Slack",
+        "start": 32,
+        "end": 37,
+        "in_user_list": false
+      },
+      {
+        "name": "Telegram",
+        "start": 51,
+        "end": 59,
+        "in_user_list": true
+      },
+      {
+        "name": "Slack",
+        "start": 78,
+        "end": 83,
+        "in_user_list": false
+      }
+    ],
+    "terms": [],
+    "tts_text": "Send it to the Zonar channel on Slack, or actually Telegram, they don't check Slack.",
+    "source_text": "Send it to the Xonar channel on Slack, or actually Telegram, they don't check Slack."
+  },
+  {
+    "utterance_id": "d09",
+    "category": "disfluency",
+    "tags": [
+      "filler",
+      "self-correction"
+    ],
+    "reference_verbatim": "Uh, rename settleGhostAsSeen to, hmm, let me think, markGhostSeen, yeah, markGhostSeen.",
+    "reference_clean": "Rename settleGhostAsSeen to markGhostSeen.",
+    "names": [],
+    "names_verbatim": [],
+    "terms": [
+      {
+        "written": "settleGhostAsSeen",
+        "spoken": "settle ghost as seen"
+      },
+      {
+        "written": "markGhostSeen",
+        "spoken": "mark ghost seen"
+      }
+    ],
+    "tts_text": "Uh, rename settle ghost as seen to, hmm, let me think, mark ghost seen, yeah, mark ghost seen.",
+    "source_text": "Uh, rename settleGhostAsSeen to, hmm, let me think, markGhostSeen, yeah, markGhostSeen."
+  },
+  {
+    "utterance_id": "d10",
+    "category": "disfluency",
+    "tags": [
+      "self-correction"
+    ],
+    "reference_verbatim": "Tell Claude Code to delete the old, no, wait, archive the old Brex exports instead of deleting them.",
+    "reference_clean": "Tell Claude Code to archive the old Brex exports instead of deleting them.",
+    "names": [
+      {
+        "name": "Claude Code",
+        "start": 5,
+        "end": 16,
+        "in_user_list": true
+      },
+      {
+        "name": "Brex",
+        "start": 36,
+        "end": 40,
+        "in_user_list": true
+      }
+    ],
+    "names_verbatim": [
+      {
+        "name": "Claude Code",
+        "start": 5,
+        "end": 16,
+        "in_user_list": true
+      },
+      {
+        "name": "Brex",
+        "start": 62,
+        "end": 66,
+        "in_user_list": true
+      }
+    ],
+    "terms": [],
+    "tts_text": "Tell Claude Code to delete the old, no, wait, archive the old Brex exports instead of deleting them.",
+    "source_text": "Tell Claude Code to delete the old, no, wait, archive the old Brex exports instead of deleting them."
+  }
+]

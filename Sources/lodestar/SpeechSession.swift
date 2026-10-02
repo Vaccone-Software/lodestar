@@ -122,15 +122,15 @@ protocol SpeechSession: AnyObject {
     /// microphone, so a first `lode .` after boot does not pay for either.
     /// Called only once the grant exists.
     func warm(input: String?)
-    /// Begin a session. `words` are the user's vocabulary, offered to the
-    /// recognizer as context (SpeechTranscriber ignores them today, the
-    /// probe found; the draft repairs tokens itself either way).
-    func listen(words: [String], input: String?,
+    /// Begin a session. A settled result comes with when each word was
+    /// said and how sure the recognizer was of it, which is what the
+    /// draft joins results and puts names back by.
+    func listen(input: String?,
                 onState: @escaping (SpeechState) -> Void,
                 onLevel: @escaping (Float, Double) -> Void,
                 onAlive: @escaping () -> Void,
                 onVolatile: @escaping (String) -> Void,
-                onSettled: @escaping (String) -> Void)
+                onSettled: @escaping (Heard) -> Void)
     /// The mic goes quiet, the session stays. Normal mode.
     func pause()
     func resume()
@@ -165,12 +165,12 @@ final class AnalyzerSpeechSession: SpeechSession {
         Task { await AnalyzerBox.warm() }
     }
 
-    func listen(words: [String], input: String?,
+    func listen(input: String?,
                 onState: @escaping (SpeechState) -> Void,
                 onLevel: @escaping (Float, Double) -> Void,
                 onAlive: @escaping () -> Void,
                 onVolatile: @escaping (String) -> Void,
-                onSettled: @escaping (String) -> Void) {
+                onSettled: @escaping (Heard) -> Void) {
         guard #available(macOS 26, *) else { onState(.unavailable); return }
         // A session still winding down must let go of the bus first, and
         // one still preparing must be told it lost, or two would race for
@@ -180,7 +180,7 @@ final class AnalyzerSpeechSession: SpeechSession {
         if let old = box as? AnalyzerBox { Task { await old.stop() } }
         let box = AnalyzerBox(microphone: microphone, bridge: bridge)
         self.box = box
-        Task { await box.listen(words: words, input: input,
+        Task { await box.listen(input: input,
                                 stillWanted: { [weak self] in (self?.box as AnyObject?) === box },
                                 onState: onState, onLevel: onLevel, onAlive: onAlive,
                                 onVolatile: onVolatile, onSettled: onSettled) }
@@ -941,6 +941,22 @@ private actor AnalyzerBox {
         self.bridge = bridge
     }
 
+    /// A result's words, each with when it was said and how sure the
+    /// recognizer was.
+    static func heard(_ text: AttributedString) -> Heard {
+        var words: [Heard.Word] = []
+        for run in text.runs {
+            let piece = String(text[run.range].characters)
+            var start: Double?, end: Double?
+            if let range = run.audioTimeRange {
+                if range.start.isNumeric { start = range.start.seconds }
+                if range.end.isNumeric { end = range.end.seconds }
+            }
+            words.append(Heard.Word(piece, start: start, end: end, confidence: run.transcriptionConfidence))
+        }
+        return Heard(String(text.characters), words: words)
+    }
+
     private static let options = SpeechAnalyzer.Options(priority: .userInitiated,
                                                         modelRetention: .processLifetime)
 
@@ -959,13 +975,13 @@ private actor AnalyzerBox {
         Log.info("draft", ["speech": "warm"])
     }
 
-    func listen(words: [String], input wanted: String?,
+    func listen(input wanted: String?,
                 stillWanted: @escaping @MainActor () -> Bool,
                 onState: @escaping (SpeechState) -> Void,
                 onLevel: @escaping (Float, Double) -> Void,
                 onAlive: @escaping () -> Void,
                 onVolatile: @escaping (String) -> Void,
-                onSettled: @escaping (String) -> Void) async {
+                onSettled: @escaping (Heard) -> Void) async {
         let say: (SpeechState) -> Void = { state in
             Log.info("draft", ["speech": "\(state)"])
             Task { @MainActor in onState(state) }
@@ -976,9 +992,12 @@ private actor AnalyzerBox {
             Log.info("draft", ["speech": "no supported locale"])
             say(.unavailable); return
         }
+        // Word times and confidence cost nothing and never change the words
+        // (measured on 175 recordings); they are what the draft joins
+        // results and puts names back by.
         let transcriber = SpeechTranscriber(locale: locale, transcriptionOptions: [],
                                             reportingOptions: [.volatileResults, .fastResults],
-                                            attributeOptions: [])
+                                            attributeOptions: [.audioTimeRange, .transcriptionConfidence])
         self.transcriber = transcriber
 
         // The model, fetched once. Lazy on purpose: nothing downloads until
@@ -1017,15 +1036,12 @@ private actor AnalyzerBox {
         guard granted else { say(.denied); return }
         guard !stopped else { return }
 
-        let context = AnalysisContext()
-        if !words.isEmpty { context.contextualStrings[.general] = words }
         let analyzer = SpeechAnalyzer(modules: [transcriber], options: Self.options)
         self.analyzer = analyzer
         var prepared: AVAudioFormat?
         do {
             prepared = try await SpeechStart.withDeadline(SpeechStart.prepareDeadline) {
                 let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber])
-                try await analyzer.setContext(context)
                 try await analyzer.prepareToAnalyze(in: format)
                 return format
             }
@@ -1041,7 +1057,8 @@ private actor AnalyzerBox {
                 for try await result in transcriber.results {
                     let text = String(result.text.characters)
                     if result.isFinal {
-                        await MainActor.run { onSettled(text) }
+                        let heard = Self.heard(result.text)
+                        await MainActor.run { onSettled(heard) }
                     } else {
                         await MainActor.run { onVolatile(text) }
                     }

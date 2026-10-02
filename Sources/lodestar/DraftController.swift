@@ -22,8 +22,22 @@ final class DraftController {
 
     var flash: ((String) -> Void)?
     var observations: ObservationStore?
-    /// The user's vocabulary (`draft.words`), repaired into settled speech.
-    var words: [String] = []
+    /// The user's vocabulary (`draft.words`), put back into settled speech
+    /// by sound. The matcher is built off the main thread whenever the
+    /// words change: the pronunciation dictionary takes a moment to read.
+    var words: [String] = [] {
+        didSet { if words != oldValue { rebuildMatcher() } }
+    }
+    /// Everything a settled result goes through before it lands.
+    private var settler = Draft.Settler(isOrdinary: { CommonWords.isCommon($0) },
+                                        removesFillers: Locale.current.language.languageCode == .english)
+    /// The last result as it landed, for a correction ("no wait, I mean")
+    /// that reaches back into it.
+    private var lastSpoken: (range: Range<Int>, text: String)?
+    /// The hand typed or moved since the last result landed.
+    private var handSinceSpeech = false
+    /// Counts of what the settler changed this session, for the record.
+    private(set) var settled = (names: 0, ellipses: 0, joins: 0, fillers: 0, corrections: 0)
     /// The microphone to read (`draft.input`), by name; nil follows the
     /// system default.
     var inputDevice: String?
@@ -586,7 +600,10 @@ final class DraftController {
         heardAlive = false
         hearsNothing = false
         silenceWatch?.cancel()
-        speech.listen(words: words, input: inputDevice, onState: { [weak self] state in
+        settler.reset()
+        lastSpoken = nil
+        handSinceSpeech = false
+        speech.listen(input: inputDevice, onState: { [weak self] state in
             guard let self, self.isOpen, self.session == mine else { return }
             self.speechState = state
             if case .listening(let input) = state {
@@ -635,9 +652,9 @@ final class DraftController {
             self.buffer.showGhost(text)
             self.onActivity?()
             self.render()
-        }, onSettled: { [weak self] text in
+        }, onSettled: { [weak self] heard in
             guard let self, self.isOpen, self.session == mine else { return }
-            self.settle(text)
+            self.settle(heard)
             self.pendingSettle?()
             self.pendingSettle = nil
         })
@@ -677,24 +694,90 @@ final class DraftController {
         clock.after(Self.silenceNoteSeconds, watch)
     }
 
-    private func settle(_ text: String) {
-        let repaired = Draft.Vocabulary.apply(text, words: words)
-        let count = repaired.split(whereSeparator: \.isWhitespace).count
+    /// Where the matcher is built: off the main thread in the app, since
+    /// the dictionary takes a moment to read the first time; at once on
+    /// the stage.
+    var buildMatcher: (@escaping () -> NameMatcher?, @escaping (NameMatcher?) -> Void) -> Void = { build, done in
+        DispatchQueue.global(qos: .utility).async {
+            let matcher = build()
+            DispatchQueue.main.async { done(matcher) }
+        }
+    }
+
+    private func rebuildMatcher() {
+        let words = self.words
+        buildMatcher({
+            words.isEmpty ? nil : NameMatcher(
+                terms: words.map { NameMatcher.Term($0) }, pronouncer: DictationLexicon.pronouncer,
+                isCommon: { CommonWords.isCommon($0) }, isFrequent: { CommonWords.isFrequent($0) })
+        }, { [weak self] matcher in
+            guard let self, self.words == words else { return }
+            self.settler.matcher = matcher
+        })
+    }
+
+    /// One settled result, through the settler, landed where it belongs:
+    /// over the words it settles early, at the anchor the hand left, or at
+    /// the cursor. What the settler decided about the text before it — a
+    /// pause's period dropped, a trailed-off end given one — is done
+    /// there too, and a correction that reaches back replaces the last
+    /// result with it.
+    private func landing(_ heard: Heard, at point: Int) -> Draft.Settler.Landing {
+        let before = buffer.slice(max(0, point - 200)..<point)
+        let reachBack = lastSpoken.map { last in
+            !handSinceSpeech && last.range.upperBound <= point
+                && buffer.slice(last.range) == last.text
+                && buffer.slice(last.range.upperBound..<point).allSatisfy(\.isWhitespace)
+        } ?? false
+        let landing = settler.land(heard, after: before, typedBetween: handSinceSpeech, canReachBack: reachBack)
+        settled.names += landing.names
+        settled.ellipses += landing.ellipses
+        settled.joins += landing.joins
+        settled.fillers += landing.fillers
+        settled.corrections += landing.corrections
+        return landing
+    }
+
+    /// The text just before `point` changed as the settler decided: a
+    /// period dropped or added after the last non-space character.
+    /// Returns how many characters `point` moved by.
+    private func applyBefore(_ change: Draft.Settler.Landing.Before, at point: Int) -> Int {
+        guard change != .unchanged else { return 0 }
+        var end = point
+        while end > 0, buffer.characters[end - 1].isWhitespace { end -= 1 }
+        guard end > 0 else { return 0 }
+        switch change {
+        case .dropPeriod:
+            guard buffer.characters[end - 1] == "." else { return 0 }
+            buffer.replace((end - 1)..<end, with: "")
+            return -1
+        case .addPeriod:
+            buffer.replace(end..<end, with: ".")
+            return 1
+        case .unchanged:
+            return 0
+        }
+    }
+
+    private func settle(_ heard: Heard) {
+        let writing = mode == .insert && micWanted
         // Speaking over a selection is `c` with the voice: the words take
         // the selection's place and insert opens where they end. Behind
         // one undo step, so ⌘Z brings the selection back as it stood.
         if case .visual = vim.mode, micWanted, listening,
-           let range = vim.selection(in: buffer), !repaired.isEmpty {
-            spokenWords += count
+           let range = vim.selection(in: buffer), !heard.text.trimmingCharacters(in: .whitespaces).isEmpty {
+            settler.handInterrupted()
+            let repaired = settler.land(heard, after: "", canReachBack: false).text
+            spokenWords += repaired.split(whereSeparator: \.isWhitespace).count
             if firstWordAt == nil { firstWordAt = clock.now() }
             onActivity?()
             provisional = nil
+            lastSpoken = nil
             vim.speakOver(range, with: repaired, buffer: &buffer)
             setMode(.insert)
             render()
             return
         }
-        let writing = mode == .insert && micWanted
         // A reservation the hand has since edited: the final is for words
         // that no longer stand as they did, and inserting it would put
         // the whole utterance back on top of the edit. Delete a word from
@@ -711,28 +794,34 @@ final class DraftController {
         }
         if let standing = provisional, buffer.slice(standing.range) == standing.text {
             // The final for words settled early: it replaces them in place,
-            // if they are still there untouched; edited or gone, it is dropped.
-            spokenWords += count
-            let lead = Draft.separator(after: buffer.characters[..<standing.range.lowerBound], before: repaired)
+            // cased for where it lands, if they are still there untouched.
+            let landing = self.landing(heard, at: standing.range.lowerBound)
+            spokenWords += landing.text.split(whereSeparator: \.isWhitespace).count
             let cursor = buffer.cursor
-            let replacement = lead + repaired
-            buffer.replace(standing.range, with: replacement)
+            var range = standing.range
+            let shift = applyBefore(landing.before, at: range.lowerBound)
+            range = (range.lowerBound + shift)..<(range.upperBound + shift)
+            let lead = Draft.separator(after: buffer.characters[..<range.lowerBound], before: landing.text)
+            let replacement = lead + landing.text
+            buffer.replace(range, with: replacement)
             // The cursor stays where the hand left it: before the range,
             // untouched; after it, moved by the change in length; inside
             // it, at the range's new end.
-            let delta = replacement.count - standing.range.count
-            if cursor <= standing.range.lowerBound {
-                buffer.setCursor(cursor)
-            } else if cursor >= standing.range.upperBound {
-                buffer.setCursor(cursor + delta)
+            let delta = replacement.count - range.count
+            let moved = cursor + shift
+            if moved <= range.lowerBound {
+                buffer.setCursor(moved)
+            } else if moved >= range.upperBound {
+                buffer.setCursor(moved + delta)
             } else {
-                buffer.setCursor(standing.range.lowerBound + replacement.count)
+                buffer.setCursor(range.lowerBound + replacement.count)
             }
             if mode == .normal { vim.enterNormal(&buffer) }
             provisional = nil
+            lastSpoken = (range.lowerBound..<(range.lowerBound + replacement.count), replacement)
+            handSinceSpeech = false
         } else if writing {
             provisional = nil
-            spokenWords += count
             if firstWordAt == nil { firstWordAt = clock.now() }
             onActivity?()
             // Each settled result is its own step to take back. Marked
@@ -741,15 +830,32 @@ final class DraftController {
             vim.markInsertBoundary(buffer)
             // Words said before the hand cut in go where the hand cut in,
             // not at the cursor it has since moved.
-            let landing = freshSpeechAnchor()
-            let resume = buffer.cursor
-            if let landing { buffer.setCursor(landing) }
+            let anchor = freshSpeechAnchor()
+            var resume = buffer.cursor
+            var point = anchor ?? buffer.cursor
+            let landing = self.landing(heard, at: point)
+            spokenWords += landing.text.split(whereSeparator: \.isWhitespace).count
+            if landing.replacesLast, let last = lastSpoken {
+                // A correction reached back: the last result and this one
+                // become what was meant.
+                let removed = point - last.range.lowerBound
+                buffer.replace(last.range.lowerBound..<point, with: "")
+                if resume >= point { resume -= removed }
+                point = last.range.lowerBound
+            } else {
+                let shift = applyBefore(landing.before, at: point)
+                if resume >= point { resume += shift }
+                point += shift
+            }
+            buffer.setCursor(point)
+            let start = buffer.cursor
             let before = buffer.count
-            buffer.settle(repaired)
+            buffer.settle(landing.text, isOrdinary: { CommonWords.isCommon($0) })
             var grew = buffer.count - before
             // The editor hears what speech typed, so `.` can say it again.
             vim.typed(buffer.slice(buffer.cursor - grew..<buffer.cursor))
-            if landing != nil {
+            lastSpoken = (start..<buffer.cursor, buffer.slice(start..<buffer.cursor))
+            if anchor != nil {
                 // The words went in ahead of what the hand typed, and the
                 // joining rule only ever puts a space on the near side of
                 // what it inserts. Without this the two run together:
@@ -759,8 +865,10 @@ final class DraftController {
                     buffer.replace(at..<at, with: " ")
                     grew += 1
                 }
-                buffer.setCursor(resume + grew)
+                buffer.setCursor(min(buffer.count, resume + grew))
+                lastSpoken = nil
             }
+            handSinceSpeech = false
             speechAnchor = nil
         } else {
             // Spoken while silent and never shown, or shown and since edited
@@ -905,6 +1013,8 @@ final class DraftController {
     }
 
     private func insertKey(_ key: String, shift: Bool, option: Bool, control: Bool) -> Bool {
+        handSinceSpeech = true
+        settler.handInterrupted()
         // Words still a ghost when the hand starts writing become text
         // on the spot, reserved where they stand: dictate, type, dictate
         // lands in the order it happened, and the final that arrives
@@ -990,6 +1100,8 @@ final class DraftController {
     /// two keys the bar owns. `⏎` commits in every mode; a bare `esc` —
     /// nothing pending, no selection — closes.
     private func normalKey(_ key: String, shift: Bool, option: Bool, control: Bool) -> Bool {
+        handSinceSpeech = true
+        settler.handInterrupted()
         if key == "return" { commit(); return true }
         let vimKey: Vim.Key
         switch key {
@@ -1060,7 +1172,7 @@ final class DraftController {
             speech.stop { [weak self] in
                 guard let self, !landed else { return }
                 landed = true
-                if !self.buffer.ghost.isEmpty { self.settle(self.buffer.ghost) }
+                if !self.buffer.ghost.isEmpty { self.settle(Heard(self.buffer.ghost)) }
                 finish()
             }
             // The recognizer's stop is bounded, but a bound that is never
@@ -1071,7 +1183,7 @@ final class DraftController {
                 guard let self, !landed else { return }
                 landed = true
                 Log.info("draft", ["commit": "landed by backstop", "ghost": !self.buffer.ghost.isEmpty])
-                if !self.buffer.ghost.isEmpty { self.settle(self.buffer.ghost) }
+                if !self.buffer.ghost.isEmpty { self.settle(Heard(self.buffer.ghost)) }
                 finish()
             }
             landBackstop = backstop

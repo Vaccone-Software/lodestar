@@ -92,10 +92,10 @@ final class FakeSpeech: SpeechSession {
     private var onLevel: ((Float, Double) -> Void)?
     private var onAlive: (() -> Void)?
     private var onVolatile: ((String) -> Void)?
-    private var onSettled: ((String) -> Void)?
+    private var onSettled: ((Heard) -> Void)?
     /// The session before this one, the way a real recognizer's late
     /// results still reach the closures it was given.
-    private var previousSettled: ((String) -> Void)?
+    private var previousSettled: ((Heard) -> Void)?
     /// Whether `stop` settles the standing ghost before completing, the
     /// way a real finalization does.
     var settlesOnStop = true
@@ -110,9 +110,9 @@ final class FakeSpeech: SpeechSession {
 
     func warm(input: String?) {}
     private(set) var lastInput: String?
-    func listen(words: [String], input: String?, onState: @escaping (SpeechState) -> Void,
+    func listen(input: String?, onState: @escaping (SpeechState) -> Void,
                 onLevel: @escaping (Float, Double) -> Void, onAlive: @escaping () -> Void,
-                onVolatile: @escaping (String) -> Void, onSettled: @escaping (String) -> Void) {
+                onVolatile: @escaping (String) -> Void, onSettled: @escaping (Heard) -> Void) {
         listens += 1
         lastInput = input
         previousSettled = self.onSettled
@@ -130,12 +130,12 @@ final class FakeSpeech: SpeechSession {
             pendingStop = completion
             return
         }
-        if settlesOnStop, let ghost { onSettled?(ghost) }
+        if settlesOnStop, let ghost { onSettled?(Heard(ghost)) }
         ghost = nil
         completion()
     }
     func finish() {
-        if settlesOnStop, let ghost { onSettled?(ghost) }
+        if settlesOnStop, let ghost { onSettled?(Heard(ghost)) }
         ghost = nil
         pendingStop?()
         pendingStop = nil
@@ -149,9 +149,11 @@ final class FakeSpeech: SpeechSession {
     /// The first buffer with signal: the microphone is live.
     func alive() { onAlive?() }
     /// A final from the session before this one, arriving late.
-    func settleFromPreviousSession(_ text: String) { previousSettled?(text) }
+    func settleFromPreviousSession(_ text: String) { previousSettled?(Heard(text)) }
     func hear(_ text: String) { ghost = text; onVolatile?(text) }
-    func settle(_ text: String) { ghost = nil; onSettled?(text) }
+    func settle(_ text: String) { ghost = nil; onSettled?(Heard(text)) }
+    /// A result with when each word was said, as the recognizer gives it.
+    func settle(_ heard: Heard) { ghost = nil; onSettled?(heard) }
 }
 
 /// A bar that knows only whether it is up.
@@ -312,6 +314,16 @@ final class Stage {
         scroller = ScrollController(model: model)
         draft = DraftController(speech: speech, clock: clock.clock)
         draft.secureInput = { false }
+        // The draft's matcher, built at once and from the repository's
+        // dictionary, so a scenario's names are put back as the app's are.
+        draft.buildMatcher = { build, done in done(build()) }
+        if DictationLexicon.given == nil {
+            let packaging = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+                .deletingLastPathComponent().appendingPathComponent("packaging")
+            CommonWords.frequentListURL = packaging.appendingPathComponent("common-words.txt")
+            DictationLexicon.given = (try? String(contentsOf: packaging.appendingPathComponent("cmudict.dict"),
+                                                  encoding: .utf8)).map { Pronouncer(cmu: $0) } ?? Pronouncer()
+        }
         appEditor = EditorController(source: editorSource, queue: DispatchQueue(label: "stage-editor"),
                                      proofreader: proofreader, drawing: FakeMarksDrawing(), hover: nil,
                                      clock: clock.clock, polls: false, modelReady: { $0.usesModel })

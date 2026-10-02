@@ -26,11 +26,11 @@ final class MicBridgeLiveTests: XCTestCase {
         var volatile = ""
         let started = Date()
         NSSound(named: "Tink")?.play()
-        session.listen(words: [], input: nil, onState: { state in
+        session.listen(input: nil, onState: { state in
             if case .listening(let input) = state { listening.append((Date().timeIntervalSince(started), input ?? "?")) }
         }, onLevel: { _, _ in }, onAlive: {
             if aliveAt == nil { aliveAt = Date().timeIntervalSince(started) }
-        }, onVolatile: { volatile = $0 }, onSettled: { settled.append($0) })
+        }, onVolatile: { volatile = $0 }, onSettled: { settled.append($0.text) })
         RunLoop.main.run(until: Date().addingTimeInterval(8))
         let done = expectation(description: "stopped")
         session.stop { done.fulfill() }

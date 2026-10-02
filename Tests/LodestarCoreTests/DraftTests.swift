@@ -130,51 +130,12 @@ final class DraftTests: XCTestCase {
                        "nothing was pulled, so nothing is replaced")
     }
 
-    // MARK: - Vocabulary
-
-    func testVocabularyRepairsNearMissesAndCase() {
-        let words = ["Ghostty", "Lodestar", "Asana"]
-        XCTAssertEqual(Draft.Vocabulary.apply("Open Ghostie and loadstar, then asana.", words: words),
-                       "Open Ghostty and Lodestar, then Asana.")
-    }
-
-    func testVocabularyLeavesRealWordsAlone() {
-        XCTAssertEqual(Draft.Vocabulary.apply("the dune is done", words: ["done"]), "the dune is done")
-        XCTAssertEqual(Draft.Vocabulary.apply("a cat sat", words: ["cot"]), "a cat sat")
-        XCTAssertEqual(Draft.Vocabulary.apply("ghost town", words: ["Ghostty"]), "ghost town",
-                       "a different first letter or too great a distance is not a match")
-    }
-
-    func testVocabularyMatchesPhrases() {
-        XCTAssertEqual(Draft.Vocabulary.apply("move it to the Dunn column now", words: ["done column"]),
-                       "move it to the done column now")
-    }
-
-    func testVocabularyPreservesPunctuationAndSpacing() {
-        XCTAssertEqual(Draft.Vocabulary.apply("Ghostie, Ghostie!  (ghostie)", words: ["Ghostty"]),
-                       "Ghostty, Ghostty!  (Ghostty)")
-    }
-
-    func testDistance() {
-        XCTAssertEqual(Draft.Vocabulary.distance("kitten", "sitting"), 3)
-        XCTAssertEqual(Draft.Vocabulary.distance("ab", "ba"), 1, "a transposition costs one")
-        XCTAssertEqual(Draft.Vocabulary.distance("", "abc"), 3)
-    }
-
     func testMovingTheCursorResetsTheBackspaceGrain() {
         var buffer = Draft.Buffer()
         buffer.settle("hello world")
         buffer.moveLeft(); buffer.moveLeft(); buffer.moveLeft()
         buffer.backspace()
         XCTAssertEqual(buffer.text, "hello wrld", "one character, not a word chunk, after the cursor moved")
-    }
-
-    func testVocabularyDoesNotRewriteARealWordOfADifferentLength() {
-        XCTAssertEqual(Draft.Vocabulary.apply("the ghosts are here", words: ["Ghostty"]), "the ghosts are here")
-        XCTAssertEqual(Draft.Vocabulary.apply("open ghostie", words: ["Ghostty"]), "open Ghostty",
-                       "one edit at equal length still repairs")
-        XCTAssertEqual(Draft.Vocabulary.apply("use loadstar", words: ["Lodestar"]), "use Lodestar",
-                       "two substitutions at equal length still repair")
     }
 
     // MARK: - Capitalization
@@ -217,9 +178,4 @@ final class DraftTests: XCTestCase {
         XCTAssertEqual(buffer.text, "hi there")
     }
 
-    func testVocabularyJoinsANameHeardAsTwoWords() {
-        XCTAssertEqual(Draft.Vocabulary.apply("open load star now", words: ["Lodestar"]), "open Lodestar now")
-        XCTAssertEqual(Draft.Vocabulary.apply("a ghost town", words: ["Ghostty"]), "a ghost town",
-                       "two real words that happen to be near are left alone")
-    }
 }

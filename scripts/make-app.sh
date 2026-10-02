@@ -34,6 +34,12 @@ cp packaging/lodestar.icns "$APP/Contents/Resources/lodestar.icns"
 cp packaging/Lodestar.aiff "$APP/Contents/Resources/Lodestar.aiff"
 # The draft's two notes (app.sounds).
 cp packaging/Listening.aiff packaging/Landed.aiff "$APP/Contents/Resources/"
+# How words sound, for matching a misheard name by sound (CMU
+# Pronouncing Dictionary, BSD; its license rides with it).
+cp packaging/cmudict.dict packaging/cmudict-LICENSE "$APP/Contents/Resources/"
+# Which words are everyday ones, most frequent first: the single-token
+# English words of the Qwen tokenizer's vocabulary (Apache 2.0).
+cp packaging/common-words.txt "$APP/Contents/Resources/"
 # The first launch's four doors, rendered from the website's scene
 # (the Blender renders behind the site's door loops).
 cp packaging/doors/door-*.png "$APP/Contents/Resources/"

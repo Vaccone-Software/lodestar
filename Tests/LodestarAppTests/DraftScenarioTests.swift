@@ -292,12 +292,45 @@ final class DraftScenarioTests: XCTestCase {
         XCTAssertEqual(stage.lastDraft?.action, "empty")
     }
 
-    func testVocabularyRepairsSettledWords() {
+    func testYourWordsComeBackBySound() {
         let stage = Stage()
-        stage.draft.words = ["Ghostty"]
+        stage.draft.words = ["Ghostty", "Lodestar", "Supabase"]
         stage.lode(".")
-        stage.speech.settle("open ghostie now")
-        XCTAssertEqual(stage.draft.buffer.text, "open Ghostty now")
+        stage.speech.settle("open ghostie and load star, then the super base migration")
+        XCTAssertEqual(stage.draft.buffer.text, "open Ghostty and Lodestar, then the Supabase migration")
+    }
+
+    func testAPauseNeverWritesAnEllipsisOrBreaksASentence() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.settle(Heard("Look at the function and the...",
+                                  words: [Heard.Word("Look at the function and the...", start: 0, end: 2)]))
+        stage.speech.settle(Heard("Test that covers it.", words: [Heard.Word("Test that covers it.", start: 4, end: 5)]))
+        XCTAssertEqual(stage.draft.buffer.text, "Look at the function and the test that covers it.")
+        stage.speech.settle(Heard("I was going to say...", words: [Heard.Word("I was going to say...", start: 6, end: 7)]))
+        stage.speech.settle(Heard("Ship it.", words: [Heard.Word("Ship it.", start: 9, end: 10)]))
+        XCTAssertEqual(stage.draft.buffer.text,
+                       "Look at the function and the test that covers it. I was going to say. Ship it.")
+    }
+
+    func testTypingMidSentenceLeavesNoEllipsis() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.hear("Rename the")
+        stage.press("escape")       // the hand takes over: the ghost is text now
+        stage.press("a")
+        for key in ["space", "x"] { stage.press(key) }
+        stage.speech.settle(Heard("Rename the...", words: [Heard.Word("Rename the...", start: 0, end: 1)]))
+        XCTAssertFalse(stage.draft.buffer.text.contains("…"))
+        XCTAssertFalse(stage.draft.buffer.text.contains("..."), stage.draft.buffer.text)
+    }
+
+    func testACorrectionTakesBackTheWordsItCorrects() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.settle(Heard("Schedule the review for Monday.", words: [Heard.Word("Schedule the review for Monday.", start: 0, end: 2)]))
+        stage.speech.settle(Heard("No wait, I mean Tuesday.", words: [Heard.Word("No wait, I mean Tuesday.", start: 3, end: 4)]))
+        XCTAssertEqual(stage.draft.buffer.text, "Schedule the review for Tuesday.")
     }
 
     func testTheRecordCountsAndNeverTheText() {

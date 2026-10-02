@@ -86,10 +86,10 @@ public enum Draft {
         /// A settled recognizer result lands at the cursor, joined to what
         /// is before it by the spacing rule, and the ghost it replaces
         /// goes away.
-        public mutating func settle(_ spoken: String) {
+        public mutating func settle(_ spoken: String, isOrdinary: ((String) -> Bool)? = nil) {
             ghost = ""
             let trimmed = Draft.cased(spoken.trimmingCharacters(in: .whitespacesAndNewlines),
-                                      after: characters[..<cursor])
+                                      after: characters[..<cursor], isOrdinary: isOrdinary)
             guard !trimmed.isEmpty else { return }
             let joined = Draft.separator(after: characters[..<cursor], before: trimmed) + trimmed
             let incoming = Array(joined)
@@ -276,10 +276,13 @@ public enum Draft {
     /// The recognizer capitalizes the first word of every result, as if
     /// every result began a sentence. Landing mid-sentence — after a word,
     /// a comma, an open quote — that first letter is lowered, unless the
-    /// word is plainly a name (more capitals than its first) or one
-    /// letter ("I"). At the start of the text, after a newline, or after
-    /// a sentence's end, it stays as heard.
-    public static func cased<C: BidirectionalCollection>(_ incoming: String, after existing: C) -> String
+    /// word is plainly a name (more capitals than its first), one letter
+    /// ("I"), a contraction of "I" ("I'm", "I'll"), or, given
+    /// `isOrdinary`, not an ordinary word at all ("Paris", "Ghostty"). At
+    /// the start of the text, after a newline, or after a sentence's end,
+    /// it stays as heard.
+    public static func cased<C: BidirectionalCollection>(_ incoming: String, after existing: C,
+                                                         isOrdinary: ((String) -> Bool)? = nil) -> String
     where C.Element == Character {
         guard let first = incoming.first, first.isUppercase else { return incoming }
         var i = existing.endIndex
@@ -294,6 +297,9 @@ public enum Draft {
         let word = incoming.prefix { $0.isLetter || $0.isNumber || $0 == "'" || $0 == "’" }
         if word.count == 1 { return incoming }
         if word.dropFirst().contains(where: { $0.isUppercase }) { return incoming }
+        let lower = word.lowercased()
+        if lower.hasPrefix("i'") || lower.hasPrefix("i’") { return incoming }
+        if let isOrdinary, !isOrdinary(lower) { return incoming }
         return first.lowercased() + incoming.dropFirst()
     }
 
@@ -344,127 +350,5 @@ public enum Draft {
         }
         if current == original { return .unchanged }
         return commit ? .saved : .kept
-    }
-
-    // MARK: - Vocabulary
-
-    /// The user's own words, repaired into a settled result. Recognition
-    /// hands back "Ghostie" for Ghostty and "loadstar" for Lodestar; a word
-    /// list of what this person actually says fixes the token in place,
-    /// case and all. A whole token has to be within a short edit distance
-    /// of the word and share its first letter, so "dune" is not made
-    /// "done" and a real word is never silently swapped for a near one.
-    public enum Vocabulary {
-        public static func apply(_ text: String, words: [String]) -> String {
-            let entries = words.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-            guard !entries.isEmpty, !text.isEmpty else { return text }
-            // Longest phrases first, so "done column" is tried before "done".
-            let phrases = entries
-                .map { (phrase: $0, width: $0.split(separator: " ").count) }
-                .sorted { $0.width > $1.width }
-            var tokens = tokenize(text)
-            var i = 0
-            while i < tokens.count {
-                defer { i += 1 }
-                guard tokens[i].isWord else { continue }
-                // A one-word name heard as two ("load star") is the two
-                // joined, measured against the word.
-                if i + 2 < tokens.count, tokens[i + 2].isWord, !tokens[i + 1].isWord,
-                   tokens[i + 1].text == " " {
-                    let joined = tokens[i].text + tokens[i + 2].text
-                    if let (phrase, _) = phrases.first(where: { $0.width == 1 && matches(joined, $0.phrase) }) {
-                        tokens.replaceSubrange(i...(i + 2), with: [Token(text: phrase, isWord: true)])
-                        continue
-                    }
-                }
-                for (phrase, width) in phrases {
-                    // The next `width` words, joined by single whitespace runs only.
-                    var indices = [i]
-                    var j = i + 1
-                    while indices.count < width, j + 1 < tokens.count,
-                          !tokens[j].isWord, tokens[j].text.allSatisfy(\.isWhitespace),
-                          tokens[j + 1].isWord {
-                        indices.append(j + 1)
-                        j += 2
-                    }
-                    guard indices.count == width else { continue }
-                    let candidate = indices.map { tokens[$0].text }.joined(separator: " ")
-                    guard matches(candidate, phrase) else { continue }
-                    tokens.replaceSubrange(i...indices[indices.count - 1],
-                                           with: [Token(text: phrase, isWord: true)])
-                    break
-                }
-            }
-            return tokens.map(\.text).joined()
-        }
-
-        struct Token: Equatable {
-            var text: String
-            var isWord: Bool
-        }
-
-        static func tokenize(_ text: String) -> [Token] {
-            var tokens: [Token] = []
-            var current = ""
-            var currentIsWord: Bool?
-            for character in text {
-                let isWord = character.isLetter || character.isNumber || character == "'" || character == "’"
-                if currentIsWord == nil || currentIsWord == isWord {
-                    current.append(character)
-                    currentIsWord = isWord
-                } else {
-                    tokens.append(Token(text: current, isWord: currentIsWord ?? false))
-                    current = String(character)
-                    currentIsWord = isWord
-                }
-            }
-            if !current.isEmpty { tokens.append(Token(text: current, isWord: currentIsWord ?? false)) }
-            return tokens
-        }
-
-        /// Case-insensitive equality repairs case alone; otherwise a
-        /// bounded edit distance with the first letter held fixed.
-        static func matches(_ token: String, _ word: String) -> Bool {
-            let a = token.lowercased(), b = word.lowercased()
-            if a == b { return token != word }
-            guard a.first == b.first, abs(a.count - b.count) <= 1 else { return false }
-            // Short words get case repair only: at four or five letters a
-            // one-edit neighbor is usually a different real word.
-            // Two edits are allowed only at equal length — substitutions
-            // and swaps, the shapes a mishearing takes — so "ghosts" is
-            // never made "Ghostty" by an insertion and a substitution.
-            let allowance: Int
-            switch b.count {
-            case ..<6: allowance = 0
-            case 6...8: allowance = a.count == b.count ? 2 : 1
-            default: allowance = a.count == b.count ? 3 : 2
-            }
-            guard allowance > 0 else { return false }
-            return distance(a, b) <= allowance
-        }
-
-        /// Optimal string alignment distance: insertions, deletions,
-        /// substitutions, and one adjacent transposition.
-        static func distance(_ a: String, _ b: String) -> Int {
-            let x = Array(a), y = Array(b)
-            if x.isEmpty { return y.count }
-            if y.isEmpty { return x.count }
-            var previous2 = [Int](repeating: 0, count: y.count + 1)
-            var previous = Array(0...y.count)
-            var current = [Int](repeating: 0, count: y.count + 1)
-            for i in 1...x.count {
-                current[0] = i
-                for j in 1...y.count {
-                    let cost = x[i - 1] == y[j - 1] ? 0 : 1
-                    current[j] = min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + cost)
-                    if i > 1, j > 1, x[i - 1] == y[j - 2], x[i - 2] == y[j - 1] {
-                        current[j] = min(current[j], previous2[j - 2] + 1)
-                    }
-                }
-                previous2 = previous
-                previous = current
-            }
-            return previous[y.count]
-        }
     }
 }

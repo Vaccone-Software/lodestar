@@ -16,32 +16,26 @@ public enum CodeNames {
 
     /// How a name is written, in the order the key cycles through them.
     public enum Style: CaseIterable, Sendable {
-        case words, pascal, camel, snake, kebab
+        case words, pascal, camel, snake, kebab, upperSnake
     }
 
     /// The style a name is written in now.
     public static func style(of text: String) -> Style {
         if text.contains(" ") { return .words }
-        if text.contains("_") { return .snake }
+        if text.contains("_") { return text.contains(where: \.isLowercase) ? .snake : .upperSnake }
         if text.contains("-") { return .kebab }
         if let first = text.first, first.isUppercase, text.dropFirst().contains(where: \.isUppercase) { return .pascal }
         if text.dropFirst().contains(where: \.isUppercase) { return .camel }
         return .words
     }
 
-    /// The name in the next style: words → PascalCase → camelCase →
-    /// snake_case → kebab-case → words. A trailing spoken extension ("dot
-    /// swift") becomes `.swift`, and a run-together word ("draftcontroller")
-    /// is split into its words first, by `isWord`.
-    public static func cycled(_ text: String, isWord: (String) -> Bool) -> String {
+    /// The name in a style. A trailing spoken extension ("dot swift")
+    /// becomes `.swift`, and a run-together word ("draftcontroller") is
+    /// split into its words first, by `isWord`.
+    public static func restyled(_ text: String, as style: Style, isWord: (String) -> Bool) -> String {
         let (words, ext) = parts(of: text, isWord: isWord)
         guard !words.isEmpty else { return text }
-        let current = style(of: text.components(separatedBy: ".").first ?? text)
-        let all = Style.allCases
-        var next = all[(all.firstIndex(of: current)! + 1) % all.count]
-        // One word has no PascalCase-versus-words difference worth a press.
-        if words.count == 1, next == .camel || next == .snake || next == .kebab { next = .words }
-        return written(words, as: next) + ext
+        return written(words, as: style) + ext
     }
 
     public static func written(_ words: [String], as style: Style) -> String {
@@ -52,6 +46,7 @@ public enum CodeNames {
         case .camel: return (lower.first ?? "") + lower.dropFirst().map(capitalized).joined()
         case .snake: return lower.joined(separator: "_")
         case .kebab: return lower.joined(separator: "-")
+        case .upperSnake: return lower.map { $0.uppercased() }.joined(separator: "_")
         }
     }
 

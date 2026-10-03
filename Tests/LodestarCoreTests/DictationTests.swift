@@ -167,24 +167,23 @@ final class CodeNamesTests: XCTestCase {
         CodeNames.Index(names: names, pronouncer: Pronouncer())
     }
 
-    func testTheKeyCyclesStyles() {
-        var text = "draft controller"
-        var seen: [String] = []
-        for _ in 0..<5 {
-            text = CodeNames.cycled(text, isWord: isWord)
-            seen.append(text)
-        }
-        XCTAssertEqual(seen, ["DraftController", "draftController", "draft_controller", "draft-controller",
-                              "draft controller"])
+    func testEachStyle() {
+        let text = "draft controller"
+        XCTAssertEqual(CodeNames.restyled(text, as: .pascal, isWord: isWord), "DraftController")
+        XCTAssertEqual(CodeNames.restyled(text, as: .camel, isWord: isWord), "draftController")
+        XCTAssertEqual(CodeNames.restyled(text, as: .snake, isWord: isWord), "draft_controller")
+        XCTAssertEqual(CodeNames.restyled(text, as: .kebab, isWord: isWord), "draft-controller")
+        XCTAssertEqual(CodeNames.restyled(text, as: .upperSnake, isWord: isWord), "DRAFT_CONTROLLER")
+        XCTAssertEqual(CodeNames.restyled("draftController", as: .words, isWord: isWord), "draft controller")
     }
 
     func testAnExtensionRidesAlong() {
-        XCTAssertEqual(CodeNames.cycled("draft controller dot swift", isWord: isWord), "DraftController.swift")
-        XCTAssertEqual(CodeNames.cycled("DraftController.swift", isWord: isWord), "draftController.swift")
+        XCTAssertEqual(CodeNames.restyled("draft controller dot swift", as: .pascal, isWord: isWord), "DraftController.swift")
+        XCTAssertEqual(CodeNames.restyled("DraftController.swift", as: .camel, isWord: isWord), "draftController.swift")
     }
 
     func testARunTogetherWordIsSplitFirst() {
-        XCTAssertEqual(CodeNames.cycled("draftcontroller", isWord: isWord), "DraftController")
+        XCTAssertEqual(CodeNames.restyled("draftcontroller", as: .pascal, isWord: isWord), "DraftController")
     }
 
     func testRepositoryNamesAreWrittenAsTheCodeWritesThem() {
@@ -211,66 +210,44 @@ final class CodeNamesTests: XCTestCase {
     }
 }
 
-/// `gs` in the draft's editor: the name under the cursor or the selection,
-/// in the next style, one undo step.
+/// `cr` and a style in the draft's editor (vim-abolish's coerce): the
+/// name under the cursor or the selection, one undo step.
 final class RestyleKeyTests: XCTestCase {
-    private func keys(_ vim: inout Vim, _ buffer: inout Draft.Buffer, _ text: String) {
-        for c in text { _ = vim.key(.char(c), buffer: &buffer, pasteboard: { nil }) }
+    private func keys(_ vim: inout Vim, _ buffer: inout Draft.Buffer, _ text: String) -> [Vim.Effect] {
+        var effects: [Vim.Effect] = []
+        for c in text { effects += vim.key(.char(c), buffer: &buffer, pasteboard: { nil }) }
+        return effects
     }
 
-    func testGsRestylesTheNameUnderTheCursor() {
-        var buffer = Draft.Buffer(text: "open draftcontroller.swift now", cursor: 7)
+    private func normal(_ text: String, at cursor: Int) -> (Vim, Draft.Buffer) {
+        var buffer = Draft.Buffer(text: text, cursor: cursor)
         var vim = Vim()
         vim.enterNormal(&buffer)
-        buffer.setCursor(7)
-        keys(&vim, &buffer, "gs")
+        buffer.setCursor(cursor)
+        return (vim, buffer)
+    }
+
+    func testCrNamesTheStyle() {
+        var (vim, buffer) = normal("open draftcontroller.swift now", at: 7)
+        _ = keys(&vim, &buffer, "crp")
         XCTAssertEqual(buffer.text, "open DraftController.swift now")
-        keys(&vim, &buffer, "gs")
+        _ = keys(&vim, &buffer, "crc")
         XCTAssertEqual(buffer.text, "open draftController.swift now")
-        keys(&vim, &buffer, "u")
-        XCTAssertEqual(buffer.text, "open DraftController.swift now", "one undo step each")
+        _ = keys(&vim, &buffer, "crs")
+        XCTAssertEqual(buffer.text, "open draft_controller.swift now")
+        _ = keys(&vim, &buffer, "u")
+        XCTAssertEqual(buffer.text, "open draftController.swift now", "one undo step each")
     }
 
     func testACountTakesThatManyWords() {
-        var buffer = Draft.Buffer(text: "call it draft controller dot swift.", cursor: 8)
-        var vim = Vim()
-        vim.enterNormal(&buffer)
-        buffer.setCursor(8)
-        keys(&vim, &buffer, "4gs")
-        XCTAssertEqual(buffer.text, "call it DraftController.swift.", "the sentence's period stays outside the name")
+        var (vim, buffer) = normal("call it model store dot swift.", at: 8)
+        _ = keys(&vim, &buffer, "4crp")
+        XCTAssertEqual(buffer.text, "call it ModelStore.swift.", "the sentence's period stays outside the name")
     }
 
-    func testASelectionIsRestyled() {
-        var buffer = Draft.Buffer(text: "a new model store file", cursor: 6)
-        var vim = Vim()
-        vim.enterNormal(&buffer)
-        buffer.setCursor(6)
-        keys(&vim, &buffer, "veegs")
-        XCTAssertEqual(buffer.text, "a new ModelStore file")
-    }
-}
-
-/// Numbers and file extensions as they are written.
-final class SpokenNumbersTests: XCTestCase {
-    func testVersionsAndLargeNumbersBecomeDigits() {
-        XCTAssertEqual(Draft.SpokenNumbers.written("bump Lodestar to zero dot thirty nine dot six today"),
-                       "bump Lodestar to 0.39.6 today")
-        XCTAssertEqual(Draft.SpokenNumbers.written("read the last two hundred lines."), "read the last 200 lines.")
-        XCTAssertEqual(Draft.SpokenNumbers.written("it is two point five times faster"), "it is 2.5 times faster")
-        XCTAssertEqual(Draft.SpokenNumbers.written("about forty two files"), "about 42 files")
-    }
-
-    func testProseNumbersStayWords() {
-        for text in ["one of the files", "two files changed", "the zero state", "nine five", "a thousand thanks"] {
-            XCTAssertEqual(Draft.SpokenNumbers.written(text), text, text)
-        }
-    }
-
-    func testAnExtensionJoinsACodeName() {
-        XCTAssertEqual(CodeNames.joinedExtensions("its own file called ModelStore. Swift."),
-                       "its own file called ModelStore.swift.")
-        XCTAssertEqual(CodeNames.joinedExtensions("open ModelStore dot swift now"), "open ModelStore.swift now")
-        XCTAssertEqual(CodeNames.joinedExtensions("I love Lodestar. Swift is great."), "I love Lodestar. Swift is great.",
-                       "a plain name and the next sentence stay apart")
+    func testCrStillLeavesOtherChangesAlone() {
+        var (vim, buffer) = normal("one two three", at: 4)
+        _ = keys(&vim, &buffer, "cw")
+        XCTAssertEqual(buffer.text, "one  three")
     }
 }

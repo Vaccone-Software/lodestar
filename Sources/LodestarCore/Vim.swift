@@ -52,6 +52,8 @@ public struct Vim {
     private var opCount: Int?
     private var awaiting: Character?
     private var pendingG = false
+    /// `cr` waits for its style; the count it carries.
+    private var pendingCoerce: Int?
     /// `]`, `[` or `z`, waiting for the second half of a spelling key.
     private var pendingSpell: Character?
     /// The editor's marks, as character ranges of the buffer, set by the
@@ -149,6 +151,7 @@ public struct Vim {
     /// its character. Escape clears it rather than closing anything.
     public var isPending: Bool {
         count != nil || op != nil || awaiting != nil || pendingG || pendingObject != nil || pendingSpell != nil
+            || pendingCoerce != nil
             || surround != nil || wrapRange != nil
     }
 
@@ -354,11 +357,15 @@ public struct Vim {
             pendingObject = nil
             return applyTextObject(kind: kind, c, &buffer, pasteboard: pasteboard)
         }
+        if let n = pendingCoerce {
+            pendingCoerce = nil
+            guard case .char(let c) = key, let style = Self.coerceStyles[c] else { clearPending(); return [] }
+            return coerce(to: style, words: n, &buffer)
+        }
         if pendingG {
             pendingG = false
             switch key {
             case .char("g"): return applyMotion(.line(0), &buffer, pasteboard: pasteboard)
-            case .char("s"): return restyle(&buffer)
             default: clearPending(); return []
             }
         }
@@ -402,6 +409,13 @@ public struct Vim {
             op = c
             opCount = count
             count = nil
+            return []
+        }
+        // `cr` and a style: the name under the cursor as code (vim-abolish's
+        // coerce, the keys a vim hand already knows).
+        if op == "c", c == "r" {
+            pendingCoerce = min(Self.countCap, (opCount ?? 1) * (count ?? 1))
+            op = nil; opCount = nil; count = nil
             return []
         }
         if let pending = op, pending == c {
@@ -1282,27 +1296,29 @@ public struct Vim {
 
     // MARK: - Names in code
 
-    /// `gs`: the name under the cursor, or the selection, in the next code
-    /// style — words, PascalCase, camelCase, snake_case, kebab-case — one
-    /// undo step, and again for the next. A count takes that many words
-    /// from the cursor ("3gs" on "draft controller dot swift" takes three:
-    /// spoken separators are words too).
-    private mutating func restyle(_ buffer: inout Draft.Buffer) -> [Effect] {
-        let n = max(1, count ?? 1)
-        count = nil
+    /// The styles `cr` takes, as vim-abolish names them: `crc` camelCase,
+    /// `crp` (or `crm`) PascalCase, `crs` (or `cr_`) snake_case, `cr-`
+    /// kebab-case, `cru` UPPER_SNAKE, `cr` and a space plain words.
+    static let coerceStyles: [Character: CodeNames.Style] = [
+        "c": .camel, "p": .pascal, "m": .pascal, "s": .snake, "_": .snake, "-": .kebab, "u": .upperSnake, " ": .words,
+    ]
+
+    /// `cr` and a style, in normal mode as vim-abolish has it: the name
+    /// under the cursor in that code style, one undo step. A count takes
+    /// that many words from the name's start ("4crp" on "model store dot
+    /// swift": "dot" is a word too), so a name said as words becomes one.
+    private mutating func coerce(to style: CodeNames.Style, words n: Int, _ buffer: inout Draft.Buffer) -> [Effect] {
         let range: Range<Int>
         if let selection = selection(in: buffer) {
             range = selection
         } else {
-            // The name under the cursor: a run without spaces, or with a
-            // count, that many space-separated words from its start.
             let chars = buffer.characters
             guard buffer.cursor < chars.count, !chars[buffer.cursor].isWhitespace else { return [] }
             var start = buffer.cursor
             while start > 0, !chars[start - 1].isWhitespace { start -= 1 }
             var end = start
             var words = 0
-            while end < chars.count, words < n {
+            while end < chars.count, words < max(1, n) {
                 while end < chars.count, !chars[end].isWhitespace { end += 1 }
                 words += 1
                 if words < n {
@@ -1324,12 +1340,12 @@ public struct Vim {
         if upper > lower, chars[upper - 1] == "." { upper -= 1 }
         guard upper > lower else { return [] }
         let text = buffer.slice(lower..<upper)
-        let restyled = CodeNames.cycled(text, isWord: isWord)
-        guard restyled != text else { return [] }
+        let restyled = CodeNames.restyled(text, as: style, isWord: isWord)
+        if case .visual = mode { mode = .normal }
+        guard restyled != text else { clampNormal(&buffer); return [] }
         snapshot(buffer)
         buffer.replace(lower..<upper, with: restyled)
         buffer.setCursor(lower)
-        if case .visual = mode { mode = .normal }
         clampNormal(&buffer)
         noteChange()
         return []
@@ -1540,6 +1556,7 @@ public struct Vim {
 
     private mutating func clearPending() {
         count = nil; op = nil; opCount = nil; awaiting = nil; pendingG = false; pendingObject = nil; pendingSpell = nil
+        pendingCoerce = nil
         surround = nil; surroundFrom = nil; wrapRange = nil
         recording = []
     }

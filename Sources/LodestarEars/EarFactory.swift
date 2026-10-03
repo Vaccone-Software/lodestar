@@ -6,6 +6,8 @@ public enum EarFactory {
     /// model files in `folder`; nil for a name not built.
     public static func make(_ name: String, folder: URL) -> SettlingEar? {
         switch name {
+        case ParakeetEar.Variant.v2.name: return ParakeetEar(.v2, folder: folder)
+        case ParakeetEar.Variant.v3.name: return ParakeetEar(.v3, folder: folder)
         default: return nil
         }
     }

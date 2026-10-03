@@ -5,3 +5,5 @@ xcuserdata/
 DerivedData/
 dist/
 .claude/
+__pycache__/
+*.pyc

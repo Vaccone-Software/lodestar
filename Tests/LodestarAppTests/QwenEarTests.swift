@@ -5,8 +5,8 @@ import XCTest
 @testable import LodestarEars
 
 /// The Qwen3-ASR ear's parts that need no weights: the front end's shape
-/// and numbers, the encoder's chunking, the prompt, and the token cap.
-/// The model itself is measured by `probe dictation ear`.
+/// and numbers, the encoder's chunking, the prompt, the token cap, and
+/// the pinned files. The model itself is measured by `probe dictation ear`.
 final class QwenEarTests: XCTestCase {
     private func requireGPU() throws {
         // MLX runs on the GPU, and a hosted runner's virtual machine has
@@ -156,8 +156,10 @@ final class QwenEarTests: XCTestCase {
             let ear = EarFactory.make(name, folder: folder)
             XCTAssertEqual(ear?.name, name)
             XCTAssertEqual(ear?.isLoaded, false)
+            XCTAssertNotNil(QwenEar.manifest(for: name))
         }
         XCTAssertNil(EarFactory.make("qwen3-asr-9b", folder: folder))
+        XCTAssertNil(QwenEar.manifest(for: "qwen3-asr-9b"))
     }
 
     func testLoadingAnEmptyFolderThrowsInsteadOfCrashing() async {
@@ -173,5 +175,22 @@ final class QwenEarTests: XCTestCase {
             _ = try await ear.transcribe([0], context: [])
             XCTFail("heard without a model")
         } catch {}
+    }
+
+    func testManifestsArePinnedToOneCommitWithEveryFileHashed() {
+        for manifest in [QwenEar.manifest1_7B, QwenEar.manifest0_6B] {
+            XCTAssertEqual(manifest.revision.count, 40)
+            XCTAssertEqual(Set(manifest.files.map(\.path)),
+                           ["config.json", "merges.txt", "model.safetensors", "tokenizer_config.json", "vocab.json"])
+            for file in manifest.files {
+                XCTAssertEqual(file.sha256.count, 64)
+                XCTAssertGreaterThan(file.size, 0)
+                XCTAssertTrue(manifest.url(for: file).absoluteString
+                    .hasPrefix("https://huggingface.co/\(manifest.repo)/resolve/\(manifest.revision)/"))
+            }
+        }
+        XCTAssertEqual(QwenEar.manifest1_7B.folder, "Qwen3-ASR-1.7B-8bit")
+        XCTAssertEqual(QwenEar.manifest1_7B.total, 2_467_775_902)
+        XCTAssertEqual(QwenEar.manifest0_6B.total, 1_010_697_786)
     }
 }

@@ -297,6 +297,19 @@ private func dictationRecord(_ options: [String: String]) {
         print("  saved \(String(format: "%.1f", seconds)) s")
         var item = utterance
         item.removeValue(forKey: "tts_text")
+        // Where the pauses fall, by the word they follow, as the scorer
+        // counts them: the words of the sentence before each {pNNNN}.
+        var pauses: [[String: Any]] = []
+        let marker = try! NSRegularExpression(pattern: #"\{p(\d+)\}"#)
+        let ns = source as NSString
+        for match in marker.matches(in: source, range: NSRange(location: 0, length: ns.length)) {
+            let before = ns.substring(to: match.range.location)
+                .replacingOccurrences(of: #"\{[^}]*\}"#, with: " ", options: .regularExpression)
+            let words = before.split(whereSeparator: \.isWhitespace).count
+            let ms = Int(ns.substring(with: match.range(at: 1))) ?? 0
+            pauses.append(["kind": "mid", "after_token": words - 1, "ms": ms])
+        }
+        if !pauses.isEmpty { item["pauses"] = pauses }
         item["id"] = id
         item["file"] = file
         item["voice"] = "you"

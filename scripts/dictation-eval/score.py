@@ -27,7 +27,7 @@ Normalization for WER: lowercase, punctuation stripped, camelCase and
 dotted/slashed identifiers split into words ("DraftController.swift" ->
 "draft controller dot swift", "local/dev" -> "local slash dev"), runs of single
 capital letters joined ("U A T" -> "uat"), number words to digits
-("zero point thirty-nine point six" -> "0.39.6", "fourteenth" -> "14").
+("zero point thirty-nine point six" or "zero dot thirty nine dot six" -> "0.39.6", "fourteenth" -> "14").
 """
 import argparse, difflib, json, os, re, sys
 from collections import defaultdict
@@ -93,9 +93,9 @@ def _numbers(toks):
     merged, i = [], 0
     while i < len(out):
         w, o = out[i]
-        if w.replace(".", "").isdigit() and i + 2 < len(out) and out[i + 1][0] == "point" and out[i + 2][0].isdigit():
+        if w.replace(".", "").isdigit() and i + 2 < len(out) and out[i + 1][0] in ("point", "dot") and out[i + 2][0].isdigit():
             s, j = w, i
-            while j + 2 < len(out) and out[j + 1][0] == "point" and out[j + 2][0].isdigit():
+            while j + 2 < len(out) and out[j + 1][0] in ("point", "dot") and out[j + 2][0].isdigit():
                 s += "." + out[j + 2][0]; j += 2
             merged.append((s, o)); i = j + 1
             continue

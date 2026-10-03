@@ -68,6 +68,7 @@ private func dictationUsage() {
     print("""
     probe dictation transcribe --manifest m.json --out runs.jsonl [--root dir] [--ids a,b]
     probe dictation settle --runs runs.jsonl --out hyps.json [--words names.txt] [--raw]
+    probe dictation ear --engine parakeet-v2 --model dir --manifest m.json --out runs.jsonl [--context names.txt] [--root dir]
     probe dictation record --out dir [--corpus utterances.json] [--from id]
     """)
 }
@@ -274,6 +275,21 @@ func samples16k(_ url: URL) throws -> [Float] {
     return Array(UnsafeBufferPointer(start: output.floatChannelData![0], count: Int(output.frameLength)))
 }
 
+/// This process's physical footprint now and at its peak, in MB: what
+/// Activity Monitor calls Memory. Weights the Neural Engine holds are not
+/// charged to it.
+private func footprintMB() -> (now: Int, peak: Int) {
+    var info = task_vm_info_data_t()
+    var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+    let result = withUnsafeMutablePointer(to: &info) {
+        $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+            task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+        }
+    }
+    guard result == KERN_SUCCESS else { return (-1, -1) }
+    return (Int(info.phys_footprint >> 20), Int(info.ledger_phys_footprint_peak >> 20))
+}
+
 private func dictationEar(_ options: [String: String]) {
     guard let engine = options["engine"], let model = options["model"], let manifestPath = options["manifest"],
           let out = options["out"] else { dictationUsage(); exit(64) }
@@ -293,7 +309,11 @@ private func dictationEar(_ options: [String: String]) {
         do {
             let began = Date()
             try await ear.load()
-            FileHandle.standardError.write("ear: \(ear.name) loaded in \(String(format: "%.1f", Date().timeIntervalSince(began))) s\n".data(using: .utf8)!)
+            FileHandle.standardError.write("ear: \(ear.name) loaded in \(String(format: "%.1f", Date().timeIntervalSince(began))) s, footprint \(footprintMB().now) MB\n".data(using: .utf8)!)
+            defer {
+                let memory = footprintMB()
+                FileHandle.standardError.write("ear: footprint \(memory.now) MB, peak \(memory.peak) MB\n".data(using: .utf8)!)
+            }
             FileManager.default.createFile(atPath: out, contents: nil)
             let handle = FileHandle(forWritingAtPath: out)!
             for (n, item) in items.enumerated() {
@@ -313,7 +333,7 @@ private func dictationEar(_ options: [String: String]) {
                                            "events": [["text": heard.text, "fin": true, "runs": runs]]]
                 handle.write(try JSONSerialization.data(withJSONObject: line))
                 handle.write("\n".data(using: .utf8)!)
-                FileHandle.standardError.write("[\(n + 1)/\(items.count)] \(id) \(String(format: "%.3f", seconds)) s\n".data(using: .utf8)!)
+                FileHandle.standardError.write("[\(n + 1)/\(items.count)] \(id) \(String(format: "%.3f", seconds)) s, \(footprintMB().now) MB\n".data(using: .utf8)!)
             }
             try? handle.close()
         } catch {

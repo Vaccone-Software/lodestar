@@ -117,7 +117,7 @@ final class EditorDownloadTests: XCTestCase {
     private func download(free: Int64 = 100_000_000_000, retry: [TimeInterval] = [0.05]) -> EditorDownload {
         let manifest = self.manifest
         return EditorDownload(root: root, protocolClasses: [StubHub.self],
-                              manifests: { $0 == .standard ? manifest : nil },
+                              manifests: { $0 == .editor(.standard) ? manifest : nil },
                               freeSpace: { _ in free }, retryDelays: retry)
     }
 

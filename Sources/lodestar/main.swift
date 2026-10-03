@@ -353,6 +353,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.earHost.warm()
         }
         draft.onClosed = { [weak self] in self?.earHost.rest() }
+        earHost.ready = { [weak self] tier in
+            self?.hud.flash("✓ the \(tier == .full ? "full" : "standard") ear is ready, dictation hears each phrase twice now")
+        }
         draft.inputDevice = config.draftInput.isEmpty ? nil : config.draftInput
         draft.sounds = config.sounds
         draft.playback = PlaybackPause()

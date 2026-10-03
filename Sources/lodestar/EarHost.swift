@@ -4,9 +4,11 @@ import LodestarEars
 
 /// The draft's settling ear, chosen by tier and kept in memory only while
 /// it is wanted: loaded when dictation starts, let go five minutes after
-/// the draft closes, as the editor's model is. A model is read from
-/// `~/.local/share/lodestar/ears/<engine>`; with none there, the draft
-/// runs on Apple's recognizer and its own pipeline alone.
+/// the draft closes, as the editor's model is. A model lives under
+/// `~/.local/share/lodestar/ears/`; choosing Standard or Full in Settings
+/// fetches its pinned files (never on a metered connection), and
+/// Automatic uses the best one already there. With none, the draft runs
+/// on Apple's recognizer and its own pipeline alone.
 final class EarHost {
     static let folder = Paths.data.appendingPathComponent("ears", isDirectory: true)
     static let idleSeconds: TimeInterval = 300
@@ -16,18 +18,45 @@ final class EarHost {
     private var idle: DispatchWorkItem?
     private var loading = false
 
+    /// Fetches a chosen tier's model; `ready` runs when it is whole.
+    let download = EditorDownload(root: EarHost.folder)
+    var ready: (EarTier) -> Void = { _ in }
+    private var named = ""
+
+    init() {
+        download.finishedEar = { [weak self] tier in
+            guard let self else { return }
+            Log.info("draft", ["ear downloaded": tier.rawValue])
+            self.configure(self.named)
+            self.ready(tier)
+        }
+    }
+
+    /// A tier's model folder: its pinned download's, or, for a model put
+    /// there by hand, one named after its engine.
     static func modelFolder(_ tier: EarTier) -> URL? {
-        tier.engine.map { folder.appendingPathComponent($0, isDirectory: true) }
+        if let manifest = tier.manifest {
+            return folder.appendingPathComponent(EditorManifest(manifest).folder, isDirectory: true)
+        }
+        return tier.engine.map { folder.appendingPathComponent($0, isDirectory: true) }
     }
 
     static func hasModel(_ tier: EarTier) -> Bool {
-        guard let url = modelFolder(tier),
-              let files = try? FileManager.default.contentsOfDirectory(atPath: url.path) else { return false }
+        guard let url = modelFolder(tier) else { return false }
+        if let manifest = tier.manifest { return EditorModels.isComplete(url, EditorManifest(manifest)) }
+        let files = (try? FileManager.default.contentsOfDirectory(atPath: url.path)) ?? []
         return !files.isEmpty
     }
 
-    /// The tier the setting names, resolved for this Mac.
+    /// The tier the setting names, resolved for this Mac. A tier named
+    /// outright whose model is not here yet is fetched, and taken up when
+    /// it is whole.
     func configure(_ named: String) {
+        self.named = named
+        if let wanted = EarTier(rawValue: named), wanted != .apple, !Self.hasModel(wanted),
+           EditorEngine.physicalGB >= wanted.memoryNeeded - 1, wanted.manifest != nil {
+            download.fetch(.ear(wanted))
+        }
         let next = EarTier.resolved(named, memoryGB: EditorEngine.physicalGB, hasModel: Self.hasModel)
         guard next != tier || (ear == nil && next != .apple) else { return }
         ear?.unload()

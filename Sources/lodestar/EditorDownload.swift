@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import LodestarCore
+import LodestarEars
 
 /// A model's files, pinned: the revision the accuracy fixture was recorded
 /// against, each file's size and hash. A download is these bytes or it is
@@ -115,6 +116,36 @@ struct EditorManifest: Equatable {
 /// pinned hash before the folder is renamed into place, so a model folder
 /// that exists is a whole model. One model at a time; asking for another
 /// cancels the first and deletes its partial files.
+/// What a download fetches: one of the editor's models or one of the
+/// draft's settling ears. One downloader serves both kinds, each with its
+/// own instance and folder.
+enum ModelID: Hashable {
+    case editor(EditorEngine)
+    case ear(EarTier)
+
+    var name: String {
+        switch self {
+        case .editor(let engine): return engine.name
+        case .ear(let tier): return tier == .full ? "Full ear" : "Standard ear"
+        }
+    }
+
+    static func manifest(_ id: ModelID) -> EditorManifest? {
+        switch id {
+        case .editor(let engine): return EditorManifest.forEngine(engine)
+        case .ear(let tier): return tier.manifest.map(EditorManifest.init)
+        }
+    }
+}
+
+extension EditorManifest {
+    /// An ear's pinned files, fetched the way the editor's are.
+    init(_ ear: EarManifest) {
+        self.init(repo: ear.repo, revision: ear.revision,
+                  files: ear.files.map { File(path: $0.path, size: $0.size, sha256: $0.sha256) })
+    }
+}
+
 final class EditorDownload: NSObject, URLSessionDataDelegate {
     enum State: Equatable {
         case idle
@@ -126,14 +157,17 @@ final class EditorDownload: NSObject, URLSessionDataDelegate {
     }
 
     private(set) var state: State = .idle { didSet { if state != oldValue { changed() } } }
-    private(set) var engine: EditorEngine?
+    private(set) var model: ModelID?
+    /// The editor model on its way, if that is what this one fetches.
+    var engine: EditorEngine? { if case .editor(let engine)? = model { return engine } else { return nil } }
     /// Main thread: the state moved (Settings redraws), and the model is
     /// whole and in place.
     var changed: () -> Void = {}
     var finished: (EditorEngine) -> Void = { _ in }
+    var finishedEar: (EarTier) -> Void = { _ in }
 
     let root: URL
-    private let manifests: (EditorEngine) -> EditorManifest?
+    private let manifests: (ModelID) -> EditorManifest?
     private let freeSpace: (URL) -> Int64
     private let retryDelays: [TimeInterval]
     private var session: URLSession!
@@ -169,7 +203,7 @@ final class EditorDownload: NSObject, URLSessionDataDelegate {
     }
 
     init(root: URL = EditorModels.root, protocolClasses: [AnyClass]? = nil,
-         manifests: @escaping (EditorEngine) -> EditorManifest? = EditorManifest.forEngine,
+         manifests: @escaping (ModelID) -> EditorManifest? = ModelID.manifest,
          freeSpace: @escaping (URL) -> Int64 = EditorDownload.availableSpace,
          retryDelays: [TimeInterval] = [10, 60, 300]) {
         self.root = root
@@ -200,8 +234,8 @@ final class EditorDownload: NSObject, URLSessionDataDelegate {
     /// What Settings says while a model is on its way, or nil when there
     /// is nothing to say.
     var status: String? {
-        guard let engine else { return nil }
-        let name = engine.name
+        guard let model else { return nil }
+        let name = model.name
         func gb(_ bytes: Int64) -> String { String(format: "%.1f", Double(bytes) / 1e9) }
         switch state {
         case .idle, .ready: return nil
@@ -218,11 +252,13 @@ final class EditorDownload: NSObject, URLSessionDataDelegate {
 
     /// Fetch this engine's model, unless it is already on its way. Asked
     /// again after a failure, it resumes from what it has. Main thread.
-    func fetch(_ engine: EditorEngine) {
-        if engine == self.engine, state != .idle, !isFailed { return }
-        if engine != self.engine { cancel() }
-        guard let manifest = manifests(engine) else { return }
-        self.engine = engine
+    func fetch(_ engine: EditorEngine) { fetch(.editor(engine)) }
+
+    func fetch(_ wanted: ModelID) {
+        if wanted == model, state != .idle, !isFailed { return }
+        if wanted != model { cancel() }
+        guard let manifest = manifests(wanted) else { return }
+        model = wanted
         generation += 1
         let generation = self.generation
         state = .downloading(done: 0, total: manifest.total)
@@ -239,8 +275,8 @@ final class EditorDownload: NSObject, URLSessionDataDelegate {
     /// later — the editor turned off, not another model chosen. Main thread.
     func cancel(keepingPartial: Bool = false) {
         generation += 1
-        let engine = self.engine
-        self.engine = nil
+        let fetching = model
+        model = nil
         state = .idle
         delegateQueue.addOperation { [weak self] in
             guard let self else { return }
@@ -248,7 +284,7 @@ final class EditorDownload: NSObject, URLSessionDataDelegate {
             self.task = nil
             try? self.handle?.close()
             self.handle = nil
-            if !keepingPartial, let engine, let manifest = self.manifests(engine) {
+            if !keepingPartial, let fetching, let manifest = self.manifests(fetching) {
                 try? FileManager.default.removeItem(at: self.partial(manifest))
             }
             self.manifest = nil
@@ -261,7 +297,12 @@ final class EditorDownload: NSObject, URLSessionDataDelegate {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.generation == generation else { return }
             self.state = state
-            if state == .ready, let engine = self.engine { self.finished(engine) }
+            if state == .ready, let model = self.model {
+                switch model {
+                case .editor(let engine): self.finished(engine)
+                case .ear(let tier): self.finishedEar(tier)
+                }
+            }
         }
     }
 

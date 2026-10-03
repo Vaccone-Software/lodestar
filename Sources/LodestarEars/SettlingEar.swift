@@ -48,6 +48,15 @@ extension EarTier {
         }
     }
 
+    /// The model files a tier downloads, pinned.
+    public var manifest: EarManifest? {
+        switch self {
+        case .apple: return nil
+        case .standard: return ParakeetEar.manifestV2
+        case .full: return nil
+        }
+    }
+
     /// The memory a tier asks of the Mac, in GB.
     public var memoryNeeded: Double {
         switch self {

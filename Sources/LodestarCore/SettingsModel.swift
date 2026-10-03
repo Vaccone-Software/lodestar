@@ -395,7 +395,8 @@ public enum SettingsModel {
                 control: .choice(options: ["", "apple", "standard", "full"],
                                  labels: ["Automatic", "Off", "Standard", "Full"], current: config.draftEar),
                 detail: "Hears each phrase again while you keep talking, and writes it better. "
-                    + "Standard suits 8 GB Macs, Full 24 GB. Automatic picks what this Mac suits.",
+                    + "Choosing Standard (0.5 GB, 8 GB Macs) or Full (2.5 GB, 24 GB Macs) downloads it. "
+                    + "Automatic uses the best one this Mac has.",
                 isDefault: config.draftEar.isEmpty),
         ]
 

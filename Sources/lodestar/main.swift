@@ -1,5 +1,6 @@
 import AppKit
 import LodestarCore
+import LodestarEars
 
 /// The lodestar mark in the menu bar: the star with depth as one
 /// silhouette (Mark.faces, every face filled in the template color), so the
@@ -57,7 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var webBar: WebBarController!
     private var engine: HotkeyEngine!
     private var draftController: DraftController?
-    /// The draft's settling ear, by tier (`draft.ear`).
+    /// The draft's dictation model, by tier (`draft.model`).
     private let earHost = EarHost()
     private var editorController: EditorController?
     /// False until the boot's own apply, so the card greets a switch turned
@@ -345,7 +346,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         draft.words = config.draftWords
         draft.codeRepository = { RepoNames.repository(pid: $0.pid, bundleID: $0.bundleID) }
         // The settling ear: chosen by tier, loaded when dictation starts.
-        earHost.configure(config.draftEar)
+        earHost.configure(config.draftModel)
         draft.earContext = Array(config.draftWords.prefix(30))
         draft.onListen = { [weak self, weak draft] in
             guard let self, let draft else { return }
@@ -355,7 +356,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         draft.onClosed = { [weak self] in self?.earHost.rest() }
         draft.journal = DictationJournal.forThisBuild()
         earHost.ready = { [weak self] tier in
-            self?.hud.flash("✓ the \(tier == .full ? "full" : "standard") ear is ready, dictation hears each phrase twice now")
+            self?.hud.flash("✓ the \(tier.name.lowercased()) dictation model is ready, it hears what you say twice now")
         }
         draft.inputDevice = config.draftInput.isEmpty ? nil : config.draftInput
         draft.sounds = config.sounds
@@ -1133,6 +1134,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let engine = self?.editorController?.engine ?? EditorEngine.resolved(self?.config.editorModel ?? "")
             state.editorEngineCurrent = self?.config.editorModel ?? ""
             state.earStatus = self?.earHost.status ?? ""
+            state.draftModelAutomatic = EarTier.resolved("", memoryGB: EditorEngine.physicalGB, hasModel: { _ in true }).name
             state.editorRegionInferred = EditorRegion.inferred()
             state.unitsInferred = ClipQuantity.System.regional().rawValue
             let waiting = (self?.config.editorEnabled ?? false) && !(self?.store.editorConsented ?? true)
@@ -1964,7 +1966,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         clipboardController.excludedPatterns = loaded.clipboardExcludePatterns
         draftController?.words = loaded.draftWords
         draftController?.earContext = Array(loaded.draftWords.prefix(30))
-        earHost.configure(loaded.draftEar)
+        earHost.configure(loaded.draftModel)
         applyEditor(loaded)
         draftController?.inputDevice = loaded.draftInput.isEmpty ? nil : loaded.draftInput
         draftController?.sounds = loaded.sounds

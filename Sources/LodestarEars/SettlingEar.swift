@@ -39,6 +39,15 @@ public enum EarTier: String, CaseIterable, Sendable {
 }
 
 extension EarTier {
+    /// The tier as Settings names it.
+    public var name: String {
+        switch self {
+        case .apple: return "Apple only"
+        case .standard: return "Standard"
+        case .full: return "Full"
+        }
+    }
+
     /// The engine each tier runs, by its `EarFactory` name.
     public var engine: String? {
         switch self {

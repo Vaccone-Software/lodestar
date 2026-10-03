@@ -207,8 +207,10 @@ public enum SettingsModel {
         public var editorEngines: [String] = []
         public var editorEngineLabels: [String] = []
         public var editorEngineCurrent = ""
-        /// The second ear in use, or what it is fetching, for its row.
+        /// The dictation model in use, or what it is fetching, for its row.
         public var earStatus = ""
+        /// What Automatic picks for dictation on this Mac, named in its label.
+        public var draftModelAutomatic = "Full"
         public var editorModelStatus = ""
         /// Engines this Mac cannot run (too little memory, no Apple
         /// Intelligence): listed, greyed.
@@ -393,14 +395,15 @@ public enum SettingsModel {
                 detail: "Names and terms speech gets wrong. A spoken word that sounds like "
                     + "one of these becomes it, case and all.",
                 isDefault: config.draftWords.isEmpty),
-            Row(title: "Second ear", path: "draft.ear",
+            Row(title: "Model", path: "draft.model",
                 control: .choice(options: ["", "apple", "standard", "full"],
-                                 labels: ["Automatic", "Off", "Standard", "Full"], current: config.draftEar),
+                                 labels: ["Automatic · \(machine.draftModelAutomatic)", "Apple only", "Standard", "Full"],
+                                 current: config.draftModel),
                 detail: (machine.earStatus.isEmpty ? "" : machine.earStatus + ". ")
                     + "Hears what you said again while you keep talking, and writes it better. "
                     + "Standard is 0.5 GB for 8 GB Macs, Full 2.5 GB for 24 GB. "
                     + "Automatic fetches the one this Mac suits the first time you dictate.",
-                isDefault: config.draftEar.isEmpty),
+                isDefault: config.draftModel.isEmpty),
         ]
 
         // 9 · The editor, its own pane, above Advanced: the last pane is
@@ -468,7 +471,7 @@ public enum SettingsModel {
                 detail: "A completed span is copied the moment its second "
                     + "anchor lands.",
                 isDefault: !config.selectCopyOnComplete),
-        ] + draftRows))
+        ]))
 
 
         // 5 · Clipboard
@@ -664,6 +667,9 @@ public enum SettingsModel {
                 group: "Health"),
         ]))
 
+        // The draft, its own page beside the editor's: the two ways Lodestar
+        // helps you write.
+        sections.append(Section(name: "Draft", rows: draftRows))
         sections.append(Section(name: "Editor", rows: editorRows))
 
         // 10 · Advanced, on 0
@@ -762,13 +768,37 @@ public enum SettingsModel {
     /// the number row's own order, one key each.
     public static let paneKeys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]
 
-    public static func paneKey(_ index: Int) -> String? {
-        paneKeys.indices.contains(index) ? paneKeys[index] : nil
+    /// Every pane's address on the number row: 1 through 9, then 0 for the
+    /// last. Past ten, the panes before the last share 9 as a prefix — 91,
+    /// 92 — so Advanced keeps 0 and every other address keeps its key.
+    public static func paneAddresses(count: Int) -> [String] {
+        guard count > 0 else { return [] }
+        guard count > paneKeys.count else {
+            return count == paneKeys.count ? paneKeys : Array(paneKeys.prefix(count))
+        }
+        let shared = count - 9          // the panes sharing 9, the last one apart
+        return Array(paneKeys.prefix(8)) + (1...shared).map { "9\($0)" } + ["0"]
+    }
+
+    public static func paneKey(_ index: Int, count: Int = 10) -> String? {
+        let addresses = paneAddresses(count: count)
+        return addresses.indices.contains(index) ? addresses[index] : nil
+    }
+
+    /// What the digits typed so far reach: a pane, or the start of an
+    /// address that needs another digit.
+    public enum PaneMatch: Equatable { case pane(Int), prefix, none }
+
+    public static func pane(forKeys typed: String, count: Int) -> PaneMatch {
+        let addresses = paneAddresses(count: count)
+        if let index = addresses.firstIndex(of: typed) { return .pane(index) }
+        if addresses.contains(where: { $0.count > typed.count && $0.hasPrefix(typed) }) { return .prefix }
+        return .none
     }
 
     public static func pane(forKey key: String, count: Int) -> Int? {
-        guard let index = paneKeys.firstIndex(of: key), index < count else { return nil }
-        return index
+        if case .pane(let index) = pane(forKeys: key, count: count) { return index }
+        return nil
     }
 
     public static func labels(for count: Int) -> [String] {

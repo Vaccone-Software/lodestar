@@ -126,7 +126,7 @@ enum ModelID: Hashable {
     var name: String {
         switch self {
         case .editor(let engine): return engine.name
-        case .ear(let tier): return tier == .full ? "Full ear" : "Standard ear"
+        case .ear(let tier): return tier.name
         }
     }
 

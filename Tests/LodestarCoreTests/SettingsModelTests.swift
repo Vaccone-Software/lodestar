@@ -6,25 +6,35 @@ final class SettingsModelTests: XCTestCase {
         SettingsModel.catalog(config: Config(), machine: .init())
     }
 
-    func testTenPanesInTheAgreedOrder() {
+    func testThePanesInTheAgreedOrder() {
         XCTAssertEqual(sections.map(\.name),
                        ["General", "Permissions", "Gestures", "Interactions", "Clipboard",
-                        "Web", "Meetings", "Coach", "Editor", "Advanced"])
-        XCTAssertLessThanOrEqual(sections.count, SettingsModel.paneKeys.count,
-                                 "the number row addresses panes; an eleventh has no key")
+                        "Web", "Meetings", "Coach", "Draft", "Editor", "Advanced"])
+        XCTAssertEqual(SettingsModel.paneAddresses(count: sections.count).count, sections.count,
+                       "every pane has an address")
     }
 
-    /// 1 through 9, then 0: the editor sits above Advanced, which keeps
-    /// the end of the row on 0.
+    /// 1 through 8, then the two writing panes share 9 (91 Draft, 92
+    /// Editor), and Advanced keeps 0 at the end of the row.
     func testTheNumberRowAddressesThePanes() {
-        XCTAssertEqual((0..<sections.count).compactMap(SettingsModel.paneKey),
-                       ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"])
-        XCTAssertEqual(SettingsModel.pane(forKey: "9", count: sections.count),
-                       sections.firstIndex { $0.name == "Editor" })
+        XCTAssertEqual(SettingsModel.paneAddresses(count: sections.count),
+                       ["1", "2", "3", "4", "5", "6", "7", "8", "91", "92", "0"])
+        XCTAssertEqual(SettingsModel.pane(forKeys: "9", count: sections.count), .prefix, "9 waits for its second digit")
+        XCTAssertEqual(SettingsModel.pane(forKeys: "91", count: sections.count),
+                       .pane(sections.firstIndex { $0.name == "Draft" }!))
+        XCTAssertEqual(SettingsModel.pane(forKeys: "92", count: sections.count),
+                       .pane(sections.firstIndex { $0.name == "Editor" }!))
         XCTAssertEqual(SettingsModel.pane(forKey: "0", count: sections.count),
                        sections.firstIndex { $0.name == "Advanced" }, "Advanced is last, on 0")
+        XCTAssertEqual(SettingsModel.paneAddresses(count: 10), SettingsModel.paneKeys, "ten panes, ten keys")
         XCTAssertNil(SettingsModel.pane(forKey: "0", count: 9), "no tenth pane, no 0")
-        XCTAssertNil(SettingsModel.pane(forKey: "a", count: 10))
+        XCTAssertNil(SettingsModel.pane(forKey: "a", count: 11))
+        XCTAssertEqual(SettingsModel.pane(forKeys: "93", count: 11), .none)
+    }
+
+    func testTheDraftPaneHoldsTheDraftsRows() {
+        let draft = sections.first { $0.name == "Draft" }!
+        XCTAssertEqual(draft.rows.map(\.path), ["draft.input", "draft.words", "draft.model"])
     }
 
     func testTheEditorPaneHoldsTheEditorsRows() {

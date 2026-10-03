@@ -86,7 +86,7 @@ final class EarHost {
     var status: String {
         if let fetching = download.status { return fetching }
         switch tier {
-        case .apple: return ear == nil && named == "apple" ? "Off" : "None on this Mac yet"
+        case .apple: return named == "apple" ? "" : "Not on this Mac yet"
         case .standard: return "Standard in use"
         case .full: return "Full in use"
         }

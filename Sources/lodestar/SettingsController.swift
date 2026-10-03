@@ -319,7 +319,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             if key == "escape" {
                 showingChanged = false
                 render()
-            } else if let index = SettingsModel.pane(forKey: key, count: sections.count) {
+            } else if let index = paneAddress(key) {
                 // The changed view is a stop, not a mode: any pane
                 // address leaves it and goes there.
                 showingChanged = false
@@ -352,7 +352,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             if let searchField { panel.makeFirstResponder(searchField) }
             return true
         }
-        if let index = SettingsModel.pane(forKey: key, count: sections.count) {
+        if let index = paneAddress(key) {
             pane = index
             openPage = nil
             highlightRow = nil
@@ -368,6 +368,30 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             return true
         }
         return true
+    }
+
+    /// The digits typed toward a pane's address: past ten panes the last
+    /// ones share 9 (91, 92), so a 9 waits for the next digit.
+    private var paneTyped = ""
+
+    /// A key toward a pane's address: the pane it reaches, or nil — for a
+    /// key that is no address, or a 9 still waiting for its second digit.
+    private func paneAddress(_ key: String) -> Int? {
+        guard key.count == 1, key.first?.isNumber == true else { paneTyped = ""; return nil }
+        for typed in [paneTyped + key, key] where !typed.isEmpty {
+            switch SettingsModel.pane(forKeys: typed, count: sections.count) {
+            case .pane(let index):
+                paneTyped = ""
+                return index
+            case .prefix:
+                paneTyped = typed
+                return nil
+            case .none:
+                continue
+            }
+        }
+        paneTyped = ""
+        return nil
     }
 
     /// Inside a list: arrows select, return edits, delete removes, a is
@@ -407,7 +431,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             }
         default:
             // A digit is a pane address everywhere, list mode included.
-            if let index = SettingsModel.pane(forKey: key, count: sections.count) {
+            if let index = paneAddress(key) {
                 listFocus = nil
                 pane = index
                 highlightRow = nil
@@ -888,7 +912,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             row.orientation = .horizontal
             row.alignment = .centerY
             row.spacing = 10
-            row.addArrangedSubview(chip(SettingsModel.paneKey(index) ?? "", lit: index == pane))
+            row.addArrangedSubview(chip(SettingsModel.paneKey(index, count: sections.count) ?? "", lit: index == pane))
             row.addArrangedSubview(label(section.name, size: BarTheme.Scale.body,
                                          weight: index == pane ? .semibold : .regular,
                                          color: index == pane ? .labelColor : BarTheme.secondaryColor))

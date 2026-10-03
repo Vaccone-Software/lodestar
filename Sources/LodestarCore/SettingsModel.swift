@@ -388,9 +388,15 @@ public enum SettingsModel {
             Row(title: "Words", path: "draft.words",
                 control: .table(kind: .draftWords, entries: config.draftWords
                     .map { TableEntry(key: $0, display: $0) }),
-                detail: "Names and terms speech gets wrong. A spoken word within a letter "
-                    + "or two of one of these becomes it, case and all.",
+                detail: "Names and terms speech gets wrong. A spoken word that sounds like "
+                    + "one of these becomes it, case and all.",
                 isDefault: config.draftWords.isEmpty),
+            Row(title: "Second ear", path: "draft.ear",
+                control: .choice(options: ["", "apple", "standard", "full"],
+                                 labels: ["Automatic", "Off", "Standard", "Full"], current: config.draftEar),
+                detail: "Hears each phrase again while you keep talking, and writes it better. "
+                    + "Standard suits 8 GB Macs, Full 24 GB. Automatic picks what this Mac suits.",
+                isDefault: config.draftEar.isEmpty),
         ]
 
         // 9 · The editor, its own pane, above Advanced: the last pane is

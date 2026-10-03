@@ -68,6 +68,9 @@ final class ConfigCoverageTests: XCTestCase {
         Probe(path: ["draft", "input"], value: .string("MacBook Pro Microphone")) {
             $0.draftInput == "MacBook Pro Microphone"
         },
+        Probe(path: ["draft", "ear"], value: .string("standard")) {
+            $0.draftEar == "standard"
+        },
 
         Probe(path: ["observations", "enabled"], value: .bool(false)) { !$0.observationsEnabled },
         Probe(path: ["observations", "health"], value: .bool(false)) { !$0.observationsHealth },

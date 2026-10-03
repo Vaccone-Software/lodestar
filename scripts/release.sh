@@ -57,10 +57,17 @@ fi
 
 echo "→ submitting for notarization"
 ditto -c -k --keepParent "$APP" "$ARTIFACT"
-if ! xcrun notarytool history --keychain-profile "$PROFILE" >/dev/null 2>&1; then
-    echo "✕ notary credentials missing (keychain profile '$PROFILE')."
-    echo "  xcrun notarytool store-credentials $PROFILE \\"
-    echo "    --apple-id <your-apple-id> --team-id <TEAMID> --password <app-specific-password>"
+if ! NOTARY_CHECK=$(xcrun notarytool history --keychain-profile "$PROFILE" 2>&1); then
+    # Apple's own words first: a lapsed agreement (HTTP 403) reads exactly
+    # like missing credentials otherwise, and the fix is not in the keychain.
+    echo "✕ the notary service refused: $(echo "$NOTARY_CHECK" | head -1)"
+    if echo "$NOTARY_CHECK" | grep -q "agreement"; then
+        echo "  Accept the pending agreement at developer.apple.com/account (the account holder), then run again."
+    else
+        echo "  If the keychain profile '$PROFILE' is missing:"
+        echo "  xcrun notarytool store-credentials $PROFILE \\"
+        echo "    --apple-id <your-apple-id> --team-id <TEAMID> --password <app-specific-password>"
+    fi
     exit 1
 fi
 xcrun notarytool submit "$ARTIFACT" --keychain-profile "$PROFILE" --wait

@@ -1,8 +1,9 @@
 import Foundation
 
 /// What dictation heard and what it did with it, kept for a few days to
-/// make it better: the one record in Lodestar that holds words, so it is
-/// off unless `draft.journal-days` says how long to keep it.
+/// make it better: the one record in Lodestar that holds words, so only a
+/// development build keeps it (`forThisBuild`), never a release. It is an
+/// instrument for the person making dictation better, not a feature.
 ///
 /// One line a dictation, in a folder of its own: each phrase the live
 /// recognizer settled and what the pipeline made of it, each time the
@@ -17,6 +18,18 @@ public final class DictationJournal: @unchecked Sendable {
     private let lock = NSLock()
     private var current: [String: Any]?
     private var events: [[String: Any]] = []
+
+    /// Two weeks in a development build (one stamped `LodestarDevelopment`
+    /// by scripts/dev-build.sh), or the days `LODESTAR_JOURNAL_DAYS` says;
+    /// none in a release.
+    public static func forThisBuild(bundle: Bundle = .main,
+                                    environment: [String: String] = ProcessInfo.processInfo.environment) -> DictationJournal? {
+        if let days = environment["LODESTAR_JOURNAL_DAYS"].flatMap(Int.init) {
+            return days > 0 ? DictationJournal(days: days) : nil
+        }
+        guard bundle.object(forInfoDictionaryKey: "LodestarDevelopment") as? Bool == true else { return nil }
+        return DictationJournal(days: 14)
+    }
 
     public init(folder: URL = Paths.data.appendingPathComponent("dictation-journal", isDirectory: true), days: Int) {
         self.folder = folder

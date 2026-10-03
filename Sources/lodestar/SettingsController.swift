@@ -642,11 +642,6 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             }
             return
         }
-        // A choice among numbers stores the number (draft.journal-days).
-        if row.path == "draft.journal-days", let days = Int(chosen) {
-            write(row.path, .int(days))
-            return
-        }
         write(row.path, .string(chosen))
     }
 

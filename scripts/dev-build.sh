@@ -32,7 +32,7 @@ case "${1:-status}" in
 start)
     # Build first, while the installed app keeps running.
     swift build -c release
-    LODESTAR_SIGN_IDENTITY="$IDENTITY" ./scripts/make-app.sh
+    LODESTAR_DEVELOPMENT=1 LODESTAR_SIGN_IDENTITY="$IDENTITY" ./scripts/make-app.sh
     # Nothing is written into the bundle after it is signed: a changed seal
     # would cost the Accessibility grant.
     codesign --verify --strict "$BUILT"

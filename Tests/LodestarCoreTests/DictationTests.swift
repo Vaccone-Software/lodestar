@@ -277,6 +277,15 @@ final class DictationJournalTests: XCTestCase {
         XCTAssertEqual((entry["events"] as? [Any])?.count, 2)
     }
 
+    func testOnlyADevelopmentBuildKeepsOne() {
+        XCTAssertNil(DictationJournal.forThisBuild(bundle: Bundle(for: Self.self), environment: [:]),
+                     "a release (a bundle not stamped LodestarDevelopment) keeps no journal")
+        XCTAssertEqual(DictationJournal.forThisBuild(bundle: Bundle(for: Self.self),
+                                                     environment: ["LODESTAR_JOURNAL_DAYS": "3"])?.days, 3)
+        XCTAssertNil(DictationJournal.forThisBuild(bundle: Bundle(for: Self.self),
+                                                   environment: ["LODESTAR_JOURNAL_DAYS": "0"]))
+    }
+
     func testNothingHeardIsNothingKept() {
         let dir = folder()
         defer { try? FileManager.default.removeItem(at: dir) }

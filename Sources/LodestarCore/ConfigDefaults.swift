@@ -210,7 +210,6 @@ public enum ConfigDefaults {
         "draft": .table([
             "input": .string(""),
             "ear": .string(""),
-            "journal-days": .int(0),
             "words": .table([:]),
         ]),
         "clipboard": .table([

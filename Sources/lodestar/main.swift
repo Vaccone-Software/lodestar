@@ -353,7 +353,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.earHost.warm()
         }
         draft.onClosed = { [weak self] in self?.earHost.rest() }
-        draft.journal = config.draftJournalDays > 0 ? DictationJournal(days: config.draftJournalDays) : nil
+        draft.journal = DictationJournal.forThisBuild()
         earHost.ready = { [weak self] tier in
             self?.hud.flash("✓ the \(tier == .full ? "full" : "standard") ear is ready, dictation hears each phrase twice now")
         }
@@ -1965,9 +1965,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         draftController?.words = loaded.draftWords
         draftController?.earContext = Array(loaded.draftWords.prefix(30))
         earHost.configure(loaded.draftEar)
-        if draftController?.journal?.days ?? 0 != loaded.draftJournalDays {
-            draftController?.journal = loaded.draftJournalDays > 0 ? DictationJournal(days: loaded.draftJournalDays) : nil
-        }
         applyEditor(loaded)
         draftController?.inputDevice = loaded.draftInput.isEmpty ? nil : loaded.draftInput
         draftController?.sounds = loaded.sounds

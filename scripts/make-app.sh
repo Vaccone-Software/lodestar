@@ -52,6 +52,11 @@ done
 VERSION=$(grep 'public static let version' Sources/LodestarCore/Version.swift | cut -d'"' -f2)
 plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP/Contents/Info.plist"
 plutil -replace CFBundleVersion -string "$VERSION" "$APP/Contents/Info.plist"
+# A development build says so, before it is signed: it keeps the dictation
+# journal (DictationJournal), which a release never does.
+if [ -n "${LODESTAR_DEVELOPMENT:-}" ]; then
+    plutil -replace LodestarDevelopment -bool YES "$APP/Contents/Info.plist"
+fi
 # The binary must be the code it is labelled as. A bare run is a CLI asking
 # for help, and the first line names the version compiled in: ask it.
 ANNOUNCED=$("$BIN" 2>/dev/null | sed -n 's/^Lodestar \([0-9.]*\):.*/\1/p' | head -1)

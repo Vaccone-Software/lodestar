@@ -207,6 +207,8 @@ public enum SettingsModel {
         public var editorEngines: [String] = []
         public var editorEngineLabels: [String] = []
         public var editorEngineCurrent = ""
+        /// The second ear in use, or what it is fetching, for its row.
+        public var earStatus = ""
         public var editorModelStatus = ""
         /// Engines this Mac cannot run (too little memory, no Apple
         /// Intelligence): listed, greyed.
@@ -394,9 +396,10 @@ public enum SettingsModel {
             Row(title: "Second ear", path: "draft.ear",
                 control: .choice(options: ["", "apple", "standard", "full"],
                                  labels: ["Automatic", "Off", "Standard", "Full"], current: config.draftEar),
-                detail: "Hears each phrase again while you keep talking, and writes it better. "
-                    + "Choosing Standard (0.5 GB, 8 GB Macs) or Full (2.5 GB, 24 GB Macs) downloads it. "
-                    + "Automatic uses the best one this Mac has.",
+                detail: (machine.earStatus.isEmpty ? "" : machine.earStatus + ". ")
+                    + "Hears what you said again while you keep talking, and writes it better. "
+                    + "Standard is 0.5 GB for 8 GB Macs, Full 2.5 GB for 24 GB. "
+                    + "Automatic fetches the one this Mac suits the first time you dictate.",
                 isDefault: config.draftEar.isEmpty),
         ]
 

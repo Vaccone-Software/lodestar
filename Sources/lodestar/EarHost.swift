@@ -22,6 +22,12 @@ final class EarHost {
     let download = EditorDownload(root: EarHost.folder)
     var ready: (EarTier) -> Void = { _ in }
     private var named = ""
+    private var suited: EarTier = .apple
+
+    private func fetchIfMissing() {
+        guard suited != .apple, !Self.hasModel(suited), suited.manifest != nil else { return }
+        download.fetch(.ear(suited))
+    }
 
     init() {
         download.finishedEar = { [weak self] tier in
@@ -53,10 +59,13 @@ final class EarHost {
     /// it is whole.
     func configure(_ named: String) {
         self.named = named
-        if let wanted = EarTier(rawValue: named), wanted != .apple, !Self.hasModel(wanted),
-           EditorEngine.physicalGB >= wanted.memoryNeeded - 1, wanted.manifest != nil {
-            download.fetch(.ear(wanted))
-        }
+        // The tier this Mac suits: the one named, or for Automatic the
+        // largest the memory allows. A tier named outright is fetched now;
+        // Automatic waits for the first dictation, so nobody who never
+        // dictates downloads a model. Meanwhile the best one here is used.
+        suited = EarTier.resolved(named, memoryGB: EditorEngine.physicalGB, hasModel: { _ in true })
+        if !named.isEmpty { fetchIfMissing() }
+        if let fetching = download.model, fetching != .ear(suited) { download.cancel(keepingPartial: true) }
         let next = EarTier.resolved(named, memoryGB: EditorEngine.physicalGB, hasModel: Self.hasModel)
         guard next != tier || (ear == nil && next != .apple) else { return }
         ear?.unload()
@@ -68,10 +77,21 @@ final class EarHost {
         Log.info("draft", ["ear": next.rawValue, "engine": next.engine ?? "none", "ready": ear != nil])
     }
 
+    /// What the Settings row says: the ear in use, or the one on its way.
+    var status: String {
+        if let fetching = download.status { return fetching }
+        switch tier {
+        case .apple: return ear == nil && named == "apple" ? "Off" : "None on this Mac yet"
+        case .standard: return "Standard in use"
+        case .full: return "Full in use"
+        }
+    }
+
     /// Dictation started: the ear loads now, off the main thread, if it
     /// is not already in memory.
     func warm() {
         idle?.cancel()
+        fetchIfMissing()
         guard let ear, !ear.isLoaded, !loading else { return }
         loading = true
         Task.detached { [weak self] in

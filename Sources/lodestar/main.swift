@@ -1122,11 +1122,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // what it needs, and greyed.
             let engines = EditorEngine.allCases
             let reasons = engines.map { EditorEngine.unavailable($0) }
-            state.editorEngines = engines.map(\.rawValue)
-            state.editorEngineLabels = zip(engines, reasons).map { engine, why in engine.menuLabel(unavailable: why) }
+            // Automatic first, and the default: the best model this Mac runs,
+            // named so the choice is never a mystery.
+            let automatic = EditorEngine.resolved("")
+            state.editorEngines = [""] + engines.map(\.rawValue)
+            state.editorEngineLabels = ["Automatic · \(automatic.name)"]
+                + zip(engines, reasons).map { engine, why in engine.menuLabel(unavailable: why) }
             state.editorEnginesUnavailable = Set(zip(engines, reasons).filter { $0.1 != nil }.map(\.0.rawValue))
             let engine = self?.editorController?.engine ?? EditorEngine.resolved(self?.config.editorModel ?? "")
-            state.editorEngineCurrent = engine.rawValue
+            state.editorEngineCurrent = self?.config.editorModel ?? ""
+            state.earStatus = self?.earHost.status ?? ""
             state.editorRegionInferred = EditorRegion.inferred()
             state.unitsInferred = ClipQuantity.System.regional().rawValue
             let waiting = (self?.config.editorEnabled ?? false) && !(self?.store.editorConsented ?? true)

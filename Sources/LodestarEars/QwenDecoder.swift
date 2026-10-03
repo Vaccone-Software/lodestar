@@ -186,6 +186,10 @@ final class QwenASRModel: Module {
         }
         try model.update(parameters: ModuleParameters.unflattened(weights), verify: [.all])
         eval(model)
+        // Building the layers drew a random key for each initial weight the
+        // file then replaced; each draw leaves an unevaluated split on MLX's
+        // global key until something evaluates it (as the editor found).
+        eval(MLXRandom.globalState)
         return model
     }
 }

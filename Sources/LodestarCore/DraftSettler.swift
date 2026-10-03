@@ -59,6 +59,40 @@ extension Draft {
             public enum Before: Equatable { case unchanged, dropPeriod, addPeriod }
         }
 
+        /// A phrase heard again by a settling ear, ready to stand where
+        /// the live recognizer's words for it already landed (`landed`).
+        /// The same steps, without deciding the join again: the join was
+        /// made when the phrase first landed, so the new words end the way
+        /// the landed ones do and take their case from the text before.
+        /// Nil when the ear's words should not replace the landed ones: it
+        /// heard nothing, or it read back the list it was given (three of
+        /// the speaker's terms the live recognizer did not hear).
+        public func resettled(_ heard: Heard, landed: String, after before: String, context: [String]) -> String? {
+            var text = heard.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard text.contains(where: { $0.isLetter || $0.isNumber }) else { return nil }
+            let echoed = context.filter { term in
+                text.range(of: term, options: .caseInsensitive) != nil
+                    && landed.range(of: term, options: .caseInsensitive) == nil
+                    && heard.text.range(of: term, options: .caseInsensitive) != nil
+            }
+            if echoed.count >= 3 { return nil }
+            if let matcher, !matcher.isEmpty { text = matcher.apply(text).text }
+            if let codeNames { text = codeNames.apply(text, isCommon: isOrdinary).text }
+            text = Seams.smoothed(text, isOrdinary: isOrdinary).text
+            if removesFillers { text = SelfCorrection.withoutFillers(text).0 }
+            let corrected = SelfCorrection.apply(text)
+            if corrected.corrections > 0 { text = corrected.text }
+            // End as the landed words end.
+            let landedEnd = landed.trimmingCharacters(in: .whitespaces).last
+            let ends: Set<Character> = [".", "!", "?"]
+            if let last = text.last, ends.contains(last), !(landedEnd.map { ends.contains($0) } ?? false) {
+                text.removeLast()
+            } else if let landedEnd, ends.contains(landedEnd), let last = text.last, !ends.contains(last) {
+                text.append(landedEnd)
+            }
+            return Draft.cased(text, after: before, isOrdinary: isOrdinary)
+        }
+
         /// A new session: nothing before.
         public mutating func reset() {
             lastEnd = nil

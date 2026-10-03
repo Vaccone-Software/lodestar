@@ -131,6 +131,9 @@ protocol SpeechSession: AnyObject {
                 onAlive: @escaping () -> Void,
                 onVolatile: @escaping (String) -> Void,
                 onSettled: @escaping (Heard) -> Void)
+    /// The session's audio so far, on the recognizer's timeline, for a
+    /// settling ear to hear a phrase again.
+    var held: HeldAudio { get }
     /// The mic goes quiet, the session stays. Normal mode.
     func pause()
     func resume()
@@ -153,6 +156,7 @@ final class AnalyzerSpeechSession: SpeechSession {
     private let microphone = AudioInput()
     /// The Mac's own microphone, standing in while a headset wakes.
     private let bridge = BridgeMic()
+    let held = HeldAudio()
 
     var isAvailable: Bool {
         if #available(macOS 26, *) { return SpeechTranscriber.isAvailable }
@@ -178,7 +182,8 @@ final class AnalyzerSpeechSession: SpeechSession {
         microphone.stop()
         bridge.stop()
         if let old = box as? AnalyzerBox { Task { await old.stop() } }
-        let box = AnalyzerBox(microphone: microphone, bridge: bridge)
+        held.clear()
+        let box = AnalyzerBox(microphone: microphone, bridge: bridge, held: held)
         self.box = box
         Task { await box.listen(input: input,
                                 stillWanted: { [weak self] in (self?.box as AnyObject?) === box },
@@ -936,9 +941,12 @@ private actor AnalyzerBox {
     private var format: AVAudioFormat?
     private var stopped = false
 
-    init(microphone: AudioInput, bridge: BridgeMic) {
+    private let held: HeldAudio
+
+    init(microphone: AudioInput, bridge: BridgeMic, held: HeldAudio) {
         self.microphone = microphone
         self.bridge = bridge
+        self.held = held
     }
 
     /// A result's words, each with when it was said and how sure the
@@ -1080,7 +1088,7 @@ private actor AnalyzerBox {
             say(.failed("the recognizer could not start")); return
         }
         guard !stopped else { return }
-        let feed = AudioFeed(outFormat: outFormat, continuation: continuation,
+        let feed = AudioFeed(outFormat: outFormat, continuation: continuation, held: held,
                              onLevel: onLevel, onAlive: onAlive)
         self.feed = feed
         let gate = Handover(push: { feed.push($0) })
@@ -1474,10 +1482,13 @@ private final class AudioFeed: @unchecked Sendable {
     private(set) var buffers = 0
     private(set) var peak: Float = 0
 
-    init(outFormat: AVAudioFormat, continuation: AsyncStream<AnalyzerInput>.Continuation,
+    private let held: HeldAudio
+
+    init(outFormat: AVAudioFormat, continuation: AsyncStream<AnalyzerInput>.Continuation, held: HeldAudio,
          onLevel: @escaping (Float, Double) -> Void, onAlive: @escaping () -> Void) {
         self.outFormat = outFormat
         self.continuation = continuation
+        self.held = held
         self.onLevel = onLevel
         self.onAlive = onAlive
     }
@@ -1501,7 +1512,21 @@ private final class AudioFeed: @unchecked Sendable {
             status.pointee = .haveData
             return buffer
         }
-        if error == nil, out.frameLength > 0 { continuation.yield(AnalyzerInput(buffer: out)) }
+        if error == nil, out.frameLength > 0 {
+            continuation.yield(AnalyzerInput(buffer: out))
+            hold(out)
+        }
+    }
+
+    /// What the recognizer was fed, kept on its timeline for a settling ear.
+    private func hold(_ buffer: AVAudioPCMBuffer) {
+        let count = Int(buffer.frameLength)
+        if let floats = buffer.floatChannelData {
+            held.append(UnsafeBufferPointer(start: floats[0], count: count), rate: outFormat.sampleRate)
+        } else if let ints = buffer.int16ChannelData {
+            held.append(UnsafeBufferPointer(start: ints[0], count: count).map { Float($0) / 32_768 },
+                        rate: outFormat.sampleRate)
+        }
     }
 
     /// RMS of the first channel, as a 0…1 level, at most ten times a

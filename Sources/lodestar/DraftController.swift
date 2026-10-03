@@ -3,6 +3,7 @@ import ApplicationServices
 import AVFoundation
 import Carbon
 import LodestarCore
+import LodestarEars
 
 /// The draft: `lode .` opens it speaking, `lode ⇧.` opens it editing. It
 /// is a bar the way the clipboard strip is a bar — never key, its keys
@@ -44,6 +45,21 @@ final class DraftController {
     var readCodeNames: (URL, @escaping (CodeNames.Index?) -> Void) -> Void = { root, done in
         RepoNames.index(for: root, done: done)
     }
+    /// The second recognizer, when this Mac's tier has one loaded: it
+    /// hears each settled phrase again from the held audio while the hand
+    /// keeps going, and its words replace the live ones in place.
+    var ear: SettlingEar?
+    /// The speaker's terms the ear leans toward: a short list beats a long
+    /// one (measured: 23 names did better than 200 terms, at half the time).
+    var earContext: [String] = []
+    /// Phrases still being heard again, and what waits for them.
+    private var earPending = 0
+    private var earWaiters: [() -> Void] = []
+    /// How long ⏎ waits for the last phrase to be heard again before it
+    /// lands what it has.
+    static let earWaitSeconds: TimeInterval = 1.0
+    /// Phrases the ear changed this session, for the record.
+    private(set) var earChanged = 0
     /// Counts of what the settler changed this session, for the record.
     private(set) var settled = (names: 0, ellipses: 0, joins: 0, fillers: 0, corrections: 0)
     /// The microphone to read (`draft.input`), by name; nil follows the
@@ -835,6 +851,7 @@ final class DraftController {
             provisional = nil
             lastSpoken = (range.lowerBound..<(range.lowerBound + replacement.count), replacement)
             handSinceSpeech = false
+            if let landed = lastSpoken { rehear(heard, landed: landed) }
         } else if writing {
             provisional = nil
             if firstWordAt == nil { firstWordAt = clock.now() }
@@ -870,6 +887,7 @@ final class DraftController {
             // The editor hears what speech typed, so `.` can say it again.
             vim.typed(buffer.slice(buffer.cursor - grew..<buffer.cursor))
             lastSpoken = (start..<buffer.cursor, buffer.slice(start..<buffer.cursor))
+            if let landed = lastSpoken { rehear(heard, landed: landed) }
             if anchor != nil {
                 // The words went in ahead of what the hand typed, and the
                 // joining rule only ever puts a space on the near side of
@@ -1173,7 +1191,7 @@ final class DraftController {
         guard isOpen, !closing else { return }
         closing = true
         if clipOrigin != nil { landClip(exit: "return", commit: true); return }
-        let finish = { [weak self] in self?.land() }
+        let finish = { [weak self] in self?.afterEars { self?.land() } }
         if sessionStarted, listening, mode == .insert, micWanted {
             // A ghost with no final behind it settles as what it was.
             var landed = false
@@ -1207,6 +1225,66 @@ final class DraftController {
             if sessionStarted { speech.stop {} }
             finish()
         }
+    }
+
+    // MARK: - The settling ear
+
+    /// The phrase that just landed, heard again by the ear from the held
+    /// audio, off the main thread.
+    private func rehear(_ heard: Heard, landed: (range: Range<Int>, text: String)) {
+        guard let ear, ear.isLoaded, let start = heard.start, let end = heard.end, end > start else { return }
+        let samples = speech.held.slice(from: max(0, start - 0.2), to: end + 0.3)
+        // Under half a second is a word or a breath: not worth a second ear.
+        guard samples.count >= 8_000 else { return }
+        let mine = session
+        let context = earContext
+        earPending += 1
+        Task.detached { [weak self] in
+            let began = Date()
+            let again = try? await ear.transcribe(samples, context: context)
+            let seconds = Date().timeIntervalSince(began)
+            await MainActor.run { self?.earHeard(again, apple: heard, landed: landed, session: mine, seconds: seconds) }
+        }
+    }
+
+    private func earHeard(_ again: Heard?, apple: Heard, landed: (range: Range<Int>, text: String),
+                          session mine: Int, seconds: Double) {
+        earPending = max(0, earPending - 1)
+        defer {
+            if earPending == 0 {
+                let waiters = earWaiters
+                earWaiters = []
+                waiters.forEach { $0() }
+            }
+        }
+        guard session == mine, isOpen, let again, landed.range.upperBound <= buffer.count,
+              buffer.slice(landed.range) == landed.text else { return }
+        let lead = String(landed.text.prefix { $0.isWhitespace })
+        let core = String(landed.text.dropFirst(lead.count))
+        let before = buffer.slice(max(0, landed.range.lowerBound - 200)..<landed.range.lowerBound) + lead
+        guard let text = settler.resettled(again, landed: core, after: before, context: earContext),
+              text != core else { return }
+        let replacement = lead + text
+        vim.replaceKeepingCursor(landed.range, with: replacement, buffer: &buffer)
+        earChanged += 1
+        if lastSpoken?.range == landed.range {
+            lastSpoken = (landed.range.lowerBound..<(landed.range.lowerBound + replacement.count), replacement)
+        }
+        Log.info("draft", ["ear": ear?.name ?? "?", "changed": true, "ms": Int(seconds * 1000)])
+        render()
+    }
+
+    /// ⏎ waits for the phrases still being heard again, at most a second.
+    private func afterEars(_ then: @escaping () -> Void) {
+        guard earPending > 0 else { then(); return }
+        var done = false
+        let go = {
+            guard !done else { return }
+            done = true
+            then()
+        }
+        earWaiters.append(go)
+        clock.after(Self.earWaitSeconds, DispatchWorkItem { go() })
     }
 
     private func land() {

@@ -109,6 +109,7 @@ final class FakeSpeech: SpeechSession {
     private var ghost: String?
 
     func warm(input: String?) {}
+    let held = HeldAudio()
     private(set) var lastInput: String?
     func listen(input: String?, onState: @escaping (SpeechState) -> Void,
                 onLevel: @escaping (Float, Double) -> Void, onAlive: @escaping () -> Void,

@@ -6,6 +6,7 @@ public enum EarFactory {
     /// model files in `folder`; nil for a name not built.
     public static func make(_ name: String, folder: URL) -> SettlingEar? {
         switch name {
+        case "qwen3-asr-1.7b", "qwen3-asr-0.6b": return QwenEar(name: name, folder: folder)
         default: return nil
         }
     }

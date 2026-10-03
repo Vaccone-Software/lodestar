@@ -34,6 +34,11 @@ final class EarHost {
             guard let self else { return }
             Log.info("draft", ["ear downloaded": tier.rawValue])
             self.configure(self.named)
+            // Loaded once now, in the background: Parakeet's first load
+            // compiles it for the Neural Engine (about 30 s, cached after),
+            // and the first dictation must not be the one that pays.
+            self.warm()
+            self.rest()
             self.ready(tier)
         }
     }

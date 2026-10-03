@@ -37,6 +37,8 @@ cp packaging/Listening.aiff packaging/Landed.aiff "$APP/Contents/Resources/"
 # How words sound, for matching a misheard name by sound (CMU
 # Pronouncing Dictionary, BSD; its license rides with it).
 cp packaging/cmudict.dict packaging/cmudict-LICENSE "$APP/Contents/Resources/"
+# Who Lodestar is built on, and the licenses that ask to be named.
+cp packaging/Acknowledgements.txt "$APP/Contents/Resources/"
 # Which words are everyday ones, most frequent first: the single-token
 # English words of the Qwen tokenizer's vocabulary (Apache 2.0).
 cp packaging/common-words.txt "$APP/Contents/Resources/"

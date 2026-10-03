@@ -2,6 +2,7 @@ import AVFoundation
 import Foundation
 import LodestarCore
 import Speech
+import LodestarEars
 
 /// Dictation, measured the way the draft does it.
 ///
@@ -16,6 +17,11 @@ import Speech
 ///       names by sound, seams, fillers, corrections, casing. `--raw`
 ///       joins finals as they came, for a baseline. Score with
 ///       scripts/dictation-eval/score.py.
+///
+///   probe dictation ear --engine name --model dir --manifest m.json --out runs.jsonl [--context names.txt] [--root dir]
+///       Each item through a settling ear (`EarFactory`), one result per
+///       item with its words, in the same JSON lines `settle` reads, plus
+///       the time each took after its audio ended.
 ///
 ///   probe dictation record --out dir [--corpus utterances.json] [--from n01]
 ///       Reads the test sentences to you one at a time and records each
@@ -41,6 +47,7 @@ func runDictation(_ args: inout [String]) {
     case "settle": dictationSettle(options, raw: flags.contains("raw"))
     case "transcribe": dictationTranscribe(options)
     case "record": dictationRecord(options)
+    case "ear": dictationEar(options)
     case "phones":
         // probe dictation phones "super base" Supabase …: each phrase's
         // phones, and every phrase's distance to the first.
@@ -237,6 +244,84 @@ private func transcribe(_ url: URL) async throws -> [[String: Any]] {
     try await analyzer.start(inputAudioFile: file, finishAfterFile: true)
     _ = try await reader.value
     return events.value
+}
+
+// MARK: - Ear
+
+/// A WAV file as 16 kHz mono floats, the ears' input.
+func samples16k(_ url: URL) throws -> [Float] {
+    let file = try AVAudioFile(forReading: url)
+    let target = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)!
+    let source = file.processingFormat
+    let frames = AVAudioFrameCount(file.length)
+    guard let input = AVAudioPCMBuffer(pcmFormat: source, frameCapacity: frames) else { return [] }
+    try file.read(into: input)
+    if source.sampleRate == 16_000, source.channelCount == 1, source.commonFormat == .pcmFormatFloat32 {
+        return Array(UnsafeBufferPointer(start: input.floatChannelData![0], count: Int(input.frameLength)))
+    }
+    guard let converter = AVAudioConverter(from: source, to: target),
+          let output = AVAudioPCMBuffer(pcmFormat: target,
+                                        frameCapacity: AVAudioFrameCount(Double(frames) * 16_000 / source.sampleRate) + 1024)
+    else { return [] }
+    var given = false
+    var error: NSError?
+    converter.convert(to: output, error: &error) { _, status in
+        if given { status.pointee = .endOfStream; return nil }
+        given = true
+        status.pointee = .haveData
+        return input
+    }
+    return Array(UnsafeBufferPointer(start: output.floatChannelData![0], count: Int(output.frameLength)))
+}
+
+private func dictationEar(_ options: [String: String]) {
+    guard let engine = options["engine"], let model = options["model"], let manifestPath = options["manifest"],
+          let out = options["out"] else { dictationUsage(); exit(64) }
+    guard let ear = EarFactory.make(engine, folder: URL(fileURLWithPath: (model as NSString).expandingTildeInPath)) else {
+        print("ear: no engine \(engine)"); exit(64)
+    }
+    let root = options["root"].map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
+        ?? URL(fileURLWithPath: manifestPath).deletingLastPathComponent()
+    let context = options["context"].flatMap { try? String(contentsOfFile: $0, encoding: .utf8) }?
+        .split(separator: "\n").map { $0.split(separator: "=").first.map { $0.trimmingCharacters(in: .whitespaces) } ?? "" }
+        .filter { !$0.isEmpty && !$0.hasPrefix("#") } ?? []
+    guard let data = try? Data(contentsOf: URL(fileURLWithPath: manifestPath)),
+          let manifest = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let items = manifest["items"] as? [[String: Any]] else { print("ear: bad manifest"); exit(66) }
+    let done = DispatchSemaphore(value: 0)
+    Task {
+        do {
+            let began = Date()
+            try await ear.load()
+            FileHandle.standardError.write("ear: \(ear.name) loaded in \(String(format: "%.1f", Date().timeIntervalSince(began))) s\n".data(using: .utf8)!)
+            FileManager.default.createFile(atPath: out, contents: nil)
+            let handle = FileHandle(forWritingAtPath: out)!
+            for (n, item) in items.enumerated() {
+                guard let id = item["id"] as? String, let file = item["file"] as? String else { continue }
+                let audio = try samples16k(root.appendingPathComponent(file))
+                let start = Date()
+                let heard = try await ear.transcribe(audio, context: context)
+                let seconds = Date().timeIntervalSince(start)
+                let runs: [[String: Any]] = heard.words.map { word in
+                    var d: [String: Any] = ["t": word.text]
+                    if let s = word.start { d["s"] = s }
+                    if let e = word.end { d["e"] = e }
+                    if let c = word.confidence { d["c"] = c }
+                    return d
+                }
+                let line: [String: Any] = ["id": id, "seconds": seconds, "audio": Double(audio.count) / 16_000,
+                                           "events": [["text": heard.text, "fin": true, "runs": runs]]]
+                handle.write(try JSONSerialization.data(withJSONObject: line))
+                handle.write("\n".data(using: .utf8)!)
+                FileHandle.standardError.write("[\(n + 1)/\(items.count)] \(id) \(String(format: "%.3f", seconds)) s\n".data(using: .utf8)!)
+            }
+            try? handle.close()
+        } catch {
+            print("ear: \(error)")
+        }
+        done.signal()
+    }
+    done.wait()
 }
 
 // MARK: - Record

@@ -12,6 +12,9 @@ let package = Package(
     // Swift layer is built against. Everything Lodestar is, it still owns.
     dependencies: [
         .package(url: "https://github.com/ml-explore/mlx-swift-lm", .upToNextMinor(from: "3.31.3")),
+        // The same MLX the editor's package is built on, named so the
+        // dictation ears can use its arrays and layers directly.
+        .package(url: "https://github.com/ml-explore/mlx-swift", .upToNextMinor(from: "0.31.6")),
         .package(url: "https://github.com/huggingface/swift-huggingface", from: "0.9.0"),
         .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.0"),
         // Held below 1.4, which adopted Swift 6.4's borrowing iteration: built
@@ -23,9 +26,22 @@ let package = Package(
     targets: [
         // The AX layer every slice builds on. No dependencies, by design.
         .target(name: "LodestarCore"),
+        // Dictation's settling ears: second recognizers that re-hear a
+        // phrase, on MLX (Qwen3-ASR) or the Neural Engine (Parakeet, Core
+        // ML, a system framework).
+        .target(name: "LodestarEars", dependencies: [
+            "LodestarCore",
+            .product(name: "MLX", package: "mlx-swift"),
+            .product(name: "MLXNN", package: "mlx-swift"),
+            .product(name: "MLXFast", package: "mlx-swift"),
+            .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
+            .product(name: "MLXLLM", package: "mlx-swift-lm"),
+            .product(name: "Tokenizers", package: "swift-transformers"),
+        ]),
         // The product: menu-bar app, hotkeys, searcher, graph, breaths.
         .executableTarget(name: "lodestar", dependencies: [
             "LodestarCore",
+            "LodestarEars",
             .product(name: "MLXLLM", package: "mlx-swift-lm"),
             .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
             .product(name: "MLXHuggingFace", package: "mlx-swift-lm"),
@@ -34,7 +50,7 @@ let package = Package(
             .product(name: "OrderedCollections", package: "swift-collections"),
         ]),
         // Slice 0: the window-identity probe. Throwaway by design.
-        .executableTarget(name: "probe", dependencies: ["LodestarCore"]),
+        .executableTarget(name: "probe", dependencies: ["LodestarCore", "LodestarEars"]),
         .testTarget(name: "LodestarCoreTests", dependencies: ["LodestarCore"],
                     // The editor's accuracy fixture, read by path.
                     exclude: ["Fixtures"]),

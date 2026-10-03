@@ -243,8 +243,21 @@ private final class Models: @unchecked Sendable {
     ///   - startFrame: the first frame decoded (1 skips the left context).
     ///   - frameOffset: added to every frame, to count from the recording's start.
     ///   - isLast: the last window flushes what the decoder still holds.
+    ///
+    /// Core ML hands back its outputs autoreleased, a few hundred per
+    /// window. A caller that does not suspend between phrases never drains
+    /// them: measured, 2.5 MB a phrase, 365 MB after 128 phrases. So each
+    /// window drains its own.
     func decode(_ samples: [Float], declaredLength: Int, audioFrames: Int, startFrame: Int,
                 frameOffset: Int, isLast: Bool) throws -> [ParakeetToken] {
+        try autoreleasepool {
+            try decodeWindow(samples, declaredLength: declaredLength, audioFrames: audioFrames,
+                             startFrame: startFrame, frameOffset: frameOffset, isLast: isLast)
+        }
+    }
+
+    private func decodeWindow(_ samples: [Float], declaredLength: Int, audioFrames: Int, startFrame: Int,
+                              frameOffset: Int, isLast: Bool) throws -> [ParakeetToken] {
         let (encoded, encodedLength) = try encode(samples, declaredLength: declaredLength)
         guard encodedLength > 1 else { return [] }
         let frames = try EncoderFrames(encoded, validLength: encodedLength)

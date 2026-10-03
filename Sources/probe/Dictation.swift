@@ -48,6 +48,7 @@ func runDictation(_ args: inout [String]) {
     case "transcribe": dictationTranscribe(options)
     case "record": dictationRecord(options)
     case "ear": dictationEar(options)
+    case "draft": dictationDraft(options)
     case "phones":
         // probe dictation phones "super base" Supabase …: each phrase's
         // phones, and every phrase's distance to the first.
@@ -350,6 +351,130 @@ private func dictationEar(_ options: [String: String]) {
         done.signal()
     }
     done.wait()
+}
+
+// MARK: - The whole draft
+
+/// The draft as the app runs it, replayed: each live final lands through
+/// the settler, then the ear hears its stretch of audio again and the
+/// re-settled words replace it, as `DraftController.earHeard` does.
+///
+///   probe dictation draft --runs apple_runs.jsonl --manifest m.json --engine parakeet-v2 --model dir
+///       --out hyps.json [--words names.txt] [--repo dir] [--root dir]
+private func dictationDraft(_ options: [String: String]) {
+    guard let runs = options["runs"], let manifestPath = options["manifest"], let out = options["out"],
+          let engine = options["engine"], let model = options["model"] else { dictationUsage(); exit(64) }
+    guard let ear = EarFactory.make(engine, folder: URL(fileURLWithPath: (model as NSString).expandingTildeInPath)) else {
+        print("draft: no engine \(engine)"); exit(64)
+    }
+    let terms = loadTerms(options["words"])
+    let pronouncer = probePronouncer()
+    CommonWords.frequentListURL = repoRoot.appendingPathComponent("packaging/common-words.txt")
+    let matcher = terms.isEmpty ? nil : NameMatcher(terms: terms, pronouncer: pronouncer,
+                                                    isCommon: { CommonWords.isCommon($0) },
+                                                    isFrequent: { CommonWords.isFrequent($0) })
+    let codeNames = options["repo"].map {
+        CodeNames.Index(names: CodeNames.gather(URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath)),
+                        pronouncer: pronouncer)
+    }
+    let context = terms.map(\.text)
+    let root = options["root"].map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
+        ?? URL(fileURLWithPath: manifestPath).deletingLastPathComponent()
+    guard let mdata = try? Data(contentsOf: URL(fileURLWithPath: manifestPath)),
+          let manifest = try? JSONSerialization.jsonObject(with: mdata) as? [String: Any],
+          let items = manifest["items"] as? [[String: Any]],
+          let text = try? String(contentsOfFile: runs, encoding: .utf8) else { print("draft: bad input"); exit(66) }
+    let files = Dictionary(uniqueKeysWithValues: items.compactMap { item -> (String, String)? in
+        guard let id = item["id"] as? String, let file = item["file"] as? String else { return nil }
+        return (id, file)
+    })
+    var hyps: [String: String] = [:]
+    var changed = 0, refused = 0, phrases = 0
+    var times: [Double] = []
+    let done = DispatchSemaphore(value: 0)
+    Task {
+        do { try await ear.load() } catch { print("draft: \(error)"); exit(70) }
+        for line in text.split(separator: "\n") {
+            guard let data = line.data(using: .utf8),
+                  let item = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let id = item["id"] as? String, let events = item["events"] as? [[String: Any]],
+                  let file = files[id], let audio = try? samples16k(root.appendingPathComponent(file)) else { continue }
+            let held = HeldAudio()
+            held.append(audio, rate: 16_000)
+            var settler = Draft.Settler(matcher: matcher, isOrdinary: { CommonWords.isCommon($0) })
+            settler.codeNames = codeNames
+            var buffer = ""
+            var lastStart = 0
+            // The run: everything said since the hand last moved (in a
+            // replay, the whole item), heard again as one.
+            var runOffset: Int?
+            var runTime: Double?
+            let wholeRun = options["run"] != nil
+            for final in events.filter({ $0["fin"] as? Bool == true }).map(heard)
+            where !final.text.trimmingCharacters(in: .whitespaces).isEmpty {
+                let landing = settler.land(final, after: buffer)
+                switch landing.before {
+                case .dropPeriod:
+                    while buffer.last?.isWhitespace == true { buffer.removeLast() }
+                    if buffer.last == "." { buffer.removeLast() }
+                case .addPeriod:
+                    while buffer.last?.isWhitespace == true { buffer.removeLast() }
+                    buffer += "."
+                case .unchanged: break
+                }
+                if landing.replacesLast { buffer = String(buffer.prefix(lastStart)) }
+                let separator = buffer.isEmpty ? "" : Draft.separator(after: Array(buffer), before: landing.text)
+                let before = buffer + separator
+                lastStart = before.count
+                var landed = landing.text
+                if wholeRun, let start = final.start, let end = final.end, end > start {
+                    if runOffset == nil { runOffset = before.count; runTime = start }
+                    let runBefore = String(before.prefix(runOffset!))
+                    let runLanded = String(before.dropFirst(runOffset!)) + landed
+                    let samples = held.slice(from: max(0, runTime! - 0.2), to: end + 0.3)
+                    phrases += 1
+                    let began = Date()
+                    let again = try? await ear.transcribe(samples, context: context)
+                    times.append(Date().timeIntervalSince(began))
+                    if let again, let text = settler.resettled(again, landed: runLanded, after: runBefore, context: context) {
+                        if text != runLanded { changed += 1 }
+                        buffer = runBefore + text
+                    } else {
+                        if again != nil { refused += 1 }
+                        buffer = before + landed
+                    }
+                    continue
+                }
+                if let start = final.start, let end = final.end, end > start {
+                    let samples = held.slice(from: max(0, start - 0.2), to: end + 0.3)
+                    if samples.count >= 8_000 {
+                        phrases += 1
+                        let began = Date()
+                        let again = try? await ear.transcribe(samples, context: context)
+                        times.append(Date().timeIntervalSince(began))
+                        if let again {
+                            if let text = settler.resettled(again, landed: landed, after: before, context: context) {
+                                if text != landed { landed = text; changed += 1 }
+                            } else {
+                                refused += 1
+                            }
+                        }
+                    }
+                }
+                buffer = before + landed
+            }
+            hyps[id] = buffer
+        }
+        done.signal()
+    }
+    done.wait()
+    let data = try! JSONSerialization.data(withJSONObject: hyps, options: [.prettyPrinted, .sortedKeys])
+    try! data.write(to: URL(fileURLWithPath: out))
+    let sorted = times.sorted()
+    let p50 = sorted.isEmpty ? 0 : sorted[sorted.count / 2]
+    let p90 = sorted.isEmpty ? 0 : sorted[min(sorted.count - 1, sorted.count * 9 / 10)]
+    print("draft: \(hyps.count) items, \(phrases) phrases heard again, \(changed) changed, \(refused) refused, "
+          + "ear p50 \(Int(p50 * 1000)) ms p90 \(Int(p90 * 1000)) ms -> \(out)")
 }
 
 // MARK: - Record

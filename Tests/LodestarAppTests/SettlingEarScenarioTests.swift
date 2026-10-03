@@ -7,19 +7,23 @@ import LodestarEars
 final class FakeEar: SettlingEar, @unchecked Sendable {
     let name = "fake"
     var isLoaded = true
-    var answer: String
+    var answers: [String]
     var delay: Double
     private(set) var heard: [Int] = []
     init(answer: String, delay: Double = 0) {
-        self.answer = answer
+        self.answers = [answer]
         self.delay = delay
+    }
+    init(answers: [String]) {
+        self.answers = answers
+        self.delay = 0
     }
     func load() async throws {}
     func unload() {}
     func transcribe(_ samples: [Float], context: [String]) async throws -> Heard {
         heard.append(samples.count)
         if delay > 0 { try await Task.sleep(nanoseconds: UInt64(delay * 1e9)) }
-        return Heard(answer)
+        return Heard(answers[min(heard.count, answers.count) - 1])
     }
 }
 
@@ -71,6 +75,31 @@ final class SettlingEarScenarioTests: XCTestCase {
         stage.press("x")
         stage.pump(until: { ear.heard.count == 1 && false }, turns: 60)
         XCTAssertFalse(stage.draft.buffer.text.contains("build"), "the hand's edit wins")
+    }
+
+    func testTwoPhrasesAreHeardAgainAsOneRun() {
+        let ear = FakeEar(answer: "Open the file and look at the function that closes it.")
+        let stage = stageWithAudio(ear)
+        stage.lode(".")
+        stage.speech.settle(timed("Open the file and look at the.", 0, 2))
+        stage.pump(until: { ear.heard.count == 1 })
+        stage.speech.settle(timed("Function that clothes it.", 3, 5))
+        stage.pump(until: { stage.draft.buffer.text.contains("closes") })
+        XCTAssertEqual(stage.draft.buffer.text, "Open the file and look at the function that closes it.")
+        XCTAssertEqual(ear.heard.last.map { $0 >= 16_000 * 5 }, true, "the second hearing spans the whole run")
+    }
+
+    func testTheHandEndsTheRun() {
+        let ear = FakeEar(answers: ["First part.", "Second part."])
+        let stage = stageWithAudio(ear)
+        stage.lode(".")
+        stage.speech.settle(timed("First part.", 0, 1.5))
+        stage.pump(until: { ear.heard.count == 1 })
+        stage.press("space")
+        stage.speech.settle(timed("Second bart.", 3, 4.5))
+        stage.pump(until: { stage.draft.buffer.text.contains("Second part") })
+        XCTAssertEqual(stage.draft.buffer.text, "First part. Second part.")
+        XCTAssertEqual(ear.heard.last.map { $0 < 16_000 * 3 }, true, "only what came after the hand")
     }
 
     func testReturnWaitsForTheLastPhrase() {

@@ -52,6 +52,17 @@ final class DraftController {
     /// The speaker's terms the ear leans toward: a short list beats a long
     /// one (measured: 23 names did better than 200 terms, at half the time).
     var earContext: [String] = []
+    /// The run being heard again: where in the buffer it begins and when
+    /// in the audio. Everything said since the hand last moved, so the ear
+    /// hears the whole thought, not the pieces the live recognizer cut it
+    /// into at pauses (measured on the maker's voice: 8.7% error and 2 of
+    /// 10 pauses read as sentence ends, against 9.1% and 4 phrase by
+    /// phrase). At most a minute: past that a new run begins.
+    private var run: (start: Int, time: Double)?
+    static let runSeconds: Double = 60
+    /// Only the newest hearing of the run is taken; an older one finishing
+    /// late would put back words a newer one already settled.
+    private var earGeneration = 0
     /// Phrases still being heard again, and what waits for them.
     private var earPending = 0
     private var earWaiters: [() -> Void] = []
@@ -630,6 +641,7 @@ final class DraftController {
         silenceWatch?.cancel()
         onListen?()
         settler.reset()
+        run = nil
         lastSpoken = nil
         handSinceSpeech = false
         settler.codeNames = nil
@@ -892,7 +904,7 @@ final class DraftController {
             // The editor hears what speech typed, so `.` can say it again.
             vim.typed(buffer.slice(buffer.cursor - grew..<buffer.cursor))
             lastSpoken = (start..<buffer.cursor, buffer.slice(start..<buffer.cursor))
-            if let landed = lastSpoken { rehear(heard, landed: landed) }
+            if anchor == nil, let landed = lastSpoken { rehear(heard, landed: landed) }
             if anchor != nil {
                 // The words went in ahead of what the hand typed, and the
                 // joining rule only ever puts a space on the near side of
@@ -1052,6 +1064,7 @@ final class DraftController {
 
     private func insertKey(_ key: String, shift: Bool, option: Bool, control: Bool) -> Bool {
         handSinceSpeech = true
+        run = nil
         settler.handInterrupted()
         // Words still a ghost when the hand starts writing become text
         // on the spot, reserved where they stand: dictate, type, dictate
@@ -1139,6 +1152,7 @@ final class DraftController {
     /// nothing pending, no selection — closes.
     private func normalKey(_ key: String, shift: Bool, option: Bool, control: Bool) -> Bool {
         handSinceSpeech = true
+        run = nil
         settler.handInterrupted()
         if key == "return" { commit(); return true }
         let vimKey: Vim.Key
@@ -1238,22 +1252,37 @@ final class DraftController {
     /// audio, off the main thread.
     private func rehear(_ heard: Heard, landed: (range: Range<Int>, text: String)) {
         guard let ear, ear.isLoaded, let start = heard.start, let end = heard.end, end > start else { return }
-        let samples = speech.held.slice(from: max(0, start - 0.2), to: end + 0.3)
+        // The run: begun by this phrase, or carried on from the ones before
+        // it while the hand stayed off the keys.
+        if let current = run, current.start <= landed.range.lowerBound, end - current.time <= Self.runSeconds {
+            // carries on
+        } else {
+            run = (landed.range.lowerBound, start)
+        }
+        guard let run else { return }
+        let range = run.start..<landed.range.upperBound
+        let whole = (range: range, text: buffer.slice(range))
+        let samples = speech.held.slice(from: max(0, run.time - 0.2), to: end + 0.3)
         // Under half a second is a word or a breath: not worth a second ear.
         guard samples.count >= 8_000 else { return }
         let mine = session
         let context = earContext
+        earGeneration += 1
+        let generation = earGeneration
         earPending += 1
         Task.detached { [weak self] in
             let began = Date()
             let again = try? await ear.transcribe(samples, context: context)
             let seconds = Date().timeIntervalSince(began)
-            await MainActor.run { self?.earHeard(again, apple: heard, landed: landed, session: mine, seconds: seconds) }
+            await MainActor.run {
+                self?.earHeard(again, apple: heard, landed: whole, session: mine, generation: generation,
+                               seconds: seconds)
+            }
         }
     }
 
     private func earHeard(_ again: Heard?, apple: Heard, landed: (range: Range<Int>, text: String),
-                          session mine: Int, seconds: Double) {
+                          session mine: Int, generation: Int, seconds: Double) {
         earPending = max(0, earPending - 1)
         defer {
             if earPending == 0 {
@@ -1262,7 +1291,7 @@ final class DraftController {
                 waiters.forEach { $0() }
             }
         }
-        guard session == mine, isOpen, let again, landed.range.upperBound <= buffer.count,
+        guard session == mine, isOpen, generation == earGeneration, let again, landed.range.upperBound <= buffer.count,
               buffer.slice(landed.range) == landed.text else { return }
         let lead = String(landed.text.prefix { $0.isWhitespace })
         let core = String(landed.text.dropFirst(lead.count))
@@ -1272,8 +1301,11 @@ final class DraftController {
         let replacement = lead + text
         vim.replaceKeepingCursor(landed.range, with: replacement, buffer: &buffer)
         earChanged += 1
-        if lastSpoken?.range == landed.range {
-            lastSpoken = (landed.range.lowerBound..<(landed.range.lowerBound + replacement.count), replacement)
+        if let last = lastSpoken, last.range.upperBound == landed.range.upperBound {
+            // The last phrase is now the end of the settled run.
+            let newEnd = landed.range.lowerBound + replacement.count
+            lastSpoken = (min(last.range.lowerBound, newEnd)..<newEnd,
+                          buffer.slice(min(last.range.lowerBound, newEnd)..<newEnd))
         }
         Log.info("draft", ["ear": ear?.name ?? "?", "changed": true, "ms": Int(seconds * 1000)])
         render()

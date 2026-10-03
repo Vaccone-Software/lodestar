@@ -76,6 +76,9 @@ public struct Vim {
     /// which holds that buffer `inout`, and a second access aborts the
     /// process — the exact crash v0.26.7 shipped on every `j`.
     public var visualLine: ((Draft.Buffer, Int, Bool) -> Int?)?
+    /// Whether a lower-case run of letters is a word, for splitting a
+    /// run-together name before `gs` restyles it.
+    public var isWord: (String) -> Bool = { CommonWords.isCommon($0) }
 
     /// The find kind (`f`, `t`, `F`, `T`) whose target character is being
     /// awaited, so the panel can light the reachable letters while the
@@ -355,6 +358,7 @@ public struct Vim {
             pendingG = false
             switch key {
             case .char("g"): return applyMotion(.line(0), &buffer, pasteboard: pasteboard)
+            case .char("s"): return restyle(&buffer)
             default: clearPending(); return []
             }
         }
@@ -1274,6 +1278,61 @@ public struct Vim {
             clearPending()
             return []
         }
+    }
+
+    // MARK: - Names in code
+
+    /// `gs`: the name under the cursor, or the selection, in the next code
+    /// style — words, PascalCase, camelCase, snake_case, kebab-case — one
+    /// undo step, and again for the next. A count takes that many words
+    /// from the cursor ("3gs" on "draft controller dot swift" takes three:
+    /// spoken separators are words too).
+    private mutating func restyle(_ buffer: inout Draft.Buffer) -> [Effect] {
+        let n = max(1, count ?? 1)
+        count = nil
+        let range: Range<Int>
+        if let selection = selection(in: buffer) {
+            range = selection
+        } else {
+            // The name under the cursor: a run without spaces, or with a
+            // count, that many space-separated words from its start.
+            let chars = buffer.characters
+            guard buffer.cursor < chars.count, !chars[buffer.cursor].isWhitespace else { return [] }
+            var start = buffer.cursor
+            while start > 0, !chars[start - 1].isWhitespace { start -= 1 }
+            var end = start
+            var words = 0
+            while end < chars.count, words < n {
+                while end < chars.count, !chars[end].isWhitespace { end += 1 }
+                words += 1
+                if words < n {
+                    var next = end
+                    while next < chars.count, chars[next] == " " { next += 1 }
+                    guard next < chars.count, !chars[next].isNewline else { break }
+                    end = next
+                }
+            }
+            range = start..<end
+        }
+        // Punctuation at the ends is not part of the name.
+        var lower = range.lowerBound, upper = range.upperBound
+        let chars = buffer.characters
+        let edge: Set<Character> = [",", ";", ":", "!", "?", "(", ")", "\"", "'", "`"]
+        while lower < upper, edge.contains(chars[lower]) { lower += 1 }
+        while upper > lower, edge.contains(chars[upper - 1]) { upper -= 1 }
+        // A sentence's period, not an extension's dot.
+        if upper > lower, chars[upper - 1] == "." { upper -= 1 }
+        guard upper > lower else { return [] }
+        let text = buffer.slice(lower..<upper)
+        let restyled = CodeNames.cycled(text, isWord: isWord)
+        guard restyled != text else { return [] }
+        snapshot(buffer)
+        buffer.replace(lower..<upper, with: restyled)
+        buffer.setCursor(lower)
+        if case .visual = mode { mode = .normal }
+        clampNormal(&buffer)
+        noteChange()
+        return []
     }
 
     // MARK: - History

@@ -158,3 +158,94 @@ final class DictationTests: XCTestCase {
         XCTAssertEqual(second.text, "Send it on Tuesday.")
     }
 }
+
+/// Names in code: found in the repository from how they are said, and
+/// restyled by one key when they do not exist yet.
+final class CodeNamesTests: XCTestCase {
+    private let isWord: (String) -> Bool = { CommonWords.isCommon($0) }
+    private func index(_ names: [String]) -> CodeNames.Index {
+        CodeNames.Index(names: names, pronouncer: Pronouncer())
+    }
+
+    func testTheKeyCyclesStyles() {
+        var text = "draft controller"
+        var seen: [String] = []
+        for _ in 0..<5 {
+            text = CodeNames.cycled(text, isWord: isWord)
+            seen.append(text)
+        }
+        XCTAssertEqual(seen, ["DraftController", "draftController", "draft_controller", "draft-controller",
+                              "draft controller"])
+    }
+
+    func testAnExtensionRidesAlong() {
+        XCTAssertEqual(CodeNames.cycled("draft controller dot swift", isWord: isWord), "DraftController.swift")
+        XCTAssertEqual(CodeNames.cycled("DraftController.swift", isWord: isWord), "draftController.swift")
+    }
+
+    func testARunTogetherWordIsSplitFirst() {
+        XCTAssertEqual(CodeNames.cycled("draftcontroller", isWord: isWord), "DraftController")
+    }
+
+    func testRepositoryNamesAreWrittenAsTheCodeWritesThem() {
+        let names = index(["DraftController.swift", "settleGhostAsSeen", "local/dev", "isRunning", "setUp", "Draft",
+                           "WindowModel"])
+        let common: (String) -> Bool = { CommonWords.isCommon($0) }
+        XCTAssertEqual(names.apply("open draft controller dot swift and look", isCommon: common).text,
+                       "open DraftController.swift and look")
+        XCTAssertEqual(names.apply("open draftcontroller.swift now", isCommon: common).text,
+                       "open DraftController.swift now")
+        XCTAssertEqual(names.apply("rebase local slash dev on main", isCommon: common).text,
+                       "rebase local/dev on main")
+        XCTAssertEqual(names.apply("find where settle ghost as seen is called", isCommon: common).text,
+                       "find where settleGhostAsSeen is called")
+    }
+
+    func testEverydayPhrasesStayProse() {
+        let names = index(["isRunning", "setUp", "WindowModel", "HintLabels", "Draft"])
+        let common: (String) -> Bool = { CommonWords.isCommon($0) }
+        for text in ["back off when Raycast is running", "set up the board", "the window model is stale",
+                     "the hint labels overlap", "send the draft"] {
+            XCTAssertEqual(names.apply(text, isCommon: common).text, text, text)
+        }
+    }
+}
+
+/// `gs` in the draft's editor: the name under the cursor or the selection,
+/// in the next style, one undo step.
+final class RestyleKeyTests: XCTestCase {
+    private func keys(_ vim: inout Vim, _ buffer: inout Draft.Buffer, _ text: String) {
+        for c in text { _ = vim.key(.char(c), buffer: &buffer, pasteboard: { nil }) }
+    }
+
+    func testGsRestylesTheNameUnderTheCursor() {
+        var buffer = Draft.Buffer(text: "open draftcontroller.swift now", cursor: 7)
+        var vim = Vim()
+        vim.enterNormal(&buffer)
+        buffer.setCursor(7)
+        keys(&vim, &buffer, "gs")
+        XCTAssertEqual(buffer.text, "open DraftController.swift now")
+        keys(&vim, &buffer, "gs")
+        XCTAssertEqual(buffer.text, "open draftController.swift now")
+        keys(&vim, &buffer, "u")
+        XCTAssertEqual(buffer.text, "open DraftController.swift now", "one undo step each")
+    }
+
+    func testACountTakesThatManyWords() {
+        var buffer = Draft.Buffer(text: "call it draft controller dot swift.", cursor: 8)
+        var vim = Vim()
+        vim.enterNormal(&buffer)
+        buffer.setCursor(8)
+        keys(&vim, &buffer, "4gs")
+        XCTAssertEqual(buffer.text, "call it DraftController.swift.", "the sentence's period stays outside the name")
+    }
+
+    func testASelectionIsRestyled() {
+        var buffer = Draft.Buffer(text: "a new model store file", cursor: 6)
+        var vim = Vim()
+        vim.enterNormal(&buffer)
+        buffer.setCursor(6)
+        keys(&vim, &buffer, "veegs")
+        XCTAssertEqual(buffer.text, "a new ModelStore file")
+    }
+}

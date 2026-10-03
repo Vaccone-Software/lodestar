@@ -15,6 +15,9 @@ extension Draft {
     /// 5. the first letter cased for where it lands (`cased`).
     public struct Settler {
         public var matcher: NameMatcher?
+        /// The names the repository being talked about already has, when
+        /// the words are going somewhere code is written.
+        public var codeNames: CodeNames.Index?
         public var isOrdinary: (String) -> Bool
         /// Fillers are English words; another language keeps them.
         public var removesFillers: Bool
@@ -47,6 +50,7 @@ extension Draft {
             public var replacesLast = false
             // Counts for the record; never the words.
             public var names = 0
+            public var codeNames = 0
             public var ellipses = 0
             public var joins = 0
             public var fillers = 0
@@ -92,6 +96,12 @@ extension Draft {
                 let matched = matcher.apply(tokens: tokens)
                 text = matched.text
                 landing.names = matched.edits.count
+            }
+            // 1b. Names in code, as the repository writes them.
+            if let codeNames {
+                let named = codeNames.apply(text, isCommon: isOrdinary)
+                text = named.text
+                landing.codeNames = named.edits
             }
             // 2. Ellipses inside and at the ends.
             let ellipsisCount = text.components(separatedBy: "…").count - 1 + text.components(separatedBy: "...").count - 1

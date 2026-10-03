@@ -105,6 +105,13 @@ private func dictationSettle(_ options: [String: String], raw: Bool) {
     let matcher = terms.isEmpty ? nil : NameMatcher(terms: terms, pronouncer: pronouncer,
                                                     isCommon: { CommonWords.isCommon($0) },
                                                     isFrequent: { CommonWords.isFrequent($0) })
+    // --repo: the repository's names, as the draft reads them for a
+    // terminal or an editor in front.
+    let codeNames = options["repo"].map { path -> CodeNames.Index in
+        let names = CodeNames.gather(URL(fileURLWithPath: (path as NSString).expandingTildeInPath))
+        return CodeNames.Index(names: names, pronouncer: pronouncer)
+    }
+    if let codeNames { print("settle: \(codeNames.count) code names") }
     guard let text = try? String(contentsOfFile: runs, encoding: .utf8) else { print("settle: cannot read \(runs)"); exit(66) }
     var hyps: [String: String] = [:]
     var totals = [String: Int]()
@@ -119,11 +126,12 @@ private func dictationSettle(_ options: [String: String], raw: Bool) {
             continue
         }
         var settler = Draft.Settler(matcher: matcher, isOrdinary: { CommonWords.isCommon($0) })
+        settler.codeNames = codeNames
         var buffer = ""
         var lastRange: Range<String.Index>?
         for final in finals where !final.text.trimmingCharacters(in: .whitespaces).isEmpty {
             let landing = settler.land(final, after: buffer)
-            for (key, value) in [("names", landing.names), ("ellipses", landing.ellipses), ("joins", landing.joins),
+            for (key, value) in [("names", landing.names), ("code", landing.codeNames), ("ellipses", landing.ellipses), ("joins", landing.joins),
                                  ("fillers", landing.fillers), ("corrections", landing.corrections)] {
                 totals[key, default: 0] += value
             }

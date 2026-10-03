@@ -1630,6 +1630,7 @@ final class HotkeyEngine {
                     GuideRow(key: "i a", label: "inside · around, after a verb"),
                     GuideRow(key: "q b", label: "any quote · any bracket"),
                     GuideRow(keys: ["s", "a"], label: "wrap · sd unwrap · sr swap"),
+                    GuideRow(key: "gs", label: "a name in code: DraftController, draftController, draft_controller"),
                 ]),
                 // The editor's marks, by vim's own spelling keys.
                 .init(header: "Marks", rows: [
@@ -1644,6 +1645,7 @@ final class HotkeyEngine {
                     GuideRow(key: "d c y", label: "delete, change, copy it"),
                     GuideRow(key: "h j k l", label: "grow it · w b by word"),
                     GuideRow(keys: ["s", "a"], label: "wrap it in quotes or brackets"),
+                    GuideRow(key: "gs", label: "write it as a name in code, again for the next style"),
                     GuideRow(key: "esc", label: "back to normal mode"),
                 ]),
                 .init(header: "Draft", rows: [

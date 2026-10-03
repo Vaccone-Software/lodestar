@@ -36,6 +36,14 @@ final class DraftController {
     private var lastSpoken: (range: Range<Int>, text: String)?
     /// The hand typed or moved since the last result landed.
     private var handSinceSpeech = false
+    /// The repository the destination's window is in, when it is a
+    /// terminal or an editor: its names are how "draft controller dot
+    /// swift" is written. Set by the app; the stage leaves it empty.
+    var codeRepository: (Destination) -> URL? = { _ in nil }
+    /// Where a repository's names are read: off the main thread in the app.
+    var readCodeNames: (URL, @escaping (CodeNames.Index?) -> Void) -> Void = { root, done in
+        RepoNames.index(for: root, done: done)
+    }
     /// Counts of what the settler changed this session, for the record.
     private(set) var settled = (names: 0, ellipses: 0, joins: 0, fillers: 0, corrections: 0)
     /// The microphone to read (`draft.input`), by name; nil follows the
@@ -603,6 +611,13 @@ final class DraftController {
         settler.reset()
         lastSpoken = nil
         handSinceSpeech = false
+        settler.codeNames = nil
+        if let destination = frontmost(), let root = codeRepository(destination) {
+            readCodeNames(root) { [weak self] index in
+                guard let self, self.session == mine else { return }
+                self.settler.codeNames = index
+            }
+        }
         speech.listen(input: inputDevice, onState: { [weak self] state in
             guard let self, self.isOpen, self.session == mine else { return }
             self.speechState = state

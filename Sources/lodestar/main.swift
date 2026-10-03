@@ -341,6 +341,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         draft.flash = { [weak self] text in self?.hud.flash(text) }
         draft.observations = observationStore
         draft.words = config.draftWords
+        draft.codeRepository = { RepoNames.repository(pid: $0.pid, bundleID: $0.bundleID) }
         draft.inputDevice = config.draftInput.isEmpty ? nil : config.draftInput
         draft.sounds = config.sounds
         draft.playback = PlaybackPause()

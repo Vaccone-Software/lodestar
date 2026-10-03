@@ -80,6 +80,10 @@ final class DraftController {
     var readPasteboard: () -> String?
     /// Settled speech is activity too, for the engine's idle clock.
     var onActivity: (() -> Void)?
+    /// Dictation is starting, and when the draft has closed: the settling
+    /// ear loads on the first and rests after the second.
+    var onListen: (() -> Void)?
+    var onClosed: (() -> Void)?
     /// The words placed where the cursor was: pasted or replaced, not left
     /// on the pasteboard.
     var onLanded: (() -> Void)?
@@ -624,6 +628,7 @@ final class DraftController {
         heardAlive = false
         hearsNothing = false
         silenceWatch?.cancel()
+        onListen?()
         settler.reset()
         lastSpoken = nil
         handSinceSpeech = false
@@ -1377,6 +1382,7 @@ final class DraftController {
     }
 
     private func close() {
+        defer { onClosed?() }
         isOpen = false
         clipOrigin = nil
         doorWidth = nil

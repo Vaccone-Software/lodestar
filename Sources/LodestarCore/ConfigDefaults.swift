@@ -209,6 +209,7 @@ public enum ConfigDefaults {
         ]),
         "draft": .table([
             "input": .string(""),
+            "ear": .string(""),
             "words": .table([:]),
         ]),
         "clipboard": .table([

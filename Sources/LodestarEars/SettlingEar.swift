@@ -37,3 +37,36 @@ public enum EarTier: String, CaseIterable, Sendable {
     /// it works, 0.6 s.
     case full
 }
+
+extension EarTier {
+    /// The engine each tier runs, by its `EarFactory` name.
+    public var engine: String? {
+        switch self {
+        case .apple: return nil
+        case .standard: return "parakeet-v2"
+        case .full: return "qwen3-asr-1.7b"
+        }
+    }
+
+    /// The memory a tier asks of the Mac, in GB.
+    public var memoryNeeded: Double {
+        switch self {
+        case .apple: return 0
+        case .standard: return 8
+        case .full: return 24
+        }
+    }
+
+    /// The tier a setting names, or for an empty one the largest this Mac
+    /// suits; a tier the Mac cannot run, or whose model is not on disk,
+    /// falls back to the next smaller.
+    public static func resolved(_ named: String, memoryGB: Double, hasModel: (EarTier) -> Bool) -> EarTier {
+        let wanted = EarTier(rawValue: named) ?? .full
+        let order: [EarTier] = [.full, .standard, .apple]
+        let start = order.firstIndex(of: wanted) ?? 0
+        for tier in order[start...] where tier == .apple || (memoryGB >= tier.memoryNeeded - 1 && hasModel(tier)) {
+            return tier
+        }
+        return .apple
+    }
+}

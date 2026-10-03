@@ -124,6 +124,9 @@ public struct Config {
     /// `draft.input`: the microphone by name; empty means the system's
     /// default input, whatever it is at the moment of use.
     public var draftInput = ""
+    /// `draft.ear`: the settling ear's tier, or empty for the one this Mac
+    /// suits.
+    public var draftEar = ""
     /// The editor: marks mistakes in any field, fixed by `lode ⇥`.
     public var editorEnabled = false
     /// standard | full | apple, or empty for the engine this Mac's memory
@@ -249,7 +252,9 @@ public struct Config {
         "draft": .table([
             "input": .string(allowed: nil, description: "The microphone the draft listens to, by its name in Sound settings. Empty follows the system default input."),
             "words": .freeTable(value: .boolean(description: "true to keep this word in the draft's vocabulary."),
-                                description: "Word → true. Names and terms speech gets wrong; a settled result within a letter or two of one is repaired to it, case and all."),
+                                description: "Word → true. Names and terms speech gets wrong; a settled result that sounds like one is written as it, case and all."),
+            "ear": .string(allowed: ["", "apple", "standard", "full"],
+                           description: "The second recognizer that hears each phrase again: apple (none), standard (Parakeet, 8 GB Macs and up), full (Qwen3-ASR, 24 GB and up). Empty picks the one this Mac suits; one this Mac cannot run, or has not downloaded, falls back the same way."),
         ], description: "The draft: lode . speaks, lode ⇧. revises."),
         "editor": .table([
             "enabled": .boolean(description: "Mark mistakes as you write; lode ⇥ letters the marks."),
@@ -464,6 +469,9 @@ public struct Config {
         }
         if let input = effective.value(at: ["draft", "input"])?.string {
             config.draftInput = input.trimmingCharacters(in: .whitespaces)
+        }
+        if let ear = effective.value(at: ["draft", "ear"])?.string {
+            config.draftEar = ear.trimmingCharacters(in: .whitespaces)
         }
         if let enabled = effective.value(at: ["editor", "enabled"])?.bool {
             config.editorEnabled = enabled

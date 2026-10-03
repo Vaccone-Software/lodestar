@@ -57,6 +57,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var webBar: WebBarController!
     private var engine: HotkeyEngine!
     private var draftController: DraftController?
+    /// The draft's settling ear, by tier (`draft.ear`).
+    private let earHost = EarHost()
     private var editorController: EditorController?
     /// False until the boot's own apply, so the card greets a switch turned
     /// on, never a launch that found it on.
@@ -342,6 +344,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         draft.observations = observationStore
         draft.words = config.draftWords
         draft.codeRepository = { RepoNames.repository(pid: $0.pid, bundleID: $0.bundleID) }
+        // The settling ear: chosen by tier, loaded when dictation starts.
+        earHost.configure(config.draftEar)
+        draft.earContext = Array(config.draftWords.prefix(30))
+        draft.onListen = { [weak self, weak draft] in
+            guard let self, let draft else { return }
+            draft.ear = self.earHost.ear
+            self.earHost.warm()
+        }
+        draft.onClosed = { [weak self] in self?.earHost.rest() }
         draft.inputDevice = config.draftInput.isEmpty ? nil : config.draftInput
         draft.sounds = config.sounds
         draft.playback = PlaybackPause()
@@ -1943,6 +1954,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         clipboardController.excludedApps = loaded.clipboardExcludedApps
         clipboardController.excludedPatterns = loaded.clipboardExcludePatterns
         draftController?.words = loaded.draftWords
+        draftController?.earContext = Array(loaded.draftWords.prefix(30))
+        earHost.configure(loaded.draftEar)
         applyEditor(loaded)
         draftController?.inputDevice = loaded.draftInput.isEmpty ? nil : loaded.draftInput
         draftController?.sounds = loaded.sounds

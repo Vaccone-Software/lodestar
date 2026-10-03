@@ -53,7 +53,7 @@ extension EarTier {
         switch self {
         case .apple: return nil
         case .standard: return ParakeetEar.manifestV2
-        case .full: return nil
+        case .full: return QwenEar.manifest1_7B
         }
     }
 

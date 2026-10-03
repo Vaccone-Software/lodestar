@@ -1,33 +1,5 @@
 import Foundation
 
-/// An ear's model files, pinned: the revision measured, each file's size
-/// and SHA-256. A download is these bytes or it is nothing, the way the
-/// editor's models are (`EditorManifest`).
-public struct EarManifest: Equatable, Sendable {
-    public struct File: Equatable, Sendable {
-        public let path: String
-        public let size: Int64
-        public let sha256: String
-
-        public init(path: String, size: Int64, sha256: String) {
-            self.path = path; self.size = size; self.sha256 = sha256
-        }
-    }
-
-    public let repo: String
-    public let revision: String
-    /// What the files may be used under, for the app's acknowledgements.
-    public let license: String
-    public let files: [File]
-    public var total: Int64 { files.reduce(0) { $0 + $1.size } }
-    /// The folder the model lives in under the models root.
-    public var folder: String { repo.split(separator: "/").last.map(String.init) ?? repo }
-
-    public func url(for file: File) -> URL {
-        URL(string: "https://huggingface.co/\(repo)/resolve/\(revision)/\(file.path)")!
-    }
-}
-
 extension ParakeetEar {
     /// Parakeet TDT 0.6B v2, FluidInference's Core ML conversion: the four
     /// compiled models and the vocabulary, 464 MB (the encoder is 6-bit

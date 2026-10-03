@@ -448,8 +448,8 @@ public enum SettingsModel {
                 detail: "Fields in these apps are never read.",
                 isDefault: config.editorSkipApps.isEmpty),
         ]
-        // 4 · Interaction
-        sections.append(Section(name: "Interaction", rows: [
+        // 4 · Interactions
+        sections.append(Section(name: "Interactions", rows: [
             Row(title: "Smooth scrolling", path: "scroll.smooth",
                 control: .toggle(config.scrollSmooth), isDefault: config.scrollSmooth),
             Row(title: "Scroll speed", path: "scroll.speed",

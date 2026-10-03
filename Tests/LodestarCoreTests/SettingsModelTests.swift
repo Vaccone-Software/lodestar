@@ -8,7 +8,7 @@ final class SettingsModelTests: XCTestCase {
 
     func testTenPanesInTheAgreedOrder() {
         XCTAssertEqual(sections.map(\.name),
-                       ["General", "Permissions", "Gestures", "Interaction", "Clipboard",
+                       ["General", "Permissions", "Gestures", "Interactions", "Clipboard",
                         "Web", "Meetings", "Coach", "Editor", "Advanced"])
         XCTAssertLessThanOrEqual(sections.count, SettingsModel.paneKeys.count,
                                  "the number row addresses panes; an eleventh has no key")
@@ -31,7 +31,7 @@ final class SettingsModelTests: XCTestCase {
         let editor = sections.first { $0.name == "Editor" }!
         XCTAssertEqual(editor.rows.first?.path, "editor.enabled")
         XCTAssertTrue(editor.rows.contains { $0.path == "editor.skip-apps" })
-        let interaction = sections.first { $0.name == "Interaction" }!
+        let interaction = sections.first { $0.name == "Interactions" }!
         XCTAssertFalse(interaction.rows.contains { $0.path.hasPrefix("editor.") }, "moved, not copied")
     }
 
@@ -151,7 +151,7 @@ final class SettingsModelTests: XCTestCase {
     func testSearchFlattensAcrossPanesAndMatchesPaths() {
         let hits = SettingsModel.search("speed", in: sections)
         XCTAssertEqual(hits.count, 1)
-        XCTAssertEqual(hits.first?.sectionName, "Interaction")
+        XCTAssertEqual(hits.first?.sectionName, "Interactions")
         XCTAssertFalse(SettingsModel.search("scroll", in: sections).isEmpty,
                        "the config path is part of the haystack")
         XCTAssertTrue(SettingsModel.search("", in: sections).isEmpty,
@@ -178,7 +178,7 @@ final class SettingsModelTests: XCTestCase {
         config.scrollSpeed = 2400
         config.meetingsEnabled = true
         let catalog = SettingsModel.catalog(config: config, machine: .init())
-        let interaction = catalog.first { $0.name == "Interaction" }!
+        let interaction = catalog.first { $0.name == "Interactions" }!
         XCTAssertFalse(interaction.rows.first { $0.path == "scroll.speed" }!.isDefault)
         let meetings = catalog.first { $0.name == "Meetings" }!
         XCTAssertFalse(meetings.rows.first { $0.path == "meetings.enabled" }!.isDefault)

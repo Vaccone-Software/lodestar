@@ -128,6 +128,50 @@ public enum CodeNames {
         return best[n]
     }
 
+    // MARK: - Extensions
+
+    /// File extensions a name can end in, said as a word.
+    static let extensions: Set<String> = [
+        "swift", "py", "md", "json", "ts", "tsx", "js", "jsx", "log", "txt", "yaml", "yml", "toml", "sh", "rs", "go",
+        "kt", "java", "rb", "css", "html", "plist", "xml", "csv", "sql", "c", "h", "m", "cpp",
+    ]
+
+    /// A name written as code with its extension split off — "ModelStore.
+    /// Swift." as a recognizer punctuates it, or "ModelStore dot swift" as
+    /// it was said — joined into `ModelStore.swift`. Only after a name that
+    /// is plainly code (capitals inside it, a digit or an underscore), so a
+    /// sentence that ends and the next one starting "Swift" are left alone.
+    public static func joinedExtensions(_ text: String) -> String {
+        var tokens = text.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        var i = 0
+        while i + 1 < tokens.count {
+            let name = NameMatcher.split(tokens[i])
+            let codeShaped = name.word.dropFirst().contains(where: \.isUppercase) && name.word.contains(where: \.isLowercase)
+                || name.word.contains("_")
+            guard codeShaped, !name.word.contains(".") else { i += 1; continue }
+            // "ModelStore. Swift."
+            if name.trail == ".", let ext = extensionWord(tokens[i + 1]) {
+                tokens.replaceSubrange(i...(i + 1), with: [name.lead + name.word + "." + ext.word + ext.trail])
+                continue
+            }
+            // "ModelStore dot swift"
+            if name.trail.isEmpty, i + 2 < tokens.count, tokens[i + 1].lowercased() == "dot",
+               let ext = extensionWord(tokens[i + 2]) {
+                tokens.replaceSubrange(i...(i + 2), with: [name.lead + name.word + "." + ext.word + ext.trail])
+                continue
+            }
+            i += 1
+        }
+        return tokens.joined(separator: " ")
+    }
+
+    private static func extensionWord(_ token: String) -> (word: String, trail: String)? {
+        let piece = NameMatcher.split(token)
+        let word = piece.word.lowercased()
+        guard piece.lead.isEmpty, extensions.contains(word) else { return nil }
+        return (word, piece.trail)
+    }
+
     // MARK: - The repository's names
 
     /// The names a repository already has — its files, its symbols, its

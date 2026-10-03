@@ -78,6 +78,7 @@ extension Draft {
             if echoed.count >= 3 { return nil }
             if let matcher, !matcher.isEmpty { text = matcher.apply(text).text }
             if let codeNames { text = codeNames.apply(text, isCommon: isOrdinary).text }
+            text = CodeNames.joinedExtensions(SpokenNumbers.written(text))
             text = Seams.smoothed(text, isOrdinary: isOrdinary).text
             if removesFillers { text = SelfCorrection.withoutFillers(text).0 }
             let corrected = SelfCorrection.apply(text)
@@ -137,6 +138,8 @@ extension Draft {
                 text = named.text
                 landing.codeNames = named.edits
             }
+            // 1c. Numbers as they are written, and a code name's extension.
+            text = CodeNames.joinedExtensions(SpokenNumbers.written(text))
             // 2. Ellipses inside and at the ends.
             let ellipsisCount = text.components(separatedBy: "…").count - 1 + text.components(separatedBy: "...").count - 1
             let smoothed = Seams.smoothed(text, isOrdinary: isOrdinary)

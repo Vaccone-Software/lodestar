@@ -249,3 +249,28 @@ final class RestyleKeyTests: XCTestCase {
         XCTAssertEqual(buffer.text, "a new ModelStore file")
     }
 }
+
+/// Numbers and file extensions as they are written.
+final class SpokenNumbersTests: XCTestCase {
+    func testVersionsAndLargeNumbersBecomeDigits() {
+        XCTAssertEqual(Draft.SpokenNumbers.written("bump Lodestar to zero dot thirty nine dot six today"),
+                       "bump Lodestar to 0.39.6 today")
+        XCTAssertEqual(Draft.SpokenNumbers.written("read the last two hundred lines."), "read the last 200 lines.")
+        XCTAssertEqual(Draft.SpokenNumbers.written("it is two point five times faster"), "it is 2.5 times faster")
+        XCTAssertEqual(Draft.SpokenNumbers.written("about forty two files"), "about 42 files")
+    }
+
+    func testProseNumbersStayWords() {
+        for text in ["one of the files", "two files changed", "the zero state", "nine five", "a thousand thanks"] {
+            XCTAssertEqual(Draft.SpokenNumbers.written(text), text, text)
+        }
+    }
+
+    func testAnExtensionJoinsACodeName() {
+        XCTAssertEqual(CodeNames.joinedExtensions("its own file called ModelStore. Swift."),
+                       "its own file called ModelStore.swift.")
+        XCTAssertEqual(CodeNames.joinedExtensions("open ModelStore dot swift now"), "open ModelStore.swift now")
+        XCTAssertEqual(CodeNames.joinedExtensions("I love Lodestar. Swift is great."), "I love Lodestar. Swift is great.",
+                       "a plain name and the next sentence stay apart")
+    }
+}

@@ -69,6 +69,8 @@ final class DraftController {
     /// How long ⏎ waits for the last phrase to be heard again before it
     /// lands what it has.
     static let earWaitSeconds: TimeInterval = 1.0
+    /// The dictation journal, when `draft.journal-days` keeps one.
+    var journal: DictationJournal?
     /// Phrases the ear changed this session, for the record.
     private(set) var earChanged = 0
     /// Counts of what the settler changed this session, for the record.
@@ -640,6 +642,7 @@ final class DraftController {
         hearsNothing = false
         silenceWatch?.cancel()
         onListen?()
+        journal?.begin(app: frontmost()?.name, at: clock.now())
         settler.reset()
         run = nil
         lastSpoken = nil
@@ -844,6 +847,7 @@ final class DraftController {
             // The final for words settled early: it replaces them in place,
             // cased for where it lands, if they are still there untouched.
             let landing = self.landing(heard, at: standing.range.lowerBound)
+            journal?.heard(heard, landed: landing.text, at: clock.now())
             spokenWords += landing.text.split(whereSeparator: \.isWhitespace).count
             let cursor = buffer.cursor
             var range = standing.range
@@ -883,6 +887,7 @@ final class DraftController {
             var resume = buffer.cursor
             var point = anchor ?? buffer.cursor
             let landing = self.landing(heard, at: point)
+            journal?.heard(heard, landed: landing.text, at: clock.now())
             spokenWords += landing.text.split(whereSeparator: \.isWhitespace).count
             if landing.replacesLast, let last = lastSpoken {
                 // A correction reached back: the last result and this one
@@ -1296,8 +1301,10 @@ final class DraftController {
         let lead = String(landed.text.prefix { $0.isWhitespace })
         let core = String(landed.text.dropFirst(lead.count))
         let before = buffer.slice(max(0, landed.range.lowerBound - 200)..<landed.range.lowerBound) + lead
-        guard let text = settler.resettled(again, landed: core, after: before, context: earContext),
-              text != core else { return }
+        let resettled = settler.resettled(again, landed: core, after: before, context: earContext)
+        journal?.earHeard(ear?.name ?? "ear", heard: again.text, stood: core,
+                          placed: resettled == core ? nil : resettled, seconds: seconds, at: clock.now())
+        guard let text = resettled, text != core else { return }
         let replacement = lead + text
         vim.replaceKeepingCursor(landed.range, with: replacement, buffer: &buffer)
         earChanged += 1
@@ -1444,6 +1451,7 @@ final class DraftController {
 
     private func record(action: String, row: String?, destination: Destination?) {
         let now = clock.now()
+        journal?.finish(action, text: buffer.text, at: now)
         observations?.drafted(
             app: destination?.name ?? "clipboard", door: door.rawValue, action: action, row: row,
             seconds: now.timeIntervalSince(openedAt), typed: typedCharacters, words: spokenWords,

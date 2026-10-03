@@ -111,4 +111,21 @@ final class SettlingEarScenarioTests: XCTestCase {
         stage.pump(until: { !stage.pasteboard.isEmpty })
         XCTAssertEqual(stage.pasteboard.last, "Rebase local/dev on main.")
     }
+
+    func testTheJournalKeepsADictationWhenAsked() throws {
+        let ear = FakeEar(answer: "Rebase local/dev on main.")
+        let stage = stageWithAudio(ear)
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("journal-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        stage.draft.journal = DictationJournal(folder: dir, days: 14)
+        stage.lode(".")
+        stage.speech.settle(timed("Rebase local dev on main.", 0, 2))
+        stage.pump(until: { stage.draft.buffer.text.contains("local/dev") })
+        stage.press("return")
+        stage.pump(until: { !stage.pasteboard.isEmpty })
+        let files = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+        let text = try String(contentsOf: dir.appendingPathComponent(files[0]), encoding: .utf8)
+        XCTAssertTrue(text.contains("Rebase local dev on main."), "what the live recognizer heard")
+        XCTAssertTrue(text.contains("\"ear\""), "what the ear heard")
+    }
 }

@@ -127,6 +127,9 @@ public struct Config {
     /// `draft.ear`: the settling ear's tier, or empty for the one this Mac
     /// suits.
     public var draftEar = ""
+    /// `draft.journal-days`: how long the dictation journal keeps its
+    /// days; 0 keeps none.
+    public var draftJournalDays = 0
     /// The editor: marks mistakes in any field, fixed by `lode ⇥`.
     public var editorEnabled = false
     /// standard | full | apple, or empty for the engine this Mac's memory
@@ -253,6 +256,8 @@ public struct Config {
             "input": .string(allowed: nil, description: "The microphone the draft listens to, by its name in Sound settings. Empty follows the system default input."),
             "words": .freeTable(value: .boolean(description: "true to keep this word in the draft's vocabulary."),
                                 description: "Word → true. Names and terms speech gets wrong; a settled result that sounds like one is written as it, case and all."),
+            "journal-days": .number(min: 0, max: 90,
+                                    description: "Keep a journal of what dictation heard and did, on this Mac, for this many days, to make it better. 0 keeps none."),
             "ear": .string(allowed: ["", "apple", "standard", "full"],
                            description: "The second recognizer that hears each phrase again: apple (none), standard (Parakeet, 8 GB Macs and up), full (Qwen3-ASR, 24 GB and up). Empty picks the one this Mac suits; one this Mac cannot run, or has not downloaded, falls back the same way."),
         ], description: "The draft: lode . speaks, lode ⇧. revises."),
@@ -469,6 +474,9 @@ public struct Config {
         }
         if let input = effective.value(at: ["draft", "input"])?.string {
             config.draftInput = input.trimmingCharacters(in: .whitespaces)
+        }
+        if let days = effective.value(at: ["draft", "journal-days"])?.int {
+            config.draftJournalDays = max(0, min(90, days))
         }
         if let ear = effective.value(at: ["draft", "ear"])?.string {
             config.draftEar = ear.trimmingCharacters(in: .whitespaces)

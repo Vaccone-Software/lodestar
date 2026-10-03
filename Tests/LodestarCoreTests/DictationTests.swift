@@ -251,3 +251,49 @@ final class RestyleKeyTests: XCTestCase {
         XCTAssertEqual(buffer.text, "one  three")
     }
 }
+
+/// The dictation journal: one line a dictation, kept only as long as asked.
+final class DictationJournalTests: XCTestCase {
+    private func folder() -> URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("journal-\(UUID().uuidString)", isDirectory: true)
+    }
+
+    func testADictationIsOneLineWithWhatWasHeardAndSent() throws {
+        let dir = folder()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let journal = DictationJournal(folder: dir, days: 14)
+        let now = Date()
+        journal.begin(app: "Ghostty", at: now)
+        journal.heard(Heard("Open load star", words: [.init("Open load star", start: 0, end: 1)]),
+                      landed: "Open Lodestar", at: now)
+        journal.earHeard("qwen3-asr-1.7b", heard: "Open Lodestar.", stood: "Open Lodestar", placed: nil, seconds: 0.4, at: now)
+        journal.finish("pasted", text: "Open Lodestar now", at: now)
+        let files = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+        XCTAssertEqual(files.count, 1)
+        let line = try String(contentsOf: dir.appendingPathComponent(files[0]), encoding: .utf8)
+        let entry = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
+        XCTAssertEqual(entry["text"] as? String, "Open Lodestar now")
+        XCTAssertEqual(entry["app"] as? String, "Ghostty")
+        XCTAssertEqual((entry["events"] as? [Any])?.count, 2)
+    }
+
+    func testNothingHeardIsNothingKept() {
+        let dir = folder()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let journal = DictationJournal(folder: dir, days: 14)
+        journal.begin(app: nil, at: Date())
+        journal.finish("empty", text: "", at: Date())
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir.path))
+    }
+
+    func testOldDaysAreDeleted() throws {
+        let dir = folder()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data().write(to: dir.appendingPathComponent("2020-01-01.jsonl"))
+        let today = DictationJournal.day(Date())
+        try Data().write(to: dir.appendingPathComponent("\(today).jsonl"))
+        _ = DictationJournal(folder: dir, days: 7)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: dir.path), ["\(today).jsonl"])
+    }
+}

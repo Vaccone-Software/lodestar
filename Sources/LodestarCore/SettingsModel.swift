@@ -401,6 +401,12 @@ public enum SettingsModel {
                     + "Standard is 0.5 GB for 8 GB Macs, Full 2.5 GB for 24 GB. "
                     + "Automatic fetches the one this Mac suits the first time you dictate.",
                 isDefault: config.draftEar.isEmpty),
+            Row(title: "Journal", path: "draft.journal-days",
+                control: .choice(options: ["0", "7", "14", "30"], labels: ["Off", "A week", "Two weeks", "A month"],
+                                 current: String(config.draftJournalDays)),
+                detail: "Keeps what dictation heard and did, and what you sent, on this Mac only, "
+                    + "to find what to make better. Deleted after the time chosen.",
+                isDefault: config.draftJournalDays == 0),
         ]
 
         // 9 · The editor, its own pane, above Advanced: the last pane is

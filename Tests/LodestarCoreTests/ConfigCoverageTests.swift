@@ -71,6 +71,9 @@ final class ConfigCoverageTests: XCTestCase {
         Probe(path: ["draft", "ear"], value: .string("standard")) {
             $0.draftEar == "standard"
         },
+        Probe(path: ["draft", "journal-days"], value: .int(14)) {
+            $0.draftJournalDays == 14
+        },
 
         Probe(path: ["observations", "enabled"], value: .bool(false)) { !$0.observationsEnabled },
         Probe(path: ["observations", "health"], value: .bool(false)) { !$0.observationsHealth },

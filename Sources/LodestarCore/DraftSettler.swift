@@ -83,7 +83,14 @@ extension Draft {
             if removesFillers { text = SelfCorrection.withoutFillers(text).0 }
             let corrected = SelfCorrection.apply(text)
             if corrected.corrections > 0 { text = corrected.text }
-            // End as the landed words end.
+            return reshaped(text, like: landed, after: before)
+        }
+
+        /// Words that stand where `landed` stood: they end the way the
+        /// landed words end and take their case from the text before, so
+        /// the next result's join reads what it would have.
+        public func reshaped(_ text: String, like landed: String, after before: String) -> String {
+            var text = text
             let landedEnd = landed.trimmingCharacters(in: .whitespaces).last
             let ends: Set<Character> = [".", "!", "?"]
             if let last = text.last, ends.contains(last), !(landedEnd.map { ends.contains($0) } ?? false) {

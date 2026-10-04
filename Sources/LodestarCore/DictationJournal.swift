@@ -58,6 +58,13 @@ public final class DictationJournal: @unchecked Sendable {
              "placed": placed ?? NSNull(), "ms": Int(seconds * 1000)])
     }
 
+    /// The intent pass: what was sent, the model's answer, what went in
+    /// (nil when nothing did) and, when the checker refused, why.
+    public func intent(sent: String, answer: String?, placed: String?, refused: String?, seconds: Double, at now: Date) {
+        add(["kind": "intent", "at": Self.stamp(now), "sent": sent, "answer": answer ?? NSNull(),
+             "placed": placed ?? NSNull(), "refused": refused ?? NSNull(), "ms": Int(seconds * 1000)])
+    }
+
     /// Any other step worth seeing: a pass that changed the text.
     public func note(_ kind: String, before: String, after: String, at now: Date) {
         add(["kind": kind, "at": Self.stamp(now), "before": before, "after": after])

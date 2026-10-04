@@ -73,6 +73,32 @@ final class DraftController {
     var journal: DictationJournal?
     /// Phrases the ear changed this session, for the record.
     private(set) var earChanged = 0
+    /// What was meant, from what was said (`IntentPass`): the editor's
+    /// model asked, set by the app while that model is Standard or Full,
+    /// here, and `draft.intent` is on; nil otherwise. The answer is
+    /// unchecked: the checker is applied here.
+    var intend: ((String) async -> String?)?
+    /// The speaker's names, which a rewrite keeps exactly as written.
+    var intentNames: [String] = []
+    private var intentWanted = false
+    private var intentInFlight = false
+    private var intentGeneration = 0
+    private var intentWaiters: [() -> Void] = []
+    /// The pass never reaches before where the hand last wrote: what was
+    /// typed is the hand's.
+    private var intentFloor = 0
+    /// Where the earliest result not yet sent begins.
+    private var intentFrom: Int?
+    /// Every text sent this session. None is sent twice, so a rewrite
+    /// undone is never offered again.
+    private var intentSent: Set<String> = []
+    /// How long ⏎ waits, after the ear, for a rewrite under way.
+    static let intentWaitSeconds: TimeInterval = 0.6
+    /// The most words sent at once: a result and the sentence before it,
+    /// as measured, not a paragraph a single refusal would lose.
+    static let intentWords = 60
+    /// Rewrites that went in this session, for the record.
+    private(set) var intentChanged = 0
     /// Counts of what the settler changed this session, for the record.
     private(set) var settled = (names: 0, ellipses: 0, joins: 0, fillers: 0, corrections: 0)
     /// The microphone to read (`draft.input`), by name; nil follows the
@@ -647,6 +673,7 @@ final class DraftController {
         run = nil
         lastSpoken = nil
         handSinceSpeech = false
+        resetIntent()
         settler.codeNames = nil
         if let destination = frontmost(), let root = codeRepository(destination) {
             readCodeNames(root) { [weak self] index in
@@ -872,9 +899,14 @@ final class DraftController {
             provisional = nil
             lastSpoken = (range.lowerBound..<(range.lowerBound + replacement.count), replacement)
             handSinceSpeech = false
-            if let landed = lastSpoken { rehear(heard, landed: landed) }
+            if let landed = lastSpoken {
+                rehear(heard, landed: landed)
+                // Reserved because the hand cut in: the hand's text is close.
+                wantIntent(from: landed.range.lowerBound, handActed: true)
+            }
         } else if writing {
             provisional = nil
+            let handActed = handSinceSpeech
             if firstWordAt == nil { firstWordAt = clock.now() }
             onActivity?()
             // Each settled result is its own step to take back. Marked
@@ -909,7 +941,10 @@ final class DraftController {
             // The editor hears what speech typed, so `.` can say it again.
             vim.typed(buffer.slice(buffer.cursor - grew..<buffer.cursor))
             lastSpoken = (start..<buffer.cursor, buffer.slice(start..<buffer.cursor))
-            if anchor == nil, let landed = lastSpoken { rehear(heard, landed: landed) }
+            if anchor == nil, let landed = lastSpoken {
+                rehear(heard, landed: landed)
+                wantIntent(from: landed.range.lowerBound, handActed: handActed)
+            }
             if anchor != nil {
                 // The words went in ahead of what the hand typed, and the
                 // joining rule only ever puts a space on the near side of
@@ -1215,7 +1250,7 @@ final class DraftController {
         guard isOpen, !closing else { return }
         closing = true
         if clipOrigin != nil { landClip(exit: "return", commit: true); return }
-        let finish = { [weak self] in self?.afterEars { self?.land() } }
+        let finish = { [weak self] in self?.afterEars { self?.afterIntent { self?.land() } } }
         if sessionStarted, listening, mode == .insert, micWanted {
             // A ghost with no final behind it settles as what it was.
             var landed = false
@@ -1291,6 +1326,9 @@ final class DraftController {
         earPending = max(0, earPending - 1)
         defer {
             if earPending == 0 {
+                // The ear is done: the pass reads its words, and starts
+                // before ⏎'s wait for the ear lets go.
+                startIntentIfReady()
                 let waiters = earWaiters
                 earWaiters = []
                 waiters.forEach { $0() }
@@ -1329,6 +1367,154 @@ final class DraftController {
         }
         earWaiters.append(go)
         clock.after(Self.earWaitSeconds, DispatchWorkItem { go() })
+    }
+
+    // MARK: - The intent pass
+
+    private func resetIntent() {
+        intentGeneration += 1
+        intentInFlight = false
+        intentWanted = false
+        intentFrom = nil
+        intentFloor = 0
+        intentSent = []
+        let waiters = intentWaiters
+        intentWaiters = []
+        waiters.forEach { $0() }
+    }
+
+    /// A result landed at `from`: once the ear has heard it again, the
+    /// pass may read it. Where the hand wrote just before it, nothing
+    /// before it is read.
+    private func wantIntent(from: Int, handActed: Bool) {
+        guard intend != nil else { return }
+        if handActed { intentFloor = max(intentFloor, from) }
+        intentFrom = min(intentFrom ?? from, from)
+        intentWanted = true
+        startIntentIfReady()
+    }
+
+    /// Where the sentence holding the character before `point` begins,
+    /// never before `floor`.
+    private func sentenceStart(before point: Int, floor: Int) -> Int {
+        let chars = buffer.characters
+        var i = point
+        while i > floor {
+            let c = chars[i - 1]
+            if c == "\n" { break }
+            if c.isWhitespace, i - 1 > floor, ".!?".contains(chars[i - 2]) { break }
+            i -= 1
+        }
+        while i < point, chars[i].isWhitespace { i += 1 }
+        return i
+    }
+
+    /// Ask, when there is something to ask about and nothing else is
+    /// moving: the ear has finished, no reservation or anchor stands, the
+    /// draft is writing, and the speech is English (the rules are).
+    private func startIntentIfReady() {
+        guard intentWanted, !intentInFlight, earPending == 0, let intend, isOpen, settler.removesFillers,
+              mode == .insert, provisional == nil, speechAnchor == nil,
+              let last = lastSpoken, last.range.upperBound <= buffer.count, buffer.slice(last.range) == last.text
+        else { return }
+        intentWanted = false
+        let end = last.range.upperBound
+        let floor = min(intentFloor, end)
+        // The new results' sentences, and the sentence before them: a
+        // take-back reaches into it ("…Monday." "No wait, Tuesday").
+        var from = sentenceStart(before: min(max(intentFrom ?? last.range.lowerBound, floor), end), floor: floor)
+        intentFrom = nil
+        var back = from
+        while back > floor, buffer.characters[back - 1].isWhitespace { back -= 1 }
+        if back > floor { from = sentenceStart(before: back - 1, floor: floor) }
+        // At most so many words, cut where a word begins.
+        var words = 0
+        var i = end
+        while i > from {
+            if !buffer.characters[i - 1].isWhitespace, i - 1 == from || buffer.characters[i - 2].isWhitespace {
+                words += 1
+                if words == Self.intentWords { from = i - 1; break }
+            }
+            i -= 1
+        }
+        let range = from..<end
+        let sent = buffer.slice(range)
+        let lead = String(sent.prefix { $0.isWhitespace })
+        let core = String(sent.dropFirst(lead.count))
+        guard IntentPass.wants(core), !intentSent.contains(core) else { return }
+        intentSent.insert(core)
+        intentInFlight = true
+        intentGeneration += 1
+        let generation = intentGeneration
+        let mine = session
+        let ears = earGeneration
+        let names = intentNames
+        Task.detached { [weak self] in
+            let began = Date()
+            let answer = await intend(core)
+            let judged = IntentPass.judge(said: core, answer: answer ?? "", names: names)
+            let seconds = Date().timeIntervalSince(began)
+            await MainActor.run {
+                self?.intentHeard(answer, judged: judged, sent: (range, sent), lead: lead, session: mine,
+                                  generation: generation, ears: ears, seconds: seconds)
+            }
+        }
+    }
+
+    private func intentHeard(_ answer: String?, judged: (text: String?, verdict: IntentChecker.Verdict?),
+                             sent: (range: Range<Int>, text: String), lead: String, session mine: Int,
+                             generation: Int, ears: Int, seconds: Double) {
+        guard generation == intentGeneration else { return }
+        intentInFlight = false
+        defer {
+            startIntentIfReady()
+            if !intentInFlight {
+                let waiters = intentWaiters
+                intentWaiters = []
+                waiters.forEach { $0() }
+            }
+        }
+        let core = String(sent.text.dropFirst(lead.count))
+        // Applied only to the words as they were sent: nothing typed,
+        // heard again or reserved since.
+        let stands = session == mine && isOpen && ears == earGeneration && earPending == 0 && mode == .insert
+            && provisional == nil && speechAnchor == nil && sent.range.upperBound <= buffer.count
+            && buffer.slice(sent.range) == sent.text
+        let refused = judged.verdict.flatMap { $0.ok ? nil : $0.reason }
+        guard stands, let meant = judged.text else {
+            journal?.intent(sent: core, answer: answer, placed: nil, refused: refused ?? (stands ? nil : "moved on"),
+                            seconds: seconds, at: clock.now())
+            Log.info("intent", ["changed": false, "ms": Int(seconds * 1000),
+                                "why": refused ?? (answer == nil ? "no answer" : stands ? "same" : "moved on")])
+            return
+        }
+        let before = buffer.slice(max(0, sent.range.lowerBound - 200)..<sent.range.lowerBound) + lead
+        let replacement = lead + settler.reshaped(meant, like: core, after: before)
+        vim.replaceKeepingCursor(sent.range, with: replacement, buffer: &buffer)
+        intentChanged += 1
+        journal?.intent(sent: core, answer: answer, placed: replacement, refused: nil, seconds: seconds, at: clock.now())
+        Log.info("intent", ["changed": true, "ms": Int(seconds * 1000),
+                            "edits": judged.verdict?.edits.map(\.kind).joined(separator: ",") ?? ""])
+        // What reached back into the words they were no longer holds:
+        // the settler's last result, the ear's run (which would hear the
+        // rewrite away again), the last phrase's place.
+        lastSpoken = nil
+        settler.handInterrupted()
+        run = nil
+        render()
+    }
+
+    /// ⏎ waits for a rewrite under way, a little.
+    private func afterIntent(_ then: @escaping () -> Void) {
+        guard intentInFlight else { then(); return }
+        var done = false
+        let go = {
+            guard !done else { return }
+            done = true
+            then()
+        }
+        intentWaiters.append(go)
+        clock.after(Self.intentWaitSeconds, DispatchWorkItem { go() })
     }
 
     private func land() {
@@ -1445,6 +1631,7 @@ final class DraftController {
         speechAnchor = nil
         lastVoiceAt = nil
         session += 1
+        resetIntent()
         pendingSettle = nil
         panel.hide()
     }

@@ -10,7 +10,8 @@ extension Draft {
     /// Measured on the dictation set, the cue rule halved the distance
     /// to what was meant and never fired on 40 clips of ordinary speech.
     /// A model that repaired freely added nothing past the rule and
-    /// sometimes changed meaning, so there is none.
+    /// sometimes changed meaning; the one that runs after it, the intent
+    /// pass (`IntentPass`), is held by a checker to deletions and writing.
     public enum SelfCorrection {
         public struct Result: Equatable, Sendable {
             public let text: String

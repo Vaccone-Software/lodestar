@@ -71,6 +71,7 @@ final class ConfigCoverageTests: XCTestCase {
         Probe(path: ["draft", "model"], value: .string("standard")) {
             $0.draftModel == "standard"
         },
+        Probe(path: ["draft", "intent"], value: .bool(false)) { !$0.draftIntent },
 
         Probe(path: ["observations", "logbook"], value: .bool(false)) { !$0.logbookEnabled },
         Probe(path: ["observations", "logbook-mb"], value: .int(128)) { $0.logbookBytes == 128 << 20 },

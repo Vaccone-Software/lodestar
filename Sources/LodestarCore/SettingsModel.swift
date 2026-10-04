@@ -269,6 +269,9 @@ public enum SettingsModel {
         public var earStatus = ""
         /// The health record's size warning, once it is near its bound.
         public var healthWarning: String?
+        /// Why the draft cannot write what you meant on this Mac right now,
+        /// or nil when it can.
+        public var intentUnavailable: String?
         /// What Automatic picks for dictation on this Mac, named in its label.
         public var draftModelAutomatic = "Full"
         public var editorModelStatus = ""
@@ -553,6 +556,12 @@ public enum SettingsModel {
                     + "Hears what you said again while you keep talking, and writes it better",
                 isDefault: config.draftModel.isEmpty, group: "Draft"),
             words.inGroup("Words"),
+            // Last, so no letter that shipped before it moved.
+            Row(title: "What you meant", path: "draft.intent",
+                control: .toggle(config.draftIntent),
+                detail: machine.intentUnavailable
+                    ?? "Drops the words you take back and writes a spoken file name as one, never adding a word",
+                isDefault: config.draftIntent, dimmed: machine.intentUnavailable != nil, group: "Editor"),
         ], picture: "door-speak",
            sentence: "Speak, and the draft writes it down and hears you again to get it right",
            status: "Dictation"))

@@ -223,6 +223,7 @@ public enum ConfigDefaults {
         ]),
         "draft": .table([
             "input": .string(""),
+            "intent": .bool(true),
             "model": .string(""),
             "words": .table([:]),
         ]),

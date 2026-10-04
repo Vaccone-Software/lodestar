@@ -139,6 +139,7 @@ final class SettingsModelTests: XCTestCase {
         for section in sections {
             for row in section.rows {
                 if case .readout = row.control { continue }
+                if case .page(SettingsModel.historyPage) = row.control { continue }
                 XCTAssertFalse(row.path.isEmpty, "\(section.name) · \(row.title) hides its config path")
             }
         }

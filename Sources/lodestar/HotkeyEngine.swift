@@ -32,6 +32,9 @@ final class HotkeyEngine {
     /// lode , — the settings window, opened by the app delegate.
     /// `lode ,`: the place for the surface that was up when it was pressed.
     var onOpenSettings: ((String?) -> Void)?
+    /// The chips the shell owns (the coach's, the meeting's), named by
+    /// the place that configures them.
+    var chipScope: () -> String? = { nil }
 
     /// Chain timing, for the one measurement that says whether an address has
     /// compiled into muscle memory: the pauses inside it. The first stamp is
@@ -953,6 +956,9 @@ final class HotkeyEngine {
     /// the effects hide the bars: `lode ,` opens there.
     private var settingsScope: String? {
         if draft.isOpen { return "Speak" }
+        if strip.isVisible { return "Keep" }
+        if case .hints = core.state, select.door == .editor { return "Write" }
+        if let chip = chipScope() { return chip }
         if webBar.isVisible { return "Web" }
         if searcher.isVisible { return "Switch" }
         if commandsBar.isVisible { return "Operate" }

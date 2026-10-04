@@ -383,6 +383,9 @@ enum BarTheme {
     /// place's name: a mark on the page, round.
     static let dotDiameter: CGFloat = 7
     static let dotRadius: CGFloat = dotDiameter / 2
+    /// The accent's border around a row a search landed on: inside the
+    /// card, a rung under the card's own rounding.
+    static let landingRadius: CGFloat = surfaceRadius - 4
     /// A sentence's measure: wide enough for one thought, narrow enough
     /// to be read in a glance.
     static let voiceWidth: CGFloat = 380

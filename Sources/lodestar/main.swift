@@ -157,6 +157,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // The alert sound is Lodestar's, and Sound settings finds it here.
         AlertSound.installAtBoot()
         var (loaded, problems) = Config.load()
+        lastConfigTree = Self.readConfigTree()
         // What the browsers actually have joins what the config references,
         // so pickers and most-recent resolution see every real profile.
         loaded.registerDetected(ChromiumProfiles.detected())
@@ -493,6 +494,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         coach.applyEdit = { [weak self] edit in
             guard let self else { return "lodestar is shutting down" }
+            self.configSource = "The coach"
             switch edit {
             case .bindTarget(let chain, let target):
                 return self.addTargetToGraph(chain, target: target)
@@ -1103,7 +1105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             let path = dottedPath.split(separator: ".").map(String.init)
             return self.rewriteConfig(flash: "✓ \(dottedPath)",
-                                      logged: "settings \(dottedPath)") { tree in
+                                      logged: "settings \(dottedPath)", source: "Settings") { tree in
                 guard let updated = Json.setting(tree, path: path, to: value) else {
                     throw Config.EditError.unparsed(dottedPath)
                 }
@@ -1119,7 +1121,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 $0.dropLast().joined(separator: ".")
             }).sorted().joined(separator: " ")
             return self.rewriteConfig(flash: "✓ \(tables)",
-                                      logged: "settings \(tables)") { tree in
+                                      logged: "settings \(tables)", source: "Settings") { tree in
                 var out = tree
                 for path in removals { out = Json.removingEntry(out, path: path) }
                 for (path, value) in sets {
@@ -1134,6 +1136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         settings.machineState = { [weak self] in
             var state = SettingsModel.MachineState()
             state.breaths = self?.store.state.breaths.count ?? 0
+            state.history = SettingsModel.historyItems(Array(ConfigHistory.read().suffix(26)))
             state.healthWarning = Retention.healthWarning(in: Paths.data,
                                                           bound: self?.config.healthBytes ?? Retention.healthBytes)
             // All three, always: one this Mac cannot run is listed with
@@ -1231,13 +1234,90 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 .sorted { $0.name < $1.name }
         }
         engine.onOpenSettings = { [weak self] place in self?.settings.toggle(place: place) }
+        engine.chipScope = { [weak self] in
+            guard let self else { return nil }
+            if self.meetings.chipVisible { return "Meetings" }
+            if self.coach?.chipVisible == true { return "Observations" }
+            return nil
+        }
         settings.perform = { [weak self] action in self?.performSettingsAction(action) }
+        settings.ask = SettingsAsk.available ? { question, sections, done in
+            SettingsAsk.answer(question, catalog: SettingsModel.askCatalog(sections),
+                               choices: SettingsModel.askChoices(sections), completion: done)
+        } : nil
+        settings.undo = { [weak self] in self?.undoSettingsChange() ?? false }
+        settings.redo = { [weak self] in self?.redoSettingsChange() ?? false }
         settings.dismissSheet = { [weak self] in self?.engine.dismissSheet() ?? false }
         engine.settingsUp = { [weak self] in self?.settings.isVisible ?? false }
     }
 
     @objc private func openSettingsWindow() {
         settings.open()
+    }
+
+    // MARK: - History and undo
+
+    /// The config as the file holds it, for the history's before and after.
+    private static func readConfigTree() -> [String: ConfigValue]? {
+        guard let text = try? String(contentsOf: Config.file, encoding: .utf8) else { return nil }
+        return try? Json.parse(text)
+    }
+
+    /// What changed since the last reload, written down with who wrote it:
+    /// the writer named itself through `rewriteConfig`, and anything else
+    /// came from the file — a hand edit or the command line.
+    private func recordConfigHistory() {
+        guard let tree = Self.readConfigTree() else { return }
+        defer {
+            lastConfigTree = tree
+            pendingConfigSource = nil
+        }
+        guard let before = lastConfigTree else { return }
+        let changes = ConfigHistory.changes(from: before, to: tree)
+        guard !changes.isEmpty else { return }
+        let now = Date()
+        let group = Int(now.timeIntervalSince1970 * 1000)
+        let source = pendingConfigSource ?? "The file"
+        ConfigHistory.append(changes.enumerated().map {
+            ConfigHistory.Entry(group: group, index: $0.offset, at: now, path: $0.element.path,
+                                old: $0.element.old, new: $0.element.new, source: source)
+        })
+        // A new change made here ends the redo chain, as everywhere else.
+        if source == "Settings" { redoGroups = [] }
+    }
+
+    /// Write a group of entries' old (or new) values back, as one write.
+    private func revertConfig(_ entries: [ConfigHistory.Entry],
+                              to side: KeyPath<ConfigHistory.Entry, ConfigValue?>,
+                              flash: String, source: String) -> Bool {
+        let ordered = side == \ConfigHistory.Entry.old ? entries.reversed() : entries
+        let problem = rewriteConfig(flash: flash, logged: "history", source: source) { tree in
+            ordered.reduce(tree) { ConfigHistory.applying($1[keyPath: side], at: $1.path, to: $0) }
+        }
+        if let problem { hud.flash("✕ \(problem)") }
+        return problem == nil
+    }
+
+    /// ⌘Z in Settings: the window's own last change not yet undone.
+    private func undoSettingsChange() -> Bool {
+        let entries = ConfigHistory.read()
+        guard let last = entries.last(where: { $0.source == "Settings" && !undoneGroups.contains($0.group) })
+        else { return false }
+        let group = entries.filter { $0.group == last.group }
+        guard revertConfig(group, to: \.old, flash: "↺ \(SettingsModel.historyTitle(last.path)) undone",
+                           source: "Undo") else { return false }
+        undoneGroups.insert(last.group)
+        redoGroups.append(group)
+        return true
+    }
+
+    /// ⇧⌘Z: the last undo, made again.
+    private func redoSettingsChange() -> Bool {
+        guard let group = redoGroups.popLast(), let first = group.first else { return false }
+        guard revertConfig(group, to: \.new, flash: "↻ \(SettingsModel.historyTitle(first.path)) again",
+                           source: "Redo") else { return false }
+        undoneGroups.remove(first.group)
+        return true
     }
 
     /// The verbs Settings rows carry that are not config writes.
@@ -1255,6 +1335,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case "delete-logbook":
             observationStore?.clearLogbook()
             hud.flash("⌂ logbook deleted")
+        case let undo where undo.hasPrefix("undo:"):
+            let id = String(undo.dropFirst(5))
+            guard let entry = ConfigHistory.read().first(where: { $0.id == id }) else { return }
+            _ = revertConfig([entry], to: \.old, flash: "↺ \(SettingsModel.historyTitle(entry.path)) undone", source: "Undo")
         case "delete-health":
             observationStore?.clearHealth()
             health.forgetBuffered()
@@ -1858,8 +1942,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// The HUD confirms with `flash` unless the reload surfaces problems.
     /// `logged` is what the log records — the same as the flash by default,
     /// and something quieter when the flash names a destination.
-    private func rewriteConfig(flash: String, logged: String? = nil,
+    private func rewriteConfig(flash: String, logged: String? = nil, source: String = "Lodestar",
                                edit: ([String: ConfigValue]) throws -> [String: ConfigValue]) -> String? {
+        // Who wrote it, for the history the reload below records.
+        pendingConfigSource = configSource ?? source
+        configSource = nil
         do {
             try Config.edit(edit)
         } catch let error as GraphJsonEditor.EditError {
@@ -1971,7 +2058,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// ⇧ and a letter in the editor's lens, written where Settings shows it.
     private func editorLearn(path: [String], flash: String) {
-        if let problem = rewriteConfig(flash: flash, logged: path.prefix(2).joined(separator: ".")) { tree in
+        if let problem = rewriteConfig(flash: flash, logged: path.prefix(2).joined(separator: "."), source: "The editor") { tree in
             guard let updated = Json.setting(tree, path: path, to: .bool(true)) else {
                 throw Config.EditError.unparsed(path.prefix(2).joined(separator: "."))
             }
@@ -1986,6 +2073,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func applyConfigReload(successFlash: String) {
+        recordConfigHistory()
         var (loaded, loadProblems) = Config.load()
         // Re-read Local State rather than re-serve the boot snapshot: a
         // reload is the one moment the world is being asked again, and the
@@ -2111,6 +2199,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: - Auto-reload watcher
 
+    /// The file as it stood at the last reload, for the history's diff.
+    private var lastConfigTree: [String: ConfigValue]?
+    /// Who is writing the config right now, named by the writer.
+    private var pendingConfigSource: String?
+    /// A writer that calls through someone else's path names itself here
+    /// first: the coach's accept arrives through ⌘K's graph edits.
+    private var configSource: String?
+    private var undoneGroups: Set<Int> = []
+    private var redoGroups: [[ConfigHistory.Entry]] = []
     private var configWatcher: DispatchSourceFileSystemObject?
     private var reloadDebounce: DispatchWorkItem?
 

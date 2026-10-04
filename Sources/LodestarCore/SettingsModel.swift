@@ -281,6 +281,8 @@ public enum SettingsModel {
         public var unitsInferred = ClipQuantity.System.imperial.rawValue
         /// How many breaths are saved, for Switch's line on the overview.
         public var breaths = 0
+        /// The config's recent changes, newest first, for the History page.
+        public var history: [HistoryItem] = []
 
         public init(accessibility: String = "unknown", screenRecording: String = "unknown",
                     calendars: String = "unknown", browserRole: String = "unknown",
@@ -294,6 +296,21 @@ public enum SettingsModel {
             self.savedBrowser = savedBrowser
             self.savedBrowserID = savedBrowserID
             self.detectedProfiles = detectedProfiles
+        }
+    }
+
+    /// One change, as the History page shows it.
+    public struct HistoryItem: Equatable {
+        public let id: String
+        public let title: String
+        public let detail: String
+        public let today: Bool
+
+        public init(id: String, title: String, detail: String, today: Bool) {
+            self.id = id
+            self.title = title
+            self.detail = detail
+            self.today = today
         }
     }
 
@@ -405,6 +422,9 @@ public enum SettingsModel {
             permission("Accessibility", state: machine.accessibility,
                        detail: "Seeing windows, moving them and reading menus. Lodestar cannot work without it",
                        pane: "accessibility", group: "Permission"),
+            Row(title: "History", control: .page(historyPage),
+                detail: "Every change, from here, the file, the coach or the editor, and the way back. ⌘Z undoes the last one made here",
+                group: "History"),
         ], picture: "place-general",
            sentence: "Lodestar starts with your Mac and keeps itself up to date",
            status: "Startup, updates and look",
@@ -752,6 +772,7 @@ public enum SettingsModel {
 
     public static let keyboardsPage = "Keyboards"
     public static let wordsPage = "Words"
+    public static let historyPage = "History"
 
     /// The Health row's one line: which boards differ, and by how much.
     static func keyboardsSummary(config: Config, machine: MachineState) -> String {
@@ -780,7 +801,87 @@ public enum SettingsModel {
                 isDefault: config.draftWords.isEmpty, group: "Words"),
          ], parent: "Write", picture: "door-write",
             sentence: "The words you use, written the way you write them",
-            note: "Shared by Write and Speak. A word the editor learns when you keep it lands here")]
+            note: "Shared by Write and Speak. A word the editor learns when you keep it lands here"),
+         historySection(machine.history)]
+    }
+
+    /// The name a changed path goes by: its row's title in the catalog
+    /// (the longest row path it falls under), Letters for the graph, and
+    /// the dotted path for anything with no row.
+    public static func historyTitle(_ path: [String]) -> String {
+        if path.first == "graph" { return "Letters" }
+        let dotted = path.joined(separator: ".")
+        let rows = (catalog(config: Config(), machine: .init()) + pages(config: Config(), machine: .init()))
+            .flatMap(\.rows).filter { !$0.path.isEmpty }
+        let best = rows.filter { dotted == $0.path || dotted.hasPrefix($0.path + ".") }
+            .max { $0.path.count < $1.path.count }
+        return best?.title ?? dotted
+    }
+
+    /// The History page's lines, newest first: what changed, in words,
+    /// who changed it, and when.
+    public static func historyItems(_ entries: [ConfigHistory.Entry], now: Date = Date(),
+                                    calendar: Calendar = .current) -> [HistoryItem] {
+        let time = DateFormatter()
+        time.dateFormat = "HH:mm"
+        let day = DateFormatter()
+        day.dateFormat = "d MMM"
+        func shown(_ value: ConfigValue?) -> String {
+            switch value {
+            case nil: return "Default"
+            case .bool(let on)?: return on ? "On" : "Off"
+            case .string(let text)?: return text.isEmpty ? "Automatic" : String(text.prefix(28))
+            case .int(let n)?: return "\(n)"
+            case .double(let n)?: return n.rounded() == n ? "\(Int(n))" : "\(n)"
+            case .table?: return "a list"
+            }
+        }
+        return entries.reversed().map { entry in
+            let title = historyTitle(entry.path)
+            let rowDepth = entry.path.first == "graph" ? 1 : (title == entry.path.joined(separator: ".") ? entry.path.count
+                : rowPathDepth(entry.path))
+            var what: String
+            if entry.path.count > rowDepth {
+                let key = entry.path.first == "graph"
+                    ? "lode " + entry.path.dropFirst().map { $0.uppercased() }.joined(separator: " ")
+                    : entry.path.dropFirst(rowDepth).joined(separator: ".")
+                if entry.old == nil { what = "Added \(key)" }
+                else if entry.new == nil { what = "Removed \(key)" }
+                else { what = "\(key) changed" }
+            } else {
+                what = "\(shown(entry.old)) → \(shown(entry.new))"
+            }
+            let today = calendar.isDate(entry.at, inSameDayAs: now)
+            let when = today ? time.string(from: entry.at) : day.string(from: entry.at)
+            return HistoryItem(id: entry.id, title: title,
+                               detail: "\(what) · \(entry.source) · \(when)", today: today)
+        }
+    }
+
+    private static func rowPathDepth(_ path: [String]) -> Int {
+        let dotted = path.joined(separator: ".")
+        let rows = (catalog(config: Config(), machine: .init()) + pages(config: Config(), machine: .init()))
+            .flatMap(\.rows).filter { !$0.path.isEmpty }
+        let best = rows.filter { dotted == $0.path || dotted.hasPrefix($0.path + ".") }
+            .max { $0.path.count < $1.path.count }
+        return best.map { $0.path.split(separator: ".").count } ?? path.count
+    }
+
+    /// The recent changes, newest first, each with the way back. Twenty-six
+    /// at most: one letter each.
+    static func historySection(_ items: [HistoryItem]) -> Section {
+        var rows: [Row] = items.prefix(labelAlphabet.count).map { item in
+            Row(title: item.title, control: .readout("", sub: nil), detail: item.detail,
+                group: item.today ? "Today" : "Earlier")
+                .doing(Action(id: "undo:\(item.id)", label: "Undo"))
+        }
+        if rows.isEmpty {
+            rows = [Row(title: "Nothing has changed yet", control: .readout("", sub: nil),
+                        detail: "Changes from here, the file, the coach and the editor will be listed", group: "Today")]
+        }
+        return Section(name: historyPage, rows: rows, parent: "General", picture: "place-general",
+                       sentence: "Every change, and the way back",
+                       note: "Undo writes the old value back. A change undone is listed too")
     }
 
     /// One keyboard's fourteen keys and where each sits. The board is
@@ -861,6 +962,14 @@ public enum SettingsModel {
         /// The two keys that would have reached it: the place's digit and
         /// the row's letter.
         public let address: String
+
+        public init(section: Int, row: Int, title: String, sectionName: String, address: String) {
+            self.section = section
+            self.row = row
+            self.title = title
+            self.sectionName = sectionName
+            self.address = address
+        }
     }
 
     /// The words people type for a place that is named by what it does.
@@ -884,22 +993,65 @@ public enum SettingsModel {
     public static func search(_ query: String, in sections: [Section]) -> [Hit] {
         let needle = query.lowercased().trimmingCharacters(in: .whitespaces)
         guard !needle.isEmpty else { return [] }
-        var hits: [Hit] = []
+        // A row's own name first, then its line, path or entries, then a
+        // place found by the words people use for it (its first row stands
+        // for it); place order breaks ties.
+        var scored: [(score: Int, hit: Hit)] = []
         for (sectionIndex, section) in sections.enumerated() {
             let placeWords = "\(section.name) \(aliases[section.name] ?? "")".lowercased()
             for (rowIndex, row) in section.rows.enumerated() {
                 var entries = ""
                 if case .table(_, let list) = row.control { entries = list.map(\.display).joined(separator: " ") }
-                let haystack = "\(row.title) \(row.path) \(row.detail ?? "") \(entries)".lowercased()
-                let titleHit = row.title.lowercased().contains(needle)
-                if haystack.contains(needle) || (placeWords.contains(needle) && rowIndex == 0) || titleHit {
-                    let address = "\(paneKey(sectionIndex, count: sections.count) ?? "") \(row.letter ?? "")"
-                    hits.append(Hit(section: sectionIndex, row: rowIndex, title: row.title,
-                                    sectionName: section.name, address: address))
-                }
+                let rest = "\(row.path) \(row.detail ?? "") \(entries)".lowercased()
+                let score: Int
+                if row.title.lowercased().hasPrefix(needle) { score = 0 }
+                else if row.title.lowercased().contains(needle) { score = 1 }
+                else if rest.contains(needle) { score = 2 }
+                else if placeWords.contains(needle) && rowIndex == 0 { score = 3 }
+                else { continue }
+                let address = "\(paneKey(sectionIndex, count: sections.count) ?? "") \(row.letter ?? "")"
+                scored.append((score, Hit(section: sectionIndex, row: rowIndex, title: row.title,
+                                          sectionName: section.name, address: address)))
             }
         }
-        return hits
+        return scored.enumerated().sorted { ($0.element.score, $0.offset) < ($1.element.score, $1.offset) }
+            .map(\.element.hit)
+    }
+
+    /// Every row as one line for a language model to choose from: its two
+    /// keys, its place, its name and what it does.
+    public static func askCatalog(_ sections: [Section]) -> String {
+        var lines: [String] = []
+        for section in sections {
+            lines.append("\(section.name), about \(aliases[section.name] ?? section.name):")
+            for row in section.rows {
+                lines.append("- \(askName(section, row))" + (row.detail.map { ": " + $0 } ?? ""))
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// A row as a model names it: its place and its title, unique.
+    public static func askName(_ section: Section, _ row: Row) -> String {
+        "\(section.name) › \(row.title)"
+    }
+
+    /// The names a model may answer with, in catalog order.
+    public static func askChoices(_ sections: [Section]) -> [String] {
+        var seen = Set<String>()
+        return sections.flatMap { section in section.rows.map { askName(section, $0) } }
+            .filter { seen.insert($0).inserted }
+    }
+
+    /// The row a model's answer names.
+    public static func hit(forName name: String, in sections: [Section]) -> Hit? {
+        for (index, section) in sections.enumerated() {
+            if let row = section.rows.firstIndex(where: { askName(section, $0) == name }) {
+                return Hit(section: index, row: row, title: section.rows[row].title, sectionName: section.name,
+                           address: "\(paneKey(index, count: sections.count) ?? "") \(section.rows[row].letter ?? "")")
+            }
+        }
+        return nil
     }
 
     // MARK: - The escape stack

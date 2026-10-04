@@ -45,6 +45,12 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     /// A row's verb that is not a config write: a permission's pane, a
     /// record deleted. Wired by the app delegate.
     var perform: (String) -> Void = { _ in }
+    /// ⌘Z and ⇧⌘Z: the window's own last change, undone and made again.
+    var undo: () -> Bool = { false }
+    var redo: () -> Bool = { false }
+    /// A question in plain words, answered with the name of the row it
+    /// means, or nil. Apple's on-device model where macOS 26 has it.
+    var ask: ((String, [SettingsModel.Section], @escaping (String?) -> Void) -> Void)?
 
     private let panel = KeyablePanel(
         contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
@@ -58,6 +64,12 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     private var pageReturn: Int?
     /// A destructive row's verb, waiting for its letter a second time.
     private var armedAction: Int?
+    /// The row a search landed on: it wears the accent's border until the
+    /// next key moves on.
+    private var landedRow: Int?
+    /// The model's answer for the query standing in the field.
+    private var suggestion: SettingsModel.Hit?
+    private var asking = false
     private var layer = SettingsModel.Layer.browsing
     private var labeled: [String: Int] = [:]
     private var rowViews: [Int: NSView] = [:]
@@ -273,7 +285,12 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     private var shiftHeld = false
 
     private func handle(key: String, event: NSEvent) -> Bool {
-        if event.modifierFlags.contains(.command) { return false }
+        if event.modifierFlags.contains(.command) {
+            // ⌘Z in a field is the field's; on the page it is the window's.
+            guard key == "z", !inEditingContext(), layer != .searching else { return false }
+            if event.modifierFlags.contains(.shift) { _ = redo() } else if !undo() { NSSound.beep() }
+            return true
+        }
         shiftHeld = event.modifierFlags.contains(.shift)
         // A popup or button holding key focus owns the keys that operate
         // it: space and return press, arrows choose, tab moves on, escape
@@ -329,6 +346,11 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
 
     private func browsingKey(_ key: String) -> Bool {
         if listFocus != nil { return listKey(key) }
+        // The landing border stays until the hand moves on.
+        if landedRow != nil, key != "return" {
+            landedRow = nil
+            removeLanding()
+        }
         // A destructive verb asks twice: its own letter again performs it,
         // any other key lets it go. No timer: the ask stands until answered.
         if let armed = armedAction {
@@ -464,23 +486,19 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     }
 
     private func searchingKey(_ key: String) -> Bool {
+        let shown = shownHits
         switch key {
         case "escape":
             layer = .browsing
+            suggestion = nil
             render()
             return true
         case "return":
-            guard hits.indices.contains(hitSelection) else { return true }
-            let hit = hits[hitSelection]
-            place = hit.section
-            openPage = nil
-            highlightRow = hit.row
-            layer = .browsing
-            render()
+            guard shown.indices.contains(hitSelection) else { return true }
+            land(on: shown[hitSelection])
             return true
         case "down":
-            // Twelve hits are drawn; the selection stays where the eye is.
-            hitSelection = max(0, min(min(11, hits.count - 1), hitSelection + 1))
+            hitSelection = max(0, min(shown.count - 1, hitSelection + 1))
             renderHits()
             return true
         case "up":
@@ -492,14 +510,52 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         }
     }
 
+    /// The model's pick first, then the plain matches, twelve in all.
+    private var shownHits: [SettingsModel.Hit] {
+        var list = hits
+        if let suggestion { list.removeAll { $0 == suggestion }; list.insert(suggestion, at: 0) }
+        return Array(list.prefix(12))
+    }
+
+    /// Go to a hit's place and light its row: the accent's border, drawn
+    /// once, standing until the next key. Return then does what the row's
+    /// letter would.
+    private func land(on hit: SettingsModel.Hit) {
+        layer = .browsing
+        suggestion = nil
+        place = hit.section
+        openPage = nil
+        pageReturn = nil
+        highlightRow = hit.row
+        landedRow = hit.row
+        render()
+    }
+
     // MARK: - Field focus
 
     func controlTextDidChange(_ notification: Notification) {
         guard layer == .searching, let field = searchField,
               (notification.object as? NSTextField) === field else { return }
-        hits = SettingsModel.search(field.stringValue, in: sections)
+        let query = field.stringValue
+        hits = SettingsModel.search(query, in: sections)
         hitSelection = 0
+        suggestion = nil
         renderHits()
+        // A question in words, not a name: Apple's model reads it against
+        // every row and answers with the row it means.
+        let words = query.split(separator: " ").count
+        guard words >= 3, let ask else { return }
+        asking = true
+        renderHits()
+        ask(query, sections) { [weak self] name in
+            guard let self, self.layer == .searching, self.searchField?.stringValue == query else { return }
+            self.asking = false
+            if let name, let hit = SettingsModel.hit(forName: name, in: self.sections) {
+                self.suggestion = hit
+            }
+            self.hitSelection = 0
+            self.renderHits()
+        }
     }
 
     // MARK: - Activation and writes
@@ -1082,8 +1138,9 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                 ])
                 rowViews[index] = view
                 rowsStack.addArrangedSubview(view)
+                if index == landedRow { addLanding(to: view) }
                 if index == highlightRow {
-                    pulse(view)
+                    highlightRow = nil
                     let control = row.control
                     DispatchQueue.main.async { [weak self] in
                         guard let self else { return }
@@ -1775,15 +1832,34 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         let list = NSStackView()
         list.orientation = .vertical
         list.alignment = .leading
-        list.spacing = 10
-        list.translatesAutoresizingMaskIntoConstraints = false
+        list.spacing = 22
+        let back = HandButton(title: "", target: self, action: #selector(searchBackPressed))
+        back.isBordered = false
+        back.attributedTitle = NSAttributedString(string: place.map { sections[$0].name } ?? "Settings", attributes: [
+            .font: BarTheme.secondaryFont, .foregroundColor: BarTheme.secondaryColor])
+        let backRow = NSStackView(views: [keycap("esc"), back])
+        backRow.orientation = .horizontal
+        backRow.spacing = 10
+        list.addArrangedSubview(backRow)
+
+        let fieldRow = NSStackView()
+        fieldRow.orientation = .horizontal
+        fieldRow.alignment = .centerY
+        fieldRow.spacing = 12
+        fieldRow.addArrangedSubview(keycap("/"))
         let field = NSTextField()
-        field.setPlaceholder("Search settings")
-        field.font = BarTheme.handFont(BarTheme.Scale.body)
+        field.setPlaceholder(ask == nil ? "Search every setting" : "Search, or ask in your own words")
+        field.font = BarTheme.handFont(BarTheme.Scale.title)
+        field.isBordered = false
+        field.drawsBackground = false
+        field.focusRingType = .none
         field.delegate = self
-        field.widthAnchor.constraint(equalToConstant: 380).isActive = true
+        field.widthAnchor.constraint(equalToConstant: Self.width - 140).isActive = true
         searchField = field
-        list.addArrangedSubview(field)
+        fieldRow.addArrangedSubview(field)
+        list.addArrangedSubview(fieldRow)
+        list.addArrangedSubview(Self.hairline(width: Self.width - 64))
+
         let results = NSStackView()
         results.orientation = .vertical
         results.alignment = .leading
@@ -1792,40 +1868,126 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         hitsStack = results
         list.addArrangedSubview(results)
         renderHits()
-        let holder = NSStackView(views: [list])
-        holder.orientation = .vertical
-        holder.alignment = .leading
-        return holder
+        return list
+    }
+
+    @objc private func searchBackPressed() {
+        layer = .browsing
+        suggestion = nil
+        render()
+    }
+
+    @objc private func hitClicked(_ gesture: NSClickGestureRecognizer) {
+        guard let view = gesture.view, let index = hitsStack?.arrangedSubviews.firstIndex(of: view) else { return }
+        let shown = shownHits
+        guard shown.indices.contains(index) else { return }
+        land(on: shown[index])
     }
 
     private func renderHits() {
         guard let hitsStack else { return }
         for view in hitsStack.arrangedSubviews { view.removeFromSuperview() }
-        for (index, hit) in hits.prefix(12).enumerated() {
+        let width = Self.width - 64
+        for (index, hit) in shownHits.enumerated() {
             let selected = index == hitSelection
-            hitsStack.addArrangedSubview(
-                label("\(hit.sectionName)  ·  \(hit.title)", size: BarTheme.Scale.body,
-                      weight: selected ? .semibold : .regular,
-                      color: selected ? .labelColor : BarTheme.secondaryColor))
+            let row = HandStack()
+            row.orientation = .horizontal
+            row.alignment = .centerY
+            row.spacing = 12
+            row.edgeInsets = NSEdgeInsets(top: 9, left: 14, bottom: 9, right: 14)
+            row.translatesAutoresizingMaskIntoConstraints = false
+            row.widthAnchor.constraint(equalToConstant: width).isActive = true
+            let parts = hit.address.split(separator: " ").map(String.init)
+            for part in parts { row.addArrangedSubview(keycap(part)) }
+            row.addArrangedSubview(label(hit.title, size: BarTheme.Scale.body, weight: .medium, color: .labelColor))
+            row.addArrangedSubview(label(hit.sectionName, size: BarTheme.Scale.meta, weight: .regular,
+                                         color: BarTheme.secondaryColor))
+            row.addArrangedSubview(spacer())
+            if index == 0, suggestion != nil {
+                row.addArrangedSubview(label("Suggested", size: BarTheme.Scale.meta, weight: .regular,
+                                             color: BarTheme.secondaryColor))
+            }
+            row.wantsLayer = true
+            row.layer?.cornerRadius = BarTheme.wellRadius
+            if selected {
+                row.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.05).cgColor
+                row.layer?.borderWidth = 1.5
+                row.layer?.borderColor = BarTheme.readableAccent.cgColor
+            }
+            row.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(hitClicked(_:))))
+            row.setAccessibilityElement(true)
+            row.setAccessibilityRole(.button)
+            row.setAccessibilityLabel("\(hit.title), \(hit.sectionName), \(hit.address)")
+            hitsStack.addArrangedSubview(row)
         }
-        if hits.isEmpty, searchField?.stringValue.isEmpty == false {
-            hitsStack.addArrangedSubview(label("nothing matches", size: BarTheme.Scale.body,
+        let query = searchField?.stringValue ?? ""
+        if asking {
+            hitsStack.addArrangedSubview(label("Reading the question", size: BarTheme.Scale.meta,
+                                               weight: .regular, color: BarTheme.secondaryColor))
+        } else if shownHits.isEmpty, !query.isEmpty {
+            hitsStack.addArrangedSubview(label("Nothing matches", size: BarTheme.Scale.body,
                                                weight: .regular, color: BarTheme.secondaryColor))
         }
     }
 
-    private func pulse(_ view: NSView) {
-        highlightRow = nil // once; a later render must not relight it
-        view.wantsLayer = true
-        view.layer?.backgroundColor = BarTheme.accent
-            .withAlphaComponent(0.16).cgColor
-        view.layer?.cornerRadius = BarTheme.wellRadius
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak view] in
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.5
-                view?.animator().layer?.backgroundColor = NSColor.clear.cgColor
-            }
+    // MARK: - The landing
+
+    private weak var landing: NSView?
+
+    /// A border in the accent around the row a search landed on, drawn in
+    /// once with a soft glow that settles: the eye finds it, and it does
+    /// not keep calling.
+    private func addLanding(to row: NSView) {
+        let ring = NSView()
+        ring.translatesAutoresizingMaskIntoConstraints = false
+        ring.wantsLayer = true
+        let accent = BarTheme.readableAccent
+        ring.layer?.borderWidth = 1.5
+        ring.layer?.borderColor = accent.cgColor
+        ring.layer?.cornerRadius = BarTheme.landingRadius
+        ring.layer?.shadowColor = accent.cgColor
+        ring.layer?.shadowOffset = .zero
+        ring.layer?.shadowRadius = 6
+        ring.layer?.shadowOpacity = 0.35
+        row.addSubview(ring)
+        NSLayoutConstraint.activate([
+            ring.topAnchor.constraint(equalTo: row.topAnchor, constant: 3),
+            ring.bottomAnchor.constraint(equalTo: row.bottomAnchor, constant: -3),
+            ring.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 4),
+            ring.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -4),
+        ])
+        landing = ring
+        DispatchQueue.main.async { [weak row] in
+            row?.scrollToVisible(row?.bounds.insetBy(dx: 0, dy: -24) ?? .zero)
         }
+        guard !Accessibility.reduceMotion(), let layer = ring.layer else { return }
+        let appear = CABasicAnimation(keyPath: "opacity")
+        appear.fromValue = 0
+        appear.toValue = 1
+        appear.duration = 0.3
+        appear.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        layer.add(appear, forKey: "appear")
+        let glow = CAKeyframeAnimation(keyPath: "shadowOpacity")
+        glow.values = [0, 0.7, 0.35]
+        glow.keyTimes = [0, 0.4, 1]
+        glow.duration = 1.1
+        glow.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        layer.add(glow, forKey: "glow")
+        let breathe = CAKeyframeAnimation(keyPath: "shadowRadius")
+        breathe.values = [2, 10, 6]
+        breathe.keyTimes = [0, 0.4, 1]
+        breathe.duration = 1.1
+        layer.add(breathe, forKey: "breathe")
+    }
+
+    private func removeLanding() {
+        guard let ring = landing else { return }
+        landing = nil
+        guard !Accessibility.reduceMotion() else { ring.removeFromSuperview(); return }
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.2
+            ring.animator().alphaValue = 0
+        }, completionHandler: { ring.removeFromSuperview() })
     }
 
     // MARK: - Pieces
@@ -1985,7 +2147,26 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                          detectedProfiles: detected)
         }
         controller.place = index < 0 ? nil : index
-        DispatchQueue.main.async { controller.open(place: index < 0 ? nil : index) }
+        DispatchQueue.main.async {
+            controller.open(place: index < 0 ? nil : index)
+            let env = ProcessInfo.processInfo.environment
+            // LODESTAR_SETTINGS_SEARCH stages the search with a query typed;
+            // LODESTAR_SETTINGS_LAND ("5 d") stages a landing on that row.
+            if let query = env["LODESTAR_SETTINGS_SEARCH"] {
+                controller.searchPressed()
+                controller.searchField?.stringValue = query
+                controller.hits = SettingsModel.search(query, in: controller.sections)
+                controller.hitSelection = 0
+                controller.renderHits()
+            }
+            if let land = env["LODESTAR_SETTINGS_LAND"], let place = Int(land.prefix(1)),
+               controller.sections.indices.contains(place),
+               let row = controller.sections[place].rows.firstIndex(where: { $0.letter == String(land.suffix(1)) }) {
+                let section = controller.sections[place]
+                controller.land(on: SettingsModel.Hit(section: place, row: row, title: section.rows[row].title,
+                                                      sectionName: section.name, address: land))
+            }
+        }
         return controller
     }
     #endif

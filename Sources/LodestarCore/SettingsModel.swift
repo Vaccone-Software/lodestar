@@ -407,7 +407,7 @@ public enum SettingsModel {
                        pane: "accessibility", group: "Permission"),
         ], picture: "place-general",
            sentence: "Lodestar starts with your Mac and keeps itself up to date",
-           status: config.startAtLogin ? "Starts at login" : "Not at login",
+           status: "Startup, updates and look",
            attention: !granted(machine.accessibility) && machine.accessibility != "unknown"))
 
         // 1 · Write: the editor
@@ -430,9 +430,6 @@ public enum SettingsModel {
                             ? "Names and terms, written the way you write them. Shared by Write and Speak"
                             : "\(config.draftWords.count) words, shared by Write and Speak",
                         isDefault: config.draftWords.isEmpty, group: "Words and apps")
-        let engineName = machine.editorEngineLabels.indices.contains(machine.editorEngines.firstIndex(of: machine.editorEngineCurrent) ?? -1)
-            ? machine.editorEngineLabels[machine.editorEngines.firstIndex(of: machine.editorEngineCurrent)!]
-                .components(separatedBy: " · ").last ?? "" : ""
         sections.append(Section(name: "Write", rows: [
             Row(title: "Editor", path: "editor.enabled",
                 control: .toggle(config.editorEnabled),
@@ -455,13 +452,9 @@ public enum SettingsModel {
                 isDefault: config.editorSkipApps.isEmpty, group: "Words and apps"),
         ], picture: "door-write",
            sentence: "The editor marks mistakes as you write, in every app",
-           status: config.editorEnabled
-               ? (config.editorSkipApps.isEmpty ? "Every app" : "Every app but \(config.editorSkipApps.count)")
-                    + (engineName.isEmpty ? "" : ", with \(engineName)")
-               : "Off"))
+           status: "Spelling and grammar"))
 
         // 2 · Switch
-        let letters = config.graph.leaves().count
         sections.append(Section(name: "Switch", rows: [
             gesture("launcher", group: "Launcher and letters", detail: "Type a few letters of any app and press return"),
             gesture("graph", group: "Launcher and letters", detail: "Letters that lead straight to apps. Hold lode and press one"),
@@ -473,7 +466,7 @@ public enum SettingsModel {
             gesture("breaths", group: "Breaths", detail: "Saved window arrangements, restored with a letter"),
         ], picture: "door-switch",
            sentence: "Every app and window, a letter or two away",
-           status: "\(letters) letter\(letters == 1 ? "" : "s"), \(machine.breaths) breath\(machine.breaths == 1 ? "" : "s")"))
+           status: "Apps and windows"))
 
         // 3 · Keep: the clipboard
         let unitsOptions = [""] + ClipQuantity.System.allCases.reversed().map(\.rawValue)
@@ -520,12 +513,11 @@ public enum SettingsModel {
                               confirm: "Press the letter again to clear the history. It cannot be undone")),
         ], picture: "door-keep",
            sentence: "Keep holds what you copy, and records nothing in the apps you exclude",
-           status: config.clipboardEnabled ? "Up to \(config.clipboardMaxBytes / 1_000_000) MB" : "Off"))
+           status: "Clipboard history"))
 
         // 4 · Speak: the draft
         let inputOptions = [""] + machine.inputDevices
         let inputLabels = ["System · " + (machine.defaultInput ?? "Default")] + machine.inputDevices
-        let tierName = ["": machine.draftModelAutomatic, "apple": "Apple", "standard": "Standard", "full": "Full"][config.draftModel] ?? ""
         sections.append(Section(name: "Speak", rows: [
             gesture("draft", group: "Draft", detail: "Speak into it and ⏎ pastes where your cursor was"),
             Row(title: "Microphone", path: "draft.input",
@@ -543,7 +535,7 @@ public enum SettingsModel {
             words.inGroup("Words"),
         ], picture: "door-speak",
            sentence: "Speak, and the draft writes it down and hears you again to get it right",
-           status: on("draft") ? (tierName == "Apple" ? "Apple's recognizer" : "Heard again with \(tierName)") : "Off"))
+           status: "Dictation"))
 
         // 5 · Operate: what the app in front shows
         let screenGranted = granted(machine.screenRecording)
@@ -573,9 +565,7 @@ public enum SettingsModel {
                        pane: "screen-recording", group: "Permission"),
         ], picture: "place-operate",
            sentence: "Click, scroll and select in the app in front, from the keys",
-           status: !screenGranted && machine.screenRecording != "unknown"
-               ? "Needs Screen Recording"
-               : "\(["hints", "scroll", "select", "commands"].filter(on).count) of 4 on",
+           status: "Click, scroll and select",
            attention: !screenGranted && machine.screenRecording != "unknown"))
 
         // 6 · Web. No profile inventory to manage: the pickers list what
@@ -609,8 +599,6 @@ public enum SettingsModel {
             }
         let routeEntries = config.webRoutes.sorted { $0.key < $1.key }
             .map { TableEntry(key: $0.key, display: $0.key, sub: "→  \(shownReference($0.value))") }
-        let fallbackShown = fallbackLabels[fallbackOptions.firstIndex(of: fallbackCurrent) ?? 0]
-            .replacingOccurrences(of: "Automatic · ", with: "")
         sections.append(Section(name: "Web", rows: [
             gesture("web-bar", group: "Ask", detail: "Type a destination or a question. It opens in the right browser profile"),
             Row(title: "Fallback profile", path: "web.fallback",
@@ -647,7 +635,7 @@ public enum SettingsModel {
                 group: "Clicked links"),
         ], picture: "place-web",
            sentence: "Every link opens in the browser and profile it belongs to",
-           status: "\(fallbackShown), \(config.webRoutes.count) route\(config.webRoutes.count == 1 ? "" : "s")"))
+           status: "Links and browsers"))
 
         // 7 · Meetings
         let calendarEntries = config.meetingsCalendars.sorted { $0.key < $1.key }
@@ -673,7 +661,7 @@ public enum SettingsModel {
                        pane: "calendars", group: "Calendars"),
         ], picture: "place-meetings",
            sentence: "A chip before each meeting, and one tap to join",
-           status: config.meetingsEnabled ? "\(config.meetingsLeadMinutes) minutes ahead" : "Off",
+           status: "Calendar and joining",
            attention: config.meetingsEnabled && !calendarsGranted && machine.calendars != "unknown"))
 
         // 8 · Keys
@@ -700,12 +688,11 @@ public enum SettingsModel {
                 isDefault: config.keyOverrides.isEmpty, group: "Keyboards"),
         ], picture: "place-keys",
            sentence: "The key every gesture starts from, and the boards you type on",
-           status: "Lode is \(config.trigger == .rightCommand ? "right" : "left") ⌘"))
+           status: "Lode and keyboards"))
 
         // 9 · Observations: two records, each with its switch, its limit,
         // and what reads it. The coach reads the logbook; Born and
         // Dominant hand belong to health.
-        let records = [config.logbookEnabled ? "Logbook" : nil, config.observationsHealth ? "health" : nil].compactMap { $0 }
         sections.append(Section(name: "Observations", rows: [
             Row(title: "Logbook", path: "observations.logbook",
                 control: .toggle(config.logbookEnabled),
@@ -733,7 +720,7 @@ public enum SettingsModel {
                 dimmed: !config.observationsHealth, group: "Health"),
             Row(title: "Born", path: "health.born",
                 control: .text(config.healthBorn.map(String.init) ?? "", placeholder: "Year"),
-                detail: config.observationsHealth ? "Age is the first thing a reading of the hands is adjusted for" : "Needs health",
+                detail: config.observationsHealth ? "Age adjusts every reading of the hands" : "Needs health",
                 isDefault: config.healthBorn == nil, dimmed: !config.observationsHealth, group: "About you"),
             Row(title: "Dominant hand", path: "health.hand",
                 control: .choice(options: ["", "left", "right", "either"],
@@ -750,7 +737,7 @@ public enum SettingsModel {
                               confirm: "Press the letter again to delete the health record. It cannot be undone")),
         ], picture: "place-observations",
            sentence: "Everything Lodestar observes stays on this Mac",
-           status: records.isEmpty ? "Off" : records.joined(separator: " and "),
+           status: "Logbook and health",
            note: "The coach reads the logbook. Health is its own record, kept whatever the logbook is set to"))
 
         return sections

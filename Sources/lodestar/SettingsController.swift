@@ -119,8 +119,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                               problems: [String], at: Date)?
     private weak var paneScroll: NSScrollView?
 
-    private static let width: CGFloat = 960
-    private static let height: CGFloat = 640
+    private static let width: CGFloat = 1000
+    private static let height: CGFloat = 680
     /// The place's own column: its picture, name and sentence.
     private static let leftColumn: CGFloat = 228
 
@@ -939,8 +939,10 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     private func buildOverview() -> NSView {
         let field = FlippedView()
         let width = Self.width - 64, height = Self.height - 50
-        let center = NSPoint(x: width / 2, y: height / 2 + 1)
-        let rx: CGFloat = 352, ry: CGFloat = 212
+        // Sized so neighbours never touch: down the sides the places sit
+        // 2·ry·sin 18° apart (143), and a place stands 124 tall.
+        let center = NSPoint(x: width / 2, y: height / 2 - 8)
+        let rx: CGFloat = 372, ry: CGFloat = 232
 
         let ring = NSView(frame: NSRect(x: center.x - rx, y: center.y - ry, width: rx * 2, height: ry * 2))
         ring.wantsLayer = true
@@ -960,7 +962,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             let point = NSPoint(x: center.x + rx * cos(angle), y: center.y + ry * sin(angle))
             let tile = buildPlaceTile(section, index: index)
             // The picture sits on the ring; its name and line hang below.
-            tile.frame = NSRect(x: point.x - 110, y: point.y - 36, width: 220, height: 118)
+            tile.frame = NSRect(x: point.x - 110, y: point.y - 33, width: 220, height: 124)
             field.addSubview(tile)
             placeViews.append(tile)
         }
@@ -989,13 +991,13 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         let tile = HandStack()
         tile.orientation = .vertical
         tile.alignment = .centerX
-        tile.spacing = 4
+        tile.spacing = 5
         let picture = NSImageView()
         picture.image = Self.picture(section.picture)
         picture.imageScaling = .scaleProportionallyUpOrDown
         picture.translatesAutoresizingMaskIntoConstraints = false
-        picture.widthAnchor.constraint(equalToConstant: 96).isActive = true
-        picture.heightAnchor.constraint(equalToConstant: 72).isActive = true
+        picture.widthAnchor.constraint(equalToConstant: 88).isActive = true
+        picture.heightAnchor.constraint(equalToConstant: 66).isActive = true
         tile.addArrangedSubview(picture)
         let head = NSStackView()
         head.orientation = .horizontal
@@ -1030,7 +1032,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         let list = NSStackView()
         list.orientation = .vertical
         list.alignment = .leading
-        list.spacing = 14
+        list.spacing = 22
         list.translatesAutoresizingMaskIntoConstraints = false
         var groups: [(name: String, rows: [Int])] = []
         for (index, row) in section.rows.enumerated() {
@@ -1043,7 +1045,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             let block = NSStackView()
             block.orientation = .vertical
             block.alignment = .leading
-            block.spacing = 7
+            block.spacing = 8
             let header = label(group.name, size: BarTheme.Scale.meta, weight: .regular, color: BarTheme.secondaryColor)
             let headerWrap = NSStackView(views: [header])
             headerWrap.edgeInsets = NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 0)
@@ -1108,6 +1110,16 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         scroll.documentView = FlippedView.wrapping(list, width: cardWidth + 18)
         scroll.widthAnchor.constraint(equalToConstant: cardWidth + 18).isActive = true
         scroll.heightAnchor.constraint(equalToConstant: Self.height - 50).isActive = true
+        // A long place fades into the window's foot rather than being cut
+        // by it: the last few points go soft, and scrolling brings them up.
+        scroll.wantsLayer = true
+        let fade = CAGradientLayer()
+        let height = Self.height - 50, soft: CGFloat = 28
+        fade.frame = CGRect(x: 0, y: 0, width: cardWidth + 18, height: height)
+        // The scroll view's layer is flipped: location 0 is the top.
+        fade.colors = [NSColor.black.cgColor, NSColor.black.cgColor, NSColor.clear.cgColor]
+        fade.locations = [0, NSNumber(value: Double(1 - soft / height)), 1]
+        scroll.layer?.mask = fade
         paneScroll = scroll
         columns.addArrangedSubview(scroll)
         return columns
@@ -1348,7 +1360,9 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             }
             return holder
         case .text(let value, let placeholder):
-            let field = editableField(value, width: 180)
+            // As wide as what it holds: a year, a folder, an address.
+            let width: CGFloat = row.path == "web.search-url" ? 280 : row.path == "health.born" ? 72 : 180
+            let field = editableField(value, width: width)
             field.identifier = NSUserInterfaceItemIdentifier(row.path)
             field.setPlaceholder(placeholder)
             fields[index] = field
@@ -1991,7 +2005,7 @@ private final class FlippedView: NSView {
             stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 8),
             stack.widthAnchor.constraint(equalToConstant: width - 16),
             view.widthAnchor.constraint(equalToConstant: width),
-            view.bottomAnchor.constraint(greaterThanOrEqualTo: stack.bottomAnchor, constant: 8),
+            view.bottomAnchor.constraint(greaterThanOrEqualTo: stack.bottomAnchor, constant: 32),
         ])
         return view
     }

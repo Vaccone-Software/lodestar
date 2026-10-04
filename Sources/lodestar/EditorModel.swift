@@ -165,12 +165,16 @@ protocol EditorBackend: Sendable {
     /// The text as the prompt's worked examples would have it: the
     /// dictation intent pass.
     func rewrite(_ text: String, prompt: IntentPass.Prompt) async throws -> String
+    /// Read the prompt's shared beginning now, so a rewrite under a
+    /// deadline never pays for it.
+    func warm(_ prompt: IntentPass.Prompt) async throws
 }
 
 extension EditorBackend {
     func rewrite(_ text: String, prompt: IntentPass.Prompt) async throws -> String {
         throw EditorModelError.unavailable("this model does not rewrite")
     }
+    func warm(_ prompt: IntentPass.Prompt) async throws {}
 }
 
 /// What the editor asks of a model — the seam its tests fake.
@@ -225,6 +229,8 @@ actor EditorModel: EditorProofreader {
     private(set) var state: State = .unloaded
     private(set) var engine: EditorEngine
     private var backend: (any EditorBackend)?
+    /// The intent prompts whose beginning the loaded model has read.
+    private var warmed: Set<IntentPass.Prompt> = []
     /// Which engine the loaded backend runs: Minimal, Apple's model, holds
     /// no MLX memory to clear.
     private var backendEngine: EditorEngine?
@@ -281,11 +287,26 @@ actor EditorModel: EditorProofreader {
 
     /// Only the models on this Mac: Apple's gained little once checked
     /// (it rewrote 55% of what it was given) and takes a second and more;
-    /// Spelling has no model.
+    /// Spelling has no model. Never a load: the weights are here because
+    /// the editor is reading, or the text stands. The prompt's beginning
+    /// is read the first time with no deadline (2.5 s on Full), so the
+    /// deadline only ever bounds the answer.
     func rewrite(_ text: String, prompt: IntentPass.Prompt) async -> String? {
-        guard engine == .standard || engine == .full else { return nil }
+        guard engine == .standard || engine == .full, let backend,
+              backendEngine == .standard || backendEngine == .full else { return nil }
         scheduleRelease()
-        guard let backend = await loaded(), backendEngine == .standard || backendEngine == .full else { return nil }
+        if !warmed.contains(prompt) {
+            let started = Date()
+            do {
+                try await backend.warm(prompt)
+                warmed.insert(prompt)
+                Log.info("intent", ["warmed": Int(Date().timeIntervalSince(started) * 1000), "engine": engine.rawValue])
+            } catch {
+                return nil
+            }
+            // Released or switched while it read: not this model's answer.
+            guard self.backend != nil, backendEngine == .standard || backendEngine == .full else { return nil }
+        }
         let started = Date()
         let answer = await Self.within(Self.rewriteDeadline) { try? await backend.rewrite(text, prompt: prompt) }
         Log.info("intent", ["asked": text.count, "answered": answer != nil,
@@ -338,6 +359,7 @@ actor EditorModel: EditorProofreader {
     func release(reason: String) {
         guard backend != nil else { return }
         backend = nil
+        warmed = []
         if backendEngine != .minimal { clearCache() }
         backendEngine = nil
         state = .unloaded
@@ -463,6 +485,15 @@ private final class MLXBackend: EditorBackend, @unchecked Sendable {
                                 parameters: { _ in parameters })
     }
 
+    func warm(_ prompt: IntentPass.Prompt) async throws {
+        guard cachesInstructions else { return }
+        let additional = engine.additionalContext
+        try await container.perform { (context: ModelContext) async throws in
+            try await self.ensurePrefix(prompt, context: context, additional: additional,
+                                        parameters: GenerateParameters(maxTokens: 24, temperature: 0))
+        }
+    }
+
     func rewrite(_ text: String, prompt: IntentPass.Prompt) async throws -> String {
         try await answer(text, prompt: prompt, parameters: { count in
             GenerateParameters(maxTokens: IntentPass.maxTokens(forInputTokens: count), temperature: 0)
@@ -478,24 +509,9 @@ private final class MLXBackend: EditorBackend, @unchecked Sendable {
         let caching = cachesInstructions
         return try await container.perform { (context: ModelContext) async throws -> String in
             let parameters = parameters(context.tokenizer.encode(text: text, addSpecialTokens: false).count)
-            func tokens(_ text: String) async throws -> [Int] {
-                let chat: [Chat.Message] = [.system(prompt.instructions)]
-                    + prompt.examples.flatMap { [Chat.Message.user($0.said), .assistant($0.meant)] }
-                    + [.user(text)]
-                let input = try await context.processor.prepare(input: UserInput(
-                    chat: chat, additionalContext: additional))
-                return input.text.tokens.asArray(Int.self)
-            }
-            let full = try await tokens(text)
-            if caching, !self.prefixes.contains(where: { $0.prompt == prompt }), !self.prefixTried.contains(prompt) {
-                self.prefixTried.insert(prompt)
-                if let built = try await self.buildPrefix(context: context, parameters: parameters, tokens: tokens) {
-                    self.prefixes.append((prompt, built.tokens, built.cache))
-                    if self.prefixes.count > Self.prefixesKept {
-                        let gone = self.prefixes.removeFirst()
-                        self.prefixTried.remove(gone.prompt)
-                    }
-                }
+            let full = try await Self.tokens(text, prompt: prompt, context: context, additional: additional)
+            if caching {
+                try await self.ensurePrefix(prompt, context: context, additional: additional, parameters: parameters)
             }
             var cache: [KVCache]
             var rest: [Int]
@@ -514,6 +530,34 @@ private final class MLXBackend: EditorBackend, @unchecked Sendable {
                 if case .chunk(let chunk) = generation { text += chunk }
             }
             return text
+        }
+    }
+
+    /// The prompt rendered by the model's chat template, as tokens.
+    private static func tokens(_ text: String, prompt: IntentPass.Prompt, context: ModelContext,
+                               additional: [String: any Sendable]?) async throws -> [Int] {
+        let chat: [Chat.Message] = [.system(prompt.instructions)]
+            + prompt.examples.flatMap { [Chat.Message.user($0.said), .assistant($0.meant)] }
+            + [.user(text)]
+        let input = try await context.processor.prepare(input: UserInput(chat: chat, additionalContext: additional))
+        return input.text.tokens.asArray(Int.self)
+    }
+
+    /// The prompt's beginning cached, unless it is or was found not to
+    /// fit. Marked tried only once a build has finished: one cut short
+    /// (cancelled, or an error) is tried again next time.
+    private func ensurePrefix(_ prompt: IntentPass.Prompt, context: ModelContext,
+                              additional: [String: any Sendable]?, parameters: GenerateParameters) async throws {
+        guard !prefixes.contains(where: { $0.prompt == prompt }), !prefixTried.contains(prompt) else { return }
+        let built = try await buildPrefix(context: context, parameters: parameters, tokens: {
+            try await Self.tokens($0, prompt: prompt, context: context, additional: additional)
+        })
+        prefixTried.insert(prompt)
+        guard let built else { return }
+        prefixes.append((prompt, built.tokens, built.cache))
+        if prefixes.count > Self.prefixesKept {
+            let gone = prefixes.removeFirst()
+            prefixTried.remove(gone.prompt)
         }
     }
 

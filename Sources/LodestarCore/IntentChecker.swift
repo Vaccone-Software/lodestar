@@ -399,7 +399,7 @@ public enum IntentChecker {
                     pieces.append(Piece(w: w, sep: true,
                                         optional: optionalSeps.contains(w) && 0 < k && k < parts.count - 1, raw: ri))
                 } else {
-                    let caps = w.count > 1 && w.allSatisfy(\.isLetter) && w == w.uppercased() && w != w.lowercased()
+                    let caps = w.unicodeScalars.count > 1 && w.allSatisfy(\.isLetter) && w == w.uppercased() && w != w.lowercased()
                     pieces.append(Piece(w: w.lowercased(), raw: ri, caps: caps))
                 }
             }
@@ -542,7 +542,7 @@ public enum IntentChecker {
         let next = ((last + 1)..<max(last + 1, n)).first { !dset.contains($0) && !I[$0].sep }
         // Spelled letters: "capital" before a single letter.
         if core.allSatisfy({ ["capital", "cap", "uppercase"].contains($0) }), let next,
-           words[next].count == 1 || I[next].caps {
+           words[next].unicodeScalars.count == 1 || I[next].caps {
             return "spelled"
         }
         // Discourse markers.
@@ -619,7 +619,7 @@ public enum IntentChecker {
         // Restart: a short abandoned start begun again. An exact repeat needs
         // nothing more; a start that changes after its first word must be at
         // most two words and end at an audible break.
-        if core.contains(where: { $0.count == 1 && $0.allSatisfy(\.isLetter) && $0 != "a" && $0 != "i" }) {
+        if core.contains(where: { $0.unicodeScalars.count == 1 && $0.allSatisfy(\.isLetter) && $0 != "a" && $0 != "i" }) {
             return nil   // spelled letters are never stutters ("S E E N")
         }
         if let next, core.count <= 4, Set(core).isDisjoint(with: conjunctions) {
@@ -633,12 +633,8 @@ public enum IntentChecker {
         // A stutter of the word just before the run ("keeps keeps").
         if let prev = stride(from: first - 1, through: 0, by: -1).first(where: { !dset.contains($0) && !I[$0].sep }),
            core.count <= 3 {
-            // As the original reads it: an index before the start wraps to the end.
             let from = prev - core.count + 1
-            if from >= -words.count,
-               (from...prev).map({ words[$0 < 0 ? $0 + words.count : $0] }) == core {
-                return "restart"
-            }
+            if from >= 0, Array(words[from...prev]) == core { return "restart" }
         }
         return nil
     }

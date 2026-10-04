@@ -144,3 +144,66 @@ final class IntentCheckerTests: XCTestCase {
         XCTAssertLessThan(rate, 0.05)
     }
 }
+
+/// What the pass sends and what it keeps.
+final class IntentPassTests: XCTestCase {
+    func testTheGateOpensOnlyForWhatThePassCanDo() {
+        for text in ["Send it to Maria, no wait, Sam.", "Open draft controller dot swift.", "it keeps keeps losing focus",
+                     "It sends M E H now.", "First, pull. Second, push.", "Scratch that."] {
+            XCTAssertTrue(IntentPass.wants(text), text)
+        }
+        for text in ["Explain why the window model runs off the main thread.", "Make the hint labels bigger.",
+                     "Write a SwiftUI view that lists every MLX model."] {
+            XCTAssertFalse(IntentPass.wants(text), text)
+        }
+    }
+
+    func testThePromptNamesTheSpeakersWords() {
+        let prompt = IntentPass.prompt(names: ["Lodestar", " ", "Claude Code"])
+        XCTAssertTrue(prompt.instructions.hasSuffix("Names the speaker uses: Lodestar, Claude Code."))
+        XCTAssertEqual(prompt.examples.count, 8)
+        XCTAssertFalse(IntentPass.prompt(names: []).instructions.contains("Names the speaker uses"))
+        // The cached beginning is keyed by the whole prompt.
+        XCTAssertEqual(IntentPass.prompt(names: ["A"]), IntentPass.prompt(names: ["A"]))
+        XCTAssertNotEqual(IntentPass.prompt(names: ["A"]), IntentPass.prompt(names: ["B"]))
+    }
+
+    func testAJudgedAnswerLandsOnlyWhenEveryChangeIsAllowed() {
+        let said = "Use the red one, actually no, the blue one."
+        XCTAssertEqual(IntentPass.judge(said: said, answer: "Use the blue one.").text, "Use the blue one.")
+        XCTAssertEqual(IntentPass.judge(said: said, answer: "<think>\n</think>\n\nUse the blue one.").text,
+                       "Use the blue one.")
+        XCTAssertNil(IntentPass.judge(said: said, answer: said).text, "the same text is nothing to do")
+        XCTAssertNil(IntentPass.judge(said: said, answer: "  ").text)
+        XCTAssertNil(IntentPass.judge(said: said, answer: "Use the green one.").text)
+        XCTAssertNil(IntentPass.judge(said: said, answer: "<think>still thinking").text)
+    }
+
+    func testANameStaysAsItWasWritten() {
+        let said = "Open the SwiftUI view, no wait, the AppKit one."
+        XCTAssertEqual(IntentPass.judge(said: said, answer: "Open the AppKit one.").text, "Open the AppKit one.")
+        XCTAssertNil(IntentPass.judge(said: "Write a SwiftUI view.", answer: "Write a Swift UI view.").text)
+        XCTAssertNil(IntentPass.judge(said: "Ask Raycast, uh, ask Raycast.", answer: "Ask raycast.",
+                                      names: ["Raycast"]).text)
+        XCTAssertEqual(IntentPass.judge(said: "Ask Raycast, uh, ask Raycast.", answer: "Ask Raycast.",
+                                        names: ["Raycast"]).text, "Ask Raycast.")
+        XCTAssertNil(IntentPass.judge(said: "Open Claude Code, the the terminal.", answer: "Open claude code, the terminal.",
+                                      names: ["Claude Code"]).text)
+        XCTAssertNil(IntentPass.judge(said: "Open config.json, the the file.", answer: "Open Config.JSON, the file.").text)
+        // Spoken, not written: the pass may write it.
+        XCTAssertEqual(IntentPass.judge(said: "Open draft controller dot swift.", answer: "Open DraftController.swift.").text,
+                       "Open DraftController.swift.")
+        XCTAssertEqual(IntentPass.judge(said: "The meeting is at 3, sorry 4 p.m. on Thursday.",
+                                        answer: "The meeting is at 4 PM on Thursday.").text,
+                       "The meeting is at 4 PM on Thursday.")
+    }
+
+    func testANumberTheSettlerLeftAWordStaysAWord() {
+        XCTAssertNil(IntentPass.judge(said: "Use the red one, the the blue one.", answer: "Use the red 1, the blue 1.").text)
+        XCTAssertEqual(IntentPass.judge(said: "Use the red one, the the blue one.", answer: "Use the red one, the blue one.").text,
+                       "Use the red one, the blue one.")
+        XCTAssertEqual(IntentPass.judge(said: "First, fix the build. Second, run the tests. Third, ship it.",
+                                        answer: "1. Fix the build.\n2. Run the tests.\n3. Ship it.").text,
+                       "1. Fix the build.\n2. Run the tests.\n3. Ship it.")
+    }
+}

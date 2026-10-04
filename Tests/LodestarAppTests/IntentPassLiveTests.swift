@@ -39,6 +39,10 @@ final class IntentPassLiveTests: XCTestCase {
             "MongoDB Compass", "Raycast", "Asana", "Brex", "Kagi", "Kinesis", "ZMK", "AeroSpace", "SwiftUI", "MLX",
             "UAT", "Proton Pass", "Vaccone",
         ])
+        // The pass never loads the weights itself: the editor has.
+        await model.prepare()
+        let cold = await EditorModel(engine: engine).rewrite("Um, hi.", prompt: prompt)
+        XCTAssertNil(cold, "not loaded, not asked")
         _ = await model.rewrite("Warm up.", prompt: prompt)
         var exact = 0, edits = 0, falseEdits = 0, gated = 0
         var times: [Double] = []

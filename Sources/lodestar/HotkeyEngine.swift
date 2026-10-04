@@ -30,7 +30,8 @@ final class HotkeyEngine {
     /// owns no keys needs no machinery for owning them safely.)
     var walkSignal: ((Walk.Signal) -> Void)?
     /// lode , — the settings window, opened by the app delegate.
-    var onOpenSettings: (() -> Void)?
+    /// `lode ,`: the place for the surface that was up when it was pressed.
+    var onOpenSettings: ((String?) -> Void)?
 
     /// Chain timing, for the one measurement that says whether an address has
     /// compiled into muscle memory: the pauses inside it. The first stamp is
@@ -948,7 +949,18 @@ final class HotkeyEngine {
 
     /// Execute the core's decisions, in order. The one routing effect:
     /// .passThrough hands the event back to the system.
+    /// Which Settings place the surface in front belongs to, read before
+    /// the effects hide the bars: `lode ,` opens there.
+    private var settingsScope: String? {
+        if draft.isOpen { return "Speak" }
+        if webBar.isVisible { return "Web" }
+        if searcher.isVisible { return "Switch" }
+        if commandsBar.isVisible { return "Operate" }
+        return nil
+    }
+
     private func apply(_ effects: [EngineEffect], event: CGEvent?) -> Unmanaged<CGEvent>? {
+        let scopeAtKey = settingsScope
         var pass = false
         for effect in effects {
             if effect.claimsSurface { onSurfaceClaimed?() }
@@ -1109,7 +1121,7 @@ final class HotkeyEngine {
             case .dismissCheat:
                 dismissKeys()
             case .openSettings:
-                onOpenSettings?()
+                onOpenSettings?(scopeAtKey)
             case .toggleCheat:
                 toggleKeys()
                 walkSignal?(.cheatOpened)
@@ -1653,11 +1665,11 @@ final class HotkeyEngine {
 
     static let settingsSections: [CheatSheet.Section] = [
         .init(header: "Settings", rows: [
-            GuideRow(key: "1…9", label: "The pane with that number"),
+            GuideRow(key: "0…9", label: "The place with that number, from anywhere"),
             GuideRow(key: "a…z", label: "The setting wearing that letter"),
-            GuideRow(key: "/", label: "Search the settings"),
+            GuideRow(key: "/", label: "Search every setting"),
             GuideRow(key: "⏎", label: "Commit an edit"),
-            GuideRow(key: "esc", label: "Step out of an edit, then close the window"),
+            GuideRow(key: "esc", label: "Back one level: a page, a place, then closed"),
         ]), everywhereSection]
 
     static let launcherSections: [CheatSheet.Section] = [

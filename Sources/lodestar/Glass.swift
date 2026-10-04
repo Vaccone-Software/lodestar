@@ -370,6 +370,19 @@ enum BarTheme {
         let descriptor = NSFont.systemFont(ofSize: size).fontDescriptor.withDesign(.serif)
         return descriptor.flatMap { NSFont(descriptor: $0, size: size) } ?? NSFont.systemFont(ofSize: size)
     }()
+    /// Lodestar's voice at the title size: a place's sentence in Settings,
+    /// under its name.
+    static let settingsSentenceFont: NSFont = {
+        let size = Scale.title
+        let descriptor = NSFont.systemFont(ofSize: size).fontDescriptor.withDesign(.serif)
+        return descriptor.flatMap { NSFont(descriptor: $0, size: size) } ?? NSFont.systemFont(ofSize: size)
+    }()
+    /// The mark at the centre of the settings overview.
+    static let settingsMarkSize: CGFloat = 132
+    /// The dot that says "yours" beside a value, and "needs you" beside a
+    /// place's name: a mark on the page, round.
+    static let dotDiameter: CGFloat = 7
+    static let dotRadius: CGFloat = dotDiameter / 2
     /// A sentence's measure: wide enough for one thought, narrow enough
     /// to be read in a glance.
     static let voiceWidth: CGFloat = 380

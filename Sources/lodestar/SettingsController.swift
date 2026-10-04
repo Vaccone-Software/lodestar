@@ -3,13 +3,15 @@ import LodestarCore
 
 /// The settings window: `SettingsModel` (LodestarCore) decides what exists
 /// and what the keys mean; this draws it and translates. One keyable glass
-/// window — draggable, but born centered every time, because a window that
-/// remembers where it was is state nobody asked to manage — rail on the
-/// left wearing digits, rows on the right wearing letters, `/` to search,
-/// escape popping one layer at a time. Every control shows the config path
-/// it writes, every write goes through the same pruning path ⌘K uses, and
-/// the tables' add grammars pick from ground truth wherever the machine
-/// knows the answer better than typing would.
+/// window, born centered every time. It opens on the overview: the ten
+/// places on a ring around the mark, each with its picture and one line
+/// saying what that part of Lodestar is doing. A digit opens a place from
+/// anywhere; a place is its picture and sentence on the left and its rows,
+/// grouped under headers, on the right, each wearing the letter the catalog
+/// gave it. `/` searches, escape steps back one level: a page to its place,
+/// a place to the overview, the overview to closed. Every write goes
+/// through the same pruning path ⌘K uses, and the tables' add grammars
+/// pick from ground truth wherever the machine knows the answer better.
 final class SettingsController: NSObject, NSTextFieldDelegate {
     /// The window's keys live on the sheet: ? asks the engine for it, and
     /// escape takes the sheet down before it closes the window.
@@ -40,6 +42,9 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     var attachedKeyboards: () -> [SettingsModel.Keyboard] = { [] }
     /// Running apps, for the clipboard exclusion picker.
     var appChoices: () -> [(name: String, bundleID: String)] = { [] }
+    /// A row's verb that is not a config write: a permission's pane, a
+    /// record deleted. Wired by the app delegate.
+    var perform: (String) -> Void = { _ in }
 
     private let panel = KeyablePanel(
         contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
@@ -47,7 +52,12 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     private let root = NSView()
 
     private var sections: [SettingsModel.Section] = []
-    private var pane = 0
+    /// The place open, or nil for the overview.
+    private var place: Int?
+    /// Where a page returns to: the place it was opened from.
+    private var pageReturn: Int?
+    /// A destructive row's verb, waiting for its letter a second time.
+    private var armedAction: Int?
     private var layer = SettingsModel.Layer.browsing
     private var labeled: [String: Int] = [:]
     private var rowViews: [Int: NSView] = [:]
@@ -68,7 +78,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     private var hitSelection = 0
     private var hitsStack: NSStackView?
     private var highlightRow: Int?
-    private var railRows: [NSView] = []
+    private var placeViews: [NSView] = []
     /// The add-bars' live inputs, keyed by table kind.
     private var addInputs: [String: NSControl] = [:]
     /// The bars themselves, so focus anywhere inside one reads as editing.
@@ -82,11 +92,9 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     private var listFocus: (row: Int, entry: Int)?
     /// A search landing armed this row: return activates it.
     private var armedRow: Int?
-    /// The changed view: every non-default row, one page.
-    private var showingChanged = false
     /// Popup token tables, so a selected label resolves to its profile.
     private var popupTokens: [String: [String]] = [:]
-    private var lastRenderedPane = -1
+    private var lastRenderedPane: Int? = -1
     /// The pages behind the panes, rebuilt with them; the one open, by
     /// name, or nil while a pane is showing; and what the window has
     /// chosen on it, which the config does not own.
@@ -103,7 +111,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     /// rail has lit. Every handler that reads a row by index reads it
     /// from here, never from `sections[pane]` directly.
     private var current: SettingsModel.Section {
-        openPage.flatMap { name in pages.first { $0.name == name } } ?? sections[pane]
+        openPage.flatMap { name in pages.first { $0.name == name } } ?? sections[place ?? 0]
     }
     /// See render(): the doctor's findings and the machine probes, memoized
     /// for one second so per-keystroke renders stop re-reading the disk.
@@ -111,9 +119,10 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                               problems: [String], at: Date)?
     private weak var paneScroll: NSScrollView?
 
-    private static let width: CGFloat = 880
-    private static let height: CGFloat = 620
-    private static let railWidth: CGFloat = 196
+    private static let width: CGFloat = 960
+    private static let height: CGFloat = 640
+    /// The place's own column: its picture, name and sentence.
+    private static let leftColumn: CGFloat = 228
 
     override init() {
         super.init()
@@ -161,19 +170,23 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         clickMonitor = nil
     }
 
-    func toggle() {
-        isVisible ? close() : open()
+    /// `lode ,`: the place for whatever is in front, or the overview.
+    func toggle(place name: String? = nil) {
+        if isVisible { close(); return }
+        open(place: name.flatMap { SettingsModel.placeIndex($0) })
     }
 
-    func open(atPane index: Int = 0) {
-        // Bounded by the panes there are, not a count written down: the
-        // Editor made ten, and a fixed 8 kept Advanced out of reach.
-        pane = max(0, min(index, SettingsModel.catalog(config: config, machine: machineState()).count - 1))
+    func open(atPane index: Int) { open(place: index) }
+
+    func open(place index: Int? = nil) {
+        place = index.map { max(0, min($0, SettingsModel.paneKeys.count - 1)) }
+        openPage = nil
+        pageReturn = nil
+        armedAction = nil
         layer = .browsing
         highlightRow = nil
         // Nothing survives from the last visit: a window that opens into
-        // a stale editor or a changed view is a window that lies.
-        showingChanged = false
+        // a stale editor is a window that lies.
         listFocus = nil
         armedRow = nil
         inlineEdit = nil
@@ -315,20 +328,19 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     }
 
     private func browsingKey(_ key: String) -> Bool {
-        if showingChanged {
-            if key == "escape" {
-                showingChanged = false
-                render()
-            } else if let index = paneAddress(key) {
-                // The changed view is a stop, not a mode: any pane
-                // address leaves it and goes there.
-                showingChanged = false
-                pane = index
-                render()
-            }
-            return true
-        }
         if listFocus != nil { return listKey(key) }
+        // A destructive verb asks twice: its own letter again performs it,
+        // any other key lets it go. No timer: the ask stands until answered.
+        if let armed = armedAction {
+            armedAction = nil
+            if place != nil || openPage != nil, current.rows.indices.contains(armed),
+               current.rows[armed].letter == key, let action = current.rows[armed].action {
+                perform(action.id)
+                render()
+                return true
+            }
+            render()
+        }
         if key == "return", let armed = armedRow {
             armedRow = nil
             activate(row: armed)
@@ -339,9 +351,11 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             if dismissSheet() { return true }
             if openPage != nil {
                 backPressed()
-                return true
+            } else if place != nil {
+                showOverview()
+            } else {
+                close()
             }
-            close()
             return true
         }
         if key == "/" {
@@ -353,45 +367,44 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             return true
         }
         if let index = paneAddress(key) {
-            pane = index
-            openPage = nil
-            highlightRow = nil
-            listFocus = nil
-            inlineEdit = nil
-            editing = [:]
-            render()
-            panel.makeFirstResponder(nil)
+            go(to: index)
             return true
         }
-        if let row = labeled[key] {
+        if place != nil || openPage != nil, let row = current.rows.firstIndex(where: { $0.letter == key }) {
             activate(row: row)
             return true
         }
         return true
     }
 
-    /// The digits typed toward a pane's address: past ten panes the last
-    /// ones share 9 (91, 92), so a 9 waits for the next digit.
-    private var paneTyped = ""
+    private func go(to index: Int) {
+        place = index
+        openPage = nil
+        pageReturn = nil
+        highlightRow = nil
+        listFocus = nil
+        inlineEdit = nil
+        editing = [:]
+        armedAction = nil
+        layer = .browsing
+        render()
+        panel.makeFirstResponder(nil)
+    }
 
-    /// A key toward a pane's address: the pane it reaches, or nil — for a
-    /// key that is no address, or a 9 still waiting for its second digit.
+    private func showOverview() {
+        place = nil
+        openPage = nil
+        pageReturn = nil
+        highlightRow = nil
+        listFocus = nil
+        armedAction = nil
+        render()
+        panel.makeFirstResponder(nil)
+    }
+
+    /// A digit is a place's address, everywhere but inside a field.
     private func paneAddress(_ key: String) -> Int? {
-        guard key.count == 1, key.first?.isNumber == true else { paneTyped = ""; return nil }
-        for typed in [paneTyped + key, key] where !typed.isEmpty {
-            switch SettingsModel.pane(forKeys: typed, count: sections.count) {
-            case .pane(let index):
-                paneTyped = ""
-                return index
-            case .prefix:
-                paneTyped = typed
-                return nil
-            case .none:
-                continue
-            }
-        }
-        paneTyped = ""
-        return nil
+        SettingsModel.pane(forKey: key, count: sections.count)
     }
 
     /// Inside a list: arrows select, return edits, delete removes, a is
@@ -430,14 +443,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                 panel.makeFirstResponder(input)
             }
         default:
-            // A digit is a pane address everywhere, list mode included.
-            if let index = paneAddress(key) {
-                listFocus = nil
-                pane = index
-                highlightRow = nil
-                render()
-                panel.makeFirstResponder(nil)
-            }
+            // A digit is a place's address everywhere, list mode included.
+            if let index = paneAddress(key) { go(to: index) }
         }
         return true
     }
@@ -465,7 +472,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         case "return":
             guard hits.indices.contains(hitSelection) else { return true }
             let hit = hits[hitSelection]
-            pane = hit.section
+            place = hit.section
             openPage = nil
             highlightRow = hit.row
             layer = .browsing
@@ -525,7 +532,13 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         case .selector:
             popups[index]?.performClick(nil)
         case .readout:
-            break
+            guard let action = row.action else { break }
+            if action.destructive {
+                armedAction = index
+                render()
+            } else {
+                perform(action.id)
+            }
         }
     }
 
@@ -592,26 +605,32 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         }
     }
 
-    @objc private func changedPressed() {
-        showingChanged = true
-        listFocus = nil
-        render()
+    @objc private func placeClicked(_ gesture: NSClickGestureRecognizer) {
+        guard let view = gesture.view, let index = placeViews.firstIndex(where: { $0 === view }) else { return }
+        go(to: index)
     }
 
-    @objc private func railClicked(_ gesture: NSClickGestureRecognizer) {
-        guard let view = gesture.view,
-              let index = railRows.firstIndex(where: { $0 === view }) else { return }
-        pane = index
-        openPage = nil
-        highlightRow = nil
-        layer = .browsing
-        showingChanged = false
-        listFocus = nil
-        armedRow = nil
-        inlineEdit = nil
-        editing = [:]
+    @objc private func overviewPressed() { showOverview() }
+
+    @objc private func searchPressed() {
+        layer = .searching
+        hits = []
+        hitSelection = 0
         render()
-        panel.makeFirstResponder(nil)
+        if let searchField { panel.makeFirstResponder(searchField) }
+    }
+
+    @objc private func actionPressed(_ sender: NSButton) {
+        guard let index = owningRow(of: sender), current.rows.indices.contains(index),
+              let action = current.rows[index].action else { return }
+        if action.destructive, armedAction != index {
+            armedAction = index
+            render()
+            return
+        }
+        armedAction = nil
+        perform(action.id)
+        render()
     }
 
     @objc private func presetPressed(_ sender: NSButton) {
@@ -632,7 +651,12 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             writeEntries(remove: [path])
             return
         }
-        guard let value = ConfigDefaults.tree.value(at: path) else { return }
+        // A fact only the person can give (Born, Dominant hand) has no
+        // default: resetting it is the line's absence.
+        guard let value = ConfigDefaults.tree.value(at: path) else {
+            writeEntries(remove: [path])
+            return
+        }
         write(dotted, value)
     }
 
@@ -666,6 +690,12 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             }
             return
         }
+        // Not set, for a key with no default, removes the line rather
+        // than writing an empty string the schema refuses.
+        if chosen.isEmpty, ConfigDefaults.tree.value(at: row.path.split(separator: ".").map(String.init)) == nil {
+            writeEntries(remove: [row.path.split(separator: ".").map(String.init)])
+            return
+        }
         write(row.path, .string(chosen))
     }
 
@@ -685,20 +715,20 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
 
     @objc private func backPressed() {
         openPage = nil
+        if let pageReturn { place = pageReturn }
+        pageReturn = nil
         highlightRow = nil
         render()
         panel.makeFirstResponder(nil)
     }
 
-    /// A page opens over its parent pane: the rail keeps the parent lit,
-    /// escape returns to it.
+    /// A page opens from the place it was reached from, and escape
+    /// returns there: Words is one page, behind both Write and Speak.
     private func open(page name: String) {
         guard let page = pages.first(where: { $0.name == name }) else { return }
-        if let parent = page.parent, let index = sections.firstIndex(where: { $0.name == parent }) {
-            pane = index
-        }
+        pageReturn = place ?? page.parent.flatMap { parent in sections.firstIndex { $0.name == parent } }
         openPage = name
-        showingChanged = false
+        armedAction = nil
         highlightRow = nil
         listFocus = nil
         armedRow = nil
@@ -786,9 +816,9 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                 DispatchQueue.main.async { [weak self] in self?.render() }
             }
         }
-        let keepScroll = lastRenderedPane == pane && lastRenderedPage == openPage && !showingChanged
+        let keepScroll = lastRenderedPane == place && lastRenderedPage == openPage
         let offset = paneScroll?.contentView.bounds.origin
-        lastRenderedPane = pane
+        lastRenderedPane = place
         lastRenderedPage = openPage
         // The doctor and the machine probes hit disk and LaunchServices;
         // render runs per keystroke while the window is up. A one-second
@@ -835,25 +865,26 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         popupTokens = [:]
         searchField = nil
         labeled = [:]
-        railRows = []
+        placeViews = []
+        paneScroll = nil
+        for view in root.subviews where view.identifier?.rawValue == "settings.content" { view.removeFromSuperview() }
 
-        let columns = NSStackView()
-        columns.orientation = .horizontal
-        columns.alignment = .top
-        columns.spacing = 4
-        columns.translatesAutoresizingMaskIntoConstraints = false
-        columns.addArrangedSubview(buildRail())
-        if showingChanged {
-            columns.addArrangedSubview(buildChangedPane())
+        let content: NSView
+        if layer == .searching {
+            content = buildSearchPane()
+        } else if place == nil && openPage == nil {
+            content = buildOverview()
         } else {
-            columns.addArrangedSubview(layer == .searching ? buildSearchPane() : buildPane())
+            content = buildPlacePage()
         }
-        root.addSubview(columns)
+        content.identifier = NSUserInterfaceItemIdentifier("settings.content")
+        content.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(content)
         NSLayoutConstraint.activate([
-            columns.topAnchor.constraint(equalTo: root.topAnchor, constant: 22),
-            columns.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -16),
-            columns.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 22),
-            columns.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -22),
+            content.topAnchor.constraint(equalTo: root.topAnchor, constant: 26),
+            content.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -24),
+            content.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 32),
+            content.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -32),
         ])
         if keepScroll, let offset, let paneScroll {
             root.layoutSubtreeIfNeeded()
@@ -900,297 +931,360 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         }
     }
 
-    private func buildRail() -> NSView {
-        let rail = NSStackView()
-        rail.orientation = .vertical
-        rail.alignment = .leading
-        rail.spacing = 18
-        rail.translatesAutoresizingMaskIntoConstraints = false
-        rail.widthAnchor.constraint(equalToConstant: Self.railWidth).isActive = true
+    // MARK: - The overview
+
+    /// The ten places on a ring around the mark: each its picture, its
+    /// digit and name, and one line saying what it is doing. A place that
+    /// needs the person wears a dot beside its name; nothing points.
+    private func buildOverview() -> NSView {
+        let field = FlippedView()
+        let width = Self.width - 64, height = Self.height - 50
+        let center = NSPoint(x: width / 2, y: height / 2 + 1)
+        let rx: CGFloat = 352, ry: CGFloat = 212
+
+        let ring = NSView(frame: NSRect(x: center.x - rx, y: center.y - ry, width: rx * 2, height: ry * 2))
+        ring.wantsLayer = true
+        ring.layer?.borderWidth = 1
+        ring.layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.06).cgColor
+        ring.layer?.cornerRadius = ry
+        field.addSubview(ring)
+
+        let markSize = BarTheme.settingsMarkSize
+        let mark = NSImageView(frame: NSRect(x: center.x - markSize / 2, y: center.y - markSize / 2,
+                                             width: markSize, height: markSize))
+        mark.image = Self.markImage(size: markSize)
+        field.addSubview(mark)
+
         for (index, section) in sections.enumerated() {
-            let row = HandStack()
-            row.orientation = .horizontal
-            row.alignment = .centerY
-            row.spacing = 10
-            row.addArrangedSubview(chip(SettingsModel.paneKey(index, count: sections.count) ?? "", lit: index == pane))
-            row.addArrangedSubview(label(section.name, size: BarTheme.Scale.body,
-                                         weight: index == pane ? .semibold : .regular,
-                                         color: index == pane ? .labelColor : BarTheme.secondaryColor))
-            let click = NSClickGestureRecognizer(target: self,
-                                                 action: #selector(railClicked(_:)))
-            row.addGestureRecognizer(click)
-            railRows.append(row)
-            rail.addArrangedSubview(row)
+            let angle = (-90 + 36 * CGFloat(index)) * .pi / 180
+            let point = NSPoint(x: center.x + rx * cos(angle), y: center.y + ry * sin(angle))
+            let tile = buildPlaceTile(section, index: index)
+            // The picture sits on the ring; its name and line hang below.
+            tile.frame = NSRect(x: point.x - 110, y: point.y - 36, width: 220, height: 118)
+            field.addSubview(tile)
+            placeViews.append(tile)
         }
-        rail.addArrangedSubview(spacer())
-        let changed = HandButton(title: "● Changed from default", target: self,
-                                 action: #selector(changedPressed))
-        changed.isBordered = false
-        changed.font = .systemFont(ofSize: BarTheme.Scale.meta)
-        changed.contentTintColor = BarTheme.secondaryColor
-        rail.addArrangedSubview(changed)
-        // No legend on the standing surface: ? shows the window's keys on
-        // the sheet, as every lens does.
-        return rail
+
+        let title = label("Settings", size: BarTheme.Scale.title, weight: .semibold, color: .labelColor)
+        title.frame = NSRect(x: 0, y: 0, width: 200, height: 24)
+        field.addSubview(title)
+        let search = HandButton(title: "", target: self, action: #selector(searchPressed))
+        search.isBordered = false
+        search.attributedTitle = NSAttributedString(string: "Search", attributes: [
+            .font: BarTheme.secondaryFont, .foregroundColor: BarTheme.secondaryColor])
+        let searchCap = keycap("/")
+        let searchRow = NSStackView(views: [searchCap, search])
+        searchRow.orientation = .horizontal
+        searchRow.spacing = 8
+        searchRow.frame = NSRect(x: width - 120, y: 0, width: 120, height: 24)
+        field.addSubview(searchRow)
+
+        field.translatesAutoresizingMaskIntoConstraints = false
+        field.widthAnchor.constraint(equalToConstant: width).isActive = true
+        field.heightAnchor.constraint(equalToConstant: height).isActive = true
+        return field
     }
 
-    private func buildPane() -> NSView {
+    private func buildPlaceTile(_ section: SettingsModel.Section, index: Int) -> NSView {
+        let tile = HandStack()
+        tile.orientation = .vertical
+        tile.alignment = .centerX
+        tile.spacing = 4
+        let picture = NSImageView()
+        picture.image = Self.picture(section.picture)
+        picture.imageScaling = .scaleProportionallyUpOrDown
+        picture.translatesAutoresizingMaskIntoConstraints = false
+        picture.widthAnchor.constraint(equalToConstant: 96).isActive = true
+        picture.heightAnchor.constraint(equalToConstant: 72).isActive = true
+        tile.addArrangedSubview(picture)
+        let head = NSStackView()
+        head.orientation = .horizontal
+        head.alignment = .centerY
+        head.spacing = 8
+        head.addArrangedSubview(keycap(SettingsModel.paneKey(index, count: sections.count) ?? ""))
+        head.addArrangedSubview(label(section.name, size: BarTheme.Scale.body, weight: .medium, color: .labelColor))
+        if section.attention { head.addArrangedSubview(Self.dot()) }
+        tile.addArrangedSubview(head)
+        tile.addArrangedSubview(label(section.status, size: BarTheme.Scale.meta, weight: .regular,
+                                      color: BarTheme.secondaryColor))
+        tile.setAccessibilityElement(true)
+        tile.setAccessibilityRole(.button)
+        tile.setAccessibilityLabel("\(section.name), \(section.status)\(section.attention ? ", needs attention" : "")")
+        tile.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(placeClicked(_:))))
+        return tile
+    }
+
+    // MARK: - A place
+
+    /// The door page: the place's picture, name and sentence on the left;
+    /// its rows on the right, a header above every group and each group
+    /// in one card.
+    private func buildPlacePage() -> NSView {
+        let section = current
+        let columns = NSStackView()
+        columns.orientation = .horizontal
+        columns.alignment = .top
+        columns.spacing = 36
+        columns.addArrangedSubview(buildPlaceColumn(section))
+
         let list = NSStackView()
         list.orientation = .vertical
         list.alignment = .leading
-        list.spacing = 20
+        list.spacing = 14
         list.translatesAutoresizingMaskIntoConstraints = false
-
-        // The pill's rule, as the sheet has it: one text size, tone for
-        // hierarchy. A header is the body voice, quiet, never caps.
-        let section = current
-        if let parent = section.parent {
-            // A page wears the way back where the eye lands first; escape
-            // is the same door.
-            let back = HandButton(title: "‹ \(parent)", target: self, action: #selector(backPressed))
-            back.isBordered = false
-            back.font = .systemFont(ofSize: BarTheme.Scale.meta)
-            back.contentTintColor = BarTheme.secondaryColor
-            list.addArrangedSubview(back)
-            list.setCustomSpacing(8, after: back)
+        var groups: [(name: String, rows: [Int])] = []
+        for (index, row) in section.rows.enumerated() {
+            let name = row.group ?? section.name
+            if groups.last?.name == name { groups[groups.count - 1].rows.append(index) }
+            else { groups.append((name, [index])) }
         }
-        list.addArrangedSubview(label(section.name, size: BarTheme.Scale.body,
-                                      weight: .regular, color: BarTheme.secondaryColor))
-
-        let rows = section.rows
-        var letters = SettingsModel.labels(for: rows.count).makeIterator()
-        var lastGroup: String?
-        for (index, row) in rows.enumerated() {
-            if let group = row.group, group != lastGroup {
-                let header = label(group, size: BarTheme.Scale.body, weight: .regular,
-                                   color: BarTheme.secondaryColor)
-                if let last = list.arrangedSubviews.last {
-                    list.setCustomSpacing(24, after: last)
-                }
-                list.addArrangedSubview(header)
-                list.setCustomSpacing(10, after: header)
-                lastGroup = group
-            }
-            var interactive: Bool
-            if case .readout = row.control { interactive = false } else { interactive = !row.dimmed }
-            let letter = interactive ? letters.next() : nil
-            if let letter { labeled[letter] = index }
-            let view = buildRow(row, index: index, letter: letter)
-            rowViews[index] = view
-            list.addArrangedSubview(view)
-            list.setCustomSpacing(row.detail == nil ? 20 : 25, after: view)
-            if index == highlightRow {
-                pulse(view)
-                let control = row.control
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
-                    switch control {
-                    case .number, .text:
-                        if let field = self.fields[index] {
-                            self.panel.makeFirstResponder(field)
+        let cardWidth = Self.width - 64 - Self.leftColumn - 36 - 18
+        for group in groups {
+            let block = NSStackView()
+            block.orientation = .vertical
+            block.alignment = .leading
+            block.spacing = 7
+            let header = label(group.name, size: BarTheme.Scale.meta, weight: .regular, color: BarTheme.secondaryColor)
+            let headerWrap = NSStackView(views: [header])
+            headerWrap.edgeInsets = NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 0)
+            block.addArrangedSubview(headerWrap)
+            let card = Self.card()
+            let rowsStack = NSStackView()
+            rowsStack.orientation = .vertical
+            rowsStack.alignment = .leading
+            rowsStack.spacing = 0
+            rowsStack.translatesAutoresizingMaskIntoConstraints = false
+            card.addSubview(rowsStack)
+            NSLayoutConstraint.activate([
+                rowsStack.topAnchor.constraint(equalTo: card.topAnchor),
+                rowsStack.bottomAnchor.constraint(equalTo: card.bottomAnchor),
+                rowsStack.leadingAnchor.constraint(equalTo: card.leadingAnchor),
+                rowsStack.trailingAnchor.constraint(equalTo: card.trailingAnchor),
+                card.widthAnchor.constraint(equalToConstant: cardWidth),
+            ])
+            for (position, index) in group.rows.enumerated() {
+                if position > 0 { rowsStack.addArrangedSubview(Self.hairline(width: cardWidth)) }
+                let row = section.rows[index]
+                if let letter = row.letter { labeled[letter] = index }
+                let line = buildRow(row, index: index, width: cardWidth)
+                // The row's breathing room, held by its own container: a
+                // stack's insets gave way to the card's fitting height.
+                let view = NSView()
+                view.translatesAutoresizingMaskIntoConstraints = false
+                view.addSubview(line)
+                NSLayoutConstraint.activate([
+                    line.topAnchor.constraint(equalTo: view.topAnchor, constant: 12),
+                    line.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -12),
+                    line.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                    line.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+                ])
+                rowViews[index] = view
+                rowsStack.addArrangedSubview(view)
+                if index == highlightRow {
+                    pulse(view)
+                    let control = row.control
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self else { return }
+                        switch control {
+                        case .number, .text:
+                            if let field = self.fields[index] { self.panel.makeFirstResponder(field) }
+                        case .toggle, .choice:
+                            self.armedRow = index
+                        default:
+                            break
                         }
-                    case .toggle, .choice:
-                        self.armedRow = index
-                    default:
-                        break
                     }
                 }
             }
+            block.addArrangedSubview(card)
+            list.addArrangedSubview(block)
         }
 
         let scroll = NSScrollView()
         scroll.translatesAutoresizingMaskIntoConstraints = false
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
-        scroll.documentView = FlippedView.wrapping(list, width: Self.width - Self.railWidth - 60)
+        scroll.autohidesScrollers = true
+        scroll.documentView = FlippedView.wrapping(list, width: cardWidth + 18)
+        scroll.widthAnchor.constraint(equalToConstant: cardWidth + 18).isActive = true
+        scroll.heightAnchor.constraint(equalToConstant: Self.height - 50).isActive = true
         paneScroll = scroll
-        return scroll
+        columns.addArrangedSubview(scroll)
+        return columns
     }
 
-    /// Everything the dot marks, on one page: the config's difference
-    /// from defaults, as a view. Escape returns.
-    private func buildChangedPane() -> NSView {
-        let list = NSStackView()
-        list.orientation = .vertical
-        list.alignment = .leading
-        list.spacing = 20
-        list.translatesAutoresizingMaskIntoConstraints = false
-        list.addArrangedSubview(label("Changed from default", size: BarTheme.Scale.body,
-                                      weight: .regular, color: BarTheme.secondaryColor))
-        var any = false
-        for (sectionIndex, section) in sections.enumerated() {
-            let changed = section.rows.enumerated().filter { !$0.element.isDefault
-                && !$0.element.path.isEmpty }
-            guard !changed.isEmpty else { continue }
-            any = true
-            let header = label(section.name, size: BarTheme.Scale.body, weight: .regular,
-                               color: BarTheme.secondaryColor)
-            list.addArrangedSubview(header)
-            for (rowIndex, row) in changed {
-                let line = HandStack()
-                line.orientation = .horizontal
-                line.alignment = .centerY
-                line.spacing = 9
-                line.addArrangedSubview(label(row.title, size: BarTheme.Scale.body, weight: .regular,
-                                              color: .labelColor))
-                line.addArrangedSubview(label(row.path, size: BarTheme.Scale.meta, weight: .regular,
-                                              color: BarTheme.secondaryColor, mono: true))
-                let go = NSClickGestureRecognizer(target: self,
-                                                  action: #selector(changedRowClicked(_:)))
-                line.addGestureRecognizer(go)
-                line.identifier = NSUserInterfaceItemIdentifier("\(sectionIndex)|\(rowIndex)")
-                list.addArrangedSubview(line)
-            }
+    private func buildPlaceColumn(_ section: SettingsModel.Section) -> NSView {
+        let column = NSStackView()
+        column.orientation = .vertical
+        column.alignment = .leading
+        column.spacing = 0
+        column.translatesAutoresizingMaskIntoConstraints = false
+        column.widthAnchor.constraint(equalToConstant: Self.leftColumn).isActive = true
+        column.heightAnchor.constraint(equalToConstant: Self.height - 50).isActive = true
+
+        let back = HandButton(title: "", target: self,
+                              action: openPage == nil ? #selector(overviewPressed) : #selector(backPressed))
+        back.isBordered = false
+        let backTo = openPage == nil ? "Settings" : (pageReturn.map { sections[$0].name } ?? section.parent ?? "Settings")
+        back.attributedTitle = NSAttributedString(string: backTo, attributes: [
+            .font: BarTheme.secondaryFont, .foregroundColor: BarTheme.secondaryColor])
+        let backRow = NSStackView(views: [keycap("esc"), back])
+        backRow.orientation = .horizontal
+        backRow.spacing = 10
+        column.addArrangedSubview(backRow)
+        column.setCustomSpacing(20, after: backRow)
+
+        let card = Self.card()
+        card.translatesAutoresizingMaskIntoConstraints = false
+        card.widthAnchor.constraint(equalToConstant: Self.leftColumn).isActive = true
+        card.heightAnchor.constraint(equalToConstant: 172).isActive = true
+        let picture = NSImageView()
+        picture.image = Self.picture(section.picture)
+        picture.imageScaling = .scaleProportionallyUpOrDown
+        picture.translatesAutoresizingMaskIntoConstraints = false
+        card.addSubview(picture)
+        NSLayoutConstraint.activate([
+            picture.centerXAnchor.constraint(equalTo: card.centerXAnchor),
+            picture.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+            picture.widthAnchor.constraint(equalToConstant: 186),
+            picture.heightAnchor.constraint(equalToConstant: 140),
+        ])
+        if openPage == nil, let place {
+            let digit = keycap(SettingsModel.paneKey(place, count: sections.count) ?? "")
+            digit.translatesAutoresizingMaskIntoConstraints = false
+            card.addSubview(digit)
+            NSLayoutConstraint.activate([
+                digit.topAnchor.constraint(equalTo: card.topAnchor, constant: 10),
+                digit.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 10),
+            ])
         }
-        // A page's rows are changes too; clicking one opens the page.
-        for page in pages {
-            let changed = page.rows.enumerated().filter { !$0.element.isDefault
-                && !$0.element.path.isEmpty }
-            guard !changed.isEmpty else { continue }
-            any = true
-            list.addArrangedSubview(label(page.name, size: BarTheme.Scale.body, weight: .regular,
-                                          color: BarTheme.secondaryColor))
-            for (rowIndex, row) in changed {
-                let line = HandStack()
-                line.orientation = .horizontal
-                line.alignment = .centerY
-                line.spacing = 9
-                line.addArrangedSubview(label(row.title, size: BarTheme.Scale.body, weight: .regular,
-                                              color: .labelColor))
-                line.addArrangedSubview(label(row.path, size: BarTheme.Scale.meta, weight: .regular,
-                                              color: BarTheme.secondaryColor, mono: true))
-                let go = NSClickGestureRecognizer(target: self,
-                                                  action: #selector(changedRowClicked(_:)))
-                line.addGestureRecognizer(go)
-                line.identifier = NSUserInterfaceItemIdentifier("page|\(page.name)|\(rowIndex)")
-                list.addArrangedSubview(line)
-            }
+        column.addArrangedSubview(card)
+        column.setCustomSpacing(20, after: card)
+        let name = label(section.name, size: BarTheme.Scale.title, weight: .semibold, color: .labelColor)
+        column.addArrangedSubview(name)
+        column.setCustomSpacing(8, after: name)
+        let sentence = NSTextField(wrappingLabelWithString: section.sentence)
+        sentence.font = BarTheme.settingsSentenceFont
+        sentence.textColor = .labelColor
+        sentence.isSelectable = false
+        sentence.preferredMaxLayoutWidth = Self.leftColumn
+        column.addArrangedSubview(sentence)
+        column.addArrangedSubview(spacer(vertical: true))
+        if let note = section.note {
+            let quiet = NSTextField(wrappingLabelWithString: note)
+            quiet.font = BarTheme.secondaryFont
+            quiet.textColor = BarTheme.secondaryColor
+            quiet.isSelectable = false
+            quiet.preferredMaxLayoutWidth = Self.leftColumn
+            column.addArrangedSubview(quiet)
         }
-        if !any {
-            list.addArrangedSubview(label("Everything is at its default.", size: BarTheme.Scale.body,
-                                          weight: .regular, color: BarTheme.secondaryColor))
-        }
-        list.addArrangedSubview(label("esc returns", size: BarTheme.Scale.meta, weight: .regular,
-                                      color: BarTheme.secondaryColor))
-        let scroll = NSScrollView()
-        scroll.translatesAutoresizingMaskIntoConstraints = false
-        scroll.drawsBackground = false
-        scroll.hasVerticalScroller = true
-        scroll.documentView = FlippedView.wrapping(list, width: Self.width - Self.railWidth - 60)
-        return scroll
+        return column
     }
 
-    @objc private func changedRowClicked(_ gesture: NSClickGestureRecognizer) {
-        guard let id = gesture.view?.identifier?.rawValue else { return }
-        let pieces = id.split(separator: "|").map(String.init)
-        if pieces.count == 3, pieces[0] == "page", let row = Int(pieces[2]) {
-            open(page: pieces[1])
-            highlightRow = row
-            render()
-            return
-        }
-        let parts = pieces.compactMap { Int($0) }
-        guard parts.count == 2 else { return }
-        showingChanged = false
-        openPage = nil
-        pane = parts[0]
-        highlightRow = parts[1]
-        render()
-    }
-
-    private func buildRow(_ row: SettingsModel.Row, index: Int, letter: String?) -> NSView {
+    private func buildRow(_ row: SettingsModel.Row, index: Int, width: CGFloat) -> NSView {
         let line = NSStackView()
         line.orientation = .horizontal
         line.alignment = .centerY
-        line.spacing = 12
+        line.spacing = 14
+        line.edgeInsets = NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
+        line.translatesAutoresizingMaskIntoConstraints = false
+        line.widthAnchor.constraint(equalToConstant: width).isActive = true
         if row.dimmed { line.alphaValue = 0.45 }
 
-        line.addArrangedSubview(letter.map { chip($0, lit: false) } ?? chipSpacer())
+        let letter = label(row.letter ?? "", size: BarTheme.Scale.meta, weight: .medium,
+                           color: BarTheme.secondaryColor, mono: true)
+        letter.translatesAutoresizingMaskIntoConstraints = false
+        letter.widthAnchor.constraint(equalToConstant: 12).isActive = true
+        line.addArrangedSubview(letter)
 
         let text = NSStackView()
         text.orientation = .vertical
         text.alignment = .leading
-        text.spacing = 3
+        text.spacing = 2
         let titleRow = NSStackView()
         titleRow.orientation = .horizontal
         titleRow.alignment = .centerY
         titleRow.spacing = 7
-        titleRow.addArrangedSubview(label(row.title, size: BarTheme.Scale.body, weight: .regular,
-                                          color: .labelColor))
-        for cap in row.keycaps {
-            titleRow.addArrangedSubview(keycap(cap))
-        }
-        if !row.isDefault {
-            titleRow.addArrangedSubview(label("●", size: 8, weight: .regular,
-                                              color: BarTheme.accent))
-            switch row.control {
-            case .choice, .number, .text:
-                let reset = HandButton(title: "reset", target: self,
-                                       action: #selector(resetPressed(_:)))
-                reset.bezelStyle = .inline
-                reset.controlSize = .regular
-                reset.font = .systemFont(ofSize: BarTheme.Scale.meta, weight: .medium)
-                reset.contentTintColor = BarTheme.secondaryColor
-                reset.identifier = NSUserInterfaceItemIdentifier(row.path)
-                titleRow.addArrangedSubview(reset)
-            default:
-                break
-            }
-        }
+        titleRow.addArrangedSubview(label(row.title, size: BarTheme.Scale.body, weight: .medium, color: .labelColor))
+        for cap in row.keycaps { titleRow.addArrangedSubview(keycap(cap)) }
         text.addArrangedSubview(titleRow)
-        if !row.path.isEmpty {
-            let path = label(row.path, size: BarTheme.Scale.meta, weight: .regular,
-                             color: BarTheme.secondaryColor, mono: true)
-            // A path too long for the column loses its middle, not its
-            // end: the leaf is the half that says which line this is, and
-            // truncating the tail took exactly that — a keyboard's key
-            // read `health.keyboards.13364:2064:cf3d8489.right-sh…`.
-            path.lineBreakMode = .byTruncatingMiddle
-            text.addArrangedSubview(path)
-        }
-        if let detail = row.detail {
+        let armed = armedAction == index
+        if let detail = armed ? row.action?.confirm : row.detail, !detail.isEmpty {
             let wrapped = NSTextField(wrappingLabelWithString: detail)
-            wrapped.font = .systemFont(ofSize: BarTheme.Scale.meta)
-            wrapped.textColor = BarTheme.secondaryColor
+            wrapped.font = BarTheme.secondaryFont
+            wrapped.textColor = armed ? .labelColor : BarTheme.secondaryColor
             wrapped.isSelectable = false
-            wrapped.preferredMaxLayoutWidth = 400
+            wrapped.preferredMaxLayoutWidth = width - 230
             text.addArrangedSubview(wrapped)
         }
         if let problem = row.problem {
             let flagged = NSTextField(wrappingLabelWithString: problem)
-            flagged.font = .systemFont(ofSize: BarTheme.Scale.meta)
-            flagged.textColor = .systemOrange
+            flagged.font = BarTheme.secondaryFont
+            flagged.textColor = .labelColor
             flagged.isSelectable = false
-            flagged.preferredMaxLayoutWidth = 400
-            text.addArrangedSubview(flagged)
+            flagged.preferredMaxLayoutWidth = width - 250
+            let mark = NSImageView(image: NSImage(systemSymbolName: "exclamationmark.triangle",
+                                                  accessibilityDescription: "Problem") ?? NSImage())
+            mark.symbolConfiguration = BarTheme.symbol
+            mark.contentTintColor = .labelColor
+            let flaggedRow = NSStackView(views: [mark, flagged])
+            flaggedRow.orientation = .horizontal
+            flaggedRow.alignment = .firstBaseline
+            flaggedRow.spacing = 6
+            text.addArrangedSubview(flaggedRow)
         }
         if !row.presets.isEmpty {
-            text.setCustomSpacing(9, after: text.arrangedSubviews.last!)
-            for chunk in stride(from: 0, to: row.presets.count, by: 3) {
-                let presetRow = NSStackView()
-                presetRow.orientation = .horizontal
-                presetRow.spacing = 7
-                for preset in row.presets[chunk..<min(chunk + 3, row.presets.count)] {
-                    let button = HandButton(title: preset.label, target: self,
-                                            action: #selector(presetPressed(_:)))
-                    button.bezelStyle = .inline
-                    button.controlSize = .regular
-                    button.font = .systemFont(ofSize: BarTheme.Scale.meta, weight: .medium)
-                    button.identifier = NSUserInterfaceItemIdentifier(
-                        "preset|\(row.path)|\(preset.value)")
-                    presetRow.addArrangedSubview(button)
-                }
-                text.addArrangedSubview(presetRow)
+            let presetRow = NSStackView()
+            presetRow.orientation = .horizontal
+            presetRow.spacing = 7
+            for preset in row.presets {
+                let button = HandButton(title: preset.label, target: self, action: #selector(presetPressed(_:)))
+                button.bezelStyle = .inline
+                button.controlSize = .regular
+                button.font = BarTheme.secondaryFont
+                button.identifier = NSUserInterfaceItemIdentifier("preset|\(row.path)|\(preset.value)")
+                presetRow.addArrangedSubview(button)
             }
+            text.setCustomSpacing(8, after: text.arrangedSubviews.last!)
+            text.addArrangedSubview(presetRow)
         }
         if case .table(let kind, let entries) = row.control {
             text.setCustomSpacing(8, after: text.arrangedSubviews.last!)
-            text.addArrangedSubview(buildTable(kind: kind, entries: entries,
-                                               paneRow: index))
+            text.addArrangedSubview(buildTable(kind: kind, entries: entries, paneRow: index))
         }
         line.addArrangedSubview(text)
         line.addArrangedSubview(spacer())
-        line.addArrangedSubview(buildControl(row, index: index))
+        // Yours: a value you set wears a mark and the way back, beside it.
+        if !row.isDefault, !row.path.isEmpty {
+            switch row.control {
+            case .choice, .number, .text:
+                let reset = HandButton(title: "Reset", target: self, action: #selector(resetPressed(_:)))
+                reset.isBordered = false
+                reset.attributedTitle = NSAttributedString(string: "Reset", attributes: [
+                    .font: BarTheme.secondaryFont, .foregroundColor: BarTheme.secondaryColor])
+                reset.identifier = NSUserInterfaceItemIdentifier(row.path)
+                line.addArrangedSubview(reset)
+            default:
+                break
+            }
+            if case .table = row.control {} else { line.addArrangedSubview(Self.dot()) }
+        }
+        if let action = row.action {
+            let button = HandButton(title: armed ? "Confirm" : action.label, target: self,
+                                    action: #selector(actionPressed(_:)))
+            button.bezelStyle = .rounded
+            button.controlSize = .regular
+            button.font = BarTheme.secondaryFont
+            if case .readout(let value, _) = row.control, !value.isEmpty {
+                line.addArrangedSubview(buildControl(row, index: index))
+            }
+            line.addArrangedSubview(button)
+        } else {
+            line.addArrangedSubview(buildControl(row, index: index))
+        }
+        line.setAccessibilityElement(true)
+        line.setAccessibilityLabel([row.title, row.detail].compactMap { $0 }.joined(separator: ". "))
+        line.setAccessibilityHelp(row.letter.map { "Press \($0)" })
         return line
     }
 
@@ -1254,7 +1348,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             }
             return holder
         case .text(let value, let placeholder):
-            let field = editableField(value, width: 240)
+            let field = editableField(value, width: 180)
             field.identifier = NSUserInterfaceItemIdentifier(row.path)
             field.setPlaceholder(placeholder)
             fields[index] = field
@@ -1339,7 +1433,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                     sub = entry.key
                 }
             }
-            let name = label(display, size: BarTheme.Scale.body, weight: .regular, color: .labelColor)
+            let name = label(display, size: BarTheme.Scale.meta, weight: .regular, color: .labelColor)
             row.addArrangedSubview(name)
             var subLabel: NSTextField?
             if let sub {
@@ -1362,8 +1456,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             let button = HandButton(title: "Remove", target: self,
                                     action: #selector(removePressed(_:)))
             button.bezelStyle = .rounded
-            button.controlSize = .regular
-            button.font = .systemFont(ofSize: BarTheme.Scale.body)
+            button.controlSize = .small
+            button.font = BarTheme.secondaryFont
             button.identifier = NSUserInterfaceItemIdentifier("\(addKey(kind))|\(entry.key)")
             row.addArrangedSubview(button)
             if let focus = listFocus, focus.row == paneRow, focus.entry == entryIndex {
@@ -1551,8 +1645,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         let commit = HandButton(title: inline ? "Save" : "Add", target: self,
                                 action: #selector(addPressed(_:)))
         commit.bezelStyle = .rounded
-        commit.controlSize = .regular
-        commit.font = .systemFont(ofSize: BarTheme.Scale.body)
+        commit.controlSize = .small
+        commit.font = BarTheme.secondaryFont
         commit.identifier = NSUserInterfaceItemIdentifier(addKey(kind))
         guard inline else {
             bar.addArrangedSubview(commit)
@@ -1564,8 +1658,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         let cancel = HandButton(title: "Cancel", target: self,
                                 action: #selector(cancelInlinePressed(_:)))
         cancel.bezelStyle = .rounded
-        cancel.controlSize = .regular
-        cancel.font = .systemFont(ofSize: BarTheme.Scale.body)
+        cancel.controlSize = .small
+        cancel.font = BarTheme.secondaryFont
         let verbs = NSStackView(views: [commit, cancel])
         verbs.orientation = .horizontal
         verbs.spacing = 7
@@ -1722,6 +1816,85 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
 
     // MARK: - Pieces
 
+    /// The mark in the person's accent, its faces shaded the way the icon
+    /// is, from the one definition everything draws the mark from.
+    static func markImage(size: CGFloat) -> NSImage {
+        let accent = BarTheme.accent.usingColorSpace(.sRGB) ?? .orange
+        let rgb = Mark.RGB(red: Double(accent.redComponent), green: Double(accent.greenComponent),
+                           blue: Double(accent.blueComponent))
+        return NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
+            let radius = rect.width / 2 * 0.96
+            let center = NSPoint(x: rect.midX, y: rect.midY)
+            for face in Mark.faces {
+                let fill = Mark.fill(tone: face.tone, accent: rgb)
+                let color = NSColor(srgbRed: fill.red, green: fill.green, blue: fill.blue, alpha: 1)
+                let path = NSBezierPath()
+                for (i, point) in face.points.enumerated() {
+                    let p = NSPoint(x: center.x + point.x * radius, y: center.y - point.y * radius)
+                    if i == 0 { path.move(to: p) } else { path.line(to: p) }
+                }
+                path.close()
+                color.setFill(); color.setStroke()
+                path.lineWidth = 0.5
+                path.lineJoinStyle = .round
+                path.fill(); path.stroke()
+            }
+            return true
+        }
+    }
+
+    /// A place's picture: shipped in the app's resources beside the
+    /// doors. A bare build (the tests, `swift run`) finds them in the
+    /// checkout's packaging folder, and without either the card is empty.
+    static func picture(_ name: String) -> NSImage? {
+        guard !name.isEmpty else { return nil }
+        if let url = Bundle.main.url(forResource: name, withExtension: "png") { return NSImage(contentsOf: url) }
+        #if DEBUG
+        let packaging = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("packaging")
+        for folder in ["places", "doors"] {
+            let url = packaging.appendingPathComponent(folder).appendingPathComponent("\(name).png")
+            if let image = NSImage(contentsOf: url) { return image }
+        }
+        #endif
+        return nil
+    }
+
+    /// One group's card: a surface on the glass, rounded on the ladder.
+    static func card() -> NSView {
+        let card = NSView()
+        card.wantsLayer = true
+        card.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.045).cgColor
+        card.layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.08).cgColor
+        card.layer?.borderWidth = 1
+        card.layer?.cornerRadius = BarTheme.surfaceRadius
+        card.translatesAutoresizingMaskIntoConstraints = false
+        return card
+    }
+
+    static func hairline(width: CGFloat) -> NSView {
+        let line = NSView()
+        line.wantsLayer = true
+        line.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.06).cgColor
+        line.translatesAutoresizingMaskIntoConstraints = false
+        line.heightAnchor.constraint(equalToConstant: 1).isActive = true
+        line.widthAnchor.constraint(equalToConstant: width).isActive = true
+        return line
+    }
+
+    static func dot() -> NSView {
+        let dot = NSView()
+        dot.wantsLayer = true
+        dot.layer?.backgroundColor = NSColor.labelColor.cgColor
+        dot.layer?.cornerRadius = BarTheme.dotRadius
+        dot.translatesAutoresizingMaskIntoConstraints = false
+        dot.widthAnchor.constraint(equalToConstant: BarTheme.dotDiameter).isActive = true
+        dot.heightAnchor.constraint(equalToConstant: BarTheme.dotDiameter).isActive = true
+        dot.setAccessibilityElement(true)
+        dot.setAccessibilityLabel("Set by you")
+        return dot
+    }
+
     private func editableField(_ value: String, width: CGFloat) -> NSTextField {
         let field = NSTextField(string: value)
         field.font = BarTheme.handFont(BarTheme.Scale.meta)
@@ -1758,10 +1931,11 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         return view
     }
 
-    private func spacer() -> NSView {
+    private func spacer(vertical: Bool = false) -> NSView {
         let view = NSView()
-        view.setContentHuggingPriority(.init(1), for: .horizontal)
-        view.setContentCompressionResistancePriority(.init(1), for: .horizontal)
+        let axis: NSLayoutConstraint.Orientation = vertical ? .vertical : .horizontal
+        view.setContentHuggingPriority(.init(1), for: axis)
+        view.setContentCompressionResistancePriority(.init(1), for: axis)
         return view
     }
 
@@ -1778,7 +1952,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     // MARK: - Staging
 
     #if DEBUG
-    /// `lodestar __strip-preview 70…78` stages each settings pane.
+    /// `lodestar __strip-preview 89` stages the overview, 90…99 each place.
     static func preview(_ index: Int) -> SettingsController {
         let controller = SettingsController()
         let (config, _) = Config.load()
@@ -1796,7 +1970,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                          savedBrowser: "Brave  (com.brave.Browser)",
                          detectedProfiles: detected)
         }
-        DispatchQueue.main.async { controller.open(atPane: index) }
+        controller.place = index < 0 ? nil : index
+        DispatchQueue.main.async { controller.open(place: index < 0 ? nil : index) }
         return controller
     }
     #endif
@@ -1823,6 +1998,16 @@ private final class FlippedView: NSView {
 }
 
 extension SettingsController {
+    /// For the tests: a key pressed while browsing, as the panel delivers it.
+    @discardableResult
+    func pressForTesting(_ key: String) -> Bool { browsingKey(key) }
+    /// For the tests: the place open, nil on the overview.
+    var placeForTesting: Int? { place }
+    /// For the tests: the page open, by name.
+    var pageForTesting: String? { openPage }
+    /// For the tests: the place the scoped door chose.
+    func openForTesting(place name: String?) { open(place: name.flatMap { SettingsModel.placeIndex($0) }) }
+
     /// For the tests: the switch standing for a config path right now.
     func switchView(for path: String) -> AccentSwitch? { switches[path] }
     /// For the tests: a render, the way a config write causes one.

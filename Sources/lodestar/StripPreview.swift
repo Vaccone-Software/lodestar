@@ -249,9 +249,8 @@ enum StripPreview {
             app.run()
         }
 
-        // 90…98 the settings window, one pane per variant: the draft holds
-        // 70…72, so the first three panes are reachable here.
-        if (90...98).contains(variant) {
+        // 89 the settings overview, 90…99 each place by its digit.
+        if (89...99).contains(variant) {
             let held = SettingsController.preview(variant - 90)
             _ = held
             app.run()
@@ -330,13 +329,6 @@ enum StripPreview {
             app.run()
         }
 
-        // 70…79 the settings window, one pane per variant: 78 the Editor,
-        // 79 Advanced.
-        if (70...79).contains(variant) {
-            let held = SettingsController.preview(variant - 70)
-            _ = held
-            app.run()
-        }
 
         if (9...14).contains(variant) {
             let held = OptionsCard.preview(variant - 8)

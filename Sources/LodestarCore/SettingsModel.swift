@@ -86,6 +86,21 @@ public enum SettingsModel {
         }
     }
 
+    public struct Action: Equatable {
+        public let id: String
+        public let label: String
+        public let destructive: Bool
+        /// What the second press is asked for with, in words.
+        public let confirm: String?
+
+        public init(id: String, label: String, destructive: Bool = false, confirm: String? = nil) {
+            self.id = id
+            self.label = label
+            self.destructive = destructive
+            self.confirm = confirm
+        }
+    }
+
     public struct Row: Equatable {
         public let title: String
         /// The config path the control writes, dotted — shown under the
@@ -112,6 +127,14 @@ public enum SettingsModel {
         /// Choices shown and not choosable: an editor model too big for
         /// this Mac is listed with what it needs, and greyed.
         public var disabledChoices: Set<String> = []
+        /// The row's address inside its place, fixed by the catalog: a
+        /// letter belongs to the row, never to the render, so a neighbour
+        /// dimming or a readout appearing never moves it.
+        public var letter: String?
+        /// A verb the row can perform that is not a config write: open
+        /// the pane of System Settings that grants a permission, delete a
+        /// record. `destructive` asks for the letter twice.
+        public var action: Action?
 
         public init(title: String, path: String = "", control: Control,
                     detail: String? = nil, keycaps: [String] = [],
@@ -135,6 +158,15 @@ public enum SettingsModel {
             var row = Row(title: title, path: path, control: control, detail: detail, keycaps: keycaps,
                           isDefault: isDefault, dimmed: dimmed, group: group, presets: presets, problem: problem)
             row.disabledChoices = disabledChoices
+            row.letter = letter
+            row.action = action
+            return row
+        }
+
+        /// The same row wearing a verb.
+        public func doing(_ action: Action) -> Row {
+            var row = self
+            row.action = action
             return row
         }
     }
@@ -142,15 +174,41 @@ public enum SettingsModel {
     public struct Section: Equatable {
         public let name: String
         public let rows: [Row]
-        /// A page rather than a pane: reached from a row of the named
-        /// pane, never listed on the rail, and escape returns to its
-        /// parent. Nil for the panes the number row addresses.
+        /// A page rather than a place: reached from a row of the named
+        /// place, never on the overview, and escape returns to it. Nil for
+        /// the places the number row addresses.
         public let parent: String?
+        /// The picture the place wears, by resource name (its door's, or
+        /// its own in the same clay).
+        public var picture: String
+        /// What Lodestar says about the place, in its own voice, under the
+        /// place's name.
+        public var sentence: String
+        /// One line on the overview: what this part of Lodestar is doing.
+        public var status: String
+        /// Something here needs the person: a dot beside the name.
+        public var attention: Bool
+        /// A quiet line at the foot of the page's left column.
+        public var note: String?
 
-        public init(name: String, rows: [Row], parent: String? = nil) {
+        public init(name: String, rows: [Row], parent: String? = nil, picture: String = "",
+                    sentence: String = "", status: String = "", attention: Bool = false,
+                    note: String? = nil) {
             self.name = name
-            self.rows = rows
             self.parent = parent
+            self.picture = picture
+            self.sentence = sentence
+            self.status = status
+            self.note = note
+            // Letters are the catalog's: one per row, in reading order,
+            // readouts and dimmed rows included.
+            let alphabet = SettingsModel.labelAlphabet
+            self.rows = rows.enumerated().map { index, row in
+                var lettered = row
+                lettered.letter = alphabet.indices.contains(index) ? alphabet[index] : nil
+                return lettered
+            }
+            self.attention = attention || self.rows.contains { $0.problem != nil }
         }
     }
 
@@ -221,6 +279,8 @@ public enum SettingsModel {
         public var editorRegionInferred = "en_US"
         /// The units the Mac's region measures in, for Units until one is chosen.
         public var unitsInferred = ClipQuantity.System.imperial.rawValue
+        /// How many breaths are saved, for Switch's line on the overview.
+        public var breaths = 0
 
         public init(accessibility: String = "unknown", screenRecording: String = "unknown",
                     calendars: String = "unknown", browserRole: String = "unknown",
@@ -255,7 +315,7 @@ public enum SettingsModel {
     static let gestureNames: [String: (name: String, caps: [String], detail: String?)] = [
         "launcher": ("Launcher", ["lode", "␣"],
                      "Type a few letters of any app and press return."),
-        "graph": ("Graph", ["lode", "a…z"],
+        "graph": ("Letters", ["lode", "a…z"],
                   "Letters that lead straight to apps. Hold lode and press one."),
         "web-bar": ("Ask", ["lode", "⏎"],
                     "Type a destination or a question. It opens in the "
@@ -300,228 +360,233 @@ public enum SettingsModel {
         }
 
         var sections: [Section] = []
+        func granted(_ state: String) -> Bool { state.lowercased() == "granted" }
+        func gesture(_ name: String, group: String, detail: String? = nil) -> Row {
+            let verb = Gestures.roster.first { $0.name == name }
+            let named = Self.gestureNames[name] ?? (name, [], nil)
+            let enabled = !config.disabledGestures.isSuperset(of: Set(verb?.keys ?? []))
+            return Row(title: named.name, path: "gestures.\(name)", control: .toggle(enabled),
+                       detail: detail ?? named.detail, keycaps: named.caps, isDefault: enabled, group: group)
+        }
+        func on(_ name: String) -> Bool {
+            let keys = Set(Gestures.roster.first { $0.name == name }?.keys ?? [])
+            return !config.disabledGestures.isSuperset(of: keys)
+        }
+        func permission(_ title: String, state: String, detail: String, pane: String, group: String) -> Row {
+            let row = Row(title: title, control: .readout(granted(state) ? "Granted" : "Not granted", sub: nil),
+                          detail: detail, group: group)
+            return granted(state) ? row : row.doing(Action(id: "open-\(pane)", label: "Open System Settings"))
+        }
 
-        // 1 · General
+        // 0 · General
         sections.append(Section(name: "General", rows: [
-            Row(title: "Lode key", path: "lode.trigger",
-                control: .choice(options: ["right-command", "left-command"],
-                                 labels: ["Right ⌘", "Left ⌘"],
-                                 current: config.trigger.rawValue),
-                detail: "A ⌘⌃⌥ hyper shim also works without changing this.",
-                isDefault: config.trigger == .rightCommand),
-            Row(title: "Tap lode", path: "lode.tap",
-                control: .toggle(config.lodeTap),
-                detail: "A tap arms the next key as a gesture, for one second. "
-                    + "Holding still works and is how the map appears.",
-                isDefault: config.lodeTap),
             Row(title: "Start at login", path: "app.start-at-login",
-                control: .toggle(config.startAtLogin), isDefault: config.startAtLogin),
+                control: .toggle(config.startAtLogin), isDefault: config.startAtLogin, group: "Lodestar"),
             Row(title: "Automatic updates", path: "app.auto-update",
-                control: .toggle(config.autoUpdate), isDefault: config.autoUpdate),
-            Row(title: "Sounds", path: "app.sounds",
-                control: .toggle(config.sounds),
-                detail: "Lodestar's own sounds: the draft's note when the microphone is live and when the words land. The alert sound is the Mac's own.",
-                isDefault: config.sounds),
+                control: .toggle(config.autoUpdate), isDefault: config.autoUpdate, group: "Lodestar"),
             Row(title: "Menu bar icon", path: "app.show-menu-bar",
-                control: .toggle(config.showMenuBar), isDefault: config.showMenuBar),
-            Row(title: "Active display", path: "app.active-display",
-                control: .choice(options: ["pointer", "focus"],
-                                 labels: ["Under the pointer", "With the focused window"],
-                                 current: config.activeDisplayMode == .focus ? "focus" : "pointer"),
-                detail: "Which display summoned windows land on.",
-                isDefault: config.activeDisplayMode == .pointer),
+                control: .toggle(config.showMenuBar), isDefault: config.showMenuBar, group: "Lodestar"),
             Row(title: "Accent", path: "appearance.accent",
                 control: .choice(options: ["system", "orange"],
                                  labels: ["System", "International Orange"],
                                  current: config.accent.rawValue),
-                detail: "The cursor, lit letters, and the echoed query. Orange "
-                    + "is set deeper in light mode so it stays readable.",
-                isDefault: config.accent == .system),
-        ]))
+                detail: "The cursor, lit letters and the echoed query",
+                isDefault: config.accent == .system, group: "Look and sound"),
+            Row(title: "Sounds", path: "app.sounds",
+                control: .toggle(config.sounds),
+                detail: "Lodestar's alert, and the draft's notes when the microphone is live and when the words land",
+                isDefault: config.sounds, group: "Look and sound"),
+            Row(title: "Active display", path: "app.active-display",
+                control: .choice(options: ["pointer", "focus"],
+                                 labels: ["Under the pointer", "With the focused window"],
+                                 current: config.activeDisplayMode == .focus ? "focus" : "pointer"),
+                detail: "Which display summoned windows land on",
+                isDefault: config.activeDisplayMode == .pointer, group: "Look and sound"),
+            permission("Accessibility", state: machine.accessibility,
+                       detail: "Seeing windows, moving them and reading menus. Lodestar cannot work without it",
+                       pane: "accessibility", group: "Permission"),
+        ], picture: "place-general",
+           sentence: "Lodestar starts with your Mac and keeps itself up to date",
+           status: config.startAtLogin ? "Starts at login" : "Not at login",
+           attention: !granted(machine.accessibility) && machine.accessibility != "unknown"))
 
-        // 2 · Permissions — reads the machine, never the config.
-        sections.append(Section(name: "Permissions", rows: [
-            Row(title: "Accessibility", control: .readout(machine.accessibility, sub: nil),
-                detail: "Seeing windows, moving them, reading menus. The one "
-                    + "permission the app cannot work without."),
-            Row(title: "Screen Recording", control: .readout(machine.screenRecording, sub: nil),
-                detail: "Selecting text you can see. Asked the first time "
-                    + "you use lode /."),
-            Row(title: "Calendars", control: .readout(machine.calendars, sub: nil),
-                detail: "Offering your next meeting. Asked when meetings "
-                    + "are turned on."),
-        ]))
-
-        // 3 · Gestures — is the feature on, named plainly, wearing its
-        // keys, in four short lists instead of one long one.
-        let gestureGroups: [(group: String, verbs: [String])] = [
-            ("Navigation", ["launcher", "graph", "index-jump"]),
-            ("Windows", ["maximize", "flip-orientation", "layout-undo",
-                         "display-move", "breaths"]),
-            ("Interactions", ["hints", "scroll", "select", "commands", "draft"]),
-            ("Panels", ["web-bar", "settings"]),
-        ]
-        var gestureRows: [Row] = []
-        for (group, verbs) in gestureGroups {
-            for name in verbs {
-                guard let verb = Gestures.roster.first(where: { $0.name == name })
-                else { continue }
-                let named = Self.gestureNames[verb.name] ?? (verb.name, [], nil)
-                let enabled = !config.disabledGestures.isSuperset(of: Set(verb.keys))
-                gestureRows.append(Row(title: named.name, path: "gestures.\(verb.name)",
-                                       control: .toggle(enabled), detail: named.detail,
-                                       keycaps: named.caps,
-                                       isDefault: enabled, group: group))
-            }
-        }
-        gestureRows.append(Row(title: "Clipboard", path: "clipboard.enabled",
-                               control: .toggle(config.clipboardEnabled),
-                               keycaps: ["⇧⌘V"],
-                               isDefault: config.clipboardEnabled, group: "Panels"))
-        sections.append(Section(name: "Gestures", rows: gestureRows))
-
-        // 4b · The draft
-        let inputOptions = [""] + machine.inputDevices
-        let inputLabels = ["System default" + (machine.defaultInput.map { " (\($0))" } ?? "")]
-            + machine.inputDevices
-        let draftRows: [Row] = [
-            Row(title: "Microphone", path: "draft.input",
-                control: .choice(options: inputOptions, labels: inputLabels,
-                                 current: inputOptions.contains(config.draftInput) ? config.draftInput : ""),
-                detail: "What the draft listens to. The register line names it while listening.",
-                isDefault: config.draftInput.isEmpty),
-            Row(title: "Words", path: "draft.words",
-                control: .table(kind: .draftWords, entries: config.draftWords
-                    .map { TableEntry(key: $0, display: $0) }),
-                detail: "Names and terms speech gets wrong. A spoken word that sounds like "
-                    + "one of these becomes it, case and all.",
-                isDefault: config.draftWords.isEmpty),
-            Row(title: "Model", path: "draft.model",
-                control: .choice(options: ["", "apple", "standard", "full"],
-                                 labels: ["Automatic · \(machine.draftModelAutomatic)", "Apple only", "Standard", "Full"],
-                                 current: config.draftModel),
-                detail: (machine.earStatus.isEmpty ? "" : machine.earStatus + ". ")
-                    + "Hears what you said again while you keep talking, and writes it better. "
-                    + "Standard is 0.5 GB for 8 GB Macs, Full 2.5 GB for 24 GB. "
-                    + "Automatic fetches the one this Mac suits the first time you dictate.",
-                isDefault: config.draftModel.isEmpty),
-        ]
-
-        // 9 · The editor, its own pane, above Advanced: the last pane is
-        // the one most people never open, and it keeps the end of the row.
-        var editorRows: [Row] = [
-            Row(title: "Enable editor", path: "editor.enabled",
-                control: .toggle(config.editorEnabled),
-                detail: "Marks mistakes as you write, in every app. Your text never leaves "
-                    + "this Mac and is never kept.",
-                keycaps: ["lode", "⇥"],
-                isDefault: !config.editorEnabled,
-                problem: problem(at: "editor.enabled")),
-        ]
+        // 1 · Write: the editor
+        var model: Row
         if !machine.editorEngines.isEmpty {
-            var model = Row(title: "Model", path: "editor.model",
+            model = Row(title: "Model", path: "editor.model",
                 control: .choice(options: machine.editorEngines, labels: machine.editorEngineLabels,
                                  current: machine.editorEngineCurrent),
-                detail: machine.editorModelStatus + ". Spelling reads typos without a model; the others "
-                    + "read grammar too. A model loads when you write and lets its memory go two minutes "
-                    + "after you stop.",
-                isDefault: config.editorModel.isEmpty)
+                detail: machine.editorModelStatus + ". Spelling reads typos without a model, the others read grammar too",
+                isDefault: config.editorModel.isEmpty, group: "Editor")
             model.disabledChoices = machine.editorEnginesUnavailable
-            editorRows.append(model)
         } else {
-            editorRows.append(Row(title: "Model", path: "editor.model",
+            model = Row(title: "Model", path: "editor.model",
                 control: .readout(machine.editorModelStatus, sub: nil),
-                detail: "Loads when you start writing and lets go of its memory two minutes after you stop.",
-                isDefault: config.editorModel.isEmpty))
+                detail: "Loads when you start writing and lets its memory go two minutes after you stop",
+                isDefault: config.editorModel.isEmpty, group: "Editor")
         }
-        editorRows += [
+        let words = Row(title: "Words", path: "draft.words", control: .page(wordsPage),
+                        detail: config.draftWords.isEmpty
+                            ? "Names and terms, written the way you write them. Shared by Write and Speak"
+                            : "\(config.draftWords.count) words, shared by Write and Speak",
+                        isDefault: config.draftWords.isEmpty, group: "Words and apps")
+        let engineName = machine.editorEngineLabels.indices.contains(machine.editorEngines.firstIndex(of: machine.editorEngineCurrent) ?? -1)
+            ? machine.editorEngineLabels[machine.editorEngines.firstIndex(of: machine.editorEngineCurrent)!]
+                .components(separatedBy: " · ").last ?? "" : ""
+        sections.append(Section(name: "Write", rows: [
+            Row(title: "Editor", path: "editor.enabled",
+                control: .toggle(config.editorEnabled),
+                detail: "Marks mistakes as you write, in every app. Your text never leaves this Mac and is never kept",
+                keycaps: ["lode", "⇥"], isDefault: !config.editorEnabled, group: "Editor",
+                problem: problem(at: "editor.enabled")),
+            model,
             Row(title: "Spelling", path: "editor.language",
                 control: .choice(options: [""] + EditorRegion.choices.map(\.code),
                                  labels: ["Automatic · \(EditorRegion.name(of: machine.editorRegionInferred))"]
                                     + EditorRegion.choices.map(\.name),
                                  current: config.editorLanguage),
-                detail: "Automatic follows your Mac's language and region.",
-                isDefault: config.editorLanguage.isEmpty),
-            Row(title: "Words", path: "draft.words",
-                control: .table(kind: .draftWords, entries: config.draftWords.map { TableEntry(key: $0, display: $0) }),
-                detail: "Shared with the draft. Names and terms that are never marked.",
-                isDefault: config.draftWords.isEmpty),
+                detail: "Automatic follows your Mac's language and region",
+                isDefault: config.editorLanguage.isEmpty, group: "Editor"),
+            words,
             Row(title: "Skip in", path: "editor.skip-apps",
                 control: .table(kind: .editorSkipApps, entries: config.editorSkipApps.sorted().map {
                     TableEntry(key: $0, display: $0) }),
-                detail: "Fields in these apps are never read.",
-                isDefault: config.editorSkipApps.isEmpty),
-        ]
-        // 4 · Interactions
-        sections.append(Section(name: "Interactions", rows: [
-            Row(title: "Smooth scrolling", path: "scroll.smooth",
-                control: .toggle(config.scrollSmooth), isDefault: config.scrollSmooth),
-            Row(title: "Scroll speed", path: "scroll.speed",
-                control: .number(Int(config.scrollSpeed), min: 200, max: 4000, unit: "px/s"),
-                detail: "How fast smooth scrolling moves.",
-                isDefault: isDefault(["scroll", "speed"], .int(Int(config.scrollSpeed))),
-                dimmed: !config.scrollSmooth),
-            Row(title: "Scroll step", path: "scroll.step",
-                control: .number(Int(config.scrollStep), min: 10, max: 400, unit: "px"),
-                detail: "How far each keypress moves when smooth scrolling "
-                    + "is off.",
-                isDefault: isDefault(["scroll", "step"], .int(Int(config.scrollStep))),
-                dimmed: config.scrollSmooth),
-            Row(title: "Copy on select", path: "select.copy-on-complete",
-                control: .toggle(config.selectCopyOnComplete),
-                detail: "A completed span is copied the moment its second "
-                    + "anchor lands.",
-                isDefault: !config.selectCopyOnComplete),
-        ]))
+                detail: "Fields in these apps are never read",
+                isDefault: config.editorSkipApps.isEmpty, group: "Words and apps"),
+        ], picture: "door-write",
+           sentence: "The editor marks mistakes as you write, in every app",
+           status: config.editorEnabled
+               ? (config.editorSkipApps.isEmpty ? "Every app" : "Every app but \(config.editorSkipApps.count)")
+                    + (engineName.isEmpty ? "" : ", with \(engineName)")
+               : "Off"))
 
+        // 2 · Switch
+        let letters = config.graph.leaves().count
+        sections.append(Section(name: "Switch", rows: [
+            gesture("launcher", group: "Launcher and letters", detail: "Type a few letters of any app and press return"),
+            gesture("graph", group: "Launcher and letters", detail: "Letters that lead straight to apps. Hold lode and press one"),
+            gesture("index-jump", group: "Launcher and letters"),
+            gesture("maximize", group: "Windows"),
+            gesture("flip-orientation", group: "Windows"),
+            gesture("layout-undo", group: "Windows"),
+            gesture("display-move", group: "Windows"),
+            gesture("breaths", group: "Breaths", detail: "Saved window arrangements, restored with a letter"),
+        ], picture: "door-switch",
+           sentence: "Every app and window, a letter or two away",
+           status: "\(letters) letter\(letters == 1 ? "" : "s"), \(machine.breaths) breath\(machine.breaths == 1 ? "" : "s")"))
 
-        // 5 · Clipboard
-        var clipboardRows: [Row] = []
-        if !config.clipboardEnabled {
-            clipboardRows.append(Row(title: "Clipboard is off",
-                                     control: .readout("Turn it on under Gestures.", sub: nil)))
-        }
-        clipboardRows.append(contentsOf: [
+        // 3 · Keep: the clipboard
+        let unitsOptions = [""] + ClipQuantity.System.allCases.reversed().map(\.rawValue)
+        let inferredUnits = machine.unitsInferred == ClipQuantity.System.metric.rawValue ? "Metric" : "Imperial"
+        sections.append(Section(name: "Keep", rows: [
+            Row(title: "Keep", path: "clipboard.enabled",
+                control: .toggle(config.clipboardEnabled),
+                detail: "Every copy, searchable from the strip",
+                keycaps: ["⇧⌘V"], isDefault: config.clipboardEnabled, group: "Keep"),
             Row(title: "Size limit", path: "clipboard.max-size-mb",
                 control: .number(config.clipboardMaxBytes / 1_000_000, min: 10, max: 20_000, unit: "MB"),
-                detail: "Clips past the limit are never recorded.",
-                isDefault: config.clipboardMaxBytes == 500_000_000),
+                detail: "Older clips leave first past this. Pins stay",
+                isDefault: config.clipboardMaxBytes == 500_000_000,
+                dimmed: !config.clipboardEnabled, group: "Keep"),
             Row(title: "Save images to", path: "clipboard.save-to",
                 control: .text(config.clipboardSaveFolder, placeholder: "~/Downloads"),
-                detail: "Where an image saved from the strip lands. A name typed "
-                    + "with a slash, or starting with / or ~, chooses another place "
-                    + "for that one save.",
-                isDefault: config.clipboardSaveFolder == "~/Downloads"),
+                detail: "Where an image saved from the strip lands",
+                isDefault: config.clipboardSaveFolder == "~/Downloads", group: "Keep"),
             Row(title: "Excluded apps", path: "clipboard.exclude-apps",
                 control: .table(kind: .excludeApps, entries: config.clipboardExcludedApps
                     .sorted().map { TableEntry(key: $0, display: $0) }),
-                detail: "Nothing copied in these apps is ever recorded.",
-                isDefault: config.clipboardExcludedApps.isEmpty),
-            Row(title: "Excluded patterns", path: "clipboard.exclude",
+                detail: "Nothing copied in these apps is ever recorded",
+                isDefault: config.clipboardExcludedApps.isEmpty, group: "Never recorded"),
+            Row(title: "Excluded text", path: "clipboard.exclude",
                 control: .table(kind: .excludePatterns, entries: config.clipboardExcludePatterns
                     .sorted().map { TableEntry(key: $0, display: $0) }),
-                detail: "A clip whose text contains one of these is never "
-                    + "recorded. Matching ignores case.",
-                isDefault: config.clipboardExcludePatterns.isEmpty),
+                detail: "A clip containing one of these is never recorded. Matching ignores case",
+                isDefault: config.clipboardExcludePatterns.isEmpty, group: "Never recorded"),
+            Row(title: "Units", path: "app.units",
+                control: .choice(options: unitsOptions,
+                                 labels: ["Automatic · \(inferredUnits)", "Imperial", "Metric"],
+                                 current: config.units),
+                detail: "What a copied measurement is read into",
+                isDefault: config.units.isEmpty, group: "How clips read"),
             Row(title: "Time zones", path: "clipboard.time-zones",
                 control: .table(kind: .clipboardTimeZones, entries: config.clipboardTimeZones.compactMap { id in
                     TimeZone(identifier: id).map { TableEntry(key: id, display: ClipTime.label($0)) }
                 }),
-                detail: "A timestamp on a card is read into your zone, UTC, and these.",
-                isDefault: config.clipboardTimeZones.isEmpty),
-        ])
-        sections.append(Section(name: "Clipboard", rows: clipboardRows))
+                detail: "A timestamp is read into your zone, UTC and these",
+                isDefault: config.clipboardTimeZones.isEmpty, group: "How clips read"),
+            Row(title: "Clear history", control: .readout("", sub: nil),
+                detail: "Every clip, pins included, gone from this Mac", group: "History")
+                .doing(Action(id: "clear-clipboard", label: "Clear", destructive: true,
+                              confirm: "Press the letter again to clear the history. It cannot be undone")),
+        ], picture: "door-keep",
+           sentence: "Keep holds what you copy, and records nothing in the apps you exclude",
+           status: config.clipboardEnabled ? "Up to \(config.clipboardMaxBytes / 1_000_000) MB" : "Off"))
+
+        // 4 · Speak: the draft
+        let inputOptions = [""] + machine.inputDevices
+        let inputLabels = ["System · " + (machine.defaultInput ?? "Default")] + machine.inputDevices
+        let tierName = ["": machine.draftModelAutomatic, "apple": "Apple", "standard": "Standard", "full": "Full"][config.draftModel] ?? ""
+        sections.append(Section(name: "Speak", rows: [
+            gesture("draft", group: "Draft", detail: "Speak into it and ⏎ pastes where your cursor was"),
+            Row(title: "Microphone", path: "draft.input",
+                control: .choice(options: inputOptions, labels: inputLabels,
+                                 current: inputOptions.contains(config.draftInput) ? config.draftInput : ""),
+                detail: "What the draft listens to. It names it while listening",
+                isDefault: config.draftInput.isEmpty, group: "Draft"),
+            Row(title: "Model", path: "draft.model",
+                control: .choice(options: ["", "apple", "standard", "full"],
+                                 labels: ["Automatic · \(machine.draftModelAutomatic)", "Apple only", "Standard", "Full"],
+                                 current: config.draftModel),
+                detail: (machine.earStatus.isEmpty ? "" : machine.earStatus + ". ")
+                    + "Hears what you said again while you keep talking, and writes it better",
+                isDefault: config.draftModel.isEmpty, group: "Draft"),
+            words.inGroup("Words"),
+        ], picture: "door-speak",
+           sentence: "Speak, and the draft writes it down and hears you again to get it right",
+           status: on("draft") ? (tierName == "Apple" ? "Apple's recognizer" : "Heard again with \(tierName)") : "Off"))
+
+        // 5 · Operate: what the app in front shows
+        let screenGranted = granted(machine.screenRecording)
+        sections.append(Section(name: "Operate", rows: [
+            gesture("hints", group: "Click hints", detail: "A letter on everything you can click"),
+            gesture("scroll", group: "Scroll"),
+            Row(title: "Smooth scrolling", path: "scroll.smooth",
+                control: .toggle(config.scrollSmooth), isDefault: config.scrollSmooth, group: "Scroll"),
+            Row(title: "Scroll speed", path: "scroll.speed",
+                control: .number(Int(config.scrollSpeed), min: 200, max: 4000, unit: "px/s"),
+                detail: config.scrollSmooth ? "How fast smooth scrolling moves" : "Applies when smooth scrolling is on",
+                isDefault: isDefault(["scroll", "speed"], .int(Int(config.scrollSpeed))),
+                dimmed: !config.scrollSmooth, group: "Scroll"),
+            Row(title: "Scroll step", path: "scroll.step",
+                control: .number(Int(config.scrollStep), min: 10, max: 400, unit: "px"),
+                detail: config.scrollSmooth ? "Applies when smooth scrolling is off" : "How far each keypress moves",
+                isDefault: isDefault(["scroll", "step"], .int(Int(config.scrollStep))),
+                dimmed: config.scrollSmooth, group: "Scroll"),
+            gesture("select", group: "Select", detail: "Select text you can see by typing it"),
+            Row(title: "Copy on select", path: "select.copy-on-complete",
+                control: .toggle(config.selectCopyOnComplete),
+                detail: "A finished selection is copied the moment its second end lands",
+                isDefault: !config.selectCopyOnComplete, group: "Select"),
+            gesture("commands", group: "Commands", detail: "The app's menu commands, by name"),
+            permission("Screen Recording", state: machine.screenRecording,
+                       detail: "Reading text in apps that do not share it, for select",
+                       pane: "screen-recording", group: "Permission"),
+        ], picture: "place-operate",
+           sentence: "Click, scroll and select in the app in front, from the keys",
+           status: !screenGranted && machine.screenRecording != "unknown"
+               ? "Needs Screen Recording"
+               : "\(["hints", "scroll", "select", "commands"].filter(on).count) of 4 on",
+           attention: !screenGranted && machine.screenRecording != "unknown"))
 
         // 6 · Web. No profile inventory to manage: the pickers list what
         // the browsers actually have, references store `browser:Name`
         // directly, and the doctor says so when one names a profile the
         // machine no longer holds.
-        /// A stored reference, shown with the profile's own casing.
         func shownReference(_ key: String) -> String {
             config.browserProfiles[key]?.reference ?? key
         }
         var fallbackOptions = ["most-recent"]
-        var fallbackLabels = ["the browser you were last in"]
+        var fallbackLabels = ["Automatic · Your last browser"]
         for detected in machine.detectedProfiles {
             fallbackOptions.append(Self.profileReference(browser: detected.browser,
                                                          name: detected.name))
@@ -529,13 +594,9 @@ public enum SettingsModel {
         }
         var fallbackCurrent = "most-recent"
         if config.webFallback != "most-recent" {
-            if let index = fallbackOptions.firstIndex(where: {
-                $0.lowercased() == config.webFallback
-            }) {
+            if let index = fallbackOptions.firstIndex(where: { $0.lowercased() == config.webFallback }) {
                 fallbackCurrent = fallbackOptions[index]
             } else if let profile = config.browserProfiles[config.webFallback] {
-                // Referenced but not on this machine: shown honestly, and
-                // still one pick away from something that exists.
                 fallbackOptions.append(profile.reference)
                 fallbackLabels.append("\(profile.browser.label) · \(profile.display) (not found)")
                 fallbackCurrent = profile.reference
@@ -544,211 +605,195 @@ public enum SettingsModel {
         let linkEntries = config.webLinks.sorted { $0.name < $1.name }
             .map { link -> TableEntry in
                 let pin = link.profileKey.map { "  →  \(shownReference($0))" } ?? ""
-                return TableEntry(key: link.name, display: link.name,
-                                  sub: "\(link.url)\(pin)")
+                return TableEntry(key: link.name, display: link.name, sub: "\(link.url)\(pin)")
             }
         let routeEntries = config.webRoutes.sorted { $0.key < $1.key }
-            .map { TableEntry(key: $0.key, display: $0.key,
-                              sub: "→  \(shownReference($0.value))") }
+            .map { TableEntry(key: $0.key, display: $0.key, sub: "→  \(shownReference($0.value))") }
+        let fallbackShown = fallbackLabels[fallbackOptions.firstIndex(of: fallbackCurrent) ?? 0]
+            .replacingOccurrences(of: "Automatic · ", with: "")
         sections.append(Section(name: "Web", rows: [
+            gesture("web-bar", group: "Ask", detail: "Type a destination or a question. It opens in the right browser profile"),
             Row(title: "Fallback profile", path: "web.fallback",
-                control: .choice(options: fallbackOptions, labels: fallbackLabels,
-                                 current: fallbackCurrent),
-                detail: "Where a destination opens when no rule decides.",
-                isDefault: config.webFallback == "most-recent",
+                control: .choice(options: fallbackOptions, labels: fallbackLabels, current: fallbackCurrent),
+                detail: "Where a destination opens when no rule decides",
+                isDefault: config.webFallback == "most-recent", group: "Ask",
                 problem: problem(at: "web.fallback")),
             Row(title: "Search engine", path: "web.search-url",
                 control: .text(config.webSearchURL, placeholder: "https://…?q=%s"),
-                detail: "Where a query goes when what you typed is not a "
-                    + "link. Lodestar puts your words where the %s is.",
-                isDefault: isDefault(["web", "search-url"], .string(config.webSearchURL)),
+                detail: "Where a query goes when what you typed is not a link. Your words go where the %s is",
+                isDefault: isDefault(["web", "search-url"], .string(config.webSearchURL)), group: "Ask",
                 presets: [
-                    Preset(label: "Brave Search",
-                           value: "https://search.brave.com/search?q=%s"),
-                    Preset(label: "Google",
-                           value: "https://www.google.com/search?q=%s"),
+                    Preset(label: "Brave Search", value: "https://search.brave.com/search?q=%s"),
+                    Preset(label: "Google", value: "https://www.google.com/search?q=%s"),
                 ]),
             Row(title: "Links", path: "web.links",
                 control: .table(kind: .links, entries: linkEntries),
-                detail: "A short name you type in Ask, and the page it "
-                    + "opens. A pinned profile overrides every other rule.",
-                isDefault: config.webLinks.isEmpty,
+                detail: "A short name you type in Ask, and the page it opens. A pinned profile overrides every rule",
+                isDefault: config.webLinks.isEmpty, group: "Links and routes",
                 problem: problem(at: "web.links")),
             Row(title: "Routes", path: "web.routes",
                 control: .table(kind: .routes, entries: routeEntries),
-                detail: "Pattern → profile. Matched against anything you "
-                    + "type or click, so one line replaces a habit.",
-                isDefault: config.webRoutes.isEmpty,
+                detail: "Pattern → profile, matched against anything you type or click",
+                isDefault: config.webRoutes.isEmpty, group: "Links and routes",
                 problem: problem(at: "web.routes")),
             Row(title: "Route clicked links", path: "web.clicks.enabled",
                 control: .toggle(config.webHandleClicks),
-                detail: "Lodestar stands as the default browser and applies "
-                    + "your routes to links clicked in any app. A link that "
-                    + "matches no rule goes to your saved browser untouched. "
-                    + machine.browserRole,
-                isDefault: !config.webHandleClicks),
+                detail: "Lodestar stands as the default browser and routes links clicked in any app. "
+                    + machine.browserRole.trimmingCharacters(in: CharacterSet(charactersIn: ".")),
+                isDefault: !config.webHandleClicks, group: "Clicked links"),
             Row(title: "Saved browser", path: "web.clicks.browser",
                 control: .readout(machine.savedBrowser, sub: machine.savedBrowserID),
-                detail: "Recorded when Lodestar takes the browser role, and "
-                    + "restored when it gives the role back."),
-        ]))
+                detail: "Where a link no rule matches goes, and the browser handed back when Lodestar lets go",
+                group: "Clicked links"),
+        ], picture: "place-web",
+           sentence: "Every link opens in the browser and profile it belongs to",
+           status: "\(fallbackShown), \(config.webRoutes.count) route\(config.webRoutes.count == 1 ? "" : "s")"))
 
         // 7 · Meetings
         let calendarEntries = config.meetingsCalendars.sorted { $0.key < $1.key }
-            .map { TableEntry(key: $0.key, display: $0.key,
-                              sub: "→  \(shownReference($0.value))") }
+            .map { TableEntry(key: $0.key, display: $0.key, sub: "→  \(shownReference($0.value))") }
+        let calendarsGranted = granted(machine.calendars)
         sections.append(Section(name: "Meetings", rows: [
-            Row(title: "Enable meetings", path: "meetings.enabled",
+            Row(title: "Meetings", path: "meetings.enabled",
                 control: .toggle(config.meetingsEnabled),
-                detail: "A chip before each meeting with a link. Tap lode "
-                    + "twice to join.",
-                isDefault: !config.meetingsEnabled,
+                detail: "A chip before each meeting with a link. Tap lode twice to join",
+                isDefault: !config.meetingsEnabled, group: "Meetings",
                 problem: problem(at: "meetings.enabled")),
             Row(title: "Lead time", path: "meetings.lead-minutes",
                 control: .number(config.meetingsLeadMinutes, min: 0, max: 120, unit: "min"),
-                detail: "Minutes before the start the chip appears.",
-                isDefault: config.meetingsLeadMinutes == 5),
+                detail: "Minutes before the start the chip appears",
+                isDefault: config.meetingsLeadMinutes == 5, dimmed: !config.meetingsEnabled, group: "Meetings"),
             Row(title: "Calendars", path: "meetings.calendars",
                 control: .table(kind: .calendars, entries: calendarEntries),
-                detail: "Calendar → profile, for meetings joined in a "
-                    + "browser. Outranks routes, because the calendar is "
-                    + "the only signal that can tell two meetings on the "
-                    + "same host apart. Calendars are picked from your "
-                    + "machine, never typed.",
-                isDefault: config.meetingsCalendars.isEmpty,
+                detail: "Calendar → profile, for meetings joined in a browser. Outranks routes",
+                isDefault: config.meetingsCalendars.isEmpty, group: "Calendars",
                 problem: problem(at: "meetings.calendars")),
-        ]))
+            permission("Calendar access", state: machine.calendars,
+                       detail: "Reading your next meeting. Asked when meetings are turned on",
+                       pane: "calendars", group: "Calendars"),
+        ], picture: "place-meetings",
+           sentence: "A chip before each meeting, and one tap to join",
+           status: config.meetingsEnabled ? "\(config.meetingsLeadMinutes) minutes ahead" : "Off",
+           attention: config.meetingsEnabled && !calendarsGranted && machine.calendars != "unknown"))
 
-        // 8 · Observations: two records, each with its switch, its limit,
-        // and what reads it. The coach reads the logbook; Born and
-        // Dominant hand belong to health.
-        sections.append(Section(name: "Observations", rows: [
-            Row(title: "Logbook", path: "observations.logbook",
-                control: .toggle(config.logbookEnabled),
-                detail: "Keep a log of how you move between apps, windows and gestures, "
-                    + "on this Mac only. Sites by name, never their pages, "
-                    + "titles or what you type. The coach reads it.",
-                isDefault: config.logbookEnabled,
-                group: "Logbook"),
-            Row(title: "Logbook limit", path: "observations.logbook-mb",
-                control: .number(Int(config.logbookBytes >> 20), min: Retention.logbookMinimumMB,
-                                 max: 4096, unit: "MB"),
-                detail: config.logbookEnabled
-                    ? "Once the logbook is full, its oldest months leave first. "
-                        + "Their monthly summaries stay."
-                    : "Needs the logbook.",
-                isDefault: config.logbookBytes == Retention.behavioralBytes,
-                dimmed: !config.logbookEnabled,
-                group: "Logbook"),
-            Row(title: "Coach", path: "coach.enabled",
-                control: .toggle(config.coachEnabled && config.logbookEnabled),
-                detail: config.logbookEnabled
-                    ? "Occasionally suggests one shortcut worth learning, "
-                        + "based on how you actually navigate. Tap lode "
-                        + "twice on the chip and it is set up for you."
-                    : "Needs the logbook.",
-                isDefault: config.coachEnabled,
-                dimmed: !config.logbookEnabled,
-                group: "Logbook"),
-            // Its own record, kept whatever the logbook is set to: the
-            // two answer different questions.
-            Row(title: "Health", path: "observations.health",
-                control: .toggle(config.observationsHealth),
-                detail: "Keep the rhythm of your hands: when each key goes down "
-                    + "and how long it is held, by hand and finger, and how the "
-                    + "pointer moves. Never which keys or what you type. Kept "
-                    + "on this Mac and in its backups.",
-                isDefault: config.observationsHealth,
-                group: "Health",
-                problem: machine.healthWarning),
-            Row(title: "Health limit", path: "observations.health-mb",
-                control: .number(Int(config.healthBytes >> 20), min: Retention.healthMinimumMB,
-                                 max: 16_384, unit: "MB"),
-                detail: config.observationsHealth
-                    ? "Lodestar tells you when the record nears this. "
-                        + "Health is never deleted on its own."
-                    : "Needs health.",
-                isDefault: config.healthBytes == Retention.healthBytes,
-                dimmed: !config.observationsHealth,
-                group: "Health"),
-            // About you, for the health record. Two facts every reading
-            // of the hands is adjusted for, and nothing that names you.
-            Row(title: "Born", path: "health.born",
-                control: .text(config.healthBorn.map(String.init) ?? "", placeholder: "Year"),
-                detail: config.observationsHealth
-                    ? "The year. Age is the first thing a reading of the hands "
-                        + "is adjusted for. Optional, local, never sent."
-                    : "Needs health.",
-                isDefault: config.healthBorn == nil,
-                dimmed: !config.observationsHealth,
-                group: "Health"),
-            Row(title: "Dominant hand", path: "health.hand",
-                control: .choice(options: ["", "left", "right", "either"],
-                                 labels: ["Not set", "Left", "Right", "Either"],
-                                 current: config.healthHand),
-                detail: config.observationsHealth
-                    ? "The hand you write with. Fine motor signs are often "
-                        + "one sided and the record keeps each hand apart."
-                    : "Needs health.",
-                isDefault: config.healthHand.isEmpty,
-                dimmed: !config.observationsHealth,
-                group: "Health"),
+        // 8 · Keys
+        let remapEntries = config.keyOverrides.sorted { $0.key < $1.key }
+            .map { TableEntry(key: String($0.key), display: "Keycode \($0.key)", sub: "types \($0.value)") }
+        sections.append(Section(name: "Keys", rows: [
+            Row(title: "Lode key", path: "lode.trigger",
+                control: .choice(options: ["right-command", "left-command"],
+                                 labels: ["Right ⌘", "Left ⌘"], current: config.trigger.rawValue),
+                detail: "The key every gesture starts from. A ⌘⌃⌥ hyper shim also works",
+                isDefault: config.trigger == .rightCommand, group: "Lode"),
+            Row(title: "Tap lode", path: "lode.tap",
+                control: .toggle(config.lodeTap),
+                detail: "A tap arms the next key as a gesture for one second. Holding still works",
+                isDefault: config.lodeTap, group: "Lode"),
+            gesture("settings", group: "Lode", detail: "Opens this window, at the place for what is in front of you"),
             Row(title: "Keyboards", path: "health.keyboards",
                 control: .page(keyboardsPage),
                 detail: keyboardsSummary(config: config, machine: machine),
-                isDefault: config.fingerMap.isEmpty,
-                group: "Health"),
-        ]))
-
-        // The draft, its own page beside the editor's: the two ways Lodestar
-        // helps you write.
-        sections.append(Section(name: "Draft", rows: draftRows))
-        sections.append(Section(name: "Editor", rows: editorRows))
-
-        // 10 · Advanced, on 0
-        let remapEntries = config.keyOverrides.sorted { $0.key < $1.key }
-            .map { TableEntry(key: String($0.key), display: "keycode \($0.key)",
-                              sub: "types \($0.value)") }
-        sections.append(Section(name: "Advanced", rows: [
-            Row(title: "Units", path: "app.units",
-                control: .choice(options: ClipQuantity.System.allCases.reversed().map(\.rawValue),
-                                 labels: ["Imperial", "Metric"],
-                                 current: config.units.isEmpty ? machine.unitsInferred : config.units),
-                detail: "What a copied measurement is read into on its clipboard card. "
-                    + "Your region's until you choose.",
-                isDefault: config.units.isEmpty),
+                isDefault: config.fingerMap.isEmpty, group: "Keyboards"),
             Row(title: "Key remaps", path: "keys",
                 control: .table(kind: .keyRemaps, entries: remapEntries),
-                detail: "Keycode to key name, for keyboards the built-in "
-                    + "table misreads. Most people never need one.",
-                isDefault: config.keyOverrides.isEmpty),
-        ]))
+                detail: "Keycode to key name, for keyboards the built-in table misreads",
+                isDefault: config.keyOverrides.isEmpty, group: "Keyboards"),
+        ], picture: "place-keys",
+           sentence: "The key every gesture starts from, and the boards you type on",
+           status: "Lode is \(config.trigger == .rightCommand ? "right" : "left") ⌘"))
+
+        // 9 · Observations: two records, each with its switch, its limit,
+        // and what reads it. The coach reads the logbook; Born and
+        // Dominant hand belong to health.
+        let records = [config.logbookEnabled ? "Logbook" : nil, config.observationsHealth ? "health" : nil].compactMap { $0 }
+        sections.append(Section(name: "Observations", rows: [
+            Row(title: "Logbook", path: "observations.logbook",
+                control: .toggle(config.logbookEnabled),
+                detail: "How you move between apps, windows and gestures. Sites by name, never their pages, titles or what you type",
+                isDefault: config.logbookEnabled, group: "Logbook"),
+            Row(title: "Limit", path: "observations.logbook-mb",
+                control: .number(Int(config.logbookBytes >> 20), min: Retention.logbookMinimumMB, max: 4096, unit: "MB"),
+                detail: config.logbookEnabled ? "The oldest months leave first once it is full. Their summaries stay" : "Needs the logbook",
+                isDefault: config.logbookBytes == Retention.behavioralBytes,
+                dimmed: !config.logbookEnabled, group: "Logbook"),
+            Row(title: "Coach", path: "coach.enabled",
+                control: .toggle(config.coachEnabled && config.logbookEnabled),
+                detail: config.logbookEnabled ? "One shortcut worth learning, now and then, from the logbook" : "Needs the logbook",
+                isDefault: config.coachEnabled || !config.logbookEnabled,
+                dimmed: !config.logbookEnabled, group: "Logbook"),
+            Row(title: "Health", path: "observations.health",
+                control: .toggle(config.observationsHealth),
+                detail: "The rhythm of your hands, by hand and finger, and how the pointer moves. Never which keys or what you type",
+                isDefault: config.observationsHealth, group: "Health",
+                problem: machine.healthWarning),
+            Row(title: "Limit", path: "observations.health-mb",
+                control: .number(Int(config.healthBytes >> 20), min: Retention.healthMinimumMB, max: 16_384, unit: "MB"),
+                detail: config.observationsHealth ? "Lodestar tells you when the record nears this. Health is never deleted on its own" : "Needs health",
+                isDefault: config.healthBytes == Retention.healthBytes,
+                dimmed: !config.observationsHealth, group: "Health"),
+            Row(title: "Born", path: "health.born",
+                control: .text(config.healthBorn.map(String.init) ?? "", placeholder: "Year"),
+                detail: config.observationsHealth ? "Age is the first thing a reading of the hands is adjusted for" : "Needs health",
+                isDefault: config.healthBorn == nil, dimmed: !config.observationsHealth, group: "About you"),
+            Row(title: "Dominant hand", path: "health.hand",
+                control: .choice(options: ["", "left", "right", "either"],
+                                 labels: ["Not set", "Left", "Right", "Either"], current: config.healthHand),
+                detail: config.observationsHealth ? "The hand you write with" : "Needs health",
+                isDefault: config.healthHand.isEmpty, dimmed: !config.observationsHealth, group: "About you"),
+            Row(title: "Delete the logbook", control: .readout("", sub: nil),
+                detail: "Everything the coach reads, gone from this Mac", group: "Delete")
+                .doing(Action(id: "delete-logbook", label: "Delete", destructive: true,
+                              confirm: "Press the letter again to delete the logbook. It cannot be undone")),
+            Row(title: "Delete health", control: .readout("", sub: nil),
+                detail: "Years of baseline nothing can rebuild, gone from this Mac", group: "Delete")
+                .doing(Action(id: "delete-health", label: "Delete", destructive: true,
+                              confirm: "Press the letter again to delete the health record. It cannot be undone")),
+        ], picture: "place-observations",
+           sentence: "Everything Lodestar observes stays on this Mac",
+           status: records.isEmpty ? "Off" : records.joined(separator: " and "),
+           note: "The coach reads the logbook. Health is its own record, kept whatever the logbook is set to"))
+
         return sections
     }
 
     // MARK: - Pages
 
+    /// The ten places, in their digits' order.
+    public static let placeNames = ["General", "Write", "Switch", "Keep", "Speak",
+                                    "Operate", "Web", "Meetings", "Keys", "Observations"]
+    public static func placeIndex(_ name: String) -> Int? { placeNames.firstIndex(of: name) }
+
     public static let keyboardsPage = "Keyboards"
+    public static let wordsPage = "Words"
 
     /// The Health row's one line: which boards differ, and by how much.
     static func keyboardsSummary(config: Config, machine: MachineState) -> String {
         let named = machine.keyboards.filter { !$0.builtIn }
         guard !named.isEmpty else {
             return "Where each key sits on a split or custom keyboard, so the record "
-                + "charges it to the right finger. Letters keep their columns everywhere."
+                + "charges it to the right finger"
         }
         return named.map { keyboard in
             let n = config.fingerMap.differing(on: keyboard.id)
             let state = n == 0 ? "standard" : (n == 1 ? "1 key differs" : "\(n) keys differ")
             return "\(keyboard.name) · \(state)"
-        }.joined(separator: ". ") + "."
+        }.joined(separator: ". ")
     }
 
     /// The pages behind the panes: reached from a row, never from the
     /// rail. One today — the Keyboards page, opened to one keyboard.
     public static func pages(config: Config, machine: MachineState,
                              view: ViewState = ViewState()) -> [Section] {
-        [keyboardsSection(config: config, machine: machine, view: view)]
+        [keyboardsSection(config: config, machine: machine, view: view),
+         Section(name: wordsPage, rows: [
+            Row(title: "Words", path: "draft.words",
+                control: .table(kind: .draftWords, entries: config.draftWords.map { TableEntry(key: $0, display: $0) }),
+                detail: "Names and terms speech gets wrong and the editor should never mark. "
+                    + "A spoken word that sounds like one of these becomes it, case and all",
+                isDefault: config.draftWords.isEmpty, group: "Words"),
+         ], parent: "Write", picture: "door-write",
+            sentence: "The words you use, written the way you write them",
+            note: "Shared by Write and Speak. A word the editor learns when you keep it lands here")]
     }
 
     /// One keyboard's fourteen keys and where each sits. The board is
@@ -763,7 +808,7 @@ public enum SettingsModel {
         if boards.isEmpty {
             rows.append(Row(title: "No keyboard found",
                             control: .readout("Attach one and reopen the page.", sub: nil)))
-            return Section(name: keyboardsPage, rows: rows, parent: "Observations")
+            return Section(name: keyboardsPage, rows: rows, parent: "Keys", picture: "place-keys", sentence: "Where each key sits on the boards you type on")
         }
         rows.append(Row(
             title: "Keyboard",
@@ -774,7 +819,7 @@ public enum SettingsModel {
                 "\($0.id). Keys are named as the system reports them. A board that "
                     + "sends one code for both thumbs maps that key to Either."
             }))
-        guard let shown else { return Section(name: keyboardsPage, rows: rows, parent: "Observations") }
+        guard let shown else { return Section(name: keyboardsPage, rows: rows, parent: "Keys", picture: "place-keys", sentence: "Where each key sits on the boards you type on") }
         for key in Keys.SpecialKey.allCases {
             let placed = config.fingerMap.placement(of: key, keyboard: shown.id)
             let options = [""] + FingerMap.Placement.all.map(\.text)
@@ -786,7 +831,7 @@ public enum SettingsModel {
                 isDefault: placed == nil,
                 group: key == .leftShift ? "Keys" : nil))
         }
-        return Section(name: keyboardsPage, rows: rows, parent: "Observations")
+        return Section(name: keyboardsPage, rows: rows, parent: "Keys", picture: "place-keys", sentence: "Where each key sits on the boards you type on")
     }
 
     // MARK: - Labels
@@ -797,20 +842,13 @@ public enum SettingsModel {
     /// panes.
     public static let labelAlphabet = "abcdefghijklmnopqrstuvwxyz".map(String.init)
 
-    /// The key that addresses a pane: 1 through 9, then 0 for the tenth —
-    /// the number row's own order, one key each.
-    public static let paneKeys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]
+    /// The key that addresses a place: its own digit. Ten places, the
+    /// number row's ten keys, General first on 0; a new surface takes a
+    /// place only by merging into one or retiring one.
+    public static let paneKeys = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
 
-    /// Every pane's address on the number row: 1 through 9, then 0 for the
-    /// last. Past ten, the panes before the last share 9 as a prefix — 91,
-    /// 92 — so Advanced keeps 0 and every other address keeps its key.
     public static func paneAddresses(count: Int) -> [String] {
-        guard count > 0 else { return [] }
-        guard count > paneKeys.count else {
-            return count == paneKeys.count ? paneKeys : Array(paneKeys.prefix(count))
-        }
-        let shared = count - 9          // the panes sharing 9, the last one apart
-        return Array(paneKeys.prefix(8)) + (1...shared).map { "9\($0)" } + ["0"]
+        Array(paneKeys.prefix(max(0, count)))
     }
 
     public static func paneKey(_ index: Int, count: Int = 10) -> String? {
@@ -818,20 +856,8 @@ public enum SettingsModel {
         return addresses.indices.contains(index) ? addresses[index] : nil
     }
 
-    /// What the digits typed so far reach: a pane, or the start of an
-    /// address that needs another digit.
-    public enum PaneMatch: Equatable { case pane(Int), prefix, none }
-
-    public static func pane(forKeys typed: String, count: Int) -> PaneMatch {
-        let addresses = paneAddresses(count: count)
-        if let index = addresses.firstIndex(of: typed) { return .pane(index) }
-        if addresses.contains(where: { $0.count > typed.count && $0.hasPrefix(typed) }) { return .prefix }
-        return .none
-    }
-
     public static func pane(forKey key: String, count: Int) -> Int? {
-        if case .pane(let index) = pane(forKeys: key, count: count) { return index }
-        return nil
+        paneAddresses(count: count).firstIndex(of: key)
     }
 
     public static func labels(for count: Int) -> [String] {
@@ -845,21 +871,44 @@ public enum SettingsModel {
         public let row: Int
         public let title: String
         public let sectionName: String
+        /// The two keys that would have reached it: the place's digit and
+        /// the row's letter.
+        public let address: String
     }
 
-    /// Flat, fuzzy-ish, and stable: title and path both match, pane order
-    /// breaks ties, and an empty query means no hits rather than all —
-    /// search is a verb here, not a view.
+    /// The words people type for a place that is named by what it does.
+    static let aliases: [String: String] = [
+        "General": "login startup updates accent colour color sound menu bar display accessibility permission",
+        "Write": "editor grammar spelling typos proofread",
+        "Switch": "windows launcher apps graph letters breaths layout maximize",
+        "Keep": "clipboard copy paste history clips",
+        "Speak": "dictation draft voice microphone mic speech",
+        "Operate": "click hints scroll select commands menus interactions screen recording",
+        "Web": "browser ask links routes profile search engine",
+        "Meetings": "calendar meeting join zoom",
+        "Keys": "keyboard lode trigger remap keycode",
+        "Observations": "coach health logbook privacy data delete record",
+    ]
+
+    /// Flat and stable: a row's title, path and line, its entries, and its
+    /// place's own words all match, place order breaks ties, and an empty
+    /// query means no hits rather than all — search is a verb here, not a
+    /// view.
     public static func search(_ query: String, in sections: [Section]) -> [Hit] {
         let needle = query.lowercased().trimmingCharacters(in: .whitespaces)
         guard !needle.isEmpty else { return [] }
         var hits: [Hit] = []
         for (sectionIndex, section) in sections.enumerated() {
+            let placeWords = "\(section.name) \(aliases[section.name] ?? "")".lowercased()
             for (rowIndex, row) in section.rows.enumerated() {
-                let haystack = "\(row.title) \(row.path) \(section.name)".lowercased()
-                if haystack.contains(needle) {
-                    hits.append(Hit(section: sectionIndex, row: rowIndex,
-                                    title: row.title, sectionName: section.name))
+                var entries = ""
+                if case .table(_, let list) = row.control { entries = list.map(\.display).joined(separator: " ") }
+                let haystack = "\(row.title) \(row.path) \(row.detail ?? "") \(entries)".lowercased()
+                let titleHit = row.title.lowercased().contains(needle)
+                if haystack.contains(needle) || (placeWords.contains(needle) && rowIndex == 0) || titleHit {
+                    let address = "\(paneKey(sectionIndex, count: sections.count) ?? "") \(row.letter ?? "")"
+                    hits.append(Hit(section: sectionIndex, row: rowIndex, title: row.title,
+                                    sectionName: section.name, address: address))
                 }
             }
         }

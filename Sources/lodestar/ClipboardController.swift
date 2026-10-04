@@ -65,6 +65,13 @@ final class ClipboardController {
     /// recording, not just take ⇧⌘V away — a user who disables a clipboard
     /// history and finds it still filing every copy has been told one thing
     /// and given another.
+    /// Settings' Clear history: the same clear the CLI asks for, done here.
+    func clearHistory() {
+        store.clearAll()
+        onCapture?()
+        flash("⌂ clipboard history cleared")
+    }
+
     func setEnabled(_ enabled: Bool) {
         guard enabled != (poll != nil) else { return }
         enabled ? start() : stop()

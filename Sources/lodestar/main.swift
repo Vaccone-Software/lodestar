@@ -1133,6 +1133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         settings.machineState = { [weak self] in
             var state = SettingsModel.MachineState()
+            state.breaths = self?.store.state.breaths.count ?? 0
             state.healthWarning = Retention.healthWarning(in: Paths.data,
                                                           bound: self?.config.healthBytes ?? Retention.healthBytes)
             // All three, always: one this Mac cannot run is listed with
@@ -1229,13 +1230,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 }
                 .sorted { $0.name < $1.name }
         }
-        engine.onOpenSettings = { [weak self] in self?.settings.toggle() }
+        engine.onOpenSettings = { [weak self] place in self?.settings.toggle(place: place) }
+        settings.perform = { [weak self] action in self?.performSettingsAction(action) }
         settings.dismissSheet = { [weak self] in self?.engine.dismissSheet() ?? false }
         engine.settingsUp = { [weak self] in self?.settings.isVisible ?? false }
     }
 
     @objc private func openSettingsWindow() {
         settings.open()
+    }
+
+    /// The verbs Settings rows carry that are not config writes.
+    private func performSettingsAction(_ action: String) {
+        let privacy = "x-apple.systempreferences:com.apple.preference.security?"
+        switch action {
+        case "open-accessibility":
+            NSWorkspace.shared.open(URL(string: privacy + "Privacy_Accessibility")!)
+        case "open-screen-recording":
+            NSWorkspace.shared.open(URL(string: privacy + "Privacy_ScreenCapture")!)
+        case "open-calendars":
+            NSWorkspace.shared.open(URL(string: privacy + "Privacy_Calendars")!)
+        case "clear-clipboard":
+            clipboardController.clearHistory()
+        case "delete-logbook":
+            observationStore?.clearLogbook()
+            hud.flash("⌂ logbook deleted")
+        case "delete-health":
+            observationStore?.clearHealth()
+            health.forgetBuffered()
+            hud.flash("⌂ health record deleted")
+        default:
+            Log.error("settings", ["unknown action": action])
+        }
     }
 
     @objc private func showWalk() {

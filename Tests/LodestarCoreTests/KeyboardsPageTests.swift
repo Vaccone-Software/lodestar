@@ -24,9 +24,9 @@ final class KeyboardsPageTests: XCTestCase {
             .first { $0.name == SettingsModel.keyboardsPage }!
     }
 
-    func testThePageIsAPageOfTheCoachPaneNotAPane() {
+    func testThePageIsAPageOfKeysNotAPlace() {
         let page = page(keyboards: [apple, kinesis])
-        XCTAssertEqual(page.parent, "Observations")
+        XCTAssertEqual(page.parent, "Keys")
         XCTAssertFalse(SettingsModel.catalog(config: Config(), machine: machine([apple, kinesis]))
             .contains { $0.name == SettingsModel.keyboardsPage }, "never on the rail")
     }
@@ -102,16 +102,16 @@ final class KeyboardsPageTests: XCTestCase {
         config.fingerMap = FingerMap([kinesis.id: [.enter: FingerMap.Placement(.right, .thumb),
                                                    .space: FingerMap.Placement(.right, .thumb)]])
         let coach = SettingsModel.catalog(config: config, machine: machine([apple, kinesis]))
-            .first { $0.name == "Observations" }!
+            .first { $0.name == "Keys" }!
         let row = coach.rows.first { $0.path == "health.keyboards" }!
-        XCTAssertEqual(row.detail, "Kinesis Advantage360 · 2 keys differ.")
+        XCTAssertEqual(row.detail, "Kinesis Advantage360 · 2 keys differ")
         XCTAssertFalse(row.isDefault)
         let bare = SettingsModel.catalog(config: Config(), machine: machine([apple, kinesis]))
-            .first { $0.name == "Observations" }!.rows.first { $0.path == "health.keyboards" }!
-        XCTAssertEqual(bare.detail, "Kinesis Advantage360 · standard.")
+            .first { $0.name == "Keys" }!.rows.first { $0.path == "health.keyboards" }!
+        XCTAssertEqual(bare.detail, "Kinesis Advantage360 · standard")
         XCTAssertTrue(bare.isDefault)
         let none = SettingsModel.catalog(config: Config(), machine: machine([apple]))
-            .first { $0.name == "Observations" }!.rows.first { $0.path == "health.keyboards" }!
+            .first { $0.name == "Keys" }!.rows.first { $0.path == "health.keyboards" }!
         XCTAssertTrue(none.detail?.contains("split or custom keyboard") ?? false)
     }
 
@@ -131,7 +131,7 @@ final class KeyboardsPageTests: XCTestCase {
         XCTAssertFalse(labels.contains { $0.contains("Keychron") })
         // Neither: gone from the summary too.
         let coach = SettingsModel.catalog(config: Config(), machine: machine([apple, kinesis]))
-            .first { $0.name == "Observations" }!
+            .first { $0.name == "Keys" }!
         XCTAssertFalse(coach.rows.first { $0.path == "health.keyboards" }!
             .detail!.contains("Keychron"))
     }

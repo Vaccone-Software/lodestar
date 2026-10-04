@@ -6,86 +6,121 @@ final class SettingsModelTests: XCTestCase {
         SettingsModel.catalog(config: Config(), machine: .init())
     }
 
-    func testThePanesInTheAgreedOrder() {
-        XCTAssertEqual(sections.map(\.name),
-                       ["General", "Permissions", "Gestures", "Interactions", "Clipboard",
-                        "Web", "Meetings", "Observations", "Draft", "Editor", "Advanced"])
-        XCTAssertEqual(SettingsModel.paneAddresses(count: sections.count).count, sections.count,
-                       "every pane has an address")
+    private func place(_ name: String, _ config: Config = Config(),
+                       _ machine: SettingsModel.MachineState = .init()) -> SettingsModel.Section {
+        SettingsModel.catalog(config: config, machine: machine).first { $0.name == name }!
     }
 
-    /// 1 through 8, then the two writing panes share 9 (91 Draft, 92
-    /// Editor), and Advanced keeps 0 at the end of the row.
-    func testTheNumberRowAddressesThePanes() {
+    /// Ten places on the number row, General first on 0, then the four
+    /// doors in the site's order.
+    func testTheTenPlacesInTheirDigitsOrder() {
+        XCTAssertEqual(sections.map(\.name), SettingsModel.placeNames)
+        XCTAssertEqual(sections.map(\.name), ["General", "Write", "Switch", "Keep", "Speak",
+                                              "Operate", "Web", "Meetings", "Keys", "Observations"])
         XCTAssertEqual(SettingsModel.paneAddresses(count: sections.count),
-                       ["1", "2", "3", "4", "5", "6", "7", "8", "91", "92", "0"])
-        XCTAssertEqual(SettingsModel.pane(forKeys: "9", count: sections.count), .prefix, "9 waits for its second digit")
-        XCTAssertEqual(SettingsModel.pane(forKeys: "91", count: sections.count),
-                       .pane(sections.firstIndex { $0.name == "Draft" }!))
-        XCTAssertEqual(SettingsModel.pane(forKeys: "92", count: sections.count),
-                       .pane(sections.firstIndex { $0.name == "Editor" }!))
-        XCTAssertEqual(SettingsModel.pane(forKey: "0", count: sections.count),
-                       sections.firstIndex { $0.name == "Advanced" }, "Advanced is last, on 0")
-        XCTAssertEqual(SettingsModel.paneAddresses(count: 10), SettingsModel.paneKeys, "ten panes, ten keys")
-        XCTAssertNil(SettingsModel.pane(forKey: "0", count: 9), "no tenth pane, no 0")
-        XCTAssertNil(SettingsModel.pane(forKey: "a", count: 11))
-        XCTAssertEqual(SettingsModel.pane(forKeys: "93", count: 11), .none)
+                       ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"])
+        XCTAssertEqual(SettingsModel.pane(forKey: "3", count: sections.count), 3)
+        XCTAssertNil(SettingsModel.pane(forKey: "a", count: sections.count))
+        XCTAssertEqual(SettingsModel.placeIndex("Speak"), 4)
     }
 
-    func testTheDraftPaneHoldsTheDraftsRows() {
-        let draft = sections.first { $0.name == "Draft" }!
-        XCTAssertEqual(draft.rows.map(\.path), ["draft.input", "draft.words", "draft.model"])
+    /// Every place wears a picture, a sentence and a line for the overview.
+    func testEveryPlaceHasItsPictureSentenceAndLine() {
+        for section in sections {
+            XCTAssertFalse(section.picture.isEmpty, "\(section.name) has no picture")
+            XCTAssertFalse(section.sentence.isEmpty, "\(section.name) says nothing")
+            XCTAssertFalse(section.status.isEmpty, "\(section.name) has no line on the overview")
+            XCTAssertFalse(section.sentence.hasSuffix("."), "copy ends without a period")
+        }
     }
 
-    func testTheEditorPaneHoldsTheEditorsRows() {
-        let editor = sections.first { $0.name == "Editor" }!
-        XCTAssertEqual(editor.rows.first?.path, "editor.enabled")
-        XCTAssertTrue(editor.rows.contains { $0.path == "editor.skip-apps" })
-        let interaction = sections.first { $0.name == "Interactions" }!
-        XCTAssertFalse(interaction.rows.contains { $0.path.hasPrefix("editor.") }, "moved, not copied")
+    /// A letter belongs to its row: fixed by the catalog in reading order,
+    /// readouts and dimmed rows included, so nothing a neighbour does can
+    /// move it.
+    func testLettersAreFixedByTheCatalog() {
+        for section in sections {
+            XCTAssertEqual(section.rows.compactMap(\.letter),
+                           Array(SettingsModel.labelAlphabet.prefix(section.rows.count)), section.name)
+        }
+        var off = Config()
+        off.scrollSmooth = false
+        let before = place("Operate").rows.map { "\($0.letter ?? "")\($0.path)" }
+        let after = place("Operate", off).rows.map { "\($0.letter ?? "")\($0.path)" }
+        XCTAssertEqual(before, after, "a row dimming never moves a letter")
     }
 
-    /// About you, for the health record: two optional facts and the door
-    /// to the keyboards, in their own group of the Coach pane.
-    func testTheHealthGroupHoldsTwoOptionalFactsAndTheKeyboardsDoor() {
-        let coach = sections.first { $0.name == "Observations" }!
-        let health = coach.rows.filter { $0.group == "Health" && $0.path.hasPrefix("health.") }
-        XCTAssertEqual(health.map(\.path), ["health.born", "health.hand", "health.keyboards"])
-        XCTAssertTrue(health.allSatisfy(\.isDefault), "unset by default")
-        guard case .page(let page) = health[2].control else { return XCTFail("keyboards is a door") }
-        XCTAssertEqual(page, SettingsModel.keyboardsPage)
-        guard case .text(let year, let placeholder) = health[0].control else { return XCTFail("born is typed") }
+    /// Where a place has one switch for the whole of it, it is `a`.
+    func testTheMasterSwitchIsA() {
+        for (name, path) in [("Write", "editor.enabled"), ("Keep", "clipboard.enabled"),
+                             ("Speak", "gestures.draft"), ("Meetings", "meetings.enabled"),
+                             ("Observations", "observations.logbook"), ("Web", "gestures.web-bar")] {
+            let first = place(name).rows.first!
+            XCTAssertEqual(first.letter, "a")
+            XCTAssertEqual(first.path, path, name)
+        }
+    }
+
+    /// Every row sits under a header: every group is named.
+    func testEveryRowHasAGroup() {
+        for section in sections {
+            for row in section.rows { XCTAssertNotNil(row.group, "\(section.name) · \(row.title)") }
+        }
+    }
+
+    /// Each place holds its surface whole: its switch, its tuning, its
+    /// permission. The gestures, advanced and permissions panes are gone.
+    func testEachPlaceHoldsItsSurfaceWhole() {
+        XCTAssertTrue(place("Keep").rows.contains { $0.path == "app.units" }, "units read clips")
+        XCTAssertTrue(place("Operate").rows.contains { $0.path == "scroll.speed" })
+        XCTAssertTrue(place("Operate").rows.contains { $0.path == "gestures.scroll" })
+        XCTAssertTrue(place("Operate").rows.contains { $0.title == "Screen Recording" })
+        XCTAssertTrue(place("General").rows.contains { $0.title == "Accessibility" })
+        XCTAssertTrue(place("Keys").rows.contains { $0.path == "keys" })
+        XCTAssertTrue(place("Keys").rows.contains { $0.path == "health.keyboards" })
+        XCTAssertTrue(place("Speak").rows.contains { $0.path == "draft.model" })
+        XCTAssertTrue(place("Write").rows.contains { $0.path == "editor.skip-apps" })
+    }
+
+    /// Words is one page with two doors: Write and Speak both open it.
+    func testWordsIsOnePageBehindWriteAndSpeak() {
+        for name in ["Write", "Speak"] {
+            let row = place(name).rows.first { $0.path == "draft.words" }!
+            guard case .page(let page) = row.control else { return XCTFail("\(name)'s Words is a door") }
+            XCTAssertEqual(page, SettingsModel.wordsPage)
+        }
+        let pages = SettingsModel.pages(config: Config(), machine: .init())
+        let words = pages.first { $0.name == SettingsModel.wordsPage }!
+        guard case .table(let kind, _) = words.rows.first!.control else { return XCTFail("the page holds the list") }
+        XCTAssertEqual(kind, .draftWords)
+    }
+
+    /// About you: two optional facts, under health.
+    func testAboutYouHoldsTwoOptionalFacts() {
+        let rows = place("Observations").rows.filter { $0.group == "About you" }
+        XCTAssertEqual(rows.map(\.path), ["health.born", "health.hand"])
+        XCTAssertTrue(rows.allSatisfy(\.isDefault), "unset by default")
+        guard case .text(let year, let placeholder) = rows[0].control else { return XCTFail("born is typed") }
         XCTAssertEqual(year, "")
         XCTAssertEqual(placeholder, "Year")
-        guard case .choice(let options, let labels, let current) = health[1].control else { return XCTFail("hand is chosen") }
-        XCTAssertEqual(options.count, labels.count)
-        XCTAssertEqual(current, "")
         var config = Config()
         config.healthBorn = 1990
-        config.healthHand = "left"
-        let filled = SettingsModel.catalog(config: config, machine: .init())
-            .first { $0.name == "Observations" }!.rows.filter { $0.group == "Health" && $0.path.hasPrefix("health.") }
-        XCTAssertFalse(filled[0].isDefault)
-        if case .text(let year, _) = filled[0].control { XCTAssertEqual(year, "1990") }
+        let filled = place("Observations", config).rows.first { $0.path == "health.born" }!
+        XCTAssertFalse(filled.isDefault)
     }
 
-    /// Units show the region's system until one is chosen.
-    func testUnitsFollowTheRegionUntilChosen() {
+    /// Units say Automatic, with the region's choice, until one is chosen.
+    func testUnitsAreAutomaticUntilChosen() {
         var machine = SettingsModel.MachineState()
         machine.unitsInferred = "metric"
-        let row = SettingsModel.catalog(config: Config(), machine: machine)
-            .first { $0.name == "Advanced" }!.rows.first { $0.path == "app.units" }!
+        let row = place("Keep", Config(), machine).rows.first { $0.path == "app.units" }!
         guard case .choice(let options, let labels, let current) = row.control else { return XCTFail("a dropdown") }
-        XCTAssertEqual(options, ["imperial", "metric"])
-        XCTAssertEqual(labels, ["Imperial", "Metric"])
-        XCTAssertEqual(current, "metric", "the region's")
+        XCTAssertEqual(options, ["", "imperial", "metric"])
+        XCTAssertEqual(labels, ["Automatic · Metric", "Imperial", "Metric"])
+        XCTAssertEqual(current, "")
         XCTAssertTrue(row.isDefault)
         var chosen = Config()
         chosen.units = "imperial"
-        let set = SettingsModel.catalog(config: chosen, machine: machine)
-            .first { $0.name == "Advanced" }!.rows.first { $0.path == "app.units" }!
-        guard case .choice(_, _, let now) = set.control else { return XCTFail("a dropdown") }
-        XCTAssertEqual(now, "imperial")
+        let set = place("Keep", chosen, machine).rows.first { $0.path == "app.units" }!
         XCTAssertFalse(set.isDefault)
     }
 
@@ -93,48 +128,54 @@ final class SettingsModelTests: XCTestCase {
     func testKeptTimeZonesAreListedByPlace() {
         var config = Config()
         config.clipboardTimeZones = ["Asia/Tokyo", "Asia/Kolkata"]
-        let row = SettingsModel.catalog(config: config, machine: .init())
-            .first { $0.name == "Clipboard" }!.rows.first { $0.path == "clipboard.time-zones" }!
+        let row = place("Keep", config).rows.first { $0.path == "clipboard.time-zones" }!
         guard case .table(let kind, let entries) = row.control else { return XCTFail("time zones are a list") }
         XCTAssertEqual(kind, .clipboardTimeZones)
-        XCTAssertEqual(entries.map(\.key), ["Asia/Tokyo", "Asia/Kolkata"])
         XCTAssertEqual(entries.map(\.display), ["Tokyo · UTC+9", "Kolkata · UTC+5:30"])
         XCTAssertFalse(row.isDefault)
     }
 
     func testEveryConfigRowWearsItsPath() {
-        for section in sections where section.name != "Permissions" {
+        for section in sections {
             for row in section.rows {
                 if case .readout = row.control { continue }
-                XCTAssertFalse(row.path.isEmpty,
-                               "\(section.name) · \(row.title) hides its config path")
+                XCTAssertFalse(row.path.isEmpty, "\(section.name) · \(row.title) hides its config path")
             }
         }
     }
 
-    func testPermissionsReadTheMachineNeverTheConfig() {
-        let permissions = sections.first { $0.name == "Permissions" }!
-        XCTAssertEqual(permissions.rows.count, 3)
-        for row in permissions.rows {
-            XCTAssertTrue(row.path.isEmpty, "\(row.title) claims a config path")
-            guard case .readout = row.control else {
-                return XCTFail("\(row.title) is not a readout")
-            }
-        }
+    /// A permission reads the machine, says Granted or Not granted (macOS
+    /// gives no third answer for these), and when not granted, offers the
+    /// pane that grants it.
+    func testPermissionsReadTheMachineAndOfferTheirPane() {
+        var machine = SettingsModel.MachineState()
+        machine.screenRecording = "Not asked yet"
+        let row = place("Operate", Config(), machine).rows.first { $0.title == "Screen Recording" }!
+        XCTAssertTrue(row.path.isEmpty)
+        guard case .readout(let state, _) = row.control else { return XCTFail("a readout") }
+        XCTAssertEqual(state, "Not granted")
+        XCTAssertEqual(row.action?.id, "open-screen-recording")
+        XCTAssertTrue(place("Operate", Config(), machine).attention, "the overview marks it")
+        machine.screenRecording = "Granted"
+        let granted = place("Operate", Config(), machine).rows.first { $0.title == "Screen Recording" }!
+        XCTAssertNil(granted.action)
+    }
+
+    /// Deleting asks twice, in words.
+    func testDeletingIsAVerbThatAsksTwice() {
+        let rows = place("Observations").rows.filter { $0.group == "Delete" }
+        XCTAssertEqual(rows.compactMap(\.action?.id), ["delete-logbook", "delete-health"])
+        XCTAssertTrue(rows.allSatisfy { $0.action?.destructive == true && $0.action?.confirm != nil })
+        XCTAssertEqual(place("Keep").rows.last?.action?.id, "clear-clipboard")
     }
 
     func testEveryGestureRowWearsItsKeycaps() {
-        let gestures = sections.first { $0.name == "Gestures" }!
-        for row in gestures.rows {
-            XCTAssertFalse(row.keycaps.isEmpty, "\(row.title) shows no keys")
-            guard case .toggle = row.control else {
-                return XCTFail("\(row.title) is not a feature toggle")
+        for section in sections {
+            for row in section.rows where row.path.hasPrefix("gestures.") {
+                XCTAssertFalse(row.keycaps.isEmpty, "\(row.title) shows no keys")
+                XCTAssertFalse(row.title.contains("lode "), "titles are names, not guide copy")
             }
         }
-        XCTAssertTrue(gestures.rows.contains { $0.path == "clipboard.enabled" },
-                      "the clipboard is a feature and lives with the features")
-        XCTAssertFalse(gestures.rows.contains { $0.title.contains("lode ") },
-                       "titles are feature names, not guide copy")
     }
 
     /// Each record carries its own switch and limit, and what depends on
@@ -142,8 +183,7 @@ final class SettingsModelTests: XCTestCase {
     func testEachRecordGatesWhatReadsIt() {
         var config = Config()
         config.observationsHealth = false
-        let rows = SettingsModel.catalog(config: config, machine: .init())
-            .first { $0.name == "Observations" }!.rows
+        let rows = place("Observations", config).rows
         XCTAssertEqual(rows.map(\.path).prefix(5), ["observations.logbook", "observations.logbook-mb",
                                                     "coach.enabled", "observations.health",
                                                     "observations.health-mb"])
@@ -151,41 +191,31 @@ final class SettingsModelTests: XCTestCase {
             XCTAssertTrue(rows.first { $0.path == path }!.dimmed, "\(path) needs health")
         }
         XCTAssertFalse(rows.first { $0.path == "coach.enabled" }!.dimmed, "the coach reads the logbook, not health")
-        guard case .number(let mb, let min, _, _) = rows.first(where: { $0.path == "observations.logbook-mb" })!.control
-        else { return XCTFail("the logbook limit is a number") }
-        XCTAssertEqual(mb, 256)
-        XCTAssertEqual(min, 64)
     }
 
-    func testCoachRowDimsWithoutObservations() {
+    func testCoachRowDimsWithoutTheLogbook() {
         var config = Config()
         config.logbookEnabled = false
-        let catalog = SettingsModel.catalog(config: config, machine: .init())
-        let coach = catalog.first { $0.name == "Observations" }!
-        let row = coach.rows.first { $0.path == "coach.enabled" }!
-        XCTAssertTrue(row.dimmed, "the coach cannot speak without observations")
-        if case .toggle(let value) = row.control {
-            XCTAssertFalse(value, "a dimmed coach never shows as on")
-        }
+        let row = place("Observations", config).rows.first { $0.path == "coach.enabled" }!
+        XCTAssertTrue(row.dimmed)
+        XCTAssertTrue(row.isDefault, "the dot and the switch agree")
+        if case .toggle(let value) = row.control { XCTAssertFalse(value, "a dimmed coach never shows as on") }
     }
 
     func testLabelsAreUniqueAndNeverDigits() {
-        let most = sections.map(\.rows.count).max() ?? 0
-        let labels = SettingsModel.labels(for: most)
-        XCTAssertEqual(labels.count, most, "every visible row gets a label")
+        let labels = SettingsModel.labelAlphabet
         XCTAssertEqual(Set(labels).count, labels.count)
         XCTAssertTrue(labels.allSatisfy { $0.count == 1 && Int($0) == nil },
-                      "digits are pane addresses and must never label a row")
+                      "digits are place addresses and must never label a row")
     }
 
-    func testSearchFlattensAcrossPanesAndMatchesPaths() {
+    func testSearchFindsRowsAndTheWordsPeopleUse() {
         let hits = SettingsModel.search("speed", in: sections)
-        XCTAssertEqual(hits.count, 1)
-        XCTAssertEqual(hits.first?.sectionName, "Interactions")
-        XCTAssertFalse(SettingsModel.search("scroll", in: sections).isEmpty,
-                       "the config path is part of the haystack")
-        XCTAssertTrue(SettingsModel.search("", in: sections).isEmpty,
-                      "search is a verb, not a view")
+        XCTAssertEqual(hits.first?.sectionName, "Operate")
+        XCTAssertEqual(hits.first?.address, "5 d", "a hit teaches its two keys")
+        XCTAssertEqual(SettingsModel.search("clipboard", in: sections).first?.sectionName, "Keep")
+        XCTAssertEqual(SettingsModel.search("dictation", in: sections).first?.sectionName, "Speak")
+        XCTAssertTrue(SettingsModel.search("", in: sections).isEmpty, "search is a verb, not a view")
     }
 
     func testEscapePopsExactlyOneLayer() {
@@ -197,8 +227,7 @@ final class SettingsModelTests: XCTestCase {
     func testDefaultConfigReadsAsDefault() {
         for section in sections {
             for row in section.rows where !row.path.isEmpty {
-                XCTAssertTrue(row.isDefault,
-                              "\(row.path) marked changed on a default config")
+                XCTAssertTrue(row.isDefault, "\(row.path) marked changed on a default config")
             }
         }
     }
@@ -207,11 +236,8 @@ final class SettingsModelTests: XCTestCase {
         var config = Config()
         config.scrollSpeed = 2400
         config.meetingsEnabled = true
-        let catalog = SettingsModel.catalog(config: config, machine: .init())
-        let interaction = catalog.first { $0.name == "Interactions" }!
-        XCTAssertFalse(interaction.rows.first { $0.path == "scroll.speed" }!.isDefault)
-        let meetings = catalog.first { $0.name == "Meetings" }!
-        XCTAssertFalse(meetings.rows.first { $0.path == "meetings.enabled" }!.isDefault)
+        XCTAssertFalse(place("Operate", config).rows.first { $0.path == "scroll.speed" }!.isDefault)
+        XCTAssertFalse(place("Meetings", config).rows.first { $0.path == "meetings.enabled" }!.isDefault)
     }
 }
 

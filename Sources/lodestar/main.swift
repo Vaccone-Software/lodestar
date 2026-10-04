@@ -1154,10 +1154,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             state.editorEngineCurrent = self?.config.editorModel ?? ""
             state.earStatus = self?.earHost.status ?? ""
             state.draftModelAutomatic = EarTier.resolved("", memoryGB: EditorEngine.physicalGB, hasModel: { _ in true }).name
-            if let config = self?.config {
-                state.intentUnavailable = Self.intentUnavailable(config, consented: self?.store.editorConsented ?? false,
-                                                                 engine: engine)
-            }
             state.editorRegionInferred = EditorRegion.inferred()
             state.unitsInferred = ClipQuantity.System.regional().rawValue
             let waiting = (self?.config.editorEnabled ?? false) && !(self?.store.editorConsented ?? true)
@@ -2017,7 +2013,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                            vocabulary: config.draftWords, modelReady: EditorModels.isReady(engine))
         // What you meant, from what you said: the same model, asked with
         // its own prompt, the speaker's names in it.
-        if config.draftIntent, Self.intentUnavailable(config, consented: consented, engine: engine) == nil,
+        if Self.intentRuns(config, consented: consented, engine: engine),
            let proofreader = editorController?.proofreader {
             let prompt = IntentPass.prompt(names: Array(config.draftWords.prefix(30)))
             draftController?.intend = { text in await proofreader.rewrite(text, prompt: prompt) }
@@ -2036,12 +2032,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         editorController?.refreshModel()
     }
 
-    /// Why the draft cannot write what you meant here, or nil when it can.
-    static func intentUnavailable(_ config: Config, consented: Bool, engine: EditorEngine) -> String? {
-        guard config.editorEnabled, consented else { return "Needs the editor on, with its Standard or Full model" }
-        guard engine == .standard || engine == .full else { return "Needs the editor's Standard or Full model" }
-        guard EditorModels.isReady(engine) else { return "Waits for the editor's model to arrive" }
-        return nil
+    /// Does the draft write what was meant? Whenever a model that can is
+    /// here: the condition is the switch.
+    static func intentRuns(_ config: Config, consented: Bool, engine: EditorEngine) -> Bool {
+        config.editorEnabled && consented && (engine == .standard || engine == .full) && EditorModels.isReady(engine)
     }
 
     /// The question, put back until it is answered: a card another surface

@@ -127,9 +127,6 @@ public struct Config {
     /// `draft.model`: the dictation model's tier, or empty for the one this Mac
     /// suits.
     public var draftModel = ""
-    /// `draft.intent`: the editor's model writes what you meant from what
-    /// you said, held to what a checker allows. Needs Standard or Full.
-    public var draftIntent = true
     /// The editor: marks mistakes in any field, fixed by `lode ⇥`.
     public var editorEnabled = false
     /// standard | full | apple, or empty for the engine this Mac's memory
@@ -261,7 +258,6 @@ public struct Config {
             "input": .string(allowed: nil, description: "The microphone the draft listens to, by its name in Sound settings. Empty follows the system default input."),
             "words": .freeTable(value: .boolean(description: "true to keep this word in the draft's vocabulary."),
                                 description: "Word → true. Names and terms speech gets wrong; a settled result that sounds like one is written as it, case and all."),
-            "intent": .boolean(description: "Words you take back, false starts and fillers go, and a spoken file name, path or list is written as one, by the editor's Standard or Full model. A checker lets through only those changes: never a word added or replaced."),
             "model": .string(allowed: ["", "apple", "standard", "full"],
                              description: "The model that hears what you said again and writes it better: apple (Apple's recognizer only), standard (Parakeet, 8 GB Macs and up), full (Qwen3-ASR, 24 GB and up). Empty picks the one this Mac suits and fetches it the first time you dictate."),
         ], description: "The draft: lode . speaks, lode ⇧. revises."),
@@ -480,9 +476,6 @@ public struct Config {
         }
         if let input = effective.value(at: ["draft", "input"])?.string {
             config.draftInput = input.trimmingCharacters(in: .whitespaces)
-        }
-        if let intent = effective.value(at: ["draft", "intent"])?.bool {
-            config.draftIntent = intent
         }
         if let model = effective.value(at: ["draft", "model"])?.string {
             config.draftModel = model.trimmingCharacters(in: .whitespaces)

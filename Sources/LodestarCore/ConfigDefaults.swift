@@ -48,6 +48,13 @@ public enum ConfigDefaults {
            gestures.removeValue(forKey: "cheat-sheet") != nil {
             out["gestures"] = .table(gestures)
         }
+        // The tabs door retired in 0.41: sixteen presses in thirty-seven
+        // days, `lode ⇥` is the editor's, and click hints letter the same
+        // tab buttons. A file that switched it either way stays valid.
+        if case .table(var gestures)? = out["gestures"],
+           gestures.removeValue(forKey: "tabs") != nil {
+            out["gestures"] = .table(gestures)
+        }
         // Retired in 0.22: the name nothing read, the double-tap grammar,
         // hand-set hint letters (the layout is detected now), and the
         // auto-reload toggle (watching is simply how the config works).

@@ -88,17 +88,21 @@ final class EditorLensScenarioTests: XCTestCase {
     }
 
     func testNoMarksSaysSoAndStandsDown() {
-        let (stage, _) = stage(with: [])
-        stage.lode("tab")
-        XCTAssertFalse(stage.engine.stateDescription.contains("hints"))
-        XCTAssertEqual(stage.hud.owner, .flash)
+        // The engine holds the editor weakly: the lens must outlive the
+        // press, or the key finds no editor at all.
+        let (stage, lens) = stage(with: [])
+        withExtendedLifetime(lens) {
+            stage.lode("tab")
+            XCTAssertFalse(stage.engine.stateDescription.contains("hints"))
+            XCTAssertEqual(stage.hud.owner, .flash)
+        }
     }
 
-    func testWithTheEditorOffTheKeyIsStillTheTabs() {
+    func testWithTheEditorOffTheKeyOpensNothing() {
         let (stage, lens) = stage(with: [mark("its", "it's", x: 10)])
         lens.enabled = false
-        HintTargets.harvestTabs = { _, done in DispatchQueue.main.async { done([]) } }
         stage.lode("tab")
         XCTAssertNotEqual(stage.engine.select.door, .editor)
+        XCTAssertTrue(stage.engine.select.shownChips.isEmpty, "no door opened")
     }
 }

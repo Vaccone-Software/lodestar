@@ -159,15 +159,14 @@ final class SelectController {
     /// pick, `lode ;` clicks on one, scroll mode's `/` aims the pointer
     /// with one. Same sensor, same grammar — the entry key declares the
     /// verb, the way ⇧ declares beside.
-    /// `tabs` is the fourth: `lode ⇥` puts a letter on every tab of the
-    /// window, and the letter presses it. No sensing, no search — the tree
-    /// names the tabs and there is nothing to read past them.
-    /// `editor` is the fifth: `lode ⇥` with the editor on puts a letter on
+    /// `editor` is the fourth: `lode ⇥` with the editor on puts a letter on
     /// every mark; the letter fixes it, ⇧ and the letter says it is right,
     /// ⌫ takes the last fix back. The lens stands while marks remain.
-    enum Door { case anchor, click, aim, tabs, editor }
+    /// (A tabs door once stood beside it on the same key; click hints
+    /// letter the same tab buttons, and it was retired.)
+    enum Door { case anchor, click, aim, editor }
 
-    /// The editor whose marks the fifth door letters.
+    /// The editor whose marks the fourth door letters.
     weak var editor: EditorLens?
     private var editorMarks: [EditorController.Mark] = []
     private(set) var door: Door = .anchor
@@ -175,8 +174,6 @@ final class SelectController {
     /// doors, saying which door, over which app, and what the hand has
     /// typed. Set by the shell.
     var pill: ModePill?
-    /// The tabs door found no tabs: the shell ends the mode and says so.
-    var noTabs: (() -> Void)?
     /// The chips standing on the glass, for the tests.
     var shownChips: [SelectOverlay.Chip] { overlay.shownChips }
     /// The aim door's whole verb: the picked word's center, and the word,
@@ -284,26 +281,6 @@ final class SelectController {
             return true
         }
 
-        if door == .tabs {
-            // No capture, no OCR: the tabs are the tree's to name, and the
-            // pill stands while they are read.
-            let expected = generation
-            showPill(text: nil)
-            HintTargets.harvestTabs(window) { [weak self] found in
-                guard let self, self.generation == expected, self.door == .tabs else { return }
-                self.entryTargets = found
-                self.entryLabeled = found
-                self.entryLabels = HintLabels.labels(count: found.count, alphabet: self.letters)
-                if self.firstKeyAt == nil { self.entryChipsAtEntry = found.count }
-                if found.isEmpty {
-                    self.noTabs?()
-                    return
-                }
-                self.renderEntry()
-            }
-            return true
-        }
-
         // Everything above is bookkeeping in memory and stays here, because
         // the keys that follow read it: `key` refuses to act while `core` is
         // nil, and that has to be true the instant the mode is entered.
@@ -405,7 +382,6 @@ final class SelectController {
         case .anchor: return "select"
         case .click: return "hints"
         case .aim: return "aim"
-        case .tabs: return "tabs"
         case .editor: return "editor"
         }
     }
@@ -418,7 +394,6 @@ final class SelectController {
         case .anchor: mode = .select
         case .click: mode = .click
         case .aim: mode = .scroll
-        case .tabs: mode = .tabs
         case .editor: mode = .editor
         }
         pill?.show(ModePill.State(mode: mode, app: appName,
@@ -543,12 +518,6 @@ final class SelectController {
         if door == .editor {
             guard key.count == 1, key.first?.isLetter == true else { return .pending }
             return editorPick(letter: key, keep: shift)
-        }
-        // The tabs door has no search to type into: a letter, any case,
-        // is a pick; anything else waits with the chips standing.
-        if door == .tabs {
-            guard key.count == 1, key.first?.isLetter == true else { return .pending }
-            return entryPick(letter: key)
         }
         guard core != nil else {
             // Still scanning: aiming is buffered for the first world, not
@@ -812,7 +781,7 @@ final class SelectController {
     }
 
     private func renderEntry() {
-        guard door == .click || door == .tabs, core?.query.isEmpty != false else { return }
+        guard door == .click, core?.query.isEmpty != false else { return }
         let chips: [SelectOverlay.Chip] = zip(entryLabels, entryLabeled).compactMap {
             label, target in
             guard entryTyped.isEmpty || label.hasPrefix(entryTyped) else { return nil }

@@ -286,15 +286,6 @@ final class HotkeyEngine {
         // mode back through the grammar, the way the clip door's closing
         // does.
         select.pill = pill
-        select.noTabs = { [weak self] in
-            // A turn later, never inside the keystroke that opened the
-            // door: resetting the engine while it handles a key is an
-            // exclusivity abort.
-            DispatchQueue.main.async {
-                self?.resetToIdle(reason: "no tabs")
-                self?.hud.flash("✕ no tabs in this window")
-            }
-        }
         select.aim = { [weak self] point, label in
             self?.scroller.aimed(at: point, label: label)
         }
@@ -1514,7 +1505,7 @@ final class HotkeyEngine {
             row("⏎", "ask: links · domains · search", gesture: "web-bar"),
             row(".", "draft: speak, ⏎ pastes · ⇧. revises the field", gesture: "draft"),
             row("-", "commands: the frontmost app's menus", gesture: "commands"),
-            row("⇥", "windows of the focused app"),
+            row("⇥", "editor: a letter fixes each mark · ⇧⇥ windows of the focused app"),
             row("1…9", "jump to window by position", gesture: "index-jump"),
             row("0", "the focused window fills the display · ⇧0 beside", gesture: "maximize"),
             row("\\", "flip layout orientation", gesture: "flip-orientation"),
@@ -2076,11 +2067,6 @@ extension HotkeyEngine: EngineWorld {
 
     func hintType(_ letter: String, shift: Bool, control: Bool) -> HintStep {
         select.clickKey(letter, shift: shift, control: control)
-    }
-
-    func enterTabs() -> Bool {
-        select.letters = KeyboardLayout.chipAlphabet()
-        return select.enter(door: .tabs)
     }
 
     private var currentEditor: EditorLens? {

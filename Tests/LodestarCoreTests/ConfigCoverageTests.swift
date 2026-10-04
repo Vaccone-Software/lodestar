@@ -167,7 +167,7 @@ final class ConfigCoverageTests: XCTestCase {
     /// keeps parsing clean.
     func testRetiredSectionsAreDroppedSilently() {
         for retired in [["you", "name"], ["double-tap", "cmd"], ["hints", "letters"],
-                        ["hints", "rescan-delay"], ["app", "auto-reload"]] {
+                        ["hints", "rescan-delay"], ["app", "auto-reload"], ["gestures", "tabs"]] {
             let root = ConfigDefaults.normalized(Self.tree(retired, .string("x")))
             XCTAssertNil(root.value(at: [retired[0]])?.table?[retired[1]],
                          "\(retired.joined(separator: ".")) survived its retirement")

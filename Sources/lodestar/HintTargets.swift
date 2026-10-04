@@ -75,48 +75,6 @@ enum HintTargets {
         Log.info("hint", ["action": rightClick ? "right-click" : "click", "text": target.isTextInput])
     }
 
-    /// The tabs of a window, off the main thread: every `AXTabButton`
-    /// under an `AXTabGroup`, except the one already selected. Measured
-    /// with `probe tabs` (2026-09-15): Brave's tab strip and Ghostty's tab
-    /// bar expose the identical shape — a group of radio buttons whose
-    /// value is 1 on the current tab — so one rule reads both, and the
-    /// press is the button's own action. Chromium builds no tree until an
-    /// assistive client announces itself, the same flag the click door
-    /// flips. Replaced by the tests, whose world has no tabs to read.
-    static var harvestTabs: (WindowModel.Window, @escaping ([Target]) -> Void) -> Void = { window, completion in
-        let windowElement = window.element
-        let pid = window.pid
-        DispatchQueue.global(qos: .userInitiated).async {
-            let app = AXUIElementCreateApplication(pid)
-            AXWarmer.ask(app, pid: pid)
-            AXUIElementSetMessagingTimeout(app, 0.5)
-            var found: [Target] = []
-            var visited = 0
-            let deadline = Date().addingTimeInterval(0.8)
-            func walk(_ element: AXUIElement, depth: Int, inGroup: Bool) {
-                visited += 1
-                guard depth < 16, visited < 4000, Date() < deadline else { return }
-                let role = AX.string(element, kAXRoleAttribute) ?? ""
-                let group = inGroup || role == "AXTabGroup"
-                if group, AX.string(element, kAXSubroleAttribute) == "AXTabButton" {
-                    if AX.int(element, kAXValueAttribute) != 1,
-                       let origin = AX.point(element, kAXPositionAttribute),
-                       let size = AX.size(element, kAXSizeAttribute) {
-                        found.append(Target(element: element, frame: CGRect(origin: origin, size: size),
-                                            isTextInput: false, viaAction: true))
-                    }
-                    return
-                }
-                for child in AX.elements(element, kAXChildrenAttribute) ?? [] {
-                    walk(child, depth: depth + 1, inGroup: group)
-                }
-            }
-            walk(windowElement, depth: 0, inGroup: false)
-            Log.info("tabs", ["harvested": found.count, "visited": visited])
-            DispatchQueue.main.async { completion(found) }
-        }
-    }
-
     /// Bounded walk of the focused window's element tree, off the main
     /// thread. Electron apps need AXManualAccessibility flipped before
     /// their tree exists; setting it is harmless everywhere else. The

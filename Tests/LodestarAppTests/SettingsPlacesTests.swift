@@ -71,4 +71,38 @@ final class SettingsPlacesTests: XCTestCase {
         XCTAssertNil(settings.placeForTesting, "nothing in front, the overview")
         settings.close()
     }
+
+    func testALandingStandsOnlyUntilTheNextKey() {
+        let settings = controller()
+        settings.landForTesting(place: 4, row: 1)
+        XCTAssertEqual(settings.placeForTesting, 4)
+        XCTAssertEqual(settings.landingForTesting, 1, "the border lands on its row")
+        settings.keyForTesting("down")
+        XCTAssertNil(settings.landingForTesting, "the next key moves on")
+        settings.rerender()
+        XCTAssertNil(settings.landingForTesting, "and a render does not bring it back")
+        settings.close()
+    }
+
+    func testALandingOnAFieldStillClearsAtTheNextKey() {
+        let settings = controller()
+        // Speak's Microphone is a choice; a number or text row takes the
+        // keys into its field, which is where the border used to stick.
+        settings.landForTesting(place: 5, row: 2)
+        XCTAssertEqual(settings.landingForTesting, 2)
+        settings.keyForTesting("1")
+        XCTAssertNil(settings.landingForTesting)
+        settings.close()
+    }
+
+    func testAnotherPlaceNeverWearsTheLanding() {
+        let settings = controller()
+        settings.landForTesting(place: 4, row: 1)
+        settings.pressForTesting("3")
+        XCTAssertEqual(settings.placeForTesting, 3)
+        XCTAssertNil(settings.landingForTesting, "Keep's second row is not the row that was found")
+        settings.pressForTesting("4")
+        XCTAssertNil(settings.landingForTesting, "nor does the landing come back")
+        settings.close()
+    }
 }

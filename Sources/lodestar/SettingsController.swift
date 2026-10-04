@@ -64,9 +64,15 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     private var pageReturn: Int?
     /// A destructive row's verb, waiting for its letter a second time.
     private var armedAction: Int?
-    /// The row a search landed on: it wears the accent's border until the
-    /// next key moves on.
-    private var landedRow: Int?
+    /// The row a search landed on, and the place and page it is on: it
+    /// wears the accent's border there, and only there, until the next key
+    /// or click.
+    private var landed: (place: Int?, page: String?, row: Int)?
+    /// The landed row, when it is on what is showing.
+    private var landedRow: Int? {
+        guard let landed, landed.place == place, landed.page == openPage else { return nil }
+        return landed.row
+    }
     /// The model's answer for the query standing in the field.
     private var suggestion: SettingsModel.Hit?
     private var asking = false
@@ -169,8 +175,10 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         guard clickMonitor == nil else { return }
         clickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) {
             [weak self] event in
-            guard let self, event.window === self.panel, !self.panel.isKeyWindow
-            else { return event }
+            guard let self, event.window === self.panel else { return event }
+            // A click moves on from a landing, as a key does.
+            self.clearLanding()
+            guard !self.panel.isKeyWindow else { return event }
             NSApp.activate(ignoringOtherApps: true)
             self.panel.makeKeyAndOrderFront(nil)
             return event
@@ -285,6 +293,11 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     private var shiftHeld = false
 
     private func handle(key: String, event: NSEvent) -> Bool {
+        // The landing border stands until the next key, wherever that key
+        // goes: the row's own field took the keys after a landing on a
+        // number or text, and the border used to outlive it. Return works
+        // the landed row and moves on after.
+        if key != "return" { clearLanding() }
         if event.modifierFlags.contains(.command) {
             // ⌘Z in a field is the field's; on the page it is the window's.
             guard key == "z", !inEditingContext(), layer != .searching else { return false }
@@ -346,11 +359,6 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
 
     private func browsingKey(_ key: String) -> Bool {
         if listFocus != nil { return listKey(key) }
-        // The landing border stays until the hand moves on.
-        if landedRow != nil, key != "return" {
-            landedRow = nil
-            removeLanding()
-        }
         // A destructive verb asks twice: its own letter again performs it,
         // any other key lets it go. No timer: the ask stands until answered.
         if let armed = armedAction {
@@ -527,7 +535,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         openPage = nil
         pageReturn = nil
         highlightRow = hit.row
-        landedRow = hit.row
+        landed = (hit.section, nil, hit.row)
         render()
     }
 
@@ -872,6 +880,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                 DispatchQueue.main.async { [weak self] in self?.render() }
             }
         }
+        // A landing belongs to the place it was found in: leaving ends it.
+        if let landed, landed.place != place || landed.page != openPage { self.landed = nil }
         let keepScroll = lastRenderedPane == place && lastRenderedPage == openPage
         let offset = paneScroll?.contentView.bounds.origin
         lastRenderedPane = place
@@ -1980,6 +1990,13 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         layer.add(breathe, forKey: "breathe")
     }
 
+    /// The landing is over: the border fades and is never drawn again.
+    private func clearLanding() {
+        guard landed != nil else { return }
+        landed = nil
+        removeLanding()
+    }
+
     private func removeLanding() {
         guard let ring = landing else { return }
         landing = nil
@@ -2196,6 +2213,21 @@ extension SettingsController {
     /// For the tests: a key pressed while browsing, as the panel delivers it.
     @discardableResult
     func pressForTesting(_ key: String) -> Bool { browsingKey(key) }
+    /// For the tests: a key as the panel's key handler takes it, before
+    /// any field or layer sees it.
+    @discardableResult
+    func keyForTesting(_ key: String) -> Bool {
+        let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                     windowNumber: 0, context: nil, characters: key,
+                                     charactersIgnoringModifiers: key, isARepeat: false, keyCode: 0)!
+        return handle(key: key, event: event)
+    }
+    /// For the tests: a search landing on a row.
+    func landForTesting(place: Int, row: Int) {
+        land(on: SettingsModel.Hit(section: place, row: row, title: "", sectionName: "", address: ""))
+    }
+    /// For the tests: is a landing border on screen, and on which row?
+    var landingForTesting: Int? { landing?.superview == nil ? nil : landedRow }
     /// For the tests: the place open, nil on the overview.
     var placeForTesting: Int? { place }
     /// For the tests: the page open, by name.

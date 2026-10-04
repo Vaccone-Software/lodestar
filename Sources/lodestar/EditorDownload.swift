@@ -122,11 +122,14 @@ struct EditorManifest: Equatable {
 enum ModelID: Hashable {
     case editor(EditorEngine)
     case ear(EarTier)
+    /// The model dictation asks what was meant.
+    case cleanup(CleanupModel)
 
     var name: String {
         switch self {
         case .editor(let engine): return engine.name
         case .ear(let tier): return tier.name
+        case .cleanup(let model): return model.name
         }
     }
 
@@ -134,6 +137,7 @@ enum ModelID: Hashable {
         switch id {
         case .editor(let engine): return EditorManifest.forEngine(engine)
         case .ear(let tier): return tier.manifest.map(EditorManifest.init)
+        case .cleanup(let model): return model.manifest
         }
     }
 }
@@ -165,6 +169,7 @@ final class EditorDownload: NSObject, URLSessionDataDelegate {
     var changed: () -> Void = {}
     var finished: (EditorEngine) -> Void = { _ in }
     var finishedEar: (EarTier) -> Void = { _ in }
+    var finishedCleanup: (CleanupModel) -> Void = { _ in }
 
     let root: URL
     private let manifests: (ModelID) -> EditorManifest?
@@ -301,6 +306,7 @@ final class EditorDownload: NSObject, URLSessionDataDelegate {
                 switch model {
                 case .editor(let engine): self.finished(engine)
                 case .ear(let tier): self.finishedEar(tier)
+                case .cleanup(let model): self.finishedCleanup(model)
                 }
             }
         }

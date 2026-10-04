@@ -428,10 +428,16 @@ actor EditorModel: EditorProofreader {
 
     /// MLX weights from one folder.
     static func load(fromDirectory directory: URL, engine: EditorEngine) async throws -> any EditorBackend {
+        try await load(fromDirectory: directory, label: engine.rawValue, additionalContext: engine.additionalContext)
+    }
+
+    /// Any pinned model's weights, named for the log.
+    static func load(fromDirectory directory: URL, label: String,
+                     additionalContext: [String: any Sendable]?) async throws -> any EditorBackend {
         let container = try await LLMModelFactory.shared.loadContainer(
             from: directory, using: #huggingFaceTokenizerLoader())
         settleRandomState()
-        return MLXBackend(container: container, engine: engine,
+        return MLXBackend(container: container, label: label, additionalContext: additionalContext,
                           cachesInstructions: ProcessInfo.processInfo.environment["LODESTAR_EDITOR_NO_PREFIX"] == nil)
     }
 }
@@ -450,7 +456,8 @@ actor EditorModel: EditorProofreader {
 /// reader throws out the other's.
 private final class MLXBackend: EditorBackend, @unchecked Sendable {
     let container: ModelContainer
-    let engine: EditorEngine
+    let label: String
+    let additionalContext: [String: any Sendable]?
     let cachesInstructions: Bool
     /// Each prompt's shared beginning and the model's state after reading
     /// it, the newest last. Built on a prompt's first question; touched
@@ -463,9 +470,11 @@ private final class MLXBackend: EditorBackend, @unchecked Sendable {
     /// question.
     private var prefixTried: Set<IntentPass.Prompt> = []
 
-    init(container: ModelContainer, engine: EditorEngine, cachesInstructions: Bool = true) {
+    init(container: ModelContainer, label: String, additionalContext: [String: any Sendable]?,
+         cachesInstructions: Bool = true) {
         self.container = container
-        self.engine = engine
+        self.label = label
+        self.additionalContext = additionalContext
         self.cachesInstructions = cachesInstructions
     }
 
@@ -477,7 +486,7 @@ private final class MLXBackend: EditorBackend, @unchecked Sendable {
         guard cachesInstructions else {
             let session = ChatSession(container, instructions: instructions,
                                       generateParameters: parameters(for: sentence),
-                                      additionalContext: engine.additionalContext)
+                                      additionalContext: additionalContext)
             return try await session.respond(to: sentence)
         }
         let parameters = self.parameters(for: sentence)
@@ -487,7 +496,7 @@ private final class MLXBackend: EditorBackend, @unchecked Sendable {
 
     func warm(_ prompt: IntentPass.Prompt) async throws {
         guard cachesInstructions else { return }
-        let additional = engine.additionalContext
+        let additional = additionalContext
         try await container.perform { (context: ModelContext) async throws in
             try await self.ensurePrefix(prompt, context: context, additional: additional,
                                         parameters: GenerateParameters(maxTokens: 24, temperature: 0))
@@ -505,7 +514,7 @@ private final class MLXBackend: EditorBackend, @unchecked Sendable {
     /// text's own length in tokens.
     private func answer(_ text: String, prompt: IntentPass.Prompt,
                         parameters: @escaping @Sendable (Int) -> GenerateParameters) async throws -> String {
-        let additional = engine.additionalContext
+        let additional = additionalContext
         let caching = cachesInstructions
         return try await container.perform { (context: ModelContext) async throws -> String in
             let parameters = parameters(context.tokenizer.encode(text: text, addSpecialTokens: false).count)
@@ -589,7 +598,7 @@ private final class MLXBackend: EditorBackend, @unchecked Sendable {
             Log.error("editor: instruction cache holds \(counted) of \(shared.count) tokens; not used")
             return nil
         }
-        Log.info("editor", ["instructions-cached": shared.count, "engine": engine.rawValue])
+        Log.info("editor", ["instructions-cached": shared.count, "engine": label])
         return (shared, cache)
     }
 }
@@ -626,7 +635,12 @@ enum EditorModels {
     static let root = Paths.data.appendingPathComponent("models", isDirectory: true)
 
     static func directory(for engine: EditorEngine, root: URL = root) -> URL? {
-        guard let manifest = EditorManifest.forEngine(engine) else { return nil }
+        EditorManifest.forEngine(engine).flatMap { directory(for: $0, root: root) }
+    }
+
+    /// A pinned model's folder when it is whole: Lodestar's own, or the
+    /// Hugging Face cache's at the same revision.
+    static func directory(for manifest: EditorManifest, root: URL = root) -> URL? {
         let own = root.appendingPathComponent(manifest.folder, isDirectory: true)
         if isComplete(own, manifest) { return own }
         let cache = FileManager.default.homeDirectoryForCurrentUser
@@ -668,10 +682,12 @@ enum EditorModels {
     /// Lodestar's own folder: a Hugging Face cache is someone else's.
     /// Returns what was removed: each engine and its gigabytes.
     @discardableResult
-    static func removeAll(except keep: EditorEngine, root: URL = root) -> [(EditorEngine, Double)] {
+    static func removeAll(except keep: EditorEngine, alsoKeeping kept: Set<String> = [],
+                          root: URL = root) -> [(EditorEngine, Double)] {
         var removed: [(EditorEngine, Double)] = []
         for engine in EditorEngine.allCases where engine != keep {
-            guard let manifest = EditorManifest.forEngine(engine) else { continue }
+            // Dictation's model for what was meant may be this one.
+            guard let manifest = EditorManifest.forEngine(engine), !kept.contains(manifest.folder) else { continue }
             let folder = root.appendingPathComponent(manifest.folder, isDirectory: true)
             let partial = root.appendingPathComponent(".\(manifest.folder).partial", isDirectory: true)
             for url in [folder, partial] where FileManager.default.fileExists(atPath: url.path) {

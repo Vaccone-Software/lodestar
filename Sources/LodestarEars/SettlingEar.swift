@@ -31,11 +31,15 @@ public protocol SettlingEar: AnyObject, Sendable {
 public enum EarTier: String, CaseIterable, Sendable {
     /// No second ear: Apple's recognizer and the draft's pipeline.
     case apple
-    /// Parakeet TDT 0.6B v2 on the Neural Engine: about 0.5 GB, 0.1 s.
+    /// Parakeet TDT 0.6B v2 on the Neural Engine: about 0.5 GB, 0.1 s,
+    /// and Gemma 4 E2B to write what was meant. From 16 GB.
     case standard
     /// Qwen3-ASR 1.7B, 8-bit, on MLX: about 2.5 GB on disk, 4 GB while
-    /// it works, 0.6 s.
+    /// it works, 0.6 s, and Gemma 4 E2B to write what was meant. From 24 GB.
     case full
+    /// Qwen3-ASR 1.7B, and Qwen3.6 35B-A3B to write what was meant: the
+    /// most exact, 20 GB more while you dictate. From 64 GB.
+    case max
 }
 
 extension EarTier {
@@ -45,6 +49,7 @@ extension EarTier {
         case .apple: return "Apple only"
         case .standard: return "Standard"
         case .full: return "Full"
+        case .max: return "Max"
         }
     }
 
@@ -53,7 +58,7 @@ extension EarTier {
         switch self {
         case .apple: return nil
         case .standard: return "parakeet-v2"
-        case .full: return "qwen3-asr-1.7b"
+        case .full, .max: return "qwen3-asr-1.7b"
         }
     }
 
@@ -62,7 +67,7 @@ extension EarTier {
         switch self {
         case .apple: return nil
         case .standard: return ParakeetEar.manifestV2
-        case .full: return QwenEar.manifest1_7B
+        case .full, .max: return QwenEar.manifest1_7B
         }
     }
 
@@ -70,8 +75,9 @@ extension EarTier {
     public var memoryNeeded: Double {
         switch self {
         case .apple: return 0
-        case .standard: return 8
+        case .standard: return 16
         case .full: return 24
+        case .max: return 64
         }
     }
 
@@ -79,8 +85,8 @@ extension EarTier {
     /// suits; a tier the Mac cannot run, or whose model is not on disk,
     /// falls back to the next smaller.
     public static func resolved(_ named: String, memoryGB: Double, hasModel: (EarTier) -> Bool) -> EarTier {
-        let wanted = EarTier(rawValue: named) ?? .full
-        let order: [EarTier] = [.full, .standard, .apple]
+        let wanted = EarTier(rawValue: named) ?? .max
+        let order: [EarTier] = [.max, .full, .standard, .apple]
         let start = order.firstIndex(of: wanted) ?? 0
         for tier in order[start...] where tier == .apple || (memoryGB >= tier.memoryNeeded - 1 && hasModel(tier)) {
             return tier

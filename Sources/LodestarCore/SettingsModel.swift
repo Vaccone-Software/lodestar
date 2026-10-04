@@ -271,6 +271,11 @@ public enum SettingsModel {
         public var healthWarning: String?
         /// What Automatic picks for dictation on this Mac, named in its label.
         public var draftModelAutomatic = "Full"
+        /// Each dictation tier as its row lists it, Apple only first: the
+        /// models it runs, or what this Mac lacks for it.
+        public var draftModelLabels = ["Apple only", "Standard", "Full", "Max"]
+        /// The tiers this Mac has too little memory for: listed, greyed.
+        public var draftModelsUnavailable: Set<String> = []
         public var editorModelStatus = ""
         /// Engines this Mac cannot run (too little memory, no Apple
         /// Intelligence): listed, greyed.
@@ -538,6 +543,14 @@ public enum SettingsModel {
         // 4 · Speak: the draft
         let inputOptions = [""] + machine.inputDevices
         let inputLabels = ["System · " + (machine.defaultInput ?? "Default")] + machine.inputDevices
+        var speakModel = Row(title: "Model", path: "draft.model",
+            control: .choice(options: ["", "apple", "standard", "full", "max"],
+                             labels: ["Automatic · \(machine.draftModelAutomatic)"] + machine.draftModelLabels,
+                             current: config.draftModel),
+            detail: (machine.earStatus.isEmpty ? "" : machine.earStatus + ". ")
+                + "Hears what you said again while you keep talking, writes it better, and takes out the words you take back",
+            isDefault: config.draftModel.isEmpty, group: "Draft")
+        speakModel.disabledChoices = machine.draftModelsUnavailable
         sections.append(Section(name: "Speak", rows: [
             gesture("draft", group: "Draft", detail: "Speak into it and ⏎ pastes where your cursor was"),
             Row(title: "Microphone", path: "draft.input",
@@ -545,13 +558,7 @@ public enum SettingsModel {
                                  current: inputOptions.contains(config.draftInput) ? config.draftInput : ""),
                 detail: "What the draft listens to. It names it while listening",
                 isDefault: config.draftInput.isEmpty, group: "Draft"),
-            Row(title: "Model", path: "draft.model",
-                control: .choice(options: ["", "apple", "standard", "full"],
-                                 labels: ["Automatic · \(machine.draftModelAutomatic)", "Apple only", "Standard", "Full"],
-                                 current: config.draftModel),
-                detail: (machine.earStatus.isEmpty ? "" : machine.earStatus + ". ")
-                    + "Hears what you said again while you keep talking, and writes it better",
-                isDefault: config.draftModel.isEmpty, group: "Draft"),
+            speakModel,
             words.inGroup("Words"),
         ], picture: "door-speak",
            sentence: "Speak, and the draft writes it down and hears you again to get it right",

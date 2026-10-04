@@ -338,7 +338,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.settings.machineStateChanged()
         }
         editorDownload.finished = { [weak self] engine in
-            EditorModels.removeAll(except: engine)
+            EditorModels.removeAll(except: engine,
+                                   alsoKeeping: Set([self?.earHost.wantedCleanup?.manifest.folder].compactMap { $0 }))
             self?.editorController?.refreshModel()
             if let self { self.applyEditor(self.config) }
             self?.hud.flash("✓ the \(engine.name) model is ready, grammar is marked now")
@@ -362,6 +363,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         draft.onClosed = { [weak self] in self?.earHost.rest() }
         draft.journal = DictationJournal.forThisBuild()
+        earHost.editorFetching = { [weak self] in self?.editorDownload.engine.flatMap(EditorManifest.forEngine) }
+        earHost.sharesEditor = { [weak self] model in
+            guard let self, self.config.editorEnabled, self.store.editorConsented else { return false }
+            return self.editorController?.engine == model.editorEngine
+        }
+        earHost.prepareShared = { [weak self] in
+            guard let proofreader = self?.editorController?.proofreader else { return }
+            Task { await proofreader.prepare() }
+        }
+        earHost.cleanupChanged = { [weak self] in
+            guard let self else { return }
+            self.wireIntent(self.config)
+            self.pruneModels()
+            self.settings.machineStateChanged()
+        }
         earHost.ready = { [weak self] tier in
             self?.hud.flash("✓ the \(tier.name.lowercased()) dictation model is ready, it hears what you say twice now")
         }
@@ -1154,6 +1170,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             state.editorEngineCurrent = self?.config.editorModel ?? ""
             state.earStatus = self?.earHost.status ?? ""
             state.draftModelAutomatic = EarTier.resolved("", memoryGB: EditorEngine.physicalGB, hasModel: { _ in true }).name
+            state.draftModelLabels = EarTier.allCases.map { $0.label(memoryGB: EditorEngine.physicalGB) }
+            state.draftModelsUnavailable = Set(EarTier.allCases
+                .filter { EditorEngine.physicalGB < $0.memoryNeeded - 1 }.map(\.rawValue))
             state.editorRegionInferred = EditorRegion.inferred()
             state.unitsInferred = ClipQuantity.System.regional().rawValue
             let waiting = (self?.config.editorEnabled ?? false) && !(self?.store.editorConsented ?? true)
@@ -2000,7 +2019,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // (Switched to the other model, the old one stays until the new is
         // whole, so the editor is never left with neither.)
         if let previous = editorController?.engine, previous != engine, EditorManifest.forEngine(engine) == nil {
-            let removed = EditorModels.removeAll(except: engine)
+            let removed = EditorModels.removeAll(except: engine,
+                                                 alsoKeeping: Set([earHost.wantedCleanup?.manifest.folder].compactMap { $0 }))
             if let (gone, gb) = removed.first {
                 hud.flash(String(format: "✓ removed the %@ model's %.1f GB", gone.name, gb))
             }
@@ -2011,16 +2031,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                 skipApps: config.editorSkipApps)
         draftEditor?.apply(enabled: running, engine: engine, language: language,
                            vocabulary: config.draftWords, modelReady: EditorModels.isReady(engine))
-        // What you meant, from what you said: the same model, asked with
-        // its own prompt, the speaker's names in it.
-        if Self.intentRuns(config, consented: consented, engine: engine),
-           let proofreader = editorController?.proofreader {
-            let prompt = IntentPass.prompt(names: Array(config.draftWords.prefix(30)))
-            draftController?.intend = { text in await proofreader.rewrite(text, prompt: prompt) }
-        } else {
-            draftController?.intend = nil
-        }
-        draftController?.intentNames = config.draftWords
+        earHost.editorChanged()
+        wireIntent(config)
         // The model's files arrive once the editor runs. Turned off, the
         // fetch stops and keeps what came; another model chosen, the old
         // partial goes.
@@ -2032,10 +2044,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         editorController?.refreshModel()
     }
 
-    /// Does the draft write what was meant? Whenever a model that can is
-    /// here: the condition is the switch.
-    static func intentRuns(_ config: Config, consented: Bool, engine: EditorEngine) -> Bool {
-        config.editorEnabled && consented && (engine == .standard || engine == .full) && EditorModels.isReady(engine)
+    /// What was meant, from what was said: asked of Speak's tier's model,
+    /// the editor's copy of it when the editor holds the same weights, the
+    /// draft's own otherwise. Whenever that model is here; there is no switch.
+    private func wireIntent(_ config: Config) {
+        draftController?.intentNames = config.draftWords
+        guard let model = earHost.cleanup else { draftController?.intend = nil; return }
+        let prompt = IntentPass.prompt(names: Array(config.draftWords.prefix(30)))
+        if earHost.sharesEditor(model), let proofreader = editorController?.proofreader {
+            draftController?.intend = { text in await proofreader.rewrite(text, prompt: prompt) }
+        } else if let own = earHost.draftModel {
+            draftController?.intend = { text in await own.rewrite(text, prompt: prompt) }
+        } else {
+            draftController?.intend = nil
+        }
+    }
+
+    /// The models folder holds what Write and Speak use, nothing else.
+    /// The editor's own switch keeps its old model until the new one is
+    /// whole, so nothing it shares is touched while it fetches.
+    private func pruneModels() {
+        let speak = earHost.wantedCleanup?.manifest.folder
+        guard editorDownload.model == nil else { return }
+        EditorModels.removeAll(except: EditorEngine.resolved(config.editorModel), alsoKeeping: Set([speak].compactMap { $0 }))
     }
 
     /// The question, put back until it is answered: a card another surface

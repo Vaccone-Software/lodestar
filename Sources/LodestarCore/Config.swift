@@ -258,8 +258,8 @@ public struct Config {
             "input": .string(allowed: nil, description: "The microphone the draft listens to, by its name in Sound settings. Empty follows the system default input."),
             "words": .freeTable(value: .boolean(description: "true to keep this word in the draft's vocabulary."),
                                 description: "Word → true. Names and terms speech gets wrong; a settled result that sounds like one is written as it, case and all."),
-            "model": .string(allowed: ["", "apple", "standard", "full"],
-                             description: "The model that hears what you said again and writes it better: apple (Apple's recognizer only), standard (Parakeet, 8 GB Macs and up), full (Qwen3-ASR, 24 GB and up). Empty picks the one this Mac suits and fetches it the first time you dictate."),
+            "model": .string(allowed: ["", "apple", "standard", "full", "max"],
+                             description: "The models that hear what you said again and take out the words you take back: apple (Apple's recognizer only), standard (Parakeet and Gemma 4 E2B, 16 GB Macs and up), full (Qwen3-ASR and Gemma 4 E2B, 24 GB and up), max (Qwen3-ASR and Qwen3.6 35B, 64 GB and up). Empty picks the one this Mac suits and fetches it the first time you dictate."),
         ], description: "The draft: lode . speaks, lode ⇧. revises."),
         "editor": .table([
             "enabled": .boolean(description: "Mark mistakes as you write; lode ⇥ letters the marks."),

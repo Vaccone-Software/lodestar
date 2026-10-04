@@ -9,7 +9,7 @@ final class SettingsModelTests: XCTestCase {
     func testThePanesInTheAgreedOrder() {
         XCTAssertEqual(sections.map(\.name),
                        ["General", "Permissions", "Gestures", "Interactions", "Clipboard",
-                        "Web", "Meetings", "Coach", "Draft", "Editor", "Advanced"])
+                        "Web", "Meetings", "Observations", "Draft", "Editor", "Advanced"])
         XCTAssertEqual(SettingsModel.paneAddresses(count: sections.count).count, sections.count,
                        "every pane has an address")
     }
@@ -48,8 +48,8 @@ final class SettingsModelTests: XCTestCase {
     /// About you, for the health record: two optional facts and the door
     /// to the keyboards, in their own group of the Coach pane.
     func testTheHealthGroupHoldsTwoOptionalFactsAndTheKeyboardsDoor() {
-        let coach = sections.first { $0.name == "Coach" }!
-        let health = coach.rows.filter { $0.group == "Health" }
+        let coach = sections.first { $0.name == "Observations" }!
+        let health = coach.rows.filter { $0.group == "Health" && $0.path.hasPrefix("health.") }
         XCTAssertEqual(health.map(\.path), ["health.born", "health.hand", "health.keyboards"])
         XCTAssertTrue(health.allSatisfy(\.isDefault), "unset by default")
         guard case .page(let page) = health[2].control else { return XCTFail("keyboards is a door") }
@@ -64,7 +64,7 @@ final class SettingsModelTests: XCTestCase {
         config.healthBorn = 1990
         config.healthHand = "left"
         let filled = SettingsModel.catalog(config: config, machine: .init())
-            .first { $0.name == "Coach" }!.rows.filter { $0.group == "Health" }
+            .first { $0.name == "Observations" }!.rows.filter { $0.group == "Health" && $0.path.hasPrefix("health.") }
         XCTAssertFalse(filled[0].isDefault)
         if case .text(let year, _) = filled[0].control { XCTAssertEqual(year, "1990") }
     }
@@ -137,11 +137,31 @@ final class SettingsModelTests: XCTestCase {
                        "titles are feature names, not guide copy")
     }
 
+    /// Each record carries its own switch and limit, and what depends on
+    /// it dims with it: the coach with the logbook, the facts with health.
+    func testEachRecordGatesWhatReadsIt() {
+        var config = Config()
+        config.observationsHealth = false
+        let rows = SettingsModel.catalog(config: config, machine: .init())
+            .first { $0.name == "Observations" }!.rows
+        XCTAssertEqual(rows.map(\.path).prefix(5), ["observations.logbook", "observations.logbook-mb",
+                                                    "coach.enabled", "observations.health",
+                                                    "observations.health-mb"])
+        for path in ["observations.health-mb", "health.born", "health.hand"] {
+            XCTAssertTrue(rows.first { $0.path == path }!.dimmed, "\(path) needs health")
+        }
+        XCTAssertFalse(rows.first { $0.path == "coach.enabled" }!.dimmed, "the coach reads the logbook, not health")
+        guard case .number(let mb, let min, _, _) = rows.first(where: { $0.path == "observations.logbook-mb" })!.control
+        else { return XCTFail("the logbook limit is a number") }
+        XCTAssertEqual(mb, 256)
+        XCTAssertEqual(min, 64)
+    }
+
     func testCoachRowDimsWithoutObservations() {
         var config = Config()
-        config.observationsEnabled = false
+        config.logbookEnabled = false
         let catalog = SettingsModel.catalog(config: config, machine: .init())
-        let coach = catalog.first { $0.name == "Coach" }!
+        let coach = catalog.first { $0.name == "Observations" }!
         let row = coach.rows.first { $0.path == "coach.enabled" }!
         XCTAssertTrue(row.dimmed, "the coach cannot speak without observations")
         if case .toggle(let value) = row.control {

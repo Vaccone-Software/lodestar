@@ -186,10 +186,16 @@ func diagnoseReport() -> String {
     store.load()
     lines.append("state: \(store.state.breaths.count) breaths, \(store.state.parked.count) parked, version \(store.state.version.map(String.init) ?? "unversioned")")
     if let warning = store.bootWarning { lines.append("  ⚠ \(warning)") }
+    let bounds = Config.load().0
     let usage = Retention.healthUsage(in: Paths.data)
     lines.append(String(format: "health record: %.0f MB of %.0f MB", Double(usage.bytes) / 1_048_576,
-                        Double(usage.bound) / 1_048_576))
-    if let warning = Retention.healthWarning(in: Paths.data) { lines.append("  ⚠ \(warning)") }
+                        Double(bounds.healthBytes) / 1_048_576))
+    if let warning = Retention.healthWarning(in: Paths.data, bound: bounds.healthBytes) {
+        lines.append("  ⚠ \(warning)")
+    }
+    let logbook = Retention.behavioralUsage(in: Paths.data)
+    lines.append(String(format: "logbook: %.0f MB of %.0f MB", Double(logbook.bytes) / 1_048_576,
+                        Double(bounds.logbookBytes) / 1_048_576))
     lines.append("")
 
     lines.append("log tail (\(Log.file.path)):")
@@ -435,28 +441,28 @@ func runReload() -> Never {
 /// clipboard, or a typed query beyond its first two characters.
 /// `engine` dumps the fitted models behind the findings, for eyes that
 /// want the working shown.
-func runObservations(clear: Bool, habitsOnly: Bool = false, healthOnly: Bool = false,
+func runObservations(clear: Bool, logbookOnly: Bool = false, healthOnly: Bool = false,
                      engine: Bool) -> Never {
     Log.stdoutEnabled = false
     let store = ObservationStore()
     if clear {
         // Both records unless a flag names one: clearing is the person's
         // call, and the plain verb means all of it.
-        let habits = !healthOnly
-        let health = !habitsOnly
-        if habits { store.clearHabits() }
+        let logbook = !healthOnly
+        let health = !logbookOnly
+        if logbook { store.clearLogbook() }
         if health { store.clearHealth() }
         // A running instance holds its own copy and buffers; tell it and
         // wake it, or it writes that copy back over the deletion.
-        store.requestClear(habits: habits, health: health)
+        store.requestClear(logbook: logbook, health: health)
         if let raw = try? String(contentsOf: Paths.pidFile, encoding: .utf8),
            let pid = Int32(raw.trimmingCharacters(in: .whitespacesAndNewlines)),
            kill(pid, 0) == 0 {
             kill(pid, SIGUSR2)
         }
-        let what = habits && health ? "observations and the health record"
-            : habits ? "observations (the health record is kept)"
-            : "the health record (observations are kept)"
+        let what = logbook && health ? "the logbook and the health record"
+            : logbook ? "the logbook (the health record is kept)"
+            : "the health record (the logbook is kept)"
         print("✓ cleared \(what)")
         exit(0)
     }
@@ -467,7 +473,7 @@ func runObservations(clear: Bool, habitsOnly: Bool = false, healthOnly: Bool = f
 
     guard o.updated != .distantPast else {
         print("no observations yet · \(ObservationStore.defaultFile.path)")
-        print("set observations.enabled to false to keep it that way.")
+        print("set observations.logbook to false to keep it that way.")
         exit(0)
     }
 

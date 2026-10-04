@@ -195,12 +195,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // The switches before the load: loading tends the files (rotation,
         // the monthly archive), and a record that is off must not be
         // touched even once at launch.
-        observationStore.setEnabled(loaded.observationsEnabled)
+        observationStore.setEnabled(loaded.logbookEnabled)
         observationStore.setHealthEnabled(loaded.observationsHealth)
+        observationStore.log.behavioralBound = loaded.logbookBytes
         let clears = observationStore.consumeClearRequest()
-        if clears.habits { observationStore.clearHabits() }
+        if clears.logbook { observationStore.clearLogbook() }
         if clears.health { observationStore.clearHealth() }
-        if !clears.habits { observationStore.load() }
+        if !clears.logbook { observationStore.load() }
         DispatchQueue.global(qos: .utility).async { [observationStore] in
             observationStore?.moveHealthOutOfTheRing()
         }
@@ -467,7 +468,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         coach.observations = observationStore
         // The coach reads what observations keep: with them off it has
         // nothing true to say, so it stands down whatever its own switch.
-        coach.enabled = loaded.coachEnabled && loaded.observationsEnabled
+        coach.enabled = loaded.coachEnabled && loaded.logbookEnabled
         coach.contextInputs = { [weak self] in
             guard let self else { return nil }
             // Observed profile identity → the reference a route would
@@ -1132,7 +1133,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         settings.machineState = { [weak self] in
             var state = SettingsModel.MachineState()
-            state.healthWarning = Retention.healthWarning(in: Paths.data)
+            state.healthWarning = Retention.healthWarning(in: Paths.data,
+                                                          bound: self?.config.healthBytes ?? Retention.healthBytes)
             // All three, always: one this Mac cannot run is listed with
             // what it needs, and greyed.
             let engines = EditorEngine.allCases
@@ -1986,20 +1988,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         clipboardController.maxBytes = loaded.clipboardMaxBytes
         clipboardController.saveFolder = loaded.clipboardSaveFolder
         clipboardController.setEnabled(loaded.clipboardEnabled)
-        observationStore?.setEnabled(loaded.observationsEnabled)
+        observationStore?.setEnabled(loaded.logbookEnabled)
         observationStore?.setHealthEnabled(loaded.observationsHealth)
+        observationStore?.setLogbookBound(loaded.logbookBytes)
         health.setEnabled(loaded.observationsHealth)
         health.setFingerMap(loaded.fingerMap)
-        if let clears = observationStore?.consumeClearRequest(), clears.habits || clears.health {
-            if clears.habits { observationStore?.clearHabits() }
+        if let clears = observationStore?.consumeClearRequest(), clears.logbook || clears.health {
+            if clears.logbook { observationStore?.clearLogbook() }
             if clears.health {
                 observationStore?.clearHealth()
                 health.forgetBuffered()
             }
-            hud.flash(clears.habits && clears.health ? "⌂ observations and health cleared"
-                      : clears.habits ? "⌂ observations cleared" : "⌂ health cleared")
+            hud.flash(clears.logbook && clears.health ? "⌂ logbook and health cleared"
+                      : clears.logbook ? "⌂ logbook cleared" : "⌂ health cleared")
         }
-        coach?.enabled = loaded.coachEnabled && loaded.observationsEnabled
+        coach?.enabled = loaded.coachEnabled && loaded.logbookEnabled
         meetings.config = loaded
         settings.config = loaded
         // A config edit changes the world the advisor reasons about —
@@ -2427,7 +2430,7 @@ func printUsage() {
       clipboard clear  erase the clipboard history
       observations         what Lodestar has noticed about how you reach things
       observations engine  the fitted models behind it, working shown
-      observations clear   delete both records (--habits or --health for one)
+      observations clear   delete both records (--logbook or --health for one)
       config-path      print the config file path
       apps             list every app name the graph can bind
       editor check     load the editor's model and ask it one sentence
@@ -2508,7 +2511,7 @@ if cliArguments.contains("schema") {
 }
 if cliArguments.contains("observations") {
     runObservations(clear: cliArguments.contains("clear"),
-                    habitsOnly: cliArguments.contains("--habits"),
+                    logbookOnly: cliArguments.contains("--logbook"),
                     healthOnly: cliArguments.contains("--health"),
                     engine: cliArguments.contains("engine"))
 }

@@ -14,7 +14,7 @@ public final class ObservationStore {
 
     public let file: URL
     /// What the coach reads: how the hand moves between apps, windows and
-    /// gestures. `observations.enabled` gates every write to it.
+    /// gestures: the logbook. `observations.logbook` gates every write to it.
     public let log: EventLog
     /// The health record's events (pulses, windows, click pulses, eras),
     /// in a log of their own beside the ring, gated by `observations.health`
@@ -47,6 +47,15 @@ public final class ObservationStore {
     }
 
     public static let healthLogName = "health-events.jsonl"
+
+    /// `observations.logbook-mb`. A smaller bound takes effect now, not at
+    /// the next launch: the oldest months leave once the change is made,
+    /// and only while the logbook is on.
+    public func setLogbookBound(_ bytes: Int64) {
+        let shrank = bytes < log.behavioralBound
+        log.behavioralBound = bytes
+        if shrank, enabled { log.compactSoon() }
+    }
 
     /// Both logs, oldest first: the material health research reads.
     public func allEvents() -> [ObservationEvent] {
@@ -505,7 +514,7 @@ public final class ObservationStore {
 
     /// Both records.
     public func clear() {
-        clearHabits()
+        clearLogbook()
         clearHealth()
     }
 
@@ -526,7 +535,7 @@ public final class ObservationStore {
     }
 
     /// What the coach reads: the ring, the view and the monthly archive.
-    public func clearHabits() {
+    public func clearLogbook() {
         observations = Observations()
         pendingSave?.cancel()
         pendingSave = nil
@@ -552,19 +561,19 @@ public final class ObservationStore {
         file.deletingLastPathComponent().appendingPathComponent("health.clear-request")
     }
 
-    public func requestClear(habits: Bool = true, health: Bool = true) {
-        if habits { try? Data().write(to: clearRequestFile) }
+    public func requestClear(logbook: Bool = true, health: Bool = true) {
+        if logbook { try? Data().write(to: clearRequestFile) }
         if health { try? Data().write(to: healthClearRequestFile) }
     }
 
     /// Which clears the CLI asked for, consumed.
-    public func consumeClearRequest() -> (habits: Bool, health: Bool) {
+    public func consumeClearRequest() -> (logbook: Bool, health: Bool) {
         let fm = FileManager.default
-        let habits = fm.fileExists(atPath: clearRequestFile.path)
+        let logbook = fm.fileExists(atPath: clearRequestFile.path)
         let health = fm.fileExists(atPath: healthClearRequestFile.path)
         try? fm.removeItem(at: clearRequestFile)
         try? fm.removeItem(at: healthClearRequestFile)
-        return (habits, health)
+        return (logbook, health)
     }
 
     /// Synchronous: both files are settled when this returns. Shutdown's

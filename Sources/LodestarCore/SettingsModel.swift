@@ -620,33 +620,58 @@ public enum SettingsModel {
                 problem: problem(at: "meetings.calendars")),
         ]))
 
-        // 8 · Coach
-        sections.append(Section(name: "Coach", rows: [
-            Row(title: "Observations", path: "observations.enabled",
-                control: .toggle(config.observationsEnabled),
-                detail: "Notice how you move between apps, windows and gestures, "
+        // 8 · Observations: two records, each with its switch, its limit,
+        // and what reads it. The coach reads the logbook; Born and
+        // Dominant hand belong to health.
+        sections.append(Section(name: "Observations", rows: [
+            Row(title: "Logbook", path: "observations.logbook",
+                control: .toggle(config.logbookEnabled),
+                detail: "Keep a log of how you move between apps, windows and gestures, "
                     + "on this Mac only. Sites by name, never their pages, "
-                    + "titles or what you type. Feeds the coach.",
-                isDefault: config.observationsEnabled),
-            // Its own record, kept whatever observations are set to: the
+                    + "titles or what you type. The coach reads it.",
+                isDefault: config.logbookEnabled,
+                group: "Logbook"),
+            Row(title: "Logbook limit", path: "observations.logbook-mb",
+                control: .number(Int(config.logbookBytes >> 20), min: Retention.logbookMinimumMB,
+                                 max: 4096, unit: "MB"),
+                detail: config.logbookEnabled
+                    ? "Once the logbook is full, its oldest months leave first. "
+                        + "Their monthly summaries stay."
+                    : "Needs the logbook.",
+                isDefault: config.logbookBytes == Retention.behavioralBytes,
+                dimmed: !config.logbookEnabled,
+                group: "Logbook"),
+            Row(title: "Coach", path: "coach.enabled",
+                control: .toggle(config.coachEnabled && config.logbookEnabled),
+                detail: config.logbookEnabled
+                    ? "Occasionally suggests one shortcut worth learning, "
+                        + "based on how you actually navigate. Tap lode "
+                        + "twice on the chip and it is set up for you."
+                    : "Needs the logbook.",
+                isDefault: config.coachEnabled,
+                dimmed: !config.logbookEnabled,
+                group: "Logbook"),
+            // Its own record, kept whatever the logbook is set to: the
             // two answer different questions.
-            Row(title: "Health pulse", path: "observations.health",
+            Row(title: "Health", path: "observations.health",
                 control: .toggle(config.observationsHealth),
                 detail: "Keep the rhythm of your hands: when each key goes down "
                     + "and how long it is held, by hand and finger, and how the "
                     + "pointer moves. Never which keys or what you type. Kept "
                     + "on this Mac and in its backups.",
                 isDefault: config.observationsHealth,
+                group: "Health",
                 problem: machine.healthWarning),
-            Row(title: "Coach", path: "coach.enabled",
-                control: .toggle(config.coachEnabled && config.observationsEnabled),
-                detail: config.observationsEnabled
-                    ? "Occasionally suggests one shortcut worth learning, "
-                        + "based on how you actually navigate. Tap lode "
-                        + "twice on the chip and it is set up for you."
-                    : "Needs observations.",
-                isDefault: config.coachEnabled,
-                dimmed: !config.observationsEnabled),
+            Row(title: "Health limit", path: "observations.health-mb",
+                control: .number(Int(config.healthBytes >> 20), min: Retention.healthMinimumMB,
+                                 max: 16_384, unit: "MB"),
+                detail: config.observationsHealth
+                    ? "Lodestar tells you when the record nears this. "
+                        + "Health is never deleted on its own."
+                    : "Needs health.",
+                isDefault: config.healthBytes == Retention.healthBytes,
+                dimmed: !config.observationsHealth,
+                group: "Health"),
             // About you, for the health record. Two facts every reading
             // of the hands is adjusted for, and nothing that names you.
             Row(title: "Born", path: "health.born",
@@ -654,7 +679,7 @@ public enum SettingsModel {
                 detail: config.observationsHealth
                     ? "The year. Age is the first thing a reading of the hands "
                         + "is adjusted for. Optional, local, never sent."
-                    : "Needs the health pulse.",
+                    : "Needs health.",
                 isDefault: config.healthBorn == nil,
                 dimmed: !config.observationsHealth,
                 group: "Health"),
@@ -665,7 +690,7 @@ public enum SettingsModel {
                 detail: config.observationsHealth
                     ? "The hand you write with. Fine motor signs are often "
                         + "one sided and the record keeps each hand apart."
-                    : "Needs the health pulse.",
+                    : "Needs health.",
                 isDefault: config.healthHand.isEmpty,
                 dimmed: !config.observationsHealth,
                 group: "Health"),
@@ -739,7 +764,7 @@ public enum SettingsModel {
         if boards.isEmpty {
             rows.append(Row(title: "No keyboard found",
                             control: .readout("Attach one and reopen the page.", sub: nil)))
-            return Section(name: keyboardsPage, rows: rows, parent: "Coach")
+            return Section(name: keyboardsPage, rows: rows, parent: "Observations")
         }
         rows.append(Row(
             title: "Keyboard",
@@ -750,7 +775,7 @@ public enum SettingsModel {
                 "\($0.id). Keys are named as the system reports them. A board that "
                     + "sends one code for both thumbs maps that key to Either."
             }))
-        guard let shown else { return Section(name: keyboardsPage, rows: rows, parent: "Coach") }
+        guard let shown else { return Section(name: keyboardsPage, rows: rows, parent: "Observations") }
         for key in Keys.SpecialKey.allCases {
             let placed = config.fingerMap.placement(of: key, keyboard: shown.id)
             let options = [""] + FingerMap.Placement.all.map(\.text)
@@ -762,7 +787,7 @@ public enum SettingsModel {
                 isDefault: placed == nil,
                 group: key == .leftShift ? "Keys" : nil))
         }
-        return Section(name: keyboardsPage, rows: rows, parent: "Coach")
+        return Section(name: keyboardsPage, rows: rows, parent: "Observations")
     }
 
     // MARK: - Labels

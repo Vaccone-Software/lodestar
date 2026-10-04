@@ -72,7 +72,9 @@ final class ConfigCoverageTests: XCTestCase {
             $0.draftModel == "standard"
         },
 
-        Probe(path: ["observations", "enabled"], value: .bool(false)) { !$0.observationsEnabled },
+        Probe(path: ["observations", "logbook"], value: .bool(false)) { !$0.logbookEnabled },
+        Probe(path: ["observations", "logbook-mb"], value: .int(128)) { $0.logbookBytes == 128 << 20 },
+        Probe(path: ["observations", "health-mb"], value: .int(2048)) { $0.healthBytes == 2048 << 20 },
         Probe(path: ["observations", "health"], value: .bool(false)) { !$0.observationsHealth },
         Probe(path: ["coach", "enabled"], value: .bool(false)) { !$0.coachEnabled },
         Probe(path: ["health", "born"], value: .string("1990")) { $0.healthBorn == 1990 },
@@ -176,6 +178,14 @@ final class ConfigCoverageTests: XCTestCase {
             Self.tree(["lode", "trigger"], .string("raw-hyper")))
         XCTAssertEqual(hyper.value(at: ["lode", "trigger"])?.string, "right-command",
                        "the old hyper trigger folds into the default")
+    }
+
+    /// 0.41 named the two records: a file that switched observations off
+    /// keeps the logbook off, and stays valid.
+    func testTheOldObservationsSwitchBecomesTheLogbook() {
+        let migrated = ConfigDefaults.normalized(Self.tree(["observations", "enabled"], .bool(false)))
+        XCTAssertNil(migrated.value(at: ["observations", "enabled"]))
+        XCTAssertEqual(migrated.value(at: ["observations", "logbook"])?.bool, false)
     }
 
     /// The 0.22 registry retirement: every reference written through the

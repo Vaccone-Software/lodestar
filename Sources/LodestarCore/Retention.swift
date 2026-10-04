@@ -21,6 +21,13 @@ public enum Retention {
     /// The health record: `keys/`, `pointer/`, the health log and its
     /// shards, and `health-*.jsonl.z`.
     public static let healthBytes: Int64 = 1 << 30
+    /// The smallest bounds the settings allow. The logbook's still holds
+    /// months beyond the coach's ninety-day window at today's rate (about
+    /// 85 MB a year on the maker's Mac); the health record's, the better
+    /// part of a year (about 300 MB a year there, so the default is nearer
+    /// three years out than the decade first assumed).
+    public static let logbookMinimumMB = 64
+    public static let healthMinimumMB = 256
     /// The fraction of a bound at which the instrument should say so.
     public static let warnFraction = 0.8
 
@@ -60,8 +67,10 @@ public enum Retention {
     /// The warning the bound promises, once the record is near it: nil
     /// until then. It says what is true, that nothing will be trimmed,
     /// because the person is the only one who may delete a baseline.
-    public static func healthWarning(in directory: URL) -> String? {
-        warning(for: healthUsage(in: directory))
+    public static func healthWarning(in directory: URL, bound: Int64 = healthBytes) -> String? {
+        var usage = healthUsage(in: directory)
+        usage.bound = bound
+        return warning(for: usage)
     }
 
     static func warning(for usage: Usage) -> String? {

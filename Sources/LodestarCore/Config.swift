@@ -139,11 +139,15 @@ public struct Config {
     public var editorSkipApps: Set<String> = []
     /// Watch how you reach things, locally, to make suggestions later. Off
     /// means nothing is recorded and no file is written.
-    public var observationsEnabled = true
+    /// The logbook's bound and the health record's warning point, in
+    /// bytes: `observations.logbook-mb` and `observations.health-mb`.
+    public var logbookBytes = Retention.behavioralBytes
+    public var healthBytes = Retention.healthBytes
+    public var logbookEnabled = true
     /// The health record: per-press timing (hand, finger, hold, never the
     /// key), pointer motion, and the pulses and windows folded from them.
     /// Its own switch and its own log, independent of
-    /// `observationsEnabled`: it watches all typing and clicking, and
+    /// `logbookEnabled`: it watches all typing and clicking, and
     /// turning either record off leaves the other standing.
     public var observationsHealth = true
     /// `health.born`: the year, or nil when not given. Age is the first
@@ -278,9 +282,11 @@ public struct Config {
                                      description: "Zone identifier (Asia/Tokyo) → true. A clip that is only a timestamp is read into your zone, UTC, and these."),
         ], description: "Clipboard history."),
         "observations": .table([
-            "enabled": .boolean(description: "Watch how you reach things, on this machine only, to suggest improvements later."),
-            "health": .boolean(description: "Also keep the hands' pulse: input counts, typing rhythm moments, active minutes. Counts only, never which keys or what was typed."),
-        ], description: "Local observations. How you got places, never what you were doing there; nothing leaves the machine."),
+            "logbook": .boolean(description: "Keep the logbook: how you move between apps, windows and gestures, on this machine only. Sites by name, never their pages, titles or what you type. The coach reads it."),
+            "logbook-mb": .number(min: Double(Retention.logbookMinimumMB), max: 4096, description: "Disk the logbook may claim. Once it is full the oldest months leave first; their monthly summaries stay."),
+            "health": .boolean(description: "Keep the health record: when each key goes down and how long it is held, by hand and finger, and how the pointer moves. Never which keys or what you type. Independent of the logbook."),
+            "health-mb": .number(min: Double(Retention.healthMinimumMB), max: 16_384, description: "The size Lodestar tells you the health record is nearing. Health is never deleted on its own."),
+        ], description: "What Lodestar observes, in two records with their own switches. Nothing leaves the machine."),
         "coach": .table([
             "enabled": .boolean(description: "Let Lodestar offer one improvement at a time, in quiet moments, priced in seconds."),
         ], description: "The coach: rare, evidence-backed suggestions drawn from the observations."),
@@ -571,8 +577,14 @@ public struct Config {
                 }
             }
         }
-        if let enabled = effective.value(at: ["observations", "enabled"])?.bool {
-            config.observationsEnabled = enabled
+        if let megabytes = effective.value(at: ["observations", "logbook-mb"])?.double {
+            config.logbookBytes = Int64(max(Double(Retention.logbookMinimumMB), min(4096, megabytes))) << 20
+        }
+        if let megabytes = effective.value(at: ["observations", "health-mb"])?.double {
+            config.healthBytes = Int64(max(Double(Retention.healthMinimumMB), min(16_384, megabytes))) << 20
+        }
+        if let enabled = effective.value(at: ["observations", "logbook"])?.bool {
+            config.logbookEnabled = enabled
         }
         if let enabled = effective.value(at: ["observations", "health"])?.bool {
             config.observationsHealth = enabled

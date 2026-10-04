@@ -76,9 +76,9 @@ final class RecordSplitTests: XCTestCase {
         try? FileManager.default.createDirectory(at: directory.appendingPathComponent(KeyStore.subdirectory),
                                                  withIntermediateDirectories: true)
 
-        store.clearHabits()
+        store.clearLogbook()
         XCTAssertTrue(store.log.readAll().isEmpty)
-        XCTAssertEqual(store.healthLog.readAll().count, 1, "the health record outlives a habits clear")
+        XCTAssertEqual(store.healthLog.readAll().count, 1, "the health record outlives a logbook clear")
         XCTAssertTrue(exists(KeyStore.subdirectory))
 
         store.chainCompleted(["s"], gaps: [0.3], peeked: false, at: start)
@@ -91,12 +91,12 @@ final class RecordSplitTests: XCTestCase {
 
     func testClearRequestsNameWhichRecord() {
         let store = store()
-        store.requestClear(habits: false, health: true)
+        store.requestClear(logbook: false, health: true)
         let asked = store.consumeClearRequest()
-        XCTAssertFalse(asked.habits)
+        XCTAssertFalse(asked.logbook)
         XCTAssertTrue(asked.health)
         let again = store.consumeClearRequest()
-        XCTAssertFalse(again.habits || again.health, "a request is consumed once")
+        XCTAssertFalse(again.logbook || again.health, "a request is consumed once")
     }
 
     /// Health that once lived in the ring moves to the health log, once,

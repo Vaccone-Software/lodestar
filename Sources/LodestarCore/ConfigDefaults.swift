@@ -48,6 +48,13 @@ public enum ConfigDefaults {
            gestures.removeValue(forKey: "cheat-sheet") != nil {
             out["gestures"] = .table(gestures)
         }
+        // 0.41 named the two records: the switch that was
+        // observations.enabled gates the logbook alone.
+        if case .table(var observations)? = out["observations"],
+           let legacy = observations.removeValue(forKey: "enabled") {
+            if observations["logbook"] == nil { observations["logbook"] = legacy }
+            out["observations"] = .table(observations)
+        }
         // Retired in 0.22: the name nothing read, the double-tap grammar,
         // hand-set hint letters (the layout is detected now), and the
         // auto-reload toggle (watching is simply how the config works).
@@ -221,8 +228,10 @@ public enum ConfigDefaults {
             "time-zones": .table([:]),
         ]),
         "observations": .table([
-            "enabled": .bool(true),
+            "logbook": .bool(true),
+            "logbook-mb": .int(256),
             "health": .bool(true),
+            "health-mb": .int(1024),
         ]),
         "editor": .table([
             "enabled": .bool(false),

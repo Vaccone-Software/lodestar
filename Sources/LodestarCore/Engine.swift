@@ -213,9 +213,7 @@ public protocol EngineWorld: AnyObject {
     func enterScrollAim() -> Bool
     /// Enter hints on the focused window; false when there is none.
     func enterHints(sticky: Bool) -> Bool
-    /// `lode ⇥`: a letter on every tab of the focused window.
-    func enterTabs() -> Bool
-    /// The editor is on: `lode ⇥` is its lens instead of the tabs door.
+    /// The editor is on: `lode ⇥` is its lens.
     var editorActive: Bool { get }
     /// `lode ⇥` with the editor on: a letter on every mark. False when
     /// there are none.
@@ -634,12 +632,11 @@ public struct EngineCore {
                     effects.append(.flash("✓ nothing marked here"))
                 }
             } else {
-                effects.append(.hideBars)
-                if world.enterTabs() {
-                    state = .hints(sticky: false)
-                } else {
-                    effects.append(.flash("✕ no focused window"))
-                }
+                // The tabs door that once stood here was retired: sixteen
+                // presses in thirty-seven days, and click hints letter the
+                // same tab buttons. With the editor off the key is the
+                // app's, as a switched-off gesture's keys are.
+                effects.append(.passThrough)
             }
         case "\\":
             // The key wearing the vertical bar flips the layout — moved

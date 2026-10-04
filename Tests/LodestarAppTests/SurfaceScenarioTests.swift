@@ -51,7 +51,7 @@ final class SurfaceScenarioTests: XCTestCase {
         XCTAssertTrue(stage.actions.summoned.isEmpty)
     }
 
-    /// A flash that no claim preceded — `lode ⇥` with nothing focused —
+    /// A flash that no claim preceded — `lode 0` with nothing focused —
     /// reaches the coach through the glass itself. The engine never said
     /// it was taking the panel; the panel did, and that is the only road
     /// a flash from anywhere else in the app has.
@@ -60,7 +60,7 @@ final class SurfaceScenarioTests: XCTestCase {
         stage.actions.focused = nil
         stage.raiseChip()
 
-        stage.lode("tab")
+        stage.lode("0")
 
         XCTAssertEqual(stage.hud.owner, .flash)
         XCTAssertFalse(stage.coach.chipVisible)

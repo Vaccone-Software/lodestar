@@ -19,7 +19,7 @@ import LodestarCore
 /// the object. Floating at the guide's home, where the eye already is.
 final class ModePill {
     enum Mode: Equatable {
-        case scroll, click, select, tabs, editor
+        case scroll, click, select, editor
         /// A launch that is taking time: stands while the window is awaited.
         case opening
 
@@ -29,7 +29,6 @@ final class ModePill {
             case .scroll: return "arrow.up.and.down"
             case .click: return "cursorarrow.click.2"
             case .select: return "character.cursor.ibeam"
-            case .tabs: return "square.on.square"
             case .editor: return "text.badge.checkmark"
             }
         }
@@ -40,7 +39,6 @@ final class ModePill {
             case .scroll: return "Scroll"
             case .click: return "Click"
             case .select: return "Select"
-            case .tabs: return "Tabs"
             case .editor: return "Editor"
             }
         }

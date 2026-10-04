@@ -104,12 +104,6 @@ final class WorldStub: EngineWorld {
         return hintsEnterSucceeds
     }
 
-    var tabsEnterSucceeds = true
-    func enterTabs() -> Bool {
-        calls.append("enterTabs")
-        return tabsEnterSucceeds
-    }
-
     func hintType(_ letter: String, shift: Bool, control: Bool) -> HintStep {
         calls.append("hintType:\(letter)\(shift ? ":shift" : "")\(control ? ":control" : "")")
         return hintOutcomes[letter] ?? .ignored
@@ -262,13 +256,10 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(press("tab", shift: true), [.flash("✕ no focused window")])
     }
 
-    func testTabEntersTheTabsDoorThroughTheHintsMachine() {
-        XCTAssertEqual(press("tab"), [.hideBars])
-        XCTAssertEqual(core.state, .hints(sticky: false), "the same machine as the click door")
-        XCTAssertEqual(world.calls.last, "enterTabs")
-        _ = press("escape")
-        world.tabsEnterSucceeds = false
-        XCTAssertEqual(press("tab"), [.hideBars, .flash("✕ no focused window")])
+    func testTabWithTheEditorOffBelongsToTheApp() {
+        // The tabs door was retired: the key is the editor's lens alone,
+        // and with the editor off it passes through.
+        XCTAssertEqual(press("tab"), [.passThrough])
         XCTAssertEqual(core.state, .idle)
     }
 

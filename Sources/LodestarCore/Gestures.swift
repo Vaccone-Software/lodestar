@@ -32,7 +32,6 @@ public enum Gestures {
     public static let roster: [Verb] = [
         Verb(name: "launcher", keys: ["space"], about: "lode space, the app launcher"),
         Verb(name: "graph", keys: graphLetters, about: "lode letter chains to your apps"),
-        Verb(name: "tabs", keys: ["tab"], about: "lode tab, a letter on every tab of the window, ⇧tab its windows"),
         Verb(name: "web-bar", keys: ["return"], about: "lode ⏎, links and search"),
         Verb(name: "commands", keys: ["-"], about: "lode - the commands bar, the focused app's verbs"),
         Verb(name: "draft", keys: ["."], about: "lode . speak into the draft, ⇧. revise the field in it"),

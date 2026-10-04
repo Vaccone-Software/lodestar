@@ -329,11 +329,12 @@ final class HealthTests: XCTestCase {
             log: EventLog(file: directory.appendingPathComponent("events.jsonl")))
         store.setHealthEnabled(false)
         store.healthPulse(pulseEvent(at: start))
-        XCTAssertTrue(store.log.readAll().isEmpty,
+        XCTAssertTrue(store.healthLog.readAll().isEmpty,
                       "observations.health false means no pulse, ever")
         store.setHealthEnabled(true)
         store.healthPulse(pulseEvent(at: start))
-        XCTAssertEqual(store.log.readAll().count, 1)
+        XCTAssertEqual(store.healthLog.readAll().count, 1)
+        XCTAssertTrue(store.log.readAll().isEmpty, "the coach's ring never carries health")
     }
 
     func testLatencyEventsRecord() {

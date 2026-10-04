@@ -133,6 +133,7 @@ public final class StateStore {
             // future corruption always has somewhere to fall back to.
             try? FileManager.default.removeItem(at: backupFile)
             try? FileManager.default.copyItem(at: file, to: backupFile)
+            Paths.excludeFromBackup(backupFile)
             Log.info("state: loaded \(state.breaths.count) breaths, \(state.parked.count) parked")
             return
         }
@@ -167,6 +168,9 @@ public final class StateStore {
         do {
             try data.write(to: file, options: .atomic)
             Paths.restrict(file)
+            // An atomic write is a new inode, and a new inode is backed up
+            // until something says otherwise.
+            Paths.excludeFromBackup(file)
             reportedSaveFailure = false
         } catch {
             if !reportedSaveFailure {

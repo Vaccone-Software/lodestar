@@ -209,6 +209,8 @@ public enum SettingsModel {
         public var editorEngineCurrent = ""
         /// The dictation model in use, or what it is fetching, for its row.
         public var earStatus = ""
+        /// The health record's size warning, once it is near its bound.
+        public var healthWarning: String?
         /// What Automatic picks for dictation on this Mac, named in its label.
         public var draftModelAutomatic = "Full"
         public var editorModelStatus = ""
@@ -622,19 +624,20 @@ public enum SettingsModel {
         sections.append(Section(name: "Coach", rows: [
             Row(title: "Observations", path: "observations.enabled",
                 control: .toggle(config.observationsEnabled),
-                detail: "Notice how you navigate, on this machine only. "
-                    + "Never titles, URLs, or content. Feeds the coach and "
-                    + "the retrospective.",
+                detail: "Notice how you move between apps, windows and gestures, "
+                    + "on this Mac only. Sites by name, never their pages, "
+                    + "titles or what you type. Feeds the coach.",
                 isDefault: config.observationsEnabled),
+            // Its own record, kept whatever observations are set to: the
+            // two answer different questions.
             Row(title: "Health pulse", path: "observations.health",
-                control: .toggle(config.observationsHealth && config.observationsEnabled),
-                detail: config.observationsEnabled
-                    ? "Also keep input counts and typing rhythm, for the "
-                        + "quarterly mirror. Counts only, never which keys "
-                        + "or what was typed."
-                    : "Needs observations.",
+                control: .toggle(config.observationsHealth),
+                detail: "Keep the rhythm of your hands: when each key goes down "
+                    + "and how long it is held, by hand and finger, and how the "
+                    + "pointer moves. Never which keys or what you type. Kept "
+                    + "on this Mac and in its backups.",
                 isDefault: config.observationsHealth,
-                dimmed: !config.observationsEnabled),
+                problem: machine.healthWarning),
             Row(title: "Coach", path: "coach.enabled",
                 control: .toggle(config.coachEnabled && config.observationsEnabled),
                 detail: config.observationsEnabled
@@ -648,17 +651,23 @@ public enum SettingsModel {
             // of the hands is adjusted for, and nothing that names you.
             Row(title: "Born", path: "health.born",
                 control: .text(config.healthBorn.map(String.init) ?? "", placeholder: "Year"),
-                detail: "The year. Age is the first thing a reading of the hands "
-                    + "is adjusted for. Optional, local, never sent.",
+                detail: config.observationsHealth
+                    ? "The year. Age is the first thing a reading of the hands "
+                        + "is adjusted for. Optional, local, never sent."
+                    : "Needs the health pulse.",
                 isDefault: config.healthBorn == nil,
+                dimmed: !config.observationsHealth,
                 group: "Health"),
             Row(title: "Dominant hand", path: "health.hand",
                 control: .choice(options: ["", "left", "right", "either"],
                                  labels: ["Not set", "Left", "Right", "Either"],
                                  current: config.healthHand),
-                detail: "The hand you write with. Fine motor signs are often "
-                    + "one sided and the record keeps each hand apart.",
+                detail: config.observationsHealth
+                    ? "The hand you write with. Fine motor signs are often "
+                        + "one sided and the record keeps each hand apart."
+                    : "Needs the health pulse.",
                 isDefault: config.healthHand.isEmpty,
+                dimmed: !config.observationsHealth,
                 group: "Health"),
             Row(title: "Keyboards", path: "health.keyboards",
                 control: .page(keyboardsPage),

@@ -137,13 +137,14 @@ public struct Config {
     public var editorLanguage = ""
     /// Apps whose fields the editor never reads, by name, lowercased.
     public var editorSkipApps: Set<String> = []
-    /// Changes the hand said were meant, as "original→replacement".
     /// Watch how you reach things, locally, to make suggestions later. Off
     /// means nothing is recorded and no file is written.
     public var observationsEnabled = true
-    /// The health pulse: input counts and rhythm moments over all typing
-    /// and clicking, never key identities. Its own switch because it
-    /// watches more than Lodestar's gestures.
+    /// The health record: per-press timing (hand, finger, hold, never the
+    /// key), pointer motion, and the pulses and windows folded from them.
+    /// Its own switch and its own log, independent of
+    /// `observationsEnabled`: it watches all typing and clicking, and
+    /// turning either record off leaves the other standing.
     public var observationsHealth = true
     /// `health.born`: the year, or nil when not given. Age is the first
     /// thing any reading of the hands is adjusted for.

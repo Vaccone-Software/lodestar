@@ -64,7 +64,8 @@ final class EraTests: XCTestCase {
         XCTAssertEqual(before.fingerprint, base.fingerprint, "an era written before the map existed")
     }
 
-    func testTheHealthKindsAreThePulseTheWindowAndTheEra() {
-        XCTAssertEqual(ObservationEvent.healthKinds, [.pulse, .window, .era])
+    func testTheHealthKindsAreThePulseTheWindowTheEraAndTheClicks() {
+        XCTAssertEqual(ObservationEvent.healthKinds, [.pulse, .window, .era, .clicks],
+                       "the click pulse is gated by the health switch, so it is kept with health")
     }
 }

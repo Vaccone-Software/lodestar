@@ -79,10 +79,10 @@ final class HealthMonitorLockTests: XCTestCase {
         wait(for: [key], timeout: 3)
     }
 
-    /// The stores went where they were told, and nowhere near the real
-    /// data directory.
-    func testTheStoresLiveBesideTheDirectoryGiven() {
+    /// The install's name is written with the first day file, never by
+    /// a monitor that has recorded nothing: health off writes no file.
+    func testTheInstallNameWaitsForTheFirstDayFile() {
         _ = HealthMonitor(directory: directory)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("install-id").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("install-id").path))
     }
 }

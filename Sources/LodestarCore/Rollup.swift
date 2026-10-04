@@ -941,6 +941,9 @@ public struct Rollup: Codable, Equatable {
                                                  withIntermediateDirectories: true)
         do {
             try data.write(to: file, options: .atomic)
+            // Behavioral: which sites, which profiles, month after month.
+            Paths.restrict(file)
+            Paths.excludeFromBackup(file)
         } catch {
             Log.error("rollup: could not write \(file.lastPathComponent) (\(error))")
             outcome.added = []

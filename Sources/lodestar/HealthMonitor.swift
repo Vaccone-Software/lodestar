@@ -85,11 +85,12 @@ final class HealthMonitor {
     private let ownPID = Int64(ProcessInfo.processInfo.processIdentifier)
 
     init(directory: URL = Paths.data) {
-        let install = Install.id(in: directory)
+        // Resolved only when a day file opens: with health off the
+        // install-id file is never written.
         keys = KeyStore(directory: directory.appendingPathComponent(KeyStore.subdirectory, isDirectory: true),
-                        installID: install)
+                        installID: Install.id(in: directory))
         pointerStore = PointerStore(directory: directory.appendingPathComponent(PointerStore.subdirectory, isDirectory: true),
-                                    installID: install)
+                                    installID: Install.id(in: directory))
         eras = EraTracker(file: directory.appendingPathComponent("era.json"))
     }
 
@@ -210,6 +211,13 @@ final class HealthMonitor {
             flushTimer = nil
             flush()
         }
+    }
+
+    /// The health record was cleared under a running instance: whatever
+    /// is buffered belongs to the history that is gone.
+    func forgetBuffered() {
+        keys.discardBuffered()
+        pointerStore.discardBuffered()
     }
 
     /// Config's `health.keyboards`, at boot and on every reload. Main

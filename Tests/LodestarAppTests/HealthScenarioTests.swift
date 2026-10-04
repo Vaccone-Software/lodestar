@@ -88,7 +88,7 @@ final class HealthScenarioTests: XCTestCase {
         stage.health.drainForTesting()
         stage.health.flush()
         stage.observations.flush()
-        let window = try XCTUnwrap(stage.observations.log.recent(days: 30, now: stage.clock.now.addingTimeInterval(1))
+        let window = try XCTUnwrap(stage.observations.healthLog.recent(days: 30, now: stage.clock.now.addingTimeInterval(1))
             .last { $0.kind == .window }?.window)
         XCTAssertNotNil(window.keyboards, "the devices attached")
         XCTAssertNotNil(window.pointers)

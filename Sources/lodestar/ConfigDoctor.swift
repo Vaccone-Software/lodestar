@@ -186,6 +186,10 @@ func diagnoseReport() -> String {
     store.load()
     lines.append("state: \(store.state.breaths.count) breaths, \(store.state.parked.count) parked, version \(store.state.version.map(String.init) ?? "unversioned")")
     if let warning = store.bootWarning { lines.append("  ⚠ \(warning)") }
+    let usage = Retention.healthUsage(in: Paths.data)
+    lines.append(String(format: "health record: %.0f MB of %.0f MB", Double(usage.bytes) / 1_048_576,
+                        Double(usage.bound) / 1_048_576))
+    if let warning = Retention.healthWarning(in: Paths.data) { lines.append("  ⚠ \(warning)") }
     lines.append("")
 
     lines.append("log tail (\(Log.file.path)):")
@@ -431,20 +435,34 @@ func runReload() -> Never {
 /// clipboard, or a typed query beyond its first two characters.
 /// `engine` dumps the fitted models behind the findings, for eyes that
 /// want the working shown.
-func runObservations(clear: Bool, engine: Bool) -> Never {
+func runObservations(clear: Bool, habitsOnly: Bool = false, healthOnly: Bool = false,
+                     engine: Bool) -> Never {
     Log.stdoutEnabled = false
     let store = ObservationStore()
     if clear {
-        store.clear()
-        // A running instance holds its own copy; tell it, or it saves that copy
-        // back over the deletion within seconds.
-        store.requestClear()
-        print("✓ observations cleared (\(ObservationStore.defaultFile.path))")
+        // Both records unless a flag names one: clearing is the person's
+        // call, and the plain verb means all of it.
+        let habits = !healthOnly
+        let health = !habitsOnly
+        if habits { store.clearHabits() }
+        if health { store.clearHealth() }
+        // A running instance holds its own copy and buffers; tell it and
+        // wake it, or it writes that copy back over the deletion.
+        store.requestClear(habits: habits, health: health)
+        if let raw = try? String(contentsOf: Paths.pidFile, encoding: .utf8),
+           let pid = Int32(raw.trimmingCharacters(in: .whitespacesAndNewlines)),
+           kill(pid, 0) == 0 {
+            kill(pid, SIGUSR2)
+        }
+        let what = habits && health ? "observations and the health record"
+            : habits ? "observations (the health record is kept)"
+            : "the health record (observations are kept)"
+        print("✓ cleared \(what)")
         exit(0)
     }
     store.load(compacting: false)
     let o = store.observations
-    let events = store.log.readAll()
+    let events = store.allEvents()
     let (config, _) = Config.load()
 
     guard o.updated != .distantPast else {

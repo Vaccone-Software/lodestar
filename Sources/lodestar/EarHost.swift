@@ -80,6 +80,28 @@ final class EarHost {
             ear = EarFactory.make(engine, folder: url)
         }
         Log.info("draft", ["ear": next.rawValue, "engine": next.engine ?? "none", "ready": ear != nil])
+        // One model on disk at a time, as the editor keeps it: once the
+        // tier this Mac settled on is whole (or needs none), the others'
+        // pinned downloads go.
+        if next == suited, next == .apple || Self.hasModel(next) { Self.removeAll(except: next) }
+    }
+
+    /// Every pinned ear but `keep`, and any half-finished download of one.
+    /// Only Lodestar's own folders: a model put here by hand stays.
+    @discardableResult
+    static func removeAll(except keep: EarTier, root: URL = folder) -> [EarTier] {
+        var removed: [EarTier] = []
+        for tier in EarTier.allCases where tier != keep {
+            guard let manifest = tier.manifest.map(EditorManifest.init) else { continue }
+            let model = root.appendingPathComponent(manifest.folder, isDirectory: true)
+            let partial = root.appendingPathComponent(".\(manifest.folder).partial", isDirectory: true)
+            for url in [model, partial] where FileManager.default.fileExists(atPath: url.path) {
+                try? FileManager.default.removeItem(at: url)
+                if url == model { removed.append(tier) }
+                Log.info("draft", ["ear removed": url.lastPathComponent])
+            }
+        }
+        return removed
     }
 
     /// What the Settings row says: the ear in use, or the one on its way.

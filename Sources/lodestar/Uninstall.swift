@@ -121,7 +121,12 @@ struct UninstallPlan {
             links: ["/opt/homebrew/bin/lodestar", "/usr/local/bin/lodestar"].map { URL(fileURLWithPath: $0) },
             alertSound: AlertSound.installed,
             alertSelected: AlertSound.isSelected(AlertSound.installed, selection: AlertSound.currentSelection()),
-            dataRoots: [Paths.config, Paths.data],
+            // The third root is the Core ML cache the dictation model's
+            // first load compiles into: Lodestar's, so it leaves with it.
+            dataRoots: [Paths.config, Paths.data]
+                + (Bundle.main.bundleIdentifier.map {
+                    [home.appendingPathComponent("Library/Caches/\($0)", isDirectory: true)]
+                } ?? []),
             pidFile: Paths.pidFile,
             bundleID: Bundle.main.bundleIdentifier ?? agentLabel,
             browserToRestore: browser)

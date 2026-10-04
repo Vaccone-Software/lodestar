@@ -43,17 +43,28 @@ public final class KeyStore {
     static let prefix = "keys"
 
     public let directory: URL
-    public let installID: String
+    /// The install's name, asked for the first time a day file is opened:
+    /// an instrument that is off must not write even the file that names
+    /// it.
+    public var installID: String {
+        lock.lock(); defer { lock.unlock() }
+        if let resolvedInstall { return resolvedInstall }
+        let id = resolveInstall()
+        resolvedInstall = id
+        return id
+    }
+    private let resolveInstall: () -> String
+    private var resolvedInstall: String?
     public let appVersion: String
     private let calendar: Calendar
     private let queue = DispatchQueue(label: "lodestar.keys", qos: .utility)
     private var buffer: [(press: KeyPress, roster: [String])] = []
     private let lock = NSLock()
 
-    public init(directory: URL, installID: String, timeZone: TimeZone = .current,
-                appVersion: String = Lodestar.version) {
+    public init(directory: URL, installID: @autoclosure @escaping () -> String,
+                timeZone: TimeZone = .current, appVersion: String = Lodestar.version) {
         self.directory = directory
-        self.installID = installID
+        self.resolveInstall = installID
         self.appVersion = appVersion
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
@@ -82,6 +93,16 @@ public final class KeyStore {
         lock.unlock()
         guard !pending.isEmpty else { return }
         queue.async { [self] in write(pending) }
+    }
+
+    /// Drop what is buffered and not yet written, and the install's name:
+    /// the record was just deleted, and neither may land after it.
+    public func discardBuffered() {
+        lock.lock()
+        buffer.removeAll()
+        resolvedInstall = nil
+        lock.unlock()
+        queue.sync {}
     }
 
     /// Write and wait — shutdown, and the tests.

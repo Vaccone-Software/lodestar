@@ -13,7 +13,15 @@ public final class ObservationStore {
     public static let defaultFile = Paths.data.appendingPathComponent("observations.json")
 
     public let file: URL
+    /// What the coach reads: how the hand moves between apps, windows and
+    /// gestures. `observations.enabled` gates every write to it.
     public let log: EventLog
+    /// The health record's events (pulses, windows, click pulses, eras),
+    /// in a log of their own beside the ring, gated by `observations.health`
+    /// alone: the two switches answer different questions, and turning one
+    /// off must leave the other's history standing. Health research reads
+    /// both (`allEvents`); the coach reads only `log`.
+    public let healthLog: EventLog
     public private(set) var observations = Observations()
     private var pendingSave: DispatchWorkItem?
     private var enabled = true
@@ -24,9 +32,53 @@ public final class ObservationStore {
     /// must never pay.
     private let saveQueue = DispatchQueue(label: "lodestar.observations", qos: .utility)
 
-    public init(file: URL = ObservationStore.defaultFile, log: EventLog = EventLog()) {
+    public init(file: URL = ObservationStore.defaultFile, log: EventLog = EventLog(),
+                healthLog: EventLog? = nil) {
         self.file = file
         self.log = log
+        // Beside this store's own file, never at a global default, so a
+        // store in a scratch directory keeps its health log there too.
+        let health = healthLog ?? EventLog(file: file.deletingLastPathComponent()
+            .appendingPathComponent(Self.healthLogName))
+        health.excludedFromBackup = false
+        // The health record is never pruned by its own instrument.
+        health.behavioralBound = .max
+        self.healthLog = health
+    }
+
+    public static let healthLogName = "health-events.jsonl"
+
+    /// Both logs, oldest first: the material health research reads.
+    public func allEvents() -> [ObservationEvent] {
+        (log.readAll() + healthLog.readAll()).sorted { $0.t < $1.t }
+    }
+
+    /// The health record's kinds once lived in the ring. Move them into
+    /// the health log, once: copied first and checked, then taken out of
+    /// the ring, then marked done. A crash between the steps leaves
+    /// duplicates the next run skips, never a gap.
+    public func moveHealthOutOfTheRing() {
+        let marker = file.deletingLastPathComponent().appendingPathComponent(".health-split")
+        guard !FileManager.default.fileExists(atPath: marker.path) else { return }
+        let seen = Set(healthLog.readAll().map { HealthKey($0) })
+        let legacy = log.readAll().filter { ObservationEvent.healthKinds.contains($0.kind) }
+        for event in legacy where !seen.contains(HealthKey(event)) { healthLog.append(event) }
+        healthLog.flush()
+        let kept = Set(healthLog.readAll().map { HealthKey($0) })
+        guard legacy.allSatisfy({ kept.contains(HealthKey($0)) }) else {
+            Log.error("observations: the health log did not take every event — the ring keeps them")
+            return
+        }
+        let taken = log.extract(kinds: ObservationEvent.healthKinds)
+        healthLog.compact()
+        try? Data().write(to: marker)
+        if !taken.isEmpty { Log.info("observations: moved \(taken.count) health events out of the ring") }
+    }
+
+    private struct HealthKey: Hashable {
+        let t: TimeInterval
+        let kind: ObservationEvent.Kind
+        init(_ event: ObservationEvent) { t = event.t.timeIntervalSince1970; kind = event.kind }
     }
 
     /// Off means nothing is recorded and nothing is written. Somebody who
@@ -58,8 +110,13 @@ public final class ObservationStore {
         // completed month is rolled up before its days start falling out
         // of the ring's window.
         if compacting {
-            rollupSoon()
-            log.compactSoon()
+            // Each log is tended only while its switch is on: off means
+            // the files are left exactly as they were.
+            if enabled {
+                rollupSoon()
+                log.compactSoon()
+            }
+            if healthEnabled { healthLog.compactSoon() }
         }
         let data = try? Data(contentsOf: file)
         guard let data,
@@ -365,28 +422,28 @@ public final class ObservationStore {
     /// it watches all typing, not just Lodestar's gestures —
     /// `observations.health false` turns exactly this off.
     public func healthPulse(_ event: ObservationEvent) {
-        guard event.kind == .pulse, healthEnabled else { return }
-        record(event)
+        guard event.kind == .pulse else { return }
+        recordHealth(event)
     }
 
     /// A window of presses, folded by `HoldWindow`. The pulse's gate.
     public func healthWindow(_ event: ObservationEvent) {
-        guard event.kind == .window, healthEnabled else { return }
-        record(event)
+        guard event.kind == .window else { return }
+        recordHealth(event)
     }
 
     /// A quarter hour of clicks in one app, folded by `ClickPulse`. The
     /// same gate as the pulse: it watches every click, not Lodestar's.
     public func clickPulse(_ event: ObservationEvent) {
-        guard event.kind == .clicks, healthEnabled else { return }
-        record(event)
+        guard event.kind == .clicks else { return }
+        recordHealth(event)
     }
 
     /// The instrument's own state changed. The pulse's gate: it is part
     /// of the health record and travels with it.
     public func era(_ event: ObservationEvent) {
-        guard event.kind == .era, healthEnabled else { return }
-        record(event)
+        guard event.kind == .era else { return }
+        recordHealth(event)
     }
 
     /// Off means no pulse is recorded; the accumulator upstream also stops
@@ -405,6 +462,11 @@ public final class ObservationStore {
         event.verb = surface
         event.seconds = seconds
         record(event)
+    }
+
+    private func recordHealth(_ event: ObservationEvent) {
+        guard healthEnabled else { return }
+        healthLog.append(event)
     }
 
     private func record(_ event: ObservationEvent) {
@@ -433,15 +495,38 @@ public final class ObservationStore {
     /// crosses month ends.
     public func rollupSoon(now: Date = Date()) {
         guard enabled else { return }
-        saveQueue.async { [log, rollupFile] in
-            let outcome = Rollup.roll(events: log.readAll(), file: rollupFile, now: now)
+        saveQueue.async { [rollupFile] in
+            let outcome = Rollup.roll(events: self.allEvents(), file: rollupFile, now: now)
             if !outcome.added.isEmpty {
                 Log.info("rollup", ["archived": outcome.added.joined(separator: " ")])
             }
         }
     }
 
+    /// Both records.
     public func clear() {
+        clearHabits()
+        clearHealth()
+    }
+
+    /// The health record, all of it: the health log, the archive of
+    /// months the ring once retired, the per-press and pointer day files,
+    /// the era fingerprint and the install's name.
+    public func clearHealth() {
+        healthLog.clear()
+        let directory = file.deletingLastPathComponent()
+        let fm = FileManager.default
+        let names = (try? fm.contentsOfDirectory(atPath: directory.path)) ?? []
+        for name in names where name.hasPrefix("health-") && name.hasSuffix(".jsonl.z") {
+            try? fm.removeItem(at: directory.appendingPathComponent(name))
+        }
+        for name in [KeyStore.subdirectory, PointerStore.subdirectory, "era.json", Install.file] {
+            try? fm.removeItem(at: directory.appendingPathComponent(name))
+        }
+    }
+
+    /// What the coach reads: the ring, the view and the monthly archive.
+    public func clearHabits() {
         observations = Observations()
         pendingSave?.cancel()
         pendingSave = nil
@@ -463,14 +548,23 @@ public final class ObservationStore {
     /// A CLI clear has to reach the running instance, or the copy it holds
     /// in memory is written straight back over the deletion. The clipboard
     /// learned this first; the handshake is the same file-as-a-flag.
-    public func requestClear() {
-        try? Data().write(to: clearRequestFile)
+    private var healthClearRequestFile: URL {
+        file.deletingLastPathComponent().appendingPathComponent("health.clear-request")
     }
 
-    public func consumeClearRequest() -> Bool {
-        guard FileManager.default.fileExists(atPath: clearRequestFile.path) else { return false }
-        try? FileManager.default.removeItem(at: clearRequestFile)
-        return true
+    public func requestClear(habits: Bool = true, health: Bool = true) {
+        if habits { try? Data().write(to: clearRequestFile) }
+        if health { try? Data().write(to: healthClearRequestFile) }
+    }
+
+    /// Which clears the CLI asked for, consumed.
+    public func consumeClearRequest() -> (habits: Bool, health: Bool) {
+        let fm = FileManager.default
+        let habits = fm.fileExists(atPath: clearRequestFile.path)
+        let health = fm.fileExists(atPath: healthClearRequestFile.path)
+        try? fm.removeItem(at: clearRequestFile)
+        try? fm.removeItem(at: healthClearRequestFile)
+        return (habits, health)
     }
 
     /// Synchronous: both files are settled when this returns. Shutdown's
@@ -479,6 +573,7 @@ public final class ObservationStore {
         pendingSave?.cancel()
         pendingSave = nil
         log.flush()
+        healthLog.flush()
         guard enabled else { return }
         saveQueue.sync { [snapshot = observations] in self.write(snapshot) }
     }

@@ -18,7 +18,8 @@ import Foundation
 public enum Retention {
     /// The behavioral ring: `events.jsonl` and its monthly shards.
     public static let behavioralBytes: Int64 = 256 << 20
-    /// The health record: `keys/`, `pointer/`, and `health-*.jsonl.z`.
+    /// The health record: `keys/`, `pointer/`, the health log and its
+    /// shards, and `health-*.jsonl.z`.
     public static let healthBytes: Int64 = 1 << 30
     /// The fraction of a bound at which the instrument should say so.
     public static let warnFraction = 0.8
@@ -51,9 +52,24 @@ public enum Retention {
         }
         let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
         bytes += names
-            .filter { $0.hasPrefix("health-") && $0.hasSuffix(".jsonl.z") }
+            .filter { $0.hasPrefix("health-") && ($0.hasSuffix(".jsonl.z") || $0.hasSuffix(".jsonl")) }
             .reduce(Int64(0)) { $0 + size(directory.appendingPathComponent($1)) }
         return Usage(bytes: bytes, bound: healthBytes)
+    }
+
+    /// The warning the bound promises, once the record is near it: nil
+    /// until then. It says what is true, that nothing will be trimmed,
+    /// because the person is the only one who may delete a baseline.
+    public static func healthWarning(in directory: URL) -> String? {
+        warning(for: healthUsage(in: directory))
+    }
+
+    static func warning(for usage: Usage) -> String? {
+        guard usage.nearBound else { return nil }
+        let held = Int((Double(usage.bytes) / 1_048_576).rounded())
+        let planned = Int((Double(usage.bound) / 1_048_576).rounded())
+        return "The health record holds \(held) MB of the \(planned) MB planned for it. "
+            + "Nothing is trimmed on its own"
     }
 
     static func size(_ url: URL) -> Int64 {

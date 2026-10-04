@@ -79,7 +79,7 @@ public enum Paths {
     /// record or harmless, and is backed up.
     public static func isBehavioral(_ name: String) -> Bool {
         if name == "clipboard" { return true }
-        for prefix in ["events", "observations", "lodestar.log", "state.json"]
+        for prefix in ["events", "observations", "lodestar.log", "state.json", "rollups.json", "draft-in-flight"]
         where name == prefix || name.hasPrefix(prefix + ".") || name.hasPrefix(prefix + "-") {
             return true
         }

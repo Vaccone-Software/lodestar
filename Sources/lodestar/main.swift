@@ -192,13 +192,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         appIndex = AppIndex()
         store = StateStore()
         observationStore = ObservationStore()
-        if observationStore.consumeClearRequest() {
-            observationStore.clear()
-        } else {
-            observationStore.load()
-        }
+        // The switches before the load: loading tends the files (rotation,
+        // the monthly archive), and a record that is off must not be
+        // touched even once at launch.
         observationStore.setEnabled(loaded.observationsEnabled)
         observationStore.setHealthEnabled(loaded.observationsHealth)
+        let clears = observationStore.consumeClearRequest()
+        if clears.habits { observationStore.clearHabits() }
+        if clears.health { observationStore.clearHealth() }
+        if !clears.habits { observationStore.load() }
+        DispatchQueue.global(qos: .utility).async { [observationStore] in
+            observationStore?.moveHealthOutOfTheRing()
+        }
         layout.onMoves = { [weak self] seconds, members in
             // Only batches big enough to mean anything: a single window's
             // move is noise, and the latency line is for regressions.
@@ -372,6 +377,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             stashQueue.async {
                 if let text, !text.isEmpty {
                     try? text.write(to: stashFile, atomically: true, encoding: .utf8)
+                    // Words someone is still speaking: owner-only, and
+                    // never into a backup.
+                    Paths.restrict(stashFile)
+                    Paths.excludeFromBackup(stashFile)
                 } else {
                     try? FileManager.default.removeItem(at: stashFile)
                 }
@@ -450,13 +459,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 app: NSWorkspace.shared.frontmostApplication?.localizedName,
                 dictation: draft?.isOpen ?? false)
         }
-        health.setEnabled(loaded.observationsEnabled && loaded.observationsHealth)
+        health.setEnabled(loaded.observationsHealth)
         health.setFingerMap(loaded.fingerMap)
 
         // The coach: decisions in LodestarCore, this wiring is the coat.
         coach = CoachController()
         coach.observations = observationStore
-        coach.enabled = loaded.coachEnabled
+        // The coach reads what observations keep: with them off it has
+        // nothing true to say, so it stands down whatever its own switch.
+        coach.enabled = loaded.coachEnabled && loaded.observationsEnabled
         coach.contextInputs = { [weak self] in
             guard let self else { return nil }
             // Observed profile identity → the reference a route would
@@ -883,7 +894,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         alert.informativeText = Self.uninstallSummary(UninstallPlan.live(purge: false))
         alert.alertStyle = .warning
         alert.showsSuppressionButton = true
-        alert.suppressionButton?.title = "Also remove my config, breaths and clipboard"
+        alert.suppressionButton?.title = "Also remove everything Lodestar has kept, downloaded models included"
         let remove = alert.addButton(withTitle: "Uninstall")
         remove.hasDestructiveAction = true
         alert.addButton(withTitle: "Cancel")
@@ -903,7 +914,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     static func uninstallSummary(_ plan: UninstallPlan) -> String {
         let lines = plan.steps.map { "• \($0.name)" }
         let kept = plan.kept.isEmpty ? []
-            : ["", "Your config, breaths and clipboard stay, so a reinstall finds them."]
+            : ["", "Everything Lodestar has kept stays, so a reinstall finds it: settings, "
+               + "breaths, clipboard, observations, the health record and downloaded models."]
         return (lines + kept + ["", UninstallPlan.closing]).joined(separator: "\n")
     }
 
@@ -1120,6 +1132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         settings.machineState = { [weak self] in
             var state = SettingsModel.MachineState()
+            state.healthWarning = Retention.healthWarning(in: Paths.data)
             // All three, always: one this Mac cannot run is listed with
             // what it needs, and greyed.
             let engines = EditorEngine.allCases
@@ -1975,13 +1988,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         clipboardController.setEnabled(loaded.clipboardEnabled)
         observationStore?.setEnabled(loaded.observationsEnabled)
         observationStore?.setHealthEnabled(loaded.observationsHealth)
-        health.setEnabled(loaded.observationsEnabled && loaded.observationsHealth)
+        health.setEnabled(loaded.observationsHealth)
         health.setFingerMap(loaded.fingerMap)
-        if observationStore?.consumeClearRequest() == true {
-            observationStore?.clear()
-            hud.flash("⌂ observations cleared")
+        if let clears = observationStore?.consumeClearRequest(), clears.habits || clears.health {
+            if clears.habits { observationStore?.clearHabits() }
+            if clears.health {
+                observationStore?.clearHealth()
+                health.forgetBuffered()
+            }
+            hud.flash(clears.habits && clears.health ? "⌂ observations and health cleared"
+                      : clears.habits ? "⌂ observations cleared" : "⌂ health cleared")
         }
-        coach?.enabled = loaded.coachEnabled
+        coach?.enabled = loaded.coachEnabled && loaded.observationsEnabled
         meetings.config = loaded
         settings.config = loaded
         // A config edit changes the world the advisor reasons about —
@@ -2409,7 +2427,7 @@ func printUsage() {
       clipboard clear  erase the clipboard history
       observations         what Lodestar has noticed about how you reach things
       observations engine  the fitted models behind it, working shown
-      observations clear   delete everything noticed so far
+      observations clear   delete both records (--habits or --health for one)
       config-path      print the config file path
       apps             list every app name the graph can bind
       editor check     load the editor's model and ask it one sentence
@@ -2490,6 +2508,8 @@ if cliArguments.contains("schema") {
 }
 if cliArguments.contains("observations") {
     runObservations(clear: cliArguments.contains("clear"),
+                    habitsOnly: cliArguments.contains("--habits"),
+                    healthOnly: cliArguments.contains("--health"),
                     engine: cliArguments.contains("engine"))
 }
 if cliArguments.contains("clipboard") {

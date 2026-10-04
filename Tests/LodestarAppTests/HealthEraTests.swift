@@ -48,7 +48,7 @@ final class HealthEraTests: XCTestCase {
         Stage.pump()
         XCTAssertEqual(reads.withLock { readCount }, 1, "one check out at a time; the minutes behind it skipped")
         observations.flush()
-        let eras = observations.log.recent(days: 30, now: Date().addingTimeInterval(1)).filter { $0.kind == .era }
+        let eras = observations.healthLog.recent(days: 30, now: Date().addingTimeInterval(1)).filter { $0.kind == .era }
         XCTAssertEqual(eras.count, 1, "the check that did return is written down")
         health.setEnabled(false)
     }

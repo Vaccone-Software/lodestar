@@ -83,7 +83,7 @@ final class UninstallPlanTests: XCTestCase {
         let plan = UninstallPlan.make(world: world(present: ["lodestar.app"]), purge: false, actions: actions)
         let summary = AppDelegate.uninstallSummary(plan)
         XCTAssertTrue(summary.hasPrefix("• ask macOS to forget Lodestar's permissions\n• remove /Users/someone/Applications/lodestar.app"))
-        XCTAssertTrue(summary.contains("Your config, breaths and clipboard stay"))
+        XCTAssertTrue(summary.contains("Everything Lodestar has kept stays"))
         XCTAssertTrue(summary.hasSuffix(UninstallPlan.closing))
     }
 

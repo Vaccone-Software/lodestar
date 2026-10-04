@@ -134,7 +134,7 @@ public struct ObservationEvent: Codable, Equatable {
 
     /// The kinds that are the health record: what leaves a retired
     /// shard for the health archive instead of dying with it.
-    public static let healthKinds: Set<Kind> = [.pulse, .window, .era]
+    public static let healthKinds: Set<Kind> = [.pulse, .window, .era, .clicks]
 
     public var t: Date
     public var kind: Kind
@@ -306,6 +306,9 @@ public final class EventLog {
     /// The ring's bound, in bytes: `Retention.behavioralBytes` for the
     /// real ring, and whatever a test needs to watch a month retire.
     public var behavioralBound: Int64 = Retention.behavioralBytes
+    /// The behavioral ring stays out of backups, one file at a time. The
+    /// health log is the part nothing can recompute, so it goes into them.
+    public var excludedFromBackup = true
     /// Owns `pending` and every touch of the file. Appends land here
     /// without waiting; the scheduled flush writes here without ever
     /// holding the main thread — the tap shares the main run loop, and a
@@ -394,7 +397,7 @@ public final class EventLog {
             do {
                 try lines.write(to: file, options: .atomic)
                 Paths.restrict(file)
-                Paths.excludeFromBackup(file)
+                if excludedFromBackup { Paths.excludeFromBackup(file) }
                 appended = true
             } catch {
                 Log.error("events: could not create \(file.lastPathComponent) (\(error))")
@@ -503,12 +506,12 @@ public final class EventLog {
                     // fall through to replacing it.
                     try? lines.write(to: shard, options: .atomic)
                     Paths.restrict(shard)
-                    Paths.excludeFromBackup(shard)
+                    if excludedFromBackup { Paths.excludeFromBackup(shard) }
                 }
             }
             try? Self.encodeLines(keep).write(to: file, options: .atomic)
             Paths.restrict(file)
-            Paths.excludeFromBackup(file)
+            if excludedFromBackup { Paths.excludeFromBackup(file) }
         }
         retireLocked()
     }
@@ -572,6 +575,30 @@ public final class EventLog {
             lines.append(0x0A)
         }
         return lines
+    }
+
+    /// Take every event of `kinds` out of the ring, live file and shards
+    /// alike, and hand them back. The one rewrite a closed shard ever
+    /// sees: when the health record moved into a log of its own, its old
+    /// kinds had to leave the ring, or clearing the ring would have taken
+    /// years of baseline with it. Runs on `io`, so appends and compaction
+    /// wait their turn rather than racing the rewrite.
+    public func extract(kinds: Set<ObservationEvent.Kind>) -> [ObservationEvent] {
+        io.sync {
+            flushLocked()
+            var taken: [ObservationEvent] = []
+            for url in shardFilesLocked() + [file] {
+                let events = Self.read(file: url)
+                let moving = events.filter { kinds.contains($0.kind) }
+                guard !moving.isEmpty else { continue }
+                taken.append(contentsOf: moving)
+                let staying = events.filter { !kinds.contains($0.kind) }
+                try? Self.encodeLines(staying).write(to: url, options: .atomic)
+                Paths.restrict(url)
+                if excludedFromBackup { Paths.excludeFromBackup(url) }
+            }
+            return taken
+        }
     }
 
     public func clear() {

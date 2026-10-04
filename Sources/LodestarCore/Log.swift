@@ -137,6 +137,9 @@ public final class AppendingFile {
         guard descriptor >= 0 else { return }
         var status = stat()
         inode = fstat(descriptor, &status) == 0 ? status.st_ino : 0
+        // A fresh file after a rotation does not inherit the flag the
+        // boot sweep set on the one before it.
+        if Paths.isBehavioral(url.lastPathComponent) { Paths.excludeFromBackup(url) }
     }
 
     private func closeDescriptor() {

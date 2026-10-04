@@ -45,6 +45,8 @@ cp packaging/common-words.txt "$APP/Contents/Resources/"
 # The first launch's four doors, rendered from the website's scene
 # (the Blender renders behind the site's door loops).
 cp packaging/doors/door-*.png "$APP/Contents/Resources/"
+# Settings' places, in the doors' clay (tools/doors/places.py renders them)
+cp packaging/places/place-*.png "$APP/Contents/Resources/"
 # The packages' resource bundles — MLX's compiled GPU kernels above all,
 # which it finds in the main bundle's Resources.
 for bundle in "$(dirname "$BIN")"/*.bundle; do

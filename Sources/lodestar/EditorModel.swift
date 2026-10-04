@@ -162,6 +162,15 @@ enum EditorEngine: String, CaseIterable {
 /// One loaded model: a sentence in, the sentence corrected out.
 protocol EditorBackend: Sendable {
     func respond(to sentence: String, instructions: String) async throws -> String
+    /// The text as the prompt's worked examples would have it: the
+    /// dictation intent pass.
+    func rewrite(_ text: String, prompt: IntentPass.Prompt) async throws -> String
+}
+
+extension EditorBackend {
+    func rewrite(_ text: String, prompt: IntentPass.Prompt) async throws -> String {
+        throw EditorModelError.unavailable("this model does not rewrite")
+    }
 }
 
 /// What the editor asks of a model — the seam its tests fake.
@@ -174,6 +183,13 @@ protocol EditorProofreader: Sendable {
     func release(reason: String) async
     /// Load now, ahead of the first question: the hand has started typing.
     func prepare() async
+    /// Dictation as it was meant, or nil when this engine does not offer
+    /// it or did not answer in time. Unchecked: the caller checks.
+    func rewrite(_ text: String, prompt: IntentPass.Prompt) async -> String?
+}
+
+extension EditorProofreader {
+    func rewrite(_ text: String, prompt: IntentPass.Prompt) async -> String? { nil }
 }
 
 enum EditorModelError: Error, CustomStringConvertible {
@@ -220,6 +236,9 @@ actor EditorModel: EditorProofreader {
     private let clearCache: @Sendable () -> Void
     let idleRelease: TimeInterval
     let answerDeadline: TimeInterval
+    /// The intent pass waits less than a sentence check: an answer this
+    /// late would land after the words it rewrites were read.
+    static let rewriteDeadline: TimeInterval = 4
 
     init(engine: EditorEngine, idleRelease: TimeInterval = 20 * 60, answerDeadline: TimeInterval = 8,
          loader: @escaping Loader = EditorModel.load,
@@ -257,6 +276,20 @@ actor EditorModel: EditorProofreader {
         let instructions = self.instructions
         let answer = await Self.within(answerDeadline) { try? await backend.respond(to: sentence, instructions: instructions) }
         if answer == nil { Log.info("editor", ["unanswered": sentence.count, "engine": engine.rawValue]) }
+        return answer
+    }
+
+    /// Only the models on this Mac: Apple's gained little once checked
+    /// (it rewrote 55% of what it was given) and takes a second and more;
+    /// Spelling has no model.
+    func rewrite(_ text: String, prompt: IntentPass.Prompt) async -> String? {
+        guard engine == .standard || engine == .full else { return nil }
+        scheduleRelease()
+        guard let backend = await loaded(), backendEngine == .standard || backendEngine == .full else { return nil }
+        let started = Date()
+        let answer = await Self.within(Self.rewriteDeadline) { try? await backend.rewrite(text, prompt: prompt) }
+        Log.info("intent", ["asked": text.count, "answered": answer != nil,
+                            "ms": Int(Date().timeIntervalSince(started) * 1000), "engine": engine.rawValue])
         return answer
     }
 
@@ -390,18 +423,23 @@ actor EditorModel: EditorProofreader {
 /// through the model once, and each sentence starts from a copy of that
 /// state and reads only its own words. A prompt that does not begin with
 /// those tokens (a template that moved) is answered the whole way, as
-/// before.
+/// before. The draft's intent pass reads its own instructions and worked
+/// examples the same way, so a few prompts are held at once and neither
+/// reader throws out the other's.
 private final class MLXBackend: EditorBackend, @unchecked Sendable {
     let container: ModelContainer
     let engine: EditorEngine
     let cachesInstructions: Bool
-    /// The shared beginning and the model's state after reading it, for
-    /// the instructions it was built from. Built on the first question;
-    /// touched only inside `container.perform`, which serializes access.
-    private var prefix: (instructions: String, tokens: [Int], cache: [KVCache])?
-    /// Built once per instructions, or found not to fit once: never
-    /// retried per question.
-    private var prefixTried: Set<String> = []
+    /// Each prompt's shared beginning and the model's state after reading
+    /// it, the newest last. Built on a prompt's first question; touched
+    /// only inside `container.perform`, which serializes access.
+    private var prefixes: [(prompt: IntentPass.Prompt, tokens: [Int], cache: [KVCache])] = []
+    /// The editor's instructions (one per spelling region) and the intent
+    /// pass's (one per vocabulary): four covers a change of either.
+    static let prefixesKept = 4
+    /// Built once per prompt, or found not to fit once: never retried per
+    /// question.
+    private var prefixTried: Set<IntentPass.Prompt> = []
 
     init(container: ModelContainer, engine: EditorEngine, cachesInstructions: Bool = true) {
         self.container = container
@@ -421,23 +459,48 @@ private final class MLXBackend: EditorBackend, @unchecked Sendable {
             return try await session.respond(to: sentence)
         }
         let parameters = self.parameters(for: sentence)
+        return try await answer(sentence, prompt: IntentPass.Prompt(instructions: instructions, examples: []),
+                                parameters: { _ in parameters })
+    }
+
+    func rewrite(_ text: String, prompt: IntentPass.Prompt) async throws -> String {
+        try await answer(text, prompt: prompt, parameters: { count in
+            GenerateParameters(maxTokens: IntentPass.maxTokens(forInputTokens: count), temperature: 0)
+        })
+    }
+
+    /// The prompt's answer to `text`, from the cached state after its
+    /// shared beginning when there is one. `parameters` is given the
+    /// text's own length in tokens.
+    private func answer(_ text: String, prompt: IntentPass.Prompt,
+                        parameters: @escaping @Sendable (Int) -> GenerateParameters) async throws -> String {
         let additional = engine.additionalContext
+        let caching = cachesInstructions
         return try await container.perform { (context: ModelContext) async throws -> String in
+            let parameters = parameters(context.tokenizer.encode(text: text, addSpecialTokens: false).count)
             func tokens(_ text: String) async throws -> [Int] {
+                let chat: [Chat.Message] = [.system(prompt.instructions)]
+                    + prompt.examples.flatMap { [Chat.Message.user($0.said), .assistant($0.meant)] }
+                    + [.user(text)]
                 let input = try await context.processor.prepare(input: UserInput(
-                    chat: [.system(instructions), .user(text)], additionalContext: additional))
+                    chat: chat, additionalContext: additional))
                 return input.text.tokens.asArray(Int.self)
             }
-            let full = try await tokens(sentence)
-            if self.prefix?.instructions != instructions, !self.prefixTried.contains(instructions) {
-                self.prefixTried.insert(instructions)
-                self.prefix = try await self.buildPrefix(context: context, parameters: parameters, tokens: tokens)
-                    .map { (instructions, $0.tokens, $0.cache) }
+            let full = try await tokens(text)
+            if caching, !self.prefixes.contains(where: { $0.prompt == prompt }), !self.prefixTried.contains(prompt) {
+                self.prefixTried.insert(prompt)
+                if let built = try await self.buildPrefix(context: context, parameters: parameters, tokens: tokens) {
+                    self.prefixes.append((prompt, built.tokens, built.cache))
+                    if self.prefixes.count > Self.prefixesKept {
+                        let gone = self.prefixes.removeFirst()
+                        self.prefixTried.remove(gone.prompt)
+                    }
+                }
             }
             var cache: [KVCache]
             var rest: [Int]
-            if let prefix = self.prefix, prefix.instructions == instructions, full.count > prefix.tokens.count,
-               Array(full.prefix(prefix.tokens.count)) == prefix.tokens {
+            if caching, let prefix = self.prefixes.last(where: { $0.prompt == prompt }),
+               full.count > prefix.tokens.count, Array(full.prefix(prefix.tokens.count)) == prefix.tokens {
                 cache = prefix.cache.map { $0.copy() }
                 rest = Array(full.dropFirst(prefix.tokens.count))
             } else {

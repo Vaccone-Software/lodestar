@@ -219,7 +219,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         for link in links.prefix(5) {
             built.append(WebRow(
                 kind: .link,
-                title: "\(link.name)  ·  \(link.url)",
+                title: "\(link.name)\u{2003}\(link.url)",
                 url: WebRouting.normalize(link.url),
                 raw: link.url,
                 name: link.name,
@@ -576,8 +576,7 @@ private final class WebRowView: RaisedRow {
         kind = row.kind
         if title.stringValue != row.title {
             // A saved link reads as its name, then its address a step back
-            // in tone, as the commands bar's breadcrumbs are: one line, two
-            // weights of attention.
+            // in tone. The tone is the separator, so no dot sits between.
             let text = NSMutableAttributedString(string: row.title, attributes: [
                 .foregroundColor: NSColor.labelColor, .font: BarTheme.titleFont])
             if row.kind == .link, let name = row.name, row.title.hasPrefix(name) {

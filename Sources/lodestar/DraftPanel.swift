@@ -272,13 +272,15 @@ final class DraftPanel {
 
     init() {
         panel = Glass.makePanel(level: .statusBar)
+        // A click on the foot must not make the draft key: ⏎'s paste goes
+        // to the app that has the keyboard, which has to stay that app.
+        panel.becomesKeyOnlyIfNeeded = true
         // The bars' edge and soft shadow, drawn by the window around the
         // glass rather than by the system.
-        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
         // The mouse reaches the foot's input menu, and only over the
         // glass. The panel never becomes key, so the app underneath
         // keeps its cursor.
-        gate = PointerGate(panel: panel)
+        gate = SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
         backdrop = Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
 
         registerName.font = BarTheme.rowLabelFont
@@ -592,9 +594,27 @@ final class DraftPanel {
             layout.enumerateLineFragments(forGlyphRange: NSRange(location: 0, length: layout.numberOfGlyphs)) {
                 rect, _, _, _, _ in lines.append(rect)
             }
+            // A text ending in a newline has one more line than its glyphs:
+            // the empty one the caret stands on after ⇧⏎.
+            let extra = layout.extraLineFragmentRect
+            if extra.height > 0 { lines.append(extra) }
             if lines.count > Self.compactLines {
-                let glyph = layout.glyphIndexForCharacter(at: max(0, min(focus, attributed.length) - 1))
-                let focusLine = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+                // The focus's own line. A ghost's end is the character
+                // before it; a cursor is the character under it, which at
+                // the start of a line is that line, not the one above; at
+                // the very end it is the last line, or the empty one.
+                let focusLine: NSRect
+                if !view.buffer.ghost.isEmpty || focus >= attributed.length {
+                    if focus >= attributed.length, extra.height > 0 {
+                        focusLine = extra
+                    } else {
+                        let glyph = layout.glyphIndexForCharacter(at: max(0, min(focus, attributed.length) - 1))
+                        focusLine = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+                    }
+                } else {
+                    let glyph = layout.glyphIndexForCharacter(at: focus)
+                    focusLine = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+                }
                 let end = lines.firstIndex { abs($0.minY - focusLine.minY) < 0.5 } ?? lines.count - 1
                 let start = max(0, end - (Self.compactLines - 1))
                 let last = min(lines.count - 1, start + Self.compactLines - 1)
@@ -620,7 +640,7 @@ final class DraftPanel {
         // Whole points: the window lands on them anyway, and a glass whose
         // edge falls between pixels is a soft edge.
         let height = (chrome + textHeight).rounded(.up)
-        let frame = NSRect(x: screen.midX - width / 2,
+        let frame = NSRect(x: (screen.midX - width / 2).rounded(),
                            y: screen.minY + Self.margin + view.standsAbove,
                            width: width, height: height)
 
@@ -687,7 +707,7 @@ final class DraftPanel {
 
         // The clip door has no microphone, and names none.
         let noMic = view.card != nil
-        let wanted = view.micOn && view.mode == .insert && !noMic
+        let wanted = Self.micWanted(view) && !noMic
         // Grey is wanted but not heard: opening, a model still arriving,
         // or a microphone that failed, whose reason the note gives. Out
         // means only that the hand turned it off.
@@ -802,7 +822,10 @@ final class DraftPanel {
             let land = { [weak self] in
                 guard let self, self.foldMotion == motion else { return }
                 self.foldMotion = 0
-                if self.panel.frame != outset { self.panel.setFrame(outset, display: true) }
+                // Laid out again where it stands: the motion carried the
+                // glass but the scroll view clamped its window on the way,
+                // and the pointer gate read the old frame.
+                if let last = self.lastView { self.show(last) }
             }
             NSAnimationContext.runAnimationGroup({ context in
                 context.duration = Self.foldSeconds
@@ -864,7 +887,8 @@ final class DraftPanel {
         root.addSubview(columns)
         keysView = columns
         keysShown = true
-        KeysMotion.grow(panel, to: restaged(last).to, revealing: columns)
+        KeysMotion.grow(panel, to: restaged(last).to, revealing: columns,
+                        completion: { [weak self] in self?.relay() })
     }
 
     func hideKeys() {
@@ -872,7 +896,8 @@ final class DraftPanel {
         keysShown = false
         let going = keysView
         keysView = nil
-        KeysMotion.shrink(panel, to: restaged(last).to, hiding: going)
+        KeysMotion.shrink(panel, to: restaged(last).to, hiding: going,
+                          completion: { [weak self] in self?.relay() })
     }
 
     /// Lay the panel out for where it is going, then put the glass back
@@ -889,9 +914,19 @@ final class DraftPanel {
     /// now, and the motion only carries the glass between two frames
     /// that are both already true. The subviews ride on their
     /// autoresizing masks the whole way.
+    /// Lay the panel out again where a motion left it: the glass is right,
+    /// but a folded window's scroll was clamped while the frame travelled.
+    private func relay() {
+        guard panel.isVisible, let last = lastView else { return }
+        show(last)
+    }
+
     @discardableResult
     private func restaged(_ view: DraftView) -> (from: NSRect, to: NSRect) {
         let from = panel.frame
+        // The keys' motion owns the glass now; a fold landing late must not
+        // put it back where the fold was going.
+        foldMotion = 0
         restaging = true
         show(view)
         restaging = false
@@ -914,6 +949,15 @@ final class DraftPanel {
         }
     }
 
+    /// The microphone writes: wanted, in insert mode, or over a selection,
+    /// where speaking is a change said rather than typed.
+    static func micWanted(_ view: DraftView) -> Bool {
+        guard view.micOn else { return false }
+        if view.mode == .insert { return true }
+        if let selection = view.selection, !selection.isEmpty, case .visual = view.editor { return true }
+        return false
+    }
+
     static func note(for view: DraftView) -> String {
         if view.replacing { return "replaces the selection" }
         switch view.speech {
@@ -926,7 +970,7 @@ final class DraftPanel {
         case .listening:
             // Off, or waiting for insert mode: the light is out, and that
             // is the whole message.
-            guard view.micOn, view.mode == .insert else { return "" }
+            guard micWanted(view) else { return "" }
             return view.silent ? "hearing nothing on \(view.input ?? "the microphone")" : ""
         case .paused: return ""
         case nil:

@@ -31,8 +31,10 @@ final class InputMenu {
     static let gap: CGFloat = 12
 
     init() {
-        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
-        gate = PointerGate(panel: panel)
+        gate = SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
+        // Choosing a microphone must not take the keyboard from the app the
+        // draft lands in.
+        panel.becomesKeyOnlyIfNeeded = true
         Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
     }
 
@@ -59,10 +61,17 @@ final class InputMenu {
             return row
         }
 
+        // Beside the draft, right then left; a draft as wide as the screen
+        // (code) leaves neither, and then the card stands above it at its
+        // right end, still off the words' line, never off the screen.
         let visible = ActivePolicy.presentationFrame
-        var x = glass.maxX + Self.gap
-        if x + width > visible.maxX - 8 { x = glass.minX - width - Self.gap }
-        let card = NSRect(x: x, y: glass.minY, width: width, height: height)
+        var card = NSRect(x: glass.maxX + Self.gap, y: glass.minY, width: width, height: height)
+        if card.maxX > visible.maxX - 8 { card.origin.x = glass.minX - width - Self.gap }
+        if card.minX < visible.minX + 8 {
+            card.origin = NSPoint(x: glass.maxX - width, y: glass.maxY + Self.gap)
+        }
+        card.origin.x = min(max(card.minX, visible.minX + 8), visible.maxX - 8 - width).rounded()
+        card.origin.y = min(card.minY, visible.maxY - 8 - height).rounded()
         panel.setFrame(SoftShadow.outset(card), display: true)
         panel.orderFrontRegardless()
         gate.start()

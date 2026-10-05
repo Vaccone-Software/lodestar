@@ -217,6 +217,85 @@ final class DraftFoldTests: XCTestCase {
         XCTAssertFalse(menu.isVisible, "the menu goes with the draft")
     }
 
+    /// The cursor's own line is the window's last, wherever on the line
+    /// the cursor stands: at its start (after ⇧⏎, `o`, `0`) the character
+    /// before it belongs to the line above, and that once hid it.
+    func testTheCursorsLineStaysInViewAtTheStartOfALine() {
+        let lines = (1...8).map { "line \($0)" }.joined(separator: "\n")
+        var buffer = Draft.Buffer(text: lines)
+        buffer.setCursor(lines.count - "line 8".count)
+        var v = DraftView(buffer: buffer, mode: .normal, editor: .normal,
+                          speech: nil, destination: ("Ghostty", nil), replacing: false)
+        v.micOn = false
+        panel.show(v)
+        XCTAssertTrue(lineOfCaretIsVisible(), "the cursor at the start of the last line")
+        var trailing = Draft.Buffer(text: lines + "\n")
+        trailing.setCursor(trailing.count)
+        var t = DraftView(buffer: trailing, mode: .insert, editor: .insert,
+                          speech: nil, destination: ("Ghostty", nil), replacing: false)
+        t.micOn = false
+        panel.show(t)
+        XCTAssertTrue(lineOfCaretIsVisible(), "after ⇧⏎, the empty line the caret stands on")
+        XCTAssertEqual(visibleLines().cut, 0)
+    }
+
+    private func lineOfCaretIsVisible() -> Bool {
+        let clip = panel.textView.enclosingScrollView!.contentView
+        // The caret and the scroll view are both placed in the panel's
+        // root, so their frames compare directly.
+        let scroll = panel.textFrame
+        return panel.caretFrame.minY >= scroll.minY - 0.5 && panel.caretFrame.maxY <= scroll.maxY + 0.5
+            && clip.bounds.height > 0
+    }
+
+    /// After `zo` then `zc` the glass shows the last lines again, not the
+    /// first: the scroll is laid out where the motion left the glass.
+    func testFoldingBackShowsTheLastLines() {
+        var open = view(long)
+        open.expanded = true
+        panel.show(view(long, ghost: "x"))
+        panel.show(open)
+        settleMotion()
+        panel.show(view(long))
+        settleMotion()
+        let clip = panel.textView.enclosingScrollView!.contentView
+        XCTAssertGreaterThan(clip.bounds.minY, 0, "scrolled to the end, not the top")
+        XCTAssertEqual(visibleLines().cut, 0)
+        XCTAssertTrue(lineOfCaretIsVisible())
+    }
+
+    private func settleMotion() {
+        let deadline = Date().addingTimeInterval(DraftPanel.foldSeconds + 0.4)
+        while Date() < deadline { RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01)) }
+    }
+
+    /// Speaking over a selection is the microphone writing, so the light
+    /// says listening, not off.
+    func testTheLightBurnsWhileSpeakingOverASelection() {
+        var buffer = Draft.Buffer(text: "change these words")
+        buffer.setCursor(7)
+        var v = DraftView(buffer: buffer, mode: .normal, editor: .visual(line: false),
+                          selection: 7..<12, speech: .listening(input: "Mic"), input: "Mic",
+                          level: 0.5, destination: ("Ghostty", nil), replacing: false)
+        v.micOn = true
+        panel.show(v)
+        if case .listening = panel.lightState {} else { XCTFail("over a selection the mic writes: lit") }
+    }
+
+    /// A draft as wide as the screen leaves no room beside it: the menu
+    /// stands above it, on screen.
+    func testTheInputMenuStaysOnScreenBesideAWideDraft() {
+        let screen = ActivePolicy.presentationFrame
+        var v = view("let value = compute(input)")
+        v.inputs = ["MacBook Pro Microphone", "CalDigit Thunderbolt 3 Audio"]
+        v.width = screen.width - 44
+        panel.show(v)
+        panel.toggleInputMenu()
+        let menu = panel.inputMenuForTests.frame
+        XCTAssertTrue(screen.contains(menu), "on screen: \(menu) in \(screen)")
+        XCTAssertFalse(menu.intersects(panel.frame), "and never over the words")
+    }
+
     func testASilentRoomStillShowsTheFloor() {
         var quiet = view("")
         quiet.level = 0

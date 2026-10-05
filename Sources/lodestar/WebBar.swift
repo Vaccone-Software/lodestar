@@ -248,6 +248,8 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             let view = WebRowView(height: rowHeight)
             rowViews.append(view)
             rowsStack.addArrangedSubview(view)
+            // The row's words start where the field's do: one column of text.
+            view.titleLeading.constraint(equalTo: field.leadingAnchor, constant: 2).isActive = true
         }
         for (index, view) in rowViews.enumerated() {
             if index < rows.count {
@@ -489,7 +491,6 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
 /// One reusable web-bar row: symbol, destination, profile chip.
 private final class WebRowView: RaisedRow {
-    private let icon = NSImageView()
     private let title = NSTextField(labelWithString: "")
     private let chipLabel = NSTextField(labelWithString: "")
     private let chip = NSView()
@@ -516,8 +517,6 @@ private final class WebRowView: RaisedRow {
         enter.lit = true
         enter.isHidden = true
 
-        icon.symbolConfiguration = BarTheme.symbolRow
-        icon.translatesAutoresizingMaskIntoConstraints = false
 
         title.font = BarTheme.titleFont
         title.lineBreakMode = .byTruncatingTail
@@ -535,15 +534,10 @@ private final class WebRowView: RaisedRow {
         chip.translatesAutoresizingMaskIntoConstraints = false
         chip.addSubview(chipLabel)
 
-        addSubview(icon)
         addSubview(title)
         addSubview(chip)
         addSubview(enter)
         NSLayoutConstraint.activate([
-            icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
-            icon.centerYAnchor.constraint(equalTo: centerYAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 24),
-            title.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 12),
             title.centerYAnchor.constraint(equalTo: centerYAnchor),
             chipMark.leadingAnchor.constraint(equalTo: chip.leadingAnchor, constant: 6),
             chipMark.centerYAnchor.constraint(equalTo: chip.centerYAnchor),
@@ -564,16 +558,9 @@ private final class WebRowView: RaisedRow {
     required init?(coder: NSCoder) { nil }
 
     func configure(_ row: WebBarController.WebRow) {
-        if kind != row.kind {
-            kind = row.kind
-            let symbol: String
-            switch row.kind {
-            case .link: symbol = "link"
-            case .domain: symbol = "globe"
-            case .search: symbol = "magnifyingglass"
-            }
-            icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-        }
+        // No symbol for the row's kind: its words already say it, a name
+        // and its address, a bare address, or Search "…".
+        kind = row.kind
         if title.stringValue != row.title { title.stringValue = row.title }
         if chipLabel.stringValue != row.profile.display { chipLabel.stringValue = row.profile.display }
         if inferred != row.resolution.source.isInferred || chipMark.image == nil {
@@ -589,6 +576,9 @@ private final class WebRowView: RaisedRow {
         }
     }
 
+    /// Where the row's words begin, so the bar can line them up with its field.
+    var titleLeading: NSLayoutXAxisAnchor { title.leadingAnchor }
+
     /// Whether the chip wears the pin, for the tests.
     var marksChosen: Bool { !chipMark.isHidden }
 
@@ -603,7 +593,6 @@ private final class WebRowView: RaisedRow {
     /// label whether chosen or not.
     private func restyle() {
         applyRaised(selectedState)
-        icon.contentTintColor = BarTheme.secondaryColor
         title.textColor = .labelColor
         chipLabel.textColor = BarTheme.secondaryColor
         chipMark.contentTintColor = BarTheme.secondaryColor

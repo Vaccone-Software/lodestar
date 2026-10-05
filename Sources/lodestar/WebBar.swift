@@ -96,7 +96,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
         Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
 
-        globe.image = NSImage(systemSymbolName: "link", accessibilityDescription: "links and the web")
+        globe.image = NSImage(systemSymbolName: "network", accessibilityDescription: "links and the web")
         globe.symbolConfiguration = BarTheme.inputSymbol
         globe.contentTintColor = BarTheme.secondaryColor
         globe.translatesAutoresizingMaskIntoConstraints = false

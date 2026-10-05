@@ -43,6 +43,44 @@ final class SettlingEarScenarioTests: XCTestCase {
         return stage
     }
 
+    // MARK: - Ink drying
+
+    /// Grey can still change; ink is final. A settled phrase stays grey
+    /// while the second ear hears it again, and turns to ink when the ear
+    /// is done, whether or not it changed a word.
+    func testWordsStayGreyUntilTheEarHasHeardThem() {
+        let ear = FakeEar(answer: "Ship it today.", delay: 0.2)
+        let stage = stageWithAudio(ear)
+        stage.lode(".")
+        stage.speech.settle(timed("Ship it today.", 0, 2))
+        XCTAssertEqual(stage.draft.state["wet"] as? String, "Ship it today.", "heard, still being checked")
+        stage.pump(until: { stage.draft.state["wet"] == nil }, turns: 400)
+        XCTAssertNil(stage.draft.state["wet"], "the ear is done: ink")
+        XCTAssertEqual(stage.draft.state["revised"] as? [String], [], "nothing changed, nothing underlined")
+    }
+
+    /// A word the ear rewrote is underlined, the word alone and not the
+    /// phrase, until the hand's next key.
+    func testARewriteIsUnderlinedUntilTheNextKey() {
+        let ear = FakeEar(answer: "Then rerun the build.")
+        let stage = stageWithAudio(ear)
+        stage.lode(".")
+        stage.speech.settle(timed("Then rerun the bill.", 0, 2))
+        stage.pump(until: { stage.draft.buffer.text.contains("build") })
+        XCTAssertEqual(stage.draft.state["revised"] as? [String], ["build"])
+        stage.press("space")
+        XCTAssertEqual(stage.draft.state["revised"] as? [String], [], "the hand's next key clears it")
+    }
+
+    /// With no second ear and no intent pass there is nothing to wait for:
+    /// settled words are ink at once, as they always were.
+    func testWithoutAPassSettledWordsAreInkAtOnce() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.settle(timed("Plain words.", 0, 1.5))
+        XCTAssertNil(stage.draft.state["wet"])
+    }
+
     func testAPhraseIsHeardAgainAndReplacedInPlace() {
         let ear = FakeEar(answer: "Ask Claude Code to fix the panel.")
         let stage = stageWithAudio(ear)

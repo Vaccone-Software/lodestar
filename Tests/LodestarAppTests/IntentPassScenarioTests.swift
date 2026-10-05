@@ -44,6 +44,21 @@ final class IntentPassScenarioTests: XCTestCase {
         XCTAssertEqual(stage.draft.buffer.text, "Use the red one, actually no, the blue one.", "u brings the words as said")
     }
 
+    /// Grey while the pass reads it; its rewrite underlined, then ink.
+    func testATakeBackStaysGreyWhileReadAndItsRewriteIsUnderlined() {
+        let intent = FakeIntent(delay: 0.2) { _ in "Use the blue one." }
+        let stage = stage(intent)
+        stage.lode(".")
+        stage.speech.settle("Use the red one, actually no, the blue one.")
+        stage.pump(until: { !intent.asked.isEmpty })
+        XCTAssertEqual(stage.draft.state["wet"] as? String, "Use the red one, actually no, the blue one.",
+                       "still being read: grey")
+        stage.pump(until: { stage.draft.buffer.text == "Use the blue one." }, turns: 400)
+        XCTAssertNil(stage.draft.state["wet"], "read and rewritten: ink")
+        XCTAssertEqual(stage.draft.state["revised"] as? [String], ["blue"],
+                       "the words that differ, not the whole sentence")
+    }
+
     func testAnAnswerTheCheckerRefusesChangesNothing() {
         let intent = FakeIntent { _ in "Use the green one." }
         let stage = stage(intent)

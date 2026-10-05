@@ -37,6 +37,10 @@ final class DraftController {
     private var lastSpoken: (range: Range<Int>, text: String)?
     /// The hand typed or moved since the last result landed.
     private var handSinceSpeech = false
+    /// Words a pass rewrote — the second ear or the intent pass — as they
+    /// now stand, underlined quietly until the hand's next key, so a
+    /// change made while the eye was elsewhere can be seen and undone.
+    private var revised: [(range: Range<Int>, text: String)] = []
     /// The repository the destination's window is in, when it is a
     /// terminal or an editor: its names are how "draft controller dot
     /// swift" is written. Set by the app; the stage leaves it empty.
@@ -408,6 +412,65 @@ final class DraftController {
     func justOpened(_ now: Date) -> Bool { now.timeIntervalSince(openedAt) < 0.75 }
 
     /// The draft as data, for `lodestar draft state`.
+    /// The ink still drying: words the second ear or the intent pass may
+    /// yet change — everything said since the hand last moved, while
+    /// either is at work. Nil when nothing is being checked, and always
+    /// nil on a Mac with neither pass.
+    var wetRange: Range<Int>? {
+        guard earPending > 0 || intentInFlight, let last = lastSpoken,
+              last.range.upperBound <= buffer.count, buffer.slice(last.range) == last.text else { return nil }
+        var start = last.range.lowerBound
+        if let run, run.start <= start { start = run.start }
+        return start..<last.range.upperBound
+    }
+
+    /// The rewritten words that still stand where they were written.
+    var revisedRanges: [Range<Int>] {
+        revised.compactMap { mark in
+            mark.range.upperBound <= buffer.count && buffer.slice(mark.range) == mark.text ? mark.range : nil
+        }
+    }
+
+    /// A pass replaced `old` at `start` with `new`: underline the words
+    /// that differ, not the whole phrase, widened to whole words.
+    private func markRevision(at start: Int, old: String, new: String) {
+        let a = Array(old), b = Array(new)
+        var prefix = 0
+        while prefix < min(a.count, b.count), a[prefix] == b[prefix] { prefix += 1 }
+        var suffix = 0
+        while suffix < min(a.count, b.count) - prefix, a[a.count - 1 - suffix] == b[b.count - 1 - suffix] { suffix += 1 }
+        let shift = b.count - a.count
+        // Marks after the replaced words moved; marks inside it are gone.
+        revised = revised.compactMap { mark in
+            if mark.range.upperBound <= start + prefix { return mark }
+            if mark.range.lowerBound >= start + a.count - suffix {
+                return ((mark.range.lowerBound + shift)..<(mark.range.upperBound + shift), mark.text)
+            }
+            return nil
+        }
+        var lower = start + prefix, upper = start + b.count - suffix
+        let chars = buffer.characters
+        if upper <= lower {
+            // A deletion, a take-back's usual shape ("the red one, actually
+            // no, the blue one" is "the blue one"): nothing new to mark, so
+            // the word the cut now sits against is marked instead, or the
+            // change would leave no trace at all.
+            if lower < chars.count, !chars[lower].isWhitespace {
+                upper = lower + 1
+            } else {
+                var before = lower
+                while before > 0, chars[before - 1].isWhitespace { before -= 1 }
+                guard before > 0 else { return }
+                lower = before - 1
+                upper = before
+            }
+        }
+        while lower > 0, !chars[lower - 1].isWhitespace { lower -= 1 }
+        while upper < chars.count, !chars[upper].isWhitespace, !".,;:!?".contains(chars[upper]) { upper += 1 }
+        while lower < upper, chars[lower].isWhitespace { lower += 1 }
+        revised.append((lower..<upper, buffer.slice(lower..<upper)))
+    }
+
     var state: [String: Any] {
         var out: [String: Any] = ["open": isOpen]
         guard isOpen else { return out }
@@ -426,6 +489,8 @@ final class DraftController {
         out["mic"] = micWanted
         if let inputName { out["input"] = inputName }
         out["expanded"] = expanded
+        if let wet = wetRange { out["wet"] = buffer.slice(wet) }
+        out["revised"] = revisedRanges.map { buffer.slice($0) }
         out["words"] = spokenWords
         out["typed"] = typedCharacters
         return out
@@ -452,6 +517,7 @@ final class DraftController {
         // the clipboard's card opens whole (`openClip`), because opening a
         // card is asking to read it.
         expanded = false
+        revised = []
         // `j` and `k` walk the lines the eye sees; the panel's layout is
         // the only honest source of where those lines break. The buffer
         // arrives by value from the editor — reading `self.buffer` here
@@ -529,6 +595,7 @@ final class DraftController {
         vim = Vim()
         // A card is opened to be read: whole.
         expanded = true
+        revised = []
         vim.visualLine = { [weak self] buffer, index, down in
             self?.panel.visualMove(from: index, down: down, in: buffer)
         }
@@ -1096,6 +1163,7 @@ final class DraftController {
     }
 
     private func insertKey(_ key: String, shift: Bool, option: Bool, control: Bool) -> Bool {
+        revised = []
         handSinceSpeech = true
         run = nil
         settler.handInterrupted()
@@ -1184,6 +1252,7 @@ final class DraftController {
     /// two keys the bar owns. `⏎` commits in every mode; a bare `esc` —
     /// nothing pending, no selection — closes.
     private func normalKey(_ key: String, shift: Bool, option: Bool, control: Bool) -> Bool {
+        revised = []
         handSinceSpeech = true
         run = nil
         settler.handInterrupted()
@@ -1327,6 +1396,8 @@ final class DraftController {
                 let waiters = earWaiters
                 earWaiters = []
                 waiters.forEach { $0() }
+                // The ink dries whether or not the ear changed a word.
+                render()
             }
         }
         guard session == mine, isOpen, generation == earGeneration, let again, landed.range.upperBound <= buffer.count,
@@ -1340,6 +1411,7 @@ final class DraftController {
         guard let text = resettled, text != core else { return }
         let replacement = lead + text
         vim.replaceKeepingCursor(landed.range, with: replacement, buffer: &buffer)
+        markRevision(at: landed.range.lowerBound, old: landed.text, new: replacement)
         earChanged += 1
         if let last = lastSpoken, last.range.upperBound == landed.range.upperBound {
             // The last phrase is now the end of the settled run.
@@ -1468,6 +1540,8 @@ final class DraftController {
                 intentWaiters = []
                 waiters.forEach { $0() }
             }
+            // Dry, changed or not.
+            render()
         }
         let core = String(sent.text.dropFirst(lead.count))
         // Applied only to the words as they were sent: nothing typed,
@@ -1486,6 +1560,7 @@ final class DraftController {
         let before = buffer.slice(max(0, sent.range.lowerBound - 200)..<sent.range.lowerBound) + lead
         let replacement = lead + settler.reshaped(meant, like: core, after: before)
         vim.replaceKeepingCursor(sent.range, with: replacement, buffer: &buffer)
+        markRevision(at: sent.range.lowerBound, old: sent.text, new: replacement)
         intentChanged += 1
         journal?.intent(sent: core, answer: answer, placed: replacement, refused: nil, seconds: seconds, at: clock.now())
         Log.info("intent", ["changed": true, "ms": Int(seconds * 1000),
@@ -1697,7 +1772,8 @@ final class DraftController {
             micOn: micWanted, silent: hearsNothing,
             destination: card == nil ? front.map { ($0.name, $0.icon) } : nil,
             replacing: (origin?.pulled ?? false) && front?.pid == origin?.pid,
-            card: card, width: doorWidth, standsAbove: standsAbove, expanded: expanded))
+            card: card, width: doorWidth, standsAbove: standsAbove, expanded: expanded,
+            wet: wetRange, revised: revisedRanges))
     }
 
     private static func appIcon(_ bundleID: String) -> NSImage? {

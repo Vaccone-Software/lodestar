@@ -55,6 +55,11 @@ struct DraftView {
     /// The whole text, or its last four lines: `zo` and `zc`, decided by
     /// the controller, never guessed here.
     var expanded = false
+    /// Ink still drying: words the second ear or the intent pass may yet
+    /// change, grey like the ghost until they are done.
+    var wet: Range<Int>? = nil
+    /// Words a pass rewrote, underlined quietly until the hand's next key.
+    var revised: [Range<Int>] = []
 }
 
 /// The voice light: the panel's own top edge, lit in the accent while the
@@ -267,6 +272,11 @@ final class DraftPanel {
     /// equalizer scrim keeps every panel charcoal, whatever the material
     /// decided, so the ground is a known dark rather than a query.
     static var ground: NSColor { BarTheme.ground }
+    /// Wet ink is the ghost's grey: grey can still change, ink is final.
+    /// A third tone between them was tried and could not be told from
+    /// settled text at a glance; which pass might still change a word is
+    /// not the hand's question, only whether it is done.
+    static var wetInk: NSColor { BarTheme.secondaryColor }
 
     var isVisible: Bool { panel.isVisible }
 
@@ -519,6 +529,27 @@ final class DraftPanel {
             attributed.append(NSAttributedString(string: lead + view.buffer.ghost, attributes: ghostAttributes))
         }
         attributed.append(NSAttributedString(string: after, attributes: settledAttributes))
+        // Spoken words are grey until they are final: the ghost, still
+        // being heard, and wet ink, heard and still being checked. A range past the
+        // cursor would be shifted by a standing ghost, so only what lies
+        // before it is drawn while one stands.
+        let drawable = { (range: Range<Int>) -> NSRange? in
+            guard range.upperBound <= view.buffer.count,
+                  view.buffer.ghost.isEmpty || range.upperBound <= view.buffer.cursor else { return nil }
+            let lower = (String(view.buffer.characters[..<range.lowerBound]) as NSString).length
+            let upper = (String(view.buffer.characters[..<range.upperBound]) as NSString).length
+            return NSRange(location: lower, length: max(0, upper - lower))
+        }
+        if let wet = view.wet, let range = drawable(wet) {
+            attributed.addAttribute(.foregroundColor, value: Self.wetInk, range: range)
+        }
+        for revision in view.revised {
+            guard let range = drawable(revision) else { continue }
+            attributed.addAttributes([
+                .underlineStyle: NSUnderlineStyle.single.rawValue,
+                .underlineColor: BarTheme.secondaryColor,
+            ], range: range)
+        }
         if let selection = view.selection, !selection.isEmpty, view.buffer.ghost.isEmpty {
             let lower = (String(view.buffer.characters[..<selection.lowerBound]) as NSString).length
             let upper = (String(view.buffer.characters[..<selection.upperBound]) as NSString).length
@@ -985,9 +1016,63 @@ final class DraftPanel {
 
 #if DEBUG
 extension DraftPanel {
+    /// The ink drying, staged: the same dictation as wet, as rewritten,
+    /// or played through from ghost to dry.
+    fileprivate static func drying(_ which: String) -> DraftPanel {
+        let panel = DraftPanel()
+        let icon = NSWorkspace.shared.icon(forFile: "/System/Applications/Utilities/Terminal.app")
+        let before = "The flex container has a gap of twelve but the cards still touch, so something is overriding it, probably the margin reset in globals.css. Check whether the card component sets its own margin."
+        func frame(_ text: String, ghost: String = "", wet: Range<Int>? = nil, revised: [Range<Int>] = [],
+                   level: Float = 0.5) -> DraftView {
+            var buffer = Draft.Buffer(text: text)
+            buffer.setCursor(buffer.count)
+            if !ghost.isEmpty { buffer.showGhost(ghost) }
+            var view = DraftView(buffer: buffer, mode: .insert, editor: .insert,
+                                 speech: .listening(input: "MacBook Pro Microphone"),
+                                 input: "MacBook Pro Microphone", level: level,
+                                 inputs: ["MacBook Pro Microphone"], systemInput: "MacBook Pro Microphone",
+                                 micOn: true, destination: ("Terminal", icon), replacing: false)
+            view.wet = wet
+            view.revised = revised
+            return view
+        }
+        let misheard = before + " If it does, remove it and use the gap, then rerun the bill."
+        let heard = before + " If it does, remove it and use the gap, then rerun the build."
+        let spoken = before.count..<heard.count
+        let spokenMisheard = before.count..<misheard.count
+        let word = (heard.count - "build.".count)..<(heard.count - 1)
+        switch which {
+        case "wet":
+            panel.show(frame(misheard, wet: spokenMisheard, level: 0.1))
+        case "revised":
+            panel.show(frame(heard, revised: [word], level: 0.1))
+        default:
+            // Ghost growing, settled wet, the second ear's fix, dry.
+            let steps: [(Double, DraftView)] = [
+                (0.0, frame(before, ghost: "If it does", level: 0.6)),
+                (0.5, frame(before, ghost: "If it does, remove it and use", level: 0.7)),
+                (1.0, frame(before, ghost: "If it does, remove it and use the gap, then", level: 0.55)),
+                (1.5, frame(before, ghost: "If it does, remove it and use the gap, then rerun the bill", level: 0.6)),
+                (2.1, frame(misheard, wet: spokenMisheard, level: 0.05)),
+                (2.6, frame(heard, wet: spoken, revised: [word], level: 0.0)),
+                (3.2, frame(heard, revised: [word], level: 0.0)),
+            ]
+            panel.show(steps[0].1)
+            // A second and a half of standing still first, for the
+            // recording to begin.
+            for (at, view) in steps.dropFirst() {
+                DispatchQueue.main.asyncAfter(deadline: .now() + at + 1.5) { panel.show(view) }
+            }
+        }
+        return panel
+    }
+
     /// The preview harness's lanes: 0 speaking with a ghost, 1 editing,
     /// 2 the website's photograph.
     static func preview(_ variant: Int) -> DraftPanel {
+        // DRY=wet|revised stages the ink drying; DRY=film plays it, ghost to
+        // dry, for a recording.
+        if let dry = ProcessInfo.processInfo.environment["DRY"], variant == 0 { return drying(dry) }
         if variant == 2 {
             let panel = DraftPanel()
             var buffer = Draft.Buffer()

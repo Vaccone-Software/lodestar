@@ -972,7 +972,9 @@ private final class SearcherRowView: RaisedRow {
         name.textColor = .labelColor
         for key in keys { key.lit = selectedState }
         enter.isHidden = !selectedState
-        dot?.textColor = BarTheme.accent
+        // Running is a state, not where the hand goes: a quiet dot, the same
+        // on every row, as the Dock marks a running app.
+        dot?.textColor = BarTheme.secondaryColor
     }
 }
 

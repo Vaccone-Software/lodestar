@@ -135,8 +135,9 @@ final class DraftFoldTests: XCTestCase {
         XCTAssertEqual(light.accessibilityValue() as? String, "off")
     }
 
-    /// Three states, three looks: out while off, a grey floor while the
-    /// microphone opens, the accent once it hears.
+    /// Three states, three looks: out while turned off, a grey floor
+    /// while wanted and not hearing (opening or failed), the accent once
+    /// it hears.
     func testTheLightWaitsInGreyWhileTheMicrophoneOpens() {
         var opening = view("")
         opening = DraftView(buffer: opening.buffer, mode: .insert, editor: .insert, speech: nil,
@@ -150,6 +151,11 @@ final class DraftFoldTests: XCTestCase {
                               destination: ("Ghostty", nil), replacing: false)
         panel.show(preparing)
         XCTAssertEqual(panel.lightState, .waiting, "a model still arriving is waiting too")
+        let failed = DraftView(buffer: opening.buffer, mode: .insert, editor: .insert,
+                               speech: .failed("the microphone did not open"), micOn: true,
+                               destination: ("Ghostty", nil), replacing: false)
+        panel.show(failed)
+        XCTAssertEqual(panel.lightState, .waiting, "failed is wanted and not heard: grey, the note says why")
         panel.show(view(""))
         if case .listening = panel.lightState {} else { XCTFail("heard: the accent") }
         var off = view("")
@@ -187,8 +193,12 @@ final class DraftFoldTests: XCTestCase {
         panel.show(view(long, ghost: "spoken"))
         panel.show(view(long, editor: .normal))
         let goal = panel.frame
-        let done = Date().addingTimeInterval(DraftPanel.foldSeconds + 0.3)
-        while Date() < done { RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01)) }
+        // Settles, rather than settles by a clock: a cold first run after
+        // a build can stall the main thread past any fixed wait.
+        let deadline = Date().addingTimeInterval(3)
+        while SoftShadow.inset(panel.panel.frame) != goal, Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
         XCTAssertEqual(SoftShadow.inset(panel.panel.frame), goal)
         XCTAssertLessThanOrEqual(DraftPanel.foldSeconds, 0.12, "sudden, not a glide")
     }

@@ -61,8 +61,9 @@ struct DraftView {
 /// a length that can be seen from across the room.
 ///
 /// It is the microphone's whole status, in three states: out while the
-/// mic is off, a grey floor while it opens (wait), the accent while it
-/// hears (speak). Each asks something different of the hand, so each
+/// mic is turned off, a grey floor while it is wanted but not hearing
+/// (opening, or failed, with the reason in the foot), the accent while
+/// it hears (speak). Each asks something different of the hand, so each
 /// looks different.
 final class VoiceLight: NSView {
     enum State: Equatable {
@@ -152,10 +153,10 @@ final class VoiceLight: NSView {
             target = 0
             setAccessibilityValue("off")
         case .waiting:
-            // The floor, in the quiet grey: the mic is coming, not here.
+            // The floor, in the quiet grey: wanted, not hearing.
             paint(BarTheme.secondaryColor)
             target = Self.floor
-            setAccessibilityValue("opening")
+            setAccessibilityValue("not listening")
         case .listening(let level):
             paint(BarTheme.readableAccent)
             // Reduce Motion holds the light still at its whole length:
@@ -689,10 +690,13 @@ final class DraftPanel {
         // The clip door has no microphone, and names none.
         let noMic = view.card != nil
         let wanted = view.micOn && view.mode == .insert && !noMic
-        switch view.speech {
-        case .listening where wanted: light = .live
-        case nil where wanted, .preparing where wanted: light = .waiting
-        default: light = .off
+        // Grey is wanted but not heard: opening, a model still arriving,
+        // or a microphone that failed, whose reason the note gives. Out
+        // means only that the hand turned it off.
+        if case .listening = view.speech, wanted {
+            light = .live
+        } else {
+            light = wanted ? .waiting : .off
         }
         setLevel(view.level)
 
@@ -791,14 +795,21 @@ final class DraftPanel {
             panel.setFrame(from, display: false)
             foldMotion += 1
             let motion = foldMotion
+            // Correctness cannot depend on the animation: under load a
+            // window animation can fail to move at all, so when its time
+            // is up the glass is put exactly where the layout said,
+            // whether or not the motion ran.
+            let land = { [weak self] in
+                guard let self, self.foldMotion == motion else { return }
+                self.foldMotion = 0
+                if self.panel.frame != outset { self.panel.setFrame(outset, display: true) }
+            }
             NSAnimationContext.runAnimationGroup({ context in
                 context.duration = Self.foldSeconds
                 context.timingFunction = CAMediaTimingFunction(name: .easeOut)
                 panel.animator().setFrame(outset, display: true)
-            }, completionHandler: { [weak self] in
-                guard let self, self.foldMotion == motion else { return }
-                self.foldMotion = 0
-            })
+            }, completionHandler: land)
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.foldSeconds + 0.05, execute: land)
         }
 
         if !panel.isVisible { panel.orderFrontRegardless() }

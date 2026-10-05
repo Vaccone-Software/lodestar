@@ -160,9 +160,10 @@ final class DraftPanel {
 
     /// Whether the draft shows all of its text or the last four lines.
     /// Speaking folds it: the words are going somewhere else and the
-    /// screen behind is what the eye is on. Stopping to read (escape, or
-    /// opening with text already in it) opens it whole, and it stays
-    /// whole through typing until the voice comes back.
+    /// screen behind is what the eye is on. Whatever stops the voice
+    /// (escape, muting, a door without the microphone, or opening with
+    /// text already in it) opens it whole, and it stays whole through
+    /// typing until the voice comes back.
     private(set) var expanded = false
 
     /// Internal so the tests can read the storage the screen reads: the
@@ -419,7 +420,9 @@ final class DraftPanel {
         // words already in it is a draft opened to be read.
         let opening = lastView == nil
         lastView = view
-        if view.card != nil || view.editor != .insert {
+        // The voice folds it; whatever stops the voice opens it: escape,
+        // muting, or a door that opened without the microphone.
+        if view.card != nil || view.editor != .insert || !view.micOn {
             expanded = true
         } else if !view.buffer.ghost.isEmpty {
             expanded = false

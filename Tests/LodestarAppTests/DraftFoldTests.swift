@@ -79,6 +79,22 @@ final class DraftFoldTests: XCTestCase {
         XCTAssertTrue(panel.expanded)
     }
 
+    /// Typing with the microphone off is writing, and writing wants to
+    /// see itself; muting mid-dictation is stopping to read.
+    func testWhateverStopsTheVoiceOpensIt() {
+        var typed = view("")
+        typed.micOn = false
+        panel.show(typed)
+        XCTAssertTrue(panel.expanded, "a door without the microphone")
+        panel.hide()
+        panel.show(view("", ghost: "spoken"))
+        XCTAssertFalse(panel.expanded)
+        var muted = view("spoken")
+        muted.micOn = false
+        panel.show(muted)
+        XCTAssertTrue(panel.expanded, "muting is stopping to read")
+    }
+
     func testAShortDraftIsNotPaddedToFourLines() {
         panel.show(view("A few words", ghost: "and more"))
         XCTAssertLessThan(panel.frame.height, 160)

@@ -418,13 +418,9 @@ final class KeyFaceTests: XCTestCase {
         XCTAssertEqual(key.layer?.shadowOffset.height ?? 0, -1.5, accuracy: 0.01, "the lip falls in shadow")
     }
 
-    func testTheGroundFollowsTheChosenNight() {
-        let saved = BarTheme.background
-        defer { BarTheme.background = saved }
-        guard Tone.systemDark else { return }
-        BarTheme.background = { .lodestone }
-        XCTAssertEqual(BarTheme.ground, Palette.night(.lodestone).pane.color)
-        BarTheme.background = { .default }
-        XCTAssertEqual(BarTheme.raised, Palette.night(.default).raised.color)
+    func testTheGroundIsTheNightOrClay() {
+        let steps = Tone.systemDark ? Palette.night : Palette.clay
+        XCTAssertEqual(BarTheme.ground, steps.pane.color)
+        XCTAssertEqual(BarTheme.raised, steps.raised.color)
     }
 }

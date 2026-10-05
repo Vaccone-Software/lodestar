@@ -1,8 +1,8 @@
 import XCTest
 @testable import LodestarCore
 
-/// The grounds every surface stands on: each night and clay hold the same
-/// floors, so the choice between them is character and never legibility.
+/// The grounds every surface stands on: the night and clay hold the same
+/// floors, so day and night differ in light and never in legibility.
 final class PaletteTests: XCTestCase {
     private func contrast(_ a: Readability.RGB, _ b: Readability.RGB) -> Double {
         Readability.contrast(a.luminance, b.luminance)
@@ -11,16 +11,14 @@ final class PaletteTests: XCTestCase {
     private let clayInk = Palette.rgb(0x2A2522)
     private let nearBlack = Palette.rgb(0x170A04)
 
-    func testEveryNightCarriesTextAndALitKey() {
-        for night in Palette.Night.allCases {
-            let steps = Palette.night(night)
-            XCTAssertGreaterThanOrEqual(contrast(nightInk, steps.pane), 13, "\(night): text on the pane")
-            XCTAssertGreaterThanOrEqual(contrast(nightInk, steps.raised), 11, "\(night): text on a raised row")
-            XCTAssertGreaterThanOrEqual(contrast(Readability.orangeOnCharcoal, steps.raised), Readability.markFloor,
-                                        "\(night): a lit key stands off its raised row")
-            XCTAssertGreaterThan(steps.raised.luminance, steps.pane.luminance)
-            XCTAssertGreaterThan(steps.pane.luminance, steps.ground.luminance)
-        }
+    func testTheNightCarriesTextAndALitKey() {
+        let steps = Palette.night
+        XCTAssertGreaterThanOrEqual(contrast(nightInk, steps.pane), 13, "text on the pane")
+        XCTAssertGreaterThanOrEqual(contrast(nightInk, steps.raised), 11, "text on a raised row")
+        XCTAssertGreaterThanOrEqual(contrast(Readability.orangeOnCharcoal, steps.raised), Readability.markFloor,
+                                    "a lit key stands off its raised row")
+        XCTAssertGreaterThan(steps.raised.luminance, steps.pane.luminance)
+        XCTAssertGreaterThan(steps.pane.luminance, steps.ground.luminance)
     }
 
     func testClayCarriesTextAndTheAdaptedOrange() {
@@ -41,8 +39,15 @@ final class PaletteTests: XCTestCase {
         XCTAssertGreaterThan(clay.red, 0.9)
     }
 
-    func testTheNightIsAPersonsChoiceAndDefaultsToDefault() {
-        XCTAssertEqual(Config().background, .default)
-        XCTAssertEqual(Palette.Night(rawValue: "lodestone"), .lodestone)
+    /// The Background choice retired: a config that made it still loads,
+    /// clean, and keeps nothing of it.
+    func testAConfigThatChoseANightStillLoadsClean() throws {
+        for night in ["lodestone", "default"] {
+            var problems: [String] = []
+            let tree = try Json.parse(#"{ "appearance": { "background": "\#(night)", "accent": "orange" } }"#)
+            let config = Config.build(from: tree, problems: &problems)
+            XCTAssertEqual(problems, [], "\(night): no warning for a retired choice")
+            XCTAssertEqual(config.accent, .orange, "the rest of the section still reads")
+        }
     }
 }

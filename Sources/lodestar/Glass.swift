@@ -431,13 +431,9 @@ enum BarTheme {
         return Tone.systemDark ? .secondaryLabelColor : NSColor(white: 0, alpha: 0.66)
     }
 
-    /// The night the person chose (`appearance.background`), as a closure
-    /// so a test can choose one. Light mode is always clay.
-    static var background: () -> Palette.Night = { .default }
-
-    /// The palette in force: the chosen night in dark mode, clay in light.
+    /// The palette in force: the night in dark mode, clay in light.
     static var palette: Palette.Steps {
-        Tone.systemDark ? Palette.night(background()) : Palette.clay
+        Tone.systemDark ? Palette.night : Palette.clay
     }
 
     /// The panels' ground, for anything that must be judged against it:

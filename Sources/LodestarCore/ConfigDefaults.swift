@@ -55,6 +55,13 @@ public enum ConfigDefaults {
             if observations["logbook"] == nil { observations["logbook"] = legacy }
             out["observations"] = .table(observations)
         }
+        // The Background choice retired after 0.43: Lodestone was unique and
+        // worse as a colour to live in, so there is one night. A file
+        // that chose either stays valid.
+        if case .table(var appearance)? = out["appearance"],
+           appearance.removeValue(forKey: "background") != nil {
+            out["appearance"] = .table(appearance)
+        }
         // The tabs door retired in 0.41: sixteen presses in thirty-seven
         // days, `lode ⇥` is the editor's, and click hints letter the same
         // tab buttons. A file that switched it either way stays valid.
@@ -220,7 +227,6 @@ public enum ConfigDefaults {
         ]),
         "appearance": .table([
             "accent": .string("system"),
-            "background": .string("default"),
         ]),
         "draft": .table([
             "input": .string(""),

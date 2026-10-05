@@ -1032,7 +1032,7 @@ extension Readability.RGB {
 final class KeyFace: NSView {
     let label = NSTextField(labelWithString: "")
     var lit = false { didSet { if lit != oldValue { refresh() } } }
-    private let top = CALayer()
+    private let top = EdgeLight()
 
     init(_ text: String) {
         super.init(frame: .zero)
@@ -1043,7 +1043,7 @@ final class KeyFace: NSView {
         layer?.shadowOffset = CGSize(width: 0, height: -1.5)
         layer?.shadowRadius = 0
         layer?.shadowOpacity = 1
-        layer?.addSublayer(top)
+        if let layer { top.install(in: layer) }
         label.stringValue = text
         label.font = BarTheme.chipFont
         label.alignment = .center
@@ -1063,8 +1063,7 @@ final class KeyFace: NSView {
 
     override func layout() {
         super.layout()
-        let inset = BarTheme.chipRadius * 0.6
-        top.frame = CGRect(x: inset, y: bounds.height - 1, width: max(0, bounds.width - inset * 2), height: 1)
+        top.fit(bounds, radius: BarTheme.chipRadius, reach: BarTheme.chipRadius + 3)
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -1077,7 +1076,7 @@ final class KeyFace: NSView {
         CATransaction.setDisableActions(true)
         layer?.backgroundColor = (lit ? BarTheme.accent : BarTheme.keyFill).cgColor
         layer?.shadowColor = (lit ? BarTheme.litKeyLip : BarTheme.keyLip).cgColor
-        top.backgroundColor = (lit ? BarTheme.litKeyTop : BarTheme.keyTop).cgColor
+        top.color = lit ? BarTheme.litKeyTop : BarTheme.keyTop
         label.textColor = lit ? BarTheme.onAccent : BarTheme.keyLetter
         CATransaction.commit()
     }
@@ -1088,23 +1087,26 @@ final class KeyFace: NSView {
 /// bars' rows share it, so the launcher, Ask and the commands bar choose
 /// a row the same way.
 class RaisedRow: NSView {
-    private let rim = CALayer()
+    private let light = EdgeLight()
     private(set) var raised = false
 
     func setupRaised() {
         wantsLayer = true
         layer?.cornerRadius = BarTheme.rowRadius
         layer?.masksToBounds = false
-        layer?.addSublayer(rim)
-        layer?.shadowOffset = CGSize(width: 0, height: -1)
-        layer?.shadowRadius = 0
+        if let layer { light.install(in: layer) }
+        // A soft, short shadow cast by the row's own rounded shape: no line
+        // under it, nothing that stops where the corners begin.
+        layer?.shadowOffset = CGSize(width: 0, height: -2)
+        layer?.shadowRadius = 3
         applyRaised(false)
     }
 
     override func layout() {
         super.layout()
-        let inset = BarTheme.rowRadius * 0.6
-        rim.frame = CGRect(x: inset, y: bounds.height - 1, width: max(0, bounds.width - inset * 2), height: 1)
+        light.fit(bounds, radius: BarTheme.rowRadius, reach: BarTheme.rowRadius + 4)
+        layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: BarTheme.rowRadius,
+                                   cornerHeight: BarTheme.rowRadius, transform: nil)
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -1117,9 +1119,55 @@ class RaisedRow: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layer?.backgroundColor = on ? BarTheme.raised.cgColor : nil
-        rim.backgroundColor = on ? BarTheme.raisedRim.cgColor : nil
+        light.color = on ? BarTheme.raisedRim : nil
         layer?.shadowColor = NSColor.black.cgColor
-        layer?.shadowOpacity = on ? (Tone.systemDark ? 0.3 : 0.08) : 0
+        layer?.shadowOpacity = on ? (Tone.systemDark ? 0.32 : 0.10) : 0
+        CATransaction.commit()
+    }
+}
+
+/// Light catching the top of a rounded object: a hairline along the
+/// shape's own outline, brightest across the top, following the curve
+/// into each corner and fading as the edge turns down, so it never starts
+/// or stops abruptly. The chosen row and every key wear it.
+final class EdgeLight {
+    private let holder = CALayer()
+    private let stroke = CAShapeLayer()
+    private let fade = CAGradientLayer()
+
+    init() {
+        stroke.fillColor = nil
+        stroke.lineWidth = 1
+        holder.addSublayer(stroke)
+        fade.colors = [NSColor.white.cgColor, NSColor.white.cgColor, NSColor.white.withAlphaComponent(0).cgColor]
+        fade.locations = [0, 0.3, 1]
+        holder.mask = fade
+    }
+
+    func install(in layer: CALayer) {
+        holder.zPosition = 50
+        layer.addSublayer(holder)
+    }
+
+    var color: NSColor? {
+        didSet { stroke.strokeColor = color?.cgColor }
+    }
+
+    /// Lay the light on a shape of `radius` filling `bounds`, fading out
+    /// `reach` points below the top edge.
+    func fit(_ bounds: CGRect, radius: CGFloat, reach: CGFloat) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        holder.frame = bounds
+        stroke.frame = holder.bounds
+        fade.frame = holder.bounds
+        let r = max(0, radius - 0.5)
+        stroke.path = CGPath(roundedRect: holder.bounds.insetBy(dx: 0.5, dy: 0.5), cornerWidth: r,
+                             cornerHeight: r, transform: nil)
+        // Layers here are not flipped: y = 1 is the top edge.
+        let height = max(1, bounds.height)
+        fade.startPoint = CGPoint(x: 0.5, y: 1)
+        fade.endPoint = CGPoint(x: 0.5, y: max(0, 1 - reach / height))
         CATransaction.commit()
     }
 }

@@ -203,6 +203,33 @@ final class DraftFoldTests: XCTestCase {
         XCTAssertLessThanOrEqual(DraftPanel.foldSeconds, 0.12, "sudden, not a glide")
     }
 
+    /// The input menu is drawn: the foot names the microphone, the card
+    /// opens beside the draft (never over its words), marks the chosen
+    /// one, and choosing reports the device and closes it.
+    func testTheInputMenuIsDrawnBesideTheDraft() {
+        var v = view("hello")
+        v.inputs = ["MacBook Pro Microphone", "AirPods"]
+        v.systemInput = "AirPods"
+        v.chosenInput = "MacBook Pro Microphone"
+        var picked: String?? = .none
+        panel.onChooseInput = { picked = .some($0) }
+        panel.show(v)
+        XCTAssertEqual(panel.inputTitle, "MacBook Pro Microphone")
+        panel.toggleInputMenu()
+        let menu = panel.inputMenuForTests
+        XCTAssertTrue(menu.isVisible)
+        XCTAssertEqual(menu.titles, ["System (AirPods)", "MacBook Pro Microphone", "AirPods"])
+        XCTAssertEqual(menu.chosenTitle, "MacBook Pro Microphone")
+        XCTAssertFalse(menu.frame.intersects(panel.frame), "beside the draft, never over its words")
+        XCTAssertEqual(menu.frame.minY, panel.frame.minY, accuracy: 0.5, "level with the foot")
+        menu.choose("System (AirPods)")
+        XCTAssertEqual(picked, .some(nil), "System is the default: no device named")
+        XCTAssertFalse(menu.isVisible)
+        panel.toggleInputMenu()
+        panel.hide()
+        XCTAssertFalse(menu.isVisible, "the menu goes with the draft")
+    }
+
     func testASilentRoomStillShowsTheFloor() {
         var quiet = view("")
         quiet.level = 0

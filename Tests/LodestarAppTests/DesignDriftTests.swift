@@ -168,6 +168,21 @@ final class DesignDriftTests: XCTestCase {
         XCTAssertEqual(offenders, [], "use PointerGate, which opens only over the glass")
     }
 
+    /// No Lodestar window shows a control in the system's tint: a system
+    /// popup paints its highlight in the Mac's accent, not Lodestar's. The
+    /// draft's input menu is drawn (`InputMenu`); Settings' popups are the
+    /// not-yet list, which only shrinks.
+    func testNoSurfaceUsesASystemPopup() throws {
+        let notYet: Set<String> = ["SettingsController.swift"]
+        var offenders: [String] = [], stale: [String] = []
+        for (name, text) in try sources() {
+            let uses = text.contains("NSPopUpButton")
+            if notYet.contains(name) { if !uses { stale.append(name) } } else if uses { offenders.append(name) }
+        }
+        XCTAssertEqual(offenders, [], "draw the menu: a system popup wears the system's accent")
+        XCTAssertEqual(stale, [], "moved off the system popup: take it off the not-yet list")
+    }
+
     /// Honest matter: nothing is shaded by a gradient. The one fade is
     /// the edge light's, in the theme, where a lit rim turns down into a
     /// corner; a room may fade its own scroll edge. Chrome never does.

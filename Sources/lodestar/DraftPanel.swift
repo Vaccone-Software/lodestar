@@ -208,7 +208,10 @@ final class DraftPanel {
     private let registerIcon = NSImageView()
     private let registerName = NSTextField(labelWithString: "")
     private let registerNote = NSTextField(labelWithString: "")
-    private let inputPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let inputButton = InputButton(frame: .zero)
+    private let inputMenu = InputMenu()
+    private var inputChoices: [InputMenu.Choice] = []
+    private var inputChosen = 0
     /// The level, as the top edge's light.
     private let voiceLight = VoiceLight(frame: .zero)
 
@@ -235,7 +238,6 @@ final class DraftPanel {
 
     /// An input was chosen from the menu; nil is the system default.
     var onChooseInput: ((String?) -> Void)?
-    private var popupTitles: [String] = []
 
     private static let width: CGFloat = 720
     private static let margin: CGFloat = 22
@@ -285,12 +287,9 @@ final class DraftPanel {
         registerNote.textColor = BarTheme.secondaryColor
         registerNote.lineBreakMode = .byTruncatingTail
 
-        inputPopup.isBordered = false
-        inputPopup.font = BarTheme.secondaryFont
-        inputPopup.controlSize = .small
-        inputPopup.target = self
-        inputPopup.action = #selector(inputChosen)
-        inputPopup.toolTip = "The microphone the draft listens to"
+        inputButton.onClick = { [weak self] in self?.toggleInputMenu() }
+        inputMenu.owner = panel
+        inputMenu.onChoose = { [weak self] device in self?.onChooseInput?(device) }
 
 
         textView.isEditable = false
@@ -323,7 +322,7 @@ final class DraftPanel {
         // The caret sits under the text: a block cursor is a solid plate
         // with the glyph inverted over it, the way every terminal draws
         // one, and the plate has to be behind the glyph for that.
-        for view in [registerIcon, registerName, registerNote, inputPopup,
+        for view in [registerIcon, registerName, registerNote, inputButton,
                      caret, scroll, voiceLight] {
             root.addSubview(view)
         }
@@ -334,16 +333,20 @@ final class DraftPanel {
         // the text takes the room that opens, the light rides the top.
         root.autoresizesSubviews = true
         backdrop?.autoresizingMask = [.width, .height]
-        for view in [registerIcon, registerName, registerNote, inputPopup] {
+        for view in [registerIcon, registerName, registerNote, inputButton] {
             view.autoresizingMask = [.maxYMargin]
         }
         scroll.autoresizingMask = [.width, .height]
         voiceLight.autoresizingMask = [.width, .height]
     }
 
-    @objc private func inputChosen() {
-        let index = inputPopup.indexOfSelectedItem
-        onChooseInput?(index <= 0 ? nil : inputPopup.itemTitle(at: index))
+    /// The name was clicked: open the card beside the draft, or close it.
+    func toggleInputMenu() {
+        if inputMenu.isVisible {
+            inputMenu.hide()
+        } else {
+            inputMenu.present(inputChoices, chosen: inputChosen, beside: frame)
+        }
     }
 
     /// The keys go with the panel.
@@ -359,6 +362,7 @@ final class DraftPanel {
         keysShown = false
         lastView = nil
         expanded = false
+        inputMenu.hide()
         target = nil
         foldMotion = 0
         voiceLight.show(level: nil)
@@ -378,7 +382,7 @@ final class DraftPanel {
     /// Every view on the register line, named, for a layout probe.
     var registerViews: [(String, NSView)] {
         [("icon", registerIcon), ("name", registerName),
-         ("note", registerNote), ("input", inputPopup)]
+         ("note", registerNote), ("input", inputButton)]
     }
     var registerText: String { registerName.stringValue }
     var registerDetail: String { registerNote.stringValue }
@@ -395,7 +399,10 @@ final class DraftPanel {
         return out.joined(separator: " ")
     }
     /// Whether the foot names the microphone right now.
-    var inputNamed: Bool { !inputPopup.isHidden }
+    var inputNamed: Bool { !inputButton.isHidden }
+    /// The name the foot shows, and the menu it opens, for the tests.
+    var inputTitle: String { inputButton.title }
+    var inputMenuForTests: InputMenu { inputMenu }
     /// How much of the top edge is lit, 0 when the light is out.
     var lightLength: CGFloat { voiceLight.length }
     var lightState: VoiceLight.State { voiceLight.state }
@@ -703,24 +710,26 @@ final class DraftPanel {
         // The input menu at the end, then whatever the recognizer has to
         // say, in the room that is left.
         let systemTitle = "System" + (view.systemInput.map { " (\($0))" } ?? "")
-        let titles = [systemTitle] + view.inputs
-        if titles != popupTitles {
-            inputPopup.removeAllItems()
-            inputPopup.addItems(withTitles: titles)
-            popupTitles = titles
-        }
+        let choices = [InputMenu.Choice(title: systemTitle, device: nil)]
+            + view.inputs.map { InputMenu.Choice(title: $0, device: $0) }
         let chosenIndex = view.chosenInput.flatMap { view.inputs.firstIndex(of: $0) }.map { $0 + 1 } ?? 0
-        if inputPopup.indexOfSelectedItem != chosenIndex { inputPopup.selectItem(at: chosenIndex) }
+        if choices != inputChoices || chosenIndex != inputChosen {
+            inputChoices = choices
+            inputChosen = chosenIndex
+            // A menu open over a changed list is a stale menu.
+            inputMenu.hide()
+        }
+        inputButton.title = choices[chosenIndex].title
         // Named whenever the microphone is wanted: it is the one thing
         // about it the keys cannot choose.
-        inputPopup.isHidden = noMic || !view.micOn
-        // Sized to the title on show, not the longest item: the arrow
-        // sits beside the name, not at the end of the widest device.
-        let titleWidth = (inputPopup.titleOfSelectedItem ?? "").size(withAttributes: [.font: BarTheme.secondaryFont]).width
-        let popupWidth = min(titleWidth + 30, max(80, trailing - x - 8))
-        if !inputPopup.isHidden {
-            place(inputPopup, x: trailing - popupWidth, width: popupWidth, height: 22)
-            trailing -= popupWidth + 8
+        inputButton.isHidden = noMic || !view.micOn
+        if inputButton.isHidden { inputMenu.hide() }
+        // Sized to the name: the chevron sits beside it, not at the end of
+        // the widest device.
+        let buttonWidth = min(inputButton.naturalWidth, max(80, trailing - x - 8))
+        if !inputButton.isHidden {
+            place(inputButton, x: trailing - buttonWidth, width: buttonWidth, height: 22)
+            trailing -= buttonWidth + 8
         }
 
         registerNote.stringValue = view.card?.detail ?? Self.note(for: view)
@@ -982,6 +991,8 @@ extension DraftPanel {
                                  inputs: inputs, systemInput: "Cypress", chosenInput: "MacBook Pro Microphone",
                                  micOn: true,
                                  destination: ("Messages", icon), replacing: false))
+            // MENU=1 stages the input menu open beside the draft.
+            if ProcessInfo.processInfo.environment["MENU"] == "1" { panel.toggleInputMenu() }
             // KEYS=1 stages the keys up, as lode ? shows them.
             if ProcessInfo.processInfo.environment["KEYS"] == "1" {
                 panel.showKeys(HotkeyEngine.draftSections(editor: .insert, card: false))

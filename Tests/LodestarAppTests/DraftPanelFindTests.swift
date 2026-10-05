@@ -9,12 +9,25 @@ import XCTest
 /// vibrancy composited away. Only an assertion against the rendered
 /// attributes catches that class of bug.
 final class DraftPanelFindTests: XCTestCase {
+    /// The accent the lights are drawn in, pinned: the Mac's own may sit
+    /// under the floor on a night, where the lights fall back to the text.
+    private var savedAccent: (() -> NSColor)?
+    override func setUp() {
+        super.setUp()
+        savedAccent = BarTheme.accentColor
+        BarTheme.accentColor = { BarTheme.accent(for: .orange) }
+    }
+    override func tearDown() {
+        if let savedAccent { BarTheme.accentColor = savedAccent }
+        super.tearDown()
+    }
+
     private func litPositions(_ panel: DraftPanel) -> [Int] {
         guard let storage = panel.textView.textStorage else { return [] }
         var lit: [Int] = []
         for i in 0..<storage.length {
             if let color = storage.attribute(.foregroundColor, at: i, effectiveRange: nil) as? NSColor,
-               color == NSColor.controlAccentColor {
+               color == BarTheme.readableAccent {
                 lit.append(i)
             }
         }

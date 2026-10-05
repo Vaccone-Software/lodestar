@@ -33,12 +33,19 @@ final class ReadabilityTests: XCTestCase {
         XCTAssertGreaterThan(panel.caretFrame.width, 4, "the width of the glyph")
     }
 
-    func testTheInsertBarIsTheSystemsInsertionColourAndThreePointsWide() {
+    /// The insert bar is the accent, three points wide. Pinned to
+    /// International Orange: the Mac's own accent may sit under the floor
+    /// on a night, where the bar rightly falls back to the text's colour.
+    func testTheInsertBarIsTheAccentAndThreePointsWide() {
+        let saved = BarTheme.accentColor
+        BarTheme.accentColor = { BarTheme.accent(for: .orange) }
+        defer { BarTheme.accentColor = saved }
         let panel = DraftPanel()
         defer { panel.hide() }
         panel.show(view("hello", cursor: 1, editor: .insert))
         XCTAssertEqual(panel.caretColor?.usingColorSpace(.deviceRGB),
-                       NSColor.controlAccentColor.usingColorSpace(.deviceRGB))
+                       BarTheme.readableAccent.usingColorSpace(.deviceRGB))
+        XCTAssertEqual(BarTheme.readableAccent, BarTheme.accent, "orange clears the floor on the night")
         XCTAssertEqual(panel.caretFrame.width, 3, accuracy: 0.01)
         XCTAssertEqual(color(panel, at: 1), .labelColor, "nothing is inverted under a bar")
     }

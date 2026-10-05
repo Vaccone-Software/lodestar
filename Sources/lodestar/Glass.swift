@@ -75,6 +75,7 @@ final class TonedGlass: NSGlassEffectView {
 
     private var themeObserver: NSObjectProtocol?
     private var accessibilityObserver: NSObjectProtocol?
+    private var appearanceObserver: NSObjectProtocol?
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
@@ -98,6 +99,9 @@ final class TonedGlass: NSGlassEffectView {
             forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
             object: nil, queue: .main
         ) { [weak self] _ in self?.retint() }
+        appearanceObserver = NotificationCenter.default.addObserver(
+            forName: BarTheme.appearanceChanged, object: nil, queue: .main
+        ) { [weak self] _ in self?.retint() }
     }
 
     deinit {
@@ -107,6 +111,7 @@ final class TonedGlass: NSGlassEffectView {
         if let accessibilityObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(accessibilityObserver)
         }
+        if let appearanceObserver { NotificationCenter.default.removeObserver(appearanceObserver) }
     }
 
     /// The tint, re-read from the system's tone and the person's settings.
@@ -426,12 +431,59 @@ enum BarTheme {
         return Tone.systemDark ? .secondaryLabelColor : NSColor(white: 0, alpha: 0.66)
     }
 
-    /// The panels' ground, for anything that must be judged against it:
-    /// the equalizer keeps every panel charcoal in dark and paper in
-    /// light, so the ground is a known tone rather than a query.
-    static var ground: NSColor {
-        Tone.systemDark ? NSColor(white: 0.1, alpha: 1) : NSColor(white: 0.92, alpha: 1)
+    /// The night the person chose (`appearance.background`), as a closure
+    /// so a test can choose one. Light mode is always clay.
+    static var background: () -> Palette.Night = { .default }
+
+    /// The palette in force: the chosen night in dark mode, clay in light.
+    static var palette: Palette.Steps {
+        Tone.systemDark ? Palette.night(background()) : Palette.clay
     }
+
+    /// The panels' ground, for anything that must be judged against it:
+    /// the pane of the palette in force, which the veil inside the glass
+    /// lands every surface on, so the ground is a known tone rather than a
+    /// query.
+    static var ground: NSColor { palette.pane.color }
+
+    /// The step a chosen thing stands on: the launcher's chosen row, a
+    /// card being acted on. One measured step lighter than the pane, never
+    /// a colour of its own: the lit keys say it is chosen, the step says
+    /// it is lifted.
+    static var raised: NSColor { palette.raised.color }
+
+    /// A bar's caret is the one light in its field: the accent, wherever
+    /// the field editor would otherwise draw the system's own colour.
+    static func lightCaret(of field: NSTextField) {
+        (field.currentEditor() as? NSTextView)?.insertionPointColor = readableAccent
+    }
+
+    /// The appearance changed under a standing surface: a night chosen in
+    /// settings, as a theme switch does.
+    static let appearanceChanged = Notification.Name("LodestarAppearanceChanged")
+
+    /// A raised row's top edge catches the light, as every object in the
+    /// pictures does: a flat line, never a gradient.
+    static var raisedRim: NSColor {
+        Tone.systemDark ? NSColor(white: 1, alpha: 0.10) : NSColor(white: 1, alpha: 0.9)
+    }
+
+    /// The one key, resting: in the night a pale cap on the pane, in clay
+    /// one of the pictures' dark keycaps with a pale letter.
+    static var keyFill: NSColor {
+        Tone.systemDark ? NSColor.white.withAlphaComponent(0.08) : Palette.clayKey.color
+    }
+    static var keyLetter: NSColor {
+        if Accessibility.increaseContrast() { return Tone.systemDark ? .labelColor : Palette.clayKeyLetter.color }
+        return Tone.systemDark ? secondaryColor : Palette.clayKeyLetter.color
+    }
+    /// The key's top face catches the light; its front lip falls in shadow.
+    static var keyTop: NSColor { NSColor.white.withAlphaComponent(Tone.systemDark ? 0.11 : 0.14) }
+    static var keyLip: NSColor { NSColor.black.withAlphaComponent(Tone.systemDark ? 0.6 : 0.35) }
+    /// A lit key is a small piece of the mark: the accent, its top edge the
+    /// mark's brightest face and its lip the darkest.
+    static var litKeyTop: NSColor { accent.blended(withFraction: 0.4, of: .white) ?? accent }
+    static var litKeyLip: NSColor { accent.blended(withFraction: 0.44, of: .black) ?? accent }
 
     /// What the glass is tinted toward, so that it lands on `ground`. Not
     /// the ground itself: the material multiplies with its backdrop rather
@@ -961,5 +1013,110 @@ extension NSTextField {
     /// The one way a field takes a placeholder: in the interface's face.
     func setPlaceholder(_ text: String) {
         placeholderAttributedString = BarTheme.placeholder(text, like: font)
+    }
+}
+
+
+extension Readability.RGB {
+    var color: NSColor { NSColor(srgbRed: red, green: green, blue: blue, alpha: 1) }
+}
+
+/// The one key Lodestar draws: a small object whose top face catches the
+/// light and whose front lip falls in shadow. Lit, it is a piece of the
+/// mark: the accent, with the mark's brightest face for its top edge and
+/// its darkest for its lip, and the letter in whichever ink reads on it.
+/// Resting, it is a quiet cap; in clay, the pictures' dark keycap.
+final class KeyFace: NSView {
+    let label = NSTextField(labelWithString: "")
+    var lit = false { didSet { if lit != oldValue { refresh() } } }
+    private let top = CALayer()
+
+    init(_ text: String) {
+        super.init(frame: .zero)
+        wantsLayer = true
+        translatesAutoresizingMaskIntoConstraints = false
+        layer?.cornerRadius = BarTheme.chipRadius
+        layer?.masksToBounds = false
+        layer?.shadowOffset = CGSize(width: 0, height: -1.5)
+        layer?.shadowRadius = 0
+        layer?.shadowOpacity = 1
+        layer?.addSublayer(top)
+        label.stringValue = text
+        label.font = BarTheme.chipFont
+        label.alignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: BarTheme.chipPadX),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -BarTheme.chipPadX),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor),
+            heightAnchor.constraint(equalToConstant: BarTheme.chipHeight),
+            widthAnchor.constraint(greaterThanOrEqualToConstant: BarTheme.chipMinWidth),
+        ])
+        refresh()
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func layout() {
+        super.layout()
+        let inset = BarTheme.chipRadius * 0.6
+        top.frame = CGRect(x: inset, y: bounds.height - 1, width: max(0, bounds.width - inset * 2), height: 1)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refresh()
+    }
+
+    func refresh() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.backgroundColor = (lit ? BarTheme.accent : BarTheme.keyFill).cgColor
+        layer?.shadowColor = (lit ? BarTheme.litKeyLip : BarTheme.keyLip).cgColor
+        top.backgroundColor = (lit ? BarTheme.litKeyTop : BarTheme.keyTop).cgColor
+        label.textColor = lit ? BarTheme.onAccent : BarTheme.keyLetter
+        CATransaction.commit()
+    }
+}
+
+/// A row that rises when it is chosen: the raised step, its top edge
+/// catching the light, and its keys lit by whoever subclasses it. The
+/// bars' rows share it, so the launcher, Ask and the commands bar choose
+/// a row the same way.
+class RaisedRow: NSView {
+    private let rim = CALayer()
+    private(set) var raised = false
+
+    func setupRaised() {
+        wantsLayer = true
+        layer?.cornerRadius = BarTheme.rowRadius
+        layer?.masksToBounds = false
+        layer?.addSublayer(rim)
+        layer?.shadowOffset = CGSize(width: 0, height: -1)
+        layer?.shadowRadius = 0
+        applyRaised(false)
+    }
+
+    override func layout() {
+        super.layout()
+        let inset = BarTheme.rowRadius * 0.6
+        rim.frame = CGRect(x: inset, y: bounds.height - 1, width: max(0, bounds.width - inset * 2), height: 1)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyRaised(raised)
+    }
+
+    func applyRaised(_ on: Bool) {
+        raised = on
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.backgroundColor = on ? BarTheme.raised.cgColor : nil
+        rim.backgroundColor = on ? BarTheme.raisedRim.cgColor : nil
+        layer?.shadowColor = NSColor.black.cgColor
+        layer?.shadowOpacity = on ? (Tone.systemDark ? 0.3 : 0.08) : 0
+        CATransaction.commit()
     }
 }

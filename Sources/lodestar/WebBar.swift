@@ -97,7 +97,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
         Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
 
-        globe.image = NSImage(systemSymbolName: "globe", accessibilityDescription: "web")
+        globe.image = NSImage(systemSymbolName: "link", accessibilityDescription: "links and the web")
         globe.symbolConfiguration = BarTheme.inputSymbol
         globe.contentTintColor = BarTheme.secondaryColor
         globe.translatesAutoresizingMaskIntoConstraints = false
@@ -171,6 +171,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         panel.makeKeyAndOrderFront(nil)
         panel.orderFrontRegardless()
         panel.makeFirstResponder(field)
+        BarTheme.lightCaret(of: field)
     }
 
     func hide() {
@@ -488,7 +489,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 }
 
 /// One reusable web-bar row: symbol, destination, profile chip.
-private final class WebRowView: NSView {
+private final class WebRowView: RaisedRow {
     private let icon = NSImageView()
     private let title = NSTextField(labelWithString: "")
     private let chipLabel = NSTextField(labelWithString: "")
@@ -505,13 +506,16 @@ private final class WebRowView: NSView {
     private var inferred = false
     private var kind: WebBarController.WebRow.Kind?
     private var selectedState = false
+    /// ⏎ on the chosen row, lit: the key that opens it.
+    private let enter = KeyFace("⏎")
 
     init(height: CGFloat) {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         heightAnchor.constraint(equalToConstant: height).isActive = true
-        wantsLayer = true
-        layer?.cornerRadius = BarTheme.rowRadius
+        setupRaised()
+        enter.lit = true
+        enter.isHidden = true
 
         icon.symbolConfiguration = BarTheme.symbolRow
         icon.translatesAutoresizingMaskIntoConstraints = false
@@ -535,6 +539,7 @@ private final class WebRowView: NSView {
         addSubview(icon)
         addSubview(title)
         addSubview(chip)
+        addSubview(enter)
         NSLayoutConstraint.activate([
             icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
             icon.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -549,7 +554,9 @@ private final class WebRowView: NSView {
             chipLabel.topAnchor.constraint(equalTo: chip.topAnchor, constant: 2),
             chipLabel.bottomAnchor.constraint(equalTo: chip.bottomAnchor, constant: -2),
             chip.centerYAnchor.constraint(equalTo: centerYAnchor),
-            chip.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            enter.centerYAnchor.constraint(equalTo: centerYAnchor),
+            enter.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            chip.trailingAnchor.constraint(equalTo: enter.leadingAnchor, constant: -8),
             title.trailingAnchor.constraint(lessThanOrEqualTo: chip.leadingAnchor, constant: -12),
         ])
         restyle()
@@ -592,16 +599,17 @@ private final class WebRowView: NSView {
         restyle()
     }
 
+    /// Chosen, the row rises and ⏎ lights beside it. The profile is a
+    /// fact about where the link goes, not a key, so it stays a quiet
+    /// label whether chosen or not.
     private func restyle() {
-        let onAccent = BarTheme.onAccent
-        layer?.backgroundColor = selectedState ? BarTheme.accent.cgColor : nil
-        icon.contentTintColor = selectedState ? onAccent : BarTheme.secondaryColor
-        title.textColor = selectedState ? onAccent : .labelColor
-        chipLabel.textColor = selectedState ? onAccent : BarTheme.secondaryColor
-        chipMark.contentTintColor = selectedState ? onAccent : BarTheme.secondaryColor
-        chip.layer?.backgroundColor = selectedState
-            ? onAccent.withAlphaComponent(0.22).cgColor
-            : NSColor.labelColor.withAlphaComponent(0.08).cgColor
+        applyRaised(selectedState)
+        icon.contentTintColor = BarTheme.secondaryColor
+        title.textColor = .labelColor
+        chipLabel.textColor = BarTheme.secondaryColor
+        chipMark.contentTintColor = BarTheme.secondaryColor
+        chip.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.08).cgColor
+        enter.isHidden = !selectedState
     }
 }
 

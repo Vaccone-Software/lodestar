@@ -192,8 +192,7 @@ final class OptionsCard {
                     bodyRow.addArrangedSubview(label("type letters", font: BarTheme.titleFont,
                                                      color: BarTheme.secondaryColor))
                 } else {
-                    bodyRow.addArrangedSubview(label("lode", font: BarTheme.chipFont,
-                                                     color: BarTheme.secondaryColor))
+                    bodyRow.addArrangedSubview(keycap("lode", quiet: true, caps: false))
                     for letter in letters {
                         bodyRow.addArrangedSubview(keycap(letter))
                     }
@@ -201,8 +200,9 @@ final class OptionsCard {
             case .text(let text, let placeholder):
                 // A name is one word you will type into the bar, so it is
                 // shown as that word — keycaps would claim it is a chord.
+                // The hand's words wear mono; the placeholder is Lodestar's.
                 bodyRow.addArrangedSubview(label(text.isEmpty ? placeholder : text,
-                                                 font: BarTheme.titleFont,
+                                                 font: text.isEmpty ? BarTheme.titleFont : BarTheme.handFont(BarTheme.Scale.title),
                                                  color: text.isEmpty ? BarTheme.secondaryColor : .labelColor))
             }
             stack.addArrangedSubview(bodyRow)
@@ -301,28 +301,10 @@ final class OptionsCard {
     /// the guides and the clipboard's menu now draw the pressable key flat
     /// too, so the border was the one thing out of step.
     private func keycap(_ text: String, quiet: Bool = false, caps: Bool = true) -> NSView {
-        let cap = NSTextField(labelWithString: caps ? text.uppercased() : text)
-        cap.font = BarTheme.chipFont
-        cap.alignment = .center
-        cap.textColor = quiet ? BarTheme.secondaryColor : .labelColor
-        cap.translatesAutoresizingMaskIntoConstraints = false
-
-        let box = NSView()
-        box.wantsLayer = true
-        box.layer?.cornerRadius = BarTheme.chipRadius
-        box.layer?.backgroundColor = NSColor.labelColor
-            .withAlphaComponent(quiet ? 0.05 : 0.09).cgColor
-        box.translatesAutoresizingMaskIntoConstraints = false
-        box.setContentHuggingPriority(.required, for: .horizontal)
-        box.addSubview(cap)
-        NSLayoutConstraint.activate([
-            cap.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: BarTheme.chipPadX),
-            cap.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -BarTheme.chipPadX),
-            cap.centerYAnchor.constraint(equalTo: box.centerYAnchor),
-            box.heightAnchor.constraint(equalToConstant: BarTheme.chipHeight),
-            box.widthAnchor.constraint(greaterThanOrEqualToConstant: BarTheme.chipMinWidth),
-        ])
-        return box
+        let key = KeyFace(caps ? text.uppercased() : text)
+        key.setContentHuggingPriority(.required, for: .horizontal)
+        if quiet { key.alphaValue = 0.6 }
+        return key
     }
 
     private func label(_ text: String, font: NSFont, color: NSColor) -> NSTextField {

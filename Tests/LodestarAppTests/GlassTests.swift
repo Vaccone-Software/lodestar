@@ -265,12 +265,15 @@ final class OnAccentTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(contrast(BarTheme.onAccent, on: orange), 4.5, "reading text on a fill")
     }
 
-    func testTheDeeperOrangeAndADeepBlueTakeWhite() {
+    /// On clay the orange is the same hue a step deeper, and it still
+    /// takes ink (5.1 to 1, where white would read 3.8); a deep blue takes
+    /// white.
+    func testTheClayOrangeTakesInkAndADeepBlueTakesWhite() {
         let deep = NSColor(srgbRed: Readability.orangeOnPaper.red, green: Readability.orangeOnPaper.green,
                            blue: Readability.orangeOnPaper.blue, alpha: 1)
         BarTheme.accentColor = { deep }
-        XCTAssertEqual(BarTheme.onAccent, .white)
-        XCTAssertGreaterThanOrEqual(contrast(.white, on: deep), 4.5)
+        XCTAssertNotEqual(BarTheme.onAccent, .white)
+        XCTAssertGreaterThanOrEqual(contrast(BarTheme.onAccent, on: deep), 4.5)
         BarTheme.accentColor = { NSColor(srgbRed: 0.0, green: 0.3, blue: 0.8, alpha: 1) }
         XCTAssertEqual(BarTheme.onAccent, .white)
     }
@@ -398,5 +401,30 @@ final class SettingsSwitchSurvivalTests: XCTestCase {
         XCTAssertTrue(kept === toggle)
         XCTAssertNotNil(kept.layer?.sublayers?[1].animation(forKey: "slide"), "the slide is still attached")
         XCTAssertNotNil(kept.superview)
+    }
+}
+
+/// The one key: resting a quiet cap, lit a piece of the mark.
+final class KeyFaceTests: XCTestCase {
+    func testALitKeyIsTheAccentWithItsReadableInk() {
+        let saved = BarTheme.accentColor
+        BarTheme.accentColor = { BarTheme.accent(for: .orange) }
+        defer { BarTheme.accentColor = saved }
+        let key = KeyFace("E")
+        XCTAssertNotEqual(key.layer?.backgroundColor, BarTheme.accent.cgColor, "resting is not lit")
+        key.lit = true
+        XCTAssertEqual(key.layer?.backgroundColor, BarTheme.accent.cgColor)
+        XCTAssertEqual(key.label.textColor, BarTheme.onAccent)
+        XCTAssertEqual(key.layer?.shadowOffset.height ?? 0, -1.5, accuracy: 0.01, "the lip falls in shadow")
+    }
+
+    func testTheGroundFollowsTheChosenNight() {
+        let saved = BarTheme.background
+        defer { BarTheme.background = saved }
+        guard Tone.systemDark else { return }
+        BarTheme.background = { .lodestone }
+        XCTAssertEqual(BarTheme.ground, Palette.night(.lodestone).pane.color)
+        BarTheme.background = { .default }
+        XCTAssertEqual(BarTheme.raised, Palette.night(.default).raised.color)
     }
 }

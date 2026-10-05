@@ -77,6 +77,10 @@ enum StripPreview {
             if let other = ProcessInfo.processInfo.environment["LODESTAR_GROUND"] {
                 StageView.light = other == "light"
             }
+            // `LODESTAR_BACKGROUND=lodestone` stages the other night.
+            if let night = ProcessInfo.processInfo.environment["LODESTAR_BACKGROUND"].flatMap(Palette.Night.init) {
+                BarTheme.background = { night }
+            }
             // `LODESTAR_ACCENT=orange` stages Lodestar's own accent.
             if ProcessInfo.processInfo.environment["LODESTAR_ACCENT"] == "orange" {
                 BarTheme.accentColor = { BarTheme.accent(for: .orange) }

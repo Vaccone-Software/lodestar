@@ -30,12 +30,13 @@ public enum Readability {
     public static let charcoal = RGB(red: 0.1, green: 0.1, blue: 0.1)
     public static let paper = RGB(red: 0.92, green: 0.92, blue: 0.92)
 
-    /// Lodestar's own accent: international orange on charcoal, where it
-    /// clears the mark floor with room to spare, and a deeper orange on
-    /// paper, where the true colour sits under it. A pair, measured,
-    /// never a colour derived at runtime.
+    /// Lodestar's own accent: International Orange itself on the night,
+    /// where it clears the mark floor with room to spare, and on clay the
+    /// same hue a step deeper (#EB4900), the least change that clears it
+    /// there: the colour adapted, never replaced, because its name is part
+    /// of what it means. A pair, measured, never derived at runtime.
     public static let orangeOnCharcoal = RGB(red: 1.0, green: 0.31, blue: 0.0)
-    public static let orangeOnPaper = RGB(red: 0.82, green: 0.26, blue: 0.0)
+    public static let orangeOnPaper = RGB(red: 0.922, green: 0.286, blue: 0.0)
 
     /// The least contrast a mark the eye must find — a cursor, a lit
     /// letter — may have against its ground before it falls back to the

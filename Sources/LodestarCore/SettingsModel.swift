@@ -284,6 +284,9 @@ public enum SettingsModel {
         public var editorRegionInferred = "en_US"
         /// The units the Mac's region measures in, for Units until one is chosen.
         public var unitsInferred = ClipQuantity.System.imperial.rawValue
+        /// Whether the Mac is in dark mode: the night is chosen only there,
+        /// since light mode is always clay.
+        public var isDark = true
         /// How many breaths are saved, for Switch's line on the overview.
         public var breaths = 0
         /// The config's recent changes, newest first, for the History page.
@@ -414,6 +417,16 @@ public enum SettingsModel {
                                  current: config.accent.rawValue),
                 detail: "The cursor, lit letters and the echoed query",
                 isDefault: config.accent == .system, group: "Look and sound"),
+            machine.isDark
+                ? Row(title: "Background", path: "appearance.background",
+                      control: .choice(options: ["default", "lodestone"], labels: ["Default", "Lodestone"],
+                                       current: config.background.rawValue),
+                      detail: "What every surface stands on in dark mode",
+                      isDefault: config.background == .default, group: "Look and sound")
+                : Row(title: "Background", path: "appearance.background",
+                      control: .readout("Default", sub: nil),
+                      detail: "Light mode is always clay",
+                      isDefault: true, dimmed: true, group: "Look and sound"),
             Row(title: "Sounds", path: "app.sounds",
                 control: .toggle(config.sounds),
                 detail: "Lodestar's alert, and the draft's notes when the microphone is live and when the words land",
@@ -981,7 +994,7 @@ public enum SettingsModel {
 
     /// The words people type for a place that is named by what it does.
     static let aliases: [String: String] = [
-        "General": "login startup updates accent colour color sound menu bar display accessibility permission",
+        "General": "login startup updates accent colour color background dark night lodestone sound menu bar display accessibility permission",
         "Write": "editor grammar spelling typos proofread",
         "Switch": "windows launcher apps graph letters breaths layout maximize",
         "Keep": "clipboard copy paste history clips",

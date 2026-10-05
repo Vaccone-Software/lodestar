@@ -658,7 +658,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         if config.showMenuBar { createStatusItem() }
         BarTheme.accentColor = { [accent = config.accent] in BarTheme.accent(for: accent) }
-        Log.info("appearance", ["accent": config.accent.rawValue])
+        BarTheme.background = { [night = config.background] in night }
+        Log.info("appearance", ["accent": config.accent.rawValue, "background": config.background.rawValue])
         actions.revealLodestar = { [weak self] in self?.revealMenuBar() }
         engine.onExcludeApp = { [weak self] bundleID in self?.excludeAppFromClipboard(bundleID) }
         installSignalHandler()
@@ -1179,6 +1180,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 .filter { EditorEngine.physicalGB < $0.memoryNeeded - 1 }.map(\.rawValue))
             state.editorRegionInferred = EditorRegion.inferred()
             state.unitsInferred = ClipQuantity.System.regional().rawValue
+            state.isDark = Tone.systemDark
             let waiting = (self?.config.editorEnabled ?? false) && !(self?.store.editorConsented ?? true)
             state.editorModelStatus = waiting ? "\(engine.name) · waiting for Accept or Decline"
                 : self?.editorDownload.status
@@ -2140,6 +2142,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ActivePolicy.mode = loaded.activeDisplayMode
         engine.config = loaded
         BarTheme.accentColor = { [accent = loaded.accent] in BarTheme.accent(for: accent) }
+        if BarTheme.background() != loaded.background {
+            BarTheme.background = { [night = loaded.background] in night }
+            // A standing surface (the pill, the strip) takes the new night now.
+            NotificationCenter.default.post(name: BarTheme.appearanceChanged, object: nil)
+            Log.info("appearance", ["background": loaded.background.rawValue])
+        }
         webBar.config = loaded
         updater.enabled = loaded.autoUpdate
         clipboardController.excludedApps = loaded.clipboardExcludedApps

@@ -108,6 +108,27 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertFalse(filled.isDefault)
     }
 
+    /// The night is chosen in dark mode, under Accent; light mode is
+    /// always clay and the row says Default, dimmed.
+    func testBackgroundIsChosenOnlyInDarkMode() {
+        var machine = SettingsModel.MachineState()
+        machine.isDark = true
+        let rows = place("General", Config(), machine).rows
+        let accent = rows.firstIndex { $0.path == "appearance.accent" }!
+        let row = rows[accent + 1]
+        XCTAssertEqual(row.path, "appearance.background", "directly under Accent")
+        guard case .choice(let options, let labels, let current) = row.control else { return XCTFail("a choice") }
+        XCTAssertEqual(options, ["default", "lodestone"])
+        XCTAssertEqual(labels, ["Default", "Lodestone"])
+        XCTAssertEqual(current, "default")
+        XCTAssertFalse(row.dimmed)
+        machine.isDark = false
+        let light = place("General", Config(), machine).rows.first { $0.path == "appearance.background" }!
+        guard case .readout(let shown, _) = light.control else { return XCTFail("a readout in light mode") }
+        XCTAssertEqual(shown, "Default")
+        XCTAssertTrue(light.dimmed)
+    }
+
     /// Units say Automatic, with the region's choice, until one is chosen.
     func testUnitsAreAutomaticUntilChosen() {
         var machine = SettingsModel.MachineState()

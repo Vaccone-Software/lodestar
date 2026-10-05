@@ -2158,10 +2158,12 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                         browser: browser.rawValue, browserLabel: browser.label, name: name))
                 }
             }
-            return .init(accessibility: "Granted", screenRecording: "Not asked yet",
+            var state = SettingsModel.MachineState(accessibility: "Granted", screenRecording: "Not asked yet",
                          calendars: "Granted", browserRole: "Brave holds the role.",
                          savedBrowser: "Brave  (com.brave.Browser)",
                          detectedProfiles: detected)
+            state.isDark = Tone.systemDark
+            return state
         }
         controller.place = index < 0 ? nil : index
         DispatchQueue.main.async {

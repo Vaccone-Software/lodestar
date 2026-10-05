@@ -141,8 +141,8 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
 
         magnifier.image = NSImage(
-            systemSymbolName: "magnifyingglass",
-            accessibilityDescription: "search"
+            systemSymbolName: "macwindow.on.rectangle",
+            accessibilityDescription: "apps and windows"
         )
         magnifier.symbolConfiguration = BarTheme.inputSymbol
         magnifier.contentTintColor = BarTheme.secondaryColor
@@ -252,6 +252,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         panel.makeKeyAndOrderFront(nil)
         panel.orderFrontRegardless()
         panel.makeFirstResponder(field)
+        BarTheme.lightCaret(of: field)
     }
 
     // MARK: - Querying
@@ -861,12 +862,13 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
 
 /// A reusable searcher row. The icon is loaded once per identity; selection
 /// is a repaint, not a rebuild.
-private final class SearcherRowView: NSView {
+private final class SearcherRowView: RaisedRow {
     private let icon = NSImageView()
     private let name = NSTextField(labelWithString: "")
     private let stack = NSStackView()
-    private var chipBoxes: [NSView] = []
-    private var chipLabels: [NSTextField] = []
+    private var keys: [KeyFace] = []
+    /// ⏎ on the chosen row: the key that opens it, lit with its letters.
+    private let enter = KeyFace("⏎")
     private var dot: NSTextField?
     private var identity = ""
     private var trailingSignature = ""
@@ -876,8 +878,7 @@ private final class SearcherRowView: NSView {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         heightAnchor.constraint(equalToConstant: rowHeight).isActive = true
-        wantsLayer = true
-        layer?.cornerRadius = BarTheme.rowRadius
+        setupRaised()
 
         icon.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
@@ -907,6 +908,9 @@ private final class SearcherRowView: NSView {
         stack.addArrangedSubview(icon)
         stack.addArrangedSubview(name)
         stack.addArrangedSubview(spacer)
+        enter.lit = true
+        enter.isHidden = true
+        stack.addArrangedSubview(enter)
 
         addSubview(stack)
         NSLayoutConstraint.activate([
@@ -930,17 +934,17 @@ private final class SearcherRowView: NSView {
         let signature = chips.joined(separator: "|") + (showDot ? "|●" : "")
         if signature != trailingSignature {
             trailingSignature = signature
-            for view in chipBoxes { stack.removeArrangedSubview(view); view.removeFromSuperview() }
-            chipBoxes = []
-            chipLabels = []
+            for view in keys { stack.removeArrangedSubview(view); view.removeFromSuperview() }
+            keys = []
             if let dot { stack.removeArrangedSubview(dot); dot.removeFromSuperview() }
             dot = nil
 
-            for chip in chips {
-                let (box, label) = Self.makeChip(chip)
-                chipBoxes.append(box)
-                chipLabels.append(label)
-                stack.addArrangedSubview(box)
+            // The address keys, then ⏎ (shown only when chosen), then the dot.
+            let enterIndex = stack.arrangedSubviews.firstIndex(of: enter) ?? stack.arrangedSubviews.count
+            for (offset, chip) in chips.enumerated() {
+                let key = KeyFace(chip)
+                keys.append(key)
+                stack.insertArrangedSubview(key, at: enterIndex + offset)
             }
             if showDot {
                 let dotLabel = NSTextField(labelWithString: "●")
@@ -958,43 +962,15 @@ private final class SearcherRowView: NSView {
         restyle()
     }
 
+    /// Chosen, the row rises and its keys light, ⏎ among them: the light
+    /// lands where the hand goes next, and the letters it shows are the
+    /// ones that reach this target without the launcher.
     private func restyle() {
-        let onAccent = BarTheme.onAccent
-        layer?.backgroundColor = selectedState ? BarTheme.accent.cgColor : nil
-        name.textColor = selectedState ? onAccent : .labelColor
-        for label in chipLabels {
-            label.textColor = selectedState ? onAccent : BarTheme.secondaryColor
-        }
-        for box in chipBoxes {
-            box.layer?.backgroundColor = selectedState
-                ? onAccent.withAlphaComponent(0.22).cgColor
-                : NSColor.labelColor.withAlphaComponent(0.09).cgColor
-        }
-        dot?.textColor = selectedState ? onAccent.withAlphaComponent(0.85) : BarTheme.accent
-    }
-
-    private static func makeChip(_ text: String) -> (NSView, NSTextField) {
-        let label = NSTextField(labelWithString: text)
-        label.font = BarTheme.chipFont
-        label.alignment = .center
-        label.translatesAutoresizingMaskIntoConstraints = false
-
-        let box = NSView()
-        box.wantsLayer = true
-        box.layer?.cornerRadius = BarTheme.chipRadius
-        box.translatesAutoresizingMaskIntoConstraints = false
-        box.addSubview(label)
-        // The same chip the guides and the clipboard's menu draw. Left to
-        // itself this one sized purely to its text, so a one-letter address
-        // came out visibly smaller than the identical chip elsewhere.
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: BarTheme.chipPadX),
-            label.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -BarTheme.chipPadX),
-            label.centerYAnchor.constraint(equalTo: box.centerYAnchor),
-            box.heightAnchor.constraint(equalToConstant: BarTheme.chipHeight),
-            box.widthAnchor.constraint(greaterThanOrEqualToConstant: BarTheme.chipMinWidth),
-        ])
-        return (box, label)
+        applyRaised(selectedState)
+        name.textColor = .labelColor
+        for key in keys { key.lit = selectedState }
+        enter.isHidden = !selectedState
+        dot?.textColor = BarTheme.accent
     }
 }
 

@@ -68,6 +68,7 @@ final class ConfigCoverageTests: XCTestCase {
         Probe(path: ["draft", "input"], value: .string("MacBook Pro Microphone")) {
             $0.draftInput == "MacBook Pro Microphone"
         },
+        Probe(path: ["appearance", "background"], value: .string("lodestone")) { $0.background == .lodestone },
         Probe(path: ["draft", "model"], value: .string("standard")) {
             $0.draftModel == "standard"
         },

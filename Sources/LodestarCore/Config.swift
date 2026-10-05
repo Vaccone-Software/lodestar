@@ -50,6 +50,9 @@ public struct Config {
     /// only one that has passed that sentence.
     public enum Accent: String, Equatable, Sendable { case system, orange }
     public var accent = Accent.system
+    /// `appearance.background`: the night every surface stands on in dark
+    /// mode. Light mode is always clay.
+    public var background = Palette.Night.default
     /// Pixels per j/k/h/l press in scroll mode when smooth is off.
     public var scrollStep: CGFloat = 60
     /// Constant velocity while a direction key is held; instant stop on release.
@@ -216,6 +219,8 @@ public struct Config {
                              description: "The units a copied measurement is read into on its card. Empty follows your region."),
         ], description: "App behavior."),
         "appearance": .table([
+            "background": .string(allowed: ["default", "lodestone"],
+                                  description: "The ground every surface stands on in dark mode: default, a warm grey the colour of wet clay, or lodestone, the cold blue-grey of the compass stone. Light mode is always clay."),
             "accent": .string(allowed: ["system", "orange"],
                               description: "The colour of the cursor, lit letters, and the echoed query: the Mac's accent, or Lodestar's International Orange, set deeper in light mode so it stays readable."),
         ], description: "How Lodestar looks. Never what it asks of you."),
@@ -620,6 +625,13 @@ public struct Config {
                     }
                     config.fingerMap.keyboards[id, default: [:]][key] = placement
                 }
+            }
+        }
+        if let background = effective.value(at: ["appearance", "background"])?.string {
+            if let chosen = Palette.Night(rawValue: background) {
+                config.background = chosen
+            } else {
+                problems.append("unknown appearance.background '\(background)' — using default")
             }
         }
         if let accent = effective.value(at: ["appearance", "accent"])?.string {

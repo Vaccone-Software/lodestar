@@ -220,6 +220,7 @@ public enum ConfigDefaults {
         ]),
         "appearance": .table([
             "accent": .string("system"),
+            "background": .string("default"),
         ]),
         "draft": .table([
             "input": .string(""),

@@ -40,7 +40,7 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
 
         Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
 
-        symbol.image = NSImage(systemSymbolName: "filemenu.and.selection", accessibilityDescription: "menus")
+        symbol.image = NSImage(systemSymbolName: "menubar.rectangle", accessibilityDescription: "menus")
         symbol.symbolConfiguration = BarTheme.inputSymbol
         symbol.contentTintColor = BarTheme.secondaryColor
         symbol.translatesAutoresizingMaskIntoConstraints = false
@@ -124,6 +124,7 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
         panel.makeKeyAndOrderFront(nil)
         panel.orderFrontRegardless()
         panel.makeFirstResponder(field)
+        BarTheme.lightCaret(of: field)
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let harvested = MenuItems.items(forAppWithPID: pid)
             DispatchQueue.main.async {
@@ -278,6 +279,7 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
         bar.panel.makeKeyAndOrderFront(nil)
         bar.panel.orderFrontRegardless()
         bar.panel.makeFirstResponder(bar.field)
+        BarTheme.lightCaret(of: bar.field)
         bar.field.currentEditor()?.selectedRange = NSRange(location: query.count, length: 0)
         bar.requery()
         return bar
@@ -287,11 +289,14 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
 
 /// One reusable commands row: title over breadcrumb, a source chip when the
 /// list mixes feeds, and the native-shortcut chip at the edge.
-private final class CommandsRowView: NSView {
+private final class CommandsRowView: RaisedRow {
     private let title = NSTextField(labelWithString: "")
     private let crumb = NSTextField(labelWithString: "")
-    private let chipLabel = NSTextField(labelWithString: "")
-    private let chip = NSView()
+    /// The app's own shortcut for the command, a real key: lit when chosen.
+    private let chip = KeyFace("")
+    private var chipLabel: NSTextField { chip.label }
+    /// ⏎ on the chosen row, lit: the key that runs it.
+    private let enter = KeyFace("⏎")
     private let sourceLabel = NSTextField(labelWithString: "")
     private let sourceChip = NSView()
     private let trailing = NSStackView()
@@ -301,8 +306,9 @@ private final class CommandsRowView: NSView {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         heightAnchor.constraint(equalToConstant: height).isActive = true
-        wantsLayer = true
-        layer?.cornerRadius = BarTheme.rowRadius
+        setupRaised()
+        enter.lit = true
+        enter.isHidden = true
 
         title.font = BarTheme.titleFont
         title.lineBreakMode = .byTruncatingTail
@@ -311,7 +317,7 @@ private final class CommandsRowView: NSView {
         crumb.lineBreakMode = .byTruncatingTail
         crumb.translatesAutoresizingMaskIntoConstraints = false
 
-        for (box, label) in [(chip, chipLabel), (sourceChip, sourceLabel)] {
+        for (box, label) in [(sourceChip, sourceLabel)] {
             label.font = BarTheme.chipFont
             label.translatesAutoresizingMaskIntoConstraints = false
             box.wantsLayer = true
@@ -334,6 +340,7 @@ private final class CommandsRowView: NSView {
         trailing.translatesAutoresizingMaskIntoConstraints = false
         trailing.addArrangedSubview(sourceChip)
         trailing.addArrangedSubview(chip)
+        trailing.addArrangedSubview(enter)
 
         addSubview(title)
         addSubview(crumb)
@@ -375,18 +382,15 @@ private final class CommandsRowView: NSView {
         restyle()
     }
 
+    /// Chosen, the row rises and its keys light: the app's shortcut and
+    /// ⏎. Which feed it came from is a fact, not a key, so it stays quiet.
     private func restyle() {
-        let onAccent = BarTheme.onAccent
-        layer?.backgroundColor = selectedState ? BarTheme.accent.cgColor : nil
-        title.textColor = selectedState ? onAccent : .labelColor
-        crumb.textColor = selectedState ? onAccent.withAlphaComponent(0.75) : BarTheme.secondaryColor
-        for label in [chipLabel, sourceLabel] {
-            label.textColor = selectedState ? onAccent : BarTheme.secondaryColor
-        }
-        for box in [chip, sourceChip] {
-            box.layer?.backgroundColor = selectedState
-                ? onAccent.withAlphaComponent(0.22).cgColor
-                : NSColor.labelColor.withAlphaComponent(0.08).cgColor
-        }
+        applyRaised(selectedState)
+        title.textColor = .labelColor
+        crumb.textColor = BarTheme.secondaryColor
+        sourceLabel.textColor = BarTheme.secondaryColor
+        sourceChip.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.08).cgColor
+        chip.lit = selectedState
+        enter.isHidden = !selectedState
     }
 }

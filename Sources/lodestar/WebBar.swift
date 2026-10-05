@@ -248,8 +248,6 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             let view = WebRowView(height: rowHeight)
             rowViews.append(view)
             rowsStack.addArrangedSubview(view)
-            // The row's words start where the field's do: one column of text.
-            view.titleLeading.constraint(equalTo: field.leadingAnchor, constant: 2).isActive = true
         }
         for (index, view) in rowViews.enumerated() {
             if index < rows.count {
@@ -538,6 +536,8 @@ private final class WebRowView: RaisedRow {
         addSubview(chip)
         addSubview(enter)
         NSLayoutConstraint.activate([
+            // Where the commands bar's rows start their words.
+            title.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
             title.centerYAnchor.constraint(equalTo: centerYAnchor),
             chipMark.leadingAnchor.constraint(equalTo: chip.leadingAnchor, constant: 6),
             chipMark.centerYAnchor.constraint(equalTo: chip.centerYAnchor),
@@ -575,9 +575,6 @@ private final class WebRowView: RaisedRow {
             }
         }
     }
-
-    /// Where the row's words begin, so the bar can line them up with its field.
-    var titleLeading: NSLayoutXAxisAnchor { title.leadingAnchor }
 
     /// Whether the chip wears the pin, for the tests.
     var marksChosen: Bool { !chipMark.isHidden }

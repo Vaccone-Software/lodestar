@@ -219,7 +219,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         for link in links.prefix(5) {
             built.append(WebRow(
                 kind: .link,
-                title: "\(link.name)\u{2003}\(link.url)",
+                title: "\(link.name)\u{2002}\(link.url)",
                 url: WebRouting.normalize(link.url),
                 raw: link.url,
                 name: link.name,

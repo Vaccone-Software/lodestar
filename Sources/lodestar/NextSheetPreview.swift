@@ -100,13 +100,14 @@ enum NextSheet {
     // ANIMATE=1 delays the unfold so a recording can catch it.
     private static func askBar(sheet: Bool) {
         let json = """
-        { "web": { "links": { "docs": "developer.apple.com/documentation" },
+        { "web": { "links": { "docs": { "url": "developer.apple.com/documentation" } },
                    "routes": { "github.com": "default" }, "fallback": "default" } }
         """
         var problems: [String] = []
         let tree = (try? Json.parse(json)) ?? [:]
         let config = Config.build(from: tree, problems: &problems)
-        let bar = WebBarController.preview(query: "github.com/vaccone-software", config: config)
+        // ASK= stages another query: "docs" shows a saved link's row.
+        let bar = WebBarController.preview(query: env("ASK", "github.com/vaccone-software"), config: config)
         held.append(bar)
         guard sheet else { return }
         let delay: TimeInterval = env("ANIMATE", "") == "1" ? 1.5 : 0

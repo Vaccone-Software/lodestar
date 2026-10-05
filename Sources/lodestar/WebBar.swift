@@ -574,7 +574,19 @@ private final class WebRowView: RaisedRow {
         // No symbol for the row's kind: its words already say it, a name
         // and its address, a bare address, or Search "…".
         kind = row.kind
-        if title.stringValue != row.title { title.stringValue = row.title }
+        if title.stringValue != row.title {
+            // A saved link reads as its name, then its address a step back
+            // in tone, as the commands bar's breadcrumbs are: one line, two
+            // weights of attention.
+            let text = NSMutableAttributedString(string: row.title, attributes: [
+                .foregroundColor: NSColor.labelColor, .font: BarTheme.titleFont])
+            if row.kind == .link, let name = row.name, row.title.hasPrefix(name) {
+                let rest = NSRange(location: (name as NSString).length,
+                                   length: (row.title as NSString).length - (name as NSString).length)
+                text.addAttribute(.foregroundColor, value: BarTheme.secondaryColor, range: rest)
+            }
+            title.attributedStringValue = text
+        }
         if chipLabel.stringValue != row.profile.display { chipLabel.stringValue = row.profile.display }
         chip.isHidden = !showsProfile
     }
@@ -593,7 +605,6 @@ private final class WebRowView: RaisedRow {
     /// label whether chosen or not.
     private func restyle() {
         applyRaised(selectedState)
-        title.textColor = .labelColor
         chipLabel.textColor = BarTheme.secondaryColor
         chip.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.08).cgColor
         enter.isHidden = !selectedState

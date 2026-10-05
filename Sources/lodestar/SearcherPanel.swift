@@ -937,6 +937,8 @@ private final class SearcherRowView: RaisedRow {
             keys = []
             if let dot { stack.removeArrangedSubview(dot); dot.removeFromSuperview() }
             dot = nil
+            // The dot's tighter gap goes with it, or a reused row keeps it.
+            stack.setCustomSpacing(NSStackView.useDefaultSpacing, after: name)
 
             // The address keys, then ⏎ (shown only when chosen), then the dot.
             let enterIndex = stack.arrangedSubviews.firstIndex(of: enter) ?? stack.arrangedSubviews.count

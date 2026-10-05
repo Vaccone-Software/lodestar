@@ -75,7 +75,6 @@ final class TonedGlass: NSGlassEffectView {
 
     private var themeObserver: NSObjectProtocol?
     private var accessibilityObserver: NSObjectProtocol?
-    private var appearanceObserver: NSObjectProtocol?
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
@@ -99,9 +98,6 @@ final class TonedGlass: NSGlassEffectView {
             forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
             object: nil, queue: .main
         ) { [weak self] _ in self?.retint() }
-        appearanceObserver = NotificationCenter.default.addObserver(
-            forName: BarTheme.appearanceChanged, object: nil, queue: .main
-        ) { [weak self] _ in self?.retint() }
     }
 
     deinit {
@@ -111,7 +107,6 @@ final class TonedGlass: NSGlassEffectView {
         if let accessibilityObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(accessibilityObserver)
         }
-        if let appearanceObserver { NotificationCenter.default.removeObserver(appearanceObserver) }
     }
 
     /// The tint, re-read from the system's tone and the person's settings.
@@ -408,8 +403,6 @@ enum BarTheme {
     static let highlightRadius: CGFloat = markRadius
     static let hairlineRadius: CGFloat = 1
     /// The pin inside a chip whose profile was chosen, and its gap to the name.
-    static let chipMarkWidth: CGFloat = 14
-    static let chipMarkGap: CGFloat = 4
     /// A symbol leading a bar's row, a size above the text's.
     static let symbolRow = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
     /// The breath's mark: air moving. A breath is taken and released,
@@ -426,9 +419,20 @@ enum BarTheme {
     /// the veil, under the 4.5 that reading needs, so light mode sets
     /// its captions a shade darker than the system would; charcoal's
     /// secondary measured 6.2 and stays the system's own.
-    static var secondaryColor: NSColor {
-        if Accessibility.increaseContrast() { return .labelColor }
-        return Tone.systemDark ? .secondaryLabelColor : NSColor(white: 0, alpha: 0.66)
+    ///
+    /// Resolved when it is drawn, not when it is handed out: a caption
+    /// built in light mode and kept (an attributed title, a chip made once)
+    /// otherwise stays 66% black on dark glass after the Mac turns dark
+    /// at sunset.
+    static let secondaryColor = NSColor(name: "LodestarSecondary") { appearance in
+        var resolved = NSColor.secondaryLabelColor
+        appearance.performAsCurrentDrawingAppearance {
+            let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            let color: NSColor = Accessibility.increaseContrast() ? .labelColor
+                : dark ? .secondaryLabelColor : NSColor(white: 0, alpha: 0.66)
+            resolved = color.usingColorSpace(.sRGB) ?? color
+        }
+        return resolved
     }
 
     /// The palette in force: the night in dark mode, clay in light.
@@ -456,10 +460,6 @@ enum BarTheme {
     static func lightCaret(of field: NSTextField) {
         (field.currentEditor() as? NSTextView)?.insertionPointColor = readableAccent
     }
-
-    /// The appearance changed under a standing surface: a night chosen in
-    /// settings, as a theme switch does.
-    static let appearanceChanged = Notification.Name("LodestarAppearanceChanged")
 
     /// A raised row's top edge catches the light, as every object in the
     /// pictures does: a flat line, never a gradient.
@@ -1184,11 +1184,19 @@ enum SoftShadow {
     /// The surface's frame inside a window hosted this way.
     static func inset(_ window: NSRect) -> NSRect { window.insetBy(dx: margin, dy: margin) }
 
-    /// Host `content` as the panel's surface, with the shadow drawn here.
-    static func host(_ content: NSView, in panel: NSPanel, cornerRadius: CGFloat) {
+    /// Host `content` as the panel's surface, with the shadow drawn here,
+    /// and gate the pointer so only the glass takes it: the margin is
+    /// window, and a click there belongs to whatever is beneath. Every
+    /// hosted surface is gated by construction; the gate is returned for a
+    /// surface that changes size under a still pointer and must re-read it.
+    @discardableResult
+    static func host(_ content: NSView, in panel: NSPanel, cornerRadius: CGFloat) -> PointerGate {
         panel.hasShadow = false
         let host = ShadowHostView(content: content, cornerRadius: cornerRadius)
         panel.contentView = host
+        let gate = PointerGate(panel: panel)
+        host.gate = gate
+        return gate
     }
 }
 
@@ -1202,10 +1210,26 @@ enum SoftShadow {
 final class PointerGate {
     private weak var panel: NSPanel?
     private var monitors: [Any] = []
+    private var visibility: NSObjectProtocol?
 
     init(panel: NSPanel) {
         self.panel = panel
         panel.ignoresMouseEvents = true
+        // Watching only while the window is on screen, whoever shows or
+        // hides it: a bar that closes on losing key never says so here.
+        visibility = NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification, object: panel, queue: .main
+        ) { [weak self] _ in self?.followVisibility() }
+    }
+
+    deinit {
+        monitors.forEach(NSEvent.removeMonitor)
+        if let visibility { NotificationCenter.default.removeObserver(visibility) }
+    }
+
+    private func followVisibility() {
+        guard let panel else { return }
+        if panel.isVisible { start() } else { stop() }
     }
 
     func start() {
@@ -1241,6 +1265,8 @@ final class PointerGate {
 }
 
 final class ShadowHostView: NSView {
+    /// The surface's pointer gate, held for the window's life.
+    var gate: PointerGate?
     private let content: NSView
     private let radius: CGFloat
     private let soft = CALayer()
@@ -1285,6 +1311,10 @@ final class ShadowHostView: NSView {
 
     private func place() {
         let surface = bounds.insetBy(dx: SoftShadow.margin, dy: SoftShadow.margin)
+        // A window smaller than its own margins (a panel before its first
+        // placement) has no surface yet; a null frame would be handed to
+        // the content's constraints.
+        guard !surface.isNull, surface.width > 0, surface.height > 0 else { return }
         if content.frame != surface { content.frame = surface }
         edge.frame = content.bounds
         CATransaction.begin()

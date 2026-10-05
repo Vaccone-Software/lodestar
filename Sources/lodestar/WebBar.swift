@@ -126,7 +126,6 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         inferredLabel.translatesAutoresizingMaskIntoConstraints = false
         inferredChip.wantsLayer = true
         inferredChip.layer?.cornerRadius = BarTheme.chipRadius
-        inferredChip.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.08).cgColor
         inferredChip.translatesAutoresizingMaskIntoConstraints = false
         inferredChip.addSubview(inferredLabel)
 
@@ -266,7 +265,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     /// Row views are pooled and mutated — typing repaints, it never rebuilds.
     private var rowViews: [WebRowView] = []
     /// The inferred profile, at the end of the field.
-    private let inferredChip = NSView()
+    private let inferredChip = ChipGround()
     private let inferredLabel = NSTextField(labelWithString: "")
     /// Where a row goes when nothing decides otherwise.
     private var inferred: BrowserProfile?
@@ -516,10 +515,38 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 }
 
 /// One reusable web-bar row: symbol, destination, profile chip.
+/// A quiet chip's ground: the label colour at 8%, set again whenever the
+/// appearance changes, since a layer keeps the colour it was given.
+private final class ChipGround: NSView {
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        tint()
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        tint()
+    }
+
+    private func tint() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.08).cgColor
+        }
+    }
+}
+
 private final class WebRowView: RaisedRow {
     private let title = NSTextField(labelWithString: "")
     private let chipLabel = NSTextField(labelWithString: "")
-    private let chip = NSView()
+    private let chip = ChipGround()
+    /// The title ends at the chip when the chip is shown, and at ⏎'s place
+    /// when it is not: a hidden chip still holds its width in the layout,
+    /// and a long address was cut short beside empty air.
+    private var titleToChip: NSLayoutConstraint!
+    private var titleToEnter: NSLayoutConstraint!
     private var kind: WebBarController.WebRow.Kind?
     private var selectedState = false
     /// ⏎ on the chosen row, lit: the key that opens it.
@@ -560,8 +587,17 @@ private final class WebRowView: RaisedRow {
             enter.centerYAnchor.constraint(equalTo: centerYAnchor),
             enter.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
             chip.trailingAnchor.constraint(equalTo: enter.leadingAnchor, constant: -8),
-            title.trailingAnchor.constraint(lessThanOrEqualTo: chip.leadingAnchor, constant: -12),
         ])
+        titleToChip = title.trailingAnchor.constraint(lessThanOrEqualTo: chip.leadingAnchor, constant: -12)
+        titleToEnter = title.trailingAnchor.constraint(lessThanOrEqualTo: enter.leadingAnchor, constant: -12)
+        titleToChip.isActive = true
+        restyle()
+    }
+
+    /// Colours baked into a layer or an attributed title do not follow the
+    /// Mac from light to dark; the row restyles when it does.
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
         restyle()
     }
 
@@ -577,8 +613,13 @@ private final class WebRowView: RaisedRow {
         if title.stringValue != row.title {
             // A saved link reads as its name, then its address a step back
             // in tone. The tone is the separator, so no dot sits between.
+            // An attributed title brings its own paragraph style, so the
+            // field's tail truncation is said again here or a long address
+            // is clipped with no ellipsis.
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.lineBreakMode = .byTruncatingTail
             let text = NSMutableAttributedString(string: row.title, attributes: [
-                .foregroundColor: NSColor.labelColor, .font: BarTheme.titleFont])
+                .foregroundColor: NSColor.labelColor, .font: BarTheme.titleFont, .paragraphStyle: paragraph])
             if row.kind == .link, let name = row.name, row.title.hasPrefix(name) {
                 let rest = NSRange(location: (name as NSString).length,
                                    length: (row.title as NSString).length - (name as NSString).length)
@@ -588,6 +629,8 @@ private final class WebRowView: RaisedRow {
         }
         if chipLabel.stringValue != row.profile.display { chipLabel.stringValue = row.profile.display }
         chip.isHidden = !showsProfile
+        titleToChip.isActive = showsProfile
+        titleToEnter.isActive = !showsProfile
     }
 
     /// Whether the row names its own profile, for the tests.
@@ -605,7 +648,6 @@ private final class WebRowView: RaisedRow {
     private func restyle() {
         applyRaised(selectedState)
         chipLabel.textColor = BarTheme.secondaryColor
-        chip.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.08).cgColor
         enter.isHidden = !selectedState
     }
 }

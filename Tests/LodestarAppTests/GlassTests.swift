@@ -134,11 +134,20 @@ final class AccessibilitySettingsTests: XCTestCase {
     }
 
     func testIncreaseContrastSetsCaptionsInTheLabelColour() {
+        // The grey resolves when drawn, so it is compared as drawn: in the
+        // app's appearance, in sRGB.
+        func drawn(_ color: NSColor) -> NSColor {
+            var out = color
+            NSApplication.shared.effectiveAppearance.performAsCurrentDrawingAppearance {
+                out = color.usingColorSpace(.sRGB) ?? color
+            }
+            return out
+        }
         Accessibility.increaseContrast = { true }
-        XCTAssertEqual(BarTheme.secondaryColor, .labelColor)
+        XCTAssertEqual(drawn(BarTheme.secondaryColor), drawn(.labelColor))
         Accessibility.increaseContrast = { false }
-        XCTAssertNotEqual(BarTheme.secondaryColor, .labelColor)
-        if Tone.systemDark { XCTAssertEqual(BarTheme.secondaryColor, .secondaryLabelColor) }
+        XCTAssertNotEqual(drawn(BarTheme.secondaryColor), drawn(.labelColor))
+        if Tone.systemDark { XCTAssertEqual(drawn(BarTheme.secondaryColor), drawn(.secondaryLabelColor)) }
     }
 
     func testAnAccentOnItsGroundFallsBackToTheLabelColour() {
@@ -416,6 +425,37 @@ final class KeyFaceTests: XCTestCase {
         XCTAssertEqual(key.layer?.backgroundColor, BarTheme.accent.cgColor)
         XCTAssertEqual(key.label.textColor, BarTheme.onAccent)
         XCTAssertEqual(key.layer?.shadowOffset.height ?? 0, -1.5, accuracy: 0.01, "the lip falls in shadow")
+    }
+
+    /// A caption's grey is resolved when drawn: the same colour object
+    /// reads dark on paper and light on charcoal, so a title built in one
+    /// appearance is right after the Mac switches to the other.
+    func testTheSecondaryGreyFollowsTheAppearance() {
+        func resolved(_ name: NSAppearance.Name) -> NSColor {
+            var out = NSColor.clear
+            NSAppearance(named: name)!.performAsCurrentDrawingAppearance {
+                out = BarTheme.secondaryColor.usingColorSpace(.sRGB)!
+            }
+            return out
+        }
+        let light = resolved(.aqua), dark = resolved(.darkAqua)
+        XCTAssertLessThan(light.redComponent, 0.2, "dark ink on paper")
+        XCTAssertGreaterThan(dark.redComponent, 0.8, "light ink on charcoal")
+    }
+
+    /// Every surface with the drawn shadow is gated by construction: the
+    /// shadow's margin passes the pointer through, the glass takes it.
+    func testAHostedSurfaceTakesThePointerOnlyOverItsGlass() {
+        let panel = Glass.makePanel(level: .floating)
+        let gate = SoftShadow.host(NSView(), in: panel, cornerRadius: BarTheme.glassRadius)
+        let glass = NSRect(x: 300, y: 300, width: 400, height: 120)
+        panel.setFrame(SoftShadow.outset(glass), display: false)
+        panel.orderFrontRegardless()
+        defer { panel.orderOut(nil) }
+        gate.update(pointer: NSPoint(x: glass.midX, y: glass.midY))
+        XCTAssertTrue(gate.open)
+        gate.update(pointer: NSPoint(x: glass.midX, y: glass.minY - 30))
+        XCTAssertFalse(gate.open, "a click in the shadow belongs to the app beneath")
     }
 
     func testTheGroundIsTheNightOrClay() {

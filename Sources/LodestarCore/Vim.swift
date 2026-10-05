@@ -40,6 +40,10 @@ public struct Vim {
         /// apply its fix, or keep the word.
         case spellFix(Int)
         case spellKeep(Int)
+        /// `zo` and `zc`, vim's fold keys, over the shell's view: the
+        /// whole text, or folded to its last lines. Setters, not a
+        /// toggle, so neither has to be read before it is pressed.
+        case view(whole: Bool)
         /// The key meant nothing here; the shell may use it.
         case unhandled
     }
@@ -1271,6 +1275,8 @@ public struct Vim {
     /// the next and the previous mark, wrapping as vim's search does; `z=`
     /// applies the fix under the cursor and `zg` keeps the word — the
     /// shell does both, since the marks and their fixes are the editor's.
+    /// And vim's fold keys, over the shell's view: `zo` opens the whole
+    /// text, `zc` folds it.
     private mutating func spell(_ prefix: Character, _ c: Character, _ buffer: inout Draft.Buffer) -> [Effect] {
         count = nil
         let marks = spellMarks.enumerated().sorted { $0.element.lowerBound < $1.element.lowerBound }
@@ -1288,6 +1294,8 @@ public struct Vim {
                 return [.flash("⌂ no mark under the cursor")]
             }
             return [c == "=" ? .spellFix(under) : .spellKeep(under)]
+        case ("z", "o"): return [.view(whole: true)]
+        case ("z", "c"): return [.view(whole: false)]
         default:
             clearPending()
             return []

@@ -61,38 +61,23 @@ final class DraftFoldTests: XCTestCase {
         XCTAssertEqual(lines.cut, 0, "no line is cut by the window's edges")
     }
 
-    func testEscapeOpensTheWholeTextAndTypingKeepsItOpen() {
+    /// The panel shows what the view says and guesses nothing: escape,
+    /// muting or a door are the controller's to weigh, not the glass's.
+    func testThePanelShowsWhatTheViewSays() {
         panel.show(view(long, ghost: "spoken"))
         let folded = panel.frame.height
-        panel.show(view(long, editor: .normal))
+        var open = view(long, editor: .normal)
+        open.expanded = true
+        panel.show(open)
         XCTAssertTrue(panel.expanded)
         XCTAssertGreaterThan(panel.frame.height, folded)
-        panel.show(view(long + " typed"))
-        XCTAssertTrue(panel.expanded, "back in insert, still open until the voice returns")
-        panel.show(view(long, ghost: "spoken again"))
-        XCTAssertFalse(panel.expanded, "speaking folds it")
+        panel.show(view(long, editor: .normal))
+        XCTAssertFalse(panel.expanded, "normal mode alone does not open it")
         XCTAssertEqual(panel.frame.height, folded, accuracy: 0.5)
-    }
-
-    func testOpeningWithTextToReadOpensWhole() {
-        panel.show(view(long))
-        XCTAssertTrue(panel.expanded)
-    }
-
-    /// Typing with the microphone off is writing, and writing wants to
-    /// see itself; muting mid-dictation is stopping to read.
-    func testWhateverStopsTheVoiceOpensIt() {
-        var typed = view("")
+        var typed = view(long)
         typed.micOn = false
         panel.show(typed)
-        XCTAssertTrue(panel.expanded, "a door without the microphone")
-        panel.hide()
-        panel.show(view("", ghost: "spoken"))
-        XCTAssertFalse(panel.expanded)
-        var muted = view("spoken")
-        muted.micOn = false
-        panel.show(muted)
-        XCTAssertTrue(panel.expanded, "muting is stopping to read")
+        XCTAssertFalse(panel.expanded, "typing with the mic off stays four lines")
     }
 
     func testAShortDraftIsNotPaddedToFourLines() {
@@ -191,7 +176,9 @@ final class DraftFoldTests: XCTestCase {
     /// The fold moves quickly and ends exactly where the layout said.
     func testAFoldSettlesWhereTheLayoutSaid() {
         panel.show(view(long, ghost: "spoken"))
-        panel.show(view(long, editor: .normal))
+        var open = view(long, editor: .normal)
+        open.expanded = true
+        panel.show(open)
         let goal = panel.frame
         // Settles, rather than settles by a clock: a cold first run after
         // a build can stall the main thread past any fixed wait.

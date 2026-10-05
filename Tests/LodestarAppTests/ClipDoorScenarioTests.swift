@@ -35,6 +35,7 @@ final class ClipDoorScenarioTests: XCTestCase {
         XCTAssertTrue(stage.engine.strip.pinsHidden, "the pin column steps aside")
         XCTAssertEqual(stage.engine.grammarState, .pasteDoor(searching: false))
         XCTAssertEqual(stage.draft.state["door"] as? String, "clip")
+        XCTAssertEqual(stage.draft.state["expanded"] as? Bool, true, "a card is opened to be read: whole")
     }
 
     func testReturnWithUnchangedTextWritesNothingAndReturnsToTheStrip() {
@@ -427,6 +428,9 @@ final class ClipDoorPanelTests: XCTestCase {
         var view = DraftView(buffer: Draft.Buffer(text: text, cursor: 0), mode: .insert,
                              editor: editor, speech: nil,
                              destination: card ? nil : ("Notes", nil), replacing: false)
+        // Opened whole, as the controller opens a card and `zo` opens
+        // the draft's own doors.
+        view.expanded = true
         if card {
             view.card = DraftView.Card(name: "Brave Browser", icon: nil, detail: "github.com · 3m ago")
             view.standsAbove = ClipboardStrip.rowHeight

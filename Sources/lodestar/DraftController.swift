@@ -263,6 +263,9 @@ final class DraftController {
     private var doorWidth: CGFloat?
     private var standsAbove: CGFloat = 0
     private var closing = false
+    /// Whether the panel shows the whole text or its last four lines:
+    /// `zo` and `zc`, and the voice folds it.
+    private var expanded = false
     private var pendingSettle: (() -> Void)?
     /// The word that runs if the recognizer never says it is listening:
     /// the light would otherwise stay out forever, and the hand would
@@ -422,6 +425,7 @@ final class DraftController {
         out["silent"] = hearsNothing
         out["mic"] = micWanted
         if let inputName { out["input"] = inputName }
+        out["expanded"] = expanded
         out["words"] = spokenWords
         out["typed"] = typedCharacters
         return out
@@ -444,6 +448,10 @@ final class DraftController {
         self.door = door
         buffer = Draft.Buffer()
         vim = Vim()
+        // Four lines from every door, so the work behind stays in view;
+        // the clipboard's card opens whole (`openClip`), because opening a
+        // card is asking to read it.
+        expanded = false
         // `j` and `k` walk the lines the eye sees; the panel's layout is
         // the only honest source of where those lines break. The buffer
         // arrives by value from the editor — reading `self.buffer` here
@@ -519,6 +527,8 @@ final class DraftController {
         clipOrigin = (clip, text)
         buffer = Draft.Buffer(text: text, cursor: 0)
         vim = Vim()
+        // A card is opened to be read: whole.
+        expanded = true
         vim.visualLine = { [weak self] buffer, index, down in
             self?.panel.visualMove(from: index, down: down, in: buffer)
         }
@@ -1214,6 +1224,8 @@ final class DraftController {
                     if case .spellKeep = effect { keep = true }
                     onSpellKey?(marksAtKey[index], keep)
                 }
+            case .view(let whole):
+                expanded = whole
             case .unhandled:
                 if vimKey == .escape { cancel(reason: "escape"); return true }
             }
@@ -1667,6 +1679,8 @@ final class DraftController {
             stashWork = work
             clock.after(0.5, work)
         }
+        // The voice folds it: words arriving mean the eye is elsewhere.
+        if !buffer.ghost.isEmpty { expanded = false }
         let front = frontmost()
         let card: DraftView.Card? = clipOrigin.map { origin in
             let detail = Caption.line([origin.clip.sourceHost, Clipboard.age(of: origin.clip)])
@@ -1683,7 +1697,7 @@ final class DraftController {
             micOn: micWanted, silent: hearsNothing,
             destination: card == nil ? front.map { ($0.name, $0.icon) } : nil,
             replacing: (origin?.pulled ?? false) && front?.pid == origin?.pid,
-            card: card, width: doorWidth, standsAbove: standsAbove))
+            card: card, width: doorWidth, standsAbove: standsAbove, expanded: expanded))
     }
 
     private static func appIcon(_ bundleID: String) -> NSImage? {

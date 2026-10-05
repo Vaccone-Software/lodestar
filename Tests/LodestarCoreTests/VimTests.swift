@@ -597,6 +597,18 @@ final class VimSpellingTests: XCTestCase {
         XCTAssertEqual(type("z="), [.flash("⌂ no mark under the cursor")])
     }
 
+    /// Vim's fold keys set the shell's view; they move nothing and edit
+    /// nothing, and need no mark under the cursor.
+    func testZoAndZcSetTheView() {
+        buffer.setCursor(12)
+        let before = buffer.text
+        XCTAssertEqual(type("zo"), [.view(whole: true)])
+        XCTAssertEqual(type("zc"), [.view(whole: false)])
+        XCTAssertEqual(buffer.text, before)
+        XCTAssertEqual(buffer.cursor, 12)
+        XCTAssertFalse(vim.isPending)
+    }
+
     func testNothingMarkedSaysSo() {
         vim.spellMarks = []
         XCTAssertEqual(type("]s"), [.flash("⌂ nothing marked")])

@@ -52,6 +52,9 @@ struct DraftView {
     /// What the panel stands above — the strip's row of recents, while a
     /// card is open over it.
     var standsAbove: CGFloat = 0
+    /// The whole text, or its last four lines: `zo` and `zc`, decided by
+    /// the controller, never guessed here.
+    var expanded = false
 }
 
 /// The voice light: the panel's own top edge, lit in the accent while the
@@ -215,12 +218,10 @@ final class DraftPanel {
     /// The level, as the top edge's light.
     private let voiceLight = VoiceLight(frame: .zero)
 
-    /// Whether the draft shows all of its text or the last four lines.
-    /// Speaking folds it: the words are going somewhere else and the
-    /// screen behind is what the eye is on. Whatever stops the voice
-    /// (escape, muting, a door without the microphone, or opening with
-    /// text already in it) opens it whole, and it stays whole through
-    /// typing until the voice comes back.
+    /// Whether the draft shows all of its text or the last four lines,
+    /// as the view says: four lines from every door so the work behind
+    /// stays in view, `zo` to open it whole, `zc` or the voice to fold
+    /// it again.
     private(set) var expanded = false
 
     /// Internal so the tests can read the storage the screen reads: the
@@ -488,20 +489,10 @@ final class DraftPanel {
     private var lastView: DraftView?
 
     func show(_ view: DraftView) {
-        // Read the moment before it is remembered: a first frame with
-        // words already in it is a draft opened to be read.
         let opening = lastView == nil
         let wasExpanded = expanded
         lastView = view
-        // The voice folds it; whatever stops the voice opens it: escape,
-        // muting, or a door that opened without the microphone.
-        if view.card != nil || view.editor != .insert || !view.micOn {
-            expanded = true
-        } else if !view.buffer.ghost.isEmpty {
-            expanded = false
-        } else if opening, !view.buffer.text.isEmpty {
-            expanded = true
-        }
+        expanded = view.expanded
         let screen = ActivePolicy.presentationFrame
         let width = min(view.width ?? Self.width, screen.width - Self.margin * 2)
         let textWidth = width - Self.padX * 2

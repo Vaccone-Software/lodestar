@@ -11,6 +11,43 @@ final class DraftScenarioTests: XCTestCase {
         _ = stage.press(key, shift: shift)
     }
 
+    // MARK: - The fold
+
+    /// Four lines from every door; `zo` opens the whole text and `zc`
+    /// folds it, vim's own fold keys, as setters. Escape is a mode and
+    /// nothing else, and the voice folds it again.
+    func testZoOpensTheWholeTextAndZcFoldsIt() {
+        let stage = Stage()
+        stage.lode(".", shift: true)
+        XCTAssertEqual(stage.draft.state["expanded"] as? Bool, false, "typing with the mic off: four lines")
+        cmd(stage, "h"); cmd(stage, "i")
+        cmd(stage, "escape")
+        XCTAssertEqual(stage.draft.state["expanded"] as? Bool, false, "escape changes the mode, not the size")
+        cmd(stage, "z"); cmd(stage, "o")
+        XCTAssertEqual(stage.draft.state["expanded"] as? Bool, true)
+        cmd(stage, "z"); cmd(stage, "o")
+        XCTAssertEqual(stage.draft.state["expanded"] as? Bool, true, "a setter: pressed twice, still open")
+        cmd(stage, "a")
+        cmd(stage, "space"); cmd(stage, "x")
+        XCTAssertEqual(stage.draft.state["expanded"] as? Bool, true, "typing keeps it open")
+        cmd(stage, "escape")
+        cmd(stage, "z"); cmd(stage, "c")
+        XCTAssertEqual(stage.draft.state["expanded"] as? Bool, false)
+        XCTAssertEqual(stage.draft.buffer.text, "hi x", "z o and z c are keys, never text")
+    }
+
+    func testTheVoiceFoldsAnOpenedDraft() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.settle("first words")
+        cmd(stage, "escape")
+        cmd(stage, "z"); cmd(stage, "o")
+        XCTAssertEqual(stage.draft.state["expanded"] as? Bool, true)
+        cmd(stage, "i")
+        stage.speech.hear("and more")
+        XCTAssertEqual(stage.draft.state["expanded"] as? Bool, false, "words arriving: the eye is elsewhere")
+    }
+
     func testSpeakDoorOpensListeningAndReturnPastesIntoTheFocusedApp() {
         let stage = Stage()
         stage.lode(".")

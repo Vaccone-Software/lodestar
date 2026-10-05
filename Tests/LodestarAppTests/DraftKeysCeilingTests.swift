@@ -36,6 +36,8 @@ final class DraftKeysCeilingTests: XCTestCase {
                              destination: ("Ghostty", nil), replacing: false)
         view.editor = Vim.Mode.insert
         view.micOn = true
+        // The ceiling is the opened draft's: four lines never reach it.
+        view.expanded = true
         return view
     }
 

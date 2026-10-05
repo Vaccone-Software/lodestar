@@ -118,4 +118,73 @@ final class DesignDriftTests: XCTestCase {
         XCTAssertEqual(try offenders(#"AXUIElementSetMessagingTimeout\(\s*(AX\.)?system"#, in: files), [],
                        "a timeout on the system-wide element is the process's")
     }
+
+    // MARK: - Objects in one light: the chrome's grammar
+
+    /// Every Swift file in the app, named, with its text.
+    private func sources() throws -> [(name: String, text: String)] {
+        let dir = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/lodestar")
+        return try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "swift" }
+            .map { ($0.lastPathComponent, try String(contentsOf: $0, encoding: .utf8)) }
+    }
+
+    /// The surfaces that still wear the system's shadow, or cast none,
+    /// at the time the drawn shadow became the rule. The list only
+    /// shrinks: a surface moved onto `SoftShadow` must leave it, and a
+    /// new surface may not join it.
+    private static let notYetOnTheDrawnShadow: Set<String> = [
+        "CheatSheet.swift", "ClipboardStrip.swift", "EditorHover.swift", "HUD.swift",
+        "IndexBadges.swift", "LinkChip.swift", "MeetingController.swift", "ModePill.swift",
+        "OptionsCard.swift", "SelectOverlay.swift", "WalkController.swift",
+    ]
+
+    /// Objects float, and cast their own shadow: a surface made with
+    /// `Glass.makePanel` stands on the drawn soft shadow and its fine
+    /// edge, the bars' and the draft's, never the system's.
+    func testEverySurfaceStandsOnTheDrawnShadow() throws {
+        var missing: [String] = [], stale: [String] = []
+        for (name, text) in try sources() where name != "Glass.swift" && text.contains("makePanel(") {
+            let hosted = text.contains("SoftShadow.host(")
+            if Self.notYetOnTheDrawnShadow.contains(name) {
+                if hosted { stale.append(name) }
+            } else if !hosted {
+                missing.append(name)
+            }
+        }
+        XCTAssertEqual(missing, [], "a new surface casts the drawn shadow: SoftShadow.host")
+        XCTAssertEqual(stale, [], "moved onto the drawn shadow: take it off the not-yet list")
+    }
+
+    /// The drawn shadow is window, not glass: a hosted surface that took
+    /// the mouse everywhere would eat clicks in its shadow. It takes the
+    /// mouse through a `PointerGate`, or not at all.
+    func testAHostedSurfaceNeverTakesTheMouseInItsShadow() throws {
+        let offenders = try sources()
+            .filter { $0.text.contains("SoftShadow.host(") && $0.text.contains("ignoresMouseEvents = false") }
+            .map(\.name)
+        XCTAssertEqual(offenders, [], "use PointerGate, which opens only over the glass")
+    }
+
+    /// Honest matter: nothing is shaded by a gradient. The one fade is
+    /// the edge light's, in the theme, where a lit rim turns down into a
+    /// corner; a room may fade its own scroll edge. Chrome never does.
+    func testChromeIsNeverShadedByAGradient() throws {
+        let homes: Set<String> = ["Glass.swift", "SettingsController.swift"]
+        let offenders = try sources()
+            .filter { !homes.contains($0.name) }
+            .filter { $0.text.contains("CAGradientLayer") || $0.text.contains("NSGradient(") }
+            .map(\.name)
+        XCTAssertEqual(offenders, [], "flat colour only: the light is a line, never a lamp")
+    }
+
+    /// Motion is sudden: a surface changing its own shape (the draft
+    /// folding or opening) moves in a tenth of a second, and not at all
+    /// under Reduce Motion. Only a new band arriving, the keys, glides.
+    func testASurfaceChangesShapeSuddenly() {
+        XCTAssertLessThanOrEqual(DraftPanel.foldSeconds, 0.12)
+        XCTAssertLessThan(DraftPanel.foldSeconds, KeysMotion.growSeconds)
+    }
 }

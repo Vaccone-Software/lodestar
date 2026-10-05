@@ -135,6 +135,64 @@ final class DraftFoldTests: XCTestCase {
         XCTAssertEqual(light.accessibilityValue() as? String, "off")
     }
 
+    /// Three states, three looks: out while off, a grey floor while the
+    /// microphone opens, the accent once it hears.
+    func testTheLightWaitsInGreyWhileTheMicrophoneOpens() {
+        var opening = view("")
+        opening = DraftView(buffer: opening.buffer, mode: .insert, editor: .insert, speech: nil,
+                            micOn: true, destination: ("Ghostty", nil), replacing: false)
+        panel.show(opening)
+        XCTAssertEqual(panel.lightState, .waiting)
+        XCTAssertEqual(panel.lightLength, VoiceLight.floor, accuracy: 0.001)
+        var preparing = opening
+        preparing = DraftView(buffer: opening.buffer, mode: .insert, editor: .insert,
+                              speech: .preparing(progress: 0.4), micOn: true,
+                              destination: ("Ghostty", nil), replacing: false)
+        panel.show(preparing)
+        XCTAssertEqual(panel.lightState, .waiting, "a model still arriving is waiting too")
+        panel.show(view(""))
+        if case .listening = panel.lightState {} else { XCTFail("heard: the accent") }
+        var off = view("")
+        off.micOn = false
+        panel.show(off)
+        XCTAssertEqual(panel.lightState, .off)
+    }
+
+    /// The window is the glass plus the shadow's margin; the glass lands
+    /// where the draft has always stood.
+    func testTheGlassStandsWhereTheDraftAlwaysStood() {
+        panel.show(view(long))
+        let screen = ActivePolicy.presentationFrame
+        let glass = SoftShadow.inset(panel.panel.frame)
+        XCTAssertEqual(glass, panel.frame, "the window is where the glass says")
+        XCTAssertEqual(glass.minY, screen.minY + 22, accuracy: 0.5)
+        XCTAssertFalse(panel.panel.hasShadow, "the shadow is drawn, not the system's")
+    }
+
+    /// The shadow's margin is not a target: a click there belongs to the
+    /// app beneath, the Dock's top edge among them.
+    func testOnlyTheGlassTakesThePointer() {
+        panel.show(view("hello"))
+        let glass = panel.frame
+        panel.gatePointer(at: NSPoint(x: glass.midX, y: glass.midY))
+        XCTAssertTrue(panel.takesPointer)
+        panel.gatePointer(at: NSPoint(x: glass.midX, y: glass.minY - 10))
+        XCTAssertFalse(panel.takesPointer, "under the glass, in its shadow")
+        panel.gatePointer(at: NSPoint(x: glass.maxX + 30, y: glass.midY))
+        XCTAssertFalse(panel.takesPointer)
+    }
+
+    /// The fold moves quickly and ends exactly where the layout said.
+    func testAFoldSettlesWhereTheLayoutSaid() {
+        panel.show(view(long, ghost: "spoken"))
+        panel.show(view(long, editor: .normal))
+        let goal = panel.frame
+        let done = Date().addingTimeInterval(DraftPanel.foldSeconds + 0.3)
+        while Date() < done { RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01)) }
+        XCTAssertEqual(SoftShadow.inset(panel.panel.frame), goal)
+        XCTAssertLessThanOrEqual(DraftPanel.foldSeconds, 0.12, "sudden, not a glide")
+    }
+
     func testASilentRoomStillShowsTheFloor() {
         var quiet = view("")
         quiet.level = 0

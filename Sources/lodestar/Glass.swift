@@ -1196,6 +1196,54 @@ enum SoftShadow {
     }
 }
 
+/// A soft-shadowed window is larger than its surface by the shadow's
+/// margin, and a window that takes the mouse takes it everywhere it
+/// stands, shadow included: a band of air around the glass that eats
+/// clicks meant for the app beneath, the Dock's top edge among them. The
+/// system's own shadow was never a target. A surface that stays open over
+/// someone else's work therefore takes the mouse only while the pointer
+/// is over its glass, and lets it through everywhere else.
+final class PointerGate {
+    private weak var panel: NSPanel?
+    private var monitors: [Any] = []
+
+    init(panel: NSPanel) {
+        self.panel = panel
+        panel.ignoresMouseEvents = true
+    }
+
+    func start() {
+        if monitors.isEmpty {
+            let moves: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .rightMouseDragged]
+            if let global = NSEvent.addGlobalMonitorForEvents(matching: moves, handler: { [weak self] _ in
+                self?.update()
+            }) { monitors.append(global) }
+            if let local = NSEvent.addLocalMonitorForEvents(matching: moves, handler: { [weak self] event in
+                self?.update()
+                return event
+            }) { monitors.append(local) }
+        }
+        update()
+    }
+
+    func stop() {
+        monitors.forEach(NSEvent.removeMonitor)
+        monitors = []
+        panel?.ignoresMouseEvents = true
+    }
+
+    /// Whether the window takes the mouse right now, for the tests.
+    var open: Bool { panel.map { !$0.ignoresMouseEvents } ?? false }
+
+    /// Read the pointer against the glass. Called on every move and
+    /// whenever the glass changes size under a still pointer.
+    func update(pointer: NSPoint = NSEvent.mouseLocation) {
+        guard let panel else { return }
+        let over = panel.isVisible && SoftShadow.inset(panel.frame).contains(pointer)
+        if panel.ignoresMouseEvents == over { panel.ignoresMouseEvents = !over }
+    }
+}
+
 final class ShadowHostView: NSView {
     private let content: NSView
     private let radius: CGFloat

@@ -59,7 +59,18 @@ struct DraftView {
 /// and curving down into the corners at its fullest. One flat stroke
 /// along the glass's outline, no glow and no fade, so the level reads as
 /// a length that can be seen from across the room.
+///
+/// It is the microphone's whole status, in three states: out while the
+/// mic is off, a grey floor while it opens (wait), the accent while it
+/// hears (speak). Each asks something different of the hand, so each
+/// looks different.
 final class VoiceLight: NSView {
+    enum State: Equatable {
+        case off
+        case waiting
+        case listening(Float)
+    }
+
     private let stroke = CAShapeLayer()
     /// What a silent room still shows, so a listening draft is never
     /// mistaken for a closed one.
@@ -117,19 +128,42 @@ final class VoiceLight: NSView {
         return path
     }
 
+    private(set) var state: State = .off
+
     /// Light the edge for a level from 0 to 1, or put it out with nil.
     func show(level: Float?) {
-        stroke.strokeColor = BarTheme.readableAccent.cgColor
+        show(level.map(State.listening) ?? .off)
+    }
+
+    /// A colour changes at once: grey becoming the accent is the
+    /// moment to speak, and a cross-fade would blur the moment.
+    private func paint(_ color: NSColor) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        stroke.strokeColor = color.cgColor
+        CATransaction.commit()
+    }
+
+    func show(_ state: State) {
+        self.state = state
         let target: CGFloat
-        if let level {
+        switch state {
+        case .off:
+            target = 0
+            setAccessibilityValue("off")
+        case .waiting:
+            // The floor, in the quiet grey: the mic is coming, not here.
+            paint(BarTheme.secondaryColor)
+            target = Self.floor
+            setAccessibilityValue("opening")
+        case .listening(let level):
+            paint(BarTheme.readableAccent)
             // Reduce Motion holds the light still at its whole length:
             // it still says listening, and nothing moves.
             target = Accessibility.reduceMotion()
                 ? 1 : Self.floor + (1 - Self.floor) * CGFloat(max(0, min(1, level)))
-        } else {
-            target = 0
+            setAccessibilityValue("listening")
         }
-        setAccessibilityValue(level == nil ? "off" : "listening")
         guard target != length else { return }
         let falling = target < length
         length = target
@@ -153,6 +187,17 @@ final class VoiceLight: NSView {
 final class DraftPanel {
     let panel: NSPanel
     private let root = NSView()
+    private let gate: PointerGate
+    /// Where the glass is going: the surface's frame as last laid out,
+    /// which a quick fold reaches a tenth of a second later.
+    private var target: NSRect?
+    /// A fold in motion, by generation, so a render that lands mid-way
+    /// carries the motion on rather than fighting it.
+    private var foldMotion = 0
+    private var restaging = false
+    /// How long the glass takes to fold or open: fast enough to read as
+    /// sudden, long enough that the eye sees where the text went.
+    static let foldSeconds: TimeInterval = 0.1
     private var backdrop: NSView?
 
     // The foot: made once, placed on every render, so a menu that is
@@ -223,10 +268,13 @@ final class DraftPanel {
 
     init() {
         panel = Glass.makePanel(level: .statusBar)
-        // The mouse reaches the register line's two controls. The panel
-        // never becomes key, so the app underneath keeps its cursor.
-        panel.ignoresMouseEvents = false
-        panel.contentView = root
+        // The bars' edge and soft shadow, drawn by the window around the
+        // glass rather than by the system.
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
+        // The mouse reaches the foot's input menu, and only over the
+        // glass. The panel never becomes key, so the app underneath
+        // keeps its cursor.
+        gate = PointerGate(panel: panel)
         backdrop = Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
 
         registerName.font = BarTheme.rowLabelFont
@@ -284,7 +332,6 @@ final class DraftPanel {
         // render runs inside: the foot and the keys hold the bottom edge,
         // the text takes the room that opens, the light rides the top.
         root.autoresizesSubviews = true
-        root.autoresizingMask = [.width, .height]
         backdrop?.autoresizingMask = [.width, .height]
         for view in [registerIcon, registerName, registerNote, inputPopup] {
             view.autoresizingMask = [.maxYMargin]
@@ -311,12 +358,20 @@ final class DraftPanel {
         keysShown = false
         lastView = nil
         expanded = false
+        target = nil
+        foldMotion = 0
         voiceLight.show(level: nil)
+        gate.stop()
         panel.orderOut(nil)
     }
 
     /// Where the panel stands and what its lines say, for the tests.
-    var frame: NSRect { panel.frame }
+    /// The glass's frame — where it stands, or where a fold in motion
+    /// is taking it — without the shadow's margin.
+    var frame: NSRect { target ?? SoftShadow.inset(panel.frame) }
+    /// Whether the window takes the mouse right now, for the tests.
+    var takesPointer: Bool { gate.open }
+    func gatePointer(at point: NSPoint) { gate.update(pointer: point) }
     var caretFrame: NSRect { caret.frame }
     var caretColor: NSColor? { caret.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)) }
     /// Every view on the register line, named, for a layout probe.
@@ -342,6 +397,7 @@ final class DraftPanel {
     var inputNamed: Bool { !inputPopup.isHidden }
     /// How much of the top edge is lit, 0 when the light is out.
     var lightLength: CGFloat { voiceLight.length }
+    var lightState: VoiceLight.State { voiceLight.state }
     /// The two bands a keys toggle moves, for the tests that hold them
     /// apart.
     var textFrame: NSRect { scroll.frame }
@@ -415,7 +471,7 @@ final class DraftPanel {
     /// The panel's frame in quartz screen coordinates.
     var quartzFrame: CGRect? {
         guard panel.isVisible, let primary = NSScreen.screens.first else { return nil }
-        let frame = panel.frame
+        let frame = SoftShadow.inset(panel.frame)
         return CGRect(x: frame.minX, y: primary.frame.maxY - frame.maxY, width: frame.width, height: frame.height)
     }
 
@@ -427,6 +483,7 @@ final class DraftPanel {
         // Read the moment before it is remembered: a first frame with
         // words already in it is a draft opened to be read.
         let opening = lastView == nil
+        let wasExpanded = expanded
         lastView = view
         // The voice folds it; whatever stops the voice opens it: escape,
         // muting, or a door that opened without the microphone.
@@ -561,7 +618,9 @@ final class DraftPanel {
         // reading is the task.
         scroll.hasVerticalScroller = expanded && used > maxTextHeight
 
-        let height = chrome + textHeight
+        // Whole points: the window lands on them anyway, and a glass whose
+        // edge falls between pixels is a soft edge.
+        let height = (chrome + textHeight).rounded(.up)
         let frame = NSRect(x: screen.midX - width / 2,
                            y: screen.minY + Self.margin + view.standsAbove,
                            width: width, height: height)
@@ -571,8 +630,11 @@ final class DraftPanel {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
 
-        panel.setFrame(frame, display: false)
-        root.frame = NSRect(origin: .zero, size: frame.size)
+        let from = panel.frame
+        let outset = SoftShadow.outset(frame)
+        target = frame
+        panel.setFrame(outset, display: false)
+        root.frame = SoftShadow.inset(NSRect(origin: .zero, size: outset.size))
         backdrop?.frame = root.bounds
         voiceLight.frame = root.bounds
 
@@ -624,11 +686,14 @@ final class DraftPanel {
         // out while it is off or still opening, which is all a glyph said.
         var trailing = width - Self.padX
 
-        let listening: Bool
-        if case .listening = view.speech { listening = true } else { listening = false }
         // The clip door has no microphone, and names none.
         let noMic = view.card != nil
-        live = view.micOn && listening && view.mode == .insert && !noMic
+        let wanted = view.micOn && view.mode == .insert && !noMic
+        switch view.speech {
+        case .listening where wanted: light = .live
+        case nil where wanted, .preparing where wanted: light = .waiting
+        default: light = .off
+        }
         setLevel(view.level)
 
         // The input menu at the end, then whatever the recognizer has to
@@ -716,7 +781,28 @@ final class DraftPanel {
         CATransaction.commit()
         NSAnimationContext.endGrouping()
 
+        // Folding or opening moves the glass quickly rather than not at
+        // all: laid out where it is going, put back where it was, and
+        // carried there on the subviews' masks, the keys' own method. A
+        // render that lands mid-way carries the motion on.
+        let folds = !opening && !restaging && panel.isVisible
+            && (expanded != wasExpanded || foldMotion != 0)
+        if folds, from != outset, !Accessibility.reduceMotion() {
+            panel.setFrame(from, display: false)
+            foldMotion += 1
+            let motion = foldMotion
+            NSAnimationContext.runAnimationGroup({ context in
+                context.duration = Self.foldSeconds
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                panel.animator().setFrame(outset, display: true)
+            }, completionHandler: { [weak self] in
+                guard let self, self.foldMotion == motion else { return }
+                self.foldMotion = 0
+            })
+        }
+
         if !panel.isVisible { panel.orderFrontRegardless() }
+        gate.start()
     }
 
     // MARK: - The keys
@@ -795,19 +881,26 @@ final class DraftPanel {
     @discardableResult
     private func restaged(_ view: DraftView) -> (from: NSRect, to: NSRect) {
         let from = panel.frame
+        restaging = true
         show(view)
+        restaging = false
         let to = panel.frame
         panel.setFrame(from, display: false)
         return (from, to)
     }
 
-    /// The microphone is live: listening, wanted, and in insert mode.
-    private var live = false
+    /// What the microphone is doing, as the light shows it.
+    private enum Light { case off, waiting, live }
+    private var light = Light.off
 
     /// Move the light without a re-layout: the level arrives ten times a
-    /// second. Out whenever the microphone is not live.
+    /// second, and moves it only while the microphone hears.
     func setLevel(_ level: Float) {
-        voiceLight.show(level: live ? level : nil)
+        switch light {
+        case .off: voiceLight.show(.off)
+        case .waiting: voiceLight.show(.waiting)
+        case .live: voiceLight.show(.listening(level))
+        }
     }
 
     static func note(for view: DraftView) -> String {
@@ -867,8 +960,11 @@ extension DraftPanel {
             buffer.type(" Run the migration for user_sessions")
             buffer.settle("and tail the log, then move the Asana card to the done column.")
             buffer.showGhost("and ping the channel")
+            // WAIT=1 stages the microphone still opening: the grey floor.
+            let waiting = ProcessInfo.processInfo.environment["WAIT"] == "1"
+            if waiting { buffer = Draft.Buffer() }
             panel.show(DraftView(buffer: buffer, mode: .insert, editor: .insert,
-                                 speech: .listening(input: "MacBook Pro Microphone"),
+                                 speech: waiting ? nil : .listening(input: "MacBook Pro Microphone"),
                                  input: "MacBook Pro Microphone",
                                  // LEVEL= stages another loudness: 1 curves into the corners.
                                  level: Float(ProcessInfo.processInfo.environment["LEVEL"] ?? "") ?? 0.6,

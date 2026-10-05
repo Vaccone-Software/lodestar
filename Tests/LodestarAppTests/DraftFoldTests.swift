@@ -84,20 +84,17 @@ final class DraftFoldTests: XCTestCase {
         XCTAssertLessThan(panel.frame.height, 160)
     }
 
-    /// The input is named until it is heard, and again when it is not.
-    func testTheInputIsNamedUntilItIsHeard() {
+    /// The input is named whenever the microphone is wanted, heard or
+    /// not: it is the one thing about the mic the keys cannot choose.
+    func testTheInputIsNamedWhileTheMicIsWanted() {
         panel.show(view(""))
-        XCTAssertTrue(panel.inputNamed, "before the first word")
+        XCTAssertTrue(panel.inputNamed)
         panel.show(view("", ghost: "hello"))
-        XCTAssertFalse(panel.inputNamed, "heard, so no caption")
-        var silent = view("hello")
-        silent.silent = true
-        panel.show(silent)
-        XCTAssertTrue(panel.inputNamed, "named again while nothing is heard")
-        var other = view("hello", ghost: "")
-        other.input = "AirPods"
-        panel.show(other)
-        XCTAssertTrue(panel.inputNamed, "a different microphone is news")
+        XCTAssertTrue(panel.inputNamed, "still named once heard")
+        var off = view("hello")
+        off.micOn = false
+        panel.show(off)
+        XCTAssertFalse(panel.inputNamed, "a muted draft names no microphone")
     }
 
     func testTheLightBurnsOnlyWhileTheMicrophoneIsLive() {

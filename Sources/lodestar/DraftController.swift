@@ -265,10 +265,9 @@ final class DraftController {
     private var closing = false
     private var pendingSettle: (() -> Void)?
     /// The word that runs if the recognizer never says it is listening:
-    /// the foot would otherwise say "opening the microphone"
-    /// forever, and the hand would talk into nothing. Past this the
-    /// session is stopped and named failed, and `lode .` or the mic
-    /// glyph starts a fresh one.
+    /// the light would otherwise stay out forever, and the hand would
+    /// talk into nothing. Past this the session is stopped and named
+    /// failed, and `lode .` starts a fresh one.
     private var listenWatchdog: DispatchWorkItem?
     /// A backstop, and only that.
     ///
@@ -390,7 +389,6 @@ final class DraftController {
                 DispatchQueue.main.async { done(names, system) }
             }
         }
-        panel.onToggleMic = { [weak self] in self?.toggleMic() }
         panel.onChooseInput = { [weak self] name in self?.selectInput(name) }
         // The destination follows focus; the foot follows it.
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -591,21 +589,6 @@ final class DraftController {
     }
 
     // MARK: - The mouse
-
-    /// The mic glyph was clicked. Off is off in any mode; on means insert
-    /// mode with the mic writing, which is what the speak door means.
-    func toggleMic() {
-        guard isOpen, !closing else { return }
-        if micWanted {
-            micWanted = false
-            pauseSpeech()
-            settleGhostAsSeen()
-        } else {
-            posture(door: .speak)
-            return
-        }
-        render()
-    }
 
     /// An input was chosen on the foot. The config line is the
     /// app's to write; the session restarts on the new device at once.

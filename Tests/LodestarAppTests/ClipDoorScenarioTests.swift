@@ -493,7 +493,8 @@ final class ClipDoorPanelTests: XCTestCase {
         panel.show(view("x"))
         XCTAssertEqual(panel.registerText, "Brave Browser")
         XCTAssertEqual(panel.registerDetail, "github.com · 3m ago")
-        XCTAssertFalse(panel.micVisible)
+        XCTAssertFalse(panel.inputNamed, "the clip door names no microphone")
+        XCTAssertEqual(panel.lightLength, 0)
         XCTAssertEqual(panel.keysText, "", "the draft carries no legend; its keys live behind lode ?")
     }
 

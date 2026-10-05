@@ -149,12 +149,12 @@ final class DraftPanel {
 
     // The foot: made once, placed on every render, so a menu that is
     // open survives the next volatile word. It says where the words land
-    // and, only while it is news, which microphone hears them.
+    // and which microphone hears them; whether it is hearing is the
+    // light's to say.
     private let registerIcon = NSImageView()
     private let registerName = NSTextField(labelWithString: "")
     private let registerNote = NSTextField(labelWithString: "")
     private let inputPopup = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let micButton = HandButton(frame: .zero)
     /// The level, as the top edge's light.
     private let voiceLight = VoiceLight(frame: .zero)
 
@@ -164,11 +164,6 @@ final class DraftPanel {
     /// opening with text already in it) opens it whole, and it stays
     /// whole through typing until the voice comes back.
     private(set) var expanded = false
-    /// The microphone has been heard since it was last named; until
-    /// then the foot names it, so a word spoken into the wrong one is
-    /// caught before the first, not after the tenth.
-    private var heard = false
-    private var namedInput: String?
 
     /// Internal so the tests can read the storage the screen reads: the
     /// find lights once shipped as background washes that vibrancy ate,
@@ -183,8 +178,6 @@ final class DraftPanel {
     private var keysView: NSView?
     private(set) var keysShown = false
 
-    /// The mic was clicked: on becomes off, off becomes on.
-    var onToggleMic: (() -> Void)?
     /// An input was chosen from the menu; nil is the system default.
     var onChooseInput: ((String?) -> Void)?
     private var popupTitles: [String] = []
@@ -241,12 +234,6 @@ final class DraftPanel {
         inputPopup.action = #selector(inputChosen)
         inputPopup.toolTip = "The microphone the draft listens to"
 
-        micButton.isBordered = false
-        micButton.imagePosition = .imageOnly
-        micButton.imageScaling = .scaleProportionallyDown
-        micButton.target = self
-        micButton.action = #selector(micClicked)
-        micButton.toolTip = "Microphone on or off"
 
         textView.isEditable = false
         textView.isSelectable = false
@@ -278,7 +265,7 @@ final class DraftPanel {
         // The caret sits under the text: a block cursor is a solid plate
         // with the glyph inverted over it, the way every terminal draws
         // one, and the plate has to be behind the glyph for that.
-        for view in [registerIcon, registerName, registerNote, inputPopup, micButton,
+        for view in [registerIcon, registerName, registerNote, inputPopup,
                      caret, scroll, voiceLight] {
             root.addSubview(view)
         }
@@ -290,14 +277,12 @@ final class DraftPanel {
         root.autoresizesSubviews = true
         root.autoresizingMask = [.width, .height]
         backdrop?.autoresizingMask = [.width, .height]
-        for view in [registerIcon, registerName, registerNote, inputPopup, micButton] {
+        for view in [registerIcon, registerName, registerNote, inputPopup] {
             view.autoresizingMask = [.maxYMargin]
         }
         scroll.autoresizingMask = [.width, .height]
         voiceLight.autoresizingMask = [.width, .height]
     }
-
-    @objc private func micClicked() { onToggleMic?() }
 
     @objc private func inputChosen() {
         let index = inputPopup.indexOfSelectedItem
@@ -317,8 +302,6 @@ final class DraftPanel {
         keysShown = false
         lastView = nil
         expanded = false
-        heard = false
-        namedInput = nil
         voiceLight.show(level: nil)
         panel.orderOut(nil)
     }
@@ -330,7 +313,7 @@ final class DraftPanel {
     /// Every view on the register line, named, for a layout probe.
     var registerViews: [(String, NSView)] {
         [("icon", registerIcon), ("name", registerName),
-         ("note", registerNote), ("input", inputPopup), ("mic", micButton)]
+         ("note", registerNote), ("input", inputPopup)]
     }
     var registerText: String { registerName.stringValue }
     var registerDetail: String { registerNote.stringValue }
@@ -346,7 +329,6 @@ final class DraftPanel {
         walk(keysView)
         return out.joined(separator: " ")
     }
-    var micVisible: Bool { !micButton.isHidden }
     /// Whether the foot names the microphone right now.
     var inputNamed: Bool { !inputPopup.isHidden }
     /// How much of the top edge is lit, 0 when the light is out.
@@ -443,13 +425,6 @@ final class DraftPanel {
             expanded = false
         } else if opening, !view.buffer.text.isEmpty {
             expanded = true
-        }
-        if !view.buffer.ghost.isEmpty { heard = true }
-        if view.input != namedInput {
-            // A different microphone is news again, and the first name
-            // is news too.
-            namedInput = view.input
-            heard = !view.buffer.ghost.isEmpty
         }
         let screen = ActivePolicy.presentationFrame
         let width = min(view.width ?? Self.width, screen.width - Self.margin * 2)
@@ -633,31 +608,20 @@ final class DraftPanel {
         x += registerName.frame.width + 14
 
         // Where the text goes sits on the left; the microphone on the
-        // right. The mode has no word: the caret's shape is the mode.
+        // right. The mode has no word: the caret's shape is the mode, and
+        // the microphone has no glyph: the light is lit while it hears and
+        // out while it is off or still opening, which is all a glyph said.
         var trailing = width - Self.padX
 
         let listening: Bool
         if case .listening = view.speech { listening = true } else { listening = false }
-        let micLive = view.micOn && listening && view.mode == .insert
-        micButton.image = NSImage(systemSymbolName: view.micOn ? "mic.fill" : "mic.slash.fill",
-                                  accessibilityDescription: view.micOn ? "microphone on" : "microphone off")?
-            .withSymbolConfiguration(BarTheme.symbolBand)
-        // The glyph stays quiet: the light along the top is what says the
-        // microphone is live, and one signal is enough.
-        micButton.contentTintColor = BarTheme.secondaryColor
-        // The clip door has no microphone, and draws none: a glyph that
-        // could be clicked would promise what the door refuses.
+        // The clip door has no microphone, and names none.
         let noMic = view.card != nil
-        micButton.isHidden = noMic
-        if !noMic {
-            place(micButton, x: trailing - 20, width: 20, height: 20)
-            trailing -= 28
-        }
-        live = micLive && !noMic
+        live = view.micOn && listening && view.mode == .insert && !noMic
         setLevel(view.level)
 
-        // The input menu beside the mic, then whatever the recognizer has
-        // to say, in the room that is left.
+        // The input menu at the end, then whatever the recognizer has to
+        // say, in the room that is left.
         let systemTitle = "System" + (view.systemInput.map { " (\($0))" } ?? "")
         let titles = [systemTitle] + view.inputs
         if titles != popupTitles {
@@ -667,9 +631,9 @@ final class DraftPanel {
         }
         let chosenIndex = view.chosenInput.flatMap { view.inputs.firstIndex(of: $0) }.map { $0 + 1 } ?? 0
         if inputPopup.indexOfSelectedItem != chosenIndex { inputPopup.selectItem(at: chosenIndex) }
-        // Named until it has been heard, and again whenever it is not
-        // being heard: a microphone that works needs no caption.
-        inputPopup.isHidden = noMic || !view.micOn || (heard && !view.silent)
+        // Named whenever the microphone is wanted: it is the one thing
+        // about it the keys cannot choose.
+        inputPopup.isHidden = noMic || !view.micOn
         // Sized to the title on show, not the longest item: the arrow
         // sits beside the name, not at the end of the widest device.
         let titleWidth = (inputPopup.titleOfSelectedItem ?? "").size(withAttributes: [.font: BarTheme.secondaryFont]).width
@@ -845,17 +809,17 @@ final class DraftPanel {
         case .unavailable: return "speech needs macOS 26, typing only"
         case .failed(let why): return why
         case .listening:
-            if !view.micOn { return "microphone off" }
-            if view.mode != .insert { return "microphone waits for insert mode" }
+            // Off, or waiting for insert mode: the light is out, and that
+            // is the whole message.
+            guard view.micOn, view.mode == .insert else { return "" }
             return view.silent ? "hearing nothing on \(view.input ?? "the microphone")" : ""
         case .paused: return ""
         case nil:
             // Between the door and the recognizer's first word about
-            // itself the line used to be blank, and the only cue that the
-            // mic was not yet open was the glyph's tint. On a Bluetooth
-            // headset that gap is one to three seconds, and words spoken
-            // into it are gone.
-            return view.micOn ? "opening the microphone" : ""
+            // itself the light is out: on a Bluetooth headset that is one
+            // to three seconds, and the light coming on is the cue to
+            // speak.
+            return ""
         }
     }
 }

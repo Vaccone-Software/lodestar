@@ -264,7 +264,7 @@ final class DraftScenarioTests: XCTestCase {
         let stage = Stage()
         stage.lode(".")
         stage.speech.hear("hello world")
-        stage.draft.toggleMic()
+        stage.lode(".", shift: true)
         cmd(stage, "space"); cmd(stage, "m"); cmd(stage, "o"); cmd(stage, "r"); cmd(stage, "e")
         XCTAssertEqual(stage.draft.buffer.text, "hello world more")
         stage.speech.settle("Hello world!")
@@ -505,14 +505,14 @@ final class DraftScenarioTests: XCTestCase {
         XCTAssertEqual(stage.draft.buffer.ghost, "")
     }
 
-    func testClickingTheMicTogglesIt() {
+    func testTheDoorsMuteAndUnmuteTheMic() {
         let stage = Stage()
         stage.lode(".")
-        stage.draft.toggleMic()
+        stage.lode(".", shift: true)
         XCTAssertEqual(stage.speech.pauses, 1)
         stage.speech.hear("ignored")
         XCTAssertEqual(stage.draft.buffer.ghost, "", "a muted mic writes nothing")
-        stage.draft.toggleMic()
+        stage.lode(".")
         XCTAssertEqual(stage.speech.resumes, 1)
         XCTAssertEqual(stage.draft.mode, .insert)
         stage.speech.settle("heard")
@@ -640,7 +640,7 @@ final class DraftScenarioTests: XCTestCase {
         stage.lode(".")
         stage.speech.settle("keep")
         stage.speech.hear("these too")
-        stage.draft.toggleMic()
+        stage.lode(".", shift: true)
         XCTAssertEqual(stage.draft.buffer.text, "keep these too", "what was shown is text, not lost")
         XCTAssertEqual(stage.draft.buffer.ghost, "")
         XCTAssertEqual(stage.draft.mode, .insert, "muting does not change the mode")
@@ -922,8 +922,8 @@ final class DraftHearsNothingScenarioTests: XCTestCase {
         XCTAssertEqual(DraftPanel.note(for: view(silent: false)), "")
         XCTAssertEqual(DraftPanel.note(for: view(silent: true)), "hearing nothing on Cypress")
         XCTAssertEqual(DraftPanel.note(for: view(silent: true, input: nil)), "hearing nothing on the microphone")
-        XCTAssertEqual(DraftPanel.note(for: view(silent: true, mode: .normal)), "microphone waits for insert mode",
-                       "outside insert the microphone is not expected to hear")
+        XCTAssertEqual(DraftPanel.note(for: view(silent: true, mode: .normal)), "",
+                       "outside insert the microphone is not expected to hear, and the light being out says so")
     }
 
     /// The note has to come after the engine's own watch on a wired

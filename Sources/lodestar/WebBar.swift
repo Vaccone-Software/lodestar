@@ -118,15 +118,34 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         rowsStack.translatesAutoresizingMaskIntoConstraints = false
         keys.install(root: root, below: rowsStack)
 
+        // Where everything goes unless a pin or a rule says otherwise: the
+        // inferred profile, said once at the end of the field. A row names
+        // its own profile only when it goes somewhere else.
+        inferredLabel.font = BarTheme.chipFont
+        inferredLabel.textColor = BarTheme.secondaryColor
+        inferredLabel.translatesAutoresizingMaskIntoConstraints = false
+        inferredChip.wantsLayer = true
+        inferredChip.layer?.cornerRadius = BarTheme.chipRadius
+        inferredChip.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.08).cgColor
+        inferredChip.translatesAutoresizingMaskIntoConstraints = false
+        inferredChip.addSubview(inferredLabel)
+
         root.addSubview(globe)
         root.addSubview(field)
+        root.addSubview(inferredChip)
         root.addSubview(separator)
         root.addSubview(rowsStack)
         NSLayoutConstraint.activate([
             globe.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 22),
             globe.centerYAnchor.constraint(equalTo: root.topAnchor, constant: inputHeight / 2),
             field.leadingAnchor.constraint(equalTo: globe.trailingAnchor, constant: 12),
-            field.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -22),
+            field.trailingAnchor.constraint(equalTo: inferredChip.leadingAnchor, constant: -12),
+            inferredChip.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -22),
+            inferredChip.centerYAnchor.constraint(equalTo: field.centerYAnchor),
+            inferredLabel.leadingAnchor.constraint(equalTo: inferredChip.leadingAnchor, constant: 6),
+            inferredLabel.trailingAnchor.constraint(equalTo: inferredChip.trailingAnchor, constant: -6),
+            inferredLabel.topAnchor.constraint(equalTo: inferredChip.topAnchor, constant: 2),
+            inferredLabel.bottomAnchor.constraint(equalTo: inferredChip.bottomAnchor, constant: -2),
             field.centerYAnchor.constraint(equalTo: root.topAnchor, constant: inputHeight / 2),
             separator.topAnchor.constraint(equalTo: root.topAnchor, constant: inputHeight),
             separator.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 14),
@@ -229,6 +248,10 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
         rows = built
         selected = 0
+        let fallback = resolveProfile(pinned: nil, routedOn: "").profile
+        inferred = fallback
+        inferredLabel.stringValue = fallback.display
+        inferredChip.isHidden = fallback.display.isEmpty
         if HotkeyEngine.traceTap {
             // Shape, never content: which kinds of row the query produced and
             // where each would open. Enough to debug routing; not a record of
@@ -242,6 +265,11 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
     /// Row views are pooled and mutated — typing repaints, it never rebuilds.
     private var rowViews: [WebRowView] = []
+    /// The inferred profile, at the end of the field.
+    private let inferredChip = NSView()
+    private let inferredLabel = NSTextField(labelWithString: "")
+    /// Where a row goes when nothing decides otherwise.
+    private var inferred: BrowserProfile?
 
     private func renderRows() {
         while rowViews.count < rows.count {
@@ -252,7 +280,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         for (index, view) in rowViews.enumerated() {
             if index < rows.count {
                 view.isHidden = false
-                view.configure(rows[index])
+                view.configure(rows[index], showsProfile: rows[index].profile != inferred)
                 view.setSelected(index == selected)
             } else {
                 view.isHidden = true
@@ -492,16 +520,6 @@ private final class WebRowView: RaisedRow {
     private let title = NSTextField(labelWithString: "")
     private let chipLabel = NSTextField(labelWithString: "")
     private let chip = NSView()
-    /// A pin before the profile's name when the profile was chosen — a
-    /// link's pin, a route's rule — and nothing when it was inferred from
-    /// the fallback or the browser you were in last. The mark means fixed:
-    /// a chosen destination cannot change tomorrow, a guess can. Only the
-    /// chosen side wears it, because a chosen profile is the rarer one and
-    /// rarity is what makes a mark a signal (the accent's rule).
-    private let chipMark = NSImageView()
-    private var markWidth: NSLayoutConstraint!
-    private var markGap: NSLayoutConstraint!
-    private var inferred = false
     private var kind: WebBarController.WebRow.Kind?
     private var selectedState = false
     /// ⏎ on the chosen row, lit: the key that opens it.
@@ -522,11 +540,6 @@ private final class WebRowView: RaisedRow {
 
         chipLabel.font = BarTheme.chipFont
         chipLabel.translatesAutoresizingMaskIntoConstraints = false
-        chipMark.symbolConfiguration = BarTheme.symbol
-        chipMark.translatesAutoresizingMaskIntoConstraints = false
-        chip.addSubview(chipMark)
-        markWidth = chipMark.widthAnchor.constraint(equalToConstant: 0)
-        markGap = chipLabel.leadingAnchor.constraint(equalTo: chipMark.trailingAnchor, constant: 0)
         chip.wantsLayer = true
         chip.layer?.cornerRadius = BarTheme.chipRadius
         chip.translatesAutoresizingMaskIntoConstraints = false
@@ -539,10 +552,7 @@ private final class WebRowView: RaisedRow {
             // Where the commands bar's rows start their words.
             title.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
             title.centerYAnchor.constraint(equalTo: centerYAnchor),
-            chipMark.leadingAnchor.constraint(equalTo: chip.leadingAnchor, constant: 6),
-            chipMark.centerYAnchor.constraint(equalTo: chip.centerYAnchor),
-            markWidth,
-            markGap,
+            chipLabel.leadingAnchor.constraint(equalTo: chip.leadingAnchor, constant: 6),
             chipLabel.trailingAnchor.constraint(equalTo: chip.trailingAnchor, constant: -6),
             chipLabel.topAnchor.constraint(equalTo: chip.topAnchor, constant: 2),
             chipLabel.bottomAnchor.constraint(equalTo: chip.bottomAnchor, constant: -2),
@@ -557,27 +567,20 @@ private final class WebRowView: RaisedRow {
 
     required init?(coder: NSCoder) { nil }
 
-    func configure(_ row: WebBarController.WebRow) {
+    /// The row's profile shows only when it is an exception: a pin or a
+    /// rule sends it somewhere other than the inferred profile the field
+    /// names. Being there is what says it was chosen.
+    func configure(_ row: WebBarController.WebRow, showsProfile: Bool) {
         // No symbol for the row's kind: its words already say it, a name
         // and its address, a bare address, or Search "…".
         kind = row.kind
         if title.stringValue != row.title { title.stringValue = row.title }
         if chipLabel.stringValue != row.profile.display { chipLabel.stringValue = row.profile.display }
-        if inferred != row.resolution.source.isInferred || chipMark.image == nil {
-            inferred = row.resolution.source.isInferred
-            if inferred {
-                chipMark.isHidden = true
-                markWidth.constant = 0; markGap.constant = 0
-            } else {
-                chipMark.image = NSImage(systemSymbolName: "pin", accessibilityDescription: "chosen")
-                chipMark.isHidden = false
-                markWidth.constant = BarTheme.chipMarkWidth; markGap.constant = BarTheme.chipMarkGap
-            }
-        }
+        chip.isHidden = !showsProfile
     }
 
-    /// Whether the chip wears the pin, for the tests.
-    var marksChosen: Bool { !chipMark.isHidden }
+    /// Whether the row names its own profile, for the tests.
+    var showsProfile: Bool { !chip.isHidden }
 
     func setSelected(_ selected: Bool) {
         guard selected != selectedState else { return }
@@ -592,7 +595,6 @@ private final class WebRowView: RaisedRow {
         applyRaised(selectedState)
         title.textColor = .labelColor
         chipLabel.textColor = BarTheme.secondaryColor
-        chipMark.contentTintColor = BarTheme.secondaryColor
         chip.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.08).cgColor
         enter.isHidden = !selectedState
     }
@@ -610,7 +612,10 @@ extension WebBarController {
     }
 
     /// Which rows wear the pin, top to bottom, for the tests.
-    var shownMarks: [Bool] { rowViews.prefix(rows.count).map(\.marksChosen) }
+    /// Which rows name their own profile, for the tests.
+    var shownExceptions: [Bool] { rowViews.prefix(rows.count).map(\.showsProfile) }
+    /// The profile the field names, for the tests.
+    var shownInferred: String { inferredChip.isHidden ? "" : inferredLabel.stringValue }
     /// What decided each row's profile, for the tests.
     var shownSources: [String] { rows.map(\.resolution.source.label) }
 

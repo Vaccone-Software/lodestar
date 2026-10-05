@@ -83,11 +83,10 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         panel.level = .modalPanel
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
         panel.delegate = self
-        panel.contentView = root
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
         panel.onKeyEquivalent = { [weak self] event in
             self?.handleKeyEquivalent(event) ?? false
         }
@@ -152,12 +151,12 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         guard panel.isVisible else { return }
         let view = keys.show(sections)
         root.layoutSubtreeIfNeeded()
-        KeysMotion.grow(panel, to: barFrame(), revealing: view)
+        KeysMotion.grow(panel, to: SoftShadow.outset(barFrame()), revealing: view)
     }
 
     func hideKeys() {
         guard let view = keys.hide() else { return }
-        KeysMotion.shrink(panel, to: barFrame(), hiding: view)
+        KeysMotion.shrink(panel, to: SoftShadow.outset(barFrame()), hiding: view)
     }
 
     func toggle() {
@@ -276,7 +275,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     }
 
     private func reposition() {
-        panel.setFrame(barFrame(), display: true)
+        panel.setFrame(SoftShadow.outset(barFrame()), display: true)
     }
 
     // MARK: - Keyboard
@@ -425,7 +424,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
     private func renderMenu() {
         let rendering = menu.rendering(in: context)
-        let anchor = OptionsCard.Anchor.row(selectedRowScreenFrame(), panel: panel.frame)
+        let anchor = OptionsCard.Anchor.row(selectedRowScreenFrame(), panel: SoftShadow.inset(panel.frame))
 
         if let options = rendering.options {
             card.present(.items(OptionsCard.Menu(
@@ -452,7 +451,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
                 header: profiles.header,
                 items: profiles.items.map(Self.item),
                 footer: profiles.footer
-            )), anchor: .card(card.frame, panel: panel.frame))
+            )), anchor: .card(card.frame, panel: SoftShadow.inset(panel.frame)))
         } else {
             profileCard.hide()
         }
@@ -478,7 +477,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
     private func selectedRowScreenFrame() -> NSRect {
         guard rowViews.indices.contains(selected), !rowViews[selected].isHidden else {
-            return panel.frame
+            return SoftShadow.inset(panel.frame)
         }
         let view = rowViews[selected]
         return panel.convertToScreen(view.convert(view.bounds, to: nil))

@@ -452,6 +452,9 @@ enum BarTheme {
     /// it is lifted.
     static var raised: NSColor { palette.raised.color }
 
+    /// The open dot's distance from the name it belongs to.
+    static let dotGap: CGFloat = 6
+
     /// A bar's caret is the one light in its field: the accent, wherever
     /// the field editor would otherwise draw the system's own colour.
     static func lightCaret(of field: NSTextField) {
@@ -1118,5 +1121,113 @@ class RaisedRow: NSView {
         layer?.shadowColor = NSColor.black.cgColor
         layer?.shadowOpacity = on ? (Tone.systemDark ? 0.3 : 0.08) : 0
         CATransaction.commit()
+    }
+}
+
+
+/// A surface's own shadow, the way the clay objects in the pictures sit on
+/// nothing: one long, soft, warm shadow beneath, a hairline contact shadow
+/// under the edge, and a hairline edge in place of the window server's
+/// outline. The system's window shadow cannot be shaped, so the panel
+/// grows by `margin` on every side, the surface sits inset inside it, and
+/// the host draws the shadow in that margin. Clicks in the margin land on
+/// nothing.
+enum SoftShadow {
+    static let margin: CGFloat = 64
+
+    /// The window's frame for a surface that should stand at `visible`.
+    static func outset(_ visible: NSRect) -> NSRect { visible.insetBy(dx: -margin, dy: -margin) }
+    /// The surface's frame inside a window hosted this way.
+    static func inset(_ window: NSRect) -> NSRect { window.insetBy(dx: margin, dy: margin) }
+
+    /// Host `content` as the panel's surface, with the shadow drawn here.
+    static func host(_ content: NSView, in panel: NSPanel, cornerRadius: CGFloat) {
+        panel.hasShadow = false
+        let host = ShadowHostView(content: content, cornerRadius: cornerRadius)
+        panel.contentView = host
+    }
+}
+
+final class ShadowHostView: NSView {
+    private let content: NSView
+    private let radius: CGFloat
+    private let soft = CALayer()
+    private let contact = CALayer()
+    private let edge = CALayer()
+
+    init(content: NSView, cornerRadius: CGFloat) {
+        self.content = content
+        self.radius = cornerRadius
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.masksToBounds = false
+        for shadow in [soft, contact] {
+            shadow.shadowOffset = .zero
+            shadow.shadowOpacity = 1
+            layer?.addSublayer(shadow)
+        }
+        content.translatesAutoresizingMaskIntoConstraints = true
+        content.autoresizingMask = []
+        addSubview(content)
+        content.wantsLayer = true
+        content.layer?.addSublayer(edge)
+        edge.borderWidth = 0.5
+        edge.cornerRadius = cornerRadius
+        edge.zPosition = 100
+        restyle()
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    /// Placed on every change of size, not only in a layout pass: a plain
+    /// resize of a view without constraints does not always lay out.
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        place()
+    }
+
+    override func layout() {
+        super.layout()
+        place()
+    }
+
+    private func place() {
+        let surface = bounds.insetBy(dx: SoftShadow.margin, dy: SoftShadow.margin)
+        if content.frame != surface { content.frame = surface }
+        edge.frame = content.bounds
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        // The soft shadow is cast by a slightly smaller shape held lower,
+        // so it falls beneath the surface rather than around it.
+        let softShape = surface.insetBy(dx: 16, dy: 16).offsetBy(dx: 0, dy: -26)
+        soft.shadowPath = CGPath(roundedRect: softShape, cornerWidth: radius, cornerHeight: radius, transform: nil)
+        contact.shadowPath = CGPath(roundedRect: surface.offsetBy(dx: 0, dy: -1), cornerWidth: radius,
+                                    cornerHeight: radius, transform: nil)
+        CATransaction.commit()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        restyle()
+    }
+
+    private func restyle() {
+        let dark = Tone.systemDark
+        soft.shadowColor = (dark ? NSColor(srgbRed: 0.055, green: 0.027, blue: 0.008, alpha: 1)
+                                 : NSColor(srgbRed: 0.35, green: 0.23, blue: 0.13, alpha: 1)).cgColor
+        soft.shadowOpacity = dark ? 0.62 : 0.30
+        soft.shadowRadius = 30
+        contact.shadowColor = soft.shadowColor
+        contact.shadowOpacity = dark ? 0.35 : 0.14
+        contact.shadowRadius = 1
+        edge.borderColor = (dark ? NSColor(srgbRed: 1, green: 0.93, blue: 0.86, alpha: 0.11)
+                                 : NSColor(srgbRed: 0.27, green: 0.17, blue: 0.1, alpha: 0.13)).cgColor
+    }
+
+    /// Only the surface takes the pointer; the shadow is not a target.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let local = convert(point, from: superview)
+        guard content.frame.contains(local) else { return nil }
+        return super.hitTest(point)
     }
 }

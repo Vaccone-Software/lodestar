@@ -32,11 +32,10 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
         panel.level = .modalPanel
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
         panel.delegate = self
-        panel.contentView = root
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
 
         Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
 
@@ -95,12 +94,12 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
         guard panel.isVisible else { return }
         let view = keys.show(sections)
         root.layoutSubtreeIfNeeded()
-        KeysMotion.grow(panel, to: barFrame(), revealing: view)
+        KeysMotion.grow(panel, to: SoftShadow.outset(barFrame()), revealing: view)
     }
 
     func hideKeys() {
         guard let view = keys.hide() else { return }
-        KeysMotion.shrink(panel, to: barFrame(), hiding: view)
+        KeysMotion.shrink(panel, to: SoftShadow.outset(barFrame()), hiding: view)
     }
 
     func toggle() {
@@ -195,7 +194,7 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
     }
 
     private func reposition() {
-        panel.setFrame(barFrame(), display: true)
+        panel.setFrame(SoftShadow.outset(barFrame()), display: true)
     }
 
     // MARK: - Keyboard

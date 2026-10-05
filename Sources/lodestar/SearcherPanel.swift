@@ -126,11 +126,10 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         panel.level = .modalPanel
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
         panel.delegate = self
-        panel.contentView = root
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
         panel.onKeyEquivalent = { [weak self] event in
             self?.handleKeyEquivalent(event) ?? false
         }
@@ -207,12 +206,12 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         guard panel.isVisible else { return }
         let view = keys.show(sections)
         root.layoutSubtreeIfNeeded()
-        KeysMotion.grow(panel, to: barFrame(), revealing: view)
+        KeysMotion.grow(panel, to: SoftShadow.outset(barFrame()), revealing: view)
     }
 
     func hideKeys() {
         guard let view = keys.hide() else { return }
-        KeysMotion.shrink(panel, to: barFrame(), hiding: view)
+        KeysMotion.shrink(panel, to: SoftShadow.outset(barFrame()), hiding: view)
     }
 
     func toggle() {
@@ -364,7 +363,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     }
 
     private func reposition() {
-        panel.setFrame(barFrame(), display: true)
+        panel.setFrame(SoftShadow.outset(barFrame()), display: true)
     }
 
     // MARK: - Keyboard
@@ -739,7 +738,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     }
 
     private func renderMenu() {
-        let anchor = OptionsCard.Anchor.row(selectedRowScreenFrame(), panel: panel.frame)
+        let anchor = OptionsCard.Anchor.row(selectedRowScreenFrame(), panel: SoftShadow.inset(panel.frame))
         switch menuState {
         case .closed:
             graphCard.hide()
@@ -846,11 +845,11 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         }
         profilesCard.present(.items(OptionsCard.Menu(
             header: "Opens in", items: items, footer: "⇥ back    esc cancel"
-        )), anchor: .card(graphCard.frame, panel: panel.frame))
+        )), anchor: .card(graphCard.frame, panel: SoftShadow.inset(panel.frame)))
     }
 
     private func selectedRowScreenFrame() -> NSRect {
-        guard rowViews.indices.contains(selected) else { return panel.frame }
+        guard rowViews.indices.contains(selected) else { return SoftShadow.inset(panel.frame) }
         let view = rowViews[selected]
         return panel.convertToScreen(view.convert(view.bounds, to: nil))
     }
@@ -946,11 +945,14 @@ private final class SearcherRowView: RaisedRow {
                 keys.append(key)
                 stack.insertArrangedSubview(key, at: enterIndex + offset)
             }
+            // The open dot belongs to the app, so it sits beside its name.
             if showDot {
                 let dotLabel = NSTextField(labelWithString: "●")
                 dotLabel.font = BarTheme.dotFont
                 dot = dotLabel
-                stack.addArrangedSubview(dotLabel)
+                let afterName = (stack.arrangedSubviews.firstIndex(of: name) ?? 0) + 1
+                stack.insertArrangedSubview(dotLabel, at: afterName)
+                stack.setCustomSpacing(BarTheme.dotGap, after: name)
             }
             restyle()
         }
@@ -1036,7 +1038,7 @@ enum SearcherRowPreview {
         }
         let samples: [(String, String, [String], Bool)] = [
             ("/Applications/Safari.app", "Safari", ["W"], false),
-            ("/System/Applications/Mail.app", "Mail", ["E P", "⇥ 3"], true),
+            ("/System/Applications/Mail.app", "Mail", ["E P"], true),
             ("/System/Applications/Notes.app", "Notes", ["N"], false),
             ("/System/Applications/Utilities/Terminal.app", "Terminal", [], false),
         ]
@@ -1057,8 +1059,8 @@ enum SearcherRowPreview {
             stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 10),
             stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -10),
         ])
-        panel.contentView = root
-        panel.setFrame(NSRect(x: 400, y: 400, width: BarTheme.panelWidth, height: 230),
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
+        panel.setFrame(SoftShadow.outset(NSRect(x: 400, y: 400, width: BarTheme.panelWidth, height: 230)),
                        display: true)
         panel.orderFrontRegardless()
         return panel

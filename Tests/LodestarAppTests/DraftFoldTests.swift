@@ -124,6 +124,17 @@ final class DraftFoldTests: XCTestCase {
         XCTAssertEqual(panel.lightLength, 0, "normal mode: the mic waits, the light is out")
     }
 
+    /// The light is visual; VoiceOver hears the same fact in words.
+    func testTheLightSaysItsStateToVoiceOver() {
+        let light = VoiceLight(frame: NSRect(x: 0, y: 0, width: 200, height: 60))
+        XCTAssertEqual(light.accessibilityValue() as? String, "off")
+        light.show(level: 0.4)
+        XCTAssertEqual(light.accessibilityValue() as? String, "listening")
+        XCTAssertEqual(light.accessibilityLabel(), "Microphone")
+        light.show(level: nil)
+        XCTAssertEqual(light.accessibilityValue() as? String, "off")
+    }
+
     func testASilentRoomStillShowsTheFloor() {
         var quiet = view("")
         quiet.level = 0

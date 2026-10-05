@@ -79,6 +79,13 @@ final class VoiceLight: NSView {
         stroke.strokeStart = 0.5
         stroke.strokeEnd = 0.5
         layer?.addSublayer(stroke)
+        // The glyph it replaced was the one place VoiceOver could learn
+        // the microphone's state; the light says it in words too. Never
+        // announced: a screen reader speaking aloud would be dictated.
+        setAccessibilityElement(true)
+        setAccessibilityRole(.levelIndicator)
+        setAccessibilityLabel("Microphone")
+        setAccessibilityValue("off")
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -122,6 +129,7 @@ final class VoiceLight: NSView {
         } else {
             target = 0
         }
+        setAccessibilityValue(level == nil ? "off" : "listening")
         guard target != length else { return }
         let falling = target < length
         length = target
@@ -867,6 +875,10 @@ extension DraftPanel {
                                  inputs: inputs, systemInput: "Cypress", chosenInput: "MacBook Pro Microphone",
                                  micOn: true,
                                  destination: ("Messages", icon), replacing: false))
+            // KEYS=1 stages the keys up, as lode ? shows them.
+            if ProcessInfo.processInfo.environment["KEYS"] == "1" {
+                panel.showKeys(HotkeyEngine.draftSections(editor: .insert, card: false))
+            }
         } else {
             buffer = Draft.Buffer(text: "The quick brown fox\njumps over the lazy dog.", cursor: 10)
             panel.show(DraftView(buffer: buffer, mode: .normal, speech: nil,

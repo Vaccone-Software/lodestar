@@ -54,6 +54,90 @@ struct DraftView {
     var standsAbove: CGFloat = 0
 }
 
+/// The voice light: the panel's own top edge, lit in the accent while the
+/// draft listens, spreading out from the middle as the voice gets louder
+/// and curving down into the corners at its fullest. One flat stroke
+/// along the glass's outline, no glow and no fade, so the level reads as
+/// a length that can be seen from across the room.
+final class VoiceLight: NSView {
+    private let stroke = CAShapeLayer()
+    /// What a silent room still shows, so a listening draft is never
+    /// mistaken for a closed one.
+    static let floor: CGFloat = 0.22
+    /// How long a falling level takes to come down. A rising one arrives
+    /// on the next frame: the voice leads, the light follows.
+    static let release: CFTimeInterval = 0.35
+    static let lineWidth: CGFloat = 2
+    private(set) var length: CGFloat = 0
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        stroke.fillColor = nil
+        stroke.lineWidth = Self.lineWidth
+        stroke.lineCap = .round
+        stroke.strokeStart = 0.5
+        stroke.strokeEnd = 0.5
+        layer?.addSublayer(stroke)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    /// The light is drawn over everything and takes nothing: the mic
+    /// toggle and the input menu sit under its view.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        stroke.frame = bounds
+        stroke.path = Self.edge(in: bounds)
+    }
+
+    /// The top of the outline, from partway down the left corner, across,
+    /// and down into the right one: symmetric, so the middle of the path
+    /// is the middle of the edge and a length grows from there both ways.
+    static func edge(in bounds: NSRect) -> CGPath {
+        let inset = lineWidth / 2
+        let r = BarTheme.glassRadius - inset
+        let left = bounds.minX + inset, right = bounds.maxX - inset, top = bounds.maxY - inset
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: left, y: top - r))
+        path.addArc(center: CGPoint(x: left + r, y: top - r), radius: r,
+                    startAngle: .pi, endAngle: .pi / 2, clockwise: true)
+        path.addLine(to: CGPoint(x: right - r, y: top))
+        path.addArc(center: CGPoint(x: right - r, y: top - r), radius: r,
+                    startAngle: .pi / 2, endAngle: 0, clockwise: true)
+        return path
+    }
+
+    /// Light the edge for a level from 0 to 1, or put it out with nil.
+    func show(level: Float?) {
+        stroke.strokeColor = BarTheme.readableAccent.cgColor
+        let target: CGFloat
+        if let level {
+            // Reduce Motion holds the light still at its whole length:
+            // it still says listening, and nothing moves.
+            target = Accessibility.reduceMotion()
+                ? 1 : Self.floor + (1 - Self.floor) * CGFloat(max(0, min(1, level)))
+        } else {
+            target = 0
+        }
+        guard target != length else { return }
+        let falling = target < length
+        length = target
+        CATransaction.begin()
+        if falling, target > 0, !Accessibility.reduceMotion() {
+            CATransaction.setAnimationDuration(Self.release)
+            CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
+        } else {
+            CATransaction.setDisableActions(true)
+        }
+        stroke.strokeStart = 0.5 - target / 2
+        stroke.strokeEnd = 0.5 + target / 2
+        CATransaction.commit()
+    }
+}
+
 /// The draft's glass: bottom center, fixed in place, growing upward with
 /// the text. Never key — the app under it keeps its cursor the whole
 /// time — but it takes the mouse for two things on its register line:
@@ -63,15 +147,28 @@ final class DraftPanel {
     private let root = NSView()
     private var backdrop: NSView?
 
-    // The register line: made once, placed on every render, so a menu
-    // that is open survives the next volatile word.
+    // The foot: made once, placed on every render, so a menu that is
+    // open survives the next volatile word. It says where the words land
+    // and, only while it is news, which microphone hears them.
     private let registerIcon = NSImageView()
     private let registerName = NSTextField(labelWithString: "")
     private let registerNote = NSTextField(labelWithString: "")
     private let inputPopup = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let modeLabel = NSTextField(labelWithString: "")
-    private var meterBars: [NSView] = []
     private let micButton = HandButton(frame: .zero)
+    /// The level, as the top edge's light.
+    private let voiceLight = VoiceLight(frame: .zero)
+
+    /// Whether the draft shows all of its text or the last four lines.
+    /// Speaking folds it: the words are going somewhere else and the
+    /// screen behind is what the eye is on. Stopping to read (escape, or
+    /// opening with text already in it) opens it whole, and it stays
+    /// whole through typing until the voice comes back.
+    private(set) var expanded = false
+    /// The microphone has been heard since it was last named; until
+    /// then the foot names it, so a word spoken into the wrong one is
+    /// caught before the first, not after the tenth.
+    private var heard = false
+    private var namedInput: String?
 
     /// Internal so the tests can read the storage the screen reads: the
     /// find lights once shipped as background washes that vibrancy ate,
@@ -95,16 +192,17 @@ final class DraftPanel {
     private static let width: CGFloat = 720
     private static let margin: CGFloat = 22
     private static let padX: CGFloat = 22
-    private static let registerHeight: CGFloat = 40
-    /// The air under the text when the draft carries nothing else.
-    private static let floorHeight: CGFloat = 14
-    /// Air between the text and the keys, and under them: the pill's own
-    /// inset, so a draft holding its keys is spaced like a bar holding
-    /// its keys.
+    /// The foot, under the text: where the words land, and the mic.
+    private static let footHeight: CGFloat = 40
+    /// The air over the text, under the light.
+    private static let padTop: CGFloat = 18
+    /// Air between the text and the keys: the pill's own inset, so a
+    /// draft holding its keys is spaced like a bar holding its keys. The
+    /// foot's own air is the air under them.
     private static let keysAbove: CGFloat = ModePill.inset
-    private static let keysBelow: CGFloat = ModePill.inset
     private static let minTextHeight: CGFloat = 58
-    private static let meterCount = 5
+    /// The lines a speaking draft holds.
+    static let compactLines = 4
     /// The system's mono face: a block cursor in a proportional face is
     /// a fresh width on every character, `j` and `k` walk columns that
     /// lie, and a lit letter's semibold reflows the line. Mono makes all
@@ -114,9 +212,6 @@ final class DraftPanel {
     /// reads at a glance, and in the mono face the same width, so
     /// nothing reflows.
     private static let accentFont = BarTheme.readingMonoAccent
-    /// macOS paints "the microphone is on" orange, in the menu bar and in
-    /// Control Center; the panel says it in the same color.
-    private static let live = NSColor.systemOrange
     /// The panel's ground, for the glyph a block cursor inverts: the
     /// equalizer scrim keeps every panel charcoal, whatever the material
     /// decided, so the ground is a known dark rather than a query.
@@ -138,8 +233,6 @@ final class DraftPanel {
         registerNote.font = BarTheme.secondaryFont
         registerNote.textColor = BarTheme.secondaryColor
         registerNote.lineBreakMode = .byTruncatingTail
-        modeLabel.font = BarTheme.chipFont
-        modeLabel.textColor = BarTheme.secondaryColor
 
         inputPopup.isBordered = false
         inputPopup.font = BarTheme.secondaryFont
@@ -154,14 +247,6 @@ final class DraftPanel {
         micButton.target = self
         micButton.action = #selector(micClicked)
         micButton.toolTip = "Microphone on or off"
-
-        for i in 0..<Self.meterCount {
-            let bar = NSView()
-            bar.wantsLayer = true
-            bar.layer?.cornerRadius = BarTheme.hairlineRadius
-            bar.frame = NSRect(x: 0, y: 0, width: 3, height: CGFloat(5 + i * 2))
-            meterBars.append(bar)
-        }
 
         textView.isEditable = false
         textView.isSelectable = false
@@ -180,6 +265,10 @@ final class DraftPanel {
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = false
         scroll.borderType = .noBorder
+        // AppKit pads a scroll view's top on its own, which offsets every
+        // scroll by that much: the folded window cut a line at each end.
+        scroll.automaticallyAdjustsContentInsets = false
+        scroll.contentInsets = NSEdgeInsetsZero
         // Every view here is placed by frame on each render; nothing may
         // opt into Auto Layout, or the first layout pass zeroes it.
 
@@ -189,23 +278,23 @@ final class DraftPanel {
         // The caret sits under the text: a block cursor is a solid plate
         // with the glyph inverted over it, the way every terminal draws
         // one, and the plate has to be behind the glyph for that.
-        for view in [registerIcon, registerName, registerNote, inputPopup, modeLabel, micButton,
-                     caret, scroll] + meterBars {
+        for view in [registerIcon, registerName, registerNote, inputPopup, micButton,
+                     caret, scroll, voiceLight] {
             root.addSubview(view)
         }
         // The panel's frame animates when the keys arrive, and the draft
         // places every view by hand rather than by constraint. These
         // masks are what carries the layout through an animation that no
-        // render runs inside: the register line holds the top edge, the
-        // text takes the room that opens, the keys hold the bottom.
+        // render runs inside: the foot and the keys hold the bottom edge,
+        // the text takes the room that opens, the light rides the top.
         root.autoresizesSubviews = true
         root.autoresizingMask = [.width, .height]
         backdrop?.autoresizingMask = [.width, .height]
-        for view in [registerIcon, registerName, registerNote, inputPopup, modeLabel, micButton]
-            + meterBars {
-            view.autoresizingMask = [.minYMargin]
+        for view in [registerIcon, registerName, registerNote, inputPopup, micButton] {
+            view.autoresizingMask = [.maxYMargin]
         }
         scroll.autoresizingMask = [.width, .height]
+        voiceLight.autoresizingMask = [.width, .height]
     }
 
     @objc private func micClicked() { onToggleMic?() }
@@ -227,6 +316,10 @@ final class DraftPanel {
         keysView = nil
         keysShown = false
         lastView = nil
+        expanded = false
+        heard = false
+        namedInput = nil
+        voiceLight.show(level: nil)
         panel.orderOut(nil)
     }
 
@@ -236,9 +329,8 @@ final class DraftPanel {
     var caretColor: NSColor? { caret.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)) }
     /// Every view on the register line, named, for a layout probe.
     var registerViews: [(String, NSView)] {
-        [("icon", registerIcon), ("name", registerName), ("mode", modeLabel),
+        [("icon", registerIcon), ("name", registerName),
          ("note", registerNote), ("input", inputPopup), ("mic", micButton)]
-            + meterBars.enumerated().map { ("meter\($0.offset)", $0.element) }
     }
     var registerText: String { registerName.stringValue }
     var registerDetail: String { registerNote.stringValue }
@@ -255,6 +347,10 @@ final class DraftPanel {
         return out.joined(separator: " ")
     }
     var micVisible: Bool { !micButton.isHidden }
+    /// Whether the foot names the microphone right now.
+    var inputNamed: Bool { !inputPopup.isHidden }
+    /// How much of the top edge is lit, 0 when the light is out.
+    var lightLength: CGFloat { voiceLight.length }
     /// The two bands a keys toggle moves, for the tests that hold them
     /// apart.
     var textFrame: NSRect { scroll.frame }
@@ -337,7 +433,24 @@ final class DraftPanel {
     private var lastView: DraftView?
 
     func show(_ view: DraftView) {
+        // Read the moment before it is remembered: a first frame with
+        // words already in it is a draft opened to be read.
+        let opening = lastView == nil
         lastView = view
+        if view.card != nil || view.editor != .insert {
+            expanded = true
+        } else if !view.buffer.ghost.isEmpty {
+            expanded = false
+        } else if opening, !view.buffer.text.isEmpty {
+            expanded = true
+        }
+        if !view.buffer.ghost.isEmpty { heard = true }
+        if view.input != namedInput {
+            // A different microphone is news again, and the first name
+            // is news too.
+            namedInput = view.input
+            heard = !view.buffer.ghost.isEmpty
+        }
         let screen = ActivePolicy.presentationFrame
         let width = min(view.width ?? Self.width, screen.width - Self.margin * 2)
         let textWidth = width - Self.padX * 2
@@ -415,16 +528,37 @@ final class DraftPanel {
         textView.layoutManager?.ensureLayout(for: textView.textContainer!)
         let used = textView.layoutManager?.usedRect(for: textView.textContainer!).height ?? 0
         let lineHeight = textView.layoutManager?.defaultLineHeight(for: Self.font) ?? 22
-        // The text grows the panel to the display's visible height and
-        // scrolls past it — one rule for every door. A card opened to be
-        // read wants all of itself on screen, and a long dictation is no
-        // worse for the room.
-        // The floor is the air under the text. With keys up, the keys'
-        // own air is that air — counting both put a second empty band
-        // between the words and their keys.
-        let chrome = Self.registerHeight + (keysShown ? keysBand : Self.floorHeight)
+        // Opened whole, the text grows the panel to the display's visible
+        // height and scrolls past it — one rule for every door. A card
+        // opened to be read wants all of itself on screen. Folded, it
+        // holds four whole lines, so the screen behind stays in view.
+        let chrome = Self.padTop + Self.footHeight + keysBand
         let maxTextHeight = max(Self.minTextHeight,
                                 screen.height - view.standsAbove - Self.margin * 2 - chrome)
+
+        // Where the words are arriving: the end of a standing ghost, or
+        // the cursor when there is none.
+        let cursorUTF16 = (String(view.buffer.characters[..<view.buffer.cursor]) as NSString).length
+        let afterUTF16 = (String(view.buffer.characters[view.buffer.cursor...]) as NSString).length
+        let focus = view.buffer.ghost.isEmpty ? cursorUTF16 : attributed.length - afterUTF16
+        // Folded, the window is whole lines read off the layout itself,
+        // ending on the focus's line: a line cut through at the top would
+        // be a fade drawn with a ruler.
+        var window: (top: CGFloat, height: CGFloat)?
+        if !expanded, let layout = textView.layoutManager, layout.numberOfGlyphs > 0 {
+            var lines: [NSRect] = []
+            layout.enumerateLineFragments(forGlyphRange: NSRange(location: 0, length: layout.numberOfGlyphs)) {
+                rect, _, _, _, _ in lines.append(rect)
+            }
+            if lines.count > Self.compactLines {
+                let glyph = layout.glyphIndexForCharacter(at: max(0, min(focus, attributed.length) - 1))
+                let focusLine = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+                let end = lines.firstIndex { abs($0.minY - focusLine.minY) < 0.5 } ?? lines.count - 1
+                let start = max(0, end - (Self.compactLines - 1))
+                let last = min(lines.count - 1, start + Self.compactLines - 1)
+                window = (lines[start].minY, min(maxTextHeight, lines[last].maxY - lines[start].minY))
+            }
+        }
         // The text box keeps a floor of its own so an empty draft is not a
         // slot — but that floor is slack under the words, and with keys
         // up it stacks on the keys' own air and reads as one gap of
@@ -432,8 +566,14 @@ final class DraftPanel {
         // between the words and their keys is then exactly the one inset
         // every other surface uses.
         let floor = keysShown ? lineHeight : Self.minTextHeight
-        let textHeight = min(maxTextHeight, max(floor, used + lineHeight * 0.4))
-        scroll.hasVerticalScroller = used > maxTextHeight
+        // Folded, the box is exactly its lines: a line cut through the
+        // middle at the top would be a fade drawn by a ruler.
+        let textHeight = window?.height ?? (expanded
+            ? min(maxTextHeight, max(floor, used + lineHeight * 0.4))
+            : min(maxTextHeight, max(floor, used)))
+        // A scroller says there is more to read, which is true only when
+        // reading is the task.
+        scroll.hasVerticalScroller = expanded && used > maxTextHeight
 
         let height = chrome + textHeight
         let frame = NSRect(x: screen.midX - width / 2,
@@ -448,14 +588,14 @@ final class DraftPanel {
         panel.setFrame(frame, display: false)
         root.frame = NSRect(origin: .zero, size: frame.size)
         backdrop?.frame = root.bounds
+        voiceLight.frame = root.bounds
 
-        // The register line. Everything on it shares one vertical center,
+        // The foot. Everything on it shares one vertical center,
         // and the rounding happens to the *edges* rather than the centre:
         // rounding `centre - h/2` puts an even-height view on a whole
         // pixel and an odd-height one on a half, which is a visible
         // stagger across a row that mixes glyphs, symbols and controls.
-        let registerY = height - Self.registerHeight
-        let centerY = (registerY + Self.registerHeight / 2).rounded()
+        let centerY = (Self.footHeight / 2).rounded()
         func place(_ v: NSView, x: CGFloat, width w: CGFloat, height h: CGFloat) {
             let top = (centerY + h / 2).rounded()
             v.frame = NSRect(x: x.rounded(), y: top - h.rounded(), width: w, height: h.rounded())
@@ -492,17 +632,8 @@ final class DraftPanel {
         placeText(registerName, x: x, width: min(registerName.frame.width, 240))
         x += registerName.frame.width + 14
 
-        // Where the text goes and what the keys mean sit together on the
-        // left; everything about the microphone sits together on the right.
-        switch view.editor {
-        case .insert: modeLabel.stringValue = "INSERT"
-        case .normal: modeLabel.stringValue = view.pending ? "NORMAL ·" : "NORMAL"
-        case .visual(let line): modeLabel.stringValue = line ? "V-LINE" : "VISUAL"
-        }
-        modeLabel.sizeToFit()
-        placeText(modeLabel, x: x, width: modeLabel.frame.width)
-        x += modeLabel.frame.width + 16
-
+        // Where the text goes sits on the left; the microphone on the
+        // right. The mode has no word: the caret's shape is the mode.
         var trailing = width - Self.padX
 
         let listening: Bool
@@ -511,7 +642,9 @@ final class DraftPanel {
         micButton.image = NSImage(systemSymbolName: view.micOn ? "mic.fill" : "mic.slash.fill",
                                   accessibilityDescription: view.micOn ? "microphone on" : "microphone off")?
             .withSymbolConfiguration(BarTheme.symbolBand)
-        micButton.contentTintColor = micLive ? Self.live : BarTheme.secondaryColor
+        // The glyph stays quiet: the light along the top is what says the
+        // microphone is live, and one signal is enough.
+        micButton.contentTintColor = BarTheme.secondaryColor
         // The clip door has no microphone, and draws none: a glyph that
         // could be clicked would promise what the door refuses.
         let noMic = view.card != nil
@@ -520,20 +653,11 @@ final class DraftPanel {
             place(micButton, x: trailing - 20, width: 20, height: 20)
             trailing -= 28
         }
-        // The meter sits on one floor and grows upward. Centring each bar
-        // on the row's centre splayed them symmetrically — a bowtie, not
-        // a meter — and no meter anywhere is drawn that way.
-        let meterFloor = (centerY - CGFloat(Self.meterCount + 3) / 2).rounded()
-        for (i, bar) in meterBars.enumerated() {
-            bar.isHidden = !listening || noMic
-            bar.frame = NSRect(x: (trailing - 3 - CGFloat(Self.meterCount - 1 - i) * 5).rounded(),
-                               y: meterFloor, width: 3, height: bar.frame.height)
-        }
-        if listening, !noMic { trailing -= CGFloat(Self.meterCount) * 5 + 10 }
-        setLevel(listening ? view.level : 0, live: micLive)
+        live = micLive && !noMic
+        setLevel(view.level)
 
-        // The input menu beside the meter it feeds, then whatever the
-        // recognizer has to say, in the room that is left.
+        // The input menu beside the mic, then whatever the recognizer has
+        // to say, in the room that is left.
         let systemTitle = "System" + (view.systemInput.map { " (\($0))" } ?? "")
         let titles = [systemTitle] + view.inputs
         if titles != popupTitles {
@@ -543,7 +667,9 @@ final class DraftPanel {
         }
         let chosenIndex = view.chosenInput.flatMap { view.inputs.firstIndex(of: $0) }.map { $0 + 1 } ?? 0
         if inputPopup.indexOfSelectedItem != chosenIndex { inputPopup.selectItem(at: chosenIndex) }
-        inputPopup.isHidden = (view.speech == nil && !view.micOn) || noMic
+        // Named until it has been heard, and again whenever it is not
+        // being heard: a microphone that works needs no caption.
+        inputPopup.isHidden = noMic || !view.micOn || (heard && !view.silent)
         // Sized to the title on show, not the longest item: the arrow
         // sits beside the name, not at the end of the widest device.
         let titleWidth = (inputPopup.titleOfSelectedItem ?? "").size(withAttributes: [.font: BarTheme.secondaryFont]).width
@@ -559,14 +685,18 @@ final class DraftPanel {
         placeText(registerNote, x: x, width: max(0, min(registerNote.frame.width, trailing - x)))
 
         // The text.
-        scroll.frame = NSRect(x: Self.padX, y: keysShown ? keysBand : Self.floorHeight,
+        scroll.frame = NSRect(x: Self.padX, y: Self.footHeight + keysBand,
                               width: textWidth, height: textHeight)
         textView.frame = NSRect(x: 0, y: 0, width: textWidth, height: max(textHeight, used))
         textView.layoutManager?.ensureLayout(for: textView.textContainer!)
-        if used > textHeight {
-            // Keep the cursor's line in view, wherever it is.
-            let cursorUTF16 = (String(view.buffer.characters[..<view.buffer.cursor]) as NSString).length
-            textView.scrollRangeToVisible(NSRange(location: min(cursorUTF16, attributed.length), length: 0))
+        if let window {
+            scroll.contentView.scroll(to: NSPoint(x: 0, y: window.top))
+            scroll.reflectScrolledClipView(scroll.contentView)
+        } else if used > textHeight {
+            // Keep in view where the words are arriving.
+            textView.scrollRangeToVisible(NSRange(location: min(focus, attributed.length), length: 0))
+        } else {
+            scroll.contentView.scroll(to: .zero)
         }
 
         // The caret, at the cursor's glyph.
@@ -619,11 +749,11 @@ final class DraftPanel {
     /// The height the glass owes its keys: zero while they are away.
     private var keysBand: CGFloat {
         guard keysShown, let keysView else { return 0 }
-        return Self.keysAbove + keysView.frame.height + Self.keysBelow
+        return Self.keysAbove + keysView.frame.height
     }
 
-    /// The keys sit under the text, against the floor, which is where
-    /// the legend used to stand.
+    /// The keys sit under the text, on the foot, which is where the
+    /// legend used to stand.
     ///
     /// Placed against the width the panel actually has, not against the
     /// draft's default one. The glass is 720 wide on every display a Mac
@@ -633,7 +763,7 @@ final class DraftPanel {
     private func placeKeys(width: CGFloat) {
         guard let keysView, keysShown else { return }
         let available = max(0, width - Self.padX * 2)
-        keysView.frame = NSRect(x: Self.padX, y: Self.keysBelow,
+        keysView.frame = NSRect(x: Self.padX, y: Self.footHeight,
                                 width: min(keysView.fittingSize.width, available),
                                 height: keysView.frame.height)
     }
@@ -654,7 +784,7 @@ final class DraftPanel {
         columns.translatesAutoresizingMaskIntoConstraints = true
         // The height is the columns' own; the width is settled by
         // `placeKeys` against the glass this draft actually has.
-        columns.frame = NSRect(x: Self.padX, y: Self.keysBelow,
+        columns.frame = NSRect(x: Self.padX, y: Self.footHeight,
                                width: columns.fittingSize.width,
                                height: columns.fittingSize.height)
         columns.autoresizingMask = [.maxYMargin]
@@ -696,16 +826,13 @@ final class DraftPanel {
         return (from, to)
     }
 
-    /// Move the meter without a re-layout: it arrives ten times a second.
-    func setLevel(_ level: Float, live: Bool? = nil) {
-        let lit = Int((level * Float(Self.meterCount)).rounded(.up))
-        let isLive = live ?? (micButton.contentTintColor == Self.live)
-        let color = isLive ? Self.live : BarTheme.secondaryColor
-        for (i, bar) in meterBars.enumerated() {
-            bar.layer?.backgroundColor = (i < lit
-                ? color.withAlphaComponent(0.95)
-                : NSColor.labelColor.withAlphaComponent(0.18)).cgColor
-        }
+    /// The microphone is live: listening, wanted, and in insert mode.
+    private var live = false
+
+    /// Move the light without a re-layout: the level arrives ten times a
+    /// second. Out whenever the microphone is not live.
+    func setLevel(_ level: Float) {
+        voiceLight.show(level: live ? level : nil)
     }
 
     static func note(for view: DraftView) -> String {
@@ -760,13 +887,16 @@ extension DraftPanel {
         let icon = NSWorkspace.shared.icon(forFile: "/System/Applications/Messages.app")
         let inputs = ["MacBook Pro Microphone", "CalDigit Thunderbolt 3 Audio"]
         if variant == 0 {
-            buffer.settle("Run the migration for")
-            buffer.type(" user_sessions")
+            buffer.settle("Look at the inspector on the left. The flex container has a gap of twelve but the cards still touch, so something is overriding it, probably the margin reset in globals.css.")
+            buffer.settle("Check whether the card component sets its own margin and if it does, remove it and use the gap instead.")
+            buffer.type(" Run the migration for user_sessions")
             buffer.settle("and tail the log, then move the Asana card to the done column.")
             buffer.showGhost("and ping the channel")
             panel.show(DraftView(buffer: buffer, mode: .insert, editor: .insert,
                                  speech: .listening(input: "MacBook Pro Microphone"),
-                                 input: "MacBook Pro Microphone", level: 0.6,
+                                 input: "MacBook Pro Microphone",
+                                 // LEVEL= stages another loudness: 1 curves into the corners.
+                                 level: Float(ProcessInfo.processInfo.environment["LEVEL"] ?? "") ?? 0.6,
                                  inputs: inputs, systemInput: "Cypress", chosenInput: "MacBook Pro Microphone",
                                  micOn: true,
                                  destination: ("Messages", icon), replacing: false))

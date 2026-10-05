@@ -11,7 +11,7 @@ import LodestarEars
 /// `⏎` is a plain ⌘V into it.
 ///
 /// The destination is live: whatever is frontmost when `⏎` lands, shown
-/// on the register line as it changes. Both endings put the text on the
+/// on the foot as it changes. Both endings put the text on the
 /// pasteboard, so nothing said or typed here is ever lost.
 final class DraftController {
     /// Is a field blocking synthetic input (Secure Keyboard Entry)? The
@@ -134,7 +134,7 @@ final class DraftController {
     var enumerateInputs: (@escaping ([String], String?) -> Void) -> Void
     private static let inputQueue = DispatchQueue(label: "com.vaccone.lodestar.draft-inputs",
                                                   qos: .userInitiated)
-    /// The user picked an input on the register line; the app writes the
+    /// The user picked an input on the foot; the app writes the
     /// config line (`draft.input`), nil meaning the system default.
     var chooseInput: ((String?) -> Void)?
     /// Music steps aside while the mic is open on a shared Bluetooth
@@ -265,7 +265,7 @@ final class DraftController {
     private var closing = false
     private var pendingSettle: (() -> Void)?
     /// The word that runs if the recognizer never says it is listening:
-    /// the register line would otherwise say "opening the microphone"
+    /// the foot would otherwise say "opening the microphone"
     /// forever, and the hand would talk into nothing. Past this the
     /// session is stopped and named failed, and `lode .` or the mic
     /// glyph starts a fresh one.
@@ -392,7 +392,7 @@ final class DraftController {
         }
         panel.onToggleMic = { [weak self] in self?.toggleMic() }
         panel.onChooseInput = { [weak self] name in self?.selectInput(name) }
-        // The destination follows focus; the register line follows it.
+        // The destination follows focus; the foot follows it.
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
         ) { [weak self] _ in self?.focusChanged() }
@@ -607,7 +607,7 @@ final class DraftController {
         render()
     }
 
-    /// An input was chosen on the register line. The config line is the
+    /// An input was chosen on the foot. The config line is the
     /// app's to write; the session restarts on the new device at once.
     func selectInput(_ name: String?) {
         inputDevice = name
@@ -622,7 +622,7 @@ final class DraftController {
         render()
     }
 
-    /// The inputs, enumerated off the main thread; the register line
+    /// The inputs, enumerated off the main thread; the foot
     /// redraws when they land.
     private func refreshInputs() {
         enumerateInputs { [weak self] names, system in
@@ -741,7 +741,7 @@ final class DraftController {
             // Preparing (a model download) reports itself and is not a
             // silence; anything else this long is a session that will
             // never speak — v0.28.0's wedged audio queue looked exactly
-            // like this from the register line.
+            // like this from the foot.
             guard let self, self.isOpen, self.session == mine, !self.listening,
                   self.speechState == nil else { return }
             Log.info("draft", ["speech": "no listening state", "seconds": Int(Self.listenWatchdogSeconds)])
@@ -754,7 +754,7 @@ final class DraftController {
         clock.after(Self.listenWatchdogSeconds, watchdog)
     }
 
-    /// The register line says when the microphone has been open this
+    /// The foot says when the microphone has been open this
     /// long and delivered nothing but zeros. A deaf device reports
     /// listening as happily as a live one, and the only other cue was
     /// the meter not moving, which is what a quiet room looks like too.

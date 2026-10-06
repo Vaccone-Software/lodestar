@@ -11,6 +11,42 @@ final class DraftScenarioTests: XCTestCase {
         _ = stage.press(key, shift: shift)
     }
 
+    // MARK: - Learning from the hand
+
+    /// A misheard name respelled by the hand is learned when the draft
+    /// lands: the same sound, spelled right.
+    func testARespelledNameIsLearned() {
+        let stage = Stage()
+        var learned: [String] = []
+        stage.draft.learnWord = { learned.append($0) }
+        stage.lode(".")
+        stage.speech.settle("Ask about can Dora.")
+        cmd(stage, "escape")
+        cmd(stage, "b"); cmd(stage, "b")
+        cmd(stage, "c"); cmd(stage, "2"); cmd(stage, "w")
+        cmd(stage, "k", shift: true)
+        for key in ["i", "n", "d", "o", "r", "a"] { cmd(stage, key) }
+        XCTAssertEqual(stage.draft.buffer.text, "Ask about Kindora.")
+        cmd(stage, "return")
+        XCTAssertEqual(learned, ["Kindora"])
+    }
+
+    /// A different word is a change of mind, and nothing is learned.
+    func testAChangeOfMindIsNotLearned() {
+        let stage = Stage()
+        var learned: [String] = []
+        stage.draft.learnWord = { learned.append($0) }
+        stage.lode(".")
+        stage.speech.settle("Meet on Monday.")
+        cmd(stage, "escape")
+        cmd(stage, "b")
+        cmd(stage, "c"); cmd(stage, "w")
+        cmd(stage, "t", shift: true)
+        for key in ["u", "e", "s", "d", "a", "y"] { cmd(stage, key) }
+        cmd(stage, "return")
+        XCTAssertEqual(learned, [])
+    }
+
     // MARK: - The fold
 
     /// Four lines from every door; `zo` opens the whole text and `zc`

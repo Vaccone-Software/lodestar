@@ -103,6 +103,7 @@ enum SurfaceWiring {
         let learnAfterTheKey: (String) -> Void = { word in DispatchQueue.main.async { learn(word) } }
         app.learnName = learnAfterTheKey
         inDraft.learnName = learnAfterTheKey
+        draft.learnWord = learnAfterTheKey
         inDraft.draft = draft
         draft.onTextChange = { [weak inDraft] text, caret, ghost in
             inDraft?.textChanged(text, caret: caret, ghost: ghost) ?? []

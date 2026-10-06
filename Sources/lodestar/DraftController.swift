@@ -37,6 +37,13 @@ final class DraftController {
     private var lastSpoken: (range: Range<Int>, text: String)?
     /// The hand typed or moved since the last result landed.
     private var handSinceSpeech = false
+    /// The text as it stood when the hand began editing, until the edit
+    /// ends (speech arrives, a pass rewrites, the draft lands or closes):
+    /// what the hand changed between the two is what it corrected.
+    private var handBaseline: String?
+    /// A word learned from a correction goes into the vocabulary
+    /// (`draft.words`), the same list the editor's keep writes to.
+    var learnWord: (String) -> Void = { _ in }
     /// Words a pass rewrote — the second ear or the intent pass — as they
     /// now stand, underlined quietly until the hand's next key, so a
     /// change made while the eye was elsewhere can be seen and undone.
@@ -431,6 +438,25 @@ final class DraftController {
         }
     }
 
+    /// The hand's edit has ended: whatever it respelled that the
+    /// recognizer misheard is learned, at once and without asking — a
+    /// mishearing is told from a change of mind by sound (`Corrections`).
+    /// Only in a draft that heard speech, and never in the clip door,
+    /// where the text was copied, not heard.
+    private func learnFromTheHand() {
+        guard let before = handBaseline else { return }
+        handBaseline = nil
+        guard spokenWords > 0, clipOrigin == nil, before != buffer.text else { return }
+        let learned = Corrections.learned(
+            before: before, after: buffer.text, known: Set(words), pronouncer: DictationLexicon.pronouncer,
+            isCommon: { CommonWords.isCommon($0) }, isFrequent: { CommonWords.isFrequent($0) })
+        for word in learned {
+            Log.info("draft", ["learned": word.count])
+            journal?.note("learned", before: "", after: word, at: clock.now())
+            learnWord(word)
+        }
+    }
+
     /// A pass replaced `old` at `start` with `new`: underline the words
     /// that differ, not the whole phrase, widened to whole words.
     private func markRevision(at start: Int, old: String, new: String) {
@@ -518,6 +544,7 @@ final class DraftController {
         // card is asking to read it.
         expanded = false
         revised = []
+        handBaseline = nil
         // `j` and `k` walk the lines the eye sees; the panel's layout is
         // the only honest source of where those lines break. The buffer
         // arrives by value from the editor — reading `self.buffer` here
@@ -596,6 +623,7 @@ final class DraftController {
         // A card is opened to be read: whole.
         expanded = true
         revised = []
+        handBaseline = nil
         vim.visualLine = { [weak self] buffer, index, down in
             self?.panel.visualMove(from: index, down: down, in: buffer)
         }
@@ -898,6 +926,7 @@ final class DraftController {
     }
 
     private func settle(_ heard: Heard) {
+        learnFromTheHand()
         let writing = mode == .insert && micWanted
         // Speaking over a selection is `c` with the voice: the words take
         // the selection's place and insert opens where they end. Behind
@@ -1164,6 +1193,7 @@ final class DraftController {
 
     private func insertKey(_ key: String, shift: Bool, option: Bool, control: Bool) -> Bool {
         revised = []
+        if handBaseline == nil { handBaseline = buffer.text }
         handSinceSpeech = true
         run = nil
         settler.handInterrupted()
@@ -1253,6 +1283,7 @@ final class DraftController {
     /// nothing pending, no selection — closes.
     private func normalKey(_ key: String, shift: Bool, option: Bool, control: Bool) -> Bool {
         revised = []
+        if handBaseline == nil { handBaseline = buffer.text }
         handSinceSpeech = true
         run = nil
         settler.handInterrupted()
@@ -1410,6 +1441,7 @@ final class DraftController {
                           placed: resettled == core ? nil : resettled, seconds: seconds, at: clock.now())
         guard let text = resettled, text != core else { return }
         let replacement = lead + text
+        learnFromTheHand()
         vim.replaceKeepingCursor(landed.range, with: replacement, buffer: &buffer)
         markRevision(at: landed.range.lowerBound, old: landed.text, new: replacement)
         earChanged += 1
@@ -1559,6 +1591,7 @@ final class DraftController {
         }
         let before = buffer.slice(max(0, sent.range.lowerBound - 200)..<sent.range.lowerBound) + lead
         let replacement = lead + settler.reshaped(meant, like: core, after: before)
+        learnFromTheHand()
         vim.replaceKeepingCursor(sent.range, with: replacement, buffer: &buffer)
         markRevision(at: sent.range.lowerBound, old: sent.text, new: replacement)
         intentChanged += 1
@@ -1589,6 +1622,7 @@ final class DraftController {
 
     private func land() {
         guard isOpen else { return }
+        learnFromTheHand()
         let text = buffer.text
         let destination = frontmost()
         let ending = Draft.ending(
@@ -1643,6 +1677,7 @@ final class DraftController {
     func cancel(reason: String) {
         guard isOpen, !closing else { return }
         closing = true
+        learnFromTheHand()
         if clipOrigin != nil { landClip(exit: reason, commit: false); return }
         if sessionStarted { speech.stop {} }
         let text = buffer.text + (buffer.ghost.isEmpty ? "" : Draft.separator(after: buffer.characters, before: buffer.ghost) + buffer.ghost)

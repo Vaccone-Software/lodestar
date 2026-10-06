@@ -29,7 +29,16 @@ final class ImageDoor {
     private let clip = CenteringClipView()
     private let imageView = NSImageView()
     private let caption = NSTextField(labelWithString: "")
-    private let keys = NSTextField(labelWithString: "")
+    /// The door's keys, drawn as keys: the one keycap, never letters typed
+    /// into a sentence.
+    private let keys: NSView = {
+        let line = Keycaps.line([
+            .init(["H", "J", "K", "L"], "move"), .init(["⇧"], "faster"), .init(["+", "−"], "zoom"),
+            .init(["S"], "save"), .init(["esc"], "back"),
+        ])
+        line.translatesAutoresizingMaskIntoConstraints = true
+        return line
+    }()
     /// The gesture watchers, live only while the door stands.
     private var monitors: [Any] = []
     /// The magnification the picture opened at: what a smart zoom (two
@@ -98,10 +107,6 @@ final class ImageDoor {
         caption.font = BarTheme.secondaryFont
         caption.textColor = BarTheme.secondaryColor
         caption.lineBreakMode = .byTruncatingTail
-        keys.font = BarTheme.footerFont
-        keys.textColor = BarTheme.secondaryColor
-        keys.alignment = .right
-        keys.stringValue = "h j k l move · ⇧ faster · + − zoom · S save · esc back"
         root.addSubview(scroll)
         root.addSubview(caption)
         root.addSubview(keys)
@@ -154,10 +159,11 @@ final class ImageDoor {
 
         caption.stringValue = text
         caption.sizeToFit()
-        keys.sizeToFit()
+        let keySize = keys.fittingSize
         let footerY = ((Self.footerHeight - caption.frame.height) / 2 + 6).rounded()
-        keys.frame = NSRect(x: frame.width - Self.pad - keys.frame.width, y: footerY,
-                            width: keys.frame.width, height: keys.frame.height)
+        keys.frame = NSRect(x: frame.width - Self.pad - keySize.width,
+                            y: (footerY + (caption.frame.height - keySize.height) / 2).rounded(),
+                            width: keySize.width, height: keySize.height)
         caption.frame = NSRect(x: Self.pad, y: footerY,
                                width: max(0, keys.frame.minX - Self.pad * 1.5),
                                height: caption.frame.height)

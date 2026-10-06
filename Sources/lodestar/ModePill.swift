@@ -113,7 +113,7 @@ final class ModePill {
     private var content: NSStackView?
     private(set) var state: State?
     var isVisible: Bool { panel.isVisible }
-    var frame: NSRect { panel.frame }
+    var frame: NSRect { panel.glassFrame }
     /// Where the hand put the pill, as a displacement from its home, so
     /// a dragged pill comes back where it was left for the rest of the
     /// session. Zero until dragged; the home is the guide's.
@@ -123,7 +123,7 @@ final class ModePill {
 
     init() {
         panel = Glass.makePanel(level: .statusBar)
-        panel.contentView = root
+        SoftShadow.host(root, in: panel, cornerRadius: Self.radius)
         _ = Glass.installBackdrop(in: root, cornerRadius: Self.radius)
         // Draggable by its glass, the way the coach's chip is: one home by
         // default, and a remembered displacement once the hand moves it.
@@ -142,11 +142,11 @@ final class ModePill {
     /// drag.
     private func noteMoved() {
         guard !placing, panel.isVisible else { return }
-        remember(origin: panel.frame.origin)
+        remember(origin: panel.glassFrame.origin)
     }
 
     func remember(origin: NSPoint) {
-        let home = Self.home(for: panel.frame.size)
+        let home = Self.home(for: panel.glassFrame.size)
         offset = NSPoint(x: origin.x - home.x, y: origin.y - home.y)
     }
 
@@ -215,7 +215,7 @@ final class ModePill {
         keys = columns
         // The glass moves while it grows; that is placement, not a drag.
         placing = true
-        KeysMotion.grow(panel, to: frameForContent(), revealing: columns) { [weak self] in self?.placing = false }
+        KeysMotion.grow(panel, to: SoftShadow.outset(frameForContent()), revealing: columns) { [weak self] in self?.placing = false }
     }
 
     func hideKeys() {
@@ -224,7 +224,7 @@ final class ModePill {
         NSLayoutConstraint.deactivate(keyEdges)
         keyEdges = []
         placing = true
-        KeysMotion.shrink(panel, to: frameForContent(), hiding: going) { [weak self] in self?.placing = false }
+        KeysMotion.shrink(panel, to: SoftShadow.outset(frameForContent()), hiding: going) { [weak self] in self?.placing = false }
     }
 
     // MARK: - Construction
@@ -348,7 +348,7 @@ final class ModePill {
 
     private func present() {
         placing = true
-        panel.setFrame(frameForContent(), display: true)
+        panel.setGlassFrame(frameForContent(), display: true)
         placing = false
         panel.orderFrontRegardless()
     }

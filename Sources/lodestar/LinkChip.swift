@@ -37,7 +37,7 @@ final class LinkChip {
     private var expiry: Timer?
 
     init() {
-        panel.contentView = root
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
         Movable.enable(panel)
         _ = Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
     }
@@ -95,7 +95,7 @@ final class LinkChip {
         stack.spacing = 5
         stack.translatesAutoresizingMaskIntoConstraints = false
 
-        stack.addArrangedSubview(label("⌖ link", size: BarTheme.Scale.meta, weight: .medium,
+        stack.addArrangedSubview(label("Link", size: BarTheme.Scale.meta, weight: .medium,
                                        color: BarTheme.secondaryColor))
 
         let title = NSStackView()
@@ -120,8 +120,8 @@ final class LinkChip {
         // two words have about 298pt inside a 330pt chip, and the labels
         // truncate rather than wrap. "goes there" measured 299.8.
         stack.addArrangedSubview(Keycaps.line([
-            .init(["lode", "lode"], "goes", action: { [weak self] in _ = self?.take() }),
-            .init(["lode", "⌫"], "dismisses", action: { [weak self] in _ = self?.dismiss() }),
+            .init(["lode", "lode"], "Go", action: { [weak self] in _ = self?.take() }),
+            .init(["lode", "⌫"], "Dismiss", action: { [weak self] in _ = self?.dismiss() }),
         ]))
 
         root.addSubview(stack)

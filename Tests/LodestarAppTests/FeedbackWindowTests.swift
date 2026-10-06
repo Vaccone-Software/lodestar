@@ -8,14 +8,17 @@ final class FeedbackWindowTests: XCTestCase {
     private var controller: FeedbackController!
     private var sent: [URLRequest] = []
     private var answer: Int? = 200
-    private var savedClipboard: String?
+    /// A pasteboard of the test's own: the clipboard of the Lodestar that
+    /// is running on the Mac records every write to the general one.
+    private let board = NSPasteboard(name: NSPasteboard.Name("lodestar.tests.feedback"))
 
     override func setUp() {
         super.setUp()
-        savedClipboard = NSPasteboard.general.string(forType: .string)
+        board.clearContents()
         sent = []
         answer = 200
         controller = FeedbackController()
+        controller.pasteboard = board
         controller.report = { "REPORT" }
         controller.deliver = { [unowned self] request, done in
             self.sent.append(request)
@@ -27,10 +30,7 @@ final class FeedbackWindowTests: XCTestCase {
     override func tearDown() {
         controller.close()
         controller = nil
-        if let savedClipboard {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(savedClipboard, forType: .string)
-        }
+        board.releaseGlobally()
         super.tearDown()
     }
 
@@ -75,7 +75,7 @@ final class FeedbackWindowTests: XCTestCase {
         XCTAssertFalse(controller.isSent)
         XCTAssertEqual(controller.shownStatus, FeedbackController.failure)
         XCTAssertEqual(controller.noteText, "It broke", "the window keeps the note")
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string)?.hasPrefix("It broke"), true,
+        XCTAssertEqual(board.string(forType: .string)?.hasPrefix("It broke"), true,
                        "and the clipboard has it too")
     }
 

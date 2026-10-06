@@ -67,6 +67,8 @@ final class HUD {
     private(set) var titleText: String?
 
     private let panel: NSPanel
+    /// Opens the glass to the pointer only while the coach offers something.
+    private let gate: PointerGate
     private let root = NSView()
     private var content: NSStackView?
     private var hideWork: DispatchWorkItem?
@@ -81,8 +83,8 @@ final class HUD {
     init(clock: Clock = .live) {
         self.clock = clock
         panel = Glass.makePanel(level: .statusBar)
-        panel.ignoresMouseEvents = true
-        panel.contentView = root
+        // Shut until it offers something: the coach's chip.
+        gate = SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius, takesPointer: false)
         Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
     }
 
@@ -163,7 +165,7 @@ final class HUD {
         // coach's chip is the opposite: it waits, it asks, and it is the
         // thing you might want out of the way.
         let offering = next == .coach
-        panel.ignoresMouseEvents = !offering
+        gate.enabled = offering
         panel.isMovable = offering
         panel.isMovableByWindowBackground = offering
         panel.acceptsMouseMovedEvents = offering
@@ -271,10 +273,10 @@ final class HUD {
         // once would hand its position to the next chain guide, which has
         // no business being anywhere but centred.
         if owner == .coach, cameFromCoach, panel.isVisible {
-            Movable.place(panel, size: size) { panel.frame.origin }
+            Movable.place(panel, size: size) { panel.glassFrame.origin }
         } else {
             let visible = ActivePolicy.presentationFrame
-            panel.setFrame(NSRect(origin: NSPoint(x: visible.midX - size.width / 2,
+            panel.setGlassFrame(NSRect(origin: NSPoint(x: visible.midX - size.width / 2,
                                                   y: visible.minY + 96),
                                   size: size), display: true)
         }

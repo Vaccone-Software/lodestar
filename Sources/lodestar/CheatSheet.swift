@@ -16,8 +16,8 @@ final class CheatSheet {
 
     init() {
         panel = Glass.makePanel(level: .statusBar)
-        panel.ignoresMouseEvents = true
-        panel.contentView = root
+        // Shown, never touched: the drawn shadow, and no mouse anywhere.
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius, takesPointer: false)
         Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
     }
 
@@ -60,7 +60,7 @@ final class CheatSheet {
         size.width = min(size.width, 1500)
         let visible = ActivePolicy.presentationFrame
         let origin = NSPoint(x: visible.midX - size.width / 2, y: visible.midY - size.height / 2)
-        panel.setFrame(NSRect(origin: origin, size: size), display: true)
+        panel.setGlassFrame(NSRect(origin: origin, size: size), display: true)
         panel.orderFrontRegardless()
     }
 
@@ -114,33 +114,16 @@ final class CheatSheet {
         container.alignment = .centerY
         container.spacing = BarTheme.rowGap
 
-        let keycap = NSTextField(labelWithString: row.key)
-        keycap.font = BarTheme.chipFont
-        keycap.textColor = .labelColor
-        keycap.alignment = .center
-        keycap.translatesAutoresizingMaskIntoConstraints = false
-
-        let chip = NSView()
-        chip.wantsLayer = true
-        chip.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.09).cgColor
-        chip.layer?.cornerRadius = BarTheme.chipRadius
-        chip.translatesAutoresizingMaskIntoConstraints = false
-        chip.addSubview(keycap)
-        NSLayoutConstraint.activate([
-            keycap.leadingAnchor.constraint(equalTo: chip.leadingAnchor, constant: BarTheme.chipPadX),
-            keycap.trailingAnchor.constraint(equalTo: chip.trailingAnchor, constant: -BarTheme.chipPadX),
-            keycap.centerYAnchor.constraint(equalTo: chip.centerYAnchor),
-            chip.heightAnchor.constraint(equalToConstant: BarTheme.chipHeight),
-            chip.widthAnchor.constraint(greaterThanOrEqualToConstant: BarTheme.chipMinWidth),
-        ])
+        // The one key, the launcher's.
+        let chip = Keycaps.cap(row.key)
 
         let text = NSTextField(labelWithString: row.label)
         text.font = BarTheme.rowLabelFont
         // A dormant gesture draws quiet, cap and all: the eye reads the
         // sheet for what it uses, and a row it never uses recedes.
         text.textColor = row.dimmed ? BarTheme.secondaryColor : .labelColor
-        keycap.textColor = row.dimmed ? BarTheme.secondaryColor : .labelColor
-        if row.dimmed { chip.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.04).cgColor }
+        // Quiet the way every quiet key is: the same key, receded.
+        if row.dimmed { chip.alphaValue = 0.5 }
         text.lineBreakMode = .byTruncatingTail
         text.setContentCompressionResistancePriority(.init(500), for: .horizontal)
         container.setClippingResistancePriority(.init(900), for: .horizontal)

@@ -85,13 +85,14 @@ final class OptionsCard {
     private var content: NSView?
 
     init() {
-        panel.ignoresMouseEvents = true
-        panel.contentView = root
+        // Fed by the bar's keys, never the mouse: the drawn shadow, gated
+        // shut.
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius, takesPointer: false)
         Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
     }
 
     /// The card's frame on screen, so a second card can unfurl beside it.
-    var frame: NSRect { panel.frame }
+    var frame: NSRect { panel.glassFrame }
 
     var isVisible: Bool { panel.isVisible }
 
@@ -101,7 +102,7 @@ final class OptionsCard {
         root.layoutSubtreeIfNeeded()
         var size = root.fittingSize
         size.width = max(size.width, 210)
-        panel.setFrame(Self.place(size, anchor: anchor), display: true)
+        panel.setGlassFrame(Self.place(size, anchor: anchor), display: true)
         panel.orderFrontRegardless()
     }
 
@@ -176,8 +177,7 @@ final class OptionsCard {
                 stack.addArrangedSubview(noteLabel)
             }
             if let footer = menu.footer {
-                stack.addArrangedSubview(label(footer, font: BarTheme.footerFont,
-                                               color: BarTheme.secondaryColor))
+                stack.addArrangedSubview(Self.footerLine(footer))
             }
 
         case .typing(let typing):
@@ -224,8 +224,7 @@ final class OptionsCard {
                 detailLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 340).isActive = true
                 stack.addArrangedSubview(detailLabel)
             }
-            stack.addArrangedSubview(label(typing.footer, font: BarTheme.footerFont,
-                                           color: BarTheme.secondaryColor))
+            stack.addArrangedSubview(Self.footerLine(typing.footer))
         }
 
         root.addSubview(stack)
@@ -305,6 +304,19 @@ final class OptionsCard {
         key.setContentHuggingPriority(.required, for: .horizontal)
         if quiet { key.alphaValue = 0.6 }
         return key
+    }
+
+    /// A footer's keys, drawn as keys. Footers arrive as "key verb" pairs
+    /// four spaces apart ("⌫ back up    esc back"), the form the menus have
+    /// always written; the key is the first word of each, and the rest is
+    /// what it does.
+    static func footerLine(_ text: String) -> NSView {
+        let gestures = text.components(separatedBy: "    ").compactMap { part -> Keycaps.Gesture? in
+            let words = part.trimmingCharacters(in: .whitespaces).split(separator: " ", maxSplits: 1)
+            guard let key = words.first else { return nil }
+            return Keycaps.Gesture([String(key)], words.count > 1 ? String(words[1]) : "")
+        }
+        return Keycaps.line(gestures)
     }
 
     private func label(_ text: String, font: NSFont, color: NSColor) -> NSTextField {

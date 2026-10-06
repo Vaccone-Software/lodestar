@@ -43,6 +43,10 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
             DispatchQueue.main.async { done(code) }
         }.resume()
     }
+    /// Where an unsent note is kept: the clipboard. A test hands it a
+    /// private pasteboard, so a suite run never writes into the clipboard
+    /// history of the Lodestar that is running on the Mac.
+    var pasteboard: NSPasteboard = .general
     /// The report the checkbox attaches, asked for only at Send.
     var report: () -> String = { diagnoseReport() }
 
@@ -184,7 +188,7 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
             } else {
                 // Nothing written is lost: the note goes to the clipboard,
                 // and the window keeps it too.
-                let board = NSPasteboard.general
+                let board = self.pasteboard
                 board.clearContents()
                 board.setString(feedback.clipboardCopy, forType: .string)
                 self.phase = .writing
@@ -255,7 +259,7 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
             attachRow.orientation = .horizontal
             attachRow.spacing = 10
             attachRow.addArrangedSubview(attach)
-            attachRow.addArrangedSubview(smallLink("see what it contains", action: #selector(seeReportPressed)))
+            attachRow.addArrangedSubview(smallLink("See what it contains", action: #selector(seeReportPressed)))
             stack.addArrangedSubview(attachRow)
             stack.setCustomSpacing(4, after: attachRow)
             stack.addArrangedSubview(wrapped(
@@ -287,7 +291,7 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
             footer.addArrangedSubview(go)
             footer.widthAnchor.constraint(equalToConstant: text).isActive = true
             stack.addArrangedSubview(footer)
-            stack.addArrangedSubview(smallLink("cancel", action: #selector(cancelPressed)))
+            stack.addArrangedSubview(smallLink("Cancel", action: #selector(cancelPressed)))
             let editable = phase == .writing
             textView.isEditable = editable
             reply.isEditable = editable

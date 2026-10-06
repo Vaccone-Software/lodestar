@@ -131,14 +131,15 @@ final class DesignDriftTests: XCTestCase {
             .map { ($0.lastPathComponent, try String(contentsOf: $0, encoding: .utf8)) }
     }
 
-    /// The surfaces that still wear the system's shadow, or cast none,
-    /// at the time the drawn shadow became the rule. The list only
+    /// The surfaces that still wear the system's shadow. The list only
     /// shrinks: a surface moved onto `SoftShadow` must leave it, and a
-    /// new surface may not join it.
+    /// new surface may not join it. The clipboard waits for its redesign,
+    /// where each card casts its own.
     private static let notYetOnTheDrawnShadow: Set<String> = [
-        "CheatSheet.swift", "ClipboardStrip.swift", "EditorHover.swift", "HUD.swift",
-        "IndexBadges.swift", "LinkChip.swift", "MeetingController.swift", "ModePill.swift",
-        "OptionsCard.swift", "SelectOverlay.swift", "WalkController.swift",
+        "ClipboardStrip.swift",
+        // Marks laid over another app's windows — hint badges, select's
+        // letters — are not glass surfaces and cast no surface's shadow.
+        "IndexBadges.swift", "SelectOverlay.swift",
     ]
 
     /// Objects float, and cast their own shadow: a surface made with
@@ -201,5 +202,80 @@ final class DesignDriftTests: XCTestCase {
     func testASurfaceChangesShapeSuddenly() {
         XCTAssertLessThanOrEqual(DraftPanel.foldSeconds, 0.12)
         XCTAssertLessThan(DraftPanel.foldSeconds, KeysMotion.growSeconds)
+    }
+
+    // MARK: - One key, keys drawn, labels as names
+
+    /// Every view shaped like a key, in what a builder made.
+    private func keyShapes(in root: NSView) -> [NSView] {
+        var out: [NSView] = []
+        func walk(_ view: NSView) {
+            if view.layer?.cornerRadius == BarTheme.chipRadius, !(view is KeyFace) { out.append(view) }
+            view.subviews.forEach(walk)
+        }
+        walk(root)
+        return out
+    }
+
+    /// There is one key, the launcher's: a guide, a gesture line and a
+    /// card's footer draw `KeyFace`, never a grey chip of their own.
+    func testTheGuidesAndLinesDrawTheOneKey() {
+        let guide = CheatSheet.columns(HotkeyEngine.draftSections(editor: .normal, card: false))
+        XCTAssertEqual(keyShapes(in: guide).count, 0, "a guide's keys are the one key")
+        let line = Keycaps.line([.init(["lode", "lode"], "go"), .init(["esc"], "back")])
+        XCTAssertEqual(keyShapes(in: line).count, 0)
+        XCTAssertTrue(Keycaps.cap("A") is KeyFace)
+        let footer = OptionsCard.footerLine("⌫ back up    esc back")
+        XCTAssertEqual(keyShapes(in: footer).count, 0)
+        var keys = 0
+        func count(_ view: NSView) { if view is KeyFace { keys += 1 }; view.subviews.forEach(count) }
+        count(footer)
+        XCTAssertEqual(keys, 2, "a footer's keys are drawn as keys")
+    }
+
+    /// The key's face is drawn in one place. Its font appears only in the
+    /// theme and on the two chips that are read rather than pressed (Ask's
+    /// profile, the commands bar's source); a harness may use it.
+    func testOnlyTheThemeDrawsAKey() throws {
+        let allowed: Set<String> = ["Glass.swift", "WebBar.swift", "CommandsBar.swift", "SplitPreview.swift"]
+        let offenders = try sources()
+            .filter { $0.text.contains("BarTheme.chipFont") && !allowed.contains($0.name) }
+            .map(\.name)
+        XCTAssertEqual(offenders, [], "draw a key with KeyFace (Keycaps.cap), not a chip of your own")
+    }
+
+    /// Keys are drawn, never typed into a sentence: "esc back" as letters
+    /// is a key the eye has to find inside the words.
+    func testKeysAreDrawnNotTyped() throws {
+        let hits = try offenders(#"stringValue = "[^"]*(\besc [a-z]|⌫ [a-z]|⇥ [a-z]|⏎ [a-z]|h j k l)"#,
+                                 in: surfaces())
+        XCTAssertEqual(hits, [], "draw keys with Keycaps.line or a footer line")
+    }
+
+    /// A label is a name, capitalized: a section's title, a link, a
+    /// button, and the words beside a key.
+    func testLabelsAreNames() throws {
+        let hits = try offenders(#"header: "[a-z]|smallLink\("[a-z]|HandButton\(title: "[a-z]|GuideRow\((key|keys): [^\n]*label: "[a-z]|\brow\("[^"\n]*", "[a-z]"#,
+                                 in: surfaces())
+        XCTAssertEqual(hits, [], "capitalize it as a name")
+        var words: [String] = []
+        func read(_ view: NSView) {
+            if let field = view as? NSTextField { words.append(field.stringValue) }
+            view.subviews.forEach(read)
+        }
+        read(Keycaps.line([.init(["esc"], "back up")]))
+        XCTAssertTrue(words.contains("Back up"), "a key's words are capitalized wherever they come from: \(words)")
+    }
+
+    /// A test never writes the Mac's clipboard: the Lodestar running on
+    /// it records every write into the person's clipboard history, so a
+    /// suite run once filled it with "It broke" and "Offline". Tests hand
+    /// a surface a pasteboard of their own.
+    func testNoTestWritesTheRealClipboard() throws {
+        let dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        let files = try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "swift" && $0.lastPathComponent != "DesignDriftTests.swift" }
+        let hits = try offenders(#"NSPasteboard\.general\.(setString|clearContents|writeObjects|setData)"#, in: files)
+        XCTAssertEqual(hits, [], "use a named pasteboard of the test's own")
     }
 }

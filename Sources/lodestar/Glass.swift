@@ -571,8 +571,10 @@ enum Movable {
     static func enable(_ panel: NSPanel) {
         panel.isMovable = true
         panel.isMovableByWindowBackground = true
-        // A chip that cannot be clicked cannot be dragged either.
-        panel.ignoresMouseEvents = false
+        // A chip that cannot be clicked cannot be dragged either. On the
+        // drawn shadow the gate opens the glass to the pointer and keeps
+        // the shadow closed; anywhere else the whole window takes it.
+        if !(panel.contentView is ShadowHostView) { panel.ignoresMouseEvents = false }
         // Lodestar is an accessory app and almost never the active one, so
         // the pointer is usually somebody else's. Tracking has to be asked
         // for explicitly or the hover state and the cursor never arrive.
@@ -588,13 +590,13 @@ enum Movable {
     /// person aimed when they dropped it.
     static func place(_ panel: NSPanel, size: NSSize, corner: () -> NSPoint) {
         guard panel.isVisible else {
-            panel.setFrame(NSRect(origin: corner(), size: size), display: true)
+            panel.setGlassFrame(NSRect(origin: corner(), size: size), display: true)
             return
         }
-        var frame = panel.frame
+        var frame = panel.glassFrame
         frame.origin.y += frame.height - size.height
         frame.size = size
-        panel.setFrame(frame, display: true)
+        panel.setGlassFrame(frame, display: true)
     }
 }
 
@@ -659,13 +661,8 @@ enum Keycaps {
         }
     }
 
-    /// A cap that can be refilled — the shape and its one variable.
-    final class CapView: NSView {
-        func fill(_ state: CapState) {
-            layer?.backgroundColor = NSColor.labelColor
-                .withAlphaComponent(state.fill).cgColor
-        }
-    }
+    /// A cap is the one key: `KeyFace`, which a pointer can refill.
+    typealias CapView = KeyFace
 
     /// The caps of one gesture, made pressable.
     ///
@@ -763,31 +760,11 @@ enum Keycaps {
         }
     }
 
-    /// A single cap — the one shape, shared with the chain guide's rows so
-    /// a key never looks like two different things on two surfaces.
+    /// A single cap: the one key, the launcher's, so a key never looks
+    /// like two different things on two surfaces.
     static func cap(_ text: String) -> CapView {
-        let letter = NSTextField(labelWithString: text)
-        letter.font = BarTheme.chipFont
-        letter.textColor = BarTheme.secondaryColor
-        letter.alignment = .center
-        letter.translatesAutoresizingMaskIntoConstraints = false
-
-        let cap = CapView()
-        cap.wantsLayer = true
-        cap.fill(.resting)
-        cap.layer?.cornerRadius = BarTheme.chipRadius
-        cap.translatesAutoresizingMaskIntoConstraints = false
+        let cap = KeyFace(text)
         cap.setContentHuggingPriority(.required, for: .horizontal)
-        cap.addSubview(letter)
-        NSLayoutConstraint.activate([
-            letter.leadingAnchor.constraint(equalTo: cap.leadingAnchor,
-                                            constant: BarTheme.chipPadX),
-            letter.trailingAnchor.constraint(equalTo: cap.trailingAnchor,
-                                             constant: -BarTheme.chipPadX),
-            letter.centerYAnchor.constraint(equalTo: cap.centerYAnchor),
-            cap.heightAnchor.constraint(equalToConstant: BarTheme.chipHeight),
-            cap.widthAnchor.constraint(greaterThanOrEqualToConstant: BarTheme.chipMinWidth),
-        ])
         return cap
     }
 
@@ -824,7 +801,10 @@ enum Keycaps {
                     add(capView, spacingBefore: index > 0 && position == 0 ? 10 : nil)
                 }
             }
-            add(word(gesture.verb, color: BarTheme.secondaryColor), spacingBefore: 7)
+            // A label is a name, capitalized wherever it is written from:
+            // "esc Back", never "esc back".
+            add(word(gesture.verb.prefix(1).uppercased() + gesture.verb.dropFirst(), color: BarTheme.secondaryColor),
+                spacingBefore: 7)
         }
         return row
     }
@@ -1028,9 +1008,14 @@ extension Readability.RGB {
 final class KeyFace: NSView {
     let label = NSTextField(labelWithString: "")
     var lit = false { didSet { if lit != oldValue { refresh() } } }
+    /// What a pointer is doing to a key that can be clicked: it brightens
+    /// under the pointer and sinks onto its lip when pressed.
+    private var pointer = Keycaps.CapState.resting
     private let top = EdgeLight()
 
-    init(_ text: String) {
+    /// `padX` widens a key whose label is a word on a long cap, the walk's
+    /// space bar; every other key takes the theme's.
+    init(_ text: String, padX: CGFloat = BarTheme.chipPadX) {
         super.init(frame: .zero)
         wantsLayer = true
         translatesAutoresizingMaskIntoConstraints = false
@@ -1046,8 +1031,8 @@ final class KeyFace: NSView {
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: BarTheme.chipPadX),
-            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -BarTheme.chipPadX),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: padX),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -padX),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
             heightAnchor.constraint(equalToConstant: BarTheme.chipHeight),
             widthAnchor.constraint(greaterThanOrEqualToConstant: BarTheme.chipMinWidth),
@@ -1067,10 +1052,23 @@ final class KeyFace: NSView {
         refresh()
     }
 
+    /// Refill for the pointer, as `Keycaps.CapGroup` does for its caps.
+    func fill(_ state: Keycaps.CapState) {
+        guard state != pointer else { return }
+        pointer = state
+        refresh()
+    }
+
     func refresh() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        layer?.backgroundColor = (lit ? BarTheme.accent : BarTheme.keyFill).cgColor
+        let resting = lit ? BarTheme.accent : BarTheme.keyFill
+        // Under the pointer the face catches a little more light; pressed,
+        // it sinks onto its lip, which is the lip's whole height gone.
+        let face = pointer == .resting ? resting
+            : resting.blended(withFraction: pointer == .pressed ? 0.18 : 0.10, of: .labelColor) ?? resting
+        layer?.backgroundColor = face.cgColor
+        layer?.shadowOffset = CGSize(width: 0, height: pointer == .pressed ? -0.5 : -1.5)
         layer?.shadowColor = (lit ? BarTheme.litKeyLip : BarTheme.keyLip).cgColor
         top.color = lit ? BarTheme.litKeyTop : BarTheme.keyTop
         label.textColor = lit ? BarTheme.onAccent : BarTheme.keyLetter
@@ -1189,14 +1187,32 @@ enum SoftShadow {
     /// window, and a click there belongs to whatever is beneath. Every
     /// hosted surface is gated by construction; the gate is returned for a
     /// surface that changes size under a still pointer and must re-read it.
+    ///
+    /// `takesPointer: false` is for a surface that only shows (a key
+    /// guide, the ⌘K card): it never takes the mouse, glass or shadow.
     @discardableResult
-    static func host(_ content: NSView, in panel: NSPanel, cornerRadius: CGFloat) -> PointerGate {
+    static func host(_ content: NSView, in panel: NSPanel, cornerRadius: CGFloat,
+                     takesPointer: Bool = true) -> PointerGate {
         panel.hasShadow = false
         let host = ShadowHostView(content: content, cornerRadius: cornerRadius)
         panel.contentView = host
         let gate = PointerGate(panel: panel)
+        gate.enabled = takesPointer
         host.gate = gate
         return gate
+    }
+}
+
+extension NSWindow {
+    /// The glass's frame: the window's, less the drawn shadow's margin
+    /// when the window hosts one. Surfaces place and read their glass by
+    /// this, so moving onto the drawn shadow changes no arithmetic.
+    var glassFrame: NSRect {
+        contentView is ShadowHostView ? SoftShadow.inset(frame) : frame
+    }
+
+    func setGlassFrame(_ glass: NSRect, display: Bool) {
+        setFrame(contentView is ShadowHostView ? SoftShadow.outset(glass) : glass, display: display)
     }
 }
 
@@ -1255,11 +1271,17 @@ final class PointerGate {
     /// Whether the window takes the mouse right now, for the tests.
     var open: Bool { panel.map { !$0.ignoresMouseEvents } ?? false }
 
+    /// Off, the surface takes no mouse anywhere: one that only shows, or
+    /// one that takes it only while it offers something (the flash).
+    var enabled = true {
+        didSet { if enabled != oldValue { update() } }
+    }
+
     /// Read the pointer against the glass. Called on every move and
     /// whenever the glass changes size under a still pointer.
     func update(pointer: NSPoint = NSEvent.mouseLocation) {
         guard let panel else { return }
-        let over = panel.isVisible && SoftShadow.inset(panel.frame).contains(pointer)
+        let over = enabled && panel.isVisible && SoftShadow.inset(panel.frame).contains(pointer)
         if panel.ignoresMouseEvents == over { panel.ignoresMouseEvents = !over }
     }
 }

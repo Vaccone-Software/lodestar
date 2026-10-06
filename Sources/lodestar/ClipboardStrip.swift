@@ -771,20 +771,10 @@ final class ClipboardStrip {
 
             // Right-aligned and quiet, where a shortcut sits in every menu
             // the user already knows.
-            let chip = NSView(frame: NSRect(
-                x: keyX, y: bottom + (Self.actionRow - Self.actionChip.height) / 2,
-                width: Self.actionChip.width, height: Self.actionChip.height))
-            chip.wantsLayer = true
-            chip.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.09).cgColor
-            chip.layer?.cornerRadius = BarTheme.chipRadius
-            let key = NSTextField(labelWithString: action.key.uppercased())
-            key.font = BarTheme.chipFont
-            key.textColor = BarTheme.secondaryColor
-            key.alignment = .center
-            key.sizeToFit()
-            key.frame = NSRect(x: 0, y: (Self.actionChip.height - key.frame.height) / 2,
-                               width: Self.actionChip.width, height: key.frame.height)
-            chip.addSubview(key)
+            // The one key, the launcher's, placed by frame.
+            let chip = Self.placedCap(action.key.uppercased(), at: NSPoint(
+                x: keyX, y: bottom + (Self.actionRow - Self.actionChip.height) / 2))
+            chip.frame.size.width = max(chip.frame.width, Self.actionChip.width)
             plate.addSubview(chip)
 
             top = bottom

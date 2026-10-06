@@ -119,16 +119,15 @@ final class WalkController: NSObject {
         door.level = .modalPanel
         door.isOpaque = false
         door.backgroundColor = .clear
-        door.hasShadow = true
         door.isReleasedWhenClosed = false
         door.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
-        door.contentView = doorRoot
+        SoftShadow.host(doorRoot, in: door, cornerRadius: BarTheme.glassRadius)
         _ = Glass.installBackdrop(in: doorRoot, cornerRadius: BarTheme.glassRadius)
         door.onKeyDown = { [weak self] event in
             guard let self, let key = Keys.name(for: Int64(event.keyCode)) else { return false }
             return self.doorKey(key)
         }
-        card.contentView = cardRoot
+        SoftShadow.host(cardRoot, in: card, cornerRadius: BarTheme.glassRadius)
         _ = Glass.installBackdrop(in: cardRoot, cornerRadius: BarTheme.glassRadius)
         Movable.enable(door)
         Movable.enable(card)
@@ -568,7 +567,7 @@ final class WalkController: NSObject {
             footer.addArrangedSubview(go)
             footer.widthAnchor.constraint(equalToConstant: text).isActive = true
             stack.addArrangedSubview(footer)
-            stack.addArrangedSubview(smallLink("not now", action: #selector(notNowPressed)))
+            stack.addArrangedSubview(smallLink("Not now", action: #selector(notNowPressed)))
         case .permission:
             stack.addArrangedSubview(heading("One permission"))
             stack.addArrangedSubview(wrapped(Self.permissionReason(chosen ?? .switcher), size: BarTheme.Scale.body,
@@ -587,7 +586,7 @@ final class WalkController: NSObject {
                 stack.addArrangedSubview(smallLink(noteCopied ? "note copied, paste it to your IT team" : "copy a note for IT",
                                                    action: #selector(copyNotePressed)))
             }
-            stack.addArrangedSubview(smallLink("not now", action: #selector(notNowPressed)))
+            stack.addArrangedSubview(smallLink("Not now", action: #selector(notNowPressed)))
         case .waiting:
             stack.addArrangedSubview(heading("Turn on Lodestar"))
             stack.addArrangedSubview(wrapped(
@@ -597,7 +596,7 @@ final class WalkController: NSObject {
             stack.addArrangedSubview(wrapped("No restart needed.", size: BarTheme.Scale.meta,
                                              color: BarTheme.secondaryColor, alignment: .left, width: text))
             stack.setCustomSpacing(16, after: stack.arrangedSubviews.last!)
-            stack.addArrangedSubview(smallLink("cancel", action: #selector(notNowPressed)))
+            stack.addArrangedSubview(smallLink("Cancel", action: #selector(notNowPressed)))
         }
 
         doorRoot.addSubview(stack)
@@ -618,7 +617,7 @@ final class WalkController: NSObject {
         let origin = page == .waiting
             ? NSPoint(x: visible.maxX - size.width - 20, y: visible.midY - size.height / 2)
             : NSPoint(x: visible.midX - size.width / 2, y: visible.midY - size.height / 2 + 40)
-        door.setFrame(NSRect(origin: origin, size: size), display: true)
+        door.setGlassFrame(NSRect(origin: origin, size: size), display: true)
         door.orderFrontRegardless()
     }
 
@@ -1042,37 +1041,16 @@ final class WalkController: NSObject {
         return button
     }
 
+    /// The one key, the launcher's: lit as the launcher lights a key, and
+    /// the space bar only wider.
     private func keycap(_ text: String, lit: Bool = false, wide: Bool = false) -> NSView {
-        let cap = NSTextField(labelWithString: text)
-        cap.font = BarTheme.secondaryFont
-        cap.textColor = lit ? BarTheme.accent : .labelColor
-        cap.alignment = .center
-        cap.translatesAutoresizingMaskIntoConstraints = false
-
-        let box = NSView()
-        box.wantsLayer = true
-        box.layer?.cornerRadius = BarTheme.chipRadius
-        box.layer?.backgroundColor = NSColor.labelColor
-            .withAlphaComponent(lit ? 0.14 : 0.08).cgColor
-        box.layer?.borderWidth = 1
-        box.layer?.borderColor = (lit
-            ? BarTheme.accent.withAlphaComponent(0.7)
-            : NSColor.labelColor.withAlphaComponent(0.12)).cgColor
-        box.translatesAutoresizingMaskIntoConstraints = false
+        let key = KeyFace(text, padX: wide ? 22 : BarTheme.chipPadX)
+        key.lit = lit
         // A cap is exactly as wide as its key. Without this the row stack
         // elects the lowest-hugging view to soak up its slack, and a letter
         // arrives on a keycap the width of the card.
-        box.setContentHuggingPriority(.required, for: .horizontal)
-        box.addSubview(cap)
-        // Equality, not ≥: a plain NSView has no intrinsic size, so a
-        // one-sided width lets the stack stretch the cap to the card.
-        NSLayoutConstraint.activate([
-            cap.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: wide ? 22 : 8),
-            cap.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: wide ? -22 : -8),
-            cap.centerYAnchor.constraint(equalTo: box.centerYAnchor),
-            box.heightAnchor.constraint(equalToConstant: 24),
-        ])
-        return box
+        key.setContentHuggingPriority(.required, for: .horizontal)
+        return key
     }
 
     private func capsRow(_ caps: [(String, Bool)]) -> NSView {

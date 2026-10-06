@@ -2101,13 +2101,11 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     }
 
     /// A key you can press is drawn as the key it is: the shared cap. A
-    /// lit cap is the pane or row that is current, its letter in the
-    /// accent.
+    /// lit cap is the pane or row that is current, lit as the launcher
+    /// lights the keys of its chosen row.
     private func chip(_ text: String, lit: Bool) -> NSView {
         let cap = Keycaps.cap(text)
-        if lit, let letter = cap.subviews.first as? NSTextField {
-            letter.textColor = BarTheme.readableAccent
-        }
+        cap.lit = lit
         return cap
     }
 

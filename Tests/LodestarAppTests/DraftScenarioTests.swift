@@ -1038,9 +1038,9 @@ final class DraftKeysScenarioTests: XCTestCase {
         func labels(_ editor: Vim.Mode) -> [String] {
             HotkeyEngine.draftSections(editor: editor, card: false).flatMap { $0.rows }.map(\.label)
         }
-        XCTAssertTrue(labels(.insert).contains("start a new line"))
-        XCTAssertTrue(labels(.normal).contains("left, down, up, right"))
-        XCTAssertTrue(labels(.visual(line: false)).contains("delete, change, copy it"))
+        XCTAssertTrue(labels(.insert).contains("Start a new line"))
+        XCTAssertTrue(labels(.normal).contains("Left, down, up, right"))
+        XCTAssertTrue(labels(.visual(line: false)).contains("Delete, change, copy it"))
     }
 
     /// `lode ?` is a question asked of a surface, and the answer must not

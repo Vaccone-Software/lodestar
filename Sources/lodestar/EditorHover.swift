@@ -31,6 +31,8 @@ final class EditorHover {
     private var leaveWork: DispatchWorkItem?
     private(set) var shown: EditorController.Mark?
     private(set) var panel: NSPanel?
+    /// What the drawn shadow hosts; each card is built inside it.
+    private let holder = NSView()
     /// The card's two answers, as caps.
     private(set) var acceptCaps: Keycaps.CapGroup?
     private(set) var keepCaps: Keycaps.CapGroup?
@@ -139,10 +141,19 @@ final class EditorHover {
     }
 
     func show(_ mark: EditorController.Mark) {
-        let panel = self.panel ?? Glass.makePanel(level: NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue + 1))
-        self.panel = panel
-        let root = NSView()
-        panel.contentView = root
+        let panel: NSPanel
+        if let existing = self.panel {
+            panel = existing
+        } else {
+            panel = Glass.makePanel(level: NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue + 1))
+            // The drawn shadow, hosted once; each card is built into it.
+            SoftShadow.host(holder, in: panel, cornerRadius: BarTheme.glassRadius)
+            self.panel = panel
+        }
+        holder.subviews.forEach { $0.removeFromSuperview() }
+        let root = NSView(frame: holder.bounds)
+        root.autoresizingMask = [.width, .height]
+        holder.addSubview(root)
         Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
 
         let (title, detail) = Self.words(for: mark.issue)
@@ -193,7 +204,8 @@ final class EditorHover {
         if height - (top + size.height) < screen.visibleFrame.minY { top = mark.rect.minY - 8 - size.height }
         let x = min(max(mark.rect.minX - 6, screen.visibleFrame.minX + 4), screen.visibleFrame.maxX - size.width - 4)
         cardFrame = CGRect(x: x, y: top, width: size.width, height: size.height)
-        panel.setFrame(NSRect(x: x, y: height - top - size.height, width: size.width, height: size.height), display: true)
+        panel.setGlassFrame(NSRect(x: x, y: height - top - size.height, width: size.width, height: size.height),
+                            display: true)
         panel.orderFrontRegardless()
         shown = mark
     }

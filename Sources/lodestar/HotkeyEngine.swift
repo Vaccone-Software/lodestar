@@ -1400,56 +1400,56 @@ final class HotkeyEngine {
     /// The keys a lens owns, for the sheet on ? while that lens is up.
     /// Idle gets the whole system.
     func cheatSections(for state: EngineCore.State) -> [CheatSheet.Section] {
-        let leaving = GuideRow(key: "esc", label: "leave the mode · any other lode verb acts and leaves")
+        let leaving = GuideRow(key: "esc", label: "Leave the mode · any other lode verb acts and leaves")
         switch state {
         case .scroll:
-            return [.init(header: "scroll", rows: [
-                GuideRow(key: "J K", label: "down · up · ⇧ three times the distance"),
-                GuideRow(key: "H L", label: "left · right · ⇧ three times the distance"),
-                GuideRow(key: "D U", label: "half a page down · up · ⇧ a whole page"),
-                GuideRow(key: "G G", label: "top · ⇧G bottom"),
-                GuideRow(key: "0 $", label: "left edge · right edge"),
-                GuideRow(key: "/", label: "aim: type a word you can see, the wheel follows"),
-                GuideRow(key: "?", label: "this sheet"),
+            return [.init(header: "Scroll", rows: [
+                GuideRow(key: "J K", label: "Down · up · ⇧ three times the distance"),
+                GuideRow(key: "H L", label: "Left · right · ⇧ three times the distance"),
+                GuideRow(key: "D U", label: "Half a page down · up · ⇧ a whole page"),
+                GuideRow(key: "G G", label: "Top · ⇧G bottom"),
+                GuideRow(key: "0 $", label: "Left edge · right edge"),
+                GuideRow(key: "/", label: "Aim: type a word you can see, the wheel follows"),
+                GuideRow(key: "?", label: "This sheet"),
                 leaving,
             ])]
         case .scrollAim:
-            return [.init(header: "aim", rows: [
-                GuideRow(key: "a…z", label: "type a word you can see · a unique match lands on its own"),
-                GuideRow(key: "⇧A…Z", label: "pick a chip when several match"),
-                GuideRow(key: "⌫", label: "back one letter"),
-                GuideRow(key: "⌘V", label: "search for what the pasteboard says"),
-                GuideRow(key: "?", label: "this sheet"),
-                GuideRow(key: "esc", label: "back to scroll, aim unchanged"),
+            return [.init(header: "Aim", rows: [
+                GuideRow(key: "a…z", label: "Type a word you can see · a unique match lands on its own"),
+                GuideRow(key: "⇧A…Z", label: "Pick a chip when several match"),
+                GuideRow(key: "⌫", label: "Back one letter"),
+                GuideRow(key: "⌘V", label: "Search for what the pasteboard says"),
+                GuideRow(key: "?", label: "This sheet"),
+                GuideRow(key: "esc", label: "Back to scroll, aim unchanged"),
             ])]
         case .hints:
-            return [.init(header: "click", rows: [
-                GuideRow(key: "a…z", label: "type what you see · matches wear chips"),
-                GuideRow(key: "⇧A…Z", label: "click the chip's word · ⌃⇧ right-clicks it"),
-                GuideRow(key: "⌫", label: "back one letter"),
-                GuideRow(key: "⌘V", label: "search for what the pasteboard says"),
-                GuideRow(key: "⇧;", label: "on entry: chain clicks, one after another"),
-                GuideRow(key: "?", label: "this sheet"),
+            return [.init(header: "Click", rows: [
+                GuideRow(key: "a…z", label: "Type what you see · matches wear chips"),
+                GuideRow(key: "⇧A…Z", label: "Click the chip's word · ⌃⇧ right-clicks it"),
+                GuideRow(key: "⌫", label: "Back one letter"),
+                GuideRow(key: "⌘V", label: "Search for what the pasteboard says"),
+                GuideRow(key: "⇧;", label: "On entry: chain clicks, one after another"),
+                GuideRow(key: "?", label: "This sheet"),
                 leaving,
             ])]
         case .paste(let searching) where !searching:
-            return [.init(header: "clipboard", rows: [
-                GuideRow(key: "A…;", label: "paste the card wearing that letter · ⇧ pastes as copied"),
-                GuideRow(key: "1…5", label: "paste the pin in that slot"),
-                GuideRow(key: "⌘A…;", label: "the card's actions: pin, edit, delete, save"),
-                GuideRow(key: "/", label: "search the clips · ⌥letter addresses a card mid-search"),
-                GuideRow(key: "E", label: "open a text card in the draft · an image across the display"),
-                GuideRow(key: "?", label: "this sheet"),
-                GuideRow(key: "esc", label: "close the strip"),
+            return [.init(header: "Clipboard", rows: [
+                GuideRow(key: "A…;", label: "Paste the card wearing that letter · ⇧ pastes as copied"),
+                GuideRow(key: "1…5", label: "Paste the pin in that slot"),
+                GuideRow(key: "⌘A…;", label: "The card's actions: pin, edit, delete, save"),
+                GuideRow(key: "/", label: "Search the clips · ⌥letter addresses a card mid-search"),
+                GuideRow(key: "E", label: "Open a text card in the draft · an image across the display"),
+                GuideRow(key: "?", label: "This sheet"),
+                GuideRow(key: "esc", label: "Close the strip"),
             ])]
         case .select:
-            return [.init(header: "select", rows: [
-                GuideRow(key: "a…z", label: "type what you see · a unique match anchors on its own"),
-                GuideRow(key: "⇧A…Z", label: "anchor the start · again for the far end"),
-                GuideRow(key: "⌘C", label: "take the anchored word and leave"),
-                GuideRow(key: "⌫", label: "back one letter"),
-                GuideRow(key: "⌘V", label: "search for what the pasteboard says"),
-                GuideRow(key: "?", label: "this sheet"),
+            return [.init(header: "Select", rows: [
+                GuideRow(key: "a…z", label: "Type what you see · a unique match anchors on its own"),
+                GuideRow(key: "⇧A…Z", label: "Anchor the start · again for the far end"),
+                GuideRow(key: "⌘C", label: "Take the anchored word and leave"),
+                GuideRow(key: "⌫", label: "Back one letter"),
+                GuideRow(key: "⌘V", label: "Search for what the pasteboard says"),
+                GuideRow(key: "?", label: "This sheet"),
                 leaving,
             ])]
         default:
@@ -1519,32 +1519,32 @@ final class HotkeyEngine {
                             dimmed: true)
         }
         let verbs: [GuideRow] = [
-            row("␣", "launcher", gesture: "launcher"),
-            row("⏎", "ask: links · domains · search", gesture: "web-bar"),
-            row(".", "draft: speak, ⏎ pastes · ⇧. revises the field", gesture: "draft"),
-            row("-", "commands: the frontmost app's menus", gesture: "commands"),
-            row("⇥", "editor: a letter fixes each mark · ⇧⇥ windows of the focused app"),
-            row("1…9", "jump to window by position", gesture: "index-jump"),
-            row("0", "the focused window fills the display · ⇧0 beside", gesture: "maximize"),
-            row("\\", "flip layout orientation", gesture: "flip-orientation"),
-            row("`", "scroll mode: j/k · h/l · d/u · gg/G · 0/$ · / aims · ⇧ for more", gesture: "scroll"),
-            row(";", "click hints: ⇧; chains · ⇧label right-clicks", gesture: "hints"),
-            row("/", "select text: ⇧letter anchors · ⌘C takes that word", gesture: "select"),
-            row("← →", "undo · redo the layout", gesture: "layout-undo"),
-            row("⇧1…9", "slide the focused window to that position"),
-            row("[ ]", "move window to prev/next display · ⇧ beside", gesture: "display-move"),
-            row("'", "breaths: ' ' updates latest"),
-            row("hold", "peek the graph + window indexes"),
-            row("G B", "two letters under one hold: side by side · three make columns"),
-            row(",", "settings"),
-            row("?", "this sheet, whenever you forget"),
-            row("⇧⌘V", "clipboard: label pastes · ⇧ as copied · ⌘ actions · / search"),
-            row("esc", "clear a chain"),
+            row("␣", "Launcher", gesture: "launcher"),
+            row("⏎", "Ask: links · domains · search", gesture: "web-bar"),
+            row(".", "Draft: speak, ⏎ pastes · ⇧. revises the field", gesture: "draft"),
+            row("-", "Commands: the frontmost app's menus", gesture: "commands"),
+            row("⇥", "Editor: a letter fixes each mark · ⇧⇥ windows of the focused app"),
+            row("1…9", "Jump to window by position", gesture: "index-jump"),
+            row("0", "The focused window fills the display · ⇧0 beside", gesture: "maximize"),
+            row("\\", "Flip layout orientation", gesture: "flip-orientation"),
+            row("`", "Scroll mode: j/k · h/l · d/u · gg/G · 0/$ · / aims · ⇧ for more", gesture: "scroll"),
+            row(";", "Click hints: ⇧; chains · ⇧label right-clicks", gesture: "hints"),
+            row("/", "Select text: ⇧letter anchors · ⌘C takes that word", gesture: "select"),
+            row("← →", "Undo · redo the layout", gesture: "layout-undo"),
+            row("⇧1…9", "Slide the focused window to that position"),
+            row("[ ]", "Move window to prev/next display · ⇧ beside", gesture: "display-move"),
+            row("'", "Breaths: ' ' updates latest"),
+            row("hold", "Peek the graph + window indexes"),
+            row("G B", "Two letters under one hold: side by side · three make columns"),
+            row(",", "Settings"),
+            row("?", "This sheet, whenever you forget"),
+            row("⇧⌘V", "Clipboard: label pastes · ⇧ as copied · ⌘ actions · / search"),
+            row("esc", "Clear a chain"),
         ]
         return [
-            .init(header: "verbs", rows: verbs),
-            .init(header: "graph", rows: actions.graphCheatRows(config.graph, prefix: [])),
-            .init(header: "breaths", rows: actions.breathGuide(prefix: "")),
+            .init(header: "Verbs", rows: verbs),
+            .init(header: "Graph", rows: actions.graphCheatRows(config.graph, prefix: [])),
+            .init(header: "Breaths", rows: actions.breathGuide(prefix: "")),
         ]
     }
 
@@ -1598,8 +1598,8 @@ final class HotkeyEngine {
     /// said three of these and had room for no more; behind `lode ?`
     /// there is room for the editor the draft actually is.
     static func draftSections(editor: Vim.Mode, card: Bool) -> [CheatSheet.Section] {
-        let commit = card ? "save to the card" : "paste where ⏎ lands"
-        let leave = card ? "back to the clipboard" : "close, kept in the clipboard"
+        let commit = card ? "Save to the card" : "Paste where ⏎ lands"
+        let leave = card ? "Back to the clipboard" : "Close, kept in the clipboard"
         switch editor {
         case .insert:
             // No typing group. ⌘Z, ⌘A and ⌥⌫ are the Mac's keys, not
@@ -1610,12 +1610,12 @@ final class HotkeyEngine {
             return [
                 .init(header: "Draft", rows: [
                     GuideRow(key: "⏎", label: commit),
-                    GuideRow(key: "⇧⏎", label: "start a new line"),
-                    GuideRow(key: "esc", label: "stop typing, start editing"),
+                    GuideRow(key: "⇧⏎", label: "Start a new line"),
+                    GuideRow(key: "esc", label: "Stop typing, start editing"),
                 ]),
                 .init(header: "Dictation", rows: [
-                    GuideRow(keys: ["lode", "."], label: "turn dictation on"),
-                    GuideRow(keys: ["lode", "⇧."], label: "turn dictation off"),
+                    GuideRow(keys: ["lode", "."], label: "Turn dictation on"),
+                    GuideRow(keys: ["lode", "⇧."], label: "Turn dictation off"),
                 ]),
             ]
         case .normal:
@@ -1625,37 +1625,37 @@ final class HotkeyEngine {
             return [
                 .init(header: "Draft", rows: [
                     GuideRow(key: "⏎", label: commit),
-                    GuideRow(key: "i a", label: "back to typing, before or after"),
-                    GuideRow(key: "zo zc", label: "the whole text · four lines"),
+                    GuideRow(key: "i a", label: "Back to typing, before or after"),
+                    GuideRow(key: "zo zc", label: "The whole text · four lines"),
                     GuideRow(key: "esc", label: leave),
                 ]),
                 .init(header: "Move", rows: [
-                    GuideRow(key: "h j k l", label: "left, down, up, right"),
-                    GuideRow(key: "w b", label: "forward a word · back one"),
-                    GuideRow(key: "0 $", label: "start of the line · end of it"),
-                    GuideRow(key: "f t", label: "onto · just before a letter"),
+                    GuideRow(key: "h j k l", label: "Left, down, up, right"),
+                    GuideRow(key: "w b", label: "Forward a word · back one"),
+                    GuideRow(key: "0 $", label: "Start of the line · end of it"),
+                    GuideRow(key: "f t", label: "Onto · just before a letter"),
                 ]),
                 .init(header: "Change", rows: [
-                    GuideRow(key: "d c y", label: "delete · change · copy, then a move"),
-                    GuideRow(key: "i a", label: "inside · around, after a verb"),
-                    GuideRow(key: "q b", label: "any quote · any bracket"),
-                    GuideRow(keys: ["s", "a"], label: "wrap · sd unwrap · sr swap"),
-                    GuideRow(key: "crp crc crs", label: "a name in code: PascalCase · camelCase · snake_case · cr- kebab"),
+                    GuideRow(key: "d c y", label: "Delete · change · copy, then a move"),
+                    GuideRow(key: "i a", label: "Inside · around, after a verb"),
+                    GuideRow(key: "q b", label: "Any quote · any bracket"),
+                    GuideRow(keys: ["s", "a"], label: "Wrap · sd unwrap · sr swap"),
+                    GuideRow(key: "crp crc crs", label: "A name in code: PascalCase · camelCase · snake_case · cr- kebab"),
                 ]),
                 // The editor's marks, by vim's own spelling keys.
                 .init(header: "Marks", rows: [
-                    GuideRow(key: "]s [s", label: "next mark · the one before"),
-                    GuideRow(key: "z=", label: "take its fix"),
-                    GuideRow(key: "zg", label: "keep the word"),
+                    GuideRow(key: "]s [s", label: "Next mark · the one before"),
+                    GuideRow(key: "z=", label: "Take its fix"),
+                    GuideRow(key: "zg", label: "Keep the word"),
                 ]),
             ]
         case .visual:
             return [
                 .init(header: "Selection", rows: [
-                    GuideRow(key: "d c y", label: "delete, change, copy it"),
-                    GuideRow(key: "h j k l", label: "grow it · w b by word"),
-                    GuideRow(keys: ["s", "a"], label: "wrap it in quotes or brackets"),
-                    GuideRow(key: "esc", label: "back to normal mode"),
+                    GuideRow(key: "d c y", label: "Delete, change, copy it"),
+                    GuideRow(key: "h j k l", label: "Grow it · w b by word"),
+                    GuideRow(keys: ["s", "a"], label: "Wrap it in quotes or brackets"),
+                    GuideRow(key: "esc", label: "Back to normal mode"),
                 ]),
                 .init(header: "Draft", rows: [
                     GuideRow(key: "⏎", label: commit),

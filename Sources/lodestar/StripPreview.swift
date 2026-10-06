@@ -141,16 +141,16 @@ enum StripPreview {
         if variant == 5 {
             let sheet = CheatSheet()
             sheet.toggle(sections: {
-                [CheatSheet.Section(header: "verbs", rows: [
-                    GuideRow(key: "␣", label: "launcher"),
-                    GuideRow(key: "⏎", label: "ask: links · domains · search"),
-                    GuideRow(key: "1…9", label: "jump to window by position"),
-                    GuideRow(key: "⇧⌘V", label: "clipboard: label pastes · ⌘ actions"),
+                [CheatSheet.Section(header: "Verbs", rows: [
+                    GuideRow(key: "␣", label: "Launcher"),
+                    GuideRow(key: "⏎", label: "Ask: links · domains · search"),
+                    GuideRow(key: "1…9", label: "Jump to window by position"),
+                    GuideRow(key: "⇧⌘V", label: "Clipboard: label pastes · ⌘ actions"),
                 ]),
-                 CheatSheet.Section(header: "motion", rows: [
-                    GuideRow(key: "J K", label: "down · up"),
-                    GuideRow(key: "/", label: "aim at a word"),
-                    GuideRow(key: "esc", label: "clear a chain"),
+                 CheatSheet.Section(header: "Motion", rows: [
+                    GuideRow(key: "J K", label: "Down · up"),
+                    GuideRow(key: "/", label: "Aim at a word"),
+                    GuideRow(key: "esc", label: "Clear a chain"),
                  ])]
             })
             app.run()
@@ -185,7 +185,7 @@ enum StripPreview {
                          icon: appIcon("/System/Applications/Mail.app")),
                 GuideRow(key: "N", label: "Notes",
                          icon: appIcon("/System/Applications/Notes.app")),
-                GuideRow(key: "→ D", label: "development"),
+                GuideRow(key: "→ D", label: "Development"),
             ])
             app.run()
         }
@@ -194,9 +194,9 @@ enum StripPreview {
             // A guide with no icons at all, as the scroll guide is.
             let hud = HUD()
             hud.showGuide(mark: "arrow.up.and.down", keys: ["lode", "`"], rows: [
-                GuideRow(key: "J K", label: "down · up"),
-                GuideRow(key: "D U", label: "half-page down · up"),
-                GuideRow(key: "/", label: "aim at a word"),
+                GuideRow(key: "J K", label: "Down · up"),
+                GuideRow(key: "D U", label: "Half-page down · up"),
+                GuideRow(key: "/", label: "Aim at a word"),
             ])
             app.run()
         }

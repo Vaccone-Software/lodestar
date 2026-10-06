@@ -510,18 +510,18 @@ final class ClipDoorPanelTests: XCTestCase {
             sections.flatMap { $0.rows }.map(\.label)
         }
         let card = labels(HotkeyEngine.draftSections(editor: .normal, card: true))
-        XCTAssertTrue(card.contains("save to the card"), "\(card)")
-        XCTAssertTrue(card.contains("back to the clipboard"), "\(card)")
+        XCTAssertTrue(card.contains("Save to the card"), "\(card)")
+        XCTAssertTrue(card.contains("Back to the clipboard"), "\(card)")
 
         let draft = labels(HotkeyEngine.draftSections(editor: .normal, card: false))
-        XCTAssertTrue(draft.contains("paste where ⏎ lands"), "\(draft)")
-        XCTAssertTrue(draft.contains("close, kept in the clipboard"), "\(draft)")
+        XCTAssertTrue(draft.contains("Paste where ⏎ lands"), "\(draft)")
+        XCTAssertTrue(draft.contains("Close, kept in the clipboard"), "\(draft)")
 
         // Insert mode names the two keys the legend used to, and no more
         // of the editor than the hand is holding.
         let insert = labels(HotkeyEngine.draftSections(editor: .insert, card: false))
-        XCTAssertTrue(insert.contains("start a new line"), "\(insert)")
-        XCTAssertTrue(insert.contains("stop typing, start editing"), "\(insert)")
+        XCTAssertTrue(insert.contains("Start a new line"), "\(insert)")
+        XCTAssertTrue(insert.contains("Stop typing, start editing"), "\(insert)")
     }
 }
 

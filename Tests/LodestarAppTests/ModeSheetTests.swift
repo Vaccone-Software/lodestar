@@ -12,7 +12,7 @@ final class ModeSheetTests: XCTestCase {
     func testScrollsSheetNamesEveryKeyTheModeOwns() {
         let stage = Stage()
         let sections = stage.engine.cheatSections(for: .scroll)
-        XCTAssertEqual(sections.map(\.header), ["scroll"])
+        XCTAssertEqual(sections.map(\.header), ["Scroll"])
         for key in ["J K", "H L", "D U", "G G", "0 $", "/", "esc", "?"] {
             XCTAssertTrue(keys(sections).contains(key), "\(key) is on the sheet")
         }
@@ -21,7 +21,7 @@ final class ModeSheetTests: XCTestCase {
     func testTheAimBandsSheet() {
         let stage = Stage()
         let sections = stage.engine.cheatSections(for: .scrollAim)
-        XCTAssertEqual(sections.map(\.header), ["aim"])
+        XCTAssertEqual(sections.map(\.header), ["Aim"])
         for key in ["⇧A…Z", "⌫", "⌘V", "esc"] { XCTAssertTrue(keys(sections).contains(key)) }
     }
 
@@ -36,14 +36,14 @@ final class ModeSheetTests: XCTestCase {
     func testTheStripsSheet() {
         let stage = Stage()
         let sections = stage.engine.cheatSections(for: .paste(searching: false))
-        XCTAssertEqual(sections.map(\.header), ["clipboard"])
+        XCTAssertEqual(sections.map(\.header), ["Clipboard"])
         for key in ["A…;", "1…5", "/", "E", "?", "esc"] { XCTAssertTrue(keys(sections).contains(key), key) }
     }
 
     func testIdleGetsTheWholeSystem() {
         let stage = Stage()
         let sections = stage.engine.cheatSections(for: .idle)
-        XCTAssertTrue(sections.map(\.header).contains("verbs"))
+        XCTAssertTrue(sections.map(\.header).contains("Verbs"))
         XCTAssertTrue(keys(sections).contains("`"), "scroll's door is on the full sheet")
     }
 

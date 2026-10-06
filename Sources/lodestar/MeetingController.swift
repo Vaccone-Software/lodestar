@@ -86,16 +86,15 @@ final class MeetingController: NSObject {
 
     override init() {
         super.init()
-        panel.contentView = root
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
         Movable.enable(panel)
         _ = Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
         prime.level = .modalPanel
         prime.isOpaque = false
         prime.backgroundColor = .clear
-        prime.hasShadow = true
         prime.isReleasedWhenClosed = false
         prime.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
-        prime.contentView = primeRoot
+        SoftShadow.host(primeRoot, in: prime, cornerRadius: BarTheme.glassRadius)
         Movable.enable(prime)
         _ = Glass.installBackdrop(in: primeRoot, cornerRadius: BarTheme.glassRadius)
         prime.onKeyDown = { [weak self] event in
@@ -476,7 +475,7 @@ final class MeetingController: NSObject {
         allow.controlSize = .large
         allow.keyEquivalent = "\r"
         stack.addArrangedSubview(allow)
-        let notNow = HandButton(title: "not now", target: self, action: #selector(notNowButton))
+        let notNow = HandButton(title: "Not now", target: self, action: #selector(notNowButton))
         notNow.isBordered = false
         notNow.font = BarTheme.secondaryFont
         notNow.contentTintColor = BarTheme.secondaryColor
@@ -571,7 +570,8 @@ final class MeetingController: NSObject {
                 host.level = .floating
                 host.isOpaque = false
                 host.backgroundColor = .clear
-                host.hasShadow = true
+                // The content is the drawn shadow's host: it casts its own.
+                host.hasShadow = false
                 host.isReleasedWhenClosed = false
                 host.contentView = content
                 host.setFrame(frame, display: true)

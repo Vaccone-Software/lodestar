@@ -229,13 +229,13 @@ enum SplitPreview {
     static let insertBlurb = "Where you are now. Type, or speak, and it lands in the draft."
     static let draftSections: [CheatSheet.Section] = [
         .init(header: "Draft", rows: [
-            GuideRow(key: "⏎", label: "paste it where you came from"),
-            GuideRow(key: "⇧⏎", label: "start a new line"),
-            GuideRow(key: "esc", label: "stop typing, start editing"),
+            GuideRow(key: "⏎", label: "Paste it where you came from"),
+            GuideRow(key: "⇧⏎", label: "Start a new line"),
+            GuideRow(key: "esc", label: "Stop typing, start editing"),
         ]),
         .init(header: "Dictation", rows: [
-            GuideRow(keys: ["lode", "."], label: "turn dictation on"),
-            GuideRow(keys: ["lode", "⇧."], label: "turn dictation off"),
+            GuideRow(keys: ["lode", "."], label: "Turn dictation on"),
+            GuideRow(keys: ["lode", "⇧."], label: "Turn dictation off"),
         ]),
     ]
 
@@ -255,46 +255,46 @@ enum SplitPreview {
     static let normalTitle = "Normal mode"
     static let normalBlurb = "Every key is a command. Edit without reaching for the mouse."
     static let normalEntry: [GuideRow] = [
-        GuideRow(key: "esc", label: "get here from typing"),
-        GuideRow(key: "i a", label: "back to typing, before or after"),
+        GuideRow(key: "esc", label: "Get here from typing"),
+        GuideRow(key: "i a", label: "Back to typing, before or after"),
     ]
     static let editorSections: [CheatSheet.Section] = [
         .init(header: "Move", rows: [
-            GuideRow(key: "h j k l", label: "left, down, up, right"),
-            GuideRow(key: "w b", label: "forward a word · back one"),
-            GuideRow(key: "0 $", label: "start of the line · end of it"),
-            GuideRow(keys: ["g", "g"], label: "the very top · ⇧G the bottom"),
-            GuideRow(key: "f t", label: "onto · just before a letter"),
-            GuideRow(key: "⇧F ⇧T", label: "the same, backwards"),
+            GuideRow(key: "h j k l", label: "Left, down, up, right"),
+            GuideRow(key: "w b", label: "Forward a word · back one"),
+            GuideRow(key: "0 $", label: "Start of the line · end of it"),
+            GuideRow(keys: ["g", "g"], label: "The very top · ⇧G the bottom"),
+            GuideRow(key: "f t", label: "Onto · just before a letter"),
+            GuideRow(key: "⇧F ⇧T", label: "The same, backwards"),
         ]),
         // The verbs stand alone. Naming a verb by an example of itself —
         // `d w · delete a word` — teaches one combination and hides the
         // rule; `d · delete` and a group called "then a move" teaches the
         // rule and every combination with it.
         .init(header: "Change · a verb, then a move", rows: [
-            GuideRow(key: "d", label: "delete"),
-            GuideRow(key: "c", label: "change: deletes, then you type"),
-            GuideRow(key: "y", label: "copy · p pastes it back"),
-            GuideRow(key: "x", label: "delete one letter"),
-            GuideRow(key: "u", label: "undo"),
+            GuideRow(key: "d", label: "Delete"),
+            GuideRow(key: "c", label: "Change: deletes, then you type"),
+            GuideRow(key: "y", label: "Copy · p pastes it back"),
+            GuideRow(key: "x", label: "Delete one letter"),
+            GuideRow(key: "u", label: "Undo"),
         ]),
         // The other thing a verb can take, and the reason the pairs are
         // worth knowing: a target does not depend on where the cursor
         // sits inside it.
         .init(header: "Inside and around · after a verb", rows: [
-            GuideRow(key: "i a", label: "inside it · around it"),
-            GuideRow(key: "w", label: "the word under the cursor"),
-            GuideRow(key: "q b", label: "any quote · any bracket"),
+            GuideRow(key: "i a", label: "Inside it · around it"),
+            GuideRow(key: "w", label: "The word under the cursor"),
+            GuideRow(key: "q b", label: "Any quote · any bracket"),
         ]),
         .init(header: "Select", rows: [
-            GuideRow(key: "v", label: "then move, to select"),
-            GuideRow(key: "⇧V", label: "select whole lines"),
-            GuideRow(key: "d c y", label: "delete, change, copy it"),
+            GuideRow(key: "v", label: "Then move, to select"),
+            GuideRow(key: "⇧V", label: "Select whole lines"),
+            GuideRow(key: "d c y", label: "Delete, change, copy it"),
         ]),
         .init(header: "Surround", rows: [
-            GuideRow(keys: ["s", "a"], label: "wrap in quotes or brackets"),
-            GuideRow(keys: ["s", "d"], label: "take the wrapping off"),
-            GuideRow(keys: ["s", "r"], label: "swap one for another"),
+            GuideRow(keys: ["s", "a"], label: "Wrap in quotes or brackets"),
+            GuideRow(keys: ["s", "d"], label: "Take the wrapping off"),
+            GuideRow(keys: ["s", "r"], label: "Swap one for another"),
         ]),
     ]
 

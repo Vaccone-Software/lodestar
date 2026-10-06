@@ -287,4 +287,21 @@ final class StripSecretTests: XCTestCase {
         stage.press("escape")
         stage.press("escape")
     }
+
+    /// A secret pasted back is marked concealed, so other clipboard tools
+    /// look away; an ordinary clip is not.
+    func testASecretPastesBackConcealed() {
+        let stage = Stage()
+        stage.seedClip("de595f9a1b2c3d4e5f60718293a4b5c6d7e8f901")
+        stage.seedClip("export OPENAI_API_KEY=sk-proj-" + "AbCdEf1234567890GhIjKlMnOpQr")
+        stage.openStrip()
+        stage.press("j")
+        let concealed = NSPasteboard.PasteboardType(ClipboardController.concealed)
+        XCTAssertEqual(stage.clipboard.pasteboard.types?.contains(concealed), true)
+        XCTAssertTrue(stage.clipboard.pasteboard.string(forType: .string)?.hasSuffix("OpQr") == true,
+                      "pasted whole")
+        stage.openStrip()
+        stage.press("k")
+        XCTAssertEqual(stage.clipboard.pasteboard.types?.contains(concealed), false, "a commit is not a secret")
+    }
 }

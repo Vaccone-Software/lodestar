@@ -277,6 +277,8 @@ final class ClipboardController {
     /// The pasteboard genuinely changes: ⌘V has to keep working afterwards,
     /// which is the deepest expectation there is. Only the *list* stays put
     /// — copies reorder it, pastes never do.
+    static let concealed = "org.nspasteboard.ConcealedType"
+
     func paste(_ clip: Clipboard.Clip, action: PasteAction) {
         // One disk read for every representation this method wants: the
         // native loop, the image fallback, and the file handover all drew
@@ -284,7 +286,16 @@ final class ClipboardController {
         // near the size ceiling, tens of megabytes re-read inside the tap.
         let stored = store.itemData(clip)
         let board = pasteboard
-        board.clearContents()
+        // A secret goes back the way a password manager puts it out: kept
+        // to this Mac, never carried to another device by Universal
+        // Clipboard, and marked concealed so every other clipboard tool
+        // looks away. Keep itself already holds it; nothing else should.
+        let secret = clip.kind == .text && clip.masked != nil
+        if secret {
+            board.prepareForNewContents(with: .currentHostOnly)
+        } else {
+            board.clearContents()
+        }
 
         // One board item per item copied, so three copied files arrive as
         // three files rather than as the first one three times.
@@ -306,7 +317,12 @@ final class ClipboardController {
                 item.setData(native.data, forType: NSPasteboard.PasteboardType(native.type))
                 wrote = true
             }
-            if wrote { items.append(item) }
+            if wrote {
+                if secret {
+                    item.setData(Data(), forType: NSPasteboard.PasteboardType(Self.concealed))
+                }
+                items.append(item)
+            }
         }
 
         // An image bound for a terminal rides as a file as well. The path is

@@ -335,6 +335,8 @@ final class Stage {
                               select: SelectController(model: model),
                               clipboard: clipboard, draft: draft, clock: clock.clock)
         engine.observations = observations
+        // The stage never asks the real machine where its caret is.
+        engine.caretCover = { _, _ in "unknown" }
         scroller.observations = observations
 
         coach = CoachController(clock: clock.clock)

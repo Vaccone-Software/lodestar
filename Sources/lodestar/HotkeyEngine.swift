@@ -265,6 +265,9 @@ final class HotkeyEngine {
     private var naming: Naming?
     /// The modifier held over Keep, which changes what the cards show.
     private var heldOverStrip: ClipboardStrip.Held = .none
+    /// Whether Keep covers where the hand will paste, read once per open
+    /// off the main thread. The stage answers for itself.
+    var caretCover: (NSRect, CGFloat) -> String = CaretCover.verdict
     let imageDoor = ImageDoor()
     /// Live only while the strip is up; see `watchClicks`.
     private var clickMonitor: Any?
@@ -997,6 +1000,7 @@ final class HotkeyEngine {
                 stripSession = StripSession(openedAt: clock.now())
                 let began = Date()
                 renderStrip()
+                recordCaretCover()
                 observations?.latency(surface: "strip",
                                       seconds: Date().timeIntervalSince(began))
                 walkSignal?(.clipboardOpened)
@@ -1939,6 +1943,20 @@ extension HotkeyEngine: EngineWorld {
     }
 
     static let allApps = "All apps"
+
+    /// Keep's whole block, as it stands, against the focused field: a
+    /// word in the log per open, so how often Keep covers the caret is a
+    /// count rather than a guess.
+    private func recordCaretCover() {
+        guard let layout = strip.lastLayout else { return }
+        let block = layout.places.values.reduce(layout.bar) { $0.union($1) }
+        let primary = NSScreen.screens.first?.frame.height ?? 0
+        let read = caretCover
+        DispatchQueue.global(qos: .utility).async {
+            let verdict = read(block, primary)
+            DispatchQueue.main.async { Log.info("strip", ["caret": verdict]) }
+        }
+    }
 
     /// The list of sources: All apps, then every app a clip came from,
     /// alphabetically, with how many clips each holds; narrowed by what

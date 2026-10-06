@@ -62,6 +62,19 @@ final class ClipboardTests: XCTestCase {
         XCTAssertEqual(Clipboard.preview(of: String(repeating: "x", count: 5000)).count, 2000)
     }
 
+    /// A password manager's copy is refused before it is read, marked or
+    /// not, whatever case its bundle id arrives in.
+    func testAPasswordManagersCopyIsNeverRead() {
+        XCTAssertEqual(Clipboard.refusalBeforeReading(types: ["public.utf8-plain-text"],
+                                                      sourceBundleID: "com.1password.1password",
+                                                      excludedApps: []),
+                       .excludedApp("com.1password.1password"))
+        XCTAssertNotNil(Clipboard.refusalBeforeReading(types: [], sourceBundleID: "com.apple.Passwords",
+                                                       excludedApps: []))
+        XCTAssertNil(Clipboard.refusalBeforeReading(types: [], sourceBundleID: "com.apple.Notes",
+                                                    excludedApps: []))
+    }
+
     // MARK: - Keepsakes are places, not a list
 
     /// Four places, filled from 4 down: the first thing kept sits under

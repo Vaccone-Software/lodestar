@@ -36,8 +36,8 @@ final class ModeSheetTests: XCTestCase {
     func testTheStripsSheet() {
         let stage = Stage()
         let sections = stage.engine.cheatSections(for: .paste(searching: false))
-        XCTAssertEqual(sections.map(\.header), ["Clipboard"])
-        for key in ["A…;", "1…5", "/", "E", "?", "esc"] { XCTAssertTrue(keys(sections).contains(key), key) }
+        XCTAssertEqual(sections.map(\.header), ["Keep"])
+        for key in ["J…A", "1…4", "/", "⇥", "E", "?", "esc"] { XCTAssertTrue(keys(sections).contains(key), key) }
     }
 
     func testIdleGetsTheWholeSystem() {

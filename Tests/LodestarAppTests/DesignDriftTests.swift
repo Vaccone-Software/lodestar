@@ -133,10 +133,8 @@ final class DesignDriftTests: XCTestCase {
 
     /// The surfaces that still wear the system's shadow. The list only
     /// shrinks: a surface moved onto `SoftShadow` must leave it, and a
-    /// new surface may not join it. The clipboard waits for its redesign,
-    /// where each card casts its own.
+    /// new surface may not join it.
     private static let notYetOnTheDrawnShadow: Set<String> = [
-        "ClipboardStrip.swift",
         // Marks laid over another app's windows — hint badges, select's
         // letters — are not glass surfaces and cast no surface's shadow.
         "IndexBadges.swift", "SelectOverlay.swift",
@@ -148,7 +146,9 @@ final class DesignDriftTests: XCTestCase {
     func testEverySurfaceStandsOnTheDrawnShadow() throws {
         var missing: [String] = [], stale: [String] = []
         for (name, text) in try sources() where name != "Glass.swift" && text.contains("makePanel(") {
-            let hosted = text.contains("SoftShadow.host(")
+            // One surface per window is hosted; Keep's cards share one
+            // window and each casts the same shadow as an object.
+            let hosted = text.contains("SoftShadow.host(") || text.contains("SoftShadow.object(")
             if Self.notYetOnTheDrawnShadow.contains(name) {
                 if hosted { stale.append(name) }
             } else if !hosted {

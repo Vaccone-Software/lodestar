@@ -1554,14 +1554,15 @@ final class HotkeyEngine {
                 leaving,
             ])]
         case .paste(let searching) where !searching:
-            return [.init(header: "Clipboard", rows: [
-                GuideRow(key: "A…;", label: "Paste the card wearing that letter · ⇧ pastes as copied"),
-                GuideRow(key: "1…5", label: "Paste the pin in that slot"),
-                GuideRow(key: "⌘A…;", label: "The card's actions: pin, edit, delete, save"),
-                GuideRow(key: "/", label: "Search the clips · ⌥letter addresses a card mid-search"),
+            return [.init(header: "Keep", rows: [
+                GuideRow(key: "J…A", label: "Paste the card over that key · ⇧ as copied · ⌃ its reading"),
+                GuideRow(key: "1…4", label: "Paste the keepsake in that place"),
+                GuideRow(key: "⌘J…A", label: "The card's actions: keep, edit, delete, save"),
+                GuideRow(key: "/", label: "Search the clips · ⌥ and a letter pastes a match · ⏎ the best"),
+                GuideRow(key: "⇥", label: "Only the clips from one app"),
                 GuideRow(key: "E", label: "Open a text card in the draft · an image across the display"),
                 GuideRow(key: "?", label: "This sheet"),
-                GuideRow(key: "esc", label: "Close the strip"),
+                GuideRow(key: "esc", label: "Close Keep"),
             ])]
         case .select:
             return [.init(header: "Select", rows: [

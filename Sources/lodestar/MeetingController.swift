@@ -469,17 +469,12 @@ final class MeetingController: NSObject {
         stack.addArrangedSubview(body)
         stack.setCustomSpacing(16, after: body)
 
-        let allow = HandButton(title: "Allow Calendar Access", target: self,
-                               action: #selector(allowButton))
-        allow.bezelStyle = .rounded
-        allow.controlSize = .large
-        allow.keyEquivalent = "\r"
-        stack.addArrangedSubview(allow)
-        let notNow = HandButton(title: "Not now", target: self, action: #selector(notNowButton))
-        notNow.isBordered = false
-        notNow.font = BarTheme.secondaryFont
-        notNow.contentTintColor = BarTheme.secondaryColor
-        stack.addArrangedSubview(notNow)
+        // The card's actions are its keys, pressed or clicked: the system's
+        // default button wore the Mac's accent, not Lodestar's.
+        stack.addArrangedSubview(Keycaps.line([
+            .init(["esc"], "Not now", action: { [weak self] in self?.notNowPressed() }),
+            .init(["⏎"], "Allow Calendar Access", action: { [weak self] in self?.allowPressed() }, lit: true),
+        ]))
 
         primeRoot.addSubview(stack)
         NSLayoutConstraint.activate([
@@ -498,8 +493,6 @@ final class MeetingController: NSObject {
         prime.makeKeyAndOrderFront(nil)
     }
 
-    @objc private func allowButton() { allowPressed() }
-    @objc private func notNowButton() { notNowPressed() }
 
     private func allowPressed() {
         prime.orderOut(nil)

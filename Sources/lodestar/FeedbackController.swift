@@ -22,8 +22,11 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
     private let textView = NSTextView()
     private let scroll = NSScrollView()
     private let noteBox = NSView()
-    private let reply = NSTextField()
-    private let attach = NSButton(checkboxWithTitle: "Include a diagnostic report", target: nil, action: nil)
+    private let replyBox = RoomField(placeholder: "Your email, if you would like a reply")
+    private var reply: NSTextField { replyBox.field }
+    /// Settings' own switch, not the system's checkbox: a room's controls
+    /// are Lodestar's.
+    private let attach = AccentSwitch(frame: .zero)
 
     private enum Phase: Equatable {
         case writing
@@ -107,15 +110,9 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
             scroll.trailingAnchor.constraint(equalTo: noteBox.trailingAnchor, constant: -2),
         ])
 
-        reply.font = .systemFont(ofSize: BarTheme.Scale.body)
-        reply.placeholderAttributedString = BarTheme.placeholder("Your email, if you would like a reply",
-                                                                 like: reply.font)
-        reply.bezelStyle = .roundedBezel
-        reply.translatesAutoresizingMaskIntoConstraints = false
-        reply.widthAnchor.constraint(equalToConstant: text).isActive = true
-
-        attach.font = .systemFont(ofSize: BarTheme.Scale.body)
+        replyBox.widthAnchor.constraint(equalToConstant: text).isActive = true
         attach.state = .off
+        attach.setAccessibilityLabel("Include a diagnostic report")
     }
 
     // MARK: - Entry
@@ -150,8 +147,6 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
         Feedback(message: textView.string, replyTo: reply.stringValue)
     }
 
-    @objc private func sendPressed() { send() }
-    @objc private func cancelPressed() { close() }
     @objc private func closePressed() {
         reset()
         close()
@@ -253,12 +248,15 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
                 width: text))
             stack.setCustomSpacing(16, after: stack.arrangedSubviews.last!)
             stack.addArrangedSubview(noteBox)
-            stack.addArrangedSubview(reply)
-            stack.setCustomSpacing(14, after: reply)
+            stack.addArrangedSubview(replyBox)
+            stack.setCustomSpacing(14, after: replyBox)
             let attachRow = NSStackView()
             attachRow.orientation = .horizontal
+            attachRow.alignment = .centerY
             attachRow.spacing = 10
             attachRow.addArrangedSubview(attach)
+            attachRow.addArrangedSubview(label("Include a diagnostic report", size: BarTheme.Scale.body,
+                                               weight: .regular, color: .labelColor))
             attachRow.addArrangedSubview(smallLink("See what it contains", action: #selector(seeReportPressed)))
             stack.addArrangedSubview(attachRow)
             stack.setCustomSpacing(4, after: attachRow)
@@ -280,18 +278,16 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
             let spacer = NSView()
             spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
             footer.addArrangedSubview(spacer)
-            let go = NSButton(title: phase == .sending ? "Sending" : "Send", target: self,
-                              action: #selector(sendPressed))
-            go.bezelStyle = .rounded
-            go.controlSize = .large
-            go.keyEquivalent = "\r"
-            go.keyEquivalentModifierMask = [.command]
-            go.isEnabled = phase == .writing
-            go.toolTip = "⌘ Return"
-            footer.addArrangedSubview(go)
+            // The room's actions are its keys, pressed or clicked: ⌘⏎
+            // sends (⏎ alone is a new line in the note), esc leaves.
+            let sending = phase == .sending
+            footer.addArrangedSubview(Keycaps.line([
+                .init(["esc"], "Cancel", action: { [weak self] in self?.close() }, quiet: sending),
+                .init(["⌘", "⏎"], sending ? "Sending" : "Send",
+                      action: { [weak self] in self?.send() }, lit: true, quiet: sending),
+            ]))
             footer.widthAnchor.constraint(equalToConstant: text).isActive = true
             stack.addArrangedSubview(footer)
-            stack.addArrangedSubview(smallLink("Cancel", action: #selector(cancelPressed)))
             let editable = phase == .writing
             textView.isEditable = editable
             reply.isEditable = editable
@@ -303,11 +299,9 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
                     : "Your note arrived and will be read.",
                 width: text))
             stack.setCustomSpacing(18, after: stack.arrangedSubviews.last!)
-            let done = NSButton(title: "Close", target: self, action: #selector(closePressed))
-            done.bezelStyle = .rounded
-            done.controlSize = .large
-            done.keyEquivalent = "\r"
-            stack.addArrangedSubview(done)
+            stack.addArrangedSubview(Keycaps.line([
+                .init(["⏎"], "Close", action: { [weak self] in self?.closePressed() }, lit: true),
+            ]))
         }
 
         root.addSubview(stack)

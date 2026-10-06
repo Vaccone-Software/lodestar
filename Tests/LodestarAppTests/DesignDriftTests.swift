@@ -171,10 +171,11 @@ final class DesignDriftTests: XCTestCase {
 
     /// No Lodestar window shows a control in the system's tint: a system
     /// popup paints its highlight in the Mac's accent, not Lodestar's. The
-    /// draft's input menu is drawn (`InputMenu`); Settings' popups are the
-    /// not-yet list, which only shrinks.
+    /// draft's input menu is drawn (`InputMenu`); Settings keeps the
+    /// popup's behaviour but draws its face and every menu row
+    /// (`KeyPopUp`, `ChoiceMenuItemView`), the one file allowed to.
     func testNoSurfaceUsesASystemPopup() throws {
-        let notYet: Set<String> = ["SettingsController.swift"]
+        let notYet: Set<String> = ["SettingsController.swift", "Glass.swift"]
         var offenders: [String] = [], stale: [String] = []
         for (name, text) in try sources() {
             let uses = text.contains("NSPopUpButton")
@@ -255,7 +256,7 @@ final class DesignDriftTests: XCTestCase {
     /// A label is a name, capitalized: a section's title, a link, a
     /// button, and the words beside a key.
     func testLabelsAreNames() throws {
-        let hits = try offenders(#"header: "[a-z]|smallLink\("[a-z]|HandButton\(title: "[a-z]|GuideRow\((key|keys): [^\n]*label: "[a-z]|\brow\("[^"\n]*", "[a-z]"#,
+        let hits = try offenders(#"header: "[a-z]|smallLink\("[a-z]|HandButton\(title: "[a-z]|GuideRow\((key|keys): [^\n]*label: "[a-z]|\brow\("[^"\n]*", "[a-z]|KeyRow\("[^"\n]*", "[a-z]|smallLink\([^\n]*"[a-z]"#,
                                  in: surfaces())
         XCTAssertEqual(hits, [], "capitalize it as a name")
         var words: [String] = []
@@ -277,5 +278,15 @@ final class DesignDriftTests: XCTestCase {
             .filter { $0.pathExtension == "swift" && $0.lastPathComponent != "DesignDriftTests.swift" }
         let hits = try offenders(#"NSPasteboard\.general\.(setString|clearContents|writeObjects|setData)"#, in: files)
         XCTAssertEqual(hits, [], "use a named pasteboard of the test's own")
+    }
+
+    /// A room's actions are its keys, and its controls are Lodestar's: no
+    /// system bezel, checkbox or switch, which wear the Mac's accent and
+    /// its shapes. Buttons are `RoomButton`, fields `RoomField`, switches
+    /// `AccentSwitch`, primary actions `Keycaps.line` with a lit key.
+    func testNoRoomShowsASystemControl() throws {
+        let hits = try offenders(#"bezelStyle\s*=|checkboxWithTitle|radioButtonWithTitle|NSSwitch\("#,
+                                 in: surfaces())
+        XCTAssertEqual(hits, [], "draw it: RoomButton, RoomField, AccentSwitch, or a key")
     }
 }

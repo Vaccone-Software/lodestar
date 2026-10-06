@@ -983,11 +983,47 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         }
     }
 
-    private final class KeyPopUp: NSPopUpButton {
+    /// A choice, behaving as the system's popup does (keys, tabbing, the
+    /// tokens the rows store) and drawn as Lodestar's: the room field's
+    /// face, and a menu whose rows rise like the bars' rows with the
+    /// accent's dot on the current one, rather than the system's bezel and
+    /// a highlight in the Mac's accent.
+    private final class KeyPopUp: NSPopUpButton, NSMenuDelegate {
         override var acceptsFirstResponder: Bool { true }
         override var canBecomeKeyView: Bool { true }
         override func resetCursorRects() {
             addCursorRect(bounds, cursor: .pointingHand)
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            isBordered = false
+            wantsLayer = true
+            layer?.cornerRadius = BarTheme.controlRadius
+            layer?.borderWidth = 1
+            menu?.delegate = self
+            tint()
+        }
+
+        override func viewDidChangeEffectiveAppearance() {
+            super.viewDidChangeEffectiveAppearance()
+            tint()
+        }
+
+        private func tint() {
+            effectiveAppearance.performAsCurrentDrawingAppearance {
+                layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.06).cgColor
+                layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.12).cgColor
+            }
+        }
+
+        func menuNeedsUpdate(_ menu: NSMenu) {
+            let font = BarTheme.secondaryFont
+            let widest = menu.items.map { ($0.title as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
+            let width = max(bounds.width, widest + 70)
+            for item in menu.items where !item.isSeparatorItem {
+                item.view = ChoiceMenuItemView(item: item, chosen: item == selectedItem, width: width, popup: self)
+            }
         }
     }
 
@@ -1317,10 +1353,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             presetRow.orientation = .horizontal
             presetRow.spacing = 7
             for preset in row.presets {
-                let button = HandButton(title: preset.label, target: self, action: #selector(presetPressed(_:)))
-                button.bezelStyle = .inline
-                button.controlSize = .regular
-                button.font = BarTheme.secondaryFont
+                let button = RoomButton(title: preset.label, target: self, action: #selector(presetPressed(_:)))
                 button.identifier = NSUserInterfaceItemIdentifier("preset|\(row.path)|\(preset.value)")
                 presetRow.addArrangedSubview(button)
             }
@@ -1349,11 +1382,9 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             if case .table = row.control {} else { line.addArrangedSubview(Self.dot()) }
         }
         if let action = row.action {
-            let button = HandButton(title: armed ? "Confirm" : action.label, target: self,
+            let button = RoomButton(title: armed ? "Confirm" : action.label, target: self,
                                     action: #selector(actionPressed(_:)))
-            button.bezelStyle = .rounded
-            button.controlSize = .regular
-            button.font = BarTheme.secondaryFont
+            button.destructive = armed
             if case .readout(let value, _) = row.control, !value.isEmpty {
                 line.addArrangedSubview(buildControl(row, index: index))
             }
@@ -1454,11 +1485,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         case .table:
             return NSView() // the table renders under the title column
         case .page(let name):
-            let open = HandButton(title: "Open", target: self, action: #selector(pagePressed(_:)))
-            open.bezelStyle = .inline
-            open.controlSize = .regular
-            open.font = .systemFont(ofSize: BarTheme.Scale.meta, weight: .medium)
-            open.contentTintColor = BarTheme.secondaryColor
+            let open = RoomButton(title: "Open", target: self, action: #selector(pagePressed(_:)))
             open.identifier = NSUserInterfaceItemIdentifier(name)
             return open
         case .selector(let options, let labels, let current):
@@ -1534,11 +1561,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                         "\(addKey(kind))|\(entry.key)")
                 }
             }
-            let button = HandButton(title: "Remove", target: self,
+            let button = RoomButton(title: "Remove", target: self,
                                     action: #selector(removePressed(_:)))
-            button.bezelStyle = .rounded
-            button.controlSize = .small
-            button.font = BarTheme.secondaryFont
             button.identifier = NSUserInterfaceItemIdentifier("\(addKey(kind))|\(entry.key)")
             row.addArrangedSubview(button)
             if let focus = listFocus, focus.row == paneRow, focus.entry == entryIndex {
@@ -1723,11 +1747,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             addInputs[addKey(kind)] = code
             addInputs["keys.name"] = name
         }
-        let commit = HandButton(title: inline ? "Save" : "Add", target: self,
+        let commit = RoomButton(title: inline ? "Save" : "Add", target: self,
                                 action: #selector(addPressed(_:)))
-        commit.bezelStyle = .rounded
-        commit.controlSize = .small
-        commit.font = BarTheme.secondaryFont
         commit.identifier = NSUserInterfaceItemIdentifier(addKey(kind))
         guard inline else {
             bar.addArrangedSubview(commit)
@@ -1736,11 +1757,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         }
         // The editor's fields already fill the column; the verbs get
         // their own line rather than falling off its right edge.
-        let cancel = HandButton(title: "Cancel", target: self,
+        let cancel = RoomButton(title: "Cancel", target: self,
                                 action: #selector(cancelInlinePressed(_:)))
-        cancel.bezelStyle = .rounded
-        cancel.controlSize = .small
-        cancel.font = BarTheme.secondaryFont
         let verbs = NSStackView(views: [commit, cancel])
         verbs.orientation = .horizontal
         verbs.spacing = 7

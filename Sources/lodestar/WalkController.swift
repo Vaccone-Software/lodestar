@@ -387,9 +387,6 @@ final class WalkController: NSObject {
         }
     }
 
-    @objc private func continuePressed() { proceed() }
-    @objc private func grantPressed() { grantAccess() }
-    @objc private func notNowPressed() { notNow() }
     @objc private func skipPressed() { _ = pass() }
     @objc private func tilePressed(_ sender: NSButton) {
         let doors = Walk.Door.allCases
@@ -562,12 +559,14 @@ final class WalkController: NSObject {
             let spacer = NSView()
             spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
             footer.addArrangedSubview(spacer)
-            let go = bigButton("Continue", action: #selector(continuePressed))
-            go.isEnabled = chosen != nil
-            footer.addArrangedSubview(go)
+            // The room's actions are its keys, pressed or clicked.
+            footer.addArrangedSubview(Keycaps.line([
+                .init(["esc"], "Not now", action: { [weak self] in self?.notNow() }),
+                .init(["⏎"], "Continue", action: { [weak self] in self?.proceed() },
+                      lit: true, quiet: chosen == nil),
+            ]))
             footer.widthAnchor.constraint(equalToConstant: text).isActive = true
             stack.addArrangedSubview(footer)
-            stack.addArrangedSubview(smallLink("Not now", action: #selector(notNowPressed)))
         case .permission:
             stack.addArrangedSubview(heading("One permission"))
             stack.addArrangedSubview(wrapped(Self.permissionReason(chosen ?? .switcher), size: BarTheme.Scale.body,
@@ -580,13 +579,18 @@ final class WalkController: NSObject {
                 "Nothing else is asked for now. Anything more is asked the first time you use the thing that needs it.",
                 size: BarTheme.Scale.meta, color: BarTheme.secondaryColor, alignment: .left, width: text))
             stack.setCustomSpacing(16, after: stack.arrangedSubviews.last!)
-            stack.addArrangedSubview(bigButton(prompted ? "Open System Settings" : "Allow Accessibility",
-                                               action: #selector(grantPressed)))
+            stack.addArrangedSubview(Keycaps.line([
+                .init(["esc"], "Back", action: { [weak self] in
+                    self?.page = .welcome
+                    self?.renderDoor()
+                }),
+                .init(["⏎"], prompted ? "Open System Settings" : "Allow Accessibility",
+                      action: { [weak self] in self?.grantAccess() }, lit: true),
+            ]))
             if !administrator {
-                stack.addArrangedSubview(smallLink(noteCopied ? "note copied, paste it to your IT team" : "copy a note for IT",
+                stack.addArrangedSubview(smallLink(noteCopied ? "Note copied, paste it to your IT team" : "Copy a note for IT",
                                                    action: #selector(copyNotePressed)))
             }
-            stack.addArrangedSubview(smallLink("Not now", action: #selector(notNowPressed)))
         case .waiting:
             stack.addArrangedSubview(heading("Turn on Lodestar"))
             stack.addArrangedSubview(wrapped(
@@ -596,7 +600,9 @@ final class WalkController: NSObject {
             stack.addArrangedSubview(wrapped("No restart needed.", size: BarTheme.Scale.meta,
                                              color: BarTheme.secondaryColor, alignment: .left, width: text))
             stack.setCustomSpacing(16, after: stack.arrangedSubviews.last!)
-            stack.addArrangedSubview(smallLink("Cancel", action: #selector(notNowPressed)))
+            stack.addArrangedSubview(Keycaps.line([
+                .init(["esc"], "Cancel", action: { [weak self] in self?.stopWaiting(granted: false) }),
+            ]))
         }
 
         doorRoot.addSubview(stack)
@@ -730,9 +736,9 @@ final class WalkController: NSObject {
                 body: "Apps you open often can each have a letter of their own. These are "
                     + "suggestions, drafted from the apps you have open.",
                 illustration: proposalList(proposals),
-                keys: [KeyRow("lode lode", "tap lode twice to keep these",
+                keys: [KeyRow("lode lode", "Tap lode twice to keep these",
                               action: { [weak self] in self?.assent() }),
-                       KeyRow("lode ⌫", "not these",
+                       KeyRow("lode ⌫", "Not these",
                               action: { [weak self] in _ = self?.pass() })])
         case .graphGo(let options):
             return CardContent(
@@ -749,7 +755,7 @@ final class WalkController: NSObject {
             return CardContent(
                 title: "Rest the pointer on the line",
                 body: "The fix appears. Accept puts it right, and Keep as written leaves it alone.",
-                keys: [KeyRow("lode ⇥", "or put a letter on each mark from the keys")])
+                keys: [KeyRow("lode ⇥", "Or put a letter on each mark from the keys")])
         case .grammar(let engine):
             return CardContent(
                 title: "Fixed where you wrote it",
@@ -758,7 +764,7 @@ final class WalkController: NSObject {
                     + "model that runs on this Mac. A download continues in the background.",
                 keys: [KeyRow("lode lode", describeEngine(engine),
                               action: { [weak self] in self?.assent() }),
-                       KeyRow("lode ⌫", "spelling only for now",
+                       KeyRow("lode ⌫", "Spelling only for now",
                               action: { [weak self] in _ = self?.pass() })])
         case .copy:
             return CardContent(
@@ -792,7 +798,7 @@ final class WalkController: NSObject {
                     + "its key now: hold it whenever you want to see what it can reach.\n\n"
                     + "The other three stay out of the way. Lodestar brings up each one later, "
                     + "when it would help.",
-                keys: [KeyRow("lode ⌫", "close this card",
+                keys: [KeyRow("lode ⌫", "Close this card",
                               action: { [weak self] in _ = self?.pass() })])
         }
     }
@@ -921,8 +927,8 @@ final class WalkController: NSObject {
         let header: String? = walk.step == .done ? nil
             : "⌖ \(walk.door.name) · \(progress.position) of \(progress.total)"
         let footer: (title: String, action: Selector) = walk.step == .done
-            ? ("done", #selector(donePressed))
-            : ("skip this step", #selector(skipPressed))
+            ? ("Done", #selector(donePressed))
+            : ("Skip this step", #selector(skipPressed))
         for view in cardRoot.subviews where view is NSStackView { view.removeFromSuperview() }
 
         let stack = NSStackView()
@@ -1023,14 +1029,6 @@ final class WalkController: NSObject {
         field.preferredMaxLayoutWidth = width
         field.widthAnchor.constraint(lessThanOrEqualToConstant: width).isActive = true
         return field
-    }
-
-    private func bigButton(_ title: String, action: Selector) -> NSButton {
-        let button = NSButton(title: title, target: self, action: action)
-        button.bezelStyle = .rounded
-        button.controlSize = .large
-        button.keyEquivalent = "\r"
-        return button
     }
 
     private func smallLink(_ title: String, action: Selector) -> NSButton {

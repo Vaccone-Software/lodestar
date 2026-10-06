@@ -638,11 +638,20 @@ enum Keycaps {
         let keys: [String]
         let verb: String
         let action: (() -> Void)?
+        /// A room's own verb: its keys lit, as the launcher lights the keys
+        /// of the row the hand is about to take.
+        var lit = false
+        /// Not available now (Continue before a choice, Send while
+        /// sending): drawn receded, and not clickable.
+        var quiet = false
 
-        init(_ keys: [String], _ verb: String, action: (() -> Void)? = nil) {
+        init(_ keys: [String], _ verb: String, action: (() -> Void)? = nil, lit: Bool = false,
+             quiet: Bool = false) {
             self.keys = keys
             self.verb = verb
             self.action = action
+            self.lit = lit
+            self.quiet = quiet
         }
     }
 
@@ -790,7 +799,11 @@ enum Keycaps {
                 add(word("·", color: .tertiaryLabelColor), spacingBefore: 10)
             }
             let caps = gesture.keys.map { cap($0) }
-            if let action = gesture.action {
+            for capView in caps {
+                capView.lit = gesture.lit && !gesture.quiet
+                if gesture.quiet { capView.alphaValue = 0.45 }
+            }
+            if let action = gesture.action, !gesture.quiet {
                 // One view for the whole gesture, so hover lights both caps
                 // at once: `lode ⌫` is one press of two keys, not two
                 // things that happen to sit together.
@@ -803,8 +816,10 @@ enum Keycaps {
             }
             // A label is a name, capitalized wherever it is written from:
             // "esc Back", never "esc back".
-            add(word(gesture.verb.prefix(1).uppercased() + gesture.verb.dropFirst(), color: BarTheme.secondaryColor),
-                spacingBefore: 7)
+            let verb = word(gesture.verb.prefix(1).uppercased() + gesture.verb.dropFirst(),
+                            color: gesture.lit && !gesture.quiet ? .labelColor : BarTheme.secondaryColor)
+            if gesture.quiet { verb.alphaValue = 0.6 }
+            add(verb, spacingBefore: 7)
         }
         return row
     }
@@ -824,6 +839,179 @@ enum Keycaps {
 /// the Mac's colour. This one is the same gesture — click, space, the
 /// screen reader's press — drawn by the theme. The knob slides; nothing
 /// else moves.
+/// A room's one-line field, drawn rather than the system's bezel: the
+/// note box's material — a faint fill and a hairline, the theme's control
+/// rounding — around a borderless field. The bezelled field is a system
+/// control in costume, and its focus ring wears the Mac's accent.
+final class RoomField: NSView {
+    let field = NSTextField()
+
+    init(placeholder: String) {
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.cornerRadius = BarTheme.controlRadius
+        layer?.borderWidth = 1
+        translatesAutoresizingMaskIntoConstraints = false
+        field.isBordered = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.font = BarTheme.rowLabelFont
+        field.textColor = .labelColor
+        field.translatesAutoresizingMaskIntoConstraints = false
+        field.setPlaceholder(placeholder)
+        addSubview(field)
+        NSLayoutConstraint.activate([
+            field.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            field.centerYAnchor.constraint(equalTo: centerYAnchor),
+            heightAnchor.constraint(equalToConstant: 32),
+        ])
+        tint()
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        tint()
+    }
+
+    private func tint() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.05).cgColor
+            layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.12).cgColor
+        }
+    }
+}
+
+/// A room's button, drawn rather than the system's bezel: the room field's
+/// material, a word in the interface's face, brightening under the
+/// pointer. The system's default button wears the Mac's accent; a room's
+/// buttons wear Lodestar's material, and its primary actions are keys.
+final class RoomButton: NSButton {
+    /// A destructive action reads in red, as the clipboard's Delete does.
+    var destructive = false { didSet { restyle() } }
+    private var hovering = false { didSet { restyle() } }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        isBordered = false
+        wantsLayer = true
+        layer?.cornerRadius = BarTheme.controlRadius
+        layer?.borderWidth = 1
+        restyle()
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override var title: String {
+        didSet { restyle() }
+    }
+
+    override var intrinsicContentSize: NSSize {
+        let text = attributedTitle.size()
+        return NSSize(width: (text.width + 20).rounded(.up), height: 24)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: bounds,
+                                       options: [.mouseEnteredAndExited, .cursorUpdate, .activeAlways],
+                                       owner: self))
+    }
+
+    override func cursorUpdate(with event: NSEvent) { NSCursor.pointingHand.set() }
+    override func mouseEntered(with event: NSEvent) { hovering = true }
+    override func mouseExited(with event: NSEvent) { hovering = false }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        restyle()
+    }
+
+    private func restyle() {
+        let color: NSColor = destructive ? .systemRed : (isEnabled ? .labelColor : BarTheme.secondaryColor)
+        let words = super.title
+        super.attributedTitle = NSAttributedString(string: words, attributes: [
+            .font: BarTheme.secondaryFont, .foregroundColor: color])
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(hovering ? 0.11 : 0.06).cgColor
+            layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.12).cgColor
+        }
+        invalidateIntrinsicContentSize()
+    }
+}
+
+/// A row in a room's choice menu, drawn by Lodestar: the system's menu
+/// highlights in the Mac's accent, so each item wears this view, which
+/// rises under the pointer or the arrow keys like the bars' rows and marks
+/// the current choice with the accent's dot.
+final class ChoiceMenuItemView: NSView {
+    private let label = NSTextField(labelWithString: "")
+    private let icon = NSImageView()
+    private let dot = NSView()
+    private weak var popup: NSPopUpButton?
+    static let height: CGFloat = 26
+
+    init(item: NSMenuItem, chosen: Bool, width: CGFloat, popup: NSPopUpButton) {
+        self.popup = popup
+        super.init(frame: NSRect(x: 0, y: 0, width: width, height: Self.height))
+        wantsLayer = true
+        label.stringValue = item.title
+        label.font = BarTheme.secondaryFont
+        label.textColor = item.isEnabled ? .labelColor : BarTheme.secondaryColor
+        label.lineBreakMode = .byTruncatingTail
+        icon.image = item.image
+        dot.wantsLayer = true
+        dot.layer?.cornerRadius = BarTheme.dotRadius
+        dot.layer?.backgroundColor = BarTheme.accent.cgColor
+        dot.isHidden = !chosen
+        [dot, icon, label].forEach(addSubview)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.menuItem)
+        setAccessibilityLabel(item.title)
+        setAccessibilitySelected(chosen)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func layout() {
+        super.layout()
+        let inset: CGFloat = 12
+        dot.frame = NSRect(x: inset, y: ((bounds.height - BarTheme.dotDiameter) / 2).rounded(),
+                           width: BarTheme.dotDiameter, height: BarTheme.dotDiameter)
+        var x = inset + BarTheme.dotDiameter + 8
+        if icon.image != nil {
+            icon.frame = NSRect(x: x, y: ((bounds.height - 12) / 2).rounded(), width: 19, height: 12)
+            x += 24
+        }
+        let natural = label.sizeThatFits(NSSize(width: CGFloat.greatestFiniteMagnitude,
+                                                height: CGFloat.greatestFiniteMagnitude)).height
+        label.frame = NSRect(x: x, y: ((bounds.height - natural) / 2).rounded(),
+                             width: max(0, bounds.width - x - inset), height: natural)
+    }
+
+    /// Lit by the menu's own highlight, which follows the pointer and the
+    /// arrow keys alike.
+    override func draw(_ dirtyRect: NSRect) {
+        guard enclosingMenuItem?.isHighlighted == true, enclosingMenuItem?.isEnabled == true else { return }
+        BarTheme.raised.setFill()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 5, dy: 1), xRadius: BarTheme.controlRadius,
+                     yRadius: BarTheme.controlRadius).fill()
+    }
+
+    /// A view in a menu takes the click itself: choose, close, and send
+    /// the popup's action as the system's item would.
+    override func mouseUp(with event: NSEvent) {
+        guard let item = enclosingMenuItem, item.isEnabled, let menu = item.menu else { return }
+        menu.cancelTracking()
+        let index = menu.index(of: item)
+        popup?.selectItem(at: index)
+        if let action = popup?.action { NSApp.sendAction(action, to: popup?.target, from: popup) }
+    }
+}
+
 final class AccentSwitch: NSControl {
     private let track = CALayer()
     private let knob = CALayer()

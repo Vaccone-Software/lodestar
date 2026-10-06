@@ -428,14 +428,37 @@ public struct SelectCore {
             return trimmedRange(NSRange(location: 0, length: text.length), in: text as String)
         }
         var token = wordSnapped(range, in: text)
-        let opening = CharacterSet(charactersIn: "([{<\"'`“‘")
-        let closing = CharacterSet(charactersIn: ")]}>\"'`”’,.;:!?")
-        func scalar(_ at: Int) -> Unicode.Scalar? { UnicodeScalar(text.character(at: at)) }
-        while token.length > 1, let first = scalar(token.location), opening.contains(first) {
-            token = NSRange(location: token.location + 1, length: token.length - 1)
+        // What encloses the token goes, and only that: a closer stays when
+        // its opener is inside, so `getUser(id)` keeps its parenthesis and
+        // `(web/src/bar.ts:42)` loses both of its.
+        let pairs: [unichar: unichar] = [41: 40, 93: 91, 125: 123, 62: 60]  // ) ] } > → ( [ { <
+        let quotes: Set<unichar> = [34, 39, 96, 0x201C, 0x201D, 0x2018, 0x2019]
+        let openers: Set<unichar> = [40, 91, 123, 60]
+        let trailing: Set<unichar> = [44, 46, 59, 58, 33, 63]  // , . ; : ! ?
+        func count(_ unit: unichar, in range: NSRange) -> Int {
+            var n = 0
+            for i in range.location..<NSMaxRange(range) where text.character(at: i) == unit { n += 1 }
+            return n
         }
-        while token.length > 1, let last = scalar(NSMaxRange(token) - 1), closing.contains(last) {
-            token = NSRange(location: token.location, length: token.length - 1)
+        var changed = true
+        while changed, token.length > 1 {
+            changed = false
+            let first = text.character(at: token.location)
+            let last = text.character(at: NSMaxRange(token) - 1)
+            if token.length > 2, openers.contains(first), pairs[last] == first {
+                // A pair around the whole token encloses it.
+                token = NSRange(location: token.location + 1, length: token.length - 2); changed = true
+            } else if trailing.contains(last) || quotes.contains(last) {
+                token.length -= 1; changed = true
+            } else if let opener = pairs[last], count(opener, in: token) < count(last, in: token) {
+                token.length -= 1; changed = true
+            } else if quotes.contains(first) {
+                token = NSRange(location: token.location + 1, length: token.length - 1); changed = true
+            } else if openers.contains(first),
+                      let closer = pairs.first(where: { $0.value == first })?.key,
+                      count(closer, in: token) < count(first, in: token) {
+                token = NSRange(location: token.location + 1, length: token.length - 1); changed = true
+            }
         }
         return token
     }

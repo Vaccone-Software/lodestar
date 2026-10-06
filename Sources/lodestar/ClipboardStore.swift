@@ -463,6 +463,32 @@ final class ClipboardStore {
         saveSoon()
     }
 
+    /// A clip kept in a place that is taken: the keepsake there goes back
+    /// to being a clip in the history, and this one takes its place.
+    /// Returns what was displaced, so it can be put back.
+    @discardableResult
+    func place(_ id: String, at slot: Int) -> (id: String, name: String?)? {
+        guard (1...Clipboard.pinSlots).contains(slot),
+              let position = index.clips.firstIndex(where: { $0.id == id }) else { return nil }
+        var displaced: (id: String, name: String?)?
+        if let other = index.clips.firstIndex(where: { $0.pinnedSlot == slot }), other != position {
+            displaced = (index.clips[other].id, index.clips[other].keptName)
+            index.clips[other].pinnedSlot = nil
+            index.clips[other].keptName = nil
+        }
+        index.clips[position].pinnedSlot = slot
+        saveSoon()
+        return displaced
+    }
+
+    /// A displaced keepsake put back where it was, with its name.
+    func restore(_ id: String, at slot: Int, name: String?) {
+        guard let position = index.clips.firstIndex(where: { $0.id == id }) else { return }
+        index.clips[position].pinnedSlot = slot
+        index.clips[position].keptName = name
+        saveSoon()
+    }
+
     /// A keepsake moved to another place, trading with whatever is there,
     /// so no place ever holds two and no keepsake is lost.
     func move(_ id: String, to slot: Int) {

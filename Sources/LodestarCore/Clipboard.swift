@@ -506,7 +506,15 @@ public enum Clipboard {
         return offeredName(fromText: clip.preview, limit: limit)
     }
 
-    static func offeredName(fromText text: String, limit: Int) -> String {
+    static func offeredName(fromText raw: String, limit: Int) -> String {
+        // A name is drawn whole and spoken aloud, so it never holds a
+        // secret: only the words before the first one count, and a clip
+        // that opens on a secret is called what it is.
+        var text = raw
+        if let first = ClipSecret.spans(in: raw).first {
+            text = (raw as NSString).substring(to: first.range.location)
+            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Secret" }
+        }
         let words = text.split(whereSeparator: { $0.isWhitespace })
         var name = ""
         for word in words {

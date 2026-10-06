@@ -99,6 +99,14 @@ final class WorldStub: EngineWorld {
         return panelIsImage
     }
 
+    /// Bring's cards on show, by label; nil is every label.
+    var bringCards: Set<String>?
+    func bringCardExists(_ label: String) -> Bool { bringCards?.contains(label) ?? true }
+    /// Keep's cards that have a reading, by address ("best" for nil);
+    /// nil is every card.
+    var readings: Set<String>?
+    func pasteReadingExists(address: String?) -> Bool { readings?.contains(address ?? "best") ?? true }
+
     /// Whether Bring finds a window to read.
     var bringSucceeds = true
     func enterBring(carryingQuery: Bool) -> Bool {

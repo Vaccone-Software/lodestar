@@ -95,6 +95,34 @@ final class BringTests: XCTestCase {
         XCTAssertEqual(core.state, .idle)
     }
 
+    /// A miss never closes Bring or loses the words typed.
+    func testAMissStaysInBring() {
+        openBring()
+        world.bringCards = []
+        _ = press("b")
+        XCTAssertEqual(press("return"), [.flash("⌂ nothing to bring yet")])
+        XCTAssertEqual(core.state, .bring(listing: false))
+        world.bringCards = ["j"]
+        XCTAssertEqual(press("k", option: true), [], "no card on K")
+        XCTAssertEqual(core.state, .bring(listing: false))
+        XCTAssertEqual(press("j", option: true), [.bringPick(label: "j", line: false), .exitBring])
+    }
+
+    /// ⌃ on a card with no reading does nothing, in Keep and its search.
+    func testControlWithoutAReadingStaysInKeep() {
+        world.readings = ["s"]
+        _ = core.openPaste(world: world)
+        XCTAssertEqual(core.keyDown(key: "a", held: false, shift: false, control: true, world: world), [])
+        XCTAssertEqual(core.state, .paste(searching: false))
+        XCTAssertEqual(core.keyDown(key: "s", held: false, shift: false, control: true, world: world),
+                       [.pasteRecent(label: "s", action: .reading), .exitPaste])
+        _ = core.openPaste(world: world)
+        _ = press("/")
+        XCTAssertEqual(core.keyDown(key: "return", held: false, shift: false, control: true, world: world), [],
+                       "the best match has none")
+        XCTAssertEqual(core.state, .paste(searching: true))
+    }
+
     // MARK: - The search
 
     private func lines(_ texts: [(Int, String)]) -> [Bring.Line] { texts.map { Bring.Line(source: $0.0, text: $0.1) } }
@@ -139,6 +167,15 @@ final class BringTests: XCTestCase {
     private func taken(_ line: String, _ word: String) -> String {
         let text = line as NSString
         return text.substring(with: SelectCore.bringRange(text.range(of: word), in: text, size: 0))
+    }
+
+    /// A closer stays when its opener is inside; a pair around the whole
+    /// token goes.
+    func testTrimmingKeepsBalancedBrackets() {
+        XCTAssertEqual(taken("call getUser(id) now", "getUser"), "getUser(id)")
+        XCTAssertEqual(taken("read a[0] first", "a[0"), "a[0]")
+        XCTAssertEqual(taken("at (web/src/bar.ts:42:17)", "bar"), "web/src/bar.ts:42:17")
+        XCTAssertEqual(taken("see (getUser(id)).", "getUser"), "getUser(id)")
     }
 
     func testTheTokenIsTrimmedOfWhatEnclosesIt() {

@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import CoreGraphics
 import LodestarCore
 
@@ -261,6 +262,10 @@ final class HotkeyEngine {
         let fresh: Bool
         let before: String?
         let slot: Int?
+        /// All four places were full: the clip waits for ⌘1–⌘4 to choose
+        /// one, and the keepsake it replaces is held here to be put back.
+        var placed = true
+        var displaced: (id: String, slot: Int, name: String?)?
     }
     private var naming: Naming?
     /// The modifier held over Keep, which changes what the cards show.
@@ -278,10 +283,16 @@ final class HotkeyEngine {
     /// The lines Bring searches, rebuilt only when the windows or the
     /// source change, not on every keystroke.
     private var bringIndex: (key: String, sources: [Bring.Source], lines: [Bring.Line])?
+    /// The last answer, kept while the words, the source and the windows
+    /// stand: a held ⇧ only relabels the cards, and never searches again.
+    private var bringFound: (key: String, matches: [Bring.Match], total: Int)?
+    private var bringRedrawPending = false
     /// The windows Bring reads, and how its text lands: the machine's in
     /// the app, the stage's in the tests.
     var bringWindows: (() -> [BringReader.Window])?
-    var bringTypes: (String, pid_t) -> Void = { BringTyping.type($0, to: $1) }
+    var bringTypes: (String, pid_t) -> Void = { BringTyping.land($0, into: $1) }
+    /// Whether a field holds Secure Keyboard Entry: typed input is refused.
+    var bringSecureInput: () -> Bool = { IsSecureEventInputEnabled() }
     var bringFront: () -> pid_t? = { NSWorkspace.shared.frontmostApplication?.processIdentifier }
     /// Whether Keep covers where the hand will paste, read once per open
     /// off the main thread. The stage answers for itself.
@@ -1112,6 +1123,7 @@ final class HotkeyEngine {
                 bringOpenedAt = .distantPast
                 bringReader.stop()
                 bringIndex = nil
+                bringFound = nil
                 bringQuery = ""
                 bringSource = nil
                 bringSourceTyped = nil
@@ -1273,8 +1285,17 @@ final class HotkeyEngine {
                 renderStrip()
             case .pasteNameMove(let slot):
                 noteStripKey()
-                guard let current = naming else { break }
-                clipboard.history.move(current.id, to: slot)
+                guard var current = naming else { break }
+                if current.placed {
+                    clipboard.history.move(current.id, to: slot)
+                } else {
+                    let name = clipboard.history.clips.first { $0.pinnedSlot == slot }?.keptName
+                    if let out = clipboard.history.place(current.id, at: slot) {
+                        current.displaced = (out.id, slot, out.name ?? name)
+                    }
+                    current.placed = true
+                    naming = current
+                }
                 renderStrip()
             case .pasteNameCommit:
                 commitNaming()
@@ -2068,10 +2089,18 @@ extension HotkeyEngine: EngineWorld {
         if carryingQuery { strip.hide() }
         if bringWindows == nil {
             bringReader.onUpdate = { [weak self] in
-                guard let self, case .bring = self.core.state else { return }
-                self.renderBring()
+                // Windows land in bursts: one redraw for each burst.
+                guard let self, !self.bringRedrawPending else { return }
+                self.bringRedrawPending = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { [weak self] in
+                    guard let self else { return }
+                    self.bringRedrawPending = false
+                    guard case .bring = self.core.state else { return }
+                    self.renderBring()
+                }
             }
-            bringReader.start(front: bringTarget, excluded: clipboard.excludedApps)
+            bringReader.start(front: bringTarget, excluded: clipboard.excludedApps,
+                              patterns: clipboard.excludedPatterns)
         }
         watchClicks()
         // Asked from inside the grammar's keystroke, so the state is not
@@ -2091,7 +2120,7 @@ extension HotkeyEngine: EngineWorld {
         for window in windows where bringSource == nil || window.source.app == bringSource {
             let at = sources.count
             sources.append(window.source)
-            lines += window.lines.map { Bring.Line(source: at, text: $0) }
+            lines += zip(window.lines, window.folded).map { Bring.Line(source: at, text: $0, folded: $1) }
         }
         bringIndex = (key, sources, lines)
         return (sources, lines)
@@ -2102,10 +2131,10 @@ extension HotkeyEngine: EngineWorld {
     private func bringSourceRows() -> [(name: String, count: Int)] {
         let windows = bringRead
         var counts: [String: Int] = [:]
-        let needle = bringQuery.trimmingCharacters(in: .whitespaces)
+        let needle = Bring.fold(bringQuery.trimmingCharacters(in: .whitespaces))
         for window in windows {
             let found = needle.count >= Bring.minimumQuery
-                ? window.lines.filter { $0.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive]) != nil }.count
+                ? window.folded.filter { $0.contains(needle) }.count
                 : 1
             counts[window.source.app, default: 0] += found
         }
@@ -2121,7 +2150,14 @@ extension HotkeyEngine: EngineWorld {
     private func renderBring(opening: Bool = false) {
         if !opening { guard case .bring = core.state else { return } }
         let corpus = bringCorpus()
-        let found = Bring.search(corpus.lines, sources: corpus.sources, query: bringQuery)
+        let key = "\(bringRead.count)|\(bringSource ?? "")|\(bringQuery)"
+        let found: (matches: [Bring.Match], total: Int)
+        if let kept = bringFound, kept.key == key {
+            found = (kept.matches, kept.total)
+        } else {
+            found = Bring.search(corpus.lines, sources: corpus.sources, query: bringQuery)
+            bringFound = (key, found.matches, found.total)
+        }
         let menu = bringSourceTyped.map { typed in
             ClipboardStrip.SourceMenu(typed: typed,
                                       rows: bringSourceRows().map { .init(name: $0.name, count: $0.count) },
@@ -2142,9 +2178,21 @@ extension HotkeyEngine: EngineWorld {
         }
         let text = line ? match.lineText : match.tokenText
         let target = bringTarget
+        strip.hide()
+        // The text goes only where the hand was: if another app has come
+        // in front since, nothing is typed into it unseen.
+        guard bringFront() == target else {
+            Log.info("bring", ["outcome": "refused", "why": "front changed"])
+            hud.flash("✕ the app you were in is no longer in front")
+            return
+        }
+        guard !bringSecureInput() else {
+            Log.info("bring", ["outcome": "refused", "why": "secure input"])
+            hud.flash("✕ this field takes no typed input")
+            return
+        }
         Log.info("bring", ["outcome": "brought", "chars": (text as NSString).length,
                            "form": line ? "line" : "token", "rank": rank])
-        strip.hide()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             self?.bringTypes(text, target)
         }
@@ -2190,24 +2238,30 @@ extension HotkeyEngine: EngineWorld {
     private func beginNaming(fresh: Bool) {
         noteStripKey()
         guard let clip = panelClip else { core.doorClosed(); return }
+        var placed = true
         if fresh {
-            guard clipboard.history.pin(clip.id) else {
-                hud.flash("✕ all \(Clipboard.pinSlots) places are taken")
-                _ = apply(core.leavePaste(), event: nil)
-                return
+            if !clipboard.history.pin(clip.id) {
+                // Full: Keep stays, and a place is chosen by its number.
+                placed = false
+                hud.flash("⌂ all four places are full, ⌘1 to ⌘4 replaces one")
             }
             let named = stripSession?.outcome
             stripSession?.outcome = ("acted", named?.source, "keep", named?.rank)
         }
         let live = clipboard.history.clips.first { $0.id == clip.id } ?? clip
         naming = Naming(id: clip.id, text: Clipboard.name(of: live), selected: true, fresh: fresh,
-                        before: live.keptName, slot: live.pinnedSlot)
+                        before: live.keptName, slot: live.pinnedSlot, placed: placed)
         renderStrip()
     }
 
     private func commitNaming() {
         guard let current = naming else { return }
         naming = nil
+        guard current.placed else {
+            hud.flash("✕ nothing kept, all four places are full")
+            if case .paste = core.state { renderStrip() }
+            return
+        }
         clipboard.history.name(current.id, current.text)
         if case .paste = core.state { renderStrip() }
     }
@@ -2218,7 +2272,8 @@ extension HotkeyEngine: EngineWorld {
         guard let current = naming else { return }
         naming = nil
         if current.fresh {
-            clipboard.history.unpin(current.id)
+            if current.placed { clipboard.history.unpin(current.id) }
+            if let back = current.displaced { clipboard.history.restore(back.id, at: back.slot, name: back.name) }
         } else {
             clipboard.history.name(current.id, current.before)
             if let slot = current.slot { clipboard.history.move(current.id, to: slot) }
@@ -2480,6 +2535,22 @@ extension HotkeyEngine: EngineWorld {
 
     func pastePanelIsImage() -> Bool { panelClip?.kind == .image }
     func pastePanelIsKept() -> Bool { panelClip?.isPinned == true }
+
+    func bringCardExists(_ label: String) -> Bool {
+        guard let index = ClipboardStrip.labels.firstIndex(of: label) else { return false }
+        return strip.shownBring.indices.contains(index)
+    }
+
+    func pasteReadingExists(address: String?) -> Bool {
+        let clip: Clipboard.Clip?
+        if let address, let slot = Int(address) {
+            clip = strip.shownPins[slot]
+        } else {
+            let index = address.flatMap { ClipboardStrip.labels.firstIndex(of: $0) } ?? pasteSelection
+            clip = strip.shownRecents.indices.contains(index) ? strip.shownRecents[index] : nil
+        }
+        return clip.map { Clipboard.reading(of: $0, units: strip.units, zones: strip.timeZones) != nil } ?? false
+    }
 
     /// A click means the user is looking at something else now, and the
     /// strip is a thing you read — leaving it up over the window they just

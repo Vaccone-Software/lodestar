@@ -337,6 +337,7 @@ final class Stage {
         engine.observations = observations
         // The stage never asks the real machine where its caret is.
         engine.caretCover = { _, _ in "unknown" }
+        engine.bringSecureInput = { false }
         scroller.observations = observations
 
         coach = CoachController(clock: clock.clock)

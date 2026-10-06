@@ -283,6 +283,12 @@ public protocol EngineWorld: AnyObject {
     /// handing its words over. False when there is nothing in front to
     /// bring into.
     func enterBring(carryingQuery: Bool) -> Bool
+    /// Does a Bring card stand on this label right now? A pick with
+    /// nothing behind it is swallowed, never a reason to close.
+    func bringCardExists(_ label: String) -> Bool
+    /// Does the card at this address have a reading to paste? `nil` is the
+    /// search's best match. `⌃` on a card without one does nothing.
+    func pasteReadingExists(address: String?) -> Bool
     /// A key while select is up — search, label, anchor, or finish.
     func selectKey(_ key: String, shift: Bool) -> SelectStep
     /// ⌘C while select is up: take what is anchored so far. `.done` when
@@ -304,6 +310,8 @@ public extension EngineWorld {
     func enterEditor() -> Bool { false }
     func pastePanelIsKept() -> Bool { false }
     func enterBring(carryingQuery: Bool) -> Bool { false }
+    func bringCardExists(_ label: String) -> Bool { true }
+    func pasteReadingExists(address: String?) -> Bool { true }
 }
 
 public struct EngineCore {
@@ -1170,6 +1178,7 @@ public struct EngineCore {
                     state = .pastePanel(searching: true)
                     return [.pasteSearchCommit(action: .panel), .pastePanelShow]
                 }
+                if action == .reading, !world.pasteReadingExists(address: nil) { return [] }
                 state = .idle
                 return [.pasteSearchCommit(action: action), .exitPaste]
             case "delete":
@@ -1209,6 +1218,7 @@ public struct EngineCore {
             case _ where (option || control) && (Self.isLetter(key) || Self.isDigit(key)
                                                  || Clipboard.recentLabels.contains(key)):
                 guard world.pasteCardExists(address: key) else { return [] }
+                if action == .reading, !world.pasteReadingExists(address: key) { return [] }
                 let effect: EngineEffect
                 if let slot = Int(key) {
                     effect = .pastePinned(slot: slot, action: action)
@@ -1288,6 +1298,7 @@ public struct EngineCore {
                 state = .pastePanel(searching: searching)
                 return [.pastePinned(slot: slot, action: .panel), .pastePanelShow]
             }
+            if action == .reading, !world.pasteReadingExists(address: key) { return [] }
             state = .idle
             return [.pastePinned(slot: slot, action: action), .exitPaste]
         case _ where Self.isLetter(key) || Clipboard.recentLabels.contains(key):
@@ -1301,6 +1312,7 @@ public struct EngineCore {
                 state = .pastePanel(searching: searching)
                 return [.pasteRecent(label: key, action: .panel), .pastePanelShow]
             }
+            if action == .reading, !world.pasteReadingExists(address: key) { return [] }
             state = .idle
             return [.pasteRecent(label: key, action: action), .exitPaste]
         default:
@@ -1587,6 +1599,11 @@ public struct EngineCore {
             state = .idle
             return [.exitBring]
         case "return":
+            // Nothing found yet, often because the windows are still being
+            // read: the words stay, and so does Bring.
+            guard world.bringCardExists(Clipboard.recentLabels[0]) else {
+                return [.flash("⌂ nothing to bring yet")]
+            }
             state = .idle
             return [.bringCommit(line: shift), .exitBring]
         case "tab" where !command:
@@ -1599,6 +1616,7 @@ public struct EngineCore {
         case "v" where command && !shift && !option:
             return [.bringPaste]
         case _ where option && Clipboard.recentLabels.contains(key):
+            guard world.bringCardExists(key) else { return [] }
             state = .idle
             return [.bringPick(label: key, line: shift), .exitBring]
         default:

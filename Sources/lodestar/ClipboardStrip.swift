@@ -315,7 +315,7 @@ final class ClipboardStrip {
                 addActionCard(actions, frame: local(actionFrame(for: actingOn, size: size,
                                                                 layout: layout, screen: screen)))
             case .none:
-                if naming != nil { addNamingGuide(in: local(layout.bar)) }
+                break
             }
             if let sourceMenu {
                 addSourceMenu(sourceMenu, under: local(layout.bar))
@@ -386,8 +386,8 @@ final class ClipboardStrip {
                                      lift: rank < 4 ? .float : .rest, wholeLine: held == .shift,
                                      face: rank == 0 && layout.wideJ ? BarTheme.titleFont : BarTheme.bodyFont)
             card.frame = local(place)
-            card.setAccessibilityLabel(Caption.line(["\(label.uppercased()), match \(rank + 1)", match.lineText,
-                                                      from?.app, from?.window]))
+            card.setAccessibilityLabel(Caption.line(["\(label.uppercased()), match \(rank + 1)",
+                                                      Self.spokenLine(match), from?.app, from?.window]))
             root.addSubview(card)
             ranked.append(card)
         }
@@ -430,14 +430,7 @@ final class ClipboardStrip {
         _ = addKey(key, lit: lit, to: card, height: size.height)
         let body = NSRect(x: Self.pad, y: Self.foot, width: size.width - Self.pad * 2,
                           height: size.height - Self.head - BarTheme.chipHeight - 6 - Self.foot)
-        let text = NSMutableAttributedString(string: match.line, attributes: [
-            .font: face, .foregroundColor: wholeLine ? NSColor.labelColor : BarTheme.secondaryColor,
-        ])
-        if !wholeLine {
-            text.addAttributes([.foregroundColor: NSColor.labelColor,
-                                .font: NSFontManager.shared.convert(face, toHaveTrait: .boldFontMask)],
-                               range: match.token)
-        }
+        let text = Self.bringLine(match, face: face, wholeLine: wholeLine)
         let preview = NSTextField(wrappingLabelWithString: "")
         preview.lineBreakMode = .byWordWrapping
         let line = ceil(face.ascender - face.descender + face.leading)
@@ -465,6 +458,50 @@ final class ClipboardStrip {
             card.addSubview(where_)
         }
         return card
+    }
+
+    /// A line as a card draws it. The text starts a little before the hit,
+    /// with an ellipsis, when the hit sits far enough in that the card's
+    /// lines would end before it; the token a pick brings stands out; and
+    /// every secret's middle is a bar, as on Keep's cards, because the
+    /// danger is the screen.
+    static func bringLine(_ match: Bring.Match, face: NSFont, wholeLine: Bool) -> NSAttributedString {
+        let line = match.line as NSString
+        var start = 0
+        if match.hit.location > 48 {
+            start = match.hit.location - 32
+            let space = line.range(of: " ", options: [], range: NSRange(location: start, length: match.hit.location - start))
+            if space.location != NSNotFound { start = NSMaxRange(space) }
+        }
+        let lead = start > 0 ? "…" : ""
+        let shift = (lead as NSString).length - start
+        let out = NSMutableAttributedString(string: lead + line.substring(from: start), attributes: [
+            .font: face, .foregroundColor: wholeLine ? NSColor.labelColor : BarTheme.secondaryColor,
+        ])
+        if !wholeLine {
+            let token = NSIntersectionRange(match.token, NSRange(location: start, length: line.length - start))
+            if token.length > 0 {
+                out.addAttributes([.foregroundColor: NSColor.labelColor,
+                                   .font: NSFontManager.shared.convert(face, toHaveTrait: .boldFontMask)],
+                                  range: NSRange(location: token.location + shift, length: token.length))
+            }
+        }
+        for span in ClipSecret.spans(in: match.line).reversed() {
+            let middle = NSRange(location: span.range.location + span.head,
+                                 length: max(0, span.range.length - span.head - span.tail))
+            let shown = NSIntersectionRange(middle, NSRange(location: start, length: line.length - start))
+            guard shown.length > 0 else { continue }
+            out.replaceCharacters(in: NSRange(location: shown.location + shift, length: shown.length),
+                                  with: secretBar(font: face))
+        }
+        return out
+    }
+
+    /// What VoiceOver says for a Bring card: the line with its secrets'
+    /// middles left out.
+    static func spokenLine(_ match: Bring.Match) -> String {
+        ClipSecret.masked(match.lineText)?.text.replacingOccurrences(of: ClipSecret.blocks, with: " hidden ")
+            ?? match.lineText
     }
 
     // MARK: - Keys the cards wear
@@ -666,11 +703,12 @@ final class ClipboardStrip {
                              width: min(title.frame.width, room), height: title.frame.height)
         if let naming {
             if naming.selected {
-                // The offered name stands selected: typing replaces it.
+                // The offered name stands selected, in a quiet grey:
+                // typing replaces it. The accent is the caret's alone.
                 let mark = NSView(frame: title.frame.insetBy(dx: -2, dy: 0))
                 mark.wantsLayer = true
                 mark.layer?.cornerRadius = BarTheme.markRadius
-                mark.layer?.backgroundColor = BarTheme.accent.withAlphaComponent(0.32).cgColor
+                mark.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.14).cgColor
                 card.addSubview(mark)
             }
             card.addSubview(title)
@@ -680,13 +718,6 @@ final class ClipboardStrip {
             caret.wantsLayer = true
             caret.layer?.backgroundColor = BarTheme.accent.cgColor
             card.addSubview(caret)
-            // The light on the object being changed: a ring in the accent.
-            let ring = NSView(frame: NSRect(origin: .zero, size: size))
-            ring.wantsLayer = true
-            ring.layer?.cornerRadius = BarTheme.rowRadius
-            ring.layer?.borderWidth = 1.5
-            ring.layer?.borderColor = BarTheme.accent.cgColor
-            card.addSubview(ring)
         } else {
             card.addSubview(title)
         }
@@ -1006,20 +1037,6 @@ final class ClipboardStrip {
         caret.layer?.backgroundColor = BarTheme.accent.cgColor
         bar.addSubview(caret)
         root.addSubview(bar)
-    }
-
-    /// While a keepsake is named, the bar's place says how it ends.
-    private func addNamingGuide(in frame: NSRect) {
-        let line = Keycaps.line([.init(["⏎"], "Keep"), .init(["⌘1", "⌘4"], "Move"), .init(["esc"], "Cancel")])
-        line.layoutSubtreeIfNeeded()
-        let size = line.fittingSize
-        let holder = surface(size: NSSize(width: size.width + Self.pad * 2, height: frame.height),
-                             lift: .rest, weight: .normal, counted: false)
-        holder.frame = NSRect(x: frame.minX, y: frame.minY, width: size.width + Self.pad * 2, height: frame.height)
-        line.translatesAutoresizingMaskIntoConstraints = true
-        line.frame = NSRect(x: Self.pad, y: (frame.height - size.height) / 2, width: size.width, height: size.height)
-        holder.addSubview(line)
-        root.addSubview(holder)
     }
 
     /// The list of source apps, dropped from the bar's right end over the

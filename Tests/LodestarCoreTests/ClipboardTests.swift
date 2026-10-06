@@ -116,6 +116,10 @@ final class ClipboardTests: XCTestCase {
         shot = Clipboard.Clip(id: "d", kind: .image, created: shot.created, sourceBundleID: nil, sourceAppName: nil,
                               preview: "image 1200×800", bytes: 1)
         XCTAssertEqual(Clipboard.offeredName(for: shot), "Image")
+        let key = clip("k", preview: "export OPENAI_API_KEY=sk-proj-AbCdEf1234567890GhIjKlMnOpQr")
+        XCTAssertFalse(Clipboard.offeredName(for: key).contains("AbCd"), "a name never holds a secret")
+        XCTAssertFalse(Clipboard.offeredName(for: key).contains("sk-proj"))
+        XCTAssertEqual(Clipboard.offeredName(for: clip("s", preview: "sk-proj-AbCdEf1234567890GhIjKlMnOpQr")), "Secret")
         var named = clip("e", preview: "anything at all", pinned: 4)
         named.keptName = "Review prompt"
         XCTAssertEqual(Clipboard.name(of: named), "Review prompt", "the hand's name wins")

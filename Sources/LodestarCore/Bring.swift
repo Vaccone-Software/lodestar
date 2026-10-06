@@ -24,10 +24,18 @@ public enum Bring {
     public struct Line: Equatable {
         public let source: Int
         public let text: String
-        public init(source: Int, text: String) {
+        /// The text folded once, for case and accents, when it was read:
+        /// a keystroke then costs a literal search, never a folding one.
+        public let folded: String
+        public init(source: Int, text: String, folded: String? = nil) {
             self.source = source
             self.text = text
+            self.folded = folded ?? Bring.fold(text)
         }
+    }
+
+    public static func fold(_ text: String) -> String {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
     }
 
     /// One answer: the line, where the query sits in it, and the token
@@ -74,10 +82,19 @@ public enum Bring {
         guard (needle as NSString).length >= minimumQuery else { return ([], 0) }
         var scored: [(match: Match, rank: Int, inside: Int, order: Int)] = []
         var seen = Set<String>()
+        let foldedNeedle = fold(needle)
         for (order, line) in lines.enumerated() {
             let text = line.text as NSString
-            let hit = text.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive])
+            let folded = line.folded as NSString
+            var hit = folded.range(of: foldedNeedle, options: .literal)
             guard hit.location != NSNotFound else { continue }
+            // Folding kept every position where it kept the length, which
+            // is nearly always; where it did not, the line is asked again
+            // the slow way for where the hit sits in its own text.
+            if folded.length != text.length {
+                hit = text.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive])
+                guard hit.location != NSNotFound else { continue }
+            }
             let token = SelectCore.bringRange(hit, in: text, size: 0)
             let inside = hit.location > 0
                 && (CharacterSet.alphanumerics.contains(UnicodeScalar(text.character(at: hit.location - 1)) ?? " ")) ? 1 : 0

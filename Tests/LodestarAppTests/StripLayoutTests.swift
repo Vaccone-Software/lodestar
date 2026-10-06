@@ -132,6 +132,101 @@ final class StripLayoutTests: XCTestCase {
         XCTAssertFalse(stage.engine.strip.isVisible)
     }
 
+    private func bringStage(_ lines: [String], typed: @escaping (String) -> Void) -> Stage {
+        let stage = Stage()
+        stage.engine.bringFront = { 4242 }
+        stage.engine.bringTypes = { text, _ in typed(text) }
+        stage.engine.bringWindows = {
+            [BringReader.Window(source: Bring.Source(app: "Ghostty", window: "~/web", rank: 0), pid: 1, lines: lines)]
+        }
+        stage.seedClip("a clip")
+        stage.openStrip()
+        stage.press("=")
+        return stage
+    }
+
+    private func settle() {
+        let done = expectation(description: "settled")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { done.fulfill() }
+        wait(for: [done], timeout: 1)
+    }
+
+    /// A miss keeps Bring and the words; nothing is typed.
+    func testABringMissKeepsTheWords() {
+        var typed: [String] = []
+        let stage = bringStage([]) { typed.append($0) }
+        for key in ["n", "o", "p", "e"] { stage.press(key) }
+        stage.press("return")
+        XCTAssertEqual(stage.engine.grammarState, .bring(listing: false))
+        XCTAssertTrue(stage.engine.strip.isVisible)
+        stage.press("escape")
+        XCTAssertEqual(stage.engine.grammarState, .paste(searching: false), "back to Keep")
+        settle()
+        XCTAssertEqual(typed, [])
+    }
+
+    /// The text goes only where the hand was, and never into a field that
+    /// takes no typed input.
+    func testBringRefusesAnotherAppInFrontAndSecureInput() {
+        var typed: [String] = []
+        var stage = bringStage(["ssh build-02.internal"]) { typed.append($0) }
+        for key in ["b", "u"] { stage.press(key) }
+        stage.engine.bringFront = { 7 }
+        stage.press("return")
+        settle()
+        XCTAssertEqual(typed, [], "another app came in front")
+        XCTAssertTrue(stage.hud.titleText?.contains("no longer in front") == true, "\(String(describing: stage.hud.titleText))")
+        stage = bringStage(["ssh build-02.internal"]) { typed.append($0) }
+        stage.engine.bringSecureInput = { true }
+        for key in ["b", "u"] { stage.press(key) }
+        stage.press("return")
+        settle()
+        XCTAssertEqual(typed, [], "secure input")
+    }
+
+    /// A secret on a Bring card keeps its ends and hides its middle, to
+    /// the eye and to VoiceOver; the hit late in a long line is on the card.
+    func testBringCardsMaskSecretsAndShowTheHit() throws {
+        let line = "export OPENAI_API_KEY=sk-proj-" + "AbCdEf1234567890GhIjKlMnOpQr"
+        let found = Bring.search([Bring.Line(source: 0, text: line)],
+                                 sources: [Bring.Source(app: "Ghostty", window: "", rank: 0)], query: "openai")
+        let match = try XCTUnwrap(found.matches.first)
+        let drawn = ClipboardStrip.bringLine(match, face: BarTheme.bodyFont, wholeLine: false).string
+        XCTAssertFalse(drawn.contains("1234567890"), drawn)
+        XCTAssertTrue(drawn.hasSuffix("OpQr"))
+        XCTAssertFalse(ClipboardStrip.spokenLine(match).contains("1234567890"))
+        let long = String(repeating: "word ", count: 30) + "the needle is here"
+        let far = try XCTUnwrap(Bring.search([Bring.Line(source: 0, text: long)],
+                                             sources: [Bring.Source(app: "A", window: "", rank: 0)],
+                                             query: "needle").matches.first)
+        let shown = ClipboardStrip.bringLine(far, face: BarTheme.bodyFont, wholeLine: false).string
+        XCTAssertTrue(shown.hasPrefix("…"))
+        XCTAssertLessThan((shown as NSString).range(of: "needle").location, 48)
+    }
+
+    /// Four places full: K asks for a place, ⌘2 replaces that keepsake,
+    /// and esc puts it back.
+    func testAFullKeepChoosesAPlaceAndEscPutsItBack() {
+        let stage = Stage()
+        var kept: [Clipboard.Clip] = []
+        for n in 1...4 {
+            let clip = stage.seedClip("kept \(n)")
+            XCTAssertTrue(stage.clipboard.history.pin(clip.id))
+            kept.append(clip)
+        }
+        let fresh = stage.seedClip("the new one")
+        stage.openStrip()
+        stage.chord("j", .maskCommand)
+        stage.press("k")
+        XCTAssertEqual(stage.engine.grammarState, .pasteName(searching: false), "Keep stays open")
+        let two = stage.clipboard.history.clips.first { $0.pinnedSlot == 2 }
+        stage.chord("2", .maskCommand)
+        XCTAssertEqual(stage.clipboard.history.clips.first { $0.pinnedSlot == 2 }?.id, fresh.id)
+        stage.press("escape")
+        XCTAssertEqual(stage.clipboard.history.clips.first { $0.pinnedSlot == 2 }?.id, two?.id, "put back")
+        XCTAssertNil(stage.clipboard.history.clips.first { $0.id == fresh.id }?.pinnedSlot)
+    }
+
     func testOnTheStageTheBarStandsOverTheRightHand() {
         let stage = Stage()
         stage.seedClip("one")

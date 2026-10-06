@@ -17,6 +17,15 @@ final class BringReader {
         let source: Bring.Source
         let pid: pid_t
         let lines: [String]
+        /// Each line folded once, here, off the main thread.
+        let folded: [String]
+
+        init(source: Bring.Source, pid: pid_t, lines: [String], folded: [String]? = nil) {
+            self.source = source
+            self.pid = pid
+            self.lines = lines
+            self.folded = folded ?? lines.map(Bring.fold)
+        }
     }
 
     private let queue = DispatchQueue(label: "com.vaccone.lodestar.bring", qos: .userInitiated)
@@ -39,7 +48,7 @@ final class BringReader {
     /// Read every window but the focused one of `front`. A password
     /// manager is never read, nor any app excluded from Keep: what may
     /// not be recorded may not be read either.
-    func start(front: pid_t, excluded: Set<String> = []) {
+    func start(front: pid_t, excluded: Set<String> = [], patterns: [String] = []) {
         generation += 1
         let expected = generation
         lock.withLock { live = expected }
@@ -50,13 +59,18 @@ final class BringReader {
             let app = AXUIElementCreateApplication(front)
             AXUIElementSetMessagingTimeout(app, 0.25)
             let focused = AX.element(app, kAXFocusedWindowAttribute as String)
+            let excludedText = patterns.map { $0.lowercased() }.filter { !$0.isEmpty }
             for (rank, pid) in order.enumerated() {
                 guard let self, self.isCurrent(expected) else { return }
-                let read = Self.read(pid: pid, rank: rank, skipping: focused)
-                DispatchQueue.main.async { [weak self] in
-                    guard let self, self.generation == expected, !read.isEmpty else { return }
-                    self.windows.append(contentsOf: read)
-                    self.onUpdate?()
+                // Each window is shown the moment it is read: an app with
+                // many windows never holds the next app back for all of them.
+                Self.read(pid: pid, rank: rank, skipping: focused, excludedText: excludedText,
+                          stillWanted: { self.isCurrent(expected) }) { window in
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self, self.generation == expected else { return }
+                        self.windows.append(window)
+                        self.onUpdate?()
+                    }
                 }
             }
             DispatchQueue.main.async { [weak self] in
@@ -101,7 +115,8 @@ final class BringReader {
         return order
     }
 
-    private static func read(pid: pid_t, rank: Int, skipping focused: AXUIElement?) -> [Window] {
+    private static func read(pid: pid_t, rank: Int, skipping focused: AXUIElement?, excludedText: [String],
+                             stillWanted: () -> Bool, deliver: (Window) -> Void) {
         let running = NSRunningApplication(processIdentifier: pid)
         let name = running?.localizedName ?? "App"
         // A Chromium browser builds its tree only when asked to; the first
@@ -109,8 +124,8 @@ final class BringReader {
         if let bundle = running?.bundleURL, AXWarmer.isChromiumBrowser(bundle) { _ = AXWarmer.warm(pid) }
         let app = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(app, 0.5)
-        var out: [Window] = []
         for window in AX.elements(app, kAXWindowsAttribute as String) ?? [] {
+            guard stillWanted() else { return }
             if let focused, CFEqual(window, focused) { continue }
             if AX.bool(window, kAXMinimizedAttribute as String) == true { continue }
             var texts: [String] = []
@@ -119,11 +134,18 @@ final class BringReader {
             walk(window, into: &texts, nodes: &nodes, depth: 0, deadline: deadline)
             var lines = Bring.lines(of: texts.joined(separator: "\n"))
             if lines.count > tailLines { lines = Array(lines.suffix(tailLines)) }
+            // Keep's excluded text is excluded here too: a line holding it
+            // is never shown.
+            if !excludedText.isEmpty {
+                lines = lines.filter { line in
+                    let lower = line.lowercased()
+                    return !excludedText.contains { lower.contains($0) }
+                }
+            }
             guard !lines.isEmpty else { continue }
             let title = AX.string(window, kAXTitleAttribute as String) ?? ""
-            out.append(Window(source: Bring.Source(app: name, window: title, rank: rank), pid: pid, lines: lines))
+            deliver(Window(source: Bring.Source(app: name, window: title, rank: rank), pid: pid, lines: lines))
         }
-        return out
     }
 
     private static func walk(_ element: AXUIElement, into texts: inout [String], nodes: inout Int,

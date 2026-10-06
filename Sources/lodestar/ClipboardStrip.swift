@@ -349,9 +349,10 @@ final class ClipboardStrip {
         case .option: return searching ? "⌥" + letter : letter
         case .shift: return searching ? nil : "⇧" + letter
         case .none:
-            // While searching the letters are the query: only the match
-            // ⏎ would take wears a key.
-            if searching { return rank == selection ? "⏎" : nil }
+            // While searching the letters are the query, so every match
+            // wears the chord that takes it without leaving the search,
+            // and the one ⏎ would take wears ⏎.
+            if searching { return rank == selection ? "⏎" : "⌥" + letter }
             return letter
         }
     }
@@ -361,7 +362,7 @@ final class ClipboardStrip {
         case .control: return hasReading ? "⌃\(slot)" : nil
         case .option: return searching ? "⌥\(slot)" : "\(slot)"
         case .shift: return searching ? nil : "⇧\(slot)"
-        case .none: return searching ? nil : "\(slot)"
+        case .none: return searching ? "⌥\(slot)" : "\(slot)"
         }
     }
 

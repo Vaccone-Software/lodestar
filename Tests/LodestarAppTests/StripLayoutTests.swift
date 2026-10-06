@@ -71,6 +71,26 @@ final class StripLayoutTests: XCTestCase {
         XCTAssertEqual((left + right) / 2, screen.midX, accuracy: 1)
     }
 
+    /// While searching every match wears the chord that takes it, and the
+    /// best match wears ⏎; in Keep the cards wear their bare letters.
+    func testSearchingShowsTheChordThatTakesEachMatch() {
+        let stage = Stage()
+        let older = stage.seedClip("build one")
+        let newer = stage.seedClip("build two")
+        let kept = stage.seedClip("kept text")
+        XCTAssertTrue(stage.clipboard.history.pin(kept.id))
+        stage.openStrip()
+        XCTAssertEqual(stage.engine.strip.shownKeys[newer.id], "J")
+        XCTAssertEqual(stage.engine.strip.shownKeys[kept.id], "4")
+        stage.press("/")
+        stage.press("b")
+        XCTAssertEqual(stage.engine.strip.shownKeys[newer.id], "⏎", "the best match")
+        XCTAssertEqual(stage.engine.strip.shownKeys[older.id], "⌥K")
+        XCTAssertEqual(stage.engine.strip.shownKeys[kept.id], "⌥4", "a keepsake too")
+        stage.press("escape")
+        stage.press("escape")
+    }
+
     func testOnTheStageTheBarStandsOverTheRightHand() {
         let stage = Stage()
         stage.seedClip("one")

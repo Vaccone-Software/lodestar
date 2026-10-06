@@ -44,7 +44,6 @@ public enum Gestures {
         Verb(name: "layout-undo", keys: ["left", "right"], about: "lode ← undo, lode → redo"),
         Verb(name: "display-move", keys: ["[", "]"], about: "lode [ and ], move across displays"),
         Verb(name: "select", keys: ["/"], about: "lode /, select text by typing it"),
-        Verb(name: "bring", keys: ["="], about: "lode =, bring text you can see to where you are typing"),
         Verb(name: "settings", keys: [","], about: "lode , , the settings window"),
     ]
 

@@ -350,9 +350,6 @@ final class PasteModeTests: XCTestCase {
         XCTAssertEqual(press("="), [.exitPaste])
         XCTAssertEqual(core.state, .bring(listing: false))
         XCTAssertTrue(world.calls.contains("enterBring:true"))
-        open()
-        XCTAssertEqual(press("="), [], "outside a search = is no card's key")
-        XCTAssertEqual(core.state, .paste(searching: false))
         world.bringSucceeds = false
         core = EngineCore()
         openSearching()

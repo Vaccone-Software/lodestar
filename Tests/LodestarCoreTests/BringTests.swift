@@ -17,24 +17,43 @@ final class BringTests: XCTestCase {
         core.keyDown(key: key, held: held, shift: shift, command: command, option: option, world: world)
     }
 
-    func testLodeEqualsOpensBring() {
-        XCTAssertEqual(press("=", held: true), [.hideBars])
-        XCTAssertEqual(core.state, .bring(listing: false))
-        XCTAssertTrue(world.calls.contains("enterBring:false"))
-        XCTAssertEqual(press("=", held: true), [.exitBring], "lode = again closes it")
-        XCTAssertEqual(core.state, .idle)
+    /// Bring opens from Keep, by `=`; it has no shortcut of its own.
+    private func openBring() {
+        _ = core.openPaste(world: world)
+        _ = press("=")
     }
 
-    func testNothingInFrontSaysSo() {
+    func testEqualsInKeepOpensBring() {
+        _ = core.openPaste(world: world)
+        XCTAssertEqual(press("="), [.exitPaste])
+        XCTAssertEqual(core.state, .bring(listing: false))
+        XCTAssertTrue(world.calls.contains("enterBring:false"))
+        XCTAssertEqual(press("=", held: true), [.exitBring, .passThrough], "lode = is no gesture: it leaves and passes on, as in any mode")
+        XCTAssertEqual(core.state, .idle)
+        XCTAssertEqual(press("=", held: true), [.passThrough], "and at idle it passes through")
+    }
+
+    func testNothingInFrontKeepsKeep() {
         world.bringSucceeds = false
-        XCTAssertEqual(press("=", held: true), [.hideBars, .flash("✕ nothing in front to bring into")])
+        _ = core.openPaste(world: world)
+        XCTAssertEqual(press("="), [])
+        XCTAssertEqual(core.state, .paste(searching: false))
+    }
+
+    /// One escape per thing opened: Bring steps back to Keep, then Keep
+    /// closes.
+    func testEscapeStepsBackToKeep() {
+        openBring()
+        XCTAssertEqual(press("escape"), [.exitBring, .enterPaste])
+        XCTAssertEqual(core.state, .paste(searching: false))
+        XCTAssertEqual(press("escape"), [.exitPaste])
         XCTAssertEqual(core.state, .idle)
     }
 
     /// Every character is the query; ⌥ names a card, ⏎ takes the best,
     /// ⇧ asks for the whole line.
     func testTheGrammarIsKeepsSearch() {
-        _ = press("=", held: true)
+        openBring()
         XCTAssertEqual(press("b"), [.bringType("b")])
         XCTAssertEqual(press("u"), [.bringType("u")])
         XCTAssertEqual(press("delete"), [.bringDelete(.character)])
@@ -42,19 +61,16 @@ final class BringTests: XCTestCase {
         XCTAssertEqual(press("x", option: true), [], "⌥ with no card types nothing")
         XCTAssertEqual(press("k", option: true), [.bringPick(label: "k", line: false), .exitBring])
         XCTAssertEqual(core.state, .idle)
-        _ = press("=", held: true)
+        openBring()
         XCTAssertEqual(press("l", shift: true, option: true), [.bringPick(label: "l", line: true), .exitBring])
-        _ = press("=", held: true)
+        openBring()
         XCTAssertEqual(press("return", shift: true), [.bringCommit(line: true), .exitBring])
-        _ = press("=", held: true)
+        openBring()
         XCTAssertEqual(press("return"), [.bringCommit(line: false), .exitBring])
-        _ = press("=", held: true)
-        XCTAssertEqual(press("escape"), [.exitBring])
-        XCTAssertEqual(core.state, .idle)
     }
 
     func testTabListsTheApps() {
-        _ = press("=", held: true)
+        openBring()
         XCTAssertEqual(press("tab"), [.bringSourceShow])
         XCTAssertEqual(core.state, .bring(listing: true))
         XCTAssertEqual(press("s"), [.bringSourceType("s")])
@@ -66,15 +82,15 @@ final class BringTests: XCTestCase {
         XCTAssertEqual(core.state, .bring(listing: false), "the list closes, Bring stays")
     }
 
-    /// ⇧⌘V over Bring: Bring goes and Keep opens in its place.
-    func testKeepsChordMovesFromBringToKeep() {
-        _ = press("=", held: true)
-        XCTAssertEqual(core.openPaste(world: world), [.exitBring, .hideBars, .enterPaste])
-        XCTAssertEqual(core.state, .paste(searching: false))
+    /// Bring lives inside Keep: ⇧⌘V closes both.
+    func testKeepsChordClosesBring() {
+        openBring()
+        XCTAssertEqual(core.openPaste(world: world), [.exitBring])
+        XCTAssertEqual(core.state, .idle)
     }
 
     func testAClickElsewhereEndsBring() {
-        _ = press("=", held: true)
+        openBring()
         XCTAssertEqual(core.leavePaste(), [.exitBring])
         XCTAssertEqual(core.state, .idle)
     }

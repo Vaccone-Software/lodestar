@@ -393,15 +393,14 @@ public struct EngineCore {
         default:
             break
         }
-        // ⇧⌘V over Bring: Bring goes, and Keep opens in its place.
-        var leaving: [EngineEffect] = []
+        // Bring lives inside Keep, so ⇧⌘V closes it the way it closes Keep.
         if case .bring = state {
             state = .idle
-            leaving = [.exitBring]
+            return [.exitBring]
         }
-        guard world.enterPaste() else { return leaving + [.flash("⌂ nothing copied yet")] }
+        guard world.enterPaste() else { return [.flash("⌂ nothing copied yet")] }
         state = .paste(searching: false)
-        return leaving + [.hideBars, .enterPaste]
+        return [.hideBars, .enterPaste]
     }
 
     /// The hand reached for the pointer while the scroll lens was up — a
@@ -655,15 +654,6 @@ public struct EngineCore {
                 state = .select
             } else {
                 effects.append(.flash("✕ no focused window to select in"))
-            }
-        case "=" where !shift:
-            // Bring: text you can see, typed where you are. Select's
-            // machine at its own door, beside select's key.
-            effects.append(.hideBars)
-            if world.enterBring(carryingQuery: false) {
-                state = .bring(listing: false)
-            } else {
-                effects.append(.flash("✕ nothing in front to bring into"))
             }
         case "space":
             let wasVisible = world.searcherVisible
@@ -1198,8 +1188,7 @@ public struct EngineCore {
                 return [.pasteSearchPaste]
             case "=" where !command && !option && !control && !shift:
                 // Not among the clips: `=` hands the words to Bring, which
-                // looks for them on the screen instead. Keep closes first,
-                // so it never stands over the text Bring reads.
+                // looks for them in your other windows instead.
                 guard world.enterBring(carryingQuery: true) else { return [] }
                 state = .bring(listing: false)
                 return [.exitPaste]
@@ -1284,6 +1273,11 @@ public struct EngineCore {
         case "/" where !shift:
             state = .paste(searching: true)
             return [.pasteSearchBegin]
+        case "=" where !shift:
+            // Bring: the same places, filled from your other windows.
+            guard world.enterBring(carryingQuery: false) else { return [] }
+            state = .bring(listing: false)
+            return [.exitPaste]
         case _ where Self.isDigit(key):
             // Digits address the pinned column; the slots are few and fixed.
             // With ⌘, an unfilled slot has already left the mode above.
@@ -1547,8 +1541,8 @@ public struct EngineCore {
 
     /// Bring is a search from its first key: every character is the
     /// query, so a card is named by `⌥` and its letter, which never types,
-    /// and `⏎` takes the best match. `⇧` asks for the whole line. `lode =`
-    /// again, `esc` or any other lode verb leaves; with the list of apps
+    /// and `⏎` takes the best match. `⇧` asks for the whole line. `esc`
+    /// steps back to Keep and any lode verb leaves; with the list of apps
     /// open its own field takes the typing.
     private mutating func bringPress(key: String, held: Bool, shift: Bool, command: Bool,
                                      option: Bool, control: Bool, listing: Bool,
@@ -1557,7 +1551,7 @@ public struct EngineCore {
             if key == "/", shift { return [.toggleCheat] }
             state = .idle
             var effects: [EngineEffect] = [.exitBring]
-            if key != "escape" && key != "=" {
+            if key != "escape" {
                 effects.append(contentsOf: idlePress(key: key, shift: shift, world: world))
             }
             return effects
@@ -1584,6 +1578,12 @@ public struct EngineCore {
         switch key {
         case "escape":
             if world.cheatVisible { return [.dismissCheat] }
+            // Back to Keep, the door Bring was opened from: one escape per
+            // thing opened.
+            if world.enterPaste() {
+                state = .paste(searching: false)
+                return [.exitBring, .enterPaste]
+            }
             state = .idle
             return [.exitBring]
         case "return":

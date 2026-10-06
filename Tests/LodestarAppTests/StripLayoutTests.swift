@@ -115,7 +115,9 @@ final class StripLayoutTests: XCTestCase {
                                 lines: ["deploy is on build-03 today"])]
         }
         let before = stage.clipboard.pasteboard.changeCount
-        XCTAssertTrue(stage.lode("="))
+        stage.seedClip("a clip")
+        stage.openStrip()
+        stage.press("=")
         for key in ["b", "u", "i", "l", "d", "-"] { stage.press(key) }
         XCTAssertEqual(stage.engine.strip.shownBring.map(\.tokenText), ["build-02.internal", "build-03"])
         XCTAssertEqual(stage.engine.strip.shownBringSources, ["Brave", "Slack"])

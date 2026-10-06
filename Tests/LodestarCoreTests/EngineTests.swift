@@ -291,9 +291,10 @@ final class EngineTests: XCTestCase {
     }
 
     /// The number row is one sentence: 0 collapses to one window, 1…9 pick
-    /// among many. Nothing sweeps; the minus took the commands bar in 0.26,
-    /// and the old claim key, the equals beside it, is Bring.
-    func testEqualsIsBringAndMinusIsCommands() {
+    /// among many. Nothing sweeps, and the old claim key is free; the minus
+    /// beside it took the commands bar in 0.26.
+    func testEqualsIsFreeAndMinusIsCommands() {
+        XCTAssertEqual(press("="), [.passThrough])
         XCTAssertEqual(press("-"), [.hideBars, .showCommandsBar])
         XCTAssertEqual(core.state, .idle)
     }

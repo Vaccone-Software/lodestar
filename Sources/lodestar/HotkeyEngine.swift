@@ -1657,6 +1657,7 @@ final class HotkeyEngine {
                 GuideRow(key: "⌘J…A", label: "The card's actions: keep, edit, delete, save"),
                 GuideRow(key: "/", label: "Search the clips · ⌥ and a letter pastes a match · ⏎ the best"),
                 GuideRow(key: "⇥", label: "Only the clips from one app"),
+                GuideRow(key: "=", label: "Text from your other windows"),
                 GuideRow(key: "E", label: "Open a text card in the draft · an image across the display"),
                 GuideRow(key: "?", label: "This sheet"),
                 GuideRow(key: "esc", label: "Close Keep"),
@@ -1668,7 +1669,7 @@ final class HotkeyEngine {
                 GuideRow(key: "⌥J…A", label: "Bring that card's match · ⌥⇧ its whole line"),
                 GuideRow(key: "⇥", label: "Only the windows of one app"),
                 GuideRow(key: "?", label: "This sheet"),
-                GuideRow(key: "esc", label: "Close Bring"),
+                GuideRow(key: "esc", label: "Back to Keep"),
             ])]
         case .select:
             return [.init(header: "Select", rows: [

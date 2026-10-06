@@ -447,13 +447,24 @@ final class DraftController {
         guard let before = handBaseline else { return }
         handBaseline = nil
         guard spokenWords > 0, clipOrigin == nil, before != buffer.text else { return }
-        let learned = Corrections.learned(
-            before: before, after: buffer.text, known: Set(words), pronouncer: DictationLexicon.pronouncer,
-            isCommon: { CommonWords.isCommon($0) }, isFrequent: { CommonWords.isFrequent($0) })
-        for word in learned {
-            Log.info("draft", ["learned": word.count])
-            journal?.note("learned", before: "", after: word, at: clock.now())
-            learnWord(word)
+        let after = buffer.text
+        let known = Set(words)
+        // Off the main thread: the first lesson on a Mac with no words yet
+        // reads the whole pronunciation dictionary, and the main thread is
+        // the one the key tap shares — every key on the Mac would wait.
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let learned = Corrections.learned(
+                before: before, after: after, known: known, pronouncer: DictationLexicon.pronouncer,
+                isCommon: { CommonWords.isCommon($0) }, isFrequent: { CommonWords.isFrequent($0) })
+            guard !learned.isEmpty else { return }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                for word in learned {
+                    Log.info("draft", ["learned": word.count])
+                    self.journal?.note("learned", before: "", after: word, at: self.clock.now())
+                    self.learnWord(word)
+                }
+            }
         }
     }
 

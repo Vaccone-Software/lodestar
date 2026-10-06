@@ -28,6 +28,8 @@ final class DraftScenarioTests: XCTestCase {
         for key in ["i", "n", "d", "o", "r", "a"] { cmd(stage, key) }
         XCTAssertEqual(stage.draft.buffer.text, "Ask about Kindora.")
         cmd(stage, "return")
+        // Learned off the main thread, then written on it.
+        stage.pump(until: { !learned.isEmpty }, turns: 400)
         XCTAssertEqual(learned, ["Kindora"])
     }
 
@@ -44,6 +46,7 @@ final class DraftScenarioTests: XCTestCase {
         cmd(stage, "t", shift: true)
         for key in ["u", "e", "s", "d", "a", "y"] { cmd(stage, key) }
         cmd(stage, "return")
+        stage.pump(until: { false }, turns: 100)
         XCTAssertEqual(learned, [])
     }
 

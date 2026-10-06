@@ -337,6 +337,136 @@ final class ClipboardStrip {
         }
     }
 
+    // MARK: - Bring
+
+    /// The matches Bring is showing, by label order, for the shell to read
+    /// back the pick and for the tests.
+    private(set) var shownBring: [Bring.Match] = []
+    private(set) var shownBringSources: [String] = []
+
+    /// Bring, in Keep's places: what your other windows say, each line a
+    /// card over the key that takes it, best first on J. The token a pick
+    /// brings stands out in the line; the foot says which app and which
+    /// window. No keepsakes: they are Keep's.
+    func showBring(query: String, matches: [Bring.Match], total: Int, sources: [Bring.Source],
+                   reading: Bool, source: String?, sourceMenu: SourceMenu?, held: Held = .none) {
+        let screen = ActivePolicy.presentationFrame
+        let layout = Self.layout(in: screen)
+        let opening = !panel.isVisible
+        lastLayout = layout
+        shownRecents = []
+        shownPins = [:]
+        shownCards = [:]
+        shownKeys = [:]
+        shownWeights = []
+        shownCount = nil
+        shownSource = nil
+        shownSourceRows = []
+        bandFrame = layout.bar
+        shownBring = Array(matches.prefix(Self.labels.count))
+        shownBringSources = shownBring.map { sources.indices.contains($0.source) ? sources[$0.source].app : "" }
+        root.subviews.forEach { $0.removeFromSuperview() }
+
+        NSAnimationContext.beginGrouping()
+        NSAnimationContext.current.duration = 0
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        panel.setFrame(screen, display: false)
+        root.frame = NSRect(origin: .zero, size: screen.size)
+        let local = { (rect: NSRect) in rect.offsetBy(dx: -screen.minX, dy: -screen.minY) }
+
+        var ranked: [NSView] = []
+        for (rank, match) in shownBring.enumerated() {
+            let label = Self.labels[rank]
+            guard let place = layout.places[label] else { continue }
+            let from = sources.indices.contains(match.source) ? sources[match.source] : nil
+            let key = rank == 0 ? (held == .shift ? "⇧⏎" : "⏎")
+                : (held == .shift ? "⌥⇧" : "⌥") + label.uppercased()
+            let card = makeBringCard(match, from: from, key: key, lit: rank == 0, size: place.size,
+                                     lift: rank < 4 ? .float : .rest, wholeLine: held == .shift,
+                                     face: rank == 0 && layout.wideJ ? BarTheme.titleFont : BarTheme.bodyFont)
+            card.frame = local(place)
+            card.setAccessibilityLabel(Caption.line(["\(label.uppercased()), match \(rank + 1)", match.lineText,
+                                                      from?.app, from?.window]))
+            root.addSubview(card)
+            ranked.append(card)
+        }
+
+        let count: String?
+        if (query as NSString).length < Bring.minimumQuery {
+            count = nil
+        } else if total == 0 {
+            count = reading ? "Reading" : "No matches"
+        } else {
+            count = total > shownBring.count ? "\(shownBring.count) of \(total)" : "\(total) found"
+        }
+        addBar(key: "=", query: query, placeholder: "Type what you saw in another window",
+               count: count, source: source, frame: local(layout.bar))
+        if let sourceMenu { addSourceMenu(sourceMenu, under: local(layout.bar)) }
+
+        root.setAccessibilityChildren(ranked)
+        panel.setAccessibilityLabel("Bring")
+        panel.orderFrontRegardless()
+        CATransaction.commit()
+        NSAnimationContext.endGrouping()
+        if opening {
+            NSAccessibility.post(element: panel, notification: .announcementRequested, userInfo: [
+                .announcement: "Bring, type what you saw in another window",
+                .priority: NSAccessibilityPriorityLevel.high.rawValue,
+            ])
+        }
+    }
+
+    /// A line from another window: its text with the token a pick brings
+    /// set in the label colour and the rest in the card's grey, or, while
+    /// ⇧ is held, the whole line in the label colour, since that is what
+    /// would come.
+    private func makeBringCard(_ match: Bring.Match, from: Bring.Source?, key: String, lit: Bool,
+                               size: NSSize, lift: ObjectSurface.Lift, wholeLine: Bool, face: NSFont) -> NSView {
+        let card = surface(size: size, lift: lift, weight: .normal)
+        let id = "bring-\(match.source)-\(match.hit.location)-\(match.line.hashValue)"
+        shownCards[id] = card
+        shownKeys[id] = key
+        _ = addKey(key, lit: lit, to: card, height: size.height)
+        let body = NSRect(x: Self.pad, y: Self.foot, width: size.width - Self.pad * 2,
+                          height: size.height - Self.head - BarTheme.chipHeight - 6 - Self.foot)
+        let text = NSMutableAttributedString(string: match.line, attributes: [
+            .font: face, .foregroundColor: wholeLine ? NSColor.labelColor : BarTheme.secondaryColor,
+        ])
+        if !wholeLine {
+            text.addAttributes([.foregroundColor: NSColor.labelColor,
+                                .font: NSFontManager.shared.convert(face, toHaveTrait: .boldFontMask)],
+                               range: match.token)
+        }
+        let preview = NSTextField(wrappingLabelWithString: "")
+        preview.lineBreakMode = .byWordWrapping
+        let line = ceil(face.ascender - face.descender + face.leading)
+        preview.maximumNumberOfLines = max(1, Int(body.height / line))
+        preview.cell?.truncatesLastVisibleLine = true
+        preview.attributedStringValue = text
+        preview.frame = body
+        card.addSubview(preview)
+
+        let where_ = NSTextField(labelWithString: from?.window ?? "")
+        where_.font = BarTheme.secondaryFont
+        where_.textColor = BarTheme.secondaryColor
+        where_.lineBreakMode = .byTruncatingTail
+        let app = NSTextField(labelWithString: from?.app ?? "")
+        app.font = BarTheme.secondaryFont
+        app.textColor = BarTheme.secondaryColor
+        app.sizeToFit()
+        app.frame.origin = NSPoint(x: Self.pad, y: 8)
+        card.addSubview(app)
+        where_.sizeToFit()
+        let room = size.width - Self.pad - app.frame.maxX - 10
+        if room > 24, from?.window.isEmpty == false {
+            let width = min(where_.frame.width, room)
+            where_.frame = NSRect(x: size.width - Self.pad - width, y: 8, width: width, height: where_.frame.height)
+            card.addSubview(where_)
+        }
+        return card
+    }
+
     // MARK: - Keys the cards wear
 
     /// The chord that pastes a card right now, or nil when no chord does:
@@ -813,13 +943,22 @@ final class ClipboardStrip {
     /// The search over the right hand: `/`, what was typed, how many
     /// match, and the source the clips are filtered to.
     private func addSearchBar(query: String, source: String?, matches: Int?, shown: Int, frame: NSRect) {
+        let count = matches.map { $0 == 0 ? "No matches" : $0 > shown ? "\(shown) of \($0)" : "\($0) found" }
+        addBar(key: "/", query: query, placeholder: "Search clips", count: count, source: source, frame: frame)
+    }
+
+    /// The bar over the right hand, Keep's search and Bring's alike: the
+    /// key that opened it, what was typed, how many answer, and the app
+    /// the answers are filtered to.
+    private func addBar(key: String, query: String, placeholder: String, count countText: String?,
+                        source: String?, frame: NSRect) {
         let bar = surface(size: frame.size, lift: .float, weight: .normal, counted: false)
         bar.frame = frame
         bar.setAccessibilityRole(.textField)
-        bar.setAccessibilityLabel("Search clips")
+        bar.setAccessibilityLabel(placeholder)
         bar.setAccessibilityValue(query)
         let height = frame.height
-        let slash = Self.placedCap("/", at: NSPoint(x: Self.pad, y: (height - BarTheme.chipHeight) / 2))
+        let slash = Self.placedCap(key, at: NSPoint(x: Self.pad, y: (height - BarTheme.chipHeight) / 2))
         bar.addSubview(slash)
 
         // The source chip at the right: ⇥ and the app the clips come from.
@@ -837,8 +976,7 @@ final class ClipboardStrip {
         bar.addSubview(name)
 
         var right = chipKey.frame.minX - 14
-        if let matches {
-            let text = matches == 0 ? "No matches" : matches > shown ? "\(shown) of \(matches)" : "\(matches) found"
+        if let text = countText {
             shownCount = text
             let count = NSTextField(labelWithString: text)
             count.font = BarTheme.secondaryFont
@@ -852,7 +990,7 @@ final class ClipboardStrip {
         let font = BarTheme.stripInputFont
         let x = slash.frame.maxX + 10
         let field = query.isEmpty
-            ? NSTextField(labelWithAttributedString: BarTheme.placeholder("Search clips", like: font))
+            ? NSTextField(labelWithAttributedString: BarTheme.placeholder(placeholder, like: font))
             : NSTextField(labelWithString: query)
         if !query.isEmpty { field.font = font; field.textColor = .labelColor }
         field.lineBreakMode = .byTruncatingHead

@@ -2743,6 +2743,30 @@ if cliArguments.contains("__split-preview") {
 if let i = cliArguments.firstIndex(of: "__strip-preview") {
     StripPreview.run(cliArguments.indices.contains(i + 1) ? (Int(cliArguments[i + 1]) ?? 1) : 1)
 }
+
+// `lodestar __bring-read`: Bring's reader over this machine's windows, the
+// app in front excluded, printed as counts per app — never a title or a
+// line of text — with the time each took.
+if cliArguments.contains("__bring-read") {
+    let reader = BringReader()
+    let started = Date()
+    var printed = 0
+    reader.onUpdate = {
+        let windows = reader.windows
+        for window in windows.dropFirst(printed) {
+            print(String(format: "%5d ms  rank %2d  %@  lines=%d", Int(Date().timeIntervalSince(started) * 1000),
+                         window.source.rank, window.source.app, window.lines.count))
+        }
+        printed = windows.count
+        if !reader.reading {
+            print("done: \(windows.count) windows, \(windows.reduce(0) { $0 + $1.lines.count }) lines, "
+                  + "\(Int(Date().timeIntervalSince(started) * 1000)) ms")
+            exit(0)
+        }
+    }
+    reader.start(front: NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0)
+    RunLoop.main.run()
+}
 #endif
 
 if let stray = cliArguments.first(where: { !$0.hasPrefix("-NS") && !$0.hasPrefix("-psn") && !$0.hasPrefix("-App") }) {

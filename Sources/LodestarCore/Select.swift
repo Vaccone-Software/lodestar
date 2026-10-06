@@ -419,19 +419,10 @@ public struct SelectCore {
 
     // MARK: - Bring
 
-    /// Bring's chosen text, which `⇥` grows and `⇧⇥` takes back: the shell
-    /// sets the range within the anchor's own element.
-    public mutating func reanchor(_ range: NSRange) {
-        guard let anchor else { return }
-        self.anchor = Match(element: anchor.element, range: range)
-    }
-
-    /// What Bring takes at each size. The first is the token the pick
-    /// snapped to with whatever encloses it trimmed away — brackets,
-    /// quotes, a sentence's comma or full stop — so a path in a stack
-    /// trace comes without its parenthesis. The second is the whole line.
-    public static let bringSizes = 2
-
+    /// What Bring takes at each size. The first is the token a match sits
+    /// in with whatever encloses it trimmed away — brackets, quotes, a
+    /// sentence's comma or full stop — so a path in a stack trace comes
+    /// without its parenthesis. The second is the whole line.
     public static func bringRange(_ range: NSRange, in text: NSString, size: Int) -> NSRange {
         if size >= 1 {
             return trimmedRange(NSRange(location: 0, length: text.length), in: text as String)

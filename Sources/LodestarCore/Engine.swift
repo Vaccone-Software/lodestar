@@ -147,6 +147,21 @@ public enum EngineEffect: Equatable {
     case pasteSourceMove(delta: Int)
     case pasteSourcePick
     case pasteSourceClose
+    /// Bring: the words typed so far search the other windows. `⏎` brings
+    /// the best match, `⌥` and a card's letter any other, `⇧` with either
+    /// the whole line instead of the token; `⇥` lists the apps.
+    case bringType(String)
+    case bringDelete(SearchDeletion)
+    case bringPaste
+    case bringPick(label: String, line: Bool)
+    case bringCommit(line: Bool)
+    case bringSourceShow
+    case bringSourceType(String)
+    case bringSourceDelete(SearchDeletion)
+    case bringSourceMove(delta: Int)
+    case bringSourcePick
+    case bringSourceClose
+    case exitBring
     /// A keepsake's name, written in its own place. `fresh` is a clip
     /// just kept, whose name is offered from its first words and whose
     /// `esc` lets it go again; otherwise a keepsake being renamed, whose
@@ -263,10 +278,10 @@ public protocol EngineWorld: AnyObject {
     func hintType(_ letter: String, shift: Bool, control: Bool) -> HintStep
     /// Enter select on the focused window; false when there is none.
     func enterSelect() -> Bool
-    /// Enter Bring: select's machine, whose pick is typed at the caret.
-    /// `carryingQuery` is Keep's search handing its words over, so the
-    /// hand that did not find a clip finds the text on screen without
-    /// typing it again. False when there is no window to read.
+    /// Open Bring over the app in front: its other windows, and every
+    /// other app's, are read for text. `carryingQuery` is Keep's search
+    /// handing its words over. False when there is nothing in front to
+    /// bring into.
     func enterBring(carryingQuery: Bool) -> Bool
     /// A key while select is up — search, label, anchor, or finish.
     func selectKey(_ key: String, shift: Bool) -> SelectStep
@@ -324,6 +339,8 @@ public struct EngineCore {
         case pasteSource(searching: Bool)
         /// A keepsake's name is being written in its place.
         case pasteName(searching: Bool)
+        /// Bring is up; `listing` while its list of apps is open.
+        case bring(listing: Bool)
     }
 
     /// The clip door closed on its own two keys — `⏎` saved, `esc`
@@ -376,9 +393,15 @@ public struct EngineCore {
         default:
             break
         }
-        guard world.enterPaste() else { return [.flash("⌂ nothing copied yet")] }
+        // ⇧⌘V over Bring: Bring goes, and Keep opens in its place.
+        var leaving: [EngineEffect] = []
+        if case .bring = state {
+            state = .idle
+            leaving = [.exitBring]
+        }
+        guard world.enterPaste() else { return leaving + [.flash("⌂ nothing copied yet")] }
         state = .paste(searching: false)
-        return [.hideBars, .enterPaste]
+        return leaving + [.hideBars, .enterPaste]
     }
 
     /// The hand reached for the pointer while the scroll lens was up — a
@@ -417,6 +440,9 @@ public struct EngineCore {
         case .pasteName:
             state = .idle
             return [.pasteNameCommit, .exitPaste]
+        case .bring:
+            state = .idle
+            return [.exitBring]
         default:
             return []
         }
@@ -494,6 +520,7 @@ public struct EngineCore {
         case .pasteSave: effects = [.pasteSaveEnd, .exitPaste]
         case .pasteSource: effects = [.pasteSourceClose, .exitPaste]
         case .pasteName: effects = [.pasteNameCommit, .exitPaste]
+        case .bring: effects = [.exitBring]
         }
         state = .idle
         return effects
@@ -598,6 +625,9 @@ public struct EngineCore {
         case .pasteName(let searching):
             return pasteNamePress(key: key, held: held, shift: shift, command: command,
                                   option: option, searching: searching, world: world)
+        case .bring(let listing):
+            return bringPress(key: key, held: held, shift: shift, command: command,
+                              option: option, control: control, listing: listing, world: world)
         }
     }
 
@@ -631,9 +661,9 @@ public struct EngineCore {
             // machine at its own door, beside select's key.
             effects.append(.hideBars)
             if world.enterBring(carryingQuery: false) {
-                state = .select
+                state = .bring(listing: false)
             } else {
-                effects.append(.flash("✕ no window to bring from"))
+                effects.append(.flash("✕ nothing in front to bring into"))
             }
         case "space":
             let wasVisible = world.searcherVisible
@@ -1171,7 +1201,7 @@ public struct EngineCore {
                 // looks for them on the screen instead. Keep closes first,
                 // so it never stands over the text Bring reads.
                 guard world.enterBring(carryingQuery: true) else { return [] }
-                state = .select
+                state = .bring(listing: false)
                 return [.exitPaste]
             // ⌥ says the key is an address rather than a character. The
             // cards wear their chips the whole time you are typing, and
@@ -1510,6 +1540,74 @@ public struct EngineCore {
         default:
             guard !command, let typed = Keys.character(for: key, shift: shift) else { return [] }
             return [.pasteNameType(typed)]
+        }
+    }
+
+    // MARK: - Bring
+
+    /// Bring is a search from its first key: every character is the
+    /// query, so a card is named by `⌥` and its letter, which never types,
+    /// and `⏎` takes the best match. `⇧` asks for the whole line. `lode =`
+    /// again, `esc` or any other lode verb leaves; with the list of apps
+    /// open its own field takes the typing.
+    private mutating func bringPress(key: String, held: Bool, shift: Bool, command: Bool,
+                                     option: Bool, control: Bool, listing: Bool,
+                                     world: EngineWorld) -> [EngineEffect] {
+        if held {
+            if key == "/", shift { return [.toggleCheat] }
+            state = .idle
+            var effects: [EngineEffect] = [.exitBring]
+            if key != "escape" && key != "=" {
+                effects.append(contentsOf: idlePress(key: key, shift: shift, world: world))
+            }
+            return effects
+        }
+        if listing {
+            switch key {
+            case "escape", "tab":
+                state = .bring(listing: false)
+                return [.bringSourceClose]
+            case "return":
+                state = .bring(listing: false)
+                return [.bringSourcePick]
+            case "up": return [.bringSourceMove(delta: -1)]
+            case "down": return [.bringSourceMove(delta: 1)]
+            case "delete":
+                if command { return [.bringSourceDelete(.all)] }
+                if option { return [.bringSourceDelete(.word)] }
+                return [.bringSourceDelete(.character)]
+            default:
+                guard !command, let typed = Keys.character(for: key, shift: shift) else { return [] }
+                return [.bringSourceType(typed)]
+            }
+        }
+        switch key {
+        case "escape":
+            if world.cheatVisible { return [.dismissCheat] }
+            state = .idle
+            return [.exitBring]
+        case "return":
+            state = .idle
+            return [.bringCommit(line: shift), .exitBring]
+        case "tab" where !command:
+            state = .bring(listing: true)
+            return [.bringSourceShow]
+        case "delete":
+            if command { return [.bringDelete(.all)] }
+            if option { return [.bringDelete(.word)] }
+            return [.bringDelete(.character)]
+        case "v" where command && !shift && !option:
+            return [.bringPaste]
+        case _ where option && Clipboard.recentLabels.contains(key):
+            state = .idle
+            return [.bringPick(label: key, line: shift), .exitBring]
+        default:
+            if command {
+                state = .idle
+                return [.exitBring]
+            }
+            guard !option, !control, let typed = Keys.character(for: key, shift: shift) else { return [] }
+            return [.bringType(typed)]
         }
     }
 

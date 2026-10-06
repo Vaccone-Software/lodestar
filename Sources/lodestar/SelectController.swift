@@ -164,18 +164,7 @@ final class SelectController {
     /// ⌫ takes the last fix back. The lens stands while marks remain.
     /// (A tabs door once stood beside it on the same key; click hints
     /// letter the same tab buttons, and it was retired.)
-    /// `bring` is the fifth: `lode =`, the same search and the same picks,
-    /// and the chosen text typed where the hand already is. `⇥` grows it
-    /// from the token to the line, `⇧⇥` takes the growth back, `⏎` brings
-    /// it; a span brings the moment its far end is picked.
-    enum Door { case anchor, click, aim, editor, bring }
-
-    /// Bring's whole verb: the text, typed into the app that was focused
-    /// when the mode began. Set by the shell; a stage records it instead.
-    var bring: ((String, pid_t) -> Void)?
-    /// How far `⇥` has grown the chosen text, and the pick it grew from.
-    private var bringSize = 0
-    private var bringPick: SelectCore.Match?
+    enum Door { case anchor, click, aim, editor }
 
     /// The editor whose marks the fourth door letters.
     weak var editor: EditorLens?
@@ -199,7 +188,7 @@ final class SelectController {
     /// early: an anchor lights a word, an aim moves the pointer. At the
     /// click door a pick is a click, and an action must never fire itself
     /// on uniqueness.
-    private var autoAnchorAllowed: Bool { (commitOnUnique || door == .bring) && door != .click }
+    private var autoAnchorAllowed: Bool { commitOnUnique && door != .click }
     private var sticky = false
     /// The `;` door's entry chips: pressables harvested from the
     /// accessibility tree, pickable by capitals before any typing — a
@@ -252,9 +241,7 @@ final class SelectController {
 
     // MARK: - Lifecycle
 
-    /// `seed` is a search carried in from elsewhere — Keep's words handed
-    /// to Bring — fed to the first world the way early typing is.
-    func enter(door: Door = .anchor, sticky: Bool = false, seed: String? = nil) -> Bool {
+    func enter(door: Door = .anchor, sticky: Bool = false) -> Bool {
         // The draft's lens draws over the draft, whatever window is or is
         // not beneath it.
         if door == .editor, let editor, let canvas = editor.lensCanvas {
@@ -265,12 +252,6 @@ final class SelectController {
         }
         guard let window = model.focusedWindowNow() else { return false }
         begin(door: door, sticky: sticky, frame: window.frame, appName: window.appName, pid: window.pid)
-        if let seed {
-            for character in Clipboard.pastedQuery(seed) where pendingKeys.count < 32 {
-                let key = character == " " ? "space" : String(character).lowercased()
-                if SelectCore.isSearchKey(key) { pendingKeys.append((key: key, shift: false)) }
-            }
-        }
         if door == .click {
             let expected = generation
             HintTargets.harvest(
@@ -402,7 +383,6 @@ final class SelectController {
         case .click: return "hints"
         case .aim: return "aim"
         case .editor: return "editor"
-        case .bring: return "bring"
         }
     }
 
@@ -415,7 +395,6 @@ final class SelectController {
         case .click: mode = .click
         case .aim: mode = .scroll
         case .editor: mode = .editor
-        case .bring: mode = .bring
         }
         pill?.show(ModePill.State(mode: mode, app: appName,
                                   icon: NSRunningApplication(processIdentifier: focusedPid)?.icon,
@@ -540,7 +519,6 @@ final class SelectController {
             guard key.count == 1, key.first?.isLetter == true else { return .pending }
             return editorPick(letter: key, keep: shift)
         }
-        if door == .bring, let step = bringKey(key, shift: shift) { return step }
         guard core != nil else {
             // Still scanning: aiming is buffered for the first world, not
             // dropped. Only keys that can become query characters get a
@@ -580,7 +558,6 @@ final class SelectController {
             // mid-word; the end word's tail is absorbed while the
             // highlight stands, so it cannot type into the app beneath.
             ghostContinuation = core?.lastAutoContinuation
-            if door == .bring { return bringText(gather(pieces).text) }
             commit(pieces: pieces)
             return .done
         case .anchored:
@@ -600,14 +577,6 @@ final class SelectController {
                 ghostContinuation = core?.anchorContinuation
                 performAim(on: anchor)
                 return .done
-            }
-            // Bring lights the token it will take, trimmed of what
-            // encloses it, and waits for ⏎ or ⇥.
-            if door == .bring, let anchor = core!.anchor {
-                ghostContinuation = nil
-                bringPick = anchor
-                bringSize = 0
-                resizeBring()
             }
             render()
             return .pending
@@ -655,58 +624,6 @@ final class SelectController {
         typedInMode = 0
         committedOutcome = nil
         observations?.verbUsed(Self.verbName(for: door))
-    }
-
-    // MARK: - The bring door
-
-    /// Bring's own keys, answered before the search sees them: `⏎` brings
-    /// what is chosen (or the one match, when there is one), `⇥` grows it,
-    /// `⇧⇥` takes the growth back. Nil for every other key.
-    private func bringKey(_ key: String, shift: Bool) -> SelectStep? {
-        switch key {
-        case "return":
-            guard let core else { return .pending }
-            if let anchor = core.anchor { return bringText(gather([anchor]).text) }
-            if core.totalMatches == 1, let only = core.matches.first, units.indices.contains(only.element) {
-                let range = SelectCore.bringRange(only.range, in: units[only.element].run.text as NSString, size: 0)
-                return bringText(gather([SelectCore.Match(element: only.element, range: range)]).text)
-            }
-            flash("⌖ ⇧ and a letter chooses, then ⏎ brings it")
-            return .pending
-        case "tab":
-            guard core?.anchor != nil else { return .pending }
-            bringSize = shift ? max(0, bringSize - 1) : min(SelectCore.bringSizes - 1, bringSize + 1)
-            resizeBring()
-            render()
-            return .pending
-        default:
-            return nil
-        }
-    }
-
-    /// The chosen text at its current size, set as the anchor so the glass
-    /// lights exactly what `⏎` will type.
-    private func resizeBring() {
-        guard let pick = bringPick, units.indices.contains(pick.element) else { return }
-        let text = units[pick.element].run.text as NSString
-        core?.reanchor(SelectCore.bringRange(pick.range, in: text, size: bringSize))
-    }
-
-    /// The text goes where the hand is: the mode ends first, so nothing of
-    /// it is on the glass, and the shell types it into the app that was
-    /// focused when Bring began. The pasteboard is never touched.
-    private func bringText(_ text: String) -> SelectStep {
-        let trimmed = SelectCore.trimmedForCopy(text)
-        guard !trimmed.isEmpty else {
-            flash("✕ that text lost its place on screen")
-            return .pending
-        }
-        committedOutcome = "brought"
-        Log.info("select", ["outcome": "brought", "chars": (trimmed as NSString).length, "size": bringSize])
-        let pid = focusedPid
-        let hand = bring
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { hand?(trimmed, pid) }
-        return .done
     }
 
     // MARK: - The editor door

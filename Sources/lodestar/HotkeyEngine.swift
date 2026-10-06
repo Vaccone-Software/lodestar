@@ -265,6 +265,24 @@ final class HotkeyEngine {
     private var naming: Naming?
     /// The modifier held over Keep, which changes what the cards show.
     private var heldOverStrip: ClipboardStrip.Held = .none
+    /// Bring: the reader of every other window, the words typed, the app
+    /// the answers are filtered to, its list while open, and the app the
+    /// text is typed into, taken at the moment Bring opened.
+    let bringReader = BringReader()
+    private var bringQuery = ""
+    private var bringSource: String?
+    private var bringSourceTyped: String?
+    private var bringSourceSelection = 0
+    private var bringTarget: pid_t = 0
+    private var bringOpenedAt = Date.distantPast
+    /// The lines Bring searches, rebuilt only when the windows or the
+    /// source change, not on every keystroke.
+    private var bringIndex: (key: String, sources: [Bring.Source], lines: [Bring.Line])?
+    /// The windows Bring reads, and how its text lands: the machine's in
+    /// the app, the stage's in the tests.
+    var bringWindows: (() -> [BringReader.Window])?
+    var bringTypes: (String, pid_t) -> Void = { BringTyping.type($0, to: $1) }
+    var bringFront: () -> pid_t? = { NSWorkspace.shared.frontmostApplication?.processIdentifier }
     /// Whether Keep covers where the hand will paste, read once per open
     /// off the main thread. The stage answers for itself.
     var caretCover: (NSRect, CGFloat) -> String = CaretCover.verdict
@@ -320,9 +338,6 @@ final class HotkeyEngine {
             guard let self, case .scroll = self.core.state else { return }
             self.showScrollPill()
         }
-        // Bring's landing: the chosen text typed into the app that was
-        // focused when the mode began, the pasteboard left alone.
-        select.bring = { text, pid in BringTyping.type(text, to: pid) }
         select.onAimLanded = { [weak self] in
             guard let self else { return }
             _ = self.apply(self.core.aimLanded(), event: nil)
@@ -1032,8 +1047,80 @@ final class HotkeyEngine {
                 naming = nil
                 heldOverStrip = .none
                 imageDoor.hide()
-                stopWatchingClicks()
-                strip.hide()
+                // Keep handing its words to Bring leaves the panel to Bring.
+                if case .bring = core.state {} else {
+                    stopWatchingClicks()
+                    strip.hide()
+                }
+            case .bringType(let text):
+                bringQuery += text
+                renderBring()
+            case .bringPaste:
+                let pasted = Clipboard.pastedQuery(NSPasteboard.general.string(forType: .string) ?? "")
+                guard !pasted.isEmpty else { break }
+                bringQuery += pasted
+                renderBring()
+            case .bringDelete(let scope):
+                switch scope {
+                case .character: bringQuery = String(bringQuery.dropLast())
+                case .word: bringQuery = Clipboard.droppingLastWord(bringQuery)
+                case .all: bringQuery = ""
+                }
+                renderBring()
+            case .bringPick(let label, let line):
+                let index = ClipboardStrip.labels.firstIndex(of: label) ?? 0
+                landBring(strip.shownBring.indices.contains(index) ? strip.shownBring[index] : nil,
+                          line: line, rank: index)
+            case .bringCommit(let line):
+                landBring(strip.shownBring.first, line: line, rank: 0)
+            case .bringSourceShow:
+                bringSourceTyped = ""
+                bringSourceSelection = 0
+                renderBring()
+            case .bringSourceType(let text):
+                bringSourceTyped = (bringSourceTyped ?? "") + text
+                bringSourceSelection = 0
+                renderBring()
+            case .bringSourceDelete(let scope):
+                let typed = bringSourceTyped ?? ""
+                switch scope {
+                case .character: bringSourceTyped = String(typed.dropLast())
+                case .word: bringSourceTyped = Clipboard.droppingLastWord(typed)
+                case .all: bringSourceTyped = ""
+                }
+                bringSourceSelection = 0
+                renderBring()
+            case .bringSourceMove(let delta):
+                bringSourceSelection = max(0, min(bringSourceRows().count - 1, bringSourceSelection + delta))
+                renderBring()
+            case .bringSourcePick:
+                let rows = bringSourceRows()
+                if rows.indices.contains(bringSourceSelection) {
+                    let chosen = rows[bringSourceSelection].name
+                    bringSource = chosen == Self.allApps ? nil : chosen
+                }
+                bringSourceTyped = nil
+                renderBring()
+            case .bringSourceClose:
+                bringSourceTyped = nil
+                renderBring()
+            case .exitBring:
+                if bringOpenedAt != .distantPast {
+                    Log.info("bring", ["seconds": Int(Date().timeIntervalSince(bringOpenedAt) * 10) / 10,
+                                       "windows": bringReader.windows.count, "typed": bringQuery.count])
+                }
+                bringOpenedAt = .distantPast
+                bringReader.stop()
+                bringIndex = nil
+                bringQuery = ""
+                bringSource = nil
+                bringSourceTyped = nil
+                heldOverStrip = .none
+                // ⇧⌘V over Bring opens Keep on the same panel.
+                if case .paste = core.state {} else {
+                    stopWatchingClicks()
+                    strip.hide()
+                }
             case .pasteRecent(let label, let action):
                 noteStripKey()
                 // The label names a position, not a card — one index
@@ -1375,6 +1462,13 @@ final class HotkeyEngine {
         // Over Keep, a held modifier shows on every card what it would
         // paste: `⌥` the chords, `⌃` the readings, `⇧` as copied. Lode is
         // a gesture, not a form, and changes nothing here.
+        if case .bring = core.state, !held {
+            let next: ClipboardStrip.Held = event.flags.contains(.maskShift) ? .shift : .none
+            if next != heldOverStrip {
+                heldOverStrip = next
+                renderBring()
+            }
+        }
         if case .paste = core.state, !held {
             let flags = event.flags
             let next: ClipboardStrip.Held = flags.contains(.maskControl) ? .control
@@ -1567,15 +1661,14 @@ final class HotkeyEngine {
                 GuideRow(key: "?", label: "This sheet"),
                 GuideRow(key: "esc", label: "Close Keep"),
             ])]
-        case .select where select.door == .bring:
+        case .bring:
             return [.init(header: "Bring", rows: [
-                GuideRow(key: "a…z", label: "Type what you see · matches wear chips"),
-                GuideRow(key: "⇧A…Z", label: "Choose the chip's word · again for the far end, which brings at once"),
-                GuideRow(key: "⇥", label: "Grow it to the line · ⇧⇥ back to the word"),
-                GuideRow(key: "⏎", label: "Bring it to where you are typing"),
-                GuideRow(key: "⌫", label: "Back one letter"),
+                GuideRow(key: "a…z", label: "Type what you saw in another window"),
+                GuideRow(key: "⏎", label: "Bring the best match to where you are typing · ⇧ the whole line"),
+                GuideRow(key: "⌥J…A", label: "Bring that card's match · ⌥⇧ its whole line"),
+                GuideRow(key: "⇥", label: "Only the windows of one app"),
                 GuideRow(key: "?", label: "This sheet"),
-                GuideRow(key: "esc", label: "Leave without bringing"),
+                GuideRow(key: "esc", label: "Close Bring"),
             ])]
         case .select:
             return [.init(header: "Select", rows: [
@@ -1874,6 +1967,8 @@ final class HotkeyEngine {
             return "paste(source)"
         case .pasteName:
             return "paste(name)"
+        case .bring(let listing):
+            return listing ? "bring(listing)" : "bring"
         }
     }
 }
@@ -1957,6 +2052,102 @@ extension HotkeyEngine: EngineWorld {
     }
 
     static let allApps = "All apps"
+
+    // MARK: - Bring
+
+    func enterBring(carryingQuery: Bool) -> Bool {
+        // The app the text will land in: whatever was in front when Bring
+        // opened, never Lodestar itself.
+        guard let front = bringFront(), front != getpid() else { return false }
+        bringTarget = front
+        bringQuery = carryingQuery ? (pasteQuery ?? "") : ""
+        bringSource = nil
+        bringSourceTyped = nil
+        bringOpenedAt = Date()
+        if carryingQuery { strip.hide() }
+        if bringWindows == nil {
+            bringReader.onUpdate = { [weak self] in
+                guard let self, case .bring = self.core.state else { return }
+                self.renderBring()
+            }
+            bringReader.start(front: bringTarget, excluded: clipboard.excludedApps)
+        }
+        watchClicks()
+        // Asked from inside the grammar's keystroke, so the state is not
+        // read here: it is about to become Bring.
+        renderBring(opening: true)
+        return true
+    }
+
+    private var bringRead: [BringReader.Window] { bringWindows?() ?? bringReader.windows }
+
+    private func bringCorpus() -> (sources: [Bring.Source], lines: [Bring.Line]) {
+        let windows = bringRead
+        let key = "\(windows.count)|\(bringSource ?? "")"
+        if let index = bringIndex, index.key == key { return (index.sources, index.lines) }
+        var sources: [Bring.Source] = []
+        var lines: [Bring.Line] = []
+        for window in windows where bringSource == nil || window.source.app == bringSource {
+            let at = sources.count
+            sources.append(window.source)
+            lines += window.lines.map { Bring.Line(source: at, text: $0) }
+        }
+        bringIndex = (key, sources, lines)
+        return (sources, lines)
+    }
+
+    /// The apps Bring has read, alphabetical, each with how many of its
+    /// lines answer the words typed (or how many windows, before any).
+    private func bringSourceRows() -> [(name: String, count: Int)] {
+        let windows = bringRead
+        var counts: [String: Int] = [:]
+        let needle = bringQuery.trimmingCharacters(in: .whitespaces)
+        for window in windows {
+            let found = needle.count >= Bring.minimumQuery
+                ? window.lines.filter { $0.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive]) != nil }.count
+                : 1
+            counts[window.source.app, default: 0] += found
+        }
+        var rows = [(name: Self.allApps, count: counts.values.reduce(0, +))]
+        rows += counts.keys.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+            .map { ($0, counts[$0] ?? 0) }
+        let typed = (bringSourceTyped ?? "").trimmingCharacters(in: .whitespaces).lowercased()
+        guard !typed.isEmpty else { return rows }
+        return rows.filter { $0.name.lowercased().hasPrefix(typed)
+            || $0.name.lowercased().split(separator: " ").contains { $0.hasPrefix(typed) } }
+    }
+
+    private func renderBring(opening: Bool = false) {
+        if !opening { guard case .bring = core.state else { return } }
+        let corpus = bringCorpus()
+        let found = Bring.search(corpus.lines, sources: corpus.sources, query: bringQuery)
+        let menu = bringSourceTyped.map { typed in
+            ClipboardStrip.SourceMenu(typed: typed,
+                                      rows: bringSourceRows().map { .init(name: $0.name, count: $0.count) },
+                                      selection: bringSourceSelection)
+        }
+        strip.showBring(query: bringQuery, matches: found.matches, total: found.total,
+                        sources: corpus.sources, reading: bringWindows == nil && bringReader.reading,
+                        source: bringSource, sourceMenu: menu, held: heldOverStrip)
+    }
+
+    /// The text goes where the hand was: Bring closes first so nothing of
+    /// it is on the glass, then the token, or with ⇧ the line, is typed
+    /// into the app that was in front. The pasteboard is never touched.
+    private func landBring(_ match: Bring.Match?, line: Bool, rank: Int) {
+        guard let match else {
+            hud.flash(bringQuery.count < Bring.minimumQuery ? "✕ type what you saw first" : "✕ nothing there to bring")
+            return
+        }
+        let text = line ? match.lineText : match.tokenText
+        let target = bringTarget
+        Log.info("bring", ["outcome": "brought", "chars": (text as NSString).length,
+                           "form": line ? "line" : "token", "rank": rank])
+        strip.hide()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.bringTypes(text, target)
+        }
+    }
 
     /// Keep's whole block, as it stands, against the focused field: a
     /// word in the log per open, so how often Keep covers the caret is a
@@ -2348,17 +2539,6 @@ extension HotkeyEngine: EngineWorld {
         // mid-session is honored by the next `lode /`.
         select.copyOnComplete = config.selectCopyOnComplete
         return select.enter()
-    }
-
-    func enterBring(carryingQuery: Bool) -> Bool {
-        // Keep's words, handed over: Keep goes first, so the screen Bring
-        // reads is the one beneath it.
-        let seed = carryingQuery ? pasteQuery : nil
-        if carryingQuery { strip.hide() }
-        select.letters = KeyboardLayout.chipAlphabet()
-        select.commitOnUnique = config.selectCommitOnUnique
-        select.copyOnComplete = false
-        return select.enter(door: .bring, seed: seed)
     }
 
     func selectCopy() -> SelectStep {

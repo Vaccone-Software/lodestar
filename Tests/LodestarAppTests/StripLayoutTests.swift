@@ -101,6 +101,35 @@ final class StripLayoutTests: XCTestCase {
                        "no character cut in two")
     }
 
+    /// Bring on the stage: two windows read, the words typed, the best
+    /// match's token typed into the app in front, the pasteboard untouched.
+    func testBringTypesTheTokenFromAnotherWindow() {
+        let stage = Stage()
+        var typed: [(String, pid_t)] = []
+        stage.engine.bringFront = { 4242 }
+        stage.engine.bringTypes = { typed.append(($0, $1)) }
+        stage.engine.bringWindows = {
+            [BringReader.Window(source: Bring.Source(app: "Brave", window: "Runbook", rank: 0), pid: 1,
+                                lines: ["Connect to the build host first: build-02.internal"]),
+             BringReader.Window(source: Bring.Source(app: "Slack", window: "#release", rank: 1), pid: 2,
+                                lines: ["deploy is on build-03 today"])]
+        }
+        let before = stage.clipboard.pasteboard.changeCount
+        XCTAssertTrue(stage.lode("="))
+        for key in ["b", "u", "i", "l", "d", "-"] { stage.press(key) }
+        XCTAssertEqual(stage.engine.strip.shownBring.map(\.tokenText), ["build-02.internal", "build-03"])
+        XCTAssertEqual(stage.engine.strip.shownBringSources, ["Brave", "Slack"])
+        stage.press("return")
+        let landed = expectation(description: "typed")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { landed.fulfill() }
+        wait(for: [landed], timeout: 1)
+        XCTAssertEqual(typed.first?.0, "build-02.internal")
+        XCTAssertEqual(typed.first?.1, 4242, "into the app that was in front")
+        XCTAssertEqual(stage.clipboard.pasteboard.changeCount, before, "the pasteboard is never touched")
+        XCTAssertEqual(stage.engine.grammarState, .idle)
+        XCTAssertFalse(stage.engine.strip.isVisible)
+    }
+
     func testOnTheStageTheBarStandsOverTheRightHand() {
         let stage = Stage()
         stage.seedClip("one")

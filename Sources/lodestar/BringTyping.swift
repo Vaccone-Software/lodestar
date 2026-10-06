@@ -17,10 +17,22 @@ enum BringTyping {
     private static let editable: Set<String> = ["AXTextField", "AXTextArea", "AXComboBox", "AXSearchField"]
 
     static func land(_ text: String, into pid: pid_t) {
+        // Chromium and Electron report a field's text a beat after it
+        // changes, so an insertion there cannot be seen in time to be
+        // trusted, and trusting it blind could type the text twice. Those
+        // apps are typed into.
+        let lateTree = NSRunningApplication(processIdentifier: pid)?.bundleURL.map(reportsLate) ?? true
         queue.async {
-            if insert(text, into: pid) { return }
+            if !lateTree, insert(text, into: pid) { return }
             typeNow(text, to: pid)
         }
+    }
+
+    /// A Chromium browser or an Electron app.
+    static func reportsLate(_ bundle: URL) -> Bool {
+        if AXWarmer.isChromiumBrowser(bundle) { return true }
+        let frameworks = bundle.appendingPathComponent("Contents/Frameworks/Electron Framework.framework")
+        return FileManager.default.fileExists(atPath: frameworks.path)
     }
 
     /// One insertion at the caret, true only when the field's text changed.
@@ -36,8 +48,12 @@ enum BringTyping {
               let before = AX.string(field, kAXValueAttribute as String) else { return false }
         guard AXUIElementSetAttributeValue(field, kAXSelectedTextAttribute as CFString, text as CFString) == .success
         else { return false }
-        usleep(30_000)
-        return AX.string(field, kAXValueAttribute as String) != before
+        // Seen within 150 ms, or typed instead.
+        for _ in 0..<10 {
+            usleep(15_000)
+            if AX.string(field, kAXValueAttribute as String) != before { return true }
+        }
+        return false
     }
 
     static let piece = 16

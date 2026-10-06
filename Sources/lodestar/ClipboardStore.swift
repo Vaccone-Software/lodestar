@@ -481,11 +481,26 @@ final class ClipboardStore {
         return displaced
     }
 
-    /// A displaced keepsake put back where it was, with its name.
-    func restore(_ id: String, at slot: Int, name: String?) {
-        guard let position = index.clips.firstIndex(where: { $0.id == id }) else { return }
-        index.clips[position].pinnedSlot = slot
-        index.clips[position].keptName = name
+    /// Every keepsake's place and name, as they stand.
+    func keepsakes() -> [String: (slot: Int, name: String?)] {
+        var out: [String: (slot: Int, name: String?)] = [:]
+        for clip in index.clips { if let slot = clip.pinnedSlot { out[clip.id] = (slot, clip.keptName) } }
+        return out
+    }
+
+    /// The keepsakes put back exactly as they were: every place and name
+    /// in `snapshot` restored, anything kept since let go. However many
+    /// trades a naming made, `esc` undoes all of them.
+    func restoreKeepsakes(_ snapshot: [String: (slot: Int, name: String?)]) {
+        for position in index.clips.indices {
+            if let was = snapshot[index.clips[position].id] {
+                index.clips[position].pinnedSlot = was.slot
+                index.clips[position].keptName = was.name
+            } else if index.clips[position].pinnedSlot != nil {
+                index.clips[position].pinnedSlot = nil
+                index.clips[position].keptName = nil
+            }
+        }
         saveSoon()
     }
 

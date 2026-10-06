@@ -66,7 +66,7 @@ final class ClipboardStrip {
         let id: String
         var text: String
         /// The offered name stands selected: the first key typed replaces
-        /// it, and an arrow or a delete keeps it to edit.
+        /// it, and a delete clears it for a name of your own.
         var selected: Bool
     }
 
@@ -170,6 +170,10 @@ final class ClipboardStrip {
     /// The keepsakes' names as drawn, by place.
     private(set) var shownNames: [Int: String] = [:]
     private(set) var shownSave: (name: String, offered: String, folder: String)?
+    /// The actions menu's labels while one stands, for the tests.
+    private(set) var shownActions: [String] = []
+    /// What VoiceOver can reach, for the tests.
+    var accessibleElements: [NSView] { (root.accessibilityChildren() as? [NSView]) ?? [] }
     /// The bar's count and source, as drawn.
     private(set) var shownCount: String?
     private(set) var shownSource: String?
@@ -220,6 +224,7 @@ final class ClipboardStrip {
         lastLayout = layout
         self.pinsHidden = pinsHidden
         shownSave = nil
+        shownActions = []
         shownBadges = [:]
         shownSources = [:]
         shownCaptions = [:]
@@ -299,8 +304,7 @@ final class ClipboardStrip {
                 root.addSubview(card)
             }
 
-            // The bar over the right hand: the search, the save name, or,
-            // while a keepsake is being named, the keys that finish it.
+            // The bar over the right hand: the search or the save name.
             switch band {
             case .search(let query):
                 bandFrame = layout.bar
@@ -320,9 +324,21 @@ final class ClipboardStrip {
             if let sourceMenu {
                 addSourceMenu(sourceMenu, under: local(layout.bar))
             }
+            // A clip being kept while every place is full has no place yet:
+            // its name is written where the bar stands, over the right
+            // hand, until ⌘1–⌘4 chooses where it goes.
+            if let naming, !shownPins.values.contains(where: { $0.id == naming.id }),
+               let clip = recents.first(where: { $0.id == naming.id }) {
+                let size = NSSize(width: min(layout.bar.width, layout.module * 2 + Self.gap),
+                                  height: layout.bar.height)
+                let card = makeKeepsake(clip: clip, slot: 0, key: nil, size: size, reading: nil,
+                                        thumbnail: nil, naming: naming, raised: true)
+                card.frame = local(NSRect(origin: layout.bar.origin, size: size))
+                root.addSubview(card)
+            }
         }
 
-        root.setAccessibilityChildren(ranked)
+        root.setAccessibilityChildren(ranked + root.subviews.filter { !ranked.contains($0) && $0.isAccessibilityElement() })
         panel.setAccessibilityLabel("Keep")
         panel.orderFrontRegardless()
         CATransaction.commit()
@@ -404,7 +420,7 @@ final class ClipboardStrip {
                count: count, source: source, frame: local(layout.bar))
         if let sourceMenu { addSourceMenu(sourceMenu, under: local(layout.bar)) }
 
-        root.setAccessibilityChildren(ranked)
+        root.setAccessibilityChildren(ranked + root.subviews.filter { !ranked.contains($0) && $0.isAccessibilityElement() })
         panel.setAccessibilityLabel("Bring")
         panel.orderFrontRegardless()
         CATransaction.commit()
@@ -1166,6 +1182,7 @@ final class ClipboardStrip {
         let plate = surface(size: frame.size, lift: .float, weight: .highlighted, counted: false)
         plate.frame = frame
         plate.setAccessibilityRole(.menu)
+        shownActions = actions.map(\.label)
 
         let rule = separatorIndex(actions)
         var top = frame.height - Self.actionPadY

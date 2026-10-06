@@ -54,8 +54,12 @@ final class BringReader {
         lock.withLock { live = expected }
         windows = []
         reading = true
-        let order = Self.appOrder(excluding: getpid(), apps: Clipboard.passwordApps.union(excluded))
+        // Which apps are regular is the workspace's answer, asked here; how
+        // their windows stack is the window server's, asked on the queue,
+        // so nothing of it runs inside the keystroke that opened Bring.
+        let regular = Self.regularApps(excluding: getpid(), apps: Clipboard.passwordApps.union(excluded))
         queue.async { [weak self] in
+            let order = Self.appOrder(regular)
             let app = AXUIElementCreateApplication(front)
             AXUIElementSetMessagingTimeout(app, 0.25)
             let focused = AX.element(app, kAXFocusedWindowAttribute as String)
@@ -97,11 +101,14 @@ final class BringReader {
 
     /// Regular apps in the order their frontmost windows are stacked, the
     /// most recently used first. Apps with no window on screen follow.
-    static func appOrder(excluding own: pid_t, apps: Set<String>) -> [pid_t] {
-        let regular = Set(NSWorkspace.shared.runningApplications
+    static func regularApps(excluding own: pid_t, apps: Set<String>) -> Set<pid_t> {
+        Set(NSWorkspace.shared.runningApplications
             .filter { $0.activationPolicy == .regular && $0.processIdentifier != own }
             .filter { !apps.contains($0.bundleIdentifier?.lowercased() ?? "") }
             .map(\.processIdentifier))
+    }
+
+    static func appOrder(_ regular: Set<pid_t>) -> [pid_t] {
         var order: [pid_t] = []
         let stacked = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
                                                  kCGNullWindowID) as? [[String: Any]] ?? []
@@ -123,7 +130,7 @@ final class BringReader {
         // Bring after it wakes may find less than the next.
         if let bundle = running?.bundleURL, AXWarmer.isChromiumBrowser(bundle) { _ = AXWarmer.warm(pid) }
         let app = AXUIElementCreateApplication(pid)
-        AXUIElementSetMessagingTimeout(app, 0.5)
+        AXUIElementSetMessagingTimeout(app, 0.25)
         for window in AX.elements(app, kAXWindowsAttribute as String) ?? [] {
             guard stillWanted() else { return }
             if let focused, CFEqual(window, focused) { continue }

@@ -227,6 +227,77 @@ final class StripLayoutTests: XCTestCase {
         XCTAssertNil(stage.clipboard.history.clips.first { $0.id == fresh.id }?.pinnedSlot)
     }
 
+    private func keepFour(_ stage: Stage) -> [Clipboard.Clip] {
+        (1...4).map { n in
+            let clip = stage.seedClip("kept \(n)")
+            XCTAssertTrue(stage.clipboard.history.pin(clip.id))
+            return clip
+        }
+    }
+
+    private func places(_ stage: Stage) -> [String: Int] {
+        Dictionary(uniqueKeysWithValues: stage.clipboard.history.clips.compactMap { clip in
+            clip.pinnedSlot.map { (clip.id, $0) }
+        })
+    }
+
+    /// A clip kept onto 4, traded onto 2, then esc: every keepsake is back
+    /// where it was, the one traded off 2 included.
+    func testEscapeAfterATradeRestoresEveryPlace() {
+        let stage = Stage()
+        let b = stage.seedClip("on two")
+        XCTAssertTrue(stage.clipboard.history.pin(b.id))
+        stage.clipboard.history.move(b.id, to: 2)
+        stage.seedClip("the new one")
+        let before = places(stage)
+        stage.openStrip()
+        stage.chord("j", .maskCommand)
+        stage.press("k")
+        XCTAssertTrue(stage.engine.strip.shownActions.isEmpty, "the menu is gone while the name is written")
+        stage.chord("2", .maskCommand)
+        stage.press("escape")
+        XCTAssertEqual(places(stage), before)
+    }
+
+    /// All four full: replace 2, trade onto 3, esc: no place holds two
+    /// keepsakes, and every one is where it was.
+    func testEscapeAfterAReplacementAndATradeRestoresEveryPlace() {
+        let stage = Stage()
+        _ = keepFour(stage)
+        stage.seedClip("the new one")
+        let before = places(stage)
+        stage.openStrip()
+        stage.chord("j", .maskCommand)
+        stage.press("k")
+        stage.chord("2", .maskCommand)
+        stage.chord("3", .maskCommand)
+        stage.press("escape")
+        XCTAssertEqual(places(stage), before)
+        XCTAssertEqual(Set(places(stage).values).count, 4, "one keepsake per place")
+    }
+
+    /// VoiceOver reaches the bar, not only the cards.
+    func testVoiceOverReachesTheBar() {
+        let stage = Stage()
+        stage.seedClip("one")
+        stage.openStrip()
+        stage.press("/")
+        XCTAssertTrue(stage.engine.strip.accessibleElements.contains { $0.accessibilityRole() == .textField })
+        XCTAssertTrue(stage.engine.strip.accessibleElements.contains { $0.accessibilityLabel() == "Keepsake 1, free" })
+        stage.press("escape")
+        stage.press("escape")
+    }
+
+    /// Electron apps report their fields late: Bring types into them.
+    func testElectronAppsAreTypedInto() throws {
+        let bundle = FileManager.default.temporaryDirectory.appendingPathComponent("Fake-\(UUID()).app")
+        let framework = bundle.appendingPathComponent("Contents/Frameworks/Electron Framework.framework")
+        try FileManager.default.createDirectory(at: framework, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: bundle) }
+        XCTAssertTrue(BringTyping.reportsLate(bundle))
+        XCTAssertFalse(BringTyping.reportsLate(URL(fileURLWithPath: "/System/Applications/TextEdit.app")))
+    }
+
     func testOnTheStageTheBarStandsOverTheRightHand() {
         let stage = Stage()
         stage.seedClip("one")

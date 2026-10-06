@@ -99,6 +99,11 @@ final class ClipboardTests: XCTestCase {
         XCTAssertEqual(full.map(\.pinnedSlot), [1, 2, 3, 4, nil], "nowhere to go: a clip again, never lost")
         let twice = Clipboard.settlingSlots([clip("a", pinned: 2), clip("b", pinned: 2)])
         XCTAssertEqual(twice.map(\.pinnedSlot), [2, 4], "two claims on one place keep the first")
+        var named = clip("n", pinned: 5)
+        named.keptName = "Old name"
+        let homeless = Clipboard.settlingSlots([clip("a", pinned: 1), clip("b", pinned: 2), clip("c", pinned: 3),
+                                                clip("d", pinned: 4), named])
+        XCTAssertNil(homeless.last?.keptName, "a clip again forgets the name it had as a keepsake")
         let calm = [clip("a", pinned: 3)]
         XCTAssertEqual(Clipboard.settlingSlots(calm), calm, "nothing to settle, nothing changes")
     }
@@ -346,14 +351,12 @@ final class PasteModeTests: XCTestCase {
         XCTAssertEqual(core.state, .paste(searching: false))
     }
 
-    /// `=` in Keep's search hands its words to Bring: Keep closes, and
-    /// select's machine takes the keys at Bring's door.
-    func testEqualsHandsTheSearchToBring() {
+    /// `=` in an empty search turns Keep to Bring.
+    func testEqualsTurnsAnEmptySearchToBring() {
         openSearching()
-        _ = press("b")
         XCTAssertEqual(press("="), [.exitPaste])
         XCTAssertEqual(core.state, .bring(listing: false))
-        XCTAssertTrue(world.calls.contains("enterBring:true"))
+        XCTAssertTrue(world.calls.contains("enterBring:false"))
         world.bringSucceeds = false
         core = EngineCore()
         openSearching()

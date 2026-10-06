@@ -487,7 +487,7 @@ public enum Clipboard {
         for index in homeless {
             let slot = nextFreeSlot(taken: taken, slots: slots)
             out[index].pinnedSlot = slot
-            if let slot { taken.insert(slot) }
+            if let slot { taken.insert(slot) } else { out[index].keptName = nil }
         }
         return out
     }

@@ -260,12 +260,11 @@ final class HotkeyEngine {
         var text: String
         var selected: Bool
         let fresh: Bool
-        let before: String?
-        let slot: Int?
-        /// All four places were full: the clip waits for ⌘1–⌘4 to choose
-        /// one, and the keepsake it replaces is held here to be put back.
+        /// All four places were full: the clip waits for ⌘1–⌘4 to choose one.
         var placed = true
-        var displaced: (id: String, slot: Int, name: String?)?
+        /// Every keepsake as it stood before this naming, so `esc` can put
+        /// back every place a move or a replacement changed.
+        var keepsakesBefore: [String: (slot: Int, name: String?)] = [:]
     }
     private var naming: Naming?
     /// The modifier held over Keep, which changes what the cards show.
@@ -287,6 +286,9 @@ final class HotkeyEngine {
     /// stand: a held ⇧ only relabels the cards, and never searches again.
     private var bringFound: (key: String, matches: [Bring.Match], total: Int)?
     private var bringRedrawPending = false
+    /// `esc` in Bring steps back to Keep: a return, not a new open, so it
+    /// is not counted as one.
+    private var returningToKeep = false
     /// The windows Bring reads, and how its text lands: the machine's in
     /// the app, the stage's in the tests.
     var bringWindows: (() -> [BringReader.Window])?
@@ -1027,6 +1029,11 @@ final class HotkeyEngine {
                 pass = true
             case .enterPaste:
                 stripSession = StripSession(openedAt: clock.now())
+                if returningToKeep {
+                    returningToKeep = false
+                    renderStrip()
+                    break
+                }
                 let began = Date()
                 renderStrip()
                 recordCaretCover()
@@ -1128,8 +1135,8 @@ final class HotkeyEngine {
                 bringSource = nil
                 bringSourceTyped = nil
                 heldOverStrip = .none
-                // ⇧⌘V over Bring opens Keep on the same panel.
-                if case .paste = core.state {} else {
+                // esc steps back to Keep, on the same panel.
+                if case .paste = core.state { returningToKeep = true } else {
                     stopWatchingClicks()
                     strip.hide()
                 }
@@ -1289,10 +1296,7 @@ final class HotkeyEngine {
                 if current.placed {
                     clipboard.history.move(current.id, to: slot)
                 } else {
-                    let name = clipboard.history.clips.first { $0.pinnedSlot == slot }?.keptName
-                    if let out = clipboard.history.place(current.id, at: slot) {
-                        current.displaced = (out.id, slot, out.name ?? name)
-                    }
+                    clipboard.history.place(current.id, at: slot)
                     current.placed = true
                     naming = current
                 }
@@ -1490,7 +1494,7 @@ final class HotkeyEngine {
                 renderBring()
             }
         }
-        if case .paste = core.state, !held {
+        if !held, Self.isKeepState(core.state) {
             let flags = event.flags
             let next: ClipboardStrip.Held = flags.contains(.maskControl) ? .control
                 : flags.contains(.maskAlternate) ? .option
@@ -2075,6 +2079,14 @@ extension HotkeyEngine: EngineWorld {
 
     static let allApps = "All apps"
 
+    /// The states in which Keep's cards are what the hand is looking at.
+    static func isKeepState(_ state: EngineCore.State) -> Bool {
+        switch state {
+        case .paste, .pastePanel, .pasteName, .pasteSource: return true
+        default: return false
+        }
+    }
+
     // MARK: - Bring
 
     func enterBring(carryingQuery: Bool) -> Bool {
@@ -2082,6 +2094,11 @@ extension HotkeyEngine: EngineWorld {
         // opened, never Lodestar itself.
         guard let front = bringFront(), front != getpid() else { return false }
         bringTarget = front
+        // Turning Keep to Bring is something Keep did, not a Keep abandoned.
+        if stripSession != nil {
+            let named = stripSession?.outcome
+            stripSession?.outcome = ("acted", "bring", "bring", named?.rank)
+        }
         bringQuery = carryingQuery ? (pasteQuery ?? "") : ""
         bringSource = nil
         bringSourceTyped = nil
@@ -2238,6 +2255,9 @@ extension HotkeyEngine: EngineWorld {
     private func beginNaming(fresh: Bool) {
         noteStripKey()
         guard let clip = panelClip else { core.doorClosed(); return }
+        // The actions are done: the menu goes before the name is drawn.
+        panelClip = nil
+        let snapshot = clipboard.history.keepsakes()
         var placed = true
         if fresh {
             if !clipboard.history.pin(clip.id) {
@@ -2250,7 +2270,7 @@ extension HotkeyEngine: EngineWorld {
         }
         let live = clipboard.history.clips.first { $0.id == clip.id } ?? clip
         naming = Naming(id: clip.id, text: Clipboard.name(of: live), selected: true, fresh: fresh,
-                        before: live.keptName, slot: live.pinnedSlot, placed: placed)
+                        placed: placed, keepsakesBefore: snapshot)
         renderStrip()
     }
 
@@ -2271,13 +2291,7 @@ extension HotkeyEngine: EngineWorld {
     private func cancelNaming() {
         guard let current = naming else { return }
         naming = nil
-        if current.fresh {
-            if current.placed { clipboard.history.unpin(current.id) }
-            if let back = current.displaced { clipboard.history.restore(back.id, at: back.slot, name: back.name) }
-        } else {
-            clipboard.history.name(current.id, current.before)
-            if let slot = current.slot { clipboard.history.move(current.id, to: slot) }
-        }
+        clipboard.history.restoreKeepsakes(current.keepsakesBefore)
         if case .paste = core.state { renderStrip() }
     }
 
@@ -2535,6 +2549,8 @@ extension HotkeyEngine: EngineWorld {
 
     func pastePanelIsImage() -> Bool { panelClip?.kind == .image }
     func pastePanelIsKept() -> Bool { panelClip?.isPinned == true }
+
+    func pasteQueryIsEmpty() -> Bool { (pasteQuery ?? "").isEmpty }
 
     func bringCardExists(_ label: String) -> Bool {
         guard let index = ClipboardStrip.labels.firstIndex(of: label) else { return false }

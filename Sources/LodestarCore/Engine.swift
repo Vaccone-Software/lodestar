@@ -283,6 +283,9 @@ public protocol EngineWorld: AnyObject {
     /// handing its words over. False when there is nothing in front to
     /// bring into.
     func enterBring(carryingQuery: Bool) -> Bool
+    /// Is Keep's search still empty? `=` hands an empty search to Bring;
+    /// with words typed it is a character like any other.
+    func pasteQueryIsEmpty() -> Bool
     /// Does a Bring card stand on this label right now? A pick with
     /// nothing behind it is swallowed, never a reason to close.
     func bringCardExists(_ label: String) -> Bool
@@ -311,6 +314,7 @@ public extension EngineWorld {
     func pastePanelIsKept() -> Bool { false }
     func enterBring(carryingQuery: Bool) -> Bool { false }
     func bringCardExists(_ label: String) -> Bool { true }
+    func pasteQueryIsEmpty() -> Bool { true }
     func pasteReadingExists(address: String?) -> Bool { true }
 }
 
@@ -1195,10 +1199,10 @@ public struct EngineCore {
                 // ⌘V pastes into the band, as it does into every other
                 // input — the pasteboard's text joins the query.
                 return [.pasteSearchPaste]
-            case "=" where !command && !option && !control && !shift:
-                // Not among the clips: `=` hands the words to Bring, which
-                // looks for them in your other windows instead.
-                guard world.enterBring(carryingQuery: true) else { return [] }
+            case "=" where !command && !option && !control && !shift && world.pasteQueryIsEmpty():
+                // An empty search turns to your other windows. With words
+                // typed, `=` is part of them: `FOO=`, `?id=` are searched for.
+                guard world.enterBring(carryingQuery: false) else { return [] }
                 state = .bring(listing: false)
                 return [.exitPaste]
             // ⌥ says the key is an address rather than a character. The

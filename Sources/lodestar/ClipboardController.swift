@@ -549,14 +549,15 @@ final class ClipboardController {
         }
     }
 
+    /// `K` on a keepsake lets it go; keeping goes through naming instead.
     func togglePin(_ clip: Clipboard.Clip) {
         if clip.isPinned {
             store.unpin(clip.id)
-            flash("⌂ unpinned")
+            flash("⌂ let go")
         } else if store.pin(clip.id) {
-            flash("⌂ pinned")
+            flash("⌂ kept")
         } else {
-            flash("✕ all \(Clipboard.pinSlots) pins are taken")
+            flash("✕ all \(Clipboard.pinSlots) places are full")
         }
     }
 

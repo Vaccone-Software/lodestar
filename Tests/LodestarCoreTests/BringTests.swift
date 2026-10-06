@@ -1,7 +1,7 @@
 import XCTest
 @testable import LodestarCore
 
-/// Bring: `lode =`, its own search over every other window, and what a
+/// Bring: `=` in Keep, its own search over every other window, and what a
 /// match brings.
 final class BringTests: XCTestCase {
     private var core = EngineCore()
@@ -93,6 +93,19 @@ final class BringTests: XCTestCase {
         openBring()
         XCTAssertEqual(core.leavePaste(), [.exitBring])
         XCTAssertEqual(core.state, .idle)
+    }
+
+    /// `=` turns an empty search to Bring; with words typed it is a
+    /// character, so `FOO=` and `?id=` can be searched for.
+    func testEqualsTypesOnceASearchHasWords() {
+        _ = core.openPaste(world: world)
+        _ = press("/")
+        world.queryEmpty = false
+        XCTAssertEqual(press("="), [.pasteSearchType("=")])
+        XCTAssertEqual(core.state, .paste(searching: true))
+        world.queryEmpty = true
+        XCTAssertEqual(press("="), [.exitPaste])
+        XCTAssertEqual(core.state, .bring(listing: false))
     }
 
     /// A miss never closes Bring or loses the words typed.

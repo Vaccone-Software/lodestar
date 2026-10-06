@@ -107,6 +107,10 @@ final class WorldStub: EngineWorld {
     var readings: Set<String>?
     func pasteReadingExists(address: String?) -> Bool { readings?.contains(address ?? "best") ?? true }
 
+    /// Whether Keep's search is empty.
+    var queryEmpty = true
+    func pasteQueryIsEmpty() -> Bool { queryEmpty }
+
     /// Whether Bring finds a window to read.
     var bringSucceeds = true
     func enterBring(carryingQuery: Bool) -> Bool {

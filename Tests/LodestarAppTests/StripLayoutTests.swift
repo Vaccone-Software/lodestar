@@ -91,6 +91,16 @@ final class StripLayoutTests: XCTestCase {
         stage.press("escape")
     }
 
+    /// Bring types in pieces an app will take whole, never splitting a
+    /// character, and the pieces put back together are the text.
+    func testBringTypesInPiecesThatKeepEveryCharacter() {
+        let text = "web/src/bar.ts:42:17 👩🏽‍💻 café " + String(repeating: "x", count: 40)
+        let pieces = BringTyping.pieces(of: text)
+        XCTAssertTrue(pieces.allSatisfy { $0.count <= BringTyping.piece })
+        XCTAssertEqual(pieces.map { String(utf16CodeUnits: $0, count: $0.count) }.joined(), text,
+                       "no character cut in two")
+    }
+
     func testOnTheStageTheBarStandsOverTheRightHand() {
         let stage = Stage()
         stage.seedClip("one")

@@ -342,6 +342,24 @@ final class PasteModeTests: XCTestCase {
         XCTAssertEqual(core.state, .paste(searching: false))
     }
 
+    /// `=` in Keep's search hands its words to Bring: Keep closes, and
+    /// select's machine takes the keys at Bring's door.
+    func testEqualsHandsTheSearchToBring() {
+        openSearching()
+        _ = press("b")
+        XCTAssertEqual(press("="), [.exitPaste])
+        XCTAssertEqual(core.state, .select)
+        XCTAssertTrue(world.calls.contains("enterBring:true"))
+        open()
+        XCTAssertEqual(press("="), [], "outside a search = is no card's key")
+        XCTAssertEqual(core.state, .paste(searching: false))
+        world.bringSucceeds = false
+        core = EngineCore()
+        openSearching()
+        XCTAssertEqual(press("="), [], "no window to read: the search stays")
+        XCTAssertEqual(core.state, .paste(searching: true))
+    }
+
     /// Closing Keep while a name is written keeps the name as it stands.
     func testClosingKeepWhileNamingKeepsTheName() {
         open()

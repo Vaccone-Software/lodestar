@@ -263,6 +263,11 @@ public protocol EngineWorld: AnyObject {
     func hintType(_ letter: String, shift: Bool, control: Bool) -> HintStep
     /// Enter select on the focused window; false when there is none.
     func enterSelect() -> Bool
+    /// Enter Bring: select's machine, whose pick is typed at the caret.
+    /// `carryingQuery` is Keep's search handing its words over, so the
+    /// hand that did not find a clip finds the text on screen without
+    /// typing it again. False when there is no window to read.
+    func enterBring(carryingQuery: Bool) -> Bool
     /// A key while select is up — search, label, anchor, or finish.
     func selectKey(_ key: String, shift: Bool) -> SelectStep
     /// ⌘C while select is up: take what is anchored so far. `.done` when
@@ -283,6 +288,7 @@ public extension EngineWorld {
     var editorActive: Bool { false }
     func enterEditor() -> Bool { false }
     func pastePanelIsKept() -> Bool { false }
+    func enterBring(carryingQuery: Bool) -> Bool { false }
 }
 
 public struct EngineCore {
@@ -619,6 +625,15 @@ public struct EngineCore {
                 state = .select
             } else {
                 effects.append(.flash("✕ no focused window to select in"))
+            }
+        case "=" where !shift:
+            // Bring: text you can see, typed where you are. Select's
+            // machine at its own door, beside select's key.
+            effects.append(.hideBars)
+            if world.enterBring(carryingQuery: false) {
+                state = .select
+            } else {
+                effects.append(.flash("✕ no window to bring from"))
             }
         case "space":
             let wasVisible = world.searcherVisible
@@ -1151,6 +1166,13 @@ public struct EngineCore {
                 // ⌘V pastes into the band, as it does into every other
                 // input — the pasteboard's text joins the query.
                 return [.pasteSearchPaste]
+            case "=" where !command && !option && !control && !shift:
+                // Not among the clips: `=` hands the words to Bring, which
+                // looks for them on the screen instead. Keep closes first,
+                // so it never stands over the text Bring reads.
+                guard world.enterBring(carryingQuery: true) else { return [] }
+                state = .select
+                return [.exitPaste]
             // ⌥ says the key is an address rather than a character. The
             // cards wear their chips the whole time you are typing, and
             // this is what makes them true: the fourth match is one

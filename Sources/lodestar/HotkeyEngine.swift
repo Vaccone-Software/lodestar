@@ -320,6 +320,9 @@ final class HotkeyEngine {
             guard let self, case .scroll = self.core.state else { return }
             self.showScrollPill()
         }
+        // Bring's landing: the chosen text typed into the app that was
+        // focused when the mode began, the pasteboard left alone.
+        select.bring = { text, pid in BringTyping.type(text, to: pid) }
         select.onAimLanded = { [weak self] in
             guard let self else { return }
             _ = self.apply(self.core.aimLanded(), event: nil)
@@ -1564,6 +1567,16 @@ final class HotkeyEngine {
                 GuideRow(key: "?", label: "This sheet"),
                 GuideRow(key: "esc", label: "Close Keep"),
             ])]
+        case .select where select.door == .bring:
+            return [.init(header: "Bring", rows: [
+                GuideRow(key: "a…z", label: "Type what you see · matches wear chips"),
+                GuideRow(key: "⇧A…Z", label: "Choose the chip's word · again for the far end, which brings at once"),
+                GuideRow(key: "⇥", label: "Grow it to the line · ⇧⇥ back to the word"),
+                GuideRow(key: "⏎", label: "Bring it to where you are typing"),
+                GuideRow(key: "⌫", label: "Back one letter"),
+                GuideRow(key: "?", label: "This sheet"),
+                GuideRow(key: "esc", label: "Leave without bringing"),
+            ])]
         case .select:
             return [.init(header: "Select", rows: [
                 GuideRow(key: "a…z", label: "Type what you see · a unique match anchors on its own"),
@@ -2335,6 +2348,17 @@ extension HotkeyEngine: EngineWorld {
         // mid-session is honored by the next `lode /`.
         select.copyOnComplete = config.selectCopyOnComplete
         return select.enter()
+    }
+
+    func enterBring(carryingQuery: Bool) -> Bool {
+        // Keep's words, handed over: Keep goes first, so the screen Bring
+        // reads is the one beneath it.
+        let seed = carryingQuery ? pasteQuery : nil
+        if carryingQuery { strip.hide() }
+        select.letters = KeyboardLayout.chipAlphabet()
+        select.commitOnUnique = config.selectCommitOnUnique
+        select.copyOnComplete = false
+        return select.enter(door: .bring, seed: seed)
     }
 
     func selectCopy() -> SelectStep {

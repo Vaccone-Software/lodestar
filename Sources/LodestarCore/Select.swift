@@ -417,6 +417,38 @@ public struct SelectCore {
                                              in: elements[index].text as NSString))
     }
 
+    // MARK: - Bring
+
+    /// Bring's chosen text, which `⇥` grows and `⇧⇥` takes back: the shell
+    /// sets the range within the anchor's own element.
+    public mutating func reanchor(_ range: NSRange) {
+        guard let anchor else { return }
+        self.anchor = Match(element: anchor.element, range: range)
+    }
+
+    /// What Bring takes at each size. The first is the token the pick
+    /// snapped to with whatever encloses it trimmed away — brackets,
+    /// quotes, a sentence's comma or full stop — so a path in a stack
+    /// trace comes without its parenthesis. The second is the whole line.
+    public static let bringSizes = 2
+
+    public static func bringRange(_ range: NSRange, in text: NSString, size: Int) -> NSRange {
+        if size >= 1 {
+            return trimmedRange(NSRange(location: 0, length: text.length), in: text as String)
+        }
+        var token = wordSnapped(range, in: text)
+        let opening = CharacterSet(charactersIn: "([{<\"'`“‘")
+        let closing = CharacterSet(charactersIn: ")]}>\"'`”’,.;:!?")
+        func scalar(_ at: Int) -> Unicode.Scalar? { UnicodeScalar(text.character(at: at)) }
+        while token.length > 1, let first = scalar(token.location), opening.contains(first) {
+            token = NSRange(location: token.location + 1, length: token.length - 1)
+        }
+        while token.length > 1, let last = scalar(NSMaxRange(token) - 1), closing.contains(last) {
+            token = NSRange(location: token.location, length: token.length - 1)
+        }
+        return token
+    }
+
     /// The span two anchors make, piece by piece.
     ///
     /// Word snap first: two typed characters name a word, they do not

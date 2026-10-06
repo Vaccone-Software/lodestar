@@ -99,6 +99,13 @@ final class WorldStub: EngineWorld {
         return panelIsImage
     }
 
+    /// Whether Bring finds a window to read.
+    var bringSucceeds = true
+    func enterBring(carryingQuery: Bool) -> Bool {
+        calls.append("enterBring:\(carryingQuery)")
+        return bringSucceeds
+    }
+
     /// Whether the card whose actions stand is a keepsake.
     var panelIsKept = false
     func pastePanelIsKept() -> Bool {
@@ -183,8 +190,8 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(core.state, .idle)
     }
 
-    func testUnboundPunctuationPassesThrough() {
-        XCTAssertEqual(press("="), [.passThrough])
+    func testUnboundKeysPassThroughWhileHeld() {
+        XCTAssertEqual(press("down"), [.passThrough])
         // Plain / spent its reservation in 0.15.0: it enters select now.
         _ = press("/")
         XCTAssertEqual(core.state, .select)
@@ -284,10 +291,9 @@ final class EngineTests: XCTestCase {
     }
 
     /// The number row is one sentence: 0 collapses to one window, 1…9 pick
-    /// among many. Nothing sweeps, and the old claim key is free; the minus
-    /// beside it took the commands bar in 0.26.
-    func testEqualsIsFreeAndMinusIsCommands() {
-        XCTAssertEqual(press("="), [.passThrough])
+    /// among many. Nothing sweeps; the minus took the commands bar in 0.26,
+    /// and the old claim key, the equals beside it, is Bring.
+    func testEqualsIsBringAndMinusIsCommands() {
         XCTAssertEqual(press("-"), [.hideBars, .showCommandsBar])
         XCTAssertEqual(core.state, .idle)
     }
@@ -769,7 +775,7 @@ final class EngineTests: XCTestCase {
 
     func testScrollExitAndExecutePassesUnboundKeys() {
         enterScrollMode()
-        XCTAssertEqual(press("="), [.scrollExit(reason: .verb), .hideGuide, .passThrough])
+        XCTAssertEqual(press("down"), [.scrollExit(reason: .verb), .hideGuide, .passThrough])
         XCTAssertEqual(core.state, .idle)
     }
 

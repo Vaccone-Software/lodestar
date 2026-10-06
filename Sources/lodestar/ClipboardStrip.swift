@@ -1,51 +1,43 @@
 import AppKit
 import LodestarCore
 
-/// The paste surface: recents along the bottom, pins climbing the left.
+/// Keep: the clips as the hands hold them.
 ///
-/// The right angle is deliberate. Both of the places you are most likely to
-/// want — a pin, or the thing you just copied — sit at the same corner, so
-/// the eye has one hot region instead of two ends of a wide strip to choose
-/// between. Older clips trail off to the right, where you rarely look.
+/// Eight clips stand on one row, each directly over the key that pastes
+/// it: the newest on J under the right index finger, two keys wide and a
+/// step taller, then K, L and ; each a little shorter, then the left
+/// hand's F D S A, older and level. A gutter at G keeps the hands apart
+/// the way the keyboard does. Over the left hand, on the number row's
+/// line, are the four keepsakes; over the right hand the space stays
+/// open until a search needs it.
 ///
-/// Never key: the strip reads its keys from the event tap, so the window you
-/// are typing in keeps focus and its insertion point the whole time. That is
-/// what lets the paste be a plain ⌘V into an app that never lost the cursor.
+/// The layout never changes. A search takes the bar over the right hand
+/// and fills the same eight places with what matches; the keepsakes are
+/// never touched. A held modifier shows on every card what it would
+/// paste, so what is seen is what pastes.
+///
+/// Never key: the strip reads its keys from the event tap, so the window
+/// you are typing in keeps focus and its insertion point the whole time.
+/// That is what lets the paste be a plain ⌘V into an app that never lost
+/// the cursor. It takes no mouse either: it is read, and a click anywhere
+/// ends it.
 final class ClipboardStrip {
-    /// Source-app icons by bundle id, misses cached too. The cards rebuild
-    /// on every keystroke of a strip search, and each icon was a fresh
-    /// LaunchServices lookup plus an icon load — the same ~3.5ms-cold call
-    /// AppIndex measured and cached, here paid per card per keystroke.
-    private var sourceIcons: [String: NSImage?] = [:]
-
-    private func sourceIcon(bundleID: String) -> NSImage? {
-        if let cached = sourceIcons[bundleID] { return cached }
-        let resolved = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
-            .map { NSWorkspace.shared.icon(forFile: $0.path) }
-        sourceIcons[bundleID] = resolved
-        return resolved
-    }
-
     static let labels = Clipboard.recentLabels
 
-    /// What the region beside the pins is carrying, when it is carrying
+    /// What the bar over the right hand is carrying, when it is carrying
     /// anything. Idle it stays empty — a bar sitting there permanently is
-    /// furniture, and the strip is something you look at every day.
+    /// furniture, and Keep is something you look at every day.
     enum Band {
         case none
         case search(String)
-        /// A card's actions, drawn as a card: a row of text where a card
-        /// belongs reads as a caption, not as a menu.
+        /// A card's actions, drawn as a menu over the card.
         case actions([Action])
         /// A file name for an image being saved: what was typed, the
         /// name offered when nothing is, and the folder it lands in.
         case save(name: String, offered: String, folder: String)
     }
 
-    /// One line of the actions menu. The symbol and the destructive flag are
-    /// most of what makes it read as a menu rather than a legend: something
-    /// to recognise the row by without reading it, and a colour that says
-    /// this one does not undo.
+    /// One line of the actions menu.
     struct Action {
         let key: String
         let label: String
@@ -53,117 +45,179 @@ final class ClipboardStrip {
         var isDestructive = false
     }
 
+    /// The modifier the hand is holding over the cards. Each one changes
+    /// the keys the cards wear to the chord that would paste them, and
+    /// `⌃` shows the reading it would paste in place of the clip.
+    enum Held: Equatable { case none, option, control, shift }
+
+    /// The list of source apps as drawn under the bar.
+    struct SourceMenu: Equatable {
+        struct Row: Equatable {
+            let name: String
+            let count: Int
+        }
+        var typed: String
+        var rows: [Row]
+        var selection: Int
+    }
+
+    /// A keepsake whose name is being written in its place.
+    struct Naming: Equatable {
+        let id: String
+        var text: String
+        /// The offered name stands selected: the first key typed replaces
+        /// it, and an arrow or a delete keeps it to edit.
+        var selected: Bool
+    }
+
+    // MARK: - Geometry
+
+    static let gap: CGFloat = 10
+    /// The space at G between the hands.
+    static let gutter: CGFloat = 26
+    /// The narrowest a card may be and still hold a line of a command.
+    /// Below it J gives up its second key, and every key keeps its card.
+    static let minModule: CGFloat = 150
+    static let maxModule: CGFloat = 196
+    /// The older clips' height. J, K, L and ; stand above it in small
+    /// steps, so the newest leads by a step, never by a leap.
+    static let clipHeight: CGFloat = 150
+    static let rise: [CGFloat] = [1.26, 1.17, 1.11, 1.06]
+    static let barHeight: CGFloat = 46
+    static let margin: CGFloat = 22
+    /// Where Keep's top edge stands, as a share of the screen's height:
+    /// the bars' own line, so every surface opens at one height.
+    static let topLine: CGFloat = 0.64
+
+    /// Every place Keep draws, decided from the screen alone so a test can
+    /// ask about any screen. Card frames by label, keepsakes by digit, and
+    /// the bar over the right hand; screen coordinates.
+    struct Layout: Equatable {
+        var module: CGFloat
+        /// Whether J stands over two keys. False on a screen too narrow
+        /// for nine readable cards.
+        var wideJ: Bool
+        var places: [String: NSRect]
+        var bar: NSRect
+
+        /// The top of the tallest clip: the clip door stands above it.
+        var rowTop: CGFloat { places["j"]?.maxY ?? bar.minY }
+    }
+
+    static func layout(in screen: NSRect) -> Layout {
+        let usable = screen.width - margin * 2
+        var wide = true
+        var module = (usable - 7 * gap - gutter) / 9
+        if module < minModule {
+            wide = false
+            module = (usable - 6 * gap - gutter) / 8
+        }
+        module = floor(min(module, maxModule))
+        let width = (wide ? 9 : 8) * module + (wide ? 7 : 6) * gap + gutter
+        let left = floor(screen.midX - width / 2)
+        let barTop = floor(screen.minY + screen.height * topLine)
+        let barBottom = barTop - barHeight
+        let base = barBottom - gap - ceil(clipHeight * rise[0])
+
+        var places: [String: NSRect] = [:]
+        for (column, key) in ["a", "s", "d", "f"].enumerated() {
+            let x = left + CGFloat(column) * (module + gap)
+            places[key] = NSRect(x: x, y: base, width: module, height: clipHeight)
+            let keepBottom = base + clipHeight + gap
+            places["\(column + 1)"] = NSRect(x: x, y: keepBottom, width: module, height: barTop - keepBottom)
+        }
+        var x = left + 4 * module + 3 * gap + gutter
+        for (step, key) in ["j", "k", "l", ";"].enumerated() {
+            let w = step == 0 && wide ? module * 2 + gap : module
+            let h = ceil(clipHeight * rise[step])
+            places[key] = NSRect(x: x, y: base, width: w, height: h)
+            x += w + gap
+        }
+        let j = places["j"]!, last = places[";"]!
+        let bar = NSRect(x: j.minX, y: barBottom, width: last.maxX - j.minX, height: barHeight)
+        return Layout(module: module, wideJ: wide, places: places, bar: bar)
+    }
+
+    // MARK: - State, for the tests
+
     private let panel: NSPanel
     private let root = NSView()
 
-    private static let cardWidth: CGFloat = 208
-    /// One card size for both zones. A pin needs less preview than a recent
-    /// — you already know what slot 2 holds — but a column of stubby cards
-    /// beside full ones reads as a mistake, and the strip is something you
-    /// look at every day.
-    private static let cardHeight: CGFloat = 158
-    private static let gap: CGFloat = 10
-    private static let searchHeight: CGFloat = 54
-    private static let margin: CGFloat = 22
-    /// What stands above the row of recents: the clip door's floor.
-    static let rowHeight: CGFloat = cardHeight + gap
-
-    /// Where the pin column stands and how wide the band may be, decided
-    /// from the screen alone so a test can ask about any screen. The
-    /// column is centered on the screen's left edge, its own zone rather
-    /// than an extension of the row; on a short screen it comes down no
-    /// further than the row above the recents, where the band lives, and
-    /// then the band keeps clear of it by starting to its right. The
-    /// column is always drawn, one free slot past the highest in use:
-    /// it is how a hand that has never pinned learns that it can.
-    struct Layout: Equatable {
-        /// Panel-relative y of the lowest drawn slot's bottom edge.
-        var columnBottom: CGFloat
-        /// Where the search band starts: zero when the column is clear of it.
-        var bandLeft: CGFloat
-        /// The panel's content height, before its outer margin.
-        var height: CGFloat
-    }
-
-    static func layout(screenHeight: CGFloat, drawnSlots: Int) -> Layout {
-        let row = cardHeight + gap
-        let column = drawnSlots > 0 ? CGFloat(drawnSlots) * (cardHeight + gap) - gap : 0
-        // The panel's origin sits one margin above the screen's bottom.
-        let centered = screenHeight / 2 - margin - column / 2
-        let bottom = drawnSlots > 0 ? max(row, centered) : row
-        let clear = drawnSlots == 0 || bottom >= row + searchHeight + gap
-        return Layout(columnBottom: bottom,
-                      bandLeft: clear ? 0 : cardWidth + gap,
-                      height: max(row + searchHeight, drawnSlots > 0 ? bottom + column : 0))
-    }
-    /// The frame the band last took, and where the column stood, for the
-    /// tests and for the actions menu beside a pin.
     private(set) var bandFrame: NSRect?
-    private var columnBottom: CGFloat = 0
-
+    private(set) var lastLayout: Layout?
     var isVisible: Bool { panel.isVisible }
     /// For the tests: the window casts no shadow of its own.
     var castsWindowShadow: Bool { panel.hasShadow }
-    /// Which label each visible recent card answers to, in order.
+    /// Which clip each label answers to, in rank order.
     private(set) var shownRecents: [Clipboard.Clip] = []
     private(set) var shownPins: [Int: Clipboard.Clip] = [:]
-    /// The pin column stepped aside for the clip door, since nothing in
-    /// it can be pressed while the door stands.
+    /// The keepsakes stepped aside for the clip door.
     private(set) var pinsHidden = false
-    /// What each card said about its length, and where it came from, by
-    /// clip id — the tests read what the screen shows.
     private(set) var shownBadges: [String: String] = [:]
     private(set) var shownSources: [String: String] = [:]
     private(set) var shownCaptions: [String: String] = [:]
-    /// Cards drawn as a color, by clip id: the color's hex.
     private(set) var shownSwatches: [String: String] = [:]
     /// Lodestar's note on each card it has read, by clip id: the voice
     /// line first, then the exact lines, as drawn.
     private(set) var shownNotes: [String: [String]] = [:]
-    /// The text of each card that holds a secret, as drawn, with blocks
-    /// where the card draws its bar.
+    /// The reading each card shows while `⌃` is held, by clip id.
+    private(set) var shownReadings: [String: String] = [:]
     private(set) var shownMasked: [String: String] = [:]
+    private(set) var shownWeights: [Glass.Weight] = []
+    private(set) var shownCards: [String: NSView] = [:]
+    /// The key each card wears, by clip id; absent when it wears none.
+    private(set) var shownKeys: [String: String] = [:]
+    /// The keepsakes' names as drawn, by place.
+    private(set) var shownNames: [Int: String] = [:]
+    private(set) var shownSave: (name: String, offered: String, folder: String)?
+    /// The bar's count and source, as drawn.
+    private(set) var shownCount: String?
+    private(set) var shownSource: String?
+    private(set) var shownSourceRows: [String] = []
     /// The zones a timestamp is read into beside yours and UTC.
     var timeZones: [TimeZone] = []
     /// The units a measurement is read into.
     var units = ClipQuantity.System.regional()
-    /// Every plate's veil, in the order the cards were made — the tests
-    /// read that a lit card is raised and the rest are the launcher's.
-    private(set) var shownWeights: [Glass.Weight] = []
-    /// The plates themselves, by clip id, so a test can look inside one.
-    private(set) var shownCards: [String: NSView] = [:]
-    /// The save band as drawn, for the tests: what the eye reads as the
-    /// name, and where it says the file goes.
-    private(set) var shownSave: (name: String, offered: String, folder: String)?
-    /// The card's rows: the chip line at the top, the caption line at the
-    /// foot, and the preview between them.
-    private static let cardHead: CGFloat = 34
-    private static let cardFoot: CGFloat = 26
+
+    /// The clip door stands this far above the bottom of the screen: over
+    /// the clips, with the keepsakes and the bar stepped aside.
+    var doorFloor: CGFloat { Self.doorFloor(in: ActivePolicy.presentationFrame) }
+
+    static func doorFloor(in screen: NSRect) -> CGFloat {
+        layout(in: screen).rowTop - screen.minY + gap
+    }
+
+    private static let pad: CGFloat = 12
+    /// The key's inset from a card's top edge, and the foot's height.
+    private static let head: CGFloat = 10
+    private static let foot: CGFloat = 26
 
     init() {
         panel = Glass.makePanel(level: .statusBar)
         panel.ignoresMouseEvents = true
         panel.contentView = root
-        // The strip is separate cards in one window. A window shadow is
-        // cut from the union of what is opaque, and on a pale ground its
-        // rim drew a hairline around that union, bridging the gaps
-        // between the column, the row, and a menu. Each plate casts its
-        // own shadow instead; the window casts none.
+        // Separate objects in one window: each card casts its own drawn
+        // shadow, and the window casts none.
         panel.hasShadow = false
     }
 
     func hide() { panel.orderOut(nil) }
 
     /// Lay the world out for one frame. Cheap enough to call on every
-    /// keystroke while searching: previews come from the in-memory index and
-    /// thumbnails are already decoded.
+    /// keystroke while searching: previews come from the in-memory index
+    /// and thumbnails are already decoded.
     func show(recents: [Clipboard.Clip], pins: [Clipboard.Clip],
               thumbnail: (String) -> NSImage?,
               band: Band, selection: Int, actingOn: String? = nil,
-              pinsHidden: Bool = false) {
+              pinsHidden: Bool = false, held: Held = .none,
+              source: String? = nil, matches: Int? = nil,
+              sourceMenu: SourceMenu? = nil, naming: Naming? = nil) {
         let query: String?
         if case .search(let text) = band { query = text } else { query = nil }
         let screen = ActivePolicy.presentationFrame
+        let layout = Self.layout(in: screen)
+        let opening = !panel.isVisible
+        lastLayout = layout
         self.pinsHidden = pinsHidden
         shownSave = nil
         shownBadges = [:]
@@ -171,194 +225,239 @@ final class ClipboardStrip {
         shownCaptions = [:]
         shownSwatches = [:]
         shownNotes = [:]
+        shownReadings = [:]
         shownMasked = [:]
         shownWeights = []
         shownCards = [:]
+        shownKeys = [:]
+        shownNames = [:]
+        shownCount = nil
+        shownSource = nil
+        shownSourceRows = []
+        bandFrame = nil
 
-        // As many cards as the display can hold at a readable size, never
-        // more than the alphabet — the guide panel already adapts this way.
-        let usable = screen.width - Self.margin * 2
-        let fit = max(1, Int((usable + Self.gap) / (Self.cardWidth + Self.gap)))
-        let visibleRecents = Array(recents.prefix(min(fit, Self.labels.count)))
-        shownRecents = visibleRecents
-        // Last-wins, never a trap: a hand-edited or drifted index can hold
-        // two clips claiming one slot, and the strip opening is the wrong
-        // place to die over it.
+        shownRecents = Array(recents.prefix(Self.labels.count))
+        // Last-wins, never a trap: a hand-edited index can hold two clips
+        // claiming one place, and Keep opening is the wrong place to die.
         shownPins = Dictionary(pins.compactMap { clip in
             clip.pinnedSlot.map { ($0, clip) }
         }, uniquingKeysWith: { _, second in second })
 
         root.subviews.forEach { $0.removeFromSuperview() }
 
-        // Searching holds the full width whatever the results do. Sized to
-        // the matches, the field would resize on every keystroke and vanish
-        // entirely when a query matched nothing. The save band is a field
-        // too, and holds the same width for the same reason.
-        var saving = false
-        if case .save = band { saving = true }
-        let lanes = query != nil || saving
-            ? min(fit, Self.labels.count)
-            : max(visibleRecents.count, 1)
-        let stripWidth = CGFloat(lanes) * (Self.cardWidth + Self.gap) - Self.gap
-        // Slots through the highest in use and one free one after it: the
-        // next pin's number is visible, and four empty cards do not stand
-        // for slots nobody has reached. Positions never move.
-        let drawnSlots = pinsHidden ? 0 : Clipboard.pinSlotsToDraw(taken: Set(shownPins.keys))
-        let placed = Self.layout(screenHeight: screen.height, drawnSlots: drawnSlots)
-        columnBottom = placed.columnBottom
-        bandFrame = nil
-        let height = placed.height
-        let width = max(stripWidth, Self.cardWidth) + Self.margin * 2
-
-        let frame = NSRect(x: screen.minX + Self.margin,
-                           y: screen.minY + Self.margin,
-                           width: min(width, screen.width - Self.margin * 2),
-                           height: height + Self.margin)
-
-        // Everything built inside one disabled-animation transaction: liquid
-        // glass animates its own construction otherwise, and a strip that
-        // fades in is a strip that is late.
+        // Everything built inside one disabled-animation transaction:
+        // Keep appears complete in the frame the chord lands.
         NSAnimationContext.beginGrouping()
         NSAnimationContext.current.duration = 0
         CATransaction.begin()
         CATransaction.setDisableActions(true)
 
-        panel.setFrame(frame, display: false)
-        root.frame = NSRect(origin: .zero, size: frame.size)
+        panel.setFrame(screen, display: false)
+        root.frame = NSRect(origin: .zero, size: screen.size)
+        let local = { (rect: NSRect) in rect.offsetBy(dx: -screen.minX, dy: -screen.minY) }
 
-        // Recents are the bottom row, always — opening search must not
-        // shift the cards you are looking at.
-        let y: CGFloat = 0
-        // While the band is open every letter is query text, so a chip that
-        // still read "A" would be naming a key that no longer does this.
-        // ⌥ is what addresses a card mid-search, and the chip says so for
-        // as long as that is true.
-        let address = query != nil ? "⌥" : ""
-        switch band {
-        case .none:
-            break
-        case .search(let query):
-            // The full width when the column is clear of this row; on a
-            // short screen the column comes down to it, and the band
-            // starts to the column's right instead.
-            let frame = NSRect(x: placed.bandLeft, y: Self.cardHeight + Self.gap,
-                               width: max(Self.cardWidth, stripWidth - placed.bandLeft),
-                               height: Self.searchHeight)
-            bandFrame = frame
-            addSearchField(query: query, frame: frame)
-        case .actions(let actions):
-            let size = actionSize(actions)
-            addActionCard(actions, frame: actionFrame(for: actingOn, size: size,
-                                                      stripWidth: stripWidth))
-        case .save(let name, let offered, let folder):
-            let frame = NSRect(x: placed.bandLeft, y: Self.cardHeight + Self.gap,
-                               width: max(Self.cardWidth, stripWidth - placed.bandLeft),
-                               height: Self.searchHeight)
-            bandFrame = frame
-            shownSave = (name, offered, folder)
-            addSaveField(name: name, offered: offered, folder: folder, frame: frame)
-        }
-
-        for (offset, clip) in visibleRecents.enumerated() {
-            let label = Self.labels[offset]
-            // Only an image has a thumbnail: asking for a text card's
-            // looked for a file on disk on every keystroke of a search.
-            let card = makeCard(clip: clip, label: address + label, height: Self.cardHeight,
+        var ranked: [NSView] = []
+        for (rank, clip) in shownRecents.enumerated() {
+            let label = Self.labels[rank]
+            guard let place = layout.places[label] else { continue }
+            let reading = held == .control ? readingText(clip) : nil
+            let key = keyText(label: label, rank: rank, searching: query != nil,
+                              held: held, hasReading: reading != nil, selection: selection)
+            let lit = key != nil && (query != nil ? rank == selection : rank == 0)
+            let card = makeCard(clip: clip, key: key, lit: lit, size: place.size,
+                                face: rank == 0 && layout.wideJ ? BarTheme.titleFont : BarTheme.bodyFont,
+                                lift: rank < 4 ? .float : .rest,
+                                reading: reading,
                                 thumbnail: clip.kind == .image ? thumbnail(clip.id) : nil,
-                                highlighted: clip.id == actingOn
-                                    || (query != nil && offset == selection))
-            card.frame = NSRect(x: CGFloat(offset) * (Self.cardWidth + Self.gap),
-                                y: y, width: Self.cardWidth, height: Self.cardHeight)
+                                raised: clip.id == actingOn)
+            card.frame = local(place)
+            card.setAccessibilityLabel(spoken(clip, rank: rank, label: label))
             root.addSubview(card)
+            ranked.append(card)
         }
 
-        // Nothing matched, and that is a fact about the whole region rather
-        // than about one slot. An empty *pin* is card-shaped because it is
-        // still addressable — you can press 4. Nothing answers to a label
-        // here, so it must not wear a card's shape and imply otherwise.
-        if query != nil, visibleRecents.isEmpty {
-            let card = glassPlate(radius: BarTheme.rowRadius, weight: .empty)
-            card.frame = NSRect(x: 0, y: y, width: stripWidth, height: Self.cardHeight)
-            let label = NSTextField(labelWithString: "No matches")
-            label.font = BarTheme.bodyFont
-            label.textColor = BarTheme.secondaryColor
-            label.alignment = .center
-            label.sizeToFit()
-            label.frame = NSRect(x: 0, y: (Self.cardHeight - label.frame.height) / 2,
-                                 width: stripWidth, height: label.frame.height)
-            card.addSubview(label)
-            root.addSubview(card)
-        }
-
-        // Pins: their own column, centered on the screen's left edge,
-        // numbered and permanent. An empty slot still draws, so the
-        // numbers are always visible and a freed slot reads as reserved
-        // rather than missing.
-        for slot in stride(from: 1, through: drawnSlots, by: 1) {
-            let card: NSView
-            if let clip = shownPins[slot] {
-                card = makeCard(clip: clip, label: address + "\(slot)", height: Self.cardHeight,
-                                thumbnail: clip.kind == .image ? thumbnail(clip.id) : nil,
-                                highlighted: clip.id == actingOn)
-            } else {
-                card = makeEmptyPin(slot: slot)
+        if !pinsHidden {
+            for slot in 1...Clipboard.pinSlots {
+                guard let place = layout.places["\(slot)"] else { continue }
+                let card: NSView
+                if let clip = shownPins[slot] {
+                    let reading = held == .control ? readingText(clip) : nil
+                    let key = keepKey(slot: slot, searching: query != nil, held: held,
+                                      hasReading: reading != nil)
+                    card = makeKeepsake(clip: clip, slot: slot, key: key, size: place.size,
+                                        reading: reading,
+                                        thumbnail: clip.kind == .image ? thumbnail(clip.id) : nil,
+                                        naming: naming?.id == clip.id ? naming : nil,
+                                        raised: clip.id == actingOn)
+                    card.setAccessibilityLabel("Keepsake \(slot), \(Clipboard.name(of: clip))")
+                    ranked.append(card)
+                } else {
+                    card = makeFreePlace(slot: slot, size: place.size,
+                                         wearsKey: query == nil && held != .control)
+                }
+                card.frame = local(place)
+                root.addSubview(card)
             }
-            card.frame = NSRect(x: 0,
-                                y: placed.columnBottom + CGFloat(slot - 1) * (Self.cardHeight + Self.gap),
-                                width: Self.cardWidth, height: Self.cardHeight)
-            root.addSubview(card)
+
+            // The bar over the right hand: the search, the save name, or,
+            // while a keepsake is being named, the keys that finish it.
+            switch band {
+            case .search(let query):
+                bandFrame = layout.bar
+                addSearchBar(query: query, source: source, matches: matches,
+                             shown: shownRecents.count, frame: local(layout.bar))
+            case .save(let name, let offered, let folder):
+                bandFrame = layout.bar
+                shownSave = (name, offered, folder)
+                addSaveField(name: name, offered: offered, folder: folder, frame: local(layout.bar))
+            case .actions(let actions):
+                let size = actionSize(actions)
+                addActionCard(actions, frame: local(actionFrame(for: actingOn, size: size,
+                                                                layout: layout, screen: screen)))
+            case .none:
+                if naming != nil { addNamingGuide(in: local(layout.bar)) }
+            }
+            if let sourceMenu {
+                addSourceMenu(sourceMenu, under: local(layout.bar))
+            }
         }
 
+        root.setAccessibilityChildren(ranked)
+        panel.setAccessibilityLabel("Keep")
         panel.orderFrontRegardless()
         CATransaction.commit()
         NSAnimationContext.endGrouping()
+
+        if opening {
+            let kept = shownPins.count
+            NSAccessibility.post(element: panel, notification: .announcementRequested, userInfo: [
+                .announcement: "Keep, \(shownRecents.count) clips, \(kept) keepsakes",
+                .priority: NSAccessibilityPriorityLevel.high.rawValue,
+            ])
+        }
+    }
+
+    // MARK: - Keys the cards wear
+
+    /// The chord that pastes a card right now, or nil when no chord does:
+    /// a card wears only a key that is true.
+    private func keyText(label: String, rank: Int, searching: Bool, held: Held,
+                         hasReading: Bool, selection: Int) -> String? {
+        let letter = label.uppercased()
+        switch held {
+        case .control: return hasReading ? "⌃" + letter : nil
+        case .option: return searching ? "⌥" + letter : letter
+        case .shift: return searching ? nil : "⇧" + letter
+        case .none:
+            // While searching the letters are the query: only the match
+            // ⏎ would take wears a key.
+            if searching { return rank == selection ? "⏎" : nil }
+            return letter
+        }
+    }
+
+    private func keepKey(slot: Int, searching: Bool, held: Held, hasReading: Bool) -> String? {
+        switch held {
+        case .control: return hasReading ? "⌃\(slot)" : nil
+        case .option: return searching ? "⌥\(slot)" : "\(slot)"
+        case .shift: return searching ? nil : "⇧\(slot)"
+        case .none: return searching ? nil : "\(slot)"
+        }
+    }
+
+    /// What the card would paste as a reading, or nil.
+    private func readingText(_ clip: Clipboard.Clip) -> String? {
+        Clipboard.reading(of: clip, units: units, zones: timeZones)
+    }
+
+    /// What VoiceOver says for a card: its key, its rank, what it holds,
+    /// where it came from and when — the rank order, not the screen's.
+    private func spoken(_ clip: Clipboard.Clip, rank: Int, label: String) -> String {
+        let what = clip.kind == .image ? "Image" : (masked(clip)?.text ?? clip.preview)
+        return Caption.line(["\(label.uppercased()), clip \(rank + 1)",
+                             String(what.prefix(120)),
+                             clip.sourceHost ?? clip.sourceAppName,
+                             Clipboard.age(of: clip)])
     }
 
     // MARK: - Cards
 
-    private func makeCard(clip: Clipboard.Clip, label: String, height: CGFloat,
-                          thumbnail: NSImage?, highlighted: Bool) -> NSView {
-        let card = glassPlate(radius: BarTheme.rowRadius, weight: highlighted ? .highlighted : .normal)
+    /// `counted` is false for what is not a card — the bar, a menu, the
+    /// list of sources — so the cards' weights read alone.
+    private func surface(size: NSSize, lift: ObjectSurface.Lift, weight: Weight,
+                         counted: Bool = true) -> ObjectSurface {
+        let card = SoftShadow.object(radius: BarTheme.rowRadius, lift: lift)
+        card.frame = NSRect(origin: .zero, size: size)
+        let veil: Glass.Weight
+        switch weight {
+        case .normal: veil = .normal
+        case .highlighted: veil = .raised
+        case .empty: veil = .faint
+        }
+        Glass.installBackdrop(in: card, cornerRadius: BarTheme.rowRadius, weight: veil)
+        if counted { shownWeights.append(veil) }
+        card.setAccessibilityElement(true)
+        card.setAccessibilityRole(.button)
+        return card
+    }
+
+    private func addKey(_ text: String, lit: Bool, to card: NSView, height: CGFloat) -> NSView {
+        let cap = Self.placedCap(text, at: NSPoint(x: Self.pad, y: height - BarTheme.chipHeight - Self.head))
+        (cap as? KeyFace)?.lit = lit
+        card.addSubview(cap)
+        return cap
+    }
+
+    private func makeCard(clip: Clipboard.Clip, key: String?, lit: Bool, size: NSSize,
+                          face: NSFont = BarTheme.bodyFont,
+                          lift: ObjectSurface.Lift, reading: String?,
+                          thumbnail: NSImage?, raised: Bool) -> NSView {
+        let card = surface(size: size, lift: lift, weight: raised ? .highlighted : .normal)
         shownCards[clip.id] = card
-
-        // The address is a keymap, so it is drawn as the key it is: the
-        // same cap the guides and the sheet draw, placed by frame on a
-        // frame-laid card.
-        let chip = Self.placedCap(label.uppercased(), at: NSPoint(x: 11, y: height - BarTheme.chipHeight - 8))
-        card.addSubview(chip)
-        // One line, one center: the cap, the count, the source and its
-        // icon all sit on the cap's midline, which is what makes a header
-        // read as a line and not as three things near the top.
-        let line = height - 8 - BarTheme.chipHeight / 2
-
-        // A copy of several things reads as one card, and without this it
-        // reads as one *thing* — three files copied together look exactly
-        // like the first of them until they are pasted.
+        let width = size.width, height = size.height
+        let line = height - Self.head - BarTheme.chipHeight / 2
+        var leading = Self.pad
+        if let key {
+            shownKeys[clip.id] = key
+            leading = addKey(key, lit: lit, to: card, height: height).frame.maxX + 8
+        }
+        // A copy of several things says so beside its key.
         if let items = clip.itemsLabel {
             let count = NSTextField(labelWithString: items)
             count.font = BarTheme.secondaryFont
             count.textColor = BarTheme.secondaryColor
             count.sizeToFit()
-            count.frame.origin = NSPoint(x: chip.frame.maxX + 6,
-                                         y: line - count.frame.height / 2)
+            count.frame.origin = NSPoint(x: leading, y: line - count.frame.height / 2)
             card.addSubview(count)
         }
 
-        let body = NSRect(x: 11, y: Self.cardFoot, width: Self.cardWidth - 22,
-                          height: height - Self.cardHead - Self.cardFoot)
-        if let color = clip.color {
-            // The clip where every card has it; the color, its name and
-            // its other notation beneath, as Lodestar's note.
+        // Every card's text starts the same distance below its top edge.
+        let body = NSRect(x: Self.pad, y: Self.foot, width: width - Self.pad * 2,
+                          height: height - Self.head - BarTheme.chipHeight - 6 - Self.foot)
+        if let reading {
+            // Held `⌃`: the card shows what it would paste, in Lodestar's
+            // voice, where the clip was.
+            shownReadings[clip.id] = reading
+            let label = NSTextField(wrappingLabelWithString: reading)
+            label.font = BarTheme.voiceFont
+            label.textColor = .labelColor
+            label.maximumNumberOfLines = 3
+            label.cell?.truncatesLastVisibleLine = true
+            label.frame = body
+            card.addSubview(label)
+        } else if let color = clip.color {
             let text = clip.preview.trimmingCharacters(in: .whitespacesAndNewlines)
             let other = text.hasPrefix("#") || text.lowercased().hasPrefix("0x") || !text.contains("(")
                 ? color.rgb : color.hex
-            let note = addNote(voice: color.name, lines: [other], swatch: color, for: clip.id, to: card, in: body)
+            // The clip keeps a line of its own: on a short card the other
+            // notation gives way first.
+            let room = body.height - Self.voiceHeight * 2 - Self.noteGap - Self.bodyLine
+            let note = addNote(voice: color.name, lines: room >= Self.metaHeight ? [other] : [],
+                               swatch: color, for: clip.id, to: card, in: body)
             addPreview(clip, to: card, in: body, above: note)
             shownSwatches[clip.id] = color.hex
         } else if let time = clip.time {
             let read = time.note(zones: timeZones)
-            // The clip's own lines come first: the note gets what is left,
-            // its voice and your clock always, the zones as they fit.
             let room = body.height - Self.previewHeight(shown(clip).string, width: body.width) - Self.noteGap
             let lines = Self.pack([read.local] + read.zones, width: body.width,
                                   rows: Int((room - Self.voiceHeight - 2) / Self.metaHeight))
@@ -366,8 +465,6 @@ final class ClipboardStrip {
                                to: card, in: body)
             addPreview(clip, to: card, in: body, above: note)
         } else if let read = clip.quantity?.note(into: units) {
-            // Only a measurement in the other system: one in yours is
-            // already what you would read, and stays a plain card.
             let note = addNote(voice: read.voice, lines: read.exact.map { [$0] } ?? [], swatch: nil, for: clip.id,
                                to: card, in: body)
             addPreview(clip, to: card, in: body, above: note)
@@ -380,82 +477,157 @@ final class ClipboardStrip {
             view.frame = body
             card.addSubview(view)
         } else {
-            addPreview(clip, to: card, in: body, above: nil)
+            addPreview(clip, to: card, in: body, above: nil, font: face)
         }
 
-        // Where it came from, beside the icon that says so: the page a
-        // browser copy was made on — the address the hand remembers, "the
-        // one from GitHub", and the one the search reads — or, for any
-        // other copy, the app's name. One line, one rule.
-        // The pill's trailing wing: the app's name quiet, then its icon at
-        // the pill's size, a word gap apart.
-        var trailing = Self.cardWidth - 11
-        if let bundleID = clip.sourceBundleID, let image = sourceIcon(bundleID: bundleID) {
-            let icon = NSImageView(image: image)
-            icon.imageScaling = .scaleProportionallyUpOrDown
-            icon.frame = NSRect(x: Self.cardWidth - 11 - ModePill.iconSize,
-                                y: line - ModePill.iconSize / 2,
-                                width: ModePill.iconSize, height: ModePill.iconSize)
-            icon.alphaValue = 0.85
-            card.addSubview(icon)
-            trailing = icon.frame.minX - ModePill.wordGap
-        }
+        // The foot: where it came from on the left, how long and how old
+        // on the right. The page a browser copy was made on is the
+        // address the hand remembers, "the one from GitHub".
+        let badge = Clipboard.lengthBadge(for: clip)
+        if let badge { shownBadges[clip.id] = badge }
+        let caption = Caption.line([badge, Clipboard.age(of: clip)])
+        shownCaptions[clip.id] = caption
+        let age = NSTextField(labelWithString: caption)
+        age.font = BarTheme.secondaryFont
+        age.textColor = BarTheme.secondaryColor
+        age.sizeToFit()
+        age.frame.origin = NSPoint(x: width - age.frame.width - Self.pad, y: 8)
+        card.addSubview(age)
         if let origin = clip.sourceHost ?? clip.sourceAppName {
             let source = NSTextField(labelWithString: origin)
             source.font = BarTheme.secondaryFont
             source.textColor = BarTheme.secondaryColor
             source.lineBreakMode = .byTruncatingTail
-            source.alignment = .right
             source.sizeToFit()
-            // The room to the right of the chip and its item count.
-            let width = min(source.frame.width, trailing - 64)
-            source.frame = NSRect(x: trailing - width, y: line - source.frame.height / 2,
-                                  width: max(0, width), height: source.frame.height)
+            let room = age.frame.minX - 8 - Self.pad
+            source.frame = NSRect(x: Self.pad, y: 8, width: max(0, min(source.frame.width, room)),
+                                  height: source.frame.height)
             card.addSubview(source)
             shownSources[clip.id] = origin
         }
+        return card
+    }
 
-        // The foot is one caption: how long, then how old. A card that
-        // holds more than it shows says so, so the hand knows a card is
-        // worth opening before it opens it; a card that shows all of
-        // itself says only its age.
-        let badge = Clipboard.lengthBadge(for: clip)
-        if let badge { shownBadges[clip.id] = badge }
-        let caption = Caption.line([badge, Clipboard.age(of: clip)])
-        shownCaptions[clip.id] = caption
-        let foot = NSTextField(labelWithString: caption)
-        foot.font = BarTheme.secondaryFont
-        foot.textColor = BarTheme.secondaryColor
-        foot.sizeToFit()
-        foot.frame.origin = NSPoint(x: Self.cardWidth - foot.frame.width - 11, y: 8)
-        card.addSubview(foot)
+    /// A keepsake: its number, its name, and the start of what it holds.
+    /// It rests where a passing clip floats.
+    private func makeKeepsake(clip: Clipboard.Clip, slot: Int, key: String?, size: NSSize,
+                              reading: String?, thumbnail: NSImage?, naming: Naming?,
+                              raised: Bool) -> NSView {
+        let card = surface(size: size, lift: .rest, weight: raised || naming != nil ? .highlighted : .normal)
+        shownCards[clip.id] = card
+        let width = size.width, height = size.height
+        var leading = Self.pad
+        if let key {
+            shownKeys[clip.id] = key
+            leading = addKey(key, lit: false, to: card, height: height).frame.maxX + 8
+        }
+        let line = height - Self.head - BarTheme.chipHeight / 2
+
+        let name = naming?.text ?? Clipboard.name(of: clip)
+        shownNames[slot] = name
+        let title = NSTextField(labelWithString: name)
+        title.font = BarTheme.rowLabelFont
+        title.textColor = .labelColor
+        title.lineBreakMode = .byTruncatingTail
+        title.sizeToFit()
+        let room = width - leading - Self.pad
+        title.frame = NSRect(x: leading, y: line - title.frame.height / 2,
+                             width: min(title.frame.width, room), height: title.frame.height)
+        if let naming {
+            if naming.selected {
+                // The offered name stands selected: typing replaces it.
+                let mark = NSView(frame: title.frame.insetBy(dx: -2, dy: 0))
+                mark.wantsLayer = true
+                mark.layer?.cornerRadius = BarTheme.markRadius
+                mark.layer?.backgroundColor = BarTheme.accent.withAlphaComponent(0.32).cgColor
+                card.addSubview(mark)
+            }
+            card.addSubview(title)
+            let glyphs = (name as NSString).size(withAttributes: [.font: BarTheme.rowLabelFont]).width
+            let caret = NSView(frame: NSRect(x: title.frame.minX + min(glyphs, room) + 1,
+                                             y: line - 9, width: 1.5, height: 18))
+            caret.wantsLayer = true
+            caret.layer?.backgroundColor = BarTheme.accent.cgColor
+            card.addSubview(caret)
+            // The light on the object being changed: a ring in the accent.
+            let ring = NSView(frame: NSRect(origin: .zero, size: size))
+            ring.wantsLayer = true
+            ring.layer?.cornerRadius = BarTheme.rowRadius
+            ring.layer?.borderWidth = 1.5
+            ring.layer?.borderColor = BarTheme.accent.cgColor
+            card.addSubview(ring)
+        } else {
+            card.addSubview(title)
+        }
+
+        let body = NSRect(x: Self.pad, y: Self.head, width: width - Self.pad * 2,
+                          height: height - Self.head * 2 - BarTheme.chipHeight - 6)
+        if let reading {
+            shownReadings[clip.id] = reading
+            let label = NSTextField(wrappingLabelWithString: reading)
+            label.font = BarTheme.voiceFont
+            label.textColor = .labelColor
+            label.maximumNumberOfLines = 2
+            label.cell?.truncatesLastVisibleLine = true
+            label.frame = body
+            card.addSubview(label)
+        } else if let thumbnail {
+            let view = NSImageView(image: thumbnail)
+            view.imageScaling = .scaleProportionallyUpOrDown
+            view.frame = body
+            card.addSubview(view)
+        } else if body.height > 14 {
+            let preview = NSTextField(wrappingLabelWithString: "")
+            preview.font = BarTheme.secondaryFont
+            preview.textColor = BarTheme.secondaryColor
+            preview.lineBreakMode = .byWordWrapping
+            preview.maximumNumberOfLines = max(1, Int(body.height / Self.metaHeight))
+            preview.cell?.truncatesLastVisibleLine = true
+            preview.attributedStringValue = shown(clip, font: BarTheme.secondaryFont)
+            preview.frame = body
+            card.addSubview(preview)
+        }
+        return card
+    }
+
+    /// A free place keeps the material and loses the frosting, with its
+    /// number legible: it is how a hand that has never kept anything
+    /// learns that it can.
+    private func makeFreePlace(slot: Int, size: NSSize, wearsKey: Bool) -> NSView {
+        let card = surface(size: size, lift: .rest, weight: .empty)
+        var leading = Self.pad
+        if wearsKey {
+            let cap = addKey("\(slot)", lit: false, to: card, height: size.height)
+            cap.alphaValue = 0.55
+            leading = cap.frame.maxX + 8
+        }
+        let label = NSTextField(labelWithString: "Keep here")
+        label.font = BarTheme.secondaryFont
+        label.textColor = BarTheme.secondaryColor
+        label.sizeToFit()
+        label.frame.origin = NSPoint(x: leading,
+                                     y: size.height - Self.head - BarTheme.chipHeight / 2 - label.frame.height / 2)
+        card.addSubview(label)
+        card.setAccessibilityLabel("Keepsake \(slot), free")
         return card
     }
 
     /// A card's text, drawn the one way every card draws it, from the top
     /// of the body down. A card with a note beneath gives up the lines
     /// the note stands in, never its place or its face.
-    private func addPreview(_ clip: Clipboard.Clip, to card: NSView, in body: NSRect, above note: CGFloat?) {
+    private func addPreview(_ clip: Clipboard.Clip, to card: NSView, in body: NSRect, above note: CGFloat?,
+                            font: NSFont = BarTheme.bodyFont) {
         let preview = NSTextField(wrappingLabelWithString: "")
-        // Not BarTheme.secondaryFont: that size is for supporting text
-        // under a title. Here the preview *is* the content, so it takes
-        // a reading size rather than a captioning one.
-        //
-        // A point below the menus' 13: a card is read at a glance to
-        // tell clips apart, and the extra line it buys is worth more
-        // than the point of size it costs.
-        preview.font = BarTheme.bodyFont
+        preview.font = font
         preview.textColor = BarTheme.secondaryColor
         // Wrap to the card, ellipsize only the last line. Assigning
         // .byTruncatingTail here collapses the field to a single line
-        // whatever the line limit says — the ellipsis has to come from
-        // the cell instead, or a taller card buys nothing but air.
+        // whatever the line limit says.
         preview.lineBreakMode = .byWordWrapping
-        preview.maximumNumberOfLines = 5
+        let line = ceil(font.ascender - font.descender + font.leading)
+        preview.maximumNumberOfLines = max(1, Int(body.height / line))
         preview.cell?.truncatesLastVisibleLine = true
-        // After the face and the colour, which a field applies to its
-        // whole string: a secret's bar is an attachment of its own.
-        preview.attributedStringValue = shown(clip)
+        preview.attributedStringValue = shown(clip, font: font)
         var frame = body
         if let note {
             frame.origin.y = note + Self.noteGap
@@ -468,18 +640,19 @@ final class ClipboardStrip {
 
     /// Lodestar's note on a card it has read: at the foot of the body, so
     /// the clip above it keeps its place. The first line is Lodestar
-    /// speaking, in its voice and in the clip's own grey, so the two are
-    /// told apart by face and never by loudness; the exact values ride
-    /// beneath in the interface's face, the way a measurement rides under
-    /// the coach's sentence. A color stands beside its note as a swatch.
-    /// Returns the note's top edge.
+    /// speaking, in its voice and in the clip's own grey; the exact values
+    /// ride beneath. A color stands beside its note as a swatch. Returns
+    /// the note's top edge.
     private func addNote(voice: String?, lines: [String], swatch color: ClipColor?, for id: String,
                          to card: NSView, in body: NSRect) -> CGFloat {
         var x = body.minX
         var drawn: [String] = []
         var labels: [NSTextField] = []
-        let swatchSide: CGFloat = 40
-        if color != nil { x += swatchSide + 10 }
+        // Beside its note, smaller on a narrow card, so the name's longest
+        // word always fits on one line and no word is ever broken.
+        let roomy = voice.map { Self.widestWord($0) <= body.width - 50 } ?? true
+        let swatchSide: CGFloat = roomy ? 40 : 26
+        if color != nil { x += swatchSide + (roomy ? 10 : 8) }
         let width = body.maxX - x
         if let voice {
             let label = NSTextField(wrappingLabelWithString: voice)
@@ -497,29 +670,36 @@ final class ClipboardStrip {
             label.textColor = BarTheme.secondaryColor
             label.lineBreakMode = .byTruncatingTail
             label.sizeToFit()
-            label.frame.size.width = min(label.frame.width, width)
             labels.append(label)
             drawn.append(line)
         }
-        // Stacked up from the foot of the body, the voice two points
-        // clear of the lines beneath it.
+        // An exact line that would be cut off beside the swatch runs the
+        // card's whole width beneath it instead; the swatch then stands
+        // beside the name alone.
+        let exact = labels.dropFirst(voice == nil ? 0 : 1)
+        let under = color != nil && exact.contains { $0.frame.width > width }
+        for label in exact {
+            label.frame.size.width = min(label.frame.width, under ? body.width : width)
+        }
         var y = body.minY
+        var voiceBottom = body.minY
         for (index, label) in labels.enumerated().reversed() {
-            label.frame.origin = NSPoint(x: x, y: y)
+            let isVoice = index == 0 && voice != nil
+            if isVoice { voiceBottom = y }
+            label.frame.origin = NSPoint(x: isVoice || !under ? x : body.minX, y: y)
             card.addSubview(label)
             y += label.frame.height + (index == 1 && voice != nil ? 2 : 0)
         }
         var top = y
         if let color {
-            // Centered on its note, the way an icon stands beside two lines.
-            let middle = (body.minY + y) / 2
-            let swatch = NSView(frame: NSRect(x: body.minX, y: max(body.minY, middle - swatchSide / 2),
+            let middle = ((under ? voiceBottom : body.minY) + y) / 2
+            let floor = under ? voiceBottom : body.minY
+            let swatch = NSView(frame: NSRect(x: body.minX, y: max(floor, middle - swatchSide / 2),
                                               width: swatchSide, height: swatchSide))
             swatch.wantsLayer = true
             swatch.layer?.cornerRadius = BarTheme.wellRadius
             swatch.layer?.backgroundColor = NSColor(srgbRed: color.red, green: color.green, blue: color.blue,
                                                     alpha: color.alpha).cgColor
-            // A hairline, so white and black both have an edge on the glass.
             swatch.layer?.borderWidth = 0.5
             swatch.layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.2).cgColor
             card.addSubview(swatch)
@@ -529,9 +709,14 @@ final class ClipboardStrip {
         return top
     }
 
-    /// The exact lines, as few as hold them: each part joins the line
-    /// above when it fits beside it, measured as a label draws it, and
-    /// what does not fit in `rows` is left off.
+    /// The widest single word of a note, as the voice draws it.
+    private static func widestWord(_ text: String) -> CGFloat {
+        text.split(separator: " ").map {
+            ceil((String($0) as NSString).size(withAttributes: [.font: BarTheme.voiceFont]).width) + 4
+        }.max() ?? 0
+    }
+
+    /// The exact lines, as few as hold them.
     private static func pack(_ parts: [String], width: CGFloat, rows: Int) -> [String] {
         func fits(_ text: String) -> Bool {
             let label = NSTextField(labelWithString: text)
@@ -552,36 +737,27 @@ final class ClipboardStrip {
 
     /// A card's text as drawn: as much as a card holds, with a secret's
     /// middle as a bar (see `ClipSecret`). The clip keeps its whole text
-    /// and the search reads it; only the glass is spared it, because a
-    /// strip opened during a screen share is on everyone's screen.
-    ///
-    /// The bar is drawn, not typed. A run of block characters was the
-    /// first build, and block glyphs meet with a seam of antialiasing
-    /// between each pair, and stand from descender to ascender, taller
-    /// than the words around them. One rounded bar at the capital height,
-    /// in the text's own grey, reads as the words' own weight set over
-    /// them, and is the same width for every secret, so it never says
-    /// how long one is.
-    private func shown(_ clip: Clipboard.Clip) -> NSAttributedString {
+    /// and the search reads it; only the glass is spared it, because Keep
+    /// opened during a screen share is on everyone's screen.
+    private func shown(_ clip: Clipboard.Clip, font: NSFont = BarTheme.bodyFont) -> NSAttributedString {
         let masked = masked(clip)
         let text = String((masked?.text ?? clip.preview).prefix(Clipboard.cardCharacters))
         let out = NSMutableAttributedString(string: text, attributes: [
-            .font: BarTheme.bodyFont, .foregroundColor: BarTheme.secondaryColor,
+            .font: font, .foregroundColor: BarTheme.secondaryColor,
         ])
         guard let masked else { return out }
         shownMasked[clip.id] = text
         let length = (text as NSString).length
         for range in masked.blocks.reversed() where range.location < length {
             let drawn = NSIntersectionRange(range, NSRange(location: 0, length: length))
-            out.replaceCharacters(in: drawn, with: Self.secretBar())
+            out.replaceCharacters(in: drawn, with: Self.secretBar(font: font))
         }
         return out
     }
 
-    /// The bar a secret's middle draws as, drawn when the card is, so the
-    /// grey is the appearance's grey at that moment.
-    private static func secretBar() -> NSAttributedString {
-        let font = BarTheme.bodyFont
+    /// The bar a secret's middle draws as: one rounded bar at the capital
+    /// height in the text's own grey, the same width for every secret.
+    private static func secretBar(font: NSFont) -> NSAttributedString {
         let size = NSSize(width: 33, height: ceil(font.capHeight))
         let attachment = NSTextAttachment()
         attachment.image = NSImage(size: size, flipped: false) { rect in
@@ -596,9 +772,8 @@ final class ClipboardStrip {
         return bar
     }
 
-    /// Reading a card for secrets is a pass of patterns over its text,
-    /// and the strip redraws on every keystroke of a search, so each
-    /// clip's reading is kept while its text stands.
+    /// Each clip's secret reading is kept while its text stands: Keep
+    /// redraws on every keystroke of a search.
     private var maskings: [String: (preview: String, masked: ClipSecret.Masked?)] = [:]
 
     private func masked(_ clip: Clipboard.Clip) -> ClipSecret.Masked? {
@@ -608,7 +783,6 @@ final class ClipboardStrip {
         return masked
     }
 
-    /// How tall a card's text stands, measured as the card will draw it.
     private static func previewHeight(_ text: String, width: CGFloat) -> CGFloat {
         let preview = NSTextField(wrappingLabelWithString: text)
         preview.font = BarTheme.bodyFont
@@ -622,19 +796,6 @@ final class ClipboardStrip {
     private static var metaHeight: CGFloat { 16 }
     private static var voiceHeight: CGFloat { ceil(BarTheme.voiceFont.ascender - BarTheme.voiceFont.descender) + 2 }
 
-    /// An empty slot keeps the material and loses the frosting. An outline
-    /// drew a hard rectangle on the content behind it, half opacity faded
-    /// the number along with the card, and a flat fill was fainter still —
-    /// what works is the same glass, less dense, with the number legible.
-    private func makeEmptyPin(slot: Int) -> NSView {
-        let card = glassPlate(radius: BarTheme.rowRadius, weight: .empty)
-        let chip = Self.placedCap("\(slot)", at: NSPoint(x: 11, y: Self.cardHeight - BarTheme.chipHeight - 8))
-        // The slot is waiting: the cap fades with the card it sits on.
-        chip.alphaValue = 0.55
-        card.addSubview(chip)
-        return card
-    }
-
     /// The shared keycap, sized by its own constraints and then placed by
     /// frame, which is how a frame-laid card holds an Auto Layout view.
     static func placedCap(_ text: String, at origin: NSPoint) -> NSView {
@@ -646,11 +807,154 @@ final class ClipboardStrip {
         return cap
     }
 
+    // MARK: - The bar
+
+    /// The search over the right hand: `/`, what was typed, how many
+    /// match, and the source the clips are filtered to.
+    private func addSearchBar(query: String, source: String?, matches: Int?, shown: Int, frame: NSRect) {
+        let bar = surface(size: frame.size, lift: .float, weight: .normal, counted: false)
+        bar.frame = frame
+        bar.setAccessibilityRole(.textField)
+        bar.setAccessibilityLabel("Search clips")
+        bar.setAccessibilityValue(query)
+        let height = frame.height
+        let slash = Self.placedCap("/", at: NSPoint(x: Self.pad, y: (height - BarTheme.chipHeight) / 2))
+        bar.addSubview(slash)
+
+        // The source chip at the right: ⇥ and the app the clips come from.
+        let chipKey = Self.placedCap("⇥", at: .zero)
+        let name = NSTextField(labelWithString: source ?? "All apps")
+        name.font = BarTheme.secondaryFont
+        name.textColor = source == nil ? BarTheme.secondaryColor : .labelColor
+        name.sizeToFit()
+        shownSource = name.stringValue
+        name.frame.origin = NSPoint(x: frame.width - Self.pad - name.frame.width,
+                                    y: (height - name.frame.height) / 2)
+        chipKey.frame.origin = NSPoint(x: name.frame.minX - 6 - chipKey.frame.width,
+                                       y: (height - BarTheme.chipHeight) / 2)
+        bar.addSubview(chipKey)
+        bar.addSubview(name)
+
+        var right = chipKey.frame.minX - 14
+        if let matches {
+            let text = matches == 0 ? "No matches" : matches > shown ? "\(shown) of \(matches)" : "\(matches) found"
+            shownCount = text
+            let count = NSTextField(labelWithString: text)
+            count.font = BarTheme.secondaryFont
+            count.textColor = BarTheme.secondaryColor
+            count.sizeToFit()
+            count.frame.origin = NSPoint(x: right - count.frame.width, y: (height - count.frame.height) / 2)
+            bar.addSubview(count)
+            right = count.frame.minX - 14
+        }
+
+        let font = BarTheme.stripInputFont
+        let x = slash.frame.maxX + 10
+        let field = query.isEmpty
+            ? NSTextField(labelWithAttributedString: BarTheme.placeholder("Search clips", like: font))
+            : NSTextField(labelWithString: query)
+        if !query.isEmpty { field.font = font; field.textColor = .labelColor }
+        field.lineBreakMode = .byTruncatingHead
+        field.sizeToFit()
+        field.frame = NSRect(x: x, y: (height - field.frame.height) / 2,
+                             width: min(field.frame.width, max(0, right - x)), height: field.frame.height)
+        bar.addSubview(field)
+        // A still caret in the accent, never a blinking one.
+        let glyphs = query.isEmpty ? 0 : (query as NSString).size(withAttributes: [.font: font]).width
+        let caret = NSView(frame: NSRect(x: x + min(glyphs, field.frame.width) + (query.isEmpty ? 0 : 2),
+                                         y: (height - 20) / 2, width: 1.5, height: 20))
+        caret.wantsLayer = true
+        caret.layer?.backgroundColor = BarTheme.accent.cgColor
+        bar.addSubview(caret)
+        root.addSubview(bar)
+    }
+
+    /// While a keepsake is named, the bar's place says how it ends.
+    private func addNamingGuide(in frame: NSRect) {
+        let line = Keycaps.line([.init(["⏎"], "Keep"), .init(["⌘1", "⌘4"], "Move"), .init(["esc"], "Cancel")])
+        line.layoutSubtreeIfNeeded()
+        let size = line.fittingSize
+        let holder = surface(size: NSSize(width: size.width + Self.pad * 2, height: frame.height),
+                             lift: .rest, weight: .normal, counted: false)
+        holder.frame = NSRect(x: frame.minX, y: frame.minY, width: size.width + Self.pad * 2, height: frame.height)
+        line.translatesAutoresizingMaskIntoConstraints = true
+        line.frame = NSRect(x: Self.pad, y: (frame.height - size.height) / 2, width: size.width, height: size.height)
+        holder.addSubview(line)
+        root.addSubview(holder)
+    }
+
+    /// The list of source apps, dropped from the bar's right end over the
+    /// cards: its own field, All apps above a rule, then the apps
+    /// alphabetically with how many clips each holds.
+    private func addSourceMenu(_ menu: SourceMenu, under bar: NSRect) {
+        let rowHeight: CGFloat = 30, fieldHeight: CGFloat = 38, width: CGFloat = 270
+        let visible = 9
+        let start = max(0, min(menu.selection - visible / 2, menu.rows.count - visible))
+        let rows = Array(menu.rows.enumerated().dropFirst(start).prefix(visible))
+        let ruled = rows.first?.offset == 0 && rows.count > 1
+        let height = fieldHeight + 8 + CGFloat(rows.count) * rowHeight + (ruled ? 9 : 0) + 8
+        let frame = NSRect(x: bar.maxX - width, y: bar.minY - 6 - height, width: width, height: height)
+        let plate = surface(size: frame.size, lift: .float, weight: .highlighted, counted: false)
+        plate.frame = frame
+        plate.setAccessibilityRole(.list)
+        plate.setAccessibilityLabel("Sources")
+
+        var top = height - 8
+        let font = BarTheme.secondaryFont
+        let typed = menu.typed.isEmpty
+            ? NSTextField(labelWithAttributedString: BarTheme.placeholder("Search apps", like: BarTheme.bodyFont))
+            : NSTextField(labelWithString: menu.typed)
+        if !menu.typed.isEmpty { typed.font = BarTheme.bodyFont; typed.textColor = .labelColor }
+        typed.sizeToFit()
+        let fieldY = top - fieldHeight
+        typed.frame.origin = NSPoint(x: 16, y: fieldY + (fieldHeight - typed.frame.height) / 2)
+        plate.addSubview(typed)
+        let glyphs = menu.typed.isEmpty ? 0 : (menu.typed as NSString).size(withAttributes: [.font: BarTheme.bodyFont]).width
+        let caret = NSView(frame: NSRect(x: 16 + glyphs + (menu.typed.isEmpty ? -3 : 2),
+                                         y: fieldY + (fieldHeight - 18) / 2, width: 1.5, height: 18))
+        caret.wantsLayer = true
+        caret.layer?.backgroundColor = BarTheme.accent.cgColor
+        plate.addSubview(caret)
+        top = fieldY - 8
+
+        for (index, row) in rows {
+            let y = top - rowHeight
+            let line = RaisedLine(frame: NSRect(x: 6, y: y, width: width - 12, height: rowHeight))
+            line.setupRaised()
+            line.applyRaised(index == menu.selection)
+            let name = NSTextField(labelWithString: row.name)
+            name.font = BarTheme.bodyFont
+            name.textColor = .labelColor
+            name.lineBreakMode = .byTruncatingTail
+            name.sizeToFit()
+            let count = NSTextField(labelWithString: "\(row.count)")
+            count.font = font
+            count.textColor = BarTheme.secondaryColor
+            count.sizeToFit()
+            count.frame.origin = NSPoint(x: line.frame.width - 10 - count.frame.width,
+                                         y: (rowHeight - count.frame.height) / 2)
+            name.frame = NSRect(x: 10, y: (rowHeight - name.frame.height) / 2,
+                                width: min(name.frame.width, count.frame.minX - 18), height: name.frame.height)
+            line.addSubview(name)
+            line.addSubview(count)
+            line.setAccessibilityElement(true)
+            line.setAccessibilityLabel("\(row.name), \(row.count) clips")
+            plate.addSubview(line)
+            shownSourceRows.append(row.name)
+            top = y
+            if index == 0, ruled {
+                let rule = NSView(frame: NSRect(x: 16, y: top - 5, width: width - 32, height: 1))
+                rule.wantsLayer = true
+                rule.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.12).cgColor
+                plate.addSubview(rule)
+                top -= 9
+            }
+        }
+        root.addSubview(plate)
+    }
+
     // MARK: - Actions
 
-    /// Menu metrics. The row height is fixed rather than divided out of the
-    /// card: a menu whose rows stretch when it has two actions and compress
-    /// when it has four reads as a different control every time it opens.
     private static let actionRow: CGFloat = 32
     private static let actionPadY: CGFloat = 12
     private static let actionInset: CGFloat = 14
@@ -658,14 +962,9 @@ final class ClipboardStrip {
     private static let actionKeyGap = BarTheme.rowKeyGap
     private static let actionIcon = BarTheme.rowIcon
     private static let actionSeparator: CGFloat = 11
-    private static let actionChip = NSSize(width: BarTheme.chipMinWidth,
-                                           height: BarTheme.chipHeight)
+    private static let actionChip = NSSize(width: BarTheme.chipMinWidth, height: BarTheme.chipHeight)
     private static let actionFont = BarTheme.rowLabelFont
 
-    /// What a label needs, measured through the control that will draw it.
-    /// A glyph-run measurement comes up a few points short — the field's
-    /// cell keeps its own inset — and the whole menu is sized off this, so
-    /// being short by two points truncates the longest action.
     private func actionLabelWidth(_ text: String) -> CGFloat {
         let field = NSTextField(labelWithString: text)
         field.font = Self.actionFont
@@ -673,61 +972,44 @@ final class ClipboardStrip {
         return ceil(field.frame.width)
     }
 
-    /// Where the rule falls: before the first destructive action, and only
-    /// when something benign precedes it. Grouping is derived rather than
-    /// declared, so a new action lands on the correct side of the line by
-    /// saying what it is.
+    /// The rule falls before the first destructive action, and only when
+    /// something benign precedes it.
     private func separatorIndex(_ actions: [Action]) -> Int? {
         guard let first = actions.firstIndex(where: \.isDestructive), first > 0 else { return nil }
         return first
     }
 
-    /// Sized to its contents, not to the grid — bounded below by a card so
-    /// it never looks like a scrap, and above so a long label wraps the
-    /// menu rather than the strip.
     private func actionSize(_ actions: [Action]) -> NSSize {
         let widest = actions.map { actionLabelWidth($0.label) }.max() ?? 0
         let width = Self.actionInset * 2 + Self.actionIcon + Self.actionChipGap
             + widest + Self.actionKeyGap + Self.actionChip.width
         var height = CGFloat(actions.count) * Self.actionRow + Self.actionPadY * 2
         if separatorIndex(actions) != nil { height += Self.actionSeparator }
-        return NSSize(width: min(max(width, Self.cardWidth), 340), height: height)
+        return NSSize(width: min(max(width, 220), 340), height: height)
     }
 
-    /// Where a card's actions belong, relative to the card they act on.
-    ///
-    /// A pin opens to its right, top edges level, the way a menu unfurls
-    /// from the item it belongs to — the pin column is one card wide, so
-    /// that space is always free. A recent opens upward from just above
-    /// itself. The exception is the first recent: it sits directly under
-    /// pin one, so its menu shifts one column right rather than covering
-    /// a pin.
-    private func actionFrame(for id: String?, size: NSSize, stripWidth: CGFloat) -> NSRect {
-        let column = Self.cardWidth + Self.gap
-        let row = Self.cardHeight + Self.gap
-        var origin = NSPoint(x: column, y: row)
-
-        if let id, let slot = shownPins.first(where: { $0.value.id == id })?.key {
-            let pinTop = columnBottom + CGFloat(slot - 1) * row + Self.cardHeight
-            origin = NSPoint(x: column, y: pinTop - size.height)
-        } else if let id, let index = shownRecents.firstIndex(where: { $0.id == id }) {
-            origin = NSPoint(x: CGFloat(max(index, 1)) * column, y: row)
+    /// The menu stands over the card it acts on, its left edge on the
+    /// card's: above a clip, and above a keepsake, where the bar's line
+    /// is. It never leaves the screen.
+    private func actionFrame(for id: String?, size: NSSize, layout: Layout, screen: NSRect) -> NSRect {
+        var anchor = layout.bar
+        if let id, let slot = shownPins.first(where: { $0.value.id == id })?.key,
+           let place = layout.places["\(slot)"] {
+            anchor = place
+        } else if let id, let rank = shownRecents.firstIndex(where: { $0.id == id }),
+                  let place = layout.places[Self.labels[rank]] {
+            anchor = place
         }
-        // Never down over the recents, never off the right edge. A menu
-        // taller than its pin grows upward instead.
-        origin.y = max(origin.y, row)
-        origin.x = min(origin.x, max(column, stripWidth - size.width))
+        var origin = NSPoint(x: anchor.minX, y: anchor.maxY + Self.gap)
+        origin.x = min(origin.x, screen.maxX - Self.margin - size.width)
+        origin.y = min(origin.y, screen.maxY - Self.margin - size.height)
         return NSRect(origin: origin, size: size)
     }
 
     private func addActionCard(_ actions: [Action], frame: NSRect) {
-        // The graph card's material exactly — plain glass, no scrim of our
-        // own. The strip's cards wear a scrim because they sit in a grid you
-        // read across; a menu floats above everything and belongs to the
-        // family of floating panels instead.
-        let plate = Plate(radius: BarTheme.glassRadius)
+        let plate = surface(size: frame.size, lift: .float, weight: .highlighted, counted: false)
         plate.frame = frame
-        _ = Glass.installBackdrop(in: plate, cornerRadius: BarTheme.glassRadius)
+        plate.setAccessibilityRole(.menu)
 
         let rule = separatorIndex(actions)
         var top = frame.height - Self.actionPadY
@@ -743,10 +1025,6 @@ final class ClipboardStrip {
             }
             let bottom = top - Self.actionRow
             let tint: NSColor = action.isDestructive ? .systemRed : .labelColor
-
-            // Icon, name, then key — the order a menu is read in. The cheat
-            // sheet leads with the key because it answers "what does this
-            // do"; a menu answers "what can I do", so the name leads.
             let icon = NSImageView(image: NSImage(
                 systemSymbolName: action.symbol, accessibilityDescription: nil)?
                 .withSymbolConfiguration(BarTheme.symbol) ?? NSImage())
@@ -769,81 +1047,29 @@ final class ClipboardStrip {
                                  height: label.frame.height)
             plate.addSubview(label)
 
-            // Right-aligned and quiet, where a shortcut sits in every menu
-            // the user already knows.
-            // The one key, the launcher's, placed by frame.
             let chip = Self.placedCap(action.key.uppercased(), at: NSPoint(
                 x: keyX, y: bottom + (Self.actionRow - Self.actionChip.height) / 2))
             chip.frame.size.width = max(chip.frame.width, Self.actionChip.width)
             plate.addSubview(chip)
-
             top = bottom
         }
         root.addSubview(plate)
     }
 
-    /// The same input surface the searcher and the web bar use, sitting
-    /// directly under the cards it filters. A typed prefix read as a vim
-    /// prompt; a glass field with a magnifier reads as the thing everyone
-    /// already knows a search box to be.
-    private func addSearchField(query: String, frame: NSRect) {
-        let width = frame.width
-        let plate = glassPlate(radius: BarTheme.rowRadius)
-        plate.frame = frame
-
-        let symbol = NSImageView(image: NSImage(
-            systemSymbolName: "magnifyingglass",
-            accessibilityDescription: nil)?
-            .withSymbolConfiguration(BarTheme.symbolBand) ?? NSImage())
-        symbol.contentTintColor = BarTheme.secondaryColor
-        symbol.frame = NSRect(x: 18, y: (Self.searchHeight - 18) / 2, width: 18, height: 18)
-        plate.addSubview(symbol)
-
-        // What the hand typed is mono; the empty band's invitation is the
-        // interface asking, in its own face.
-        let font = BarTheme.stripInputFont
-        let field = query.isEmpty
-            ? NSTextField(labelWithAttributedString: BarTheme.placeholder("Search clips", like: font))
-            : NSTextField(labelWithString: query)
-        if !query.isEmpty { field.font = font; field.textColor = .labelColor }
-        field.lineBreakMode = .byTruncatingHead
-        field.sizeToFit()
-        field.frame = NSRect(x: 46, y: (Self.searchHeight - field.frame.height) / 2,
-                             width: min(field.frame.width, width - 70), height: field.frame.height)
-        plate.addSubview(field)
-
-        // A still caret, never a blinking one — nothing in Lodestar pulses.
-        //
-        // Positioned from the measured glyphs, not from the field's frame:
-        // an NSTextField reports a width including the cell's trailing
-        // inset, which put the caret a space past the last letter.
-        if !query.isEmpty {
-            let glyphs = (query as NSString).size(withAttributes: [.font: font]).width
-            let caret = NSView()
-            caret.wantsLayer = true
-            caret.layer?.backgroundColor = NSColor.tertiaryLabelColor.cgColor
-            caret.frame = NSRect(x: field.frame.minX + min(glyphs, field.frame.width) + 2,
-                                 y: (Self.searchHeight - 20) / 2, width: 1.5, height: 20)
-            plate.addSubview(caret)
-        }
-        root.addSubview(plate)
-    }
-
-    /// The save band: the search field's shape with a different job. The
-    /// offered name stands in the field until something is typed, so
-    /// `⏎` alone is a complete answer; the folder is named at the right,
-    /// so the hand knows where the file goes before it goes there.
+    /// The save band: the search bar's shape with a different job. The
+    /// offered name stands in the field until something is typed, so `⏎`
+    /// alone is a complete answer; the folder is named at the right.
     private func addSaveField(name: String, offered: String, folder: String, frame: NSRect) {
-        let width = frame.width
-        let plate = glassPlate(radius: BarTheme.rowRadius)
+        let plate = surface(size: frame.size, lift: .float, weight: .normal, counted: false)
         plate.frame = frame
+        let width = frame.width, height = frame.height
 
         let symbol = NSImageView(image: NSImage(
             systemSymbolName: "square.and.arrow.down",
             accessibilityDescription: nil)?
             .withSymbolConfiguration(BarTheme.symbolBand) ?? NSImage())
         symbol.contentTintColor = BarTheme.secondaryColor
-        symbol.frame = NSRect(x: 18, y: (Self.searchHeight - 18) / 2, width: 18, height: 18)
+        symbol.frame = NSRect(x: 16, y: (height - 18) / 2, width: 18, height: 18)
         plate.addSubview(symbol)
 
         let place = NSTextField(labelWithString: "→ " + folder)
@@ -852,88 +1078,37 @@ final class ClipboardStrip {
         place.lineBreakMode = .byTruncatingMiddle
         place.sizeToFit()
         let placeWidth = min(place.frame.width, width * 0.4)
-        place.frame = NSRect(x: width - 18 - placeWidth,
-                             y: (Self.searchHeight - place.frame.height) / 2,
+        place.frame = NSRect(x: width - 16 - placeWidth, y: (height - place.frame.height) / 2,
                              width: placeWidth, height: place.frame.height)
         plate.addSubview(place)
 
-        // The offered name is text the hand has already been handed, so it
-        // is mono like the name it becomes; only its tone says it is not
-        // yet the hand's own.
         let font = BarTheme.stripInputFont
         let field = NSTextField(labelWithString: name.isEmpty ? offered : name)
         field.font = font
         field.textColor = name.isEmpty ? BarTheme.secondaryColor : .labelColor
         field.lineBreakMode = .byTruncatingHead
         field.sizeToFit()
-        let room = place.frame.minX - 46 - 24
-        field.frame = NSRect(x: 46, y: (Self.searchHeight - field.frame.height) / 2,
+        let room = place.frame.minX - 44 - 20
+        field.frame = NSRect(x: 44, y: (height - field.frame.height) / 2,
                              width: min(field.frame.width, room), height: field.frame.height)
         plate.addSubview(field)
 
         let shown = name.isEmpty ? offered : name
         let glyphs = (shown as NSString).size(withAttributes: [.font: font]).width
-        let caret = NSView()
+        let caret = NSView(frame: NSRect(x: field.frame.minX + min(glyphs, field.frame.width) + 2,
+                                         y: (height - 20) / 2, width: 1.5, height: 20))
         caret.wantsLayer = true
-        caret.layer?.backgroundColor = NSColor.tertiaryLabelColor.cgColor
-        caret.frame = NSRect(x: field.frame.minX + min(glyphs, field.frame.width) + 2,
-                             y: (Self.searchHeight - 20) / 2, width: 1.5, height: 20)
+        caret.layer?.backgroundColor = BarTheme.accent.cgColor
         plate.addSubview(caret)
         root.addSubview(plate)
     }
 
     enum Weight {
         case normal, highlighted
-        /// An empty pin: the same material, less frosted. Keeping the glass
-        /// holds the column visually together; the lighter scrim is what
-        /// says the slot is waiting rather than full.
+        /// A free place: the same material, less frosted.
         case empty
     }
-
-    /// A card is the launcher's glass, small: the one backdrop recipe,
-    /// with the veil's weight saying whether the card is lit or waiting.
-    /// The card's content rides on the plate ABOVE the material, never
-    /// inside it: the glass stamps its backdrop-adapted appearance onto
-    /// its own subtree, and a labelColor caught in there can resolve
-    /// against the wrong tone.
-    private func glassPlate(radius: CGFloat, weight: Weight = .normal) -> NSView {
-        let plate = Plate(radius: radius)
-        let veil: Glass.Weight
-        switch weight {
-        case .normal: veil = .normal
-        case .highlighted: veil = .raised
-        case .empty: veil = .faint
-        }
-        Glass.installBackdrop(in: plate, cornerRadius: radius, weight: veil)
-        shownWeights.append(veil)
-        return plate
-    }
 }
 
-/// A card's plate: it casts the shadow the strip's window does not,
-/// shaped to its own rounded rectangle rather than to whatever the
-/// glass composites, so the shadow is there whatever the material
-/// decides to draw.
-final class Plate: NSView {
-    let radius: CGFloat
-
-    init(radius: CGFloat) {
-        self.radius = radius
-        super.init(frame: .zero)
-        wantsLayer = true
-        layer?.masksToBounds = false
-        layer?.shadowColor = NSColor.black.withAlphaComponent(0.35).cgColor
-        layer?.shadowOpacity = 1
-        layer?.shadowRadius = 6
-        layer?.shadowOffset = CGSize(width: 0, height: -2)
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
-
-    override var frame: NSRect {
-        didSet {
-            layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: radius,
-                                       cornerHeight: radius, transform: nil)
-        }
-    }
-}
+/// A row of the source list: the bars' raised step.
+private final class RaisedLine: RaisedRow {}

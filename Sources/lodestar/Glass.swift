@@ -1391,6 +1391,92 @@ enum SoftShadow {
     }
 }
 
+extension SoftShadow {
+    /// One object among several in a window that hosts no single surface:
+    /// Keep's cards, each casting its own shadow onto whatever is beneath.
+    static func object(radius: CGFloat, lift: ObjectSurface.Lift) -> ObjectSurface {
+        ObjectSurface(radius: radius, lift: lift)
+    }
+}
+
+/// The drawn shadow, cast by one object rather than by a window: the long
+/// soft shadow beneath, the hairline contact shadow under the edge, and
+/// the hairline edge itself, in the same warm colours as a hosted
+/// surface's. A floating object is lifted further than a resting one, so
+/// what is passing stands over what is kept and what is older.
+final class ObjectSurface: NSView {
+    enum Lift { case float, rest }
+
+    let radius: CGFloat
+    var lift: Lift { didSet { if lift != oldValue { restyle(); place() } } }
+    private let soft = CALayer()
+    private let contact = CALayer()
+    private let edge = CALayer()
+
+    init(radius: CGFloat, lift: Lift) {
+        self.radius = radius
+        self.lift = lift
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.masksToBounds = false
+        for shadow in [contact, soft] {
+            shadow.shadowOffset = .zero
+            shadow.shadowOpacity = 1
+            layer?.insertSublayer(shadow, at: 0)
+        }
+        edge.borderWidth = 0.5
+        edge.cornerRadius = radius
+        edge.zPosition = 100
+        layer?.addSublayer(edge)
+        restyle()
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        place()
+    }
+
+    private func place() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        edge.frame = bounds
+        let floating = lift == .float
+        let softShape = bounds.insetBy(dx: floating ? 8 : 4, dy: floating ? 8 : 4)
+            .offsetBy(dx: 0, dy: floating ? -12 : -4)
+        if softShape.width > 0, softShape.height > 0 {
+            soft.shadowPath = CGPath(roundedRect: softShape, cornerWidth: radius, cornerHeight: radius,
+                                     transform: nil)
+        }
+        contact.shadowPath = CGPath(roundedRect: bounds.offsetBy(dx: 0, dy: -1), cornerWidth: radius,
+                                    cornerHeight: radius, transform: nil)
+        CATransaction.commit()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        restyle()
+    }
+
+    private func restyle() {
+        let dark = Tone.systemDark
+        let floating = lift == .float
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        soft.shadowColor = (dark ? NSColor(srgbRed: 0.055, green: 0.027, blue: 0.008, alpha: 1)
+                                 : NSColor(srgbRed: 0.35, green: 0.23, blue: 0.13, alpha: 1)).cgColor
+        soft.shadowOpacity = floating ? (dark ? 0.58 : 0.26) : (dark ? 0.42 : 0.16)
+        soft.shadowRadius = floating ? 18 : 7
+        contact.shadowColor = soft.shadowColor
+        contact.shadowOpacity = dark ? 0.35 : 0.14
+        contact.shadowRadius = 1
+        edge.borderColor = (dark ? NSColor(srgbRed: 1, green: 0.93, blue: 0.86, alpha: 0.11)
+                                 : NSColor(srgbRed: 0.27, green: 0.17, blue: 0.1, alpha: 0.13)).cgColor
+        CATransaction.commit()
+    }
+}
+
 extension NSWindow {
     /// The glass's frame: the window's, less the drawn shadow's margin
     /// when the window hosts one. Surfaces place and read their glass by

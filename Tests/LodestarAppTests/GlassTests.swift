@@ -88,7 +88,7 @@ final class GlassTests: XCTestCase {
                 XCTAssertEqual((backdrop as? NSGlassEffectView)?.style, .regular)
             }
         }
-        stage.chord("s", .maskCommand)
+        stage.chord("k", .maskCommand)
         let weights = stage.engine.strip.shownWeights.filter { $0 != .faint }
         XCTAssertEqual(weights.filter { $0 == .raised }.count, 1, "the card the actions act on")
         XCTAssertEqual(weights.filter { $0 == .normal }.count, weights.count - 1)
@@ -194,8 +194,9 @@ final class StripShadowTests: XCTestCase {
         stage.openStrip()
         XCTAssertFalse(stage.engine.strip.castsWindowShadow)
         for card in stage.engine.strip.shownCards.values {
-            XCTAssertNotNil(card.layer?.shadowPath, "shaped to the card, not to what the glass draws")
-            XCTAssertEqual(card.layer?.shadowOpacity, 1)
+            XCTAssertTrue(card is ObjectSurface, "each card casts the drawn shadow of its own")
+            let cast = card.layer?.sublayers?.filter { $0.shadowPath != nil } ?? []
+            XCTAssertEqual(cast.count, 2, "the soft shadow and the contact line, shaped to the card")
         }
         stage.press("escape")
     }

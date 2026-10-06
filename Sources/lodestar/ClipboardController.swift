@@ -353,6 +353,24 @@ final class ClipboardController {
         postPaste()
     }
 
+    /// A reading pasted: plain text Lodestar wrote, not a clip, so it goes
+    /// on the board as a string and is never recorded back as a copy.
+    func pasteText(_ text: String) {
+        let board = pasteboard
+        board.clearContents()
+        guard board.setString(text, forType: .string) else {
+            flash("✕ that reading could not be pasted")
+            return
+        }
+        selfWrittenChangeCount = board.changeCount
+        lastChangeCount = board.changeCount
+        if secureInput() {
+            flash("press ⌘V to paste, this field blocks synthetic input")
+            return
+        }
+        postPaste()
+    }
+
     /// The clip as a real PNG on disk — what a terminal can paste and what
     /// the tool on the far side reads back. Named by content id, so pasting
     /// the same clip twice writes the file once, and living in the temp

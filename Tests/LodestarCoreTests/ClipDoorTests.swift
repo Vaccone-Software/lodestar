@@ -132,7 +132,7 @@ final class ClipDoorGrammarTests: XCTestCase {
 
     func testTheOtherPanelKeysStillReturnToTheStrip() {
         openPanel()
-        XCTAssertEqual(press("p"), [.pastePanelAct(.pin), .pastePanelDismiss])
+        XCTAssertEqual(press("d"), [.pastePanelAct(.delete), .pastePanelDismiss])
         XCTAssertEqual(core.state, .paste(searching: false))
     }
 

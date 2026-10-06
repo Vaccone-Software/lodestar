@@ -62,13 +62,61 @@ final class ClipboardTests: XCTestCase {
         XCTAssertEqual(Clipboard.preview(of: String(repeating: "x", count: 5000)).count, 2000)
     }
 
-    // MARK: - Pins are slots, not a list
+    // MARK: - Keepsakes are places, not a list
 
-    func testNewPinTakesTheLowestFreeSlot() {
-        XCTAssertEqual(Clipboard.lowestFreeSlot(taken: []), 1)
-        XCTAssertEqual(Clipboard.lowestFreeSlot(taken: [1]), 2)
-        XCTAssertEqual(Clipboard.lowestFreeSlot(taken: [1, 3]), 2, "the hole is refilled before the end")
-        XCTAssertNil(Clipboard.lowestFreeSlot(taken: Set(1...Clipboard.pinSlots)), "full")
+    /// Four places, filled from 4 down: the first thing kept sits under
+    /// the index finger, and the little finger's place is the one most
+    /// often free.
+    func testANewKeepsakeTakesTheHighestFreePlace() {
+        XCTAssertEqual(Clipboard.pinSlots, 4)
+        XCTAssertEqual(Clipboard.nextFreeSlot(taken: []), 4)
+        XCTAssertEqual(Clipboard.nextFreeSlot(taken: [4]), 3)
+        XCTAssertEqual(Clipboard.nextFreeSlot(taken: [4, 2]), 3, "the hole is refilled first")
+        XCTAssertEqual(Clipboard.nextFreeSlot(taken: [4, 3, 2]), 1)
+        XCTAssertNil(Clipboard.nextFreeSlot(taken: Set(1...Clipboard.pinSlots)), "full")
+    }
+
+    /// The fifth place is gone: a keepsake there moves to the highest free
+    /// place, once, and with nowhere to go stays in the history as a clip.
+    func testAKeepsakeFromTheFifthPlaceIsSettled() {
+        let settled = Clipboard.settlingSlots([clip("five", pinned: 5), clip("one", pinned: 1)])
+        XCTAssertEqual(settled.map(\.pinnedSlot), [4, 1])
+        let full = Clipboard.settlingSlots([clip("a", pinned: 1), clip("b", pinned: 2), clip("c", pinned: 3),
+                                            clip("d", pinned: 4), clip("e", pinned: 5)])
+        XCTAssertEqual(full.map(\.pinnedSlot), [1, 2, 3, 4, nil], "nowhere to go: a clip again, never lost")
+        let twice = Clipboard.settlingSlots([clip("a", pinned: 2), clip("b", pinned: 2)])
+        XCTAssertEqual(twice.map(\.pinnedSlot), [2, 4], "two claims on one place keep the first")
+        let calm = [clip("a", pinned: 3)]
+        XCTAssertEqual(Clipboard.settlingSlots(calm), calm, "nothing to settle, nothing changes")
+    }
+
+    /// A keepsake is offered the name its first words give it, never cut
+    /// inside a word; an image is named by what was read off it.
+    func testAKeepsakeIsOfferedANameFromItsWords() {
+        XCTAssertEqual(Clipboard.offeredName(for: clip("a", preview: "Prepare a change request for the change below")),
+                       "Prepare a change request")
+        XCTAssertEqual(Clipboard.offeredName(for: clip("b", preview: "git push origin local/keep")),
+                       "git push origin")
+        XCTAssertEqual(Clipboard.offeredName(for: clip("c", preview: "https://example.com/a/very/long/path/indeed")),
+                       "https://example.com/a/ve", "one long word is cut at the limit")
+        var shot = clip("d", preview: "image 1200×800")
+        shot = Clipboard.Clip(id: "d", kind: .image, created: shot.created, sourceBundleID: nil, sourceAppName: nil,
+                              preview: "image 1200×800", bytes: 1)
+        XCTAssertEqual(Clipboard.offeredName(for: shot), "Image")
+        var named = clip("e", preview: "anything at all", pinned: 4)
+        named.keptName = "Review prompt"
+        XCTAssertEqual(Clipboard.name(of: named), "Review prompt", "the hand's name wins")
+    }
+
+    /// A re-copy and an edit keep a keepsake's name with its place.
+    func testAKeepsakeKeepsItsNameThroughACopyAndAnEdit() {
+        var kept = clip("sig", preview: "old", pinned: 2)
+        kept.keptName = "Signature"
+        let merged = Clipboard.merging([kept], with: clip("sig", minutesAgo: -1))
+        XCTAssertEqual(merged.first?.keptName, "Signature")
+        let replaced = Clipboard.replacing([kept], id: "sig", with: clip("new", preview: "new"))
+        XCTAssertEqual(replaced.first?.keptName, "Signature")
+        XCTAssertEqual(replaced.first?.pinnedSlot, 2)
     }
 
     /// The property the whole pin design rests on: unpinning must not
@@ -77,7 +125,7 @@ final class ClipboardTests: XCTestCase {
         let clips = [clip("a", pinned: 1), clip("b", pinned: 2), clip("c", pinned: 3)]
         let afterUnpinningTwo = clips.filter { $0.id != "b" }
         XCTAssertEqual(Clipboard.pins(afterUnpinningTwo).map(\.pinnedSlot), [1, 3])
-        XCTAssertEqual(Clipboard.lowestFreeSlot(taken: [1, 3]), 2)
+        XCTAssertEqual(Clipboard.nextFreeSlot(taken: [1, 3]), 4)
     }
 
     func testPinsSortBySlotAndLeaveTheRecentsAlone() {
@@ -150,9 +198,9 @@ final class PasteModeTests: XCTestCase {
 
     private func open() { _ = core.openPaste(world: world) }
     private func press(_ key: String, held: Bool = false, shift: Bool = false,
-                       command: Bool = false, option: Bool = false) -> [EngineEffect] {
+                       command: Bool = false, option: Bool = false, control: Bool = false) -> [EngineEffect] {
         core.keyDown(key: key, held: held, shift: shift, command: command,
-                     option: option, world: world)
+                     option: option, control: control, world: world)
     }
 
     /// Open the strip and start typing at it — the state most of the
@@ -207,8 +255,87 @@ final class PasteModeTests: XCTestCase {
         XCTAssertEqual(press("a", command: true),
                        [.pasteRecent(label: "a", action: .panel), .pastePanelShow])
         XCTAssertEqual(core.state, .pastePanel(searching: false))
-        XCTAssertEqual(press("p"), [.pastePanelAct(.pin), .pastePanelDismiss])
+        XCTAssertEqual(press("d"), [.pastePanelAct(.delete), .pastePanelDismiss])
         XCTAssertEqual(core.state, .paste(searching: false), "back to the strip, not out")
+    }
+
+    // MARK: - The letter picks the card, the modifier picks the form
+
+    /// `⌃` pastes the reading, in Keep and while searching alike, because
+    /// it never types. `⌥` is the same as a bare letter in Keep.
+    func testControlPastesTheReadingEverywhere() {
+        open()
+        XCTAssertEqual(press("a", control: true), [.pasteRecent(label: "a", action: .reading), .exitPaste])
+        open()
+        XCTAssertEqual(press("1", control: true), [.pastePinned(slot: 1, action: .reading), .exitPaste])
+        open()
+        XCTAssertEqual(press("a", option: true), [.pasteRecent(label: "a", action: .plain), .exitPaste],
+                       "⌥ in Keep is the bare letter, so one chord works in every case")
+        openSearching()
+        XCTAssertEqual(press("s", control: true), [.pasteRecent(label: "s", action: .reading), .exitPaste])
+        openSearching()
+        XCTAssertEqual(press("x", control: true), [], "⌃ with no card behind it types nothing")
+        XCTAssertEqual(core.state, .paste(searching: true))
+    }
+
+    /// `⏎` takes the best match in whichever form its modifier says.
+    func testReturnTakesTheBestMatchInEachForm() {
+        openSearching()
+        XCTAssertEqual(press("return", shift: true), [.pasteSearchCommit(action: .native), .exitPaste])
+        openSearching()
+        XCTAssertEqual(press("return", control: true), [.pasteSearchCommit(action: .reading), .exitPaste])
+    }
+
+    /// `⇥` opens the list of sources, from Keep or a search; typing
+    /// narrows it, `⏎` chooses and the search takes over, `esc` closes it.
+    func testTabOpensTheSourceList() {
+        open()
+        XCTAssertEqual(press("tab"), [.pasteSourceShow])
+        XCTAssertEqual(core.state, .pasteSource(searching: false))
+        XCTAssertEqual(press("s"), [.pasteSourceType("s")])
+        XCTAssertEqual(press("down"), [.pasteSourceMove(delta: 1)])
+        XCTAssertEqual(press("delete"), [.pasteSourceDelete(.character)])
+        XCTAssertEqual(press("escape"), [.pasteSourceClose])
+        XCTAssertEqual(core.state, .paste(searching: false), "nothing changed")
+        _ = press("tab")
+        XCTAssertEqual(press("return"), [.pasteSourcePick])
+        XCTAssertEqual(core.state, .paste(searching: true), "the search takes over, filtered")
+        XCTAssertEqual(press("tab"), [.pasteSourceShow], "and from a search too")
+        XCTAssertEqual(press("tab"), [.pasteSourceClose], "⇥ again closes the list")
+        XCTAssertEqual(core.state, .paste(searching: true))
+    }
+
+    /// `K` keeps a clip and opens its name in place; on a keepsake it
+    /// lets it go. `R` renames only a keepsake.
+    func testKKeepsAndNamesInPlace() {
+        open()
+        _ = press("a", command: true)
+        XCTAssertEqual(press("r"), [], "a clip that is not kept has no name to change")
+        XCTAssertEqual(press("k"), [.pasteNameBegin(fresh: true), .pastePanelDismiss])
+        XCTAssertEqual(core.state, .pasteName(searching: false))
+        XCTAssertEqual(press("r"), [.pasteNameType("r")], "letters write the name")
+        XCTAssertEqual(press("delete", option: true), [.pasteNameDelete(.word)])
+        XCTAssertEqual(press("3", command: true), [.pasteNameMove(slot: 3)])
+        XCTAssertEqual(press("5", command: true), [], "there are four places")
+        XCTAssertEqual(press("return"), [.pasteNameCommit])
+        XCTAssertEqual(core.state, .paste(searching: false))
+
+        world.panelIsKept = true
+        _ = press("1", command: true)
+        XCTAssertEqual(press("k"), [.pastePanelAct(.pin), .pastePanelDismiss], "K lets a keepsake go")
+        _ = press("1", command: true)
+        XCTAssertEqual(press("r"), [.pasteNameBegin(fresh: false), .pastePanelDismiss])
+        XCTAssertEqual(press("escape"), [.pasteNameCancel])
+        XCTAssertEqual(core.state, .paste(searching: false))
+    }
+
+    /// Closing Keep while a name is written keeps the name as it stands.
+    func testClosingKeepWhileNamingKeepsTheName() {
+        open()
+        _ = press("a", command: true)
+        _ = press("k")
+        XCTAssertEqual(core.openPaste(world: world), [.pasteNameCommit, .exitPaste])
+        XCTAssertEqual(core.state, .idle)
     }
 
     func testEscapeStepsBackOneThingAtATime() {
@@ -251,7 +378,8 @@ extension PasteModeTests {
     /// The row's tenth key: `;` addresses a card exactly as a letter does,
     /// bare, shifted, with ⌘, and with ⌥ inside the search.
     func testSemicolonIsTheTenthLabel() {
-        XCTAssertEqual(Clipboard.recentLabels, Array("asdfghjkl;").map(String.init))
+        XCTAssertEqual(Clipboard.recentLabels, Array("jkl;fdsa").map(String.init),
+                       "right hand first, out from the index finger, then the left")
         var core = EngineCore()
         _ = core.openPaste(world: world)
         XCTAssertEqual(core.keyDown(key: ";", held: false, shift: false, command: false, world: world),
@@ -958,14 +1086,6 @@ extension ClipboardTests {
         XCTAssertTrue(Clipboard.isRestore(types: ["public.utf8-plain-text", "com.raycast.RestoredType"]))
         XCTAssertFalse(Clipboard.isRestore(types: ["public.utf8-plain-text"]))
         XCTAssertFalse(Clipboard.isRestore(types: []))
-    }
-
-    func testThePinColumnDrawsThroughTheHighestSlotAndOneFree() {
-        XCTAssertEqual(Clipboard.pinSlotsToDraw(taken: []), 1)
-        XCTAssertEqual(Clipboard.pinSlotsToDraw(taken: [1]), 2)
-        XCTAssertEqual(Clipboard.pinSlotsToDraw(taken: [1, 3]), 4)
-        XCTAssertEqual(Clipboard.pinSlotsToDraw(taken: [5]), 5)
-        XCTAssertEqual(Clipboard.pinSlotsToDraw(taken: [1, 2, 3, 4, 5]), 5)
     }
 
     func testAPastedQueryIsOneLineAndBounded() {

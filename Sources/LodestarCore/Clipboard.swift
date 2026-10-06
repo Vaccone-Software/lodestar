@@ -41,6 +41,10 @@ public enum Clipboard {
         public let otherItemTypes: [[String]]?
         /// nil when the clip is not pinned; otherwise its permanent slot.
         public var pinnedSlot: Int?
+        /// A keepsake's name, as the hand left it. Absent for a clip that
+        /// was never kept, and for one kept before names existed, which
+        /// shows the name its first words give it.
+        public var keptName: String?
         /// The page a browser copy came from, host only — the address a
         /// hand remembers a clip by, "the one from GitHub" — read from the
         /// source-url type Chromium puts beside every copy. Never the path,
@@ -58,7 +62,7 @@ public enum Clipboard {
                     preview: String, bytes: Int,
                     nativeTypes: [String] = [], otherItemTypes: [[String]] = [],
                     pinnedSlot: Int? = nil, sourceHost: String? = nil,
-                    lines: Int? = nil, characters: Int? = nil) {
+                    lines: Int? = nil, characters: Int? = nil, keptName: String? = nil) {
             self.id = id
             self.kind = kind
             self.created = created
@@ -76,6 +80,7 @@ public enum Clipboard {
             // worth writing ten thousand times.
             self.otherItemTypes = otherItemTypes.isEmpty ? nil : otherItemTypes
             self.pinnedSlot = pinnedSlot
+            self.keptName = keptName
         }
 
         public var isPinned: Bool { pinnedSlot != nil }
@@ -156,6 +161,7 @@ public enum Clipboard {
         var out = clips
         var kept = replacement
         kept.pinnedSlot = clips[position].pinnedSlot
+        kept.keptName = clips[position].keptName
         out[position] = kept
         return out
     }
@@ -429,34 +435,79 @@ public enum Clipboard {
         return "\(Int(seconds / 86_400))d ago"
     }
 
-    /// The recents alphabet: home row, left to right, so the keys under
-    /// your fingers sit in the same order as the cards under your eyes.
-    /// Its own alphabet, not the hints one — hint labels are arbitrary
-    /// assignments to screen positions, these are ordinal.
-    /// The whole home row, semicolon included: ten labels, of which a
-    /// display shows as many as it has room for at a readable card.
-    public static let recentLabels = Array("asdfghjkl;").map(String.init)
+    /// The recents alphabet, in rank order: the newest under the right
+    /// index finger, then out along the right hand, then the left hand's
+    /// from its index finger out. Keep opens with the left hand, so the
+    /// right takes the clips it most often wants, and each card stands
+    /// over the key that pastes it. Ordinal, unlike the hints alphabet,
+    /// whose labels are arbitrary assignments to screen positions.
+    public static let recentLabels = Array("jkl;fdsa").map(String.init)
 
-    // MARK: - Pins
+    // MARK: - Keepsakes
 
-    /// Pins are slots, not a list. A slot's meaning must never change, or
-    /// the blind paste that pins exist for never becomes automatic — the
-    /// same consistent-mapping rule that governs every other lode gesture.
-    /// So a new pin takes the lowest free slot, and unpinning leaves a hole
-    /// rather than renumbering the survivors.
-    public static let pinSlots = 5
+    /// Keepsakes are places, not a list. A place's meaning must never
+    /// change, or the blind paste they exist for never becomes automatic.
+    /// Four, on the number keys over the left hand's four fingers.
+    public static let pinSlots = 4
 
-    public static func lowestFreeSlot(taken: Set<Int>, slots: Int = pinSlots) -> Int? {
-        (1...slots).first { !taken.contains($0) }
+    /// Where the next keepsake goes: the highest free place, so the first
+    /// thing kept sits on 4 under the index finger and the little finger
+    /// gets the place most often free. Letting one go leaves a hole; the
+    /// others never move.
+    public static func nextFreeSlot(taken: Set<Int>, slots: Int = pinSlots) -> Int? {
+        (1...slots).reversed().first { !taken.contains($0) }
     }
 
-    /// How many slots the column draws: every slot through the highest one
-    /// in use, and one free slot after it, so the next pin's number is
-    /// visible without four empty cards standing for slots nobody has
-    /// reached. Positions never move — slots stack from the corner, and a
-    /// drawn slot sits exactly where it always did.
-    public static func pinSlotsToDraw(taken: Set<Int>, slots: Int = pinSlots) -> Int {
-        min(slots, max(1, (taken.max() ?? 0) + 1))
+    /// Places outside the four, from when there were five, settled once:
+    /// each moves to the highest free place, and one with nowhere to go
+    /// stops being a keepsake and stays in the history as a clip. Two
+    /// clips claiming one place keep the first.
+    public static func settlingSlots(_ clips: [Clip], slots: Int = pinSlots) -> [Clip] {
+        var out = clips
+        var taken = Set<Int>()
+        var homeless: [Int] = []
+        for index in out.indices {
+            guard let slot = out[index].pinnedSlot else { continue }
+            if (1...slots).contains(slot), taken.insert(slot).inserted { continue }
+            homeless.append(index)
+        }
+        for index in homeless {
+            let slot = nextFreeSlot(taken: taken, slots: slots)
+            out[index].pinnedSlot = slot
+            if let slot { taken.insert(slot) }
+        }
+        return out
+    }
+
+    /// A keepsake's name, offered when it is kept: its first words, as
+    /// many as fit a short name, never cut inside a word. An image is
+    /// named by what was read off it, or simply "Image".
+    public static func offeredName(for clip: Clip, limit: Int = 24) -> String {
+        if clip.kind == .image {
+            // Under the size line, whatever the recognizer read.
+            let lines = clip.preview.split(separator: "\n", maxSplits: 1)
+            let caption = lines.count > 1 ? String(lines[1]) : ""
+            return caption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? "Image" : offeredName(fromText: caption, limit: limit)
+        }
+        return offeredName(fromText: clip.preview, limit: limit)
+    }
+
+    static func offeredName(fromText text: String, limit: Int) -> String {
+        let words = text.split(whereSeparator: { $0.isWhitespace })
+        var name = ""
+        for word in words {
+            let next = name.isEmpty ? String(word) : name + " " + word
+            if next.count > limit { break }
+            name = next
+        }
+        if name.isEmpty, let first = words.first { name = String(first.prefix(limit)) }
+        return name.isEmpty ? "Keepsake" : name
+    }
+
+    /// The name a keepsake shows: the hand's, or the one its words give.
+    public static func name(of clip: Clip) -> String {
+        clip.keptName ?? offeredName(for: clip)
     }
 
     // MARK: - Retention
@@ -496,9 +547,11 @@ public enum Clipboard {
         var out = existing
         if let index = out.firstIndex(where: { $0.id == arrival.id }) {
             let slot = out[index].pinnedSlot
+            let name = out[index].keptName
             out.remove(at: index)
             var promoted = arrival
             promoted.pinnedSlot = slot
+            promoted.keptName = name
             out.insert(promoted, at: 0)
             return out
         }
@@ -710,5 +763,24 @@ public extension Clipboard {
         let folder = (path as NSString).deletingLastPathComponent
         if folder == home { return "home" }
         return (folder as NSString).lastPathComponent
+    }
+}
+
+// MARK: - The reading, as a paste
+
+public extension Clipboard {
+    /// What `⌃` and a card's key paste: Lodestar's reading of the card, in
+    /// the words the card's note leads with, or nil when the card has none.
+    /// A colour pastes its name, a time the moment in your own zone, a
+    /// measurement its conversion (exact where the note carries an exact
+    /// line), a column its sum. The card shows this same text while `⌃`
+    /// is held, so what is seen is what pastes.
+    static func reading(of clip: Clip, units: ClipQuantity.System,
+                        zones: [TimeZone] = [], now: Date = Date()) -> String? {
+        if let color = clip.color { return color.name }
+        if let time = clip.time { return time.note(zones: zones, now: now).local }
+        if let read = clip.quantity?.note(into: units) { return read.exact ?? read.voice }
+        if let sum = clip.sum { return sum.voice() }
+        return nil
     }
 }

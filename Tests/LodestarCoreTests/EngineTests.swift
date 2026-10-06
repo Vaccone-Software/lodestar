@@ -99,6 +99,13 @@ final class WorldStub: EngineWorld {
         return panelIsImage
     }
 
+    /// Whether the card whose actions stand is a keepsake.
+    var panelIsKept = false
+    func pastePanelIsKept() -> Bool {
+        calls.append("pastePanelIsKept")
+        return panelIsKept
+    }
+
     func enterHints(sticky: Bool) -> Bool {
         calls.append("enterHints\(sticky ? ":sticky" : "")")
         return hintsEnterSucceeds

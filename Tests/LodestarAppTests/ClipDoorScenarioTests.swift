@@ -9,7 +9,7 @@ import XCTest
 /// pasteboard, and the strip is the only place a paste happens.
 final class ClipDoorScenarioTests: XCTestCase {
     /// The strip open, a card's actions open, then the door.
-    private func openDoor(_ stage: Stage, address: String = "a") {
+    private func openDoor(_ stage: Stage, address: String = "j") {
         stage.openStrip()
         stage.chord(address, .maskCommand)
         stage.press("e")
@@ -90,7 +90,7 @@ final class ClipDoorScenarioTests: XCTestCase {
         openDoor(stage)
         append(stage, ["x"])
         stage.press("return")
-        stage.press("a")
+        stage.press("j")
         XCTAssertEqual(stage.stripPastes, 1, "the strip pastes, the door never did")
         XCTAssertEqual(stage.clipboard.pasteboard.string(forType: .string), "bravox")
         XCTAssertEqual(stage.engine.grammarState, .idle)
@@ -102,11 +102,11 @@ final class ClipDoorScenarioTests: XCTestCase {
         let pinned = stage.seedClip("pinned text")
         XCTAssertTrue(stage.clipboard.history.pin(pinned.id))
         stage.seedClip("a recent")
-        openDoor(stage, address: "1")
+        openDoor(stage, address: "4")
         append(stage, ["x"])
         stage.press("return")
         let clips = stage.clipboard.history.clips
-        XCTAssertEqual(clips.first { $0.pinnedSlot == 1 }?.preview, "pinned textx")
+        XCTAssertEqual(clips.first { $0.pinnedSlot == 4 }?.preview, "pinned textx", "the first keepsake is on 4")
         XCTAssertEqual(Clipboard.recents(clips).map(\.preview), ["a recent"], "no recent gained")
         XCTAssertEqual(clips.count, 2)
     }
@@ -272,7 +272,7 @@ final class ClipDoorScenarioTests: XCTestCase {
         stage.press("n")
         stage.press("e")
         XCTAssertEqual(stage.engine.strip.shownRecents.map(\.preview), ["needle"])
-        stage.chord("a", [.maskCommand, .maskAlternate])
+        stage.chord("j", [.maskCommand, .maskAlternate])
         XCTAssertEqual(stage.engine.grammarState, .pastePanel(searching: true))
         stage.press("e")
         XCTAssertEqual(stage.engine.grammarState, .pasteDoor(searching: true))
@@ -288,11 +288,15 @@ final class ClipDoorScenarioTests: XCTestCase {
             Clipboard.Clip(id: "x", kind: kind, created: Date(), sourceBundleID: nil,
                            sourceAppName: nil, preview: "x", bytes: 1, nativeTypes: natives)
         }
-        XCTAssertEqual(HotkeyEngine.panelActions(for: card(.text)).map(\.key), ["P", "E", "D"])
+        XCTAssertEqual(HotkeyEngine.panelActions(for: card(.text)).map(\.key), ["K", "E", "D"])
         XCTAssertEqual(HotkeyEngine.panelActions(for: card(.image, natives: ["public.png"])).map(\.key),
-                       ["P", "E", "S", "D"], "an image views and saves where a text card edits")
+                       ["K", "E", "S", "D"], "an image views and saves where a text card edits")
         XCTAssertEqual(HotkeyEngine.panelActions(for: card(.text, natives: [Clipboard.fileURLType])).map(\.key),
-                       ["P", "D"])
+                       ["K", "D"])
+        var kept = card(.text)
+        kept.pinnedSlot = 4
+        XCTAssertEqual(HotkeyEngine.panelActions(for: kept).map(\.label), ["Let go", "Rename", "Edit", "Delete"],
+                       "K lets a keepsake go, and only a keepsake has a name to change")
         let edit = HotkeyEngine.panelActions(for: card(.text)).first { $0.key == "E" }
         XCTAssertEqual(edit?.label, "Edit")
         XCTAssertEqual(edit?.isDestructive, false)
@@ -401,7 +405,7 @@ final class ClipDoorScenarioTests: XCTestCase {
         stage.seedClip("one")
         stage.seedClip("two")
         stage.openStrip()
-        stage.press("s")
+        stage.press("k")
         XCTAssertEqual(stage.lastPaste?.rank, 1)
         XCTAssertNil(stage.lastPaste?.depth)
         XCTAssertEqual(stage.lastPaste?.visible, 2)
@@ -433,7 +437,7 @@ final class ClipDoorPanelTests: XCTestCase {
         view.expanded = true
         if card {
             view.card = DraftView.Card(name: "Brave Browser", icon: nil, detail: "github.com · 3m ago")
-            view.standsAbove = ClipboardStrip.rowHeight
+            view.standsAbove = ClipboardStrip.doorFloor(in: ActivePolicy.presentationFrame)
         }
         return view
     }
@@ -444,10 +448,10 @@ final class ClipDoorPanelTests: XCTestCase {
         let text = (1...200).map { "line \($0)" }.joined(separator: "\n")
         panel.show(view(text))
         let screen = ActivePolicy.presentationFrame
-        XCTAssertGreaterThan(panel.frame.height, screen.height * 0.4 + 60, "past the old forty percent")
+        XCTAssertGreaterThan(panel.frame.maxY, screen.maxY - 22 - 60, "up to the top of the display")
         XCTAssertLessThanOrEqual(panel.frame.maxY, screen.maxY - 22 + 1, "and never past the margin")
-        XCTAssertEqual(panel.frame.minY, screen.minY + 22 + ClipboardStrip.rowHeight, accuracy: 0.5,
-                       "standing above the strip's row")
+        XCTAssertEqual(panel.frame.minY, screen.minY + 22 + ClipboardStrip.doorFloor(in: screen), accuracy: 0.5,
+                       "standing above Keep's clips")
     }
 
     func testAShortCardStaysShort() {
@@ -591,7 +595,7 @@ final class ClipboardStoreEditTests: XCTestCase {
         XCTAssertTrue(store.pin(pinned.id))
         let newest = seed("newest")
         let replaced = store.replace(pinned, withText: "pinned edited")!
-        XCTAssertEqual(replaced.pinnedSlot, 1)
+        XCTAssertEqual(replaced.pinnedSlot, 4, "the first keepsake is on 4")
         XCTAssertEqual(store.clips.map(\.id), [newest.id, replaced.id, older.id])
     }
 

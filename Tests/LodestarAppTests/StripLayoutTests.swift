@@ -3,65 +3,82 @@ import XCTest
 @testable import lodestar
 @testable import LodestarCore
 
-/// Where the pins stand, how wide the band may be, and how a caption
-/// reads — the strip's arrangement, decided from the screen alone.
+/// Keep's arrangement, decided from the screen alone: every card over the
+/// key that pastes it, the keepsakes over the numbers, the bar over the
+/// right hand, at the bars' height.
 final class StripLayoutTests: XCTestCase {
-    private let row: CGFloat = 158 + 10
-    private let band: CGFloat = 54
+    private let wide = NSRect(x: 0, y: 0, width: 1728, height: 1117)
+    private let narrow = NSRect(x: 0, y: 0, width: 1280, height: 800)
 
-    func testTheColumnIsCenteredOnATallScreen() {
-        let placed = ClipboardStrip.layout(screenHeight: 1169, drawnSlots: 1)
-        // The screen's middle, in the panel's own coordinates, less half a card.
-        XCTAssertEqual(placed.columnBottom, 1169 / 2 - 22 - 158 / 2, accuracy: 0.5)
-        XCTAssertEqual(placed.bandLeft, 0, "the band takes the full width")
-        XCTAssertEqual(placed.height, placed.columnBottom + 158, accuracy: 0.5)
+    /// The keyboard's order, left to right: A S D F, the gutter at G,
+    /// then J K L ;.
+    func testEveryCardStandsOverItsKeyInTheKeyboardsOrder() {
+        let placed = ClipboardStrip.layout(in: wide)
+        let xs = ["a", "s", "d", "f", "j", "k", "l", ";"].map { placed.places[$0]!.minX }
+        XCTAssertEqual(xs, xs.sorted(), "in the keys' order")
+        let gutter = placed.places["j"]!.minX - placed.places["f"]!.maxX
+        XCTAssertGreaterThan(gutter, ClipboardStrip.gap, "the hands kept apart at G")
+        XCTAssertEqual(placed.places["1"]!.minX, placed.places["a"]!.minX, "1 over A")
+        XCTAssertEqual(placed.places["4"]!.minX, placed.places["f"]!.minX, "4 over F")
     }
 
-    func testAFullColumnStaysCenteredWhereItFits() {
-        let placed = ClipboardStrip.layout(screenHeight: 1600, drawnSlots: 5)
-        let column: CGFloat = 5 * 168 - 10
-        XCTAssertEqual(placed.columnBottom, 1600 / 2 - 22 - column / 2, accuracy: 0.5)
-        XCTAssertEqual(placed.bandLeft, 0)
+    /// The newest leads by a step: J tallest, each to its right a little
+    /// shorter, the left hand's level and shorter still.
+    func testTheRightHandStepsAndTheLeftIsLevel() {
+        let placed = ClipboardStrip.layout(in: wide)
+        let right = ["j", "k", "l", ";"].map { placed.places[$0]!.height }
+        XCTAssertEqual(right, right.sorted(by: >))
+        XCTAssertEqual(Set(right).count, 4, "four steps")
+        let left = Set(["a", "s", "d", "f"].map { placed.places[$0]!.height })
+        XCTAssertEqual(left.count, 1, "level")
+        XCTAssertLessThan(left.first!, right.last!)
+        XCTAssertLessThan(right.first! / left.first!, 1.3, "a step, never a leap")
+        let bottoms = Set(["a", "s", "d", "f", "j", "k", "l", ";"].map { placed.places[$0]!.minY })
+        XCTAssertEqual(bottoms.count, 1, "one baseline")
     }
 
-    /// A short screen: the column would reach into the band's row, so
-    /// it stops on that row and the band starts to its right.
-    func testOnAShortScreenTheColumnStopsAboveTheRowAndTheBandKeepsClear() {
-        let placed = ClipboardStrip.layout(screenHeight: 800, drawnSlots: 5)
-        XCTAssertEqual(placed.columnBottom, row, "no lower than the row above the recents")
-        XCTAssertEqual(placed.bandLeft, 208 + 10, "the band starts right of the column")
+    /// The keepsakes' tops and the bar's are one line, the bars' own.
+    func testTheKeepsakesAndTheBarShareTheBarsLine() {
+        let placed = ClipboardStrip.layout(in: wide)
+        let tops = Set((1...4).map { placed.places["\($0)"]!.maxY })
+        XCTAssertEqual(tops.count, 1)
+        XCTAssertEqual(tops.first!, placed.bar.maxY)
+        XCTAssertEqual(placed.bar.maxY, floor(wide.height * ClipboardStrip.topLine))
+        XCTAssertEqual(placed.bar.minX, placed.places["j"]!.minX, "over the right hand")
+        XCTAssertEqual(placed.bar.maxX, placed.places[";"]!.maxX)
+        XCTAssertGreaterThan(placed.places["1"]!.minY, placed.places["a"]!.maxY, "over the older clips")
     }
 
-    func testTheBandIsFullWidthOnlyWhenTheColumnCannotReachIt() {
-        // The column's bottom lands just inside the band's row: not clear.
-        let touching = ClipboardStrip.layout(screenHeight: 2 * (22 + row + band + 5 + 79), drawnSlots: 1)
-        XCTAssertLessThan(touching.columnBottom, row + band + 10)
-        XCTAssertEqual(touching.bandLeft, 208 + 10)
-        // A little taller and it clears.
-        let clear = ClipboardStrip.layout(screenHeight: 2 * (22 + row + band + 10 + 79) + 2, drawnSlots: 1)
-        XCTAssertGreaterThanOrEqual(clear.columnBottom, row + band + 10)
-        XCTAssertEqual(clear.bandLeft, 0)
+    /// J stands over H and J on a screen wide enough for nine readable
+    /// cards; on a narrower one it gives up its second key, and no card
+    /// falls below the width a command needs.
+    func testJGivesUpItsSecondKeyBeforeAnyCardGetsTooNarrow() {
+        let roomy = ClipboardStrip.layout(in: wide)
+        XCTAssertTrue(roomy.wideJ)
+        XCTAssertEqual(roomy.places["j"]!.width, roomy.module * 2 + ClipboardStrip.gap)
+        let tight = ClipboardStrip.layout(in: narrow)
+        XCTAssertFalse(tight.wideJ)
+        XCTAssertEqual(tight.places["j"]!.width, tight.module)
+        XCTAssertGreaterThanOrEqual(tight.module, ClipboardStrip.minModule - 10)
+        XCTAssertLessThanOrEqual(ClipboardStrip.layout(in: NSRect(x: 0, y: 0, width: 5120, height: 2880)).module,
+                                 ClipboardStrip.maxModule, "never wider than a card reads")
     }
 
-    func testWithTheColumnHiddenTheRowAndBandAreAllThereIs() {
-        let placed = ClipboardStrip.layout(screenHeight: 1169, drawnSlots: 0)
-        XCTAssertEqual(placed.bandLeft, 0)
-        XCTAssertEqual(placed.height, row + band)
+    func testKeepIsCenteredOnItsScreen() {
+        let screen = NSRect(x: 1728, y: 200, width: 1920, height: 1080)
+        let placed = ClipboardStrip.layout(in: screen)
+        let left = placed.places["a"]!.minX, right = placed.places[";"]!.maxX
+        XCTAssertEqual((left + right) / 2, screen.midX, accuracy: 1)
     }
 
-    func testTheColumnIsAlwaysDrawn() {
-        XCTAssertEqual(Clipboard.pinSlotsToDraw(taken: []), 1,
-                       "one free slot, so a hand that has never pinned learns that it can")
-    }
-
-    func testOnTheStageTheBandIsFullWidthAndTheColumnIsCentered() {
+    func testOnTheStageTheBarStandsOverTheRightHand() {
         let stage = Stage()
         stage.seedClip("one")
         stage.openStrip()
         stage.press("/")
         let band = stage.engine.strip.bandFrame
         XCTAssertNotNil(band)
-        XCTAssertEqual(band?.minX, 0, "clear of the column on this screen")
+        XCTAssertEqual(band?.minX, stage.engine.strip.lastLayout?.places["j"]?.minX)
         stage.press("escape")
         stage.press("escape")
     }
@@ -134,8 +151,14 @@ final class StripTimeTests: XCTestCase {
         let note = try XCTUnwrap(notes[unix.id])
         XCTAssertEqual(note.first, "5 hours ago", "the voice first")
         XCTAssertTrue(note.contains { $0.contains("Tokyo") }, "the kept zone: \(note)")
-        XCTAssertEqual(textFrame(stage, unix)?.maxY, textFrame(stage, text)?.maxY,
-                       "the clip starts where every card's text starts")
+        // Measured from each card's top edge: the right hand's cards stand
+        // at different heights on purpose.
+        let inset = { (clip: Clipboard.Clip) -> CGFloat? in
+            guard let card = stage.engine.strip.shownCards[clip.id], let frame = self.textFrame(stage, clip)
+            else { return nil }
+            return card.frame.height - frame.maxY
+        }
+        XCTAssertEqual(inset(unix), inset(text), "the clip starts where every card's text starts")
         XCTAssertEqual(textFrame(stage, unix)?.minX, textFrame(stage, text)?.minX)
         XCTAssertNil(notes[text.id])
         XCTAssertNil(notes[phone.id], "a phone number is not a time")

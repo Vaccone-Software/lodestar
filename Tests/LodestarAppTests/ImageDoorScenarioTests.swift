@@ -31,7 +31,7 @@ final class ImageDoorScenarioTests: XCTestCase {
 
     private func openPanel(_ stage: Stage) {
         stage.openStrip()
-        stage.chord("a", .maskCommand)
+        stage.chord("j", .maskCommand)
     }
 
     private func type(_ stage: Stage, _ text: String) {
@@ -44,7 +44,7 @@ final class ImageDoorScenarioTests: XCTestCase {
         let (stage, clip) = stageWithImage()
         openPanel(stage)
         let keys = HotkeyEngine.panelActions(for: clip).map(\.key)
-        XCTAssertEqual(keys, ["P", "E", "S", "D", "X"])
+        XCTAssertEqual(keys, ["K", "E", "S", "D", "X"])
         let labels = HotkeyEngine.panelActions(for: clip).map(\.label)
         XCTAssertTrue(labels.contains("View"))
         XCTAssertTrue(labels.contains("Save as"))

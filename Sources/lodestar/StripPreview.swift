@@ -39,6 +39,7 @@ enum StripPreview {
         return image
     }
     private static var heldLink: LinkChip?
+    private static var heldStrip: ClipboardStrip?
 
     /// The flat ground alone, for a harness that stages its own panels.
     static func stageOnly() { stage() }
@@ -371,6 +372,78 @@ enum StripPreview {
         // the keycaps, the glass.
         if (100...107).contains(variant) {
             DispatchQueue.main.async { NextSheet.run(variant) }
+            app.run()
+        }
+
+        // 120…126: Keep, level. At rest; typing a search; ⌥ held while
+        // searching; ⌃ held showing readings; the source list; a keepsake
+        // being named; the actions on J. Sample clips only.
+        if (120...126).contains(variant) {
+            func made(_ id: String, _ text: String, _ app: String, _ minutes: Double,
+                      slot: Int? = nil, name: String? = nil, kind: Clipboard.Kind = .text) -> Clipboard.Clip {
+                Clipboard.Clip(id: id, kind: kind, created: Date().addingTimeInterval(-60 * minutes),
+                               sourceBundleID: "sample.\(app)", sourceAppName: app,
+                               preview: text, bytes: text.utf8.count, pinnedSlot: slot, keptName: name)
+            }
+            let kept = [
+                made("k4", "Prepare a change request for the change below. Fill in the risk, the rollback and the test plan.",
+                     "Notes", 9000, slot: 4, name: "Change request"),
+                made("k3", "Review this diff for correctness first, then simplicity, then naming.",
+                     "Notes", 8000, slot: 3, name: "Review prompt"),
+                made("k2", "image 1200×800", "Preview", 7000, slot: 2, name: "The image", kind: .image),
+            ]
+            let rest = [
+                made("j", "git push origin local/keep && gh pr view --web", "Ghostty", 0.2),
+                made("k", "https://developer.apple.com/documentation/appkit/nspasteboard", "Brave", 2),
+                made("l", "Can you send the build number from this morning?", "Slack", 6),
+                made("s1", "#FF4F00", "Brave", 9),
+                made("f", "sk_live_51HgL0K2eZvKYlo2C3f9a", "Ghostty", 31),
+                made("d", "1200 + 40", "Notes", 52),
+                made("s", "npm run build", "Ghostty", 70),
+                made("a", "Q3 roadmap review moved to Thursday", "Mail", 120),
+            ]
+            let found = [rest[6], rest[0], rest[2]]
+            let image = sampleImage(width: 1200, height: 800)
+            let thumbnail: (String) -> NSImage? = { $0 == "k2" ? image : nil }
+            let strip = ClipboardStrip()
+            heldStrip = strip
+            DispatchQueue.main.async {
+                switch variant {
+                case 121:
+                    strip.show(recents: found, pins: kept, thumbnail: thumbnail, band: .search("build"),
+                               selection: 0, matches: 3)
+                case 122:
+                    strip.show(recents: found, pins: kept, thumbnail: thumbnail, band: .search("build"),
+                               selection: 0, held: .option, matches: 3)
+                case 123:
+                    strip.show(recents: rest, pins: kept, thumbnail: thumbnail, band: .none,
+                               selection: 0, held: .control)
+                case 124:
+                    strip.show(recents: found, pins: kept, thumbnail: thumbnail, band: .search("build"),
+                               selection: 0, matches: 3,
+                               sourceMenu: .init(typed: "", rows: [.init(name: "All apps", count: 214),
+                                                                    .init(name: "Brave", count: 38),
+                                                                    .init(name: "Ghostty", count: 71),
+                                                                    .init(name: "Mail", count: 6),
+                                                                    .init(name: "Notes", count: 12),
+                                                                    .init(name: "Slack", count: 29)],
+                                                 selection: 0))
+                case 125:
+                    var keptNow = kept
+                    var fresh = rest[0]
+                    fresh.pinnedSlot = 1
+                    keptNow.append(fresh)
+                    strip.show(recents: Array(rest.dropFirst()), pins: keptNow, thumbnail: thumbnail,
+                               band: .none, selection: 0,
+                               naming: .init(id: "j", text: "git push origin", selected: true))
+                case 126:
+                    strip.show(recents: rest, pins: kept, thumbnail: thumbnail,
+                               band: .actions(HotkeyEngine.panelActions(for: rest[0])),
+                               selection: 0, actingOn: "j")
+                default:
+                    strip.show(recents: rest, pins: kept, thumbnail: thumbnail, band: .none, selection: 0)
+                }
+            }
             app.run()
         }
 

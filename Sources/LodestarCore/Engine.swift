@@ -29,7 +29,11 @@ public enum PasteAction: Equatable {
     /// Paste as copied: rich text, HTML, or whatever proprietary flavour the
     /// source app offered. An image has no plain form, so both are the image.
     case native
-    /// Open the card's actions: save an image, pin, delete, exclude.
+    /// Paste Lodestar's reading of the card: a colour's name, the time
+    /// in your zone, a measurement converted, a column's sum. `⌃` says
+    /// it, everywhere, and a card with no reading answers nothing.
+    case reading
+    /// Open the card's actions: keep, edit, delete, exclude.
     case panel
 }
 
@@ -134,6 +138,26 @@ public enum EngineEffect: Equatable {
     case pasteSaveCommit
     /// `esc` in the save band: back to the strip, nothing written.
     case pasteSaveEnd
+    /// `⇥` in Keep: the list of apps the clips came from opens under the
+    /// bar, alphabetical, with a field of its own. Typing narrows it,
+    /// `⏎` filters the clips to the chosen app, `esc` closes the list.
+    case pasteSourceShow
+    case pasteSourceType(String)
+    case pasteSourceDelete(SearchDeletion)
+    case pasteSourceMove(delta: Int)
+    case pasteSourcePick
+    case pasteSourceClose
+    /// A keepsake's name, written in its own place. `fresh` is a clip
+    /// just kept, whose name is offered from its first words and whose
+    /// `esc` lets it go again; otherwise a keepsake being renamed, whose
+    /// `esc` keeps the name it had. `⌘1`–`⌘4` moves it to that place.
+    case pasteNameBegin(fresh: Bool)
+    case pasteNameType(String)
+    case pasteNameDelete(SearchDeletion)
+    case pasteNamePaste
+    case pasteNameMove(slot: Int)
+    case pasteNameCommit
+    case pasteNameCancel
     /// The clip door closes from outside its own two keys — a lode verb,
     /// a ⌘ chord, a click elsewhere, the strip's toggle. The shell ends
     /// it the way escape would: changed text is kept as a new card. The
@@ -228,6 +252,9 @@ public protocol EngineWorld: AnyObject {
     /// where it opens a text card in the draft; the grammar asks rather
     /// than guessing, because the two doors are different machines.
     func pastePanelIsImage() -> Bool
+    /// Is the card whose actions stand a keepsake? `K` keeps a clip and
+    /// lets a keepsake go; `R` renames only a keepsake.
+    func pastePanelIsKept() -> Bool
     /// A plain letter while hints are up — the overlay narrows or fires.
     /// Shift fires a pick; control, held with it, right-clicks instead —
     /// the system's own word for a secondary click. Which button is a
@@ -255,6 +282,7 @@ public extension EngineWorld {
     /// Worlds without an editor keep `lode ⇥` for the tabs.
     var editorActive: Bool { false }
     func enterEditor() -> Bool { false }
+    func pastePanelIsKept() -> Bool { false }
 }
 
 public struct EngineCore {
@@ -285,6 +313,11 @@ public struct EngineCore {
         /// The band is a file name for an image. Typed the way the search
         /// is; `⏎` writes, `esc` steps back.
         case pasteSave(searching: Bool)
+        /// The list of source apps is open under the bar. Typed the way
+        /// the search is; `⏎` chooses, `esc` closes the list.
+        case pasteSource(searching: Bool)
+        /// A keepsake's name is being written in its place.
+        case pasteName(searching: Bool)
     }
 
     /// The clip door closed on its own two keys — `⏎` saved, `esc`
@@ -326,6 +359,14 @@ public struct EngineCore {
         case .pasteSave:
             state = .idle
             return [.pasteSaveEnd, .exitPaste]
+        case .pasteSource:
+            state = .idle
+            return [.pasteSourceClose, .exitPaste]
+        case .pasteName:
+            // The name as it stands is kept: closing Keep is not a
+            // change of mind about keeping.
+            state = .idle
+            return [.pasteNameCommit, .exitPaste]
         default:
             break
         }
@@ -364,6 +405,12 @@ public struct EngineCore {
         case .pasteSave:
             state = .idle
             return [.pasteSaveEnd, .exitPaste]
+        case .pasteSource:
+            state = .idle
+            return [.pasteSourceClose, .exitPaste]
+        case .pasteName:
+            state = .idle
+            return [.pasteNameCommit, .exitPaste]
         default:
             return []
         }
@@ -439,6 +486,8 @@ public struct EngineCore {
         case .pasteDoor: effects = [.pasteDoorClose(reason: "reset"), .exitPaste]
         case .pasteImage: effects = [.pasteImageClose(reason: "reset"), .exitPaste]
         case .pasteSave: effects = [.pasteSaveEnd, .exitPaste]
+        case .pasteSource: effects = [.pasteSourceClose, .exitPaste]
+        case .pasteName: effects = [.pasteNameCommit, .exitPaste]
         }
         state = .idle
         return effects
@@ -525,7 +574,7 @@ public struct EngineCore {
                                option: option, world: world)
         case .paste(let searching):
             return pastePress(key: key, held: held, shift: shift, command: command,
-                              option: option, searching: searching, world: world)
+                              option: option, control: control, searching: searching, world: world)
         case .pastePanel(let searching):
             return pastePanelPress(key: key, held: held, shift: shift,
                                    searching: searching, world: world)
@@ -536,6 +585,12 @@ public struct EngineCore {
                                    searching: searching, world: world)
         case .pasteSave(let searching):
             return pasteSavePress(key: key, held: held, shift: shift, command: command,
+                                  option: option, searching: searching, world: world)
+        case .pasteSource(let searching):
+            return pasteSourcePress(key: key, held: held, shift: shift, command: command,
+                                    option: option, searching: searching, world: world)
+        case .pasteName(let searching):
+            return pasteNamePress(key: key, held: held, shift: shift, command: command,
                                   option: option, searching: searching, world: world)
         }
     }
@@ -1034,8 +1089,15 @@ public struct EngineCore {
     /// make it unforgettable, and paging or searching needs both hands free.
     /// Its own keys act; escape leaves; any lode verb exits and executes,
     /// the same bargain scroll and hints already make.
+    ///
+    /// The letter picks the card and the modifier picks the form, the
+    /// same in Keep and while searching: bare or `⌥` pastes the text,
+    /// `⇧` as copied, `⌃` the reading, `⌘` opens the card's actions.
+    /// While searching the letters are the query, so a card needs `⌥` or
+    /// `⌃` to be named — keys that never type — and `⏎` takes the best
+    /// match in whichever form its modifier says.
     private mutating func pastePress(key: String, held: Bool, shift: Bool, command: Bool,
-                                     option: Bool, searching: Bool,
+                                     option: Bool, control: Bool = false, searching: Bool,
                                      world: EngineWorld) -> [EngineEffect] {
         if held {
             // lode ? is the strip's keys, with the strip still up. Any other
@@ -1049,7 +1111,14 @@ public struct EngineCore {
             return effects
         }
 
-        let action: PasteAction = command ? .panel : (shift ? .native : .plain)
+        let action: PasteAction = command ? .panel : control ? .reading : (shift ? .native : .plain)
+
+        // `⇥` opens the list of sources, from Keep or from a search: one
+        // list, one choice, never a cycle through the apps.
+        if key == "tab", !command {
+            state = .pasteSource(searching: searching)
+            return [.pasteSourceShow]
+        }
 
         if searching {
             switch key {
@@ -1093,8 +1162,11 @@ public struct EngineCore {
             // obeyed. A mis-hit must not throw away the query you typed,
             // which is the one thing this mode holds that cannot be had
             // back by pressing the key again.
-            case _ where option && (Self.isLetter(key) || Self.isDigit(key)
-                                    || Clipboard.recentLabels.contains(key)):
+            //
+            // `⌃` names a card too, and asks for its reading: it never
+            // types, so it means the same thing here as in Keep.
+            case _ where (option || control) && (Self.isLetter(key) || Self.isDigit(key)
+                                                 || Clipboard.recentLabels.contains(key)):
                 guard world.pasteCardExists(address: key) else { return [] }
                 let effect: EngineEffect
                 if let slot = Int(key) {
@@ -1126,6 +1198,8 @@ public struct EngineCore {
                     state = .idle
                     return [.exitPaste]
                 }
+                // `⌃` with a key that names no card types nothing either.
+                if control { return [] }
                 return [.pasteSearchType(typed)]
             }
         }
@@ -1206,7 +1280,18 @@ public struct EngineCore {
         case "escape":
             state = .paste(searching: searching)
             return [.pastePanelDismiss]
-        case "p": action = .pin
+        case "k":
+            // Keep: the clip goes into the free place with its name
+            // written for it, ready to change, read by the shell from the
+            // panel's card before the panel goes. On a keepsake, `K` lets
+            // it go, so the key always says the same thing about keeping.
+            if world.pastePanelIsKept() { action = .pin; break }
+            state = .pasteName(searching: searching)
+            return [.pasteNameBegin(fresh: true), .pastePanelDismiss]
+        case "r":
+            guard world.pastePanelIsKept() else { return [] }
+            state = .pasteName(searching: searching)
+            return [.pasteNameBegin(fresh: false), .pastePanelDismiss]
         case "d": action = .delete
         case "x": action = .excludeApp
         case "s":
@@ -1331,6 +1416,78 @@ public struct EngineCore {
                 return [.pasteSaveEnd, .exitPaste]
             }
             return [.pasteSaveType(typed)]
+        }
+    }
+
+    /// The list of source apps: a field of its own over an alphabetical
+    /// list. Typing narrows it, the arrows move the choice, `⏎` filters
+    /// the clips to the chosen app and the search takes over with its
+    /// query as it was, `esc` and `⇥` close the list and change nothing.
+    private mutating func pasteSourcePress(key: String, held: Bool, shift: Bool,
+                                           command: Bool, option: Bool, searching: Bool,
+                                           world: EngineWorld) -> [EngineEffect] {
+        if held {
+            state = .idle
+            var effects: [EngineEffect] = [.pasteSourceClose, .exitPaste]
+            if key != "escape" {
+                effects.append(contentsOf: idlePress(key: key, shift: shift, world: world))
+            }
+            return effects
+        }
+        switch key {
+        case "escape", "tab":
+            state = .paste(searching: searching)
+            return [.pasteSourceClose]
+        case "return":
+            state = .paste(searching: true)
+            return [.pasteSourcePick]
+        case "up":
+            return [.pasteSourceMove(delta: -1)]
+        case "down":
+            return [.pasteSourceMove(delta: 1)]
+        case "delete":
+            if command { return [.pasteSourceDelete(.all)] }
+            if option { return [.pasteSourceDelete(.word)] }
+            return [.pasteSourceDelete(.character)]
+        default:
+            guard !command, let typed = Keys.character(for: key, shift: shift) else { return [] }
+            return [.pasteSourceType(typed)]
+        }
+    }
+
+    /// A keepsake's name, written in its place: the save band's grammar,
+    /// plus `⌘1`–`⌘4` to move it to another place, trading with what is
+    /// there. `⏎` keeps the name, `esc` takes the change back.
+    private mutating func pasteNamePress(key: String, held: Bool, shift: Bool,
+                                         command: Bool, option: Bool, searching: Bool,
+                                         world: EngineWorld) -> [EngineEffect] {
+        if held {
+            state = .idle
+            var effects: [EngineEffect] = [.pasteNameCommit, .exitPaste]
+            if key != "escape" {
+                effects.append(contentsOf: idlePress(key: key, shift: shift, world: world))
+            }
+            return effects
+        }
+        switch key {
+        case "escape":
+            state = .paste(searching: searching)
+            return [.pasteNameCancel]
+        case "return":
+            state = .paste(searching: searching)
+            return [.pasteNameCommit]
+        case "delete":
+            if command { return [.pasteNameDelete(.all)] }
+            if option { return [.pasteNameDelete(.word)] }
+            return [.pasteNameDelete(.character)]
+        case "v" where command && !shift && !option:
+            return [.pasteNamePaste]
+        case _ where command && Self.isDigit(key):
+            guard let slot = Int(key), slot >= 1, slot <= Clipboard.pinSlots else { return [] }
+            return [.pasteNameMove(slot: slot)]
+        default:
+            guard !command, let typed = Keys.character(for: key, shift: shift) else { return [] }
+            return [.pasteNameType(typed)]
         }
     }
 

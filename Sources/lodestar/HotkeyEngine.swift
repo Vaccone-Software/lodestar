@@ -245,6 +245,26 @@ final class HotkeyEngine {
     /// The card the save band is naming a file for, and the name so far.
     private var saveClip: Clipboard.Clip?
     private var saveName = ""
+    /// The app the clips are filtered to, by name; nil is All apps.
+    private var pasteSource: String?
+    /// The list of sources while it is open: what was typed into it and
+    /// which row is chosen.
+    private var sourceTyped: String?
+    private var sourceSelection = 0
+    /// The keepsake whose name is being written: the text so far, whether
+    /// the offered name still stands selected, whether it was kept just
+    /// now (so `esc` lets it go), and its name and place before.
+    private struct Naming {
+        let id: String
+        var text: String
+        var selected: Bool
+        let fresh: Bool
+        let before: String?
+        let slot: Int?
+    }
+    private var naming: Naming?
+    /// The modifier held over Keep, which changes what the cards show.
+    private var heldOverStrip: ClipboardStrip.Held = .none
     let imageDoor = ImageDoor()
     /// Live only while the strip is up; see `watchClicks`.
     private var clickMonitor: Any?
@@ -1000,6 +1020,10 @@ final class HotkeyEngine {
                 imageDoorClip = nil
                 saveClip = nil
                 saveName = ""
+                pasteSource = nil
+                sourceTyped = nil
+                naming = nil
+                heldOverStrip = .none
                 imageDoor.hide()
                 stopWatchingClicks()
                 strip.hide()
@@ -1022,7 +1046,10 @@ final class HotkeyEngine {
                 pasteSelection = 0
                 renderStrip()
             case .pasteSearchEnd:
+                // One escape ends the whole search: the words and the
+                // source together.
                 pasteQuery = nil
+                pasteSource = nil
                 renderStrip()
             case .pasteSearchType(let text):
                 noteStripKey()
@@ -1082,6 +1109,83 @@ final class HotkeyEngine {
                 imageDoor.move(key, fast: fast)
             case .pasteImageZoom(let zoomIn):
                 imageDoor.zoom(in: zoomIn)
+            case .pasteSourceShow:
+                noteStripKey()
+                sourceTyped = ""
+                sourceSelection = 0
+                renderStrip()
+            case .pasteSourceType(let text):
+                noteStripKey()
+                sourceTyped = (sourceTyped ?? "") + text
+                sourceSelection = 0
+                renderStrip()
+            case .pasteSourceDelete(let scope):
+                noteStripKey()
+                let typed = sourceTyped ?? ""
+                switch scope {
+                case .character: sourceTyped = String(typed.dropLast())
+                case .word: sourceTyped = Clipboard.droppingLastWord(typed)
+                case .all: sourceTyped = ""
+                }
+                sourceSelection = 0
+                renderStrip()
+            case .pasteSourceMove(let delta):
+                noteStripKey()
+                let count = sourceRows().count
+                sourceSelection = max(0, min(count - 1, sourceSelection + delta))
+                renderStrip()
+            case .pasteSourcePick:
+                noteStripKey()
+                let rows = sourceRows()
+                if rows.indices.contains(sourceSelection) {
+                    let chosen = rows[sourceSelection].name
+                    pasteSource = chosen == Self.allApps ? nil : chosen
+                }
+                sourceTyped = nil
+                if pasteQuery == nil { pasteQuery = "" }
+                pasteSelection = 0
+                renderStrip()
+            case .pasteSourceClose:
+                sourceTyped = nil
+                if case .paste = core.state { renderStrip() }
+            case .pasteNameBegin(let fresh):
+                beginNaming(fresh: fresh)
+            case .pasteNameType(let text):
+                noteStripKey()
+                guard var current = naming else { break }
+                current.text = current.selected ? text : current.text + text
+                current.selected = false
+                naming = current
+                renderStrip()
+            case .pasteNamePaste:
+                noteStripKey()
+                guard var current = naming else { break }
+                let pasted = Clipboard.pastedQuery(NSPasteboard.general.string(forType: .string) ?? "")
+                guard !pasted.isEmpty else { break }
+                current.text = current.selected ? pasted : current.text + pasted
+                current.selected = false
+                naming = current
+                renderStrip()
+            case .pasteNameDelete(let scope):
+                noteStripKey()
+                guard var current = naming else { break }
+                switch scope {
+                case .character: current.text = current.selected ? "" : String(current.text.dropLast())
+                case .word: current.text = current.selected ? "" : Clipboard.droppingLastWord(current.text)
+                case .all: current.text = ""
+                }
+                current.selected = false
+                naming = current
+                renderStrip()
+            case .pasteNameMove(let slot):
+                noteStripKey()
+                guard let current = naming else { break }
+                clipboard.history.move(current.id, to: slot)
+                renderStrip()
+            case .pasteNameCommit:
+                commitNaming()
+            case .pasteNameCancel:
+                cancelNaming()
             case .pasteSaveBegin:
                 beginSave()
             case .pasteSaveType(let text):
@@ -1260,6 +1364,19 @@ final class HotkeyEngine {
         // sprints, releasing it settles, without lifting the key.
         if case .scroll = core.state {
             scroller.shiftChanged(event.flags.contains(.maskShift))
+        }
+        // Over Keep, a held modifier shows on every card what it would
+        // paste: `⌥` the chords, `⌃` the readings, `⇧` as copied. Lode is
+        // a gesture, not a form, and changes nothing here.
+        if case .paste = core.state, !held {
+            let flags = event.flags
+            let next: ClipboardStrip.Held = flags.contains(.maskControl) ? .control
+                : flags.contains(.maskAlternate) ? .option
+                : flags.contains(.maskShift) && !flags.contains(.maskCommand) ? .shift : .none
+            if next != heldOverStrip {
+                heldOverStrip = next
+                renderStrip()
+            }
         }
         guard core.isIdle else {
             // Inside a chain the stamps are the measurement — leave them.
@@ -1735,6 +1852,10 @@ final class HotkeyEngine {
             return "paste(image)"
         case .pasteSave:
             return "paste(save)"
+        case .pasteSource:
+            return "paste(source)"
+        case .pasteName:
+            return "paste(name)"
         }
     }
 }
@@ -1767,7 +1888,7 @@ extension HotkeyEngine: EngineWorld {
     /// open and the new clip is simply the first one.
     private func refreshStripIfOpen() {
         switch core.state {
-        case .paste, .pastePanel, .pasteDoor, .pasteImage, .pasteSave: renderStrip()
+        case .paste, .pastePanel, .pasteDoor, .pasteImage, .pasteSave, .pasteSource, .pasteName: renderStrip()
         default: break
         }
     }
@@ -1779,8 +1900,11 @@ extension HotkeyEngine: EngineWorld {
         // it, and comes back the moment the door closes.
         guard imageDoorClip == nil else { return }
         let all = clipboard.history.clips
-        let recents = pasteQuery.map { Clipboard.search(all, query: $0, index: searchIndex) } ?? Clipboard.recents(all)
-        pasteSelection = max(0, min(pasteSelection, max(0, recents.count - 1)))
+        // The source narrows first, then the words rank what is left: an
+        // empty search with a source is that app's clips, newest first.
+        let pool = pasteSource.map { name in all.filter { $0.sourceAppName == name } } ?? all
+        let recents = pasteQuery.map { Clipboard.search(pool, query: $0, index: searchIndex) } ?? Clipboard.recents(all)
+        pasteSelection = max(0, min(pasteSelection, max(0, min(recents.count, ClipboardStrip.labels.count) - 1)))
 
         // One band, whichever of its three jobs applies right now.
         let band: ClipboardStrip.Band
@@ -1794,16 +1918,88 @@ extension HotkeyEngine: EngineWorld {
         } else {
             band = .none
         }
+        let menu = sourceTyped.map { _ in
+            ClipboardStrip.SourceMenu(typed: sourceTyped ?? "",
+                                      rows: sourceRows().map { .init(name: $0.name, count: $0.count) },
+                                      selection: sourceSelection)
+        }
+        let named = naming.map { ClipboardStrip.Naming(id: $0.id, text: $0.text, selected: $0.selected) }
         strip.show(recents: recents, pins: Clipboard.pins(all),
                    thumbnail: { [clipboard] id in clipboard.history.thumbnail(for: id) },
                    band: band, selection: pasteSelection,
                    actingOn: panelClip?.id ?? doorClip?.id ?? saveClip?.id,
-                   pinsHidden: doorClip != nil)
+                   pinsHidden: doorClip != nil, held: heldOverStrip,
+                   source: pasteSource, matches: pasteQuery == nil ? nil : recents.count,
+                   sourceMenu: menu, naming: named)
         // The search, measured: the last query's answer count stands
         // until the strip closes, whichever way the band went.
         if pasteQuery != nil { stripSession?.matches = recents.count }
         stripSession?.visible = strip.shownRecents.count
         stripSession?.recents = Clipboard.recents(all).count
+    }
+
+    static let allApps = "All apps"
+
+    /// The list of sources: All apps, then every app a clip came from,
+    /// alphabetically, with how many clips each holds; narrowed by what
+    /// was typed into the list, by the start of any word in the name.
+    private func sourceRows() -> [(name: String, count: Int)] {
+        var counts: [String: Int] = [:]
+        for clip in clipboard.history.clips where !clip.isPinned {
+            if let name = clip.sourceAppName { counts[name, default: 0] += 1 }
+        }
+        let total = counts.values.reduce(0, +)
+        var rows = [(name: Self.allApps, count: total)]
+        rows += counts.keys.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+            .map { ($0, counts[$0] ?? 0) }
+        let typed = (sourceTyped ?? "").trimmingCharacters(in: .whitespaces).lowercased()
+        guard !typed.isEmpty else { return rows }
+        return rows.filter { row in
+            row.name.lowercased().split(separator: " ").contains { $0.hasPrefix(typed) }
+                || row.name.lowercased().hasPrefix(typed)
+        }
+    }
+
+    /// `K` on a clip keeps it in the free place, or `R` on a keepsake
+    /// renames it: either way the name is written in the card's place,
+    /// offered from the clip's own words and standing selected.
+    private func beginNaming(fresh: Bool) {
+        noteStripKey()
+        guard let clip = panelClip else { core.doorClosed(); return }
+        if fresh {
+            guard clipboard.history.pin(clip.id) else {
+                hud.flash("✕ all \(Clipboard.pinSlots) places are taken")
+                _ = apply(core.leavePaste(), event: nil)
+                return
+            }
+            let named = stripSession?.outcome
+            stripSession?.outcome = ("acted", named?.source, "keep", named?.rank)
+        }
+        let live = clipboard.history.clips.first { $0.id == clip.id } ?? clip
+        naming = Naming(id: clip.id, text: Clipboard.name(of: live), selected: true, fresh: fresh,
+                        before: live.keptName, slot: live.pinnedSlot)
+        renderStrip()
+    }
+
+    private func commitNaming() {
+        guard let current = naming else { return }
+        naming = nil
+        clipboard.history.name(current.id, current.text)
+        if case .paste = core.state { renderStrip() }
+    }
+
+    /// `esc` while naming: a clip kept just now is let go again; a
+    /// keepsake being renamed keeps the name and place it had.
+    private func cancelNaming() {
+        guard let current = naming else { return }
+        naming = nil
+        if current.fresh {
+            clipboard.history.unpin(current.id)
+        } else {
+            clipboard.history.name(current.id, current.before)
+            if let slot = current.slot { clipboard.history.move(current.id, to: slot) }
+        }
+        if case .paste = core.state { renderStrip() }
     }
 
     /// The rare half of a card's life. The strip draws these beside the
@@ -1815,10 +2011,13 @@ extension HotkeyEngine: EngineWorld {
     /// it.
     static func panelActions(for clip: Clipboard.Clip) -> [ClipboardStrip.Action] {
         var actions = [ClipboardStrip.Action(
-            key: "P",
-            label: clip.isPinned ? "Unpin" : "Pin",
+            key: "K",
+            label: clip.isPinned ? "Let go" : "Keep",
             symbol: clip.isPinned ? "pin.slash" : "pin"
         )]
+        if clip.isPinned {
+            actions.append(.init(key: "R", label: "Rename", symbol: "character.cursor.ibeam"))
+        }
         // Text cards open in the draft; a copy of files carries paths as
         // its text, and an image has none — it opens large instead, and
         // can be written to disk under a name.
@@ -1903,7 +2102,7 @@ extension HotkeyEngine: EngineWorld {
         }
         doorClip = clip
         renderStrip()
-        draft.openClip(clip, text: text, standsAbove: ClipboardStrip.rowHeight)
+        draft.openClip(clip, text: text, standsAbove: strip.doorFloor)
         Log.info("strip", ["door": "clip", "characters": text.count])
     }
 
@@ -2023,6 +2222,15 @@ extension HotkeyEngine: EngineWorld {
             }
             strip.hide()
             clipboard.paste(clip, action: action)
+        case .reading:
+            strip.hide()
+            guard let reading = Clipboard.reading(of: clip, units: strip.units, zones: strip.timeZones) else {
+                stripSession?.outcome = ("abandoned", source, nil, rank)
+                hud.flash("✕ that card has no reading")
+                return
+            }
+            stripSession?.outcome = ("pasted", source, "reading", rank)
+            clipboard.pasteText(reading)
         case .panel:
             // The card is named now; the verb comes when the panel acts.
             stripSession?.outcome = ("abandoned", source, nil, rank)
@@ -2047,6 +2255,7 @@ extension HotkeyEngine: EngineWorld {
     }
 
     func pastePanelIsImage() -> Bool { panelClip?.kind == .image }
+    func pastePanelIsKept() -> Bool { panelClip?.isPinned == true }
 
     /// A click means the user is looking at something else now, and the
     /// strip is a thing you read — leaving it up over the window they just

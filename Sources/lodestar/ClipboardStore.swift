@@ -84,6 +84,14 @@ final class ClipboardStore {
             return
         }
         index = decoded
+        // Five places became four: a keepsake from the fifth moves to the
+        // highest free place, once, and is written back that way.
+        let settled = Clipboard.settlingSlots(index.clips)
+        if settled != index.clips {
+            index.clips = settled
+            saveSoon()
+            Log.info("clipboard", ["keepsakes": "settled into four places"])
+        }
         Log.info("clipboard: loaded \(decoded.clips.count) clips")
     }
 
@@ -245,7 +253,7 @@ final class ClipboardStore {
             sourceBundleID: live.sourceBundleID, sourceAppName: live.sourceAppName,
             preview: Clipboard.preview(of: text), bytes: data.count,
             pinnedSlot: live.pinnedSlot, sourceHost: live.sourceHost,
-            lines: counted.lines, characters: counted.characters)
+            lines: counted.lines, characters: counted.characters, keptName: live.keptName)
         index.clips = Clipboard.replacing(index.clips, id: live.id, with: replacement)
         removeFiles(of: live.id)
         saveSoon()
@@ -431,15 +439,40 @@ final class ClipboardStore {
         guard let position = index.clips.firstIndex(where: { $0.id == id }) else { return false }
         guard index.clips[position].pinnedSlot == nil else { return true }
         let taken = Set(index.clips.compactMap(\.pinnedSlot))
-        guard let slot = Clipboard.lowestFreeSlot(taken: taken) else { return false }
+        guard let slot = Clipboard.nextFreeSlot(taken: taken) else { return false }
         index.clips[position].pinnedSlot = slot
         saveSoon()
         return true
     }
 
+    /// Letting a keepsake go forgets its name with its place: kept again
+    /// later, it is offered the name its words give it.
     func unpin(_ id: String) {
         guard let position = index.clips.firstIndex(where: { $0.id == id }) else { return }
         index.clips[position].pinnedSlot = nil
+        index.clips[position].keptName = nil
+        saveSoon()
+    }
+
+    /// A keepsake's name as the hand left it; an empty one is no name, so
+    /// the card shows what its words give it.
+    func name(_ id: String, _ name: String?) {
+        guard let position = index.clips.firstIndex(where: { $0.id == id }) else { return }
+        let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        index.clips[position].keptName = (trimmed?.isEmpty ?? true) ? nil : trimmed
+        saveSoon()
+    }
+
+    /// A keepsake moved to another place, trading with whatever is there,
+    /// so no place ever holds two and no keepsake is lost.
+    func move(_ id: String, to slot: Int) {
+        guard (1...Clipboard.pinSlots).contains(slot),
+              let position = index.clips.firstIndex(where: { $0.id == id }),
+              let from = index.clips[position].pinnedSlot, from != slot else { return }
+        if let other = index.clips.firstIndex(where: { $0.pinnedSlot == slot }) {
+            index.clips[other].pinnedSlot = from
+        }
+        index.clips[position].pinnedSlot = slot
         saveSoon()
     }
 

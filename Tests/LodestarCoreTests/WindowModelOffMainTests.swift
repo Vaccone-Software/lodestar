@@ -48,7 +48,8 @@ final class WindowModelOffMainTests: XCTestCase {
             if seconds > 0 { Thread.sleep(forTimeInterval: seconds) }
             return seen
         }
-        func windows(of pid: pid_t) -> [AXUIElement]? { [] }
+        var appWindows: [pid_t: [AXUIElement]] = [:]   // app pid → its windows' elements
+        func windows(of pid: pid_t) -> [AXUIElement]? { lock.withLock { appWindows[pid] ?? [] } }
         func focusedWindow(of pid: pid_t) -> AXUIElement? { lock.withLock { focused[pid] } }
     }
 
@@ -67,6 +68,38 @@ final class WindowModelOffMainTests: XCTestCase {
     private func pump(until condition: () -> Bool, within seconds: TimeInterval = 3) {
         let deadline = Date().addingTimeInterval(seconds)
         while !condition(), Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+    }
+
+    /// A window whose title changed without a notification the model heard
+    /// (its element replaced, say) keeps the old title until the app's
+    /// windows are read again: a profile matched by title looked absent.
+    func testRefreshingAnAppsWindowsTakesTheirTitlesAsTheyStand() {
+        let reader = ScriptedReader()
+        reader.ids[900_021] = 21
+        reader.titles[900_021] = "New Tab - Brave"
+        reader.appWindows[appPid] = [window(21)]
+        let model = model(reader)
+        model.receiveForTesting(kAXWindowCreatedNotification, element: window(21), pid: appPid)
+        pump { model.window(21) != nil }
+        XCTAssertEqual(model.window(21)?.title, "New Tab - Brave")
+
+        reader.titles[900_021] = "Inbox - Brave - Xonar"
+        var done = false
+        model.refreshWindows(pids: [appPid]) { done = true }
+        pump { done }
+        XCTAssertEqual(model.window(21)?.title, "Inbox - Brave - Xonar", "the title as it stands now")
+    }
+
+    func testRefreshingFindsAWindowNeverTracked() {
+        let reader = ScriptedReader()
+        reader.ids[900_022] = 22
+        reader.titles[900_022] = "Docs - Brave - Default"
+        reader.appWindows[appPid] = [window(22)]
+        let model = model(reader)
+        var done = false
+        model.refreshWindows(pids: [appPid]) { done = true }
+        pump { done }
+        XCTAssertEqual(model.window(22)?.title, "Docs - Brave - Default")
     }
 
     func testANewWindowFromAHungAppNeverHoldsTheMainThread() {

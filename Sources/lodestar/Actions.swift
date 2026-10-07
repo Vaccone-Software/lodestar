@@ -373,6 +373,27 @@ final class Actions {
             place(window, beside: beside)
             return
         }
+        // No window of the profile by the titles the model holds. Those can
+        // be stale (a window whose element the browser replaced stops
+        // reporting its title), so the browser's windows are read again
+        // before a new one is opened beside one that already exists.
+        guard !model.aliveWindows(bundleID: profile.browser.bundleID).isEmpty else {
+            openBrowserWindow(profile, beside: beside)
+            return
+        }
+        model.refreshWindows(bundleID: profile.browser.bundleID) { [weak self] in
+            guard let self else { return }
+            if let window = ChromiumProfiles.window(for: profile, in: self.model) {
+                Log.info("summon", ["target": "\(profile.browser.rawValue):\(profile.display)", "found": "after-refresh"])
+                self.place(window, beside: beside)
+            } else {
+                self.openBrowserWindow(profile, beside: beside)
+            }
+        }
+    }
+
+    private func openBrowserWindow(_ profile: BrowserProfile, beside: Bool) {
+        Log.info("summon", ["target": "\(profile.browser.rawValue):\(profile.display)", "found": "none", "opening": true])
         // Open first, arm the intent second — the guard openWeb has always
         // kept: a failed open with a 12-second intent standing would claim
         // whatever matching window the user then opens by hand.

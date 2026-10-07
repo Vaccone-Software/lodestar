@@ -359,6 +359,58 @@ public final class WindowModel {
         return nil
     }
 
+    /// Re-read one app's windows now, on its queue, and take what is true
+    /// into the model: each title as it stands, a fresh element for a known
+    /// window (so its title notifications reach the model again), and any
+    /// window never tracked. Titles arrive by notification, and a window
+    /// whose element the app replaced keeps the title it had when the old
+    /// element stopped speaking: a browser profile matched by its title
+    /// then looked absent, and a new window was opened beside the old one.
+    /// `completion` runs on main when every running instance has answered.
+    public func refreshWindows(bundleID: String, completion: @escaping () -> Void) {
+        refreshWindows(pids: NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+            .map(\.processIdentifier), completion: completion)
+    }
+
+    func refreshWindows(pids: [pid_t], completion: @escaping () -> Void) {
+        guard !pids.isEmpty else { completion(); return }
+        var remaining = pids.count
+        let reader = self.reader
+        for pid in pids {
+            queue(for: pid).async { [weak self] in
+                let read: [(CGWindowID, AXUIElement, Reading?)] = (reader.windows(of: pid) ?? []).compactMap {
+                    guard let id = reader.windowID(of: $0) else { return nil }
+                    return (id, $0, reader.reading(of: $0))
+                }
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    if let app = self.appLookup(pid) {
+                        for (id, element, reading) in read { self.adopt(id: id, element: element, app: app, reading: reading) }
+                    }
+                    remaining -= 1
+                    if remaining == 0 { completion() }
+                }
+            }
+        }
+    }
+
+    /// One fresh reading of a window taken in. Main only.
+    private func adopt(id: CGWindowID, element: AXUIElement, app: AppInfo, reading: Reading?) {
+        guard let known = windows[id], known.isAlive else {
+            _ = record(id: id, element: element, app: app, reading: reading, seeding: false)
+            return
+        }
+        if ElementKey(element: known.element) != ElementKey(element: element) {
+            revive(id, element: element, app: app, reading: reading, lastFocused: known.lastFocused)
+            return
+        }
+        if let title = reading?.title, title != known.title {
+            var updated = known
+            updated.title = title
+            windows[id] = updated
+        }
+    }
+
     /// Re-read a window's frame right now (AX events can lag a beat).
     public func refreshFrame(_ id: CGWindowID) {
         guard var w = windows[id], w.isAlive else { return }

@@ -40,6 +40,7 @@ enum StripPreview {
     }
     private static var heldLink: LinkChip?
     private static var heldStrip: ClipboardStrip?
+    private static var heldHover: EditorHover?
 
     /// The flat ground alone, for a harness that stages its own panels.
     static func stageOnly() { stage() }
@@ -372,6 +373,22 @@ enum StripPreview {
         // the keycaps, the glass.
         if (100...107).contains(variant) {
             DispatchQueue.main.async { NextSheet.run(variant) }
+            app.run()
+        }
+
+        // 128, 129: the editor's card under a word, a spelling and a
+        // grammar fix with its note.
+        if variant == 128 || variant == 129 {
+            let hover = EditorHover()
+            heldHover = hover
+            let issue = variant == 128
+                ? EditorIssue(range: NSRange(location: 0, length: 7), original: "recieve", replacement: "receive",
+                              kind: .spelling)
+                : EditorIssue(range: NSRange(location: 0, length: 9), original: "less words", replacement: "fewer words",
+                              kind: .grammar, note: "use fewer with things you can count")
+            DispatchQueue.main.async {
+                hover.show(EditorController.Mark(issue: issue, rect: CGRect(x: 700, y: 420, width: 90, height: 22)))
+            }
             app.run()
         }
 

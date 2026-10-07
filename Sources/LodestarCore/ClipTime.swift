@@ -158,8 +158,10 @@ public struct ClipTime: Equatable {
     /// Within a week the voice has said which day ("6 hours ago",
     /// "Tuesday afternoon"), so your clock needs only the time, and the
     /// room it leaves goes to a zone.
+    /// `compact` leaves the weekday out of your clock's line, for a card too
+    /// narrow to hold it whole: the date and time are what is read.
     public func note(local: TimeZone = .current, zones: [TimeZone] = [], now: Date = Date(),
-                     locale: Locale = .current) -> Note {
+                     locale: Locale = .current, compact: Bool = false) -> Note {
         let calendar = Calendar(identifier: .gregorian)
         let sameYear = calendar.dateComponents(in: local, from: date).year == calendar.dateComponents(in: local, from: now).year
         let full = DateFormatter()
@@ -167,14 +169,17 @@ public struct ClipTime: Equatable {
         full.timeZone = local
         let voice = felt(now: now, zone: local, locale: locale)
         if kind == .day {
-            full.setLocalizedDateFormatFromTemplate(sameYear ? "EEEEdMMMM" : "EEEEdMMMMy")
+            full.setLocalizedDateFormatFromTemplate(compact ? (sameYear ? "dMMMM" : "dMMMMy")
+                                                    : (sameYear ? "EEEEdMMMM" : "EEEEdMMMMy"))
             return Note(voice: voice, local: full.string(from: date), zones: [])
         }
         var dayCalendar = Calendar(identifier: .gregorian)
         dayCalendar.timeZone = local
         let days = dayCalendar.dateComponents([.day], from: dayCalendar.startOfDay(for: now),
                                             to: dayCalendar.startOfDay(for: date)).day ?? 0
-        full.setLocalizedDateFormatFromTemplate(abs(days) < 7 ? "jmm" : sameYear ? "EEEdMMMjmm" : "EEEdMMMyjmm")
+        full.setLocalizedDateFormatFromTemplate(abs(days) < 7 ? "jmm"
+            : compact ? (sameYear ? "dMMMjmm" : "dMMMyjmm")
+            : (sameYear ? "EEEdMMMjmm" : "EEEdMMMyjmm"))
         var shown: Set<Int> = [local.secondsFromGMT(for: date)]
         if let writtenOffset { shown.insert(writtenOffset) }
         var lines: [String] = []

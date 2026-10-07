@@ -641,7 +641,10 @@ final class ClipboardStrip {
             addPreview(clip, to: card, in: body, above: note)
             shownSwatches[clip.id] = color.hex
         } else if let time = clip.time {
-            let read = time.note(zones: timeZones)
+            // Your clock's line whole, or without its weekday on a card
+            // too narrow for it: never cut short.
+            var read = time.note(zones: timeZones)
+            if Self.lineWidth(read.local) > body.width - 6 { read = time.note(zones: timeZones, compact: true) }
             let room = body.height - Self.previewHeight(shown(clip).string, width: body.width) - Self.noteGap
             let lines = Self.pack([read.local] + read.zones, width: body.width,
                                   rows: Int((room - Self.voiceHeight - 2) / Self.metaHeight))
@@ -885,6 +888,11 @@ final class ClipboardStrip {
         }
         shownNotes[id] = drawn
         return top
+    }
+
+    /// How wide a caption line draws, measured as its label will.
+    private static func lineWidth(_ text: String) -> CGFloat {
+        ceil((text as NSString).size(withAttributes: [.font: BarTheme.secondaryFont]).width)
     }
 
     /// The widest single word of a note, as the voice draws it.

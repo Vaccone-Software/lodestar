@@ -141,4 +141,18 @@ final class ClipTimeTests: XCTestCase {
     func testUTCIsListedOnce() {
         XCTAssertEqual(ClipTime.label(TimeZone(identifier: "UTC")!), "UTC")
     }
+
+    /// A card too narrow for the weekday gets the date and time without it.
+    func testTheCompactLineLeavesTheWeekdayOut() {
+        let time = ClipTime.parse("1000000000")!
+        let utc = TimeZone(identifier: "UTC")!
+        let en = Locale(identifier: "en_US")
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let full = time.note(local: utc, now: now, locale: en).local
+        let compact = time.note(local: utc, now: now, locale: en, compact: true).local
+        XCTAssertTrue(full.hasPrefix("Sun"), full)
+        XCTAssertFalse(compact.contains("Sun"), compact)
+        XCTAssertTrue(compact.contains("2001") && compact.contains("1:46"), compact)
+        XCTAssertLessThan(compact.count, full.count)
+    }
 }

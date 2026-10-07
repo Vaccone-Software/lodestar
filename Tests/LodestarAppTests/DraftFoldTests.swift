@@ -9,14 +9,26 @@ import XCTest
 final class DraftFoldTests: XCTestCase {
     private var panel: DraftPanel!
 
+    private var reduceMotion: (() -> Bool)!
+    private var frame: NSRect?
+
     override func setUp() {
         super.setUp()
+        // The machine's own screen and settings are not the test's: a CI
+        // runner's display is smaller than a desk's, and its Reduce Motion
+        // is on. The stage's screen, and motion as most people have it.
+        frame = ActivePolicy.frameOverride
+        ActivePolicy.frameOverride = NSRect(x: 0, y: 0, width: 1920, height: 1050)
+        reduceMotion = Accessibility.reduceMotion
+        Accessibility.reduceMotion = { false }
         panel = DraftPanel()
     }
 
     override func tearDown() {
         panel.hide()
         panel = nil
+        Accessibility.reduceMotion = reduceMotion
+        ActivePolicy.frameOverride = frame
         super.tearDown()
     }
 
@@ -301,5 +313,15 @@ final class DraftFoldTests: XCTestCase {
         quiet.level = 0
         panel.show(quiet)
         XCTAssertEqual(panel.lightLength, VoiceLight.floor, accuracy: 0.001)
+    }
+
+    /// Under Reduce Motion the light holds still at its whole length: it
+    /// still says listening, and nothing moves.
+    func testReduceMotionHoldsTheLightWhole() {
+        Accessibility.reduceMotion = { true }
+        var quiet = view("")
+        quiet.level = 0
+        panel.show(quiet)
+        XCTAssertEqual(panel.lightLength, 1, accuracy: 0.001)
     }
 }

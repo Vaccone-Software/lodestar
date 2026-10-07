@@ -250,7 +250,8 @@ final class OptionsCard {
         stack.edgeInsets = NSEdgeInsets(top: 6, left: 2, bottom: 6, right: 2)
         stack.translatesAutoresizingMaskIntoConstraints = false
 
-        let tint: NSColor = item.isDestructive ? .systemRed : .labelColor
+        // Told by its place under the rule, never painted.
+        let tint: NSColor = .labelColor
         let icon = NSImageView(image: NSImage(
             systemSymbolName: item.symbol, accessibilityDescription: nil)?
             .withSymbolConfiguration(BarTheme.symbol) ?? NSImage())

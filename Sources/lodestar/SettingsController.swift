@@ -1962,53 +1962,29 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
 
     private weak var landing: NSView?
 
-    /// A border in the accent around the row a search landed on, drawn in
-    /// once with a soft glow that settles: the eye finds it, and it does
-    /// not keep calling.
+    /// The row a search landed on rises, the way a bar's chosen row
+    /// does: the raised step with its lit top edge, there at once and gone
+    /// at once. It is a chosen row, not an alarm, so it neither glows nor
+    /// settles.
     private func addLanding(to row: NSView) {
-        let ring = NSView()
-        ring.translatesAutoresizingMaskIntoConstraints = false
-        ring.wantsLayer = true
-        let accent = BarTheme.readableAccent
-        ring.layer?.borderWidth = 1.5
-        ring.layer?.borderColor = accent.cgColor
-        ring.layer?.cornerRadius = BarTheme.landingRadius
-        ring.layer?.shadowColor = accent.cgColor
-        ring.layer?.shadowOffset = .zero
-        ring.layer?.shadowRadius = 6
-        ring.layer?.shadowOpacity = 0.35
-        row.addSubview(ring)
+        let step = LandingStep()
+        step.translatesAutoresizingMaskIntoConstraints = false
+        step.setupRaised()
+        step.applyRaised(true)
+        row.addSubview(step, positioned: .below, relativeTo: nil)
         NSLayoutConstraint.activate([
-            ring.topAnchor.constraint(equalTo: row.topAnchor, constant: 3),
-            ring.bottomAnchor.constraint(equalTo: row.bottomAnchor, constant: -3),
-            ring.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 4),
-            ring.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -4),
+            step.topAnchor.constraint(equalTo: row.topAnchor, constant: 3),
+            step.bottomAnchor.constraint(equalTo: row.bottomAnchor, constant: -3),
+            step.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 4),
+            step.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -4),
         ])
-        landing = ring
+        landing = step
         DispatchQueue.main.async { [weak row] in
             row?.scrollToVisible(row?.bounds.insetBy(dx: 0, dy: -24) ?? .zero)
         }
-        guard !Accessibility.reduceMotion(), let layer = ring.layer else { return }
-        let appear = CABasicAnimation(keyPath: "opacity")
-        appear.fromValue = 0
-        appear.toValue = 1
-        appear.duration = 0.3
-        appear.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        layer.add(appear, forKey: "appear")
-        let glow = CAKeyframeAnimation(keyPath: "shadowOpacity")
-        glow.values = [0, 0.7, 0.35]
-        glow.keyTimes = [0, 0.4, 1]
-        glow.duration = 1.1
-        glow.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        layer.add(glow, forKey: "glow")
-        let breathe = CAKeyframeAnimation(keyPath: "shadowRadius")
-        breathe.values = [2, 10, 6]
-        breathe.keyTimes = [0, 0.4, 1]
-        breathe.duration = 1.1
-        layer.add(breathe, forKey: "breathe")
     }
 
-    /// The landing is over: the border fades and is never drawn again.
+    /// The landing is over: the row settles back, and is not raised again.
     private func clearLanding() {
         guard landed != nil else { return }
         landed = nil
@@ -2016,13 +1992,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     }
 
     private func removeLanding() {
-        guard let ring = landing else { return }
+        landing?.removeFromSuperview()
         landing = nil
-        guard !Accessibility.reduceMotion() else { ring.removeFromSuperview(); return }
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.2
-            ring.animator().alphaValue = 0
-        }, completionHandler: { ring.removeFromSuperview() })
     }
 
     // MARK: - Pieces
@@ -2267,3 +2238,8 @@ extension SettingsController {
         render()
     }
 }
+
+
+/// The step a Settings row rises onto when a search lands on it: the bars'
+/// own raised row.
+private final class LandingStep: RaisedRow {}

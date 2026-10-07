@@ -909,29 +909,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    /// The plan, shown whole before anything is touched. Config, breaths
-    /// and the clipboard stay unless the box is ticked.
-    @objc private func uninstall() {
-        let alert = NSAlert()
-        alert.messageText = "Uninstall Lodestar?"
-        alert.informativeText = Self.uninstallSummary(UninstallPlan.live(purge: false))
-        alert.alertStyle = .warning
-        alert.showsSuppressionButton = true
-        alert.suppressionButton?.title = "Also remove everything Lodestar has kept, downloaded models included"
-        let remove = alert.addButton(withTitle: "Uninstall")
-        remove.hasDestructiveAction = true
-        alert.addButton(withTitle: "Cancel")
-        NSApp.activate(ignoringOtherApps: true)
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        let purge = alert.suppressionButton?.state == .on
-        Log.info("uninstall", ["from": "menu", "purge": purge])
-        let plan = UninstallPlan.live(purge: purge)
-        for step in plan.steps {
-            Log.info("uninstall", ["step": step.name])
-            step.run()
+    /// The plan, shown whole before anything is touched, in Lodestar's own
+    /// room. Config, breaths and the clipboard stay unless the switch is on.
+    private lazy var uninstallRoom: UninstallRoom = {
+        let room = UninstallRoom()
+        room.onUninstall = { purge in
+            Log.info("uninstall", ["from": "menu", "purge": purge])
+            let plan = UninstallPlan.live(purge: purge)
+            for step in plan.steps {
+                Log.info("uninstall", ["step": step.name])
+                step.run()
+            }
+            // The last step stops the agent, which is usually this process.
+            NSApp.terminate(nil)
         }
-        // The last step stops the agent, which is usually this process.
-        NSApp.terminate(nil)
+        return room
+    }()
+
+    @objc private func uninstall() {
+        uninstallRoom.show()
     }
 
     static func uninstallSummary(_ plan: UninstallPlan) -> String {

@@ -87,6 +87,27 @@ final class UninstallPlanTests: XCTestCase {
         XCTAssertTrue(summary.hasSuffix(UninstallPlan.closing))
     }
 
+    /// The menu's Uninstall is Lodestar's own room: the plan whole, R
+    /// turning the switch for everything kept, ⌘⏎ carrying that answer.
+    func testTheRoomShowsThePlanAndCarriesTheChoice() {
+        let (actions, log) = quiet()
+        let room = UninstallRoom()
+        room.plan = { purge in
+            UninstallPlan.make(world: self.world(present: ["lodestar.app", "lodestar"]), purge: purge, actions: actions)
+        }
+        var chosen: Bool?
+        room.onUninstall = { chosen = $0 }
+        room.show()
+        defer { room.close() }
+        XCTAssertTrue(room.shownLines.contains("Remove /Users/someone/Applications/lodestar.app"), "\(room.shownLines)")
+        XCTAssertFalse(room.shownLines.contains("Remove /Users/someone/.config/lodestar"), "kept unless asked")
+        room.pressToggle()
+        XCTAssertTrue(room.shownLines.contains("Remove /Users/someone/.config/lodestar"), "the plan says so at once")
+        room.pressUninstall()
+        XCTAssertEqual(chosen, true)
+        XCTAssertEqual(log(), [], "the room runs nothing itself")
+    }
+
     func testTheLoginAgentBecomesTheAppOrCleansUpAfterTheTrash() {
         let job = LoginAgent.job(binary: "/Users/someone/Applications/lodestar.app/Contents/MacOS/lodestar")
         let arguments = job["ProgramArguments"] as? [String]

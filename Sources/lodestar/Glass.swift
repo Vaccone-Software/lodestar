@@ -383,9 +383,6 @@ enum BarTheme {
     /// place's name: a mark on the page, round.
     static let dotDiameter: CGFloat = 7
     static let dotRadius: CGFloat = dotDiameter / 2
-    /// The accent's border around a row a search landed on: inside the
-    /// card, a rung under the card's own rounding.
-    static let landingRadius: CGFloat = surfaceRadius - 4
     /// A sentence's measure: wide enough for one thought, narrow enough
     /// to be read in a glance.
     static let voiceWidth: CGFloat = 380
@@ -931,7 +928,9 @@ final class RoomButton: NSButton {
     }
 
     private func restyle() {
-        let color: NSColor = destructive ? .systemRed : (isEnabled ? .labelColor : BarTheme.secondaryColor)
+        // A button that cannot be undone says so in its words, never in
+        // an alarm colour: one light, no paint.
+        let color: NSColor = isEnabled ? .labelColor : BarTheme.secondaryColor
         let words = super.title
         super.attributedTitle = NSAttributedString(string: words, attributes: [
             .font: BarTheme.secondaryFont, .foregroundColor: color])

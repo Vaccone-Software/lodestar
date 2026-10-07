@@ -197,6 +197,15 @@ final class DesignDriftTests: XCTestCase {
         XCTAssertEqual(offenders, [], "flat colour only: the light is a line, never a lamp")
     }
 
+    /// One light, never paint: nothing is coloured as an alarm. What
+    /// cannot be undone is told by its words and its place under a rule.
+    func testNothingIsPaintedAsAnAlarm() throws {
+        let offenders = try sources()
+            .filter { $0.text.contains(".systemRed") }
+            .map(\.name)
+        XCTAssertEqual(offenders, [], "no alarm colour: say it in words, set it apart by place")
+    }
+
     /// Motion is sudden: a surface changing its own shape (the draft
     /// folding or opening) moves in a tenth of a second, and not at all
     /// under Reduce Motion. Only a new band arriving, the keys, glides.

@@ -1197,7 +1197,9 @@ final class ClipboardStrip {
                 top -= Self.actionSeparator
             }
             let bottom = top - Self.actionRow
-            let tint: NSColor = action.isDestructive ? .systemRed : .labelColor
+            // What cannot be undone is told by its place, under the rule
+            // at the menu's foot, never painted: one light, no alarm colour.
+            let tint: NSColor = .labelColor
             let icon = NSImageView(image: NSImage(
                 systemSymbolName: action.symbol, accessibilityDescription: nil)?
                 .withSymbolConfiguration(BarTheme.symbol) ?? NSImage())

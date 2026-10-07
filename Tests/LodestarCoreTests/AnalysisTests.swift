@@ -559,7 +559,7 @@ final class AnalysisTests: XCTestCase {
             "brave": ["ghostty": 90, "slack": 20],
             "slack": ["ghostty": 40, "brave": 15],
         ]
-        o.compositions = ["brave": ["ghostty": 6]]
+        o.compositions = ["brave": ["ghostty": 10]]
         let context = Advisor.Context(observations: o, events: [], leaves: [],
                                       webRoutes: [:], now: start)
         let breath = Advisor.recommend(context).first { $0.kind == .breath }

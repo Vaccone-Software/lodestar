@@ -129,9 +129,26 @@ final class CoachPowersTests: XCTestCase {
         var o = Observations()
         o.transitions = ["ghostty": ["brave browser": 30],
                          "brave browser": ["ghostty": 25]]
-        o.compositions = ["brave browser": ["ghostty": 6]]
+        o.compositions = ["brave browser": ["ghostty": 10]]
         return Advisor.Context(observations: o, events: [], leaves: [],
                                meetingsEnabled: false, breathPaths: paths, now: start)
+    }
+
+    func testABreathIsOfferedOnlyForAnArrangementTheHandTrulyRepeats() {
+        var context = breathContext(paths: [])
+        context.observations.compositions = ["brave browser": ["ghostty": 6]]
+        XCTAssertEqual(Advisor.breathCandidates(context).first?.offerable, false,
+                       "three arrangements a week is the pair used in turn, not a layout")
+    }
+
+    func testOnlyOneBreathIsOfferableAtATime() {
+        var o = Observations()
+        o.transitions = ["ghostty": ["brave browser": 30, "slack": 30],
+                         "brave browser": ["ghostty": 25], "slack": ["ghostty": 25]]
+        o.compositions = ["brave browser": ["ghostty": 12], "ghostty": ["slack": 12]]
+        let context = Advisor.Context(observations: o, events: [], leaves: [],
+                                      meetingsEnabled: false, now: start)
+        XCTAssertEqual(Advisor.breathCandidates(context).filter(\.offerable).count, 1)
     }
 
     func testASavedBreathHoldingBothAppsAnswersTheFinding() {

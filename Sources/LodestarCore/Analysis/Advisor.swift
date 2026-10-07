@@ -972,9 +972,15 @@ public enum Advisor {
     }
 
     /// Compositions a pair needs, as decayed mass (~two weeks), before a
-    /// breath is offered for it: about two a week of the hand arranging
+    /// breath is offered for it: about four a week of the hand arranging
     /// the pair itself. Below it the pair is used in turn, not together.
-    static let breathComposedFloor = 4.0
+    /// It was two a week, and of the breaths offered at that bar four were
+    /// accepted and none was ever recalled: a breath is worth offering only
+    /// for an arrangement the hand truly repeats.
+    static let breathComposedFloor = 8.0
+    /// Breaths offerable at once. One: the kind has the weakest record the
+    /// coach keeps, and a rare offer is the honest response to it.
+    static let breathOfferCap = 1
 
     /// A breath is offered for a pair the hand already stands side by
     /// side, never for one it merely uses in turn. Co-use was the old
@@ -998,8 +1004,8 @@ public enum Advisor {
         // Directional pairs, undirected suggestion: A→B and B→A are one
         // finding, kept at the stronger direction's evidence.
         var seen = Set<Set<String>>()
-        // Three offers at most, but every tested pair joins the family —
-        // a cap that stopped the *testing* silently shrank m.
+        // One offer at most, but every tested pair joins the family — a
+        // cap that stopped the *testing* silently shrank m.
         var offered = 0
         for pair in pairs where pair.count >= 20 {
             guard seen.insert(Set([pair.from, pair.to])).inserted else { continue }
@@ -1025,7 +1031,7 @@ public enum Advisor {
             // The lift floor is a sanity gate, not the test (see above);
             // the cap is presentation. Not composed by hand, nothing for a
             // breath to save: not offerable, still in the family.
-            let offerable = pair.lift >= 1.3 && offered < 3
+            let offerable = pair.lift >= 1.3 && offered < breathOfferCap
                 && composed >= breathComposedFloor && !held
             if offerable { offered += 1 }
             // The accept: compose the pair side by side and save it at a

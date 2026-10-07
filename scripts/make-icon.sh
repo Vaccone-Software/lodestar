@@ -1,6 +1,7 @@
 #!/bin/bash
-# Renders Lodestar's mark from Sources/LodestarCore/Mark.swift: the app icon
-# (.icns and every size of its iconset), a 1024 preview, the website's
+# Renders Lodestar's mark from Sources/LodestarCore/Mark.swift and the app's
+# icon art: the app icon (Lodestar.icon, clay by day and Slip at night, and
+# the .icns and iconset for earlier systems), a 1024 preview, the website's
 # favicon (icon.svg), the bare mark (mark.svg), and the faces with their
 # fills for the site's logo and touch icon (mark.json).
 #
@@ -28,7 +29,9 @@ if [ "$INSTALL" = 1 ]; then
     OUT=.build/mark/international-orange
     [ -f "$OUT/lodestar.icns" ] || { echo "✕ --install ships International Orange; run without --accent/--preset"; exit 1; }
     cp "$OUT/lodestar.icns" packaging/lodestar.icns
-    echo "→ packaging/lodestar.icns"
+    rm -rf packaging/Lodestar.icon
+    cp -R "$OUT/Lodestar.icon" packaging/Lodestar.icon
+    echo "→ packaging/lodestar.icns, packaging/Lodestar.icon"
     SITE="${LODESTAR_SITE:-../lodestar-site}"
     if [ -d "$SITE/app" ]; then
         cp "$OUT/icon.svg" "$SITE/app/icon.svg"

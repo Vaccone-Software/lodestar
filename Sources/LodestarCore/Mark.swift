@@ -97,10 +97,10 @@ public enum Mark {
         return t >= 0 ? accent.mixed(with: .white, t * 0.4) : accent.mixed(with: .black, -t * 0.44)
     }
 
-    /// The icon's ground: charcoal carrying a little of the accent, top to
-    /// bottom, so the icon reads as one piece in any color.
+    /// The icon's ground at night: Slip, the night palette's pane, flat.
+    /// Top and bottom stay as two values for the site's data, and are one.
     public static func ground(accent: RGB) -> (top: RGB, bottom: RGB) {
-        (RGB(hex: 0x2D2E33).mixed(with: accent, 0.14), RGB(hex: 0x121215).mixed(with: accent, 0.12))
+        (RGB(hex: 0x221D19), RGB(hex: 0x221D19))
     }
 
     // MARK: - The faces

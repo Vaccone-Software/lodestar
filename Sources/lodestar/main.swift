@@ -72,6 +72,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var updater: UpdateController!
     private var clipboardController: ClipboardController!
     private var statusItem: NSStatusItem?
+    /// Who tells the running icon that the appearance or the accent moved.
+    private var iconObservers: [NSObjectProtocol] = []
     private var coachSuggestionItem: NSMenuItem?
     private var menuBarHideTimer: Timer?
     private var signalSource: DispatchSourceSignal?
@@ -659,6 +661,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if config.showMenuBar { createStatusItem() }
         BarTheme.accentColor = { [accent = config.accent] in BarTheme.accent(for: accent) }
         Log.info("appearance", ["accent": config.accent.rawValue])
+        watchAppIcon()
         actions.revealLodestar = { [weak self] in self?.revealMenuBar() }
         engine.onExcludeApp = { [weak self] bundleID in self?.excludeAppFromClipboard(bundleID) }
         installSignalHandler()
@@ -907,6 +910,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else {
             coachItem.isHidden = true
         }
+    }
+
+    /// The running app's icon, where the system shows it (the Dock, ⌘⇥,
+    /// Lodestar's own windows): the mark in the person's accent, or
+    /// International Orange when that is chosen, on clay by day and Slip at
+    /// night. The bundle's own icon cannot follow an accent without being
+    /// rewritten after it is signed, which would cost the Accessibility
+    /// grant; it follows the appearance on its own (packaging/Lodestar.icon).
+    private func refreshAppIcon() {
+        NSApp.effectiveAppearance.performAsCurrentDrawingAppearance {
+            NSApp.applicationIconImage = AppIconArt.current(dark: Tone.systemDark, accent: BarTheme.accent)
+        }
+    }
+
+    private func watchAppIcon() {
+        refreshAppIcon()
+        // Light and dark: the system says so a beat before every window
+        // has taken the new look.
+        iconObservers.append(DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("AppleInterfaceThemeChangedNotification"), object: nil, queue: .main
+        ) { [weak self] _ in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self?.refreshAppIcon() }
+        })
+        // A new system accent.
+        iconObservers.append(NotificationCenter.default.addObserver(
+            forName: NSColor.systemColorsDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in self?.refreshAppIcon() })
     }
 
     /// The plan, shown whole before anything is touched, in Lodestar's own
@@ -2137,6 +2167,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ActivePolicy.mode = loaded.activeDisplayMode
         engine.config = loaded
         BarTheme.accentColor = { [accent = loaded.accent] in BarTheme.accent(for: accent) }
+        refreshAppIcon()
         webBar.config = loaded
         updater.enabled = loaded.autoUpdate
         clipboardController.excludedApps = loaded.clipboardExcludedApps

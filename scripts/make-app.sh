@@ -29,6 +29,27 @@ mkdir -p "$APP/Contents/MacOS"
 cp packaging/Info.plist "$APP/Contents/Info.plist"
 mkdir -p "$APP/Contents/Resources"
 cp packaging/lodestar.icns "$APP/Contents/Resources/lodestar.icns"
+# The icon that follows the appearance: clay by day, Slip at night, from
+# Icon Composer's format (make-icon.sh writes packaging/Lodestar.icon).
+# macOS 26 reads it from the asset catalog by CFBundleIconName; earlier
+# systems keep CFBundleIconFile's .icns. A toolchain whose actool cannot
+# read the format ships the .icns alone rather than failing the build.
+# Compiled aside, and only the catalog copied in: actool also writes a
+# Lodestar.icns, and on a case-insensitive disk that name is lodestar.icns,
+# the file older systems need.
+ICONWORK=$(mktemp -d)
+if [ -d packaging/Lodestar.icon ] && xcrun actool packaging/Lodestar.icon \
+        --compile "$ICONWORK" --platform macosx --minimum-deployment-target 14.0 \
+        --app-icon Lodestar --output-partial-info-plist "$ICONWORK/partial.plist" \
+        --errors >/dev/null 2>&1 && [ -f "$ICONWORK/Assets.car" ]; then
+    cp "$ICONWORK/Assets.car" "$APP/Contents/Resources/Assets.car"
+    /usr/libexec/PlistBuddy -c "Add :CFBundleIconName string Lodestar" "$APP/Contents/Info.plist" 2>/dev/null \
+        || /usr/libexec/PlistBuddy -c "Set :CFBundleIconName Lodestar" "$APP/Contents/Info.plist"
+    echo "→ icon: light and dark, from packaging/Lodestar.icon"
+else
+    echo "  icon: actool could not compile packaging/Lodestar.icon; the .icns alone ships"
+fi
+rm -rf "$ICONWORK"
 # The alert sound, so a person can pick Lodestar in Sound settings
 # (it installs to ~/Library/Sounds; tools/sound/lodestar.py renders it).
 cp packaging/Lodestar.aiff "$APP/Contents/Resources/Lodestar.aiff"

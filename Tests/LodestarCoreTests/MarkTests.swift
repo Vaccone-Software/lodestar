@@ -42,7 +42,9 @@ final class MarkTests: XCTestCase {
         XCTAssertEqual(Mark.fill(tone: -1, accent: orange), orange.mixed(with: .black, 0.44))
         XCTAssertEqual(Mark.fill(tone: 5, accent: orange), Mark.fill(tone: 1, accent: orange), "values are clamped")
         let blue = Mark.RGB(hex: "#0A84FF")!
-        XCTAssertNotEqual(Mark.ground(accent: blue).top, Mark.ground(accent: orange).top, "the ground carries the accent")
+        XCTAssertEqual(Mark.ground(accent: blue).top, Mark.ground(accent: orange).top,
+                       "the ground is Slip whatever the accent: one light, never a tint")
+        XCTAssertEqual(Mark.ground(accent: orange).top, Mark.ground(accent: orange).bottom, "flat, no gradient")
         XCTAssertNil(Mark.RGB(hex: "#12345"))
         XCTAssertEqual(Mark.RGB(hex: "0a84ff")?.hex, "#0A84FF")
         XCTAssertEqual(Set(Mark.presets.map(\.name)).count, Mark.presets.count)

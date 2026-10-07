@@ -465,3 +465,49 @@ final class KeyFaceTests: XCTestCase {
         XCTAssertEqual(BarTheme.raised, steps.raised.color)
     }
 }
+
+/// The app's icon: the mark in the accent on the plate of the appearance
+/// in force, flat.
+final class AppIconArtTests: XCTestCase {
+    private func pixels(_ image: NSImage) -> NSBitmapImageRep {
+        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 256, pixelsHigh: 256, bitsPerSample: 8,
+                                   samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                   bytesPerRow: 0, bitsPerPixel: 0)!
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        image.draw(in: NSRect(x: 0, y: 0, width: 256, height: 256))
+        NSGraphicsContext.restoreGraphicsState()
+        return rep
+    }
+
+    /// Slip at night, clay by day, sampled on the plate clear of the mark.
+    func testThePlateIsThePaletteInForce() throws {
+        let orange = NSColor(srgbRed: 1, green: 0.31, blue: 0, alpha: 1)
+        let night = try XCTUnwrap(pixels(AppIconArt.current(dark: true, accent: orange)).colorAt(x: 40, y: 128)?
+            .usingColorSpace(.sRGB))
+        let clay = try XCTUnwrap(pixels(AppIconArt.current(dark: false, accent: orange)).colorAt(x: 40, y: 128)?
+            .usingColorSpace(.sRGB))
+        XCTAssertEqual(night.redComponent, 0x22 / 255, accuracy: 0.02, "Slip's pane")
+        XCTAssertEqual(night.blueComponent, 0x19 / 255, accuracy: 0.02)
+        XCTAssertEqual(clay.redComponent, 0xF8 / 255, accuracy: 0.02, "clay's pane")
+        XCTAssertEqual(clay.blueComponent, 0xE7 / 255, accuracy: 0.02)
+    }
+
+    /// The mark wears whatever accent it is given.
+    func testTheMarkWearsTheAccent() {
+        func count(_ rep: NSBitmapImageRep, _ wanted: (NSColor) -> Bool) -> Int {
+            var n = 0
+            for x in stride(from: 0, to: 256, by: 2) {
+                for y in stride(from: 0, to: 256, by: 2) {
+                    if let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), wanted(c) { n += 1 }
+                }
+            }
+            return n
+        }
+        let orange = pixels(AppIconArt.current(dark: true, accent: NSColor(srgbRed: 1, green: 0.31, blue: 0, alpha: 1)))
+        let blue = pixels(AppIconArt.current(dark: true, accent: NSColor(srgbRed: 0.04, green: 0.52, blue: 1, alpha: 1)))
+        XCTAssertGreaterThan(count(orange) { $0.redComponent > $0.blueComponent + 0.4 }, 500)
+        XCTAssertGreaterThan(count(blue) { $0.blueComponent > $0.redComponent + 0.4 }, 500)
+        XCTAssertLessThan(count(blue) { $0.redComponent > $0.blueComponent + 0.4 }, 20, "no orange left in a blue icon")
+    }
+}

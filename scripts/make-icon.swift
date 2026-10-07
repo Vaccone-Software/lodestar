@@ -44,75 +44,6 @@ while !arguments.isEmpty {
     }
 }
 
-func color(_ c: Mark.RGB, alpha: CGFloat = 1) -> NSColor {
-    NSColor(srgbRed: c.red, green: c.green, blue: c.blue, alpha: alpha)
-}
-
-/// The mark's faces into a rect, back to front, in `accent`. Each face is
-/// stroked in its own color a hair wide so neighbours meet without a seam.
-func drawFaces(center: CGPoint, radius: CGFloat, accent: Mark.RGB, seam: CGFloat) {
-    for face in Mark.faces {
-        let path = NSBezierPath()
-        for (i, p) in face.points.enumerated() {
-            let point = CGPoint(x: center.x + p.x * radius, y: center.y - p.y * radius)
-            if i == 0 { path.move(to: point) } else { path.line(to: point) }
-        }
-        path.close()
-        let fill = color(Mark.fill(tone: face.tone, accent: accent))
-        fill.setFill()
-        path.fill()
-        fill.setStroke()
-        path.lineWidth = seam
-        path.lineJoinStyle = .round
-        path.stroke()
-    }
-}
-
-func drawIcon(canvas: CGFloat, accent: Mark.RGB) -> NSImage {
-    NSImage(size: NSSize(width: canvas, height: canvas), flipped: false) { _ in
-        let scale = canvas / 1024
-        let plateRect = NSRect(x: 100 * scale, y: 100 * scale, width: 824 * scale, height: 824 * scale)
-        let plate = NSBezierPath(roundedRect: plateRect, xRadius: 185 * scale, yRadius: 185 * scale)
-        NSGraphicsContext.current?.saveGraphicsState()
-        plate.addClip()
-
-        let ground = Mark.ground(accent: accent)
-        NSGradient(colors: [color(ground.top), color(ground.bottom)])!.draw(in: plateRect, angle: -90)
-
-        // The faintest wash of the accent behind the star.
-        let wash = NSGradient(colors: [color(accent, alpha: 0.07), color(accent, alpha: 0)])!
-        wash.draw(fromCenter: CGPoint(x: 512 * scale, y: 554 * scale), radius: 0,
-                  toCenter: CGPoint(x: 512 * scale, y: 554 * scale), radius: 470 * scale, options: [])
-
-        // The star, with a soft shadow under it as one piece.
-        NSGraphicsContext.current?.saveGraphicsState()
-        let shadow = NSShadow()
-        shadow.shadowColor = NSColor.black.withAlphaComponent(0.5)
-        shadow.shadowBlurRadius = 36 * scale
-        shadow.shadowOffset = NSSize(width: 0, height: -16 * scale)
-        shadow.set()
-        NSGraphicsContext.current?.cgContext.beginTransparencyLayer(auxiliaryInfo: nil)
-        drawFaces(center: CGPoint(x: 512 * scale, y: 502 * scale), radius: 294 * scale, accent: accent,
-                  seam: max(0.35, 1.2 * scale))
-        NSGraphicsContext.current?.cgContext.endTransparencyLayer()
-        NSGraphicsContext.current?.restoreGraphicsState()
-
-        // The plate's top sheen.
-        NSGradient(colors: [NSColor.white.withAlphaComponent(0.08), NSColor.white.withAlphaComponent(0)])!
-            .draw(in: NSRect(x: plateRect.minX, y: plateRect.maxY - plateRect.height * 0.45,
-                             width: plateRect.width, height: plateRect.height * 0.45), angle: -90)
-        NSGraphicsContext.current?.restoreGraphicsState()
-
-        // The hairline edge.
-        let edge = NSBezierPath(roundedRect: plateRect.insetBy(dx: 1.5 * scale, dy: 1.5 * scale),
-                                xRadius: 184 * scale, yRadius: 184 * scale)
-        edge.lineWidth = max(0.5, 3 * scale)
-        NSColor.white.withAlphaComponent(0.16).setStroke()
-        edge.stroke()
-        return true
-    }
-}
-
 func writePNG(_ image: NSImage, to path: String, pixels: Int) {
     let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels,
                                bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
@@ -146,6 +77,34 @@ func siteData(accent: Mark.RGB) -> String {
     """
 }
 
+/// The bundle's icon as Icon Composer's format: the plate a solid fill per
+/// appearance, clay by day and Slip at night, and the mark one layer over
+/// it with its own shadow. The system's glass and specular stay off, so
+/// the icon is as flat as everything else Lodestar draws.
+func iconJSON(clay: Mark.RGB, night: Mark.RGB) -> String {
+    func srgb(_ c: Mark.RGB) -> String { String(format: "srgb:%.5f,%.5f,%.5f,1.00000", c.red, c.green, c.blue) }
+    return """
+    {
+      "fill-specializations" : [
+        { "value" : { "solid" : "\(srgb(clay))" } },
+        { "appearance" : "dark", "value" : { "solid" : "\(srgb(night))" } }
+      ],
+      "groups" : [
+        {
+          "layers" : [
+            { "glass" : false, "image-name" : "mark.png", "name" : "mark" }
+          ],
+          "shadow" : { "kind" : "none", "opacity" : 0 },
+          "specular" : false,
+          "translucency" : { "enabled" : false, "value" : 0 }
+        }
+      ],
+      "supported-platforms" : { "squares" : "shared" }
+    }
+
+    """
+}
+
 func render(accent: Mark.RGB, into dir: String) {
     let iconset = "\(dir)/lodestar.iconset"
     try? FileManager.default.createDirectory(atPath: iconset, withIntermediateDirectories: true)
@@ -154,14 +113,23 @@ func render(accent: Mark.RGB, into dir: String) {
         (128, "icon_128x128"), (256, "icon_128x128@2x"), (256, "icon_256x256"), (512, "icon_256x256@2x"),
         (512, "icon_512x512"), (1024, "icon_512x512@2x"),
     ]
+    // The .icns is the icon for systems before macOS 26, which show one
+    // picture whatever the appearance: the clay one, the default.
     for entry in entries {
-        writePNG(drawIcon(canvas: CGFloat(entry.pixels), accent: accent), to: "\(iconset)/\(entry.name).png", pixels: entry.pixels)
+        writePNG(AppIconArt.image(canvas: CGFloat(entry.pixels), ground: .clay, accent: accent),
+                 to: "\(iconset)/\(entry.name).png", pixels: entry.pixels)
     }
-    writePNG(drawIcon(canvas: 1024, accent: accent), to: "\(dir)/preview.png", pixels: 1024)
+    writePNG(AppIconArt.image(canvas: 1024, ground: .clay, accent: accent), to: "\(dir)/preview-clay.png", pixels: 1024)
+    writePNG(AppIconArt.image(canvas: 1024, ground: .night, accent: accent), to: "\(dir)/preview-night.png", pixels: 1024)
+    let source = "\(dir)/Lodestar.icon"
+    try? FileManager.default.createDirectory(atPath: "\(source)/Assets", withIntermediateDirectories: true)
+    writePNG(AppIconArt.star(canvas: 1024, accent: accent), to: "\(source)/Assets/mark.png", pixels: 1024)
+    try! iconJSON(clay: AppIconArt.plate(.clay).fill, night: AppIconArt.plate(.night).fill)
+        .write(toFile: "\(source)/icon.json", atomically: true, encoding: .utf8)
     try! Mark.svg(accent: accent, size: 64, ground: true).write(toFile: "\(dir)/icon.svg", atomically: true, encoding: .utf8)
     try! Mark.svg(accent: accent, size: 64).write(toFile: "\(dir)/mark.svg", atomically: true, encoding: .utf8)
     try! siteData(accent: accent).write(toFile: "\(dir)/mark.json", atomically: true, encoding: .utf8)
-    print("\(dir): iconset, preview.png, icon.svg, mark.svg, mark.json")
+    print("\(dir): iconset, Lodestar.icon, previews, icon.svg, mark.svg, mark.json")
 }
 
 if all {

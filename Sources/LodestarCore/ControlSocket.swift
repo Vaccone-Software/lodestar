@@ -17,9 +17,14 @@ import Foundation
 /// Accessibility, and through this it can move your windows using
 /// Lodestar's grant. The bound is deliberate: it can go where you can go
 /// and arrange what you can arrange, and it can do nothing Lodestar itself
-/// cannot. Nothing here reads a file, runs a command, or types into an app.
-/// The socket is `0600` in your own directory, which is the same protection
-/// your ssh keys have.
+/// cannot. Nothing here runs a command. The draft verbs reach further than
+/// arranging, and say so: `draft type` and `draft key` write into the draft,
+/// `draft commit` lands its text in the front app the way ⏎ does, and
+/// `draft audio <path>` reads a sound file you name and dictates it. So a
+/// process running as you can, through this socket, put words into the app
+/// in front. The socket is `0600` in your own directory, which is the same
+/// protection your ssh keys have, and that is the whole of the bound: it
+/// keeps out other users, not your own processes.
 public final class ControlSocket {
     /// Where the app listens. Injectable so the protocol can be exercised
     /// against a temporary path rather than the one a live instance owns.

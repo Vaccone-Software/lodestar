@@ -410,15 +410,16 @@ final class MeetingController: NSObject {
         let resolved = resolve(occurrence)
 
         var title = occurrence.title
-        if title.count > 40 { title = String(title.prefix(40)) }
-        let destination = Meetings.nativeJoin(for: occurrence.link) != nil
-            ? Self.providerName(occurrence.link.provider)
-            : resolved.profileLabel
-        let detail = occurrence.calendar.map { "\(destination), from the \($0) calendar" } ?? destination
+        if title.count > 40 { title = String(title.prefix(39)).trimmingCharacters(in: .whitespaces) + "…" }
+        let detail = Self.whereItOpens(native: Meetings.nativeJoin(for: occurrence.link) != nil
+                                           ? Self.providerName(occurrence.link.provider) : nil,
+                                       profile: resolved.profile == nil ? nil : resolved.profileLabel,
+                                       calendar: occurrence.calendar)
         let stack = VoiceCard.build(
             sentence: Self.sentence(title: title, phase: candidate.phase),
             detail: detail,
-            rows: [GuideRow(keys: ["lode", "lode"], label: "Join", action: { [weak self] in _ = self?.join() }),
+            rows: [GuideRow(keys: ["lode", "lode"], label: "Join", action: { [weak self] in _ = self?.join() },
+                            lit: true),
                    GuideRow(keys: ["lode", "⌫"], label: "Dismiss", action: { [weak self] in _ = self?.dismiss() })])
 
         root.addSubview(stack)
@@ -449,20 +450,24 @@ final class MeetingController: NSObject {
         for view in primeRoot.subviews where view is NSStackView { view.removeFromSuperview() }
         let stack = NSStackView()
         stack.orientation = .vertical
-        stack.alignment = .centerX
+        stack.alignment = .leading
         stack.spacing = 10
         stack.translatesAutoresizingMaskIntoConstraints = false
 
-        stack.addArrangedSubview(label("Meetings", size: 22, weight: .semibold,
-                                       color: .labelColor))
+        // A room: its name firm at the head, and Lodestar speaking beneath,
+        // in its voice, set where a reader starts.
+        let title = NSTextField(labelWithString: "Meetings")
+        title.font = BarTheme.roomTitleFont
+        title.textColor = .labelColor
+        stack.addArrangedSubview(title)
         let body = NSTextField(wrappingLabelWithString:
             "Lodestar can offer your next meeting a few minutes before it "
             + "starts. Tap lode twice and you are in it, in the right app "
             + "or browser profile.\n\nmacOS asks you to allow calendar "
             + "access first. Nothing about your events leaves your Mac.")
-        body.font = BarTheme.bodyFont
+        body.font = BarTheme.voiceFont
         body.textColor = BarTheme.secondaryColor
-        body.alignment = .center
+        body.alignment = .natural
         body.isSelectable = false
         body.preferredMaxLayoutWidth = Self.primeWidth - 52
         body.widthAnchor.constraint(lessThanOrEqualToConstant: Self.primeWidth - 52).isActive = true
@@ -471,10 +476,18 @@ final class MeetingController: NSObject {
 
         // The card's actions are its keys, pressed or clicked: the system's
         // default button wore the Mac's accent, not Lodestar's.
-        stack.addArrangedSubview(Keycaps.line([
+        // At the foot, at the reader's right hand, as every room keeps them.
+        let footer = NSStackView()
+        footer.orientation = .horizontal
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        footer.addArrangedSubview(spacer)
+        footer.addArrangedSubview(Keycaps.line([
             .init(["esc"], "Not now", action: { [weak self] in self?.notNowPressed() }),
             .init(["⏎"], "Allow Calendar Access", action: { [weak self] in self?.allowPressed() }, lit: true),
         ]))
+        footer.widthAnchor.constraint(equalToConstant: Self.primeWidth - 52).isActive = true
+        stack.addArrangedSubview(footer)
 
         primeRoot.addSubview(stack)
         NSLayoutConstraint.activate([
@@ -604,6 +617,13 @@ extension MeetingController {
         let words = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
                      "ten", "eleven", "twelve"]
         return n >= 0 && n < words.count ? words[n] : String(n)
+    }
+
+    /// Where the meeting opens and whose calendar it is from, as one line:
+    /// "In Zoom", "In Work", "In your browser", with the calendar after.
+    static func whereItOpens(native: String?, profile: String?, calendar: String?) -> String {
+        let place = "In " + (native ?? profile ?? "your browser")
+        return calendar.map { "\(place), from the \($0) calendar" } ?? place
     }
 
     static func providerName(_ provider: Meetings.Provider) -> String {

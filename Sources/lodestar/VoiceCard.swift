@@ -81,7 +81,11 @@ enum GuideRows {
         // alternatives rather than a sequence passes them as one string and
         // still gets one cap, which is what `J K` — either one — needs.
         let chip: NSView
-        let caps = guideRow.keys.map { Keycaps.cap($0) }
+        let caps = guideRow.keys.map { key -> KeyFace in
+            let cap = Keycaps.cap(key)
+            cap.lit = guideRow.lit
+            return cap
+        }
         if let action = guideRow.action {
             chip = Keycaps.CapGroup(caps: caps, action: action)
         } else if caps.count == 1 {

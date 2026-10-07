@@ -6,7 +6,7 @@ import LodestarCore
 /// written — the same two answers the lens gives by letter and by ⇧ and a
 /// letter. The card never takes focus, so the field keeps its caret and a
 /// fix typed into it lands where it should.
-final class EditorHover {
+final class EditorHover: NSObject {
     var marks: () -> [EditorController.Mark] = { [] }
     var accept: (EditorController.Mark) -> Void = { _ in }
     var keep: (EditorController.Mark) -> Void = { _ in }
@@ -15,7 +15,10 @@ final class EditorHover {
     var pointer: () -> CGPoint = EditorHover.systemPointer
     private let clock: Clock
 
-    init(clock: Clock = .live) { self.clock = clock }
+    init(clock: Clock = .live) {
+        self.clock = clock
+        super.init()
+    }
 
     /// A pointer resting this long on a mark opens its card — long enough
     /// that a pointer crossing the text opens nothing, short enough to feel
@@ -33,9 +36,10 @@ final class EditorHover {
     private(set) var panel: NSPanel?
     /// What the drawn shadow hosts; each card is built inside it.
     private let holder = NSView()
-    /// The card's two answers, as caps.
-    private(set) var acceptCaps: Keycaps.CapGroup?
-    private(set) var keepCaps: Keycaps.CapGroup?
+    /// The card's two answers. A card for the pointer has no key of its
+    /// own, so they are Lodestar's buttons, Accept the lit one.
+    private(set) var acceptButton: RoomButton?
+    private(set) var keepButton: RoomButton?
     private var cardFrame = CGRect.null   // quartz
 
     // MARK: - Watching the pointer
@@ -162,27 +166,33 @@ final class EditorHover {
         stack.alignment = .leading
         stack.spacing = 4
         stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.addArrangedSubview(label(title, size: BarTheme.Scale.body, weight: .semibold, color: .labelColor))
+        // The editor's explanation is Lodestar speaking, in its voice; the
+        // change itself is the person's words, in the interface's face.
+        let speaks = mark.issue.note != nil
+        let head = label(title, size: BarTheme.Scale.body, weight: speaks ? .regular : .semibold, color: .labelColor)
+        if speaks { head.font = BarTheme.voiceFont }
+        stack.addArrangedSubview(head)
         stack.addArrangedSubview(label(detail, size: BarTheme.Scale.meta, weight: .regular,
                                        color: BarTheme.secondaryColor))
-        stack.setCustomSpacing(10, after: stack.arrangedSubviews.last!)
+        stack.setCustomSpacing(12, after: stack.arrangedSubviews.last!)
 
         let answers = NSStackView()
         answers.orientation = .horizontal
         answers.alignment = .centerY
         answers.spacing = 8
-        let acceptCaps = Keycaps.CapGroup(caps: [Keycaps.cap("Accept")]) { [weak self] in
-            self?.hide()
-            self?.accept(mark)
-        }
-        let keepCaps = Keycaps.CapGroup(caps: [Keycaps.cap("Keep as written")]) { [weak self] in
-            self?.hide()
-            self?.keep(mark)
-        }
-        self.acceptCaps = acceptCaps
-        self.keepCaps = keepCaps
-        answers.addArrangedSubview(acceptCaps)
-        answers.addArrangedSubview(keepCaps)
+        let acceptButton = RoomButton(frame: .zero)
+        acceptButton.title = "Accept"
+        acceptButton.primary = true
+        acceptButton.target = self
+        acceptButton.action = #selector(acceptPressed)
+        let keepButton = RoomButton(frame: .zero)
+        keepButton.title = "Keep as written"
+        keepButton.target = self
+        keepButton.action = #selector(keepPressed)
+        self.acceptButton = acceptButton
+        self.keepButton = keepButton
+        answers.addArrangedSubview(acceptButton)
+        answers.addArrangedSubview(keepButton)
         stack.addArrangedSubview(answers)
 
         root.addSubview(stack)
@@ -208,6 +218,18 @@ final class EditorHover {
                             display: true)
         panel.orderFrontRegardless()
         shown = mark
+    }
+
+    @objc private func acceptPressed() {
+        guard let mark = shown else { return }
+        hide()
+        accept(mark)
+    }
+
+    @objc private func keepPressed() {
+        guard let mark = shown else { return }
+        hide()
+        keep(mark)
     }
 
     private func label(_ text: String, size: CGFloat, weight: NSFont.Weight, color: NSColor) -> NSTextField {

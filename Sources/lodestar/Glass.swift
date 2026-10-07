@@ -406,6 +406,9 @@ enum BarTheme {
     /// not filed, so it wears wind rather than a window.
     static let breathSymbol = "wind"
     static let titleFont = NSFont.systemFont(ofSize: Scale.title, weight: .regular)
+    /// A room's name at its head: the title size, set firm. Every room
+    /// (Feedback, Uninstall, the calendar's question) wears this one.
+    static let roomTitleFont = NSFont.systemFont(ofSize: Scale.title, weight: .semibold)
     /// The one look for secondary text — captions, legends, notes: meta
     /// size, regular weight, the secondary label colour. Weight is not a
     /// second style; a caption that needs emphasis is a caption too long.
@@ -886,9 +889,14 @@ final class RoomField: NSView {
 /// pointer. The system's default button wears the Mac's accent; a room's
 /// buttons wear Lodestar's material, and its primary actions are keys.
 final class RoomButton: NSButton {
-    /// A destructive action reads in red, as the clipboard's Delete does.
+    /// Kept for its callers; what cannot be undone is told by its words.
     var destructive = false { didSet { restyle() } }
+    /// The answer the surface exists for: raised, and lit along its top
+    /// edge in the accent, the way a chosen row catches the light. One
+    /// per surface.
+    var primary = false { didSet { restyle() } }
     private var hovering = false { didSet { restyle() } }
+    private let light = EdgeLight()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -896,7 +904,14 @@ final class RoomButton: NSButton {
         wantsLayer = true
         layer?.cornerRadius = BarTheme.controlRadius
         layer?.borderWidth = 1
+        layer?.masksToBounds = false
+        if let layer { light.install(in: layer) }
         restyle()
+    }
+
+    override func layout() {
+        super.layout()
+        light.fit(bounds, radius: BarTheme.controlRadius, reach: BarTheme.controlRadius + 3, flipped: isFlipped)
     }
 
     required init?(coder: NSCoder) { nil }
@@ -935,8 +950,16 @@ final class RoomButton: NSButton {
         super.attributedTitle = NSAttributedString(string: words, attributes: [
             .font: BarTheme.secondaryFont, .foregroundColor: color])
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(hovering ? 0.11 : 0.06).cgColor
-            layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.12).cgColor
+            if primary {
+                layer?.backgroundColor = (hovering ? BarTheme.raised.blended(withFraction: 0.08, of: .labelColor)
+                                                   : BarTheme.raised)?.cgColor
+                layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.10).cgColor
+                light.color = BarTheme.readableAccent
+            } else {
+                layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(hovering ? 0.11 : 0.06).cgColor
+                layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.12).cgColor
+                light.color = nil
+            }
         }
         invalidateIntrinsicContentSize()
     }
@@ -1335,8 +1358,9 @@ final class EdgeLight {
     }
 
     /// Lay the light on a shape of `radius` filling `bounds`, fading out
-    /// `reach` points below the top edge.
-    func fit(_ bounds: CGRect, radius: CGFloat, reach: CGFloat) {
+    /// `reach` points below the top edge. `flipped` for a view whose layer
+    /// counts from the top, as a button's does.
+    func fit(_ bounds: CGRect, radius: CGFloat, reach: CGFloat, flipped: Bool = false) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         holder.frame = bounds
@@ -1345,10 +1369,10 @@ final class EdgeLight {
         let r = max(0, radius - 0.5)
         stroke.path = CGPath(roundedRect: holder.bounds.insetBy(dx: 0.5, dy: 0.5), cornerWidth: r,
                              cornerHeight: r, transform: nil)
-        // Layers here are not flipped: y = 1 is the top edge.
+        // In an unflipped layer y = 1 is the top edge; in a flipped one, 0.
         let height = max(1, bounds.height)
-        fade.startPoint = CGPoint(x: 0.5, y: 1)
-        fade.endPoint = CGPoint(x: 0.5, y: max(0, 1 - reach / height))
+        fade.startPoint = CGPoint(x: 0.5, y: flipped ? 0 : 1)
+        fade.endPoint = CGPoint(x: 0.5, y: flipped ? min(1, reach / height) : max(0, 1 - reach / height))
         CATransaction.commit()
     }
 }

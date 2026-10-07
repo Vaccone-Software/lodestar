@@ -242,7 +242,7 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
 
         switch phase {
         case .writing, .sending:
-            stack.addArrangedSubview(label("Send Feedback", size: 22, weight: .semibold, color: .labelColor))
+            stack.addArrangedSubview(roomTitle("Send Feedback"))
             stack.addArrangedSubview(voice(
                 "What works, what does not, or what you wish it did. It goes straight to the person who makes Lodestar.",
                 width: text))
@@ -293,7 +293,7 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
             reply.isEditable = editable
             attach.isEnabled = editable
         case .sent(let replying):
-            stack.addArrangedSubview(label("Thank you", size: 22, weight: .semibold, color: .labelColor))
+            stack.addArrangedSubview(roomTitle("Thank you"))
             stack.addArrangedSubview(voice(replying
                     ? "Your note arrived and will be read. Any reply goes to the address you gave."
                     : "Your note arrived and will be read.",
@@ -326,6 +326,13 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
         let field = NSTextField(labelWithString: text)
         field.font = .systemFont(ofSize: size, weight: weight)
         field.textColor = color
+        return field
+    }
+
+    private func roomTitle(_ text: String) -> NSTextField {
+        let field = NSTextField(labelWithString: text)
+        field.font = BarTheme.roomTitleFont
+        field.textColor = .labelColor
         return field
     }
 

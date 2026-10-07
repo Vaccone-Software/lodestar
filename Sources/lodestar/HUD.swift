@@ -31,12 +31,17 @@ struct GuideRow {
         self.dimmed = dimmed
     }
 
+    /// The row the surface exists for: its keys lit, as the launcher
+    /// lights the keys of the row the hand is about to take.
+    var lit = false
+
     init(keys: [String], label: String, icon: NSImage? = nil,
-         action: (() -> Void)? = nil) {
+         action: (() -> Void)? = nil, lit: Bool = false) {
         self.keys = keys
         self.label = label
         self.icon = icon
         self.action = action
+        self.lit = lit
         self.dimmed = false
     }
 }

@@ -100,7 +100,7 @@ final class UninstallRoom: NSObject {
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         let title = NSTextField(labelWithString: "Uninstall Lodestar")
-        title.font = BarTheme.titleFont
+        title.font = BarTheme.roomTitleFont
         title.textColor = .labelColor
         stack.addArrangedSubview(title)
         stack.setCustomSpacing(12, after: title)

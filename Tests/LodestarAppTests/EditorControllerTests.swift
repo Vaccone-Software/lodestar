@@ -866,6 +866,9 @@ final class EditorHoverTests: XCTestCase {
     /// Press a cap the way a mouse does: down and up at its middle,
     /// through the panel's own event handling.
     private func click(_ view: NSView?, file: StaticString = #filePath, line: UInt = #line) {
+        // A button is pressed the way the system presses one; its own
+        // mouse tracking would wait for an up that a test never sends.
+        if let button = view as? NSButton { button.performClick(nil); return }
         guard let view, let window = view.window else { XCTFail("no caps", file: file, line: line); return }
         window.layoutIfNeeded()
         let point = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
@@ -887,11 +890,11 @@ final class EditorHoverTests: XCTestCase {
         hover.accept = { accepted.append($0) }
         hover.keep = { kept.append($0) }
         hover.show(m)
-        click(hover.acceptCaps)
+        click(hover.acceptButton)
         XCTAssertEqual(accepted, [m])
         XCTAssertNil(hover.shown, "an answer closes the card")
         hover.show(m)
-        click(hover.keepCaps)
+        click(hover.keepButton)
         XCTAssertEqual(kept, [m])
         XCTAssertEqual(accepted.count, 1)
     }
@@ -902,7 +905,7 @@ final class EditorHoverTests: XCTestCase {
         rig.settle("the mark") { rig.controller.lensMarks.count == 1 }
         let hover = rig.controller.hover!
         hover.show(rig.controller.lensMarks[0])
-        click(hover.acceptCaps)
+        click(hover.acceptButton)
         rig.settle("the fix") { rig.source.text?.hasPrefix("We need to receive") == true }
         rig.settle("recorded") { rig.events.contains { $0.action == "applied" } }
         XCTAssertEqual(rig.events.first { $0.action == "applied" }?.row, "mouse")

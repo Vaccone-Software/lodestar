@@ -54,6 +54,27 @@ final class EventLogShardTests: XCTestCase {
                        "the whole ring reads back, oldest first")
     }
 
+    /// A line this build cannot decode (a newer kind, a newer field) is
+    /// moved as the bytes it is: an updater rollback must not erase what
+    /// the newer build wrote.
+    func testCompactionCarriesLinesItCannotDecode() throws {
+        let log = makeLog()
+        let august = day("2026-08-10T12:00:00Z").timeIntervalSince1970
+        let september = day("2026-09-05T12:00:00Z")
+        let unknownKind = #"{"kind":"assist","t":\#(august),"job":"guard"}"#
+        let unknownField = #"{"kind":"verb","t":\#(august),"verb":"graph","novel":7}"#
+        let unstamped = #"{"kind":"verb","verb":"graph"}"#
+        let lines = [unknownKind, unknownField, unstamped].joined(separator: "\n") + "\n"
+        try Data(lines.utf8).write(to: log.file)
+        log.compact(now: september)
+
+        let shard = try String(contentsOf: log.shardFile(for: "2026-08"), encoding: .utf8)
+        XCTAssertTrue(shard.contains(unknownKind), "an unknown kind survives the month closing")
+        XCTAssertTrue(shard.contains(unknownField), "an unknown field survives, byte for byte")
+        let live = try String(contentsOf: log.file, encoding: .utf8)
+        XCTAssertTrue(live.contains(unstamped), "a line with no stamp is kept, never dropped")
+    }
+
     func testShardsAccumulateAcrossCompactions() {
         let log = makeLog()
         let now = day("2026-09-05T12:00:00Z")

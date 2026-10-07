@@ -481,21 +481,32 @@ public final class EventLog {
     private func compactLocked(now: Date) {
         dispatchPrecondition(condition: .onQueue(io))
         let open = Self.monthKey(now)
-        let events = Self.read(file: file)
-        var keep: [ObservationEvent] = []
-        var closing: [String: [ObservationEvent]] = [:]
-        for event in events {
-            let month = Self.monthKey(event.t)
+        // Lines move as the bytes they are, never decoded and encoded
+        // again: a kind or a field this build does not know (one a newer
+        // build wrote, before the updater rolled it back) is carried, not
+        // dropped. Only a line's month is read, from its stamp; a line
+        // without a readable stamp stays in the live file.
+        guard let data = try? Data(contentsOf: file) else { retireLocked(); return }
+        let decoder = Self.makeDecoder()
+        var keep: [Data] = []
+        var closing: [String: [Data]] = [:]
+        for line in data.split(separator: 0x0A) {
+            let bytes = Data(line)
+            guard let stamp = try? decoder.decode(Stamp.self, from: bytes) else {
+                keep.append(bytes)
+                continue
+            }
+            let month = Self.monthKey(stamp.t)
             if month == open {
-                keep.append(event)
+                keep.append(bytes)
             } else {
-                closing[month, default: []].append(event)
+                closing[month, default: []].append(bytes)
             }
         }
-        if keep.count < events.count {
+        if !closing.isEmpty {
             for (month, moved) in closing.sorted(by: { $0.key < $1.key }) {
                 let shard = shardFile(for: month)
-                let lines = Self.encodeLines(moved)
+                let lines = Self.joinLines(moved)
                 if let handle = try? FileHandle(forWritingTo: shard) {
                     defer { try? handle.close() }
                     _ = try? handle.seekToEnd()
@@ -509,11 +520,23 @@ public final class EventLog {
                     if excludedFromBackup { Paths.excludeFromBackup(shard) }
                 }
             }
-            try? Self.encodeLines(keep).write(to: file, options: .atomic)
+            try? Self.joinLines(keep).write(to: file, options: .atomic)
             Paths.restrict(file)
             if excludedFromBackup { Paths.excludeFromBackup(file) }
         }
         retireLocked()
+    }
+
+    /// The one field compaction reads from a line: when it happened.
+    private struct Stamp: Decodable { let t: Date }
+
+    private static func joinLines(_ lines: [Data]) -> Data {
+        var joined = Data()
+        for line in lines {
+            joined.append(line)
+            joined.append(0x0A)
+        }
+        return joined
     }
 
     /// The bound, oldest month first. Health leaves before the file does.

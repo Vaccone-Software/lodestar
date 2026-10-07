@@ -85,6 +85,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// is what stops that link from being the one that vanishes.
     private var pendingClicks: [URL] = []
     private let walk = WalkController()
+    /// The lesson shown and not yet billed: a lesson is spent by being
+    /// read (standing the coach's seen time) or answered, never by being
+    /// drawn, the rule every coach offer keeps.
+    private var lessonAwaitingBill: Curriculum.Lesson?
     private let feedback = FeedbackController()
     private let meetings = MeetingController()
     private let linkChip = LinkChip()
@@ -1060,7 +1064,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.store.setCurriculumRecord(
                 Curriculum.completed(self.store.curriculumRecords[lesson], at: Date()), for: lesson)
         }
-        walk.lessonPassed = { _ in }
+        walk.lessonPassed = { [weak self] lesson in self?.billLesson(lesson) }
         coach.lessonDue = { [weak self] in
             guard let self else { return nil }
             let record = self.observationStore.observations
@@ -1070,17 +1074,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             var settled: Set<Curriculum.Lesson> = []
             if self.store.walkDoor == .switcher { settled.insert(.launcher) }
             if self.config.editorEnabled { settled.insert(.editor) }
+            // Spaced against everything the coach has asked, not only the
+            // other lessons: two days of quiet means two days of quiet.
+            let lastCoachOffer = record.ledger.map(\.lastOfferedAt)
+                .filter { $0 != .distantPast }.max()
             return Curriculum.next(now: Date(), since: record.since,
                                    verbsLastUsed: record.verbsLastUsed ?? [:],
                                    records: self.store.curriculumRecords,
                                    walkDone: self.store.walkCompletedVersion != nil,
-                                   settled: settled)
+                                   settled: settled, lastCoachOffer: lastCoachOffer)
         }
         coach.showLesson = { [weak self] lesson in
             guard let self else { return }
-            self.store.setCurriculumRecord(
-                Curriculum.offered(self.store.curriculumRecords[lesson], at: Date()), for: lesson)
+            self.lessonAwaitingBill = lesson
             self.walk.showLesson(lesson)
+            DispatchQueue.main.asyncAfter(deadline: .now() + Coach.seenSeconds) { [weak self] in
+                guard let self, self.walk.showingLesson == lesson else { return }
+                self.billLesson(lesson)
+            }
         }
 
         // Once, until it is finished: an unfinished walk resumes on the
@@ -1095,6 +1106,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
             self?.showWalk()
         }
+    }
+
+    /// Spend a lesson's offer once per showing: when it stood long enough
+    /// to be read, or when the hand answered it, whichever comes first.
+    private func billLesson(_ lesson: Curriculum.Lesson) {
+        guard lessonAwaitingBill == lesson else { return }
+        lessonAwaitingBill = nil
+        store.setCurriculumRecord(Curriculum.offered(store.curriculumRecords[lesson], at: Date()), for: lesson)
     }
 
     private func installMeetings() {

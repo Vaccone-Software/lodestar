@@ -79,11 +79,14 @@ public enum Curriculum {
     /// - `walkDone`: the day-one walk is finished. Lessons wait for it.
     /// - `settled`: lessons whose door is already open by other evidence,
     ///   the walk that taught it or a switch already on.
+    /// - `lastCoachOffer`: the coach's latest offer of any kind, because
+    ///   "nothing else was offered in the last two days" counts the coach
+    ///   too, not only the other lessons.
     public static func next(now: Date, since: Date, verbsLastUsed: [String: Date],
                             records: [Lesson: Record], walkDone: Bool,
-                            settled: Set<Lesson> = []) -> Lesson? {
+                            settled: Set<Lesson> = [], lastCoachOffer: Date? = nil) -> Lesson? {
         guard walkDone, since != .distantPast else { return nil }
-        let lastOffer = records.values.compactMap(\.lastOfferedAt).max()
+        let lastOffer = (records.values.compactMap(\.lastOfferedAt) + [lastCoachOffer].compactMap { $0 }).max()
         if let lastOffer, now.timeIntervalSince(lastOffer) < Double(spacingDays) * 86_400 {
             return nil
         }

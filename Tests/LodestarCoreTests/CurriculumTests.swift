@@ -31,6 +31,16 @@ final class CurriculumTests: XCTestCase {
                        "an editor already on is never offered")
     }
 
+    func testACoachOfferCountsTowardTheSpacing() {
+        let now = since.addingTimeInterval(3 * day)
+        XCTAssertNil(Curriculum.next(now: now, since: since, verbsLastUsed: [:], records: [:], walkDone: true,
+                                     settled: [.editor], lastCoachOffer: now.addingTimeInterval(-day)),
+                     "a coach offer yesterday holds the lesson: nothing else in the last two days")
+        XCTAssertEqual(Curriculum.next(now: now, since: since, verbsLastUsed: [:], records: [:], walkDone: true,
+                                       settled: [.editor], lastCoachOffer: now.addingTimeInterval(-3 * day)),
+                       .launcher)
+    }
+
     func testNothingBeforeTheWalkIsDone() {
         XCTAssertNil(next(after: 30, walkDone: false))
     }

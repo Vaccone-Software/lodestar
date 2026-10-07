@@ -139,6 +139,8 @@ final class WalkController: NSObject {
     var cardVisible: Bool { card.isVisible }
     /// The coach yields while any walk surface is up.
     var isUp: Bool { doorVisible || cardVisible }
+    /// The lesson on the glass right now, if one is.
+    var showingLesson: Curriculum.Lesson? { cardVisible ? lesson : nil }
 
     /// From the boot trigger or the menu. `resumeAt` and `door` are an
     /// unfinished walk's persisted place; without both it begins at the

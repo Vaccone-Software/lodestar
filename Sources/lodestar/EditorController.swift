@@ -256,9 +256,18 @@ final class EditorController: EditorLens {
             readAgain = true
             return
         }
+        // An app the editor never reads is not asked at all: every read is
+        // answered on that app's own main thread, and a skipped app or the
+        // lock screen was being asked hundreds of thousands of times only
+        // for the answer to be thrown away.
+        let front = frontmostApp()
+        if let front, Self.neverReads(bundleID: front.bundleID, name: front.name, skipApps: skipApps) {
+            if field != nil { clearField() }
+            return
+        }
         readQueued = true
         let source = self.source
-        let frontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let frontmost = front?.pid
         axQueue.async { [weak self] in
             let started = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
             let read = source.focusedField(frontmost: frontmost)
@@ -301,6 +310,28 @@ final class EditorController: EditorLens {
         geometryGeneration += 1
         drawing.hide()
         hover?.hide()
+    }
+
+    /// The app in front, as the read sees it. The tests stand in their own.
+    var frontmostApp: () -> (pid: pid_t, bundleID: String?, name: String?)? = {
+        NSWorkspace.shared.frontmostApplication.map {
+            ($0.processIdentifier, $0.bundleIdentifier, $0.localizedName)
+        }
+    }
+
+    /// Apps whose fields are never read, decided before anything is asked:
+    /// the ones the hand skipped, the lock screen (whose password field is
+    /// never the editor's business), and terminals, whose screen is not a
+    /// field (`EditorAX.isReadable` refuses it after the read anyway).
+    static let neverReadBundles: Set<String> = [
+        "com.apple.loginwindow", "com.mitchellh.ghostty", "com.apple.terminal",
+        "com.googlecode.iterm2", "com.github.wez.wezterm", "org.alacritty", "net.kovidgoyal.kitty",
+    ]
+
+    static func neverReads(bundleID: String?, name: String?, skipApps: Set<String>) -> Bool {
+        let bundle = bundleID?.lowercased() ?? ""
+        let app = name?.lowercased() ?? ""
+        return neverReadBundles.contains(bundle) || skipApps.contains(bundle) || skipApps.contains(app)
     }
 
     /// Whether a field is one the editor reads at all: not an app the

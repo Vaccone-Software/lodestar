@@ -156,6 +156,8 @@ final class EditorRig {
                                       hover: hover ? EditorHover(clock: clock.clock) : nil,
                                       clock: clock.clock, polls: false, modelReady: { $0.usesModel })
         controller.observations = observations
+        // A fixed front app, never whichever terminal runs the tests.
+        controller.frontmostApp = { (4242, "com.apple.TextEdit", "TextEdit") }
         controller.flash = { [unowned self] in self.flashes.append($0) }
         controller.learnName = { [unowned self] in self.names.append($0) }
         controller.apply(enabled: true, engine: .standard, language: "en_US", vocabulary: [],
@@ -249,6 +251,31 @@ final class EditorControllerTests: XCTestCase {
             XCTAssertTrue(rig.controller.lensMarks.isEmpty)
             XCTAssertTrue(rig.reader.asked.isEmpty, "the model never saw it")
         }
+    }
+
+    func testASkippedAppIsNotEvenAsked() {
+        let rig = EditorRig(skipApps: ["slack"])
+        rig.controller.frontmostApp = { (4242, "com.tinyspeck.slackmacgap", "Slack") }
+        rig.source.field = EditorRig.field("Their going to recieve it.", app: "Slack",
+                                           bundle: "com.tinyspeck.slackmacgap")
+        rig.controller.poll()
+        rig.drain()
+        XCTAssertEqual(rig.source.reads, 0, "the skipped app's main thread is never asked")
+        XCTAssertNil(rig.controller.field)
+
+        rig.controller.frontmostApp = { (4242, "com.apple.TextEdit", "TextEdit") }
+        rig.source.field = EditorRig.field("Their going to recieve it.")
+        rig.controller.poll()
+        rig.settle("the read") { rig.source.reads == 1 }
+    }
+
+    func testTheLockScreenAndTerminalsAreNeverAsked() {
+        for bundle in ["com.apple.loginwindow", "com.mitchellh.ghostty", "com.apple.Terminal"] {
+            XCTAssertTrue(EditorController.neverReads(bundleID: bundle, name: nil, skipApps: []), bundle)
+        }
+        XCTAssertFalse(EditorController.neverReads(bundleID: "com.apple.TextEdit", name: "TextEdit", skipApps: []))
+        XCTAssertTrue(EditorController.neverReads(bundleID: "com.raycast.macos", name: "Raycast", skipApps: ["raycast"]),
+                      "a skipped app by its name")
     }
 
     func testPasswordsSearchBoxesAndTerminalsAreNeverRead() {
@@ -1008,6 +1035,7 @@ final class EditorReadinessTests: XCTestCase {
         let controller = EditorController(source: source, queue: queue, proofreader: reader,
                                           drawing: FakeMarksDrawing(), hover: nil, clock: clock.clock,
                                           polls: false, modelReady: { _ in here })
+        controller.frontmostApp = { (4242, "com.apple.TextEdit", "TextEdit") }
         controller.apply(enabled: true, engine: .standard, language: "en_US", vocabulary: [], skipApps: [])
         let field = EditorRig.field("Their going to push it. We need to recieve them.")
         source.field = field

@@ -328,6 +328,7 @@ final class Stage {
         appEditor = EditorController(source: editorSource, queue: DispatchQueue(label: "stage-editor"),
                                      proofreader: proofreader, drawing: FakeMarksDrawing(), hover: nil,
                                      clock: clock.clock, polls: false, modelReady: { $0.usesModel })
+        appEditor.frontmostApp = { (4242, "com.apple.TextEdit", "TextEdit") }
         draftEditor = DraftEditor(proofreader: proofreader, clock: clock.clock)
         engine = HotkeyEngine(config: config, actions: actions, hud: hud,
                               searcher: searcher, webBar: webBar, commandsBar: commandsBar,

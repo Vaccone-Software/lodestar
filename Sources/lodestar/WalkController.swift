@@ -754,7 +754,8 @@ final class WalkController: NSObject {
         case .fix:
             return CardContent(
                 title: "Rest the pointer on the line",
-                body: "The fix appears. Accept puts it right, and Keep as written leaves it alone.",
+                body: "The fix appears, lit. Click it to put the word right, or click your own word to leave it. "
+                    + "A word Lodestar does not know can be learned.",
                 keys: [KeyRow("lode ⇥", "Or put a letter on each mark from the keys")])
         case .grammar(let engine):
             return CardContent(

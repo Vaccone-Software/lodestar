@@ -227,6 +227,21 @@ final class AccentAndChipWordsTests: XCTestCase {
         XCTAssertEqual(MeetingController.sentence(title: "Standup", phase: .inProgress(minutes: 25)),
                        "Standup began 25 minutes ago", "past twelve, digits")
     }
+
+    func testTheStubCountsDownAndLightsAtTheDoor() {
+        XCTAssertTrue(MeetingController.stub(for: .upcoming(minutes: 3)) == ("3", "min", false),
+                      "minutes away: the count, quiet")
+        XCTAssertTrue(MeetingController.stub(for: .soon(seconds: 42)) == ("42", "sec", true), "at the door: lit")
+        XCTAssertTrue(MeetingController.stub(for: .now) == ("Now", nil, true))
+        XCTAssertTrue(MeetingController.stub(for: .inProgress(minutes: 4)) == ("4", "min ago", true),
+                      "begun: still lit, joining is still the thing to do")
+    }
+
+    func testTheChipSaysWhereAndHowMany() {
+        XCTAssertEqual(MeetingController.meta(place: "Zoom", people: 6), "Zoom · 6 people")
+        XCTAssertEqual(MeetingController.meta(place: "Work", people: nil), "Work", "no guests listed, no count")
+        XCTAssertEqual(MeetingController.meta(place: "Zoom", people: 1), "Zoom", "only you is not a crowd")
+    }
 }
 
 /// The accent never drifts: the system's colour reaches a surface only

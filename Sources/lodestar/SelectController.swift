@@ -502,7 +502,7 @@ final class SelectController {
         render()
     }
 
-    func key(_ key: String, shift: Bool) -> SelectStep {
+    func key(_ key: String, shift: Bool, option: Bool = false) -> SelectStep {
         if firstKeyAt == nil { firstKeyAt = Date() }
         // The `;` door's entry chips answer before the sensor does: a
         // capital while nothing is typed picks among the pressables the
@@ -514,10 +514,11 @@ final class SelectController {
            shift || !entryTyped.isEmpty {
             return entryPick(letter: key)
         }
-        // The editor's lens: a letter fixes, ⇧ and a letter keeps.
+        // The editor's lens: a letter fixes, ⇧ and a letter leaves the
+        // words as written, ⌥ and a letter learns the word.
         if door == .editor {
             guard key.count == 1, key.first?.isLetter == true else { return .pending }
-            return editorPick(letter: key, keep: shift)
+            return editorPick(letter: key, answer: option ? .learn : shift ? .ignore : .fix)
         }
         guard core != nil else {
             // Still scanning: aiming is buffered for the first world, not
@@ -659,7 +660,9 @@ final class SelectController {
         }
     }
 
-    private func editorPick(letter: String, keep: Bool) -> SelectStep {
+    enum EditorAnswer { case fix, ignore, learn }
+
+    private func editorPick(letter: String, answer: EditorAnswer) -> SelectStep {
         let candidate = entryTyped + letter.lowercased()
         switch HintLabels.match(typed: candidate, labels: entryLabels) {
         case .exact(let index):
@@ -667,7 +670,11 @@ final class SelectController {
             entryTyped = ""
             editorMarks.remove(at: index)
             entryLabels = HintLabels.labels(count: editorMarks.count, alphabet: letters)
-            if keep { editor?.dismiss(mark) } else { editor?.fix(mark) { _ in } }
+            switch answer {
+            case .fix: editor?.fix(mark) { _ in }
+            case .ignore: editor?.ignore(mark)
+            case .learn: editor?.learn(mark)
+            }
             // The last mark ends the lens; otherwise it stands and letters
             // what remains once the text settles.
             firedTextInput = editorMarks.isEmpty
@@ -691,11 +698,11 @@ final class SelectController {
     /// from the keystroke that completes a pick — on a two-letter label,
     /// the last key decides, so the button can be chosen as late as the
     /// final letter.
-    func clickKey(_ letter: String, shift: Bool, control: Bool) -> HintStep {
+    func clickKey(_ letter: String, shift: Bool, control: Bool, option: Bool = false) -> HintStep {
         controlAtPick = control
         firedTextInput = false
         defer { controlAtPick = false }
-        switch key(letter, shift: shift) {
+        switch key(letter, shift: shift, option: option) {
         case .done: return firedTextInput ? .firedFocus : .fired
         case .pending: return .pending
         }

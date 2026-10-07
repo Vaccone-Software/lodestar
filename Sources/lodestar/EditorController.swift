@@ -9,7 +9,12 @@ protocol EditorLens: AnyObject {
     /// over the focused window (the draft draws over its own panel).
     var lensCanvas: CGRect? { get }
     func fix(_ mark: EditorController.Mark, completion: @escaping (Bool) -> Void)
-    func dismiss(_ mark: EditorController.Mark)
+    /// ⇧ and a letter: the words stay as written while their sentence
+    /// stands, and nothing is learned.
+    func ignore(_ mark: EditorController.Mark)
+    /// ⌥ and a letter: a word the dictionary did not know joins the
+    /// vocabulary. A mark with nothing to learn is ignored instead.
+    func learn(_ mark: EditorController.Mark)
     func undoLastFix(completion: @escaping (Bool) -> Void)
 }
 
@@ -139,7 +144,9 @@ final class EditorController: EditorLens {
         self.polls = polls
         hover?.marks = { [weak self] in self?.marks ?? [] }
         hover?.accept = { [weak self] mark in self?.fix(mark, via: "mouse") { _ in } }
-        hover?.keep = { [weak self] mark in self?.dismiss(mark, via: "mouse") }
+        hover?.ignore = { [weak self] mark in self?.ignore(mark, via: "mouse") }
+        hover?.learn = { [weak self] mark in self?.learn(mark, via: "mouse") }
+        hover?.learnable = { [weak self] mark in self.map { Self.isName(mark.issue, language: $0.language) } ?? false }
     }
 
     // MARK: - Configuration
@@ -530,19 +537,27 @@ final class EditorController: EditorLens {
         }
     }
 
-    /// ⇧ and a letter, or Keep as written: the words are right. A word the
-    /// dictionary did not know joins the vocabulary the draft shares. A
-    /// grammar or punctuation mark goes quiet in its sentence and nothing
-    /// is learned: the same change is right in one sentence and wrong in
-    /// the next.
-    func dismiss(_ mark: Mark) { dismiss(mark, via: "keys") }
+    /// Three answers to a mark, and the two that are not a fix are kept
+    /// apart because they promise different things. Ignore (⇧ and a
+    /// letter, or your own word on the card) leaves the words as written
+    /// while their sentence stands and teaches nothing. Learn (⌥ and a
+    /// letter, or Learn on the card) puts a word the dictionary did not
+    /// know into the vocabulary the draft shares, so it is right
+    /// everywhere. Only a spelling mark on one word can be learned: a
+    /// grammar change is right in one sentence and wrong in the next, so
+    /// learning one would silence it where it is true.
+    func ignore(_ mark: Mark) { ignore(mark, via: "keys") }
+    func learn(_ mark: Mark) { learn(mark, via: "keys") }
 
-    func dismiss(_ mark: Mark, via: String) {
+    func ignore(_ mark: Mark, via: String) { settle(mark, learning: false, via: via) }
+    func learn(_ mark: Mark, via: String) { settle(mark, learning: true, via: via) }
+
+    private func settle(_ mark: Mark, learning: Bool, via: String) {
         guard let field else { return }
         let issue = mark.issue
-        let isName = Self.isName(issue, language: language)
+        let learns = learning && Self.isName(issue, language: language)
         // The config write says what was learned, in its own flash.
-        if isName {
+        if learns {
             learnName(Self.word(issue))
         } else {
             let session = self.session
@@ -553,7 +568,7 @@ final class EditorController: EditorLens {
         hover?.marksChanged()
         redraw(over: field)
         issuesText = ""
-        observations?.edited(action: "dismissed", kind: isName ? "name" : "sentence", app: field.appName,
+        observations?.edited(action: "dismissed", kind: learns ? "name" : "sentence", app: field.appName,
                              via: via, at: clock.now())
     }
 
@@ -562,8 +577,8 @@ final class EditorController: EditorLens {
         issue.original.trimmingCharacters(in: .punctuationCharacters.union(.whitespaces))
     }
 
-    /// Keeping a spelling mark on one word teaches a name — a capital, or
-    /// a word the dictionary does not know. Anything else is kept as meant.
+    /// What Learn can teach: a spelling mark on one word, a capital or a
+    /// word the dictionary does not know. Anything else has nothing to learn.
     static func isName(_ issue: EditorIssue, language: String) -> Bool {
         let word = self.word(issue)
         return issue.kind == .spelling && !word.contains(" ")

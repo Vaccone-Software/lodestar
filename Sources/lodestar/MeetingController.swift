@@ -275,7 +275,8 @@ final class MeetingController: NSObject {
                         start: event.startDate, end: event.endDate,
                         link: link,
                         calendar: event.calendar?.title,
-                        account: event.calendar?.source?.title)
+                        account: event.calendar?.source?.title,
+                        people: event.attendees.flatMap { $0.isEmpty ? nil : $0.count })
                 }
             DispatchQueue.main.async {
                 guard let self else { return }
@@ -404,45 +405,172 @@ final class MeetingController: NSObject {
 
     // MARK: - The chip, drawn
 
+    /// The stub: an admission ticket folded down to a pill's height. A torn
+    /// stub holds the countdown, the body holds the meeting and where and
+    /// with how many it opens, and the join chord stands at the end. It is
+    /// one size for its whole life, so it never jumps beside the work; at
+    /// the door the stub lights, and the light is the message.
+    private var chipContent: NSView?
+
+    static let chipHeight: CGFloat = 48
+    static let stubWidth: CGFloat = 52
+
+    /// What the stub says and whether it is lit: minutes while the
+    /// meeting is minutes away (quiet), seconds at the door, then how long
+    /// ago it began, lit from the last minute on because from then joining
+    /// is the thing to do.
+    static func stub(for phase: Meetings.Phase) -> (number: String, unit: String?, lit: Bool) {
+        switch phase {
+        case .upcoming(let minutes): return ("\(minutes)", "min", false)
+        case .soon(let seconds): return ("\(seconds)", "sec", true)
+        case .now: return ("Now", nil, true)
+        case .inProgress(let minutes): return ("\(minutes)", "min ago", true)
+        }
+    }
+
+    /// Where it opens and how many are in it, as one line: "Zoom · 6 people".
+    static func meta(place: String, people: Int?) -> String {
+        guard let people, people > 1 else { return place }
+        return "\(place) · \(people) people"
+    }
+
     private func render(_ candidate: Meetings.Candidate) {
-        for view in root.subviews where view is NSStackView { view.removeFromSuperview() }
+        chipContent?.removeFromSuperview()
         let occurrence = candidate.occurrence
         let resolved = resolve(occurrence)
+        let native = Meetings.nativeJoin(for: occurrence.link) != nil ? Self.providerName(occurrence.link.provider) : nil
+        let place = native ?? (resolved.profile == nil ? "Browser" : resolved.profileLabel)
+        let meta = Self.meta(place: place, people: occurrence.people)
+        let stub = Self.stub(for: candidate.phase)
 
-        var title = occurrence.title
-        if title.count > 40 { title = String(title.prefix(39)).trimmingCharacters(in: .whitespaces) + "…" }
-        let detail = Self.whereItOpens(native: Meetings.nativeJoin(for: occurrence.link) != nil
-                                           ? Self.providerName(occurrence.link.provider) : nil,
-                                       profile: resolved.profile == nil ? nil : resolved.profileLabel,
-                                       calendar: occurrence.calendar)
-        let stack = VoiceCard.build(
-            sentence: Self.sentence(title: title, phase: candidate.phase),
-            detail: detail,
-            rows: [GuideRow(keys: ["lode", "lode"], label: "Join", action: { [weak self] in _ = self?.join() },
-                            lit: true),
-                   GuideRow(keys: ["lode", "⌫"], label: "Dismiss", action: { [weak self] in _ = self?.dismiss() })])
+        let content = NSView()
+        content.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(content)
+        chipContent = content
 
-        root.addSubview(stack)
-        let inset = ModePill.inset
+        // The stub, lit at the door: the accent's face on the glass's
+        // leading corners, the countdown in the ink that reads on it.
+        let stubView = NSView()
+        stubView.translatesAutoresizingMaskIntoConstraints = false
+        stubView.wantsLayer = true
+        stubView.layer?.cornerRadius = BarTheme.glassRadius
+        stubView.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner]
+        if stub.lit {
+            stubView.effectiveAppearance.performAsCurrentDrawingAppearance {
+                stubView.layer?.backgroundColor = BarTheme.accent.cgColor
+            }
+        }
+        content.addSubview(stubView)
+        let ink: NSColor = stub.lit ? BarTheme.onAccent : .labelColor
+        let number = NSTextField(labelWithString: stub.number)
+        number.font = stub.unit == nil ? BarTheme.stubWordFont : BarTheme.stubCountFont
+        number.textColor = ink
+        number.alignment = .center
+        let unitField = NSTextField(labelWithString: "")
+        if let unit = stub.unit {
+            unitField.attributedStringValue = NSAttributedString(string: unit.uppercased(), attributes: [
+                .font: BarTheme.stubUnitFont, .kern: 0.6,
+                .foregroundColor: stub.lit ? BarTheme.onAccent.withAlphaComponent(0.8) : NSColor.tertiaryLabelColor])
+        }
+        unitField.alignment = .center
+        let count = NSStackView(views: stub.unit == nil ? [number] : [number, unitField])
+        count.orientation = .vertical
+        count.alignment = .centerX
+        count.spacing = 2
+        count.translatesAutoresizingMaskIntoConstraints = false
+        stubView.addSubview(count)
+
+        // The perforation: where the stub tears from the ticket.
+        let perforation = PerforationView()
+        perforation.translatesAutoresizingMaskIntoConstraints = false
+        perforation.ink = stub.lit ? BarTheme.onAccent.withAlphaComponent(0.3) : NSColor.labelColor.withAlphaComponent(0.16)
+        content.addSubview(perforation)
+
+        let title = NSTextField(labelWithString: occurrence.title)
+        title.font = BarTheme.stubTitleFont
+        title.textColor = .labelColor
+        title.lineBreakMode = .byTruncatingTail
+        title.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        let detail = NSTextField(labelWithString: meta)
+        detail.font = BarTheme.stubDetailFont
+        detail.textColor = BarTheme.secondaryColor
+        detail.lineBreakMode = .byTruncatingTail
+        detail.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        let body = NSStackView(views: [title, detail])
+        body.orientation = .vertical
+        body.alignment = .leading
+        body.spacing = 3
+        body.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(body)
+
+        // Join, drawn as the chord that does it, lit: the one thing the
+        // chip is for. Dismiss stays on lode ⌫, pressed three times in
+        // fifty-four meetings, and is not drawn.
+        let caps = ["lode", "lode"].map { key -> Keycaps.CapView in
+            let cap = Keycaps.cap(key)
+            cap.lit = true
+            return cap
+        }
+        let join = Keycaps.CapGroup(caps: caps, action: { [weak self] in _ = self?.join() })
+        join.translatesAutoresizingMaskIntoConstraints = false
+        join.setAccessibilityLabel("Join")
+        content.addSubview(join)
+
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: inset),
-            stack.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -inset),
-            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: inset),
-            stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -inset),
+            content.topAnchor.constraint(equalTo: root.topAnchor),
+            content.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            content.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            content.heightAnchor.constraint(equalToConstant: Self.chipHeight),
+            stubView.topAnchor.constraint(equalTo: content.topAnchor),
+            stubView.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            stubView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            stubView.widthAnchor.constraint(equalToConstant: Self.stubWidth),
+            count.centerXAnchor.constraint(equalTo: stubView.centerXAnchor),
+            count.centerYAnchor.constraint(equalTo: stubView.centerYAnchor),
+            perforation.leadingAnchor.constraint(equalTo: stubView.trailingAnchor, constant: -1),
+            perforation.widthAnchor.constraint(equalToConstant: 2),
+            perforation.topAnchor.constraint(equalTo: content.topAnchor),
+            perforation.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            body.leadingAnchor.constraint(equalTo: stubView.trailingAnchor, constant: 12),
+            body.centerYAnchor.constraint(equalTo: content.centerYAnchor),
+            body.widthAnchor.constraint(lessThanOrEqualToConstant: 180),
+            join.leadingAnchor.constraint(equalTo: body.trailingAnchor, constant: 14),
+            join.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -10),
+            join.centerYAnchor.constraint(equalTo: content.centerYAnchor),
         ])
+        // Said whole to VoiceOver, since the stub alone is a number.
+        root.setAccessibilityElement(true)
+        root.setAccessibilityRole(.group)
+        root.setAccessibilityLabel(Self.sentence(title: occurrence.title, phase: candidate.phase) + ", " + meta)
+
         root.layoutSubtreeIfNeeded()
-        let size = root.fittingSize
+        let size = NSSize(width: root.fittingSize.width.rounded(.up), height: Self.chipHeight)
         let wasVisible = panel.isVisible
         Movable.place(panel, size: size) {
             let visible = ActivePolicy.presentationFrame
-            return NSPoint(x: visible.maxX - size.width - 20,
-                           y: visible.maxY - size.height - 20)
+            return NSPoint(x: (visible.maxX - size.width - 20).rounded(),
+                           y: (visible.maxY - size.height - 20).rounded())
         }
         panel.orderFrontRegardless()
         // Only on the way up: render is called again to retitle a chip that
         // is already standing, and that is not a fresh claim.
         if !wasVisible { onChipShown() }
     }
+
+    #if DEBUG
+    /// The chip's words as drawn, for the tests.
+    var chipWords: [String] {
+        func words(_ view: NSView) -> [String] {
+            view.subviews.flatMap { sub -> [String] in
+                if let field = sub as? NSTextField, !field.stringValue.isEmpty { return [field.stringValue] }
+                return words(sub)
+            }
+        }
+        return chipContent.map(words) ?? []
+    }
+    var stubLit: Bool { current.map { Self.stub(for: $0.phase).lit } ?? false }
+    #endif
 
     // MARK: - The prime card
 
@@ -556,9 +684,9 @@ final class MeetingController: NSObject {
                 let occurrence = Meetings.Occurrence(
                     eventID: "preview", title: "Product sync",
                     start: start, end: start.addingTimeInterval(30 * 60),
-                    link: Meetings.Link(provider: .meet,
-                                        url: "https://meet.google.com/abc-defg-hij"),
-                    calendar: "Work", account: "Google")
+                    link: Meetings.Link(provider: .zoom,
+                                        url: "https://zoom.us/j/123456789"),
+                    calendar: "Work", account: "Google", people: 6)
                 controller.occurrences = [occurrence]
                 controller.evaluate()
                 // The chip's own titled, deferred, never-key panel refuses
@@ -634,5 +762,21 @@ extension MeetingController {
         case .webex: return "Webex"
         case .facetime: return "FaceTime"
         }
+    }
+}
+
+/// The stub's tear line: short dashes down the seam, flat, one hairline
+/// wide, in whatever ink reads on the side it is drawn against.
+final class PerforationView: NSView {
+    var ink: NSColor = .labelColor.withAlphaComponent(0.16) { didSet { needsDisplay = true } }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let path = NSBezierPath()
+        path.move(to: NSPoint(x: bounds.midX, y: bounds.minY + 5))
+        path.line(to: NSPoint(x: bounds.midX, y: bounds.maxY - 5))
+        path.lineWidth = 1.5
+        path.setLineDash([3, 3], count: 2, phase: 0)
+        ink.setStroke()
+        path.stroke()
     }
 }

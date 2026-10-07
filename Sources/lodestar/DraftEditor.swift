@@ -131,26 +131,32 @@ final class DraftEditor: EditorLens {
         completion(true)
     }
 
-    func dismiss(_ mark: EditorController.Mark) {
+    func ignore(_ mark: EditorController.Mark) { settle(mark, learning: false) }
+    func learn(_ mark: EditorController.Mark) { settle(mark, learning: true) }
+
+    /// The editor's two answers that are not a fix, as `EditorController`
+    /// gives them: ignore leaves the words while their sentence stands,
+    /// learn teaches a word the dictionary did not know.
+    private func settle(_ mark: EditorController.Mark, learning: Bool) {
         let issue = mark.issue
-        let isName = EditorController.isName(issue, language: session.language)
-        if isName {
+        let learns = learning && EditorController.isName(issue, language: session.language)
+        if learns {
             learnName(EditorController.word(issue))
         } else {
             session.dismissOnce(issue, in: text)
         }
-        observations?.edited(action: "dismissed", kind: isName ? "name" : "sentence", app: "draft", via: "keys",
+        observations?.edited(action: "dismissed", kind: learns ? "name" : "sentence", app: "draft", via: "keys",
                              at: clock.now())
         issues.removeAll { $0 == issue }
         draft?.setEditorMarks(issues.map(\.range))
     }
 
     /// The draft's own spelling keys: `z=` fixes the mark under the
-    /// cursor, `zg` keeps its word.
+    /// cursor, `zg` learns its word, as vim adds a good word.
     func spellKey(on range: NSRange, keep: Bool) {
         guard let issue = issues.first(where: { $0.range == range }) else { return }
         let mark = EditorController.Mark(issue: issue, rect: .zero)
-        if keep { dismiss(mark) } else { fix(mark) { _ in } }
+        if keep { learn(mark) } else { fix(mark) { _ in } }
     }
 
     func undoLastFix(completion: @escaping (Bool) -> Void) {

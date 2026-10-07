@@ -390,6 +390,19 @@ enum BarTheme {
     /// sizes with one home each, so the drift guard can hold the line.
     static let stripInputFont = handFont(19)
     static let badgeFont = NSFont.systemFont(ofSize: 27, weight: .bold)
+    /// The meeting's stub: its count in digits that hold their width while
+    /// they change, a word ("Now") a size down, and the unit in small caps.
+    static let stubCountFont = NSFont.monospacedDigitSystemFont(ofSize: 19, weight: .semibold)
+    static let stubWordFont = NSFont.systemFont(ofSize: 15, weight: .semibold)
+    static let stubUnitFont = NSFont.systemFont(ofSize: 9.5, weight: .semibold)
+    /// The meeting's name on its stub, in the voice a size under the body,
+    /// and the line beneath it.
+    static let stubTitleFont: NSFont = {
+        let size: CGFloat = 15
+        let descriptor = NSFont.systemFont(ofSize: size).fontDescriptor.withDesign(.serif)
+        return descriptor.flatMap { NSFont(descriptor: $0, size: size) } ?? NSFont.systemFont(ofSize: size)
+    }()
+    static let stubDetailFont = NSFont.systemFont(ofSize: 11.5)
     static let dotFont = NSFont.systemFont(ofSize: 8)
     /// Controls and marks on the ladder: a glass chip and a settings well
     /// are controls; a match's wash on the page is a mark. The hairline
@@ -895,6 +908,9 @@ final class RoomButton: NSButton {
     /// accent's face with the mark's bright top edge and the letter in the
     /// ink that reads on it. One per surface.
     var primary = false { didSet { restyle() } }
+    /// A word given as an answer (the editor's card): set in the body's
+    /// face and size, on a taller key, because it is the person's text.
+    var answer = false { didSet { restyle() } }
     private var hovering = false { didSet { restyle() } }
     private let light = EdgeLight()
 
@@ -922,7 +938,9 @@ final class RoomButton: NSButton {
 
     override var intrinsicContentSize: NSSize {
         let text = attributedTitle.size()
-        return NSSize(width: (text.width + 20).rounded(.up), height: 24)
+        return answer
+            ? NSSize(width: (text.width + 22).rounded(.up), height: 30)
+            : NSSize(width: (text.width + 20).rounded(.up), height: 24)
     }
 
     override func updateTrackingAreas() {
@@ -948,7 +966,7 @@ final class RoomButton: NSButton {
         let color: NSColor = primary ? BarTheme.onAccent : (isEnabled ? .labelColor : BarTheme.secondaryColor)
         let words = super.title
         super.attributedTitle = NSAttributedString(string: words, attributes: [
-            .font: BarTheme.secondaryFont, .foregroundColor: color])
+            .font: answer ? BarTheme.bodyFont : BarTheme.secondaryFont, .foregroundColor: color])
         effectiveAppearance.performAsCurrentDrawingAppearance {
             if primary {
                 let face = BarTheme.accent

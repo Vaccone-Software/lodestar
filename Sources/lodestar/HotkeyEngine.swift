@@ -1696,6 +1696,15 @@ final class HotkeyEngine {
                 GuideRow(key: "?", label: "This sheet"),
                 GuideRow(key: "esc", label: "Back to Keep"),
             ])]
+        case .select where select.door == .editor:
+            return [.init(header: "Editor", rows: [
+                GuideRow(key: "a…z", label: "Fix the mark with this letter"),
+                GuideRow(key: "⇧A…Z", label: "Leave it as written"),
+                GuideRow(key: "⌥A…Z", label: "Learn the word"),
+                GuideRow(key: "⌫", label: "Take the last fix back"),
+                GuideRow(key: "?", label: "This sheet"),
+                leaving,
+            ])]
         case .select:
             return [.init(header: "Select", rows: [
                 GuideRow(key: "a…z", label: "Type what you see · a unique match anchors on its own"),
@@ -1900,7 +1909,7 @@ final class HotkeyEngine {
                 .init(header: "Marks", rows: [
                     GuideRow(key: "]s [s", label: "Next mark · the one before"),
                     GuideRow(key: "z=", label: "Take its fix"),
-                    GuideRow(key: "zg", label: "Keep the word"),
+                    GuideRow(key: "zg", label: "Learn the word"),
                 ]),
             ]
         case .visual:
@@ -2606,6 +2615,10 @@ extension HotkeyEngine: EngineWorld {
 
     func hintType(_ letter: String, shift: Bool, control: Bool) -> HintStep {
         select.clickKey(letter, shift: shift, control: control)
+    }
+
+    func hintType(_ letter: String, shift: Bool, control: Bool, option: Bool) -> HintStep {
+        select.clickKey(letter, shift: shift, control: control, option: option)
     }
 
     private var currentEditor: EditorLens? {

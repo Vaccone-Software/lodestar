@@ -276,6 +276,9 @@ public protocol EngineWorld: AnyObject {
     /// variant of the fire, carried by the keystroke that completes it:
     /// on a two-letter label, the last key decides.
     func hintType(_ letter: String, shift: Bool, control: Bool) -> HintStep
+    /// The same key with ⌥ read too. Only the editor's lens answers to it
+    /// (⌥ and a letter learns the word); everywhere else it is the key.
+    func hintType(_ letter: String, shift: Bool, control: Bool, option: Bool) -> HintStep
     /// Enter select on the focused window; false when there is none.
     func enterSelect() -> Bool
     /// Open Bring over the app in front: its other windows, and every
@@ -312,6 +315,9 @@ public extension EngineWorld {
     var editorActive: Bool { false }
     func enterEditor() -> Bool { false }
     func pastePanelIsKept() -> Bool { false }
+    func hintType(_ letter: String, shift: Bool, control: Bool, option: Bool) -> HintStep {
+        hintType(letter, shift: shift, control: control)
+    }
     func enterBring(carryingQuery: Bool) -> Bool { false }
     func bringCardExists(_ label: String) -> Bool { true }
     func pasteQueryIsEmpty() -> Bool { true }
@@ -1063,7 +1069,7 @@ public struct EngineCore {
             // Every typable key feeds the mode — the pixel door aims by
             // typing what the screen says, and a URL or a count needs its
             // digits and symbols. Unmappable keys die quietly inside.
-            switch world.hintType(key, shift: shift, control: control) {
+            switch world.hintType(key, shift: shift, control: control, option: option) {
             case .fired where sticky:
                 return [.hintRescan]
             case .fired, .firedFocus:

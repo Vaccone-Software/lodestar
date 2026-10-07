@@ -449,7 +449,7 @@ final class EditorControllerTests: XCTestCase {
                        NSRange(location: 13, length: 5), "a selection keeps its length")
     }
 
-    func testKeepingAWordTeachesItAndKeepingGrammarQuietsOnlyItsSentence() throws {
+    func testLearningAWordTeachesItAndIgnoringGrammarQuietsOnlyItsSentence() throws {
         let rig = EditorRig()
         rig.reader.answer("Their going to lodestr it.", "They're going to lodestr it.")
         rig.type("Their going to lodestr it. We need to recieve them.")
@@ -460,9 +460,10 @@ final class EditorControllerTests: XCTestCase {
         // checker's there.
         rig.settle("the model's mark") { Set(rig.controller.lensMarks.map(\.issue.original)) == ["Their", "recieve"] }
         let marks = rig.controller.lensMarks
-        rig.controller.dismiss(try XCTUnwrap(marks.first { $0.issue.original == "Their" }, "\(marks.map(\.issue))"))
-        rig.controller.dismiss(try XCTUnwrap(marks.first { $0.issue.original == "recieve" }, "\(marks.map(\.issue))"))
-        XCTAssertEqual(rig.names, ["recieve"], "a spelling kept is the hand's word: draft.words")
+        // Learn on a grammar mark has nothing to learn: it is ignored.
+        rig.controller.learn(try XCTUnwrap(marks.first { $0.issue.original == "Their" }, "\(marks.map(\.issue))"))
+        rig.controller.learn(try XCTUnwrap(marks.first { $0.issue.original == "recieve" }, "\(marks.map(\.issue))"))
+        XCTAssertEqual(rig.names, ["recieve"], "a spelling learned is the hand's word: draft.words")
         XCTAssertTrue(rig.controller.lensMarks.isEmpty)
         XCTAssertEqual(rig.events.filter { $0.action == "dismissed" }.map(\.rec), ["sentence", "name"])
 
@@ -541,7 +542,7 @@ final class EditorPrivacyTests: XCTestCase {
         var done: Bool?
         rig.controller.fix(rig.controller.lensMarks.first { $0.issue.original == "recieve" }!) { done = $0 }
         rig.settle("the fix") { done != nil }
-        rig.controller.dismiss(rig.controller.lensMarks.first { $0.issue.original == "Their" }!)
+        rig.controller.ignore(rig.controller.lensMarks.first { $0.issue.original == "Their" }!)
         rig.type("Hello there, all good.", pid: 777, app: "Notes", bundle: "com.apple.Notes")
         rig.drain()
 
@@ -726,14 +727,40 @@ final class EditorHoverTests: XCTestCase {
         XCTAssertNil(EditorHover.mark(at: CGPoint(x: 130, y: 340), in: marks), "a line below")
     }
 
-    func testTheCardSaysWhatChanges() {
-        XCTAssertEqual(EditorHover.words(for: mark("recieve", "receive", x: 0, kind: .spelling).issue).title,
-                       "recieve → receive")
-        XCTAssertEqual(EditorHover.words(for: mark("recieve", "receive", x: 0, kind: .spelling).issue).detail, "Spelling")
-        XCTAssertEqual(EditorHover.words(for: mark("Their", "They're", x: 0).issue).detail, "Grammar")
-        let comma = EditorHover.words(for: mark("small,", "small", x: 0, note: "remove comma").issue)
-        XCTAssertEqual(comma.title, "Remove comma", "a change the words alone would not show says what it does")
-        XCTAssertEqual(comma.detail, "small, → small")
+    func testTheCardsAnswersAreTheWords() {
+        let spelling = EditorHover.answers(for: mark("recieve", "receive", x: 0, kind: .spelling).issue)
+        XCTAssertEqual(spelling.fix, "receive")
+        XCTAssertEqual(spelling.written, "recieve", "your own word is the answer that keeps it")
+        let comma = EditorHover.answers(for: mark("small,", "small", x: 0, note: "remove comma").issue)
+        XCTAssertEqual(comma.fix, "Remove comma", "a change the words alone would not show says what it does")
+        XCTAssertEqual(comma.written, "small,")
+        XCTAssertEqual(EditorHover.answers(for: mark("the", "", x: 0).issue).fix, "Remove", "a word that should go")
+    }
+
+    func testOnlyASpellingMarkOffersLearn() {
+        let hover = EditorHover(clock: VirtualClock().clock)
+        addTeardownBlock { hover.panel?.close() }
+        hover.learnable = { $0.issue.kind == .spelling }
+        hover.show(mark("recieve", "receive", x: 100, kind: .spelling))
+        XCTAssertNotNil(hover.learnButton)
+        XCTAssertEqual(hover.fixButton?.title, "receive")
+        XCTAssertEqual(hover.ignoreButton?.title, "recieve")
+        hover.show(mark("Their", "They're", x: 100))
+        XCTAssertNil(hover.learnButton, "a grammar change is right in one sentence and wrong in the next")
+        XCTAssertEqual(hover.fixButton?.title, "They're")
+    }
+
+    func testTheCardStandsJustAboveTheWord() throws {
+        let hover = EditorHover(clock: VirtualClock().clock)
+        addTeardownBlock { hover.panel?.close() }
+        let m = mark("Their", "They're", x: 300)
+        hover.show(m)
+        let panel = try XCTUnwrap(hover.panel)
+        let height = try XCTUnwrap(NSScreen.screens.first).frame.maxY
+        // The glass's bottom edge, in the marks' top-left coordinates.
+        let glassBottom = height - panel.glassFrame.minY
+        XCTAssertLessThanOrEqual(glassBottom, m.rect.minY, "above the word, never over it")
+        XCTAssertGreaterThan(glassBottom, m.rect.minY - 12, "close enough that the pointer barely moves")
     }
 
     private func hover(_ marks: [EditorController.Mark], at point: CGPoint) -> (EditorHover, VirtualClock) {
@@ -823,7 +850,8 @@ final class EditorHoverTests: XCTestCase {
         let shown = texts(try XCTUnwrap(hover.panel?.contentView))
         XCTAssertFalse(shown.contains("lode"), "\(shown)")
         XCTAssertFalse(shown.contains { $0.contains("every mark") }, "\(shown)")
-        XCTAssertTrue(shown.contains("Accept"))
+        XCTAssertEqual(hover.fixButton?.title, "They're", "the answer is the word")
+        XCTAssertFalse(shown.contains { $0.contains("→") }, "no headline restating the change: \(shown)")
     }
 
     func testLeavingTheWordAndTheCardClosesIt() {
@@ -837,8 +865,8 @@ final class EditorHoverTests: XCTestCase {
         hover.moved()
         clock.advance(by: EditorHover.dwell + 0.05)
         XCTAssertEqual(hover.shown, m)
-        // Down onto the card: it stays.
-        point = CGPoint(x: 140, y: 340)
+        // Up onto the card, which stands just above the word: it stays.
+        point = CGPoint(x: 140, y: 280)
         hover.moved()
         clock.advance(by: 1)
         XCTAssertEqual(hover.shown, m, "the way to the card does not close it")
@@ -886,16 +914,22 @@ final class EditorHoverTests: XCTestCase {
         addTeardownBlock { hover.panel?.close() }
         hover.marks = { [m] }
         var accepted: [EditorController.Mark] = []
-        var kept: [EditorController.Mark] = []
+        var ignored: [EditorController.Mark] = []
+        var learned: [EditorController.Mark] = []
         hover.accept = { accepted.append($0) }
-        hover.keep = { kept.append($0) }
+        hover.ignore = { ignored.append($0) }
+        hover.learn = { learned.append($0) }
+        hover.learnable = { _ in true }
         hover.show(m)
-        click(hover.acceptButton)
+        click(hover.fixButton)
         XCTAssertEqual(accepted, [m])
         XCTAssertNil(hover.shown, "an answer closes the card")
         hover.show(m)
-        click(hover.keepButton)
-        XCTAssertEqual(kept, [m])
+        click(hover.ignoreButton)
+        XCTAssertEqual(ignored, [m])
+        hover.show(m)
+        click(hover.learnButton)
+        XCTAssertEqual(learned, [m])
         XCTAssertEqual(accepted.count, 1)
     }
 
@@ -905,7 +939,7 @@ final class EditorHoverTests: XCTestCase {
         rig.settle("the mark") { rig.controller.lensMarks.count == 1 }
         let hover = rig.controller.hover!
         hover.show(rig.controller.lensMarks[0])
-        click(hover.acceptButton)
+        click(hover.fixButton)
         rig.settle("the fix") { rig.source.text?.hasPrefix("We need to receive") == true }
         rig.settle("recorded") { rig.events.contains { $0.action == "applied" } }
         XCTAssertEqual(rig.events.first { $0.action == "applied" }?.row, "mouse")

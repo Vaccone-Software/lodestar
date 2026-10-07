@@ -65,7 +65,21 @@ final class DraftEditorScenarioTests: XCTestCase {
     /// Through the wiring that ships: the kept word is written to the
     /// config and the engine takes the new config. Written inside the
     /// keystroke, that re-entered the engine's core and aborted the app.
-    func testShiftAndALetterKeepsAWord() throws {
+    func testOptionAndALetterLearnsAWord() throws {
+        let (stage, _, _, _) = stage()
+        stage.lode(".")
+        stage.speech.settle("We ship lodestr today.")
+        stage.lode("tab")
+        let letter = try XCTUnwrap(stage.engine.select.shownChips.first?.label.first)
+        XCTAssertTrue(stage.press(letter.description, option: true))
+        Stage.pump()
+        XCTAssertEqual(stage.engine.config.draftWords, ["lodestr"],
+                       "a word the dictionary did not know is one of your words now")
+        XCTAssertTrue(stage.draft.editorMarks.isEmpty)
+        XCTAssertEqual(stage.draft.buffer.text, "We ship lodestr today.", "nothing changed")
+    }
+
+    func testShiftAndALetterLeavesAWordWithoutLearningIt() throws {
         let (stage, _, _, _) = stage()
         stage.lode(".")
         stage.speech.settle("We ship lodestr today.")
@@ -73,8 +87,7 @@ final class DraftEditorScenarioTests: XCTestCase {
         let letter = try XCTUnwrap(stage.engine.select.shownChips.first?.label.first)
         XCTAssertTrue(stage.press(letter.description, shift: true))
         Stage.pump()
-        XCTAssertEqual(stage.engine.config.draftWords, ["lodestr"],
-                       "a word the dictionary did not know is one of your words now")
+        XCTAssertEqual(stage.engine.config.draftWords, [], "ignoring teaches nothing")
         XCTAssertTrue(stage.draft.editorMarks.isEmpty)
         XCTAssertEqual(stage.draft.buffer.text, "We ship lodestr today.", "nothing changed")
     }

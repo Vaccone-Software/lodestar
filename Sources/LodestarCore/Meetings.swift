@@ -183,9 +183,12 @@ public enum Meetings {
         public let link: Link
         public let calendar: String?
         public let account: String?
+        /// Everyone invited, the person included, when the event lists
+        /// guests; nil when it lists none. A count only, never a name.
+        public let people: Int?
 
         public init(eventID: String, title: String, start: Date, end: Date,
-                    link: Link, calendar: String?, account: String?) {
+                    link: Link, calendar: String?, account: String?, people: Int? = nil) {
             self.key = "\(eventID)@\(Int(start.timeIntervalSinceReferenceDate))"
             self.title = title
             self.start = start
@@ -193,6 +196,7 @@ public enum Meetings {
             self.link = link
             self.calendar = calendar
             self.account = account
+            self.people = people
         }
     }
 

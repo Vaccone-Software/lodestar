@@ -511,9 +511,10 @@ final class Stage {
     /// One key, down then up, under whatever lode is doing. Returns whether
     /// the key-down was swallowed.
     @discardableResult
-    func press(_ name: String, shift: Bool = false, posted: Bool = false) -> Bool {
+    func press(_ name: String, shift: Bool = false, option: Bool = false, posted: Bool = false) -> Bool {
         var flags: CGEventFlags = lodeHeld ? Self.lodeFlags : []
         if shift { flags.insert(.maskShift) }
+        if option { flags.insert(.maskAlternate) }
         let code = Self.keycode(name)
         let swallowed = send(event(type: .keyDown, keycode: code, flags: flags, posted: posted))
         send(event(type: .keyUp, keycode: code, flags: flags, posted: posted))

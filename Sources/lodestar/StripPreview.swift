@@ -287,13 +287,16 @@ enum StripPreview {
             app.run()
         }
 
-        // 60 the meeting chip, 61 the calendar prime card. Constructed on
-        // the run loop: a panel born before the app finishes launching
-        // never reaches the window server, and the chip is never key, so
-        // nothing later would rescue it.
-        if variant == 60 || variant == 61 {
+        // 60 the meeting chip three minutes out, 61 the calendar prime
+        // card, 130 the chip at the door. Constructed on the run loop: a
+        // panel born before the app finishes launching never reaches the
+        // window server, and the chip is never key, so nothing later would
+        // rescue it.
+        if variant == 60 || variant == 61 || variant == 130 {
             DispatchQueue.main.async {
-                heldMeeting = MeetingController.preview(variant - 60)
+                heldMeeting = variant == 130
+                    ? MeetingController.preview(0, startingIn: 42)
+                    : MeetingController.preview(variant - 60, startingIn: 3 * 60 + 30)
             }
             app.run()
         }
@@ -376,16 +379,17 @@ enum StripPreview {
             app.run()
         }
 
-        // 128, 129: the editor's card under a word, a spelling and a
-        // grammar fix with its note.
+        // 128, 129: the editor's card over a word, a spelling mark (fix,
+        // your word, Learn) and a grammar mark (fix, your words).
         if variant == 128 || variant == 129 {
             let hover = EditorHover()
+            hover.learnable = { $0.issue.kind == .spelling }
             heldHover = hover
             let issue = variant == 128
                 ? EditorIssue(range: NSRange(location: 0, length: 7), original: "recieve", replacement: "receive",
                               kind: .spelling)
-                : EditorIssue(range: NSRange(location: 0, length: 9), original: "less words", replacement: "fewer words",
-                              kind: .grammar, note: "use fewer with things you can count")
+                : EditorIssue(range: NSRange(location: 0, length: 4), original: "less", replacement: "fewer",
+                              kind: .grammar)
             DispatchQueue.main.async {
                 hover.show(EditorController.Mark(issue: issue, rect: CGRect(x: 700, y: 420, width: 90, height: 22)))
             }

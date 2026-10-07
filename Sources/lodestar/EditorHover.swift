@@ -1,15 +1,20 @@
 import AppKit
 import LodestarCore
 
-/// The mark, for a hand on the mouse: rest the pointer on a line and a
-/// small card says what the editor would change, with Accept and Keep as
-/// written — the same two answers the lens gives by letter and by ⇧ and a
-/// letter. The card never takes focus, so the field keeps its caret and a
-/// fix typed into it lands where it should.
+/// The mark, for a hand on the mouse: rest the pointer on a line and the
+/// card is the answers themselves, lifted just above the word. The fix is
+/// the lit key, your own word beside it leaves the text as written, and on
+/// a spelling mark Learn teaches the word: the lens's letter, ⇧ and a
+/// letter, and ⌥ and a letter. No headline and no labels: the answer is
+/// the word, and the pointer barely moves to give it. The card never takes
+/// focus, so the field keeps its caret and a fix lands where it should.
 final class EditorHover: NSObject {
     var marks: () -> [EditorController.Mark] = { [] }
     var accept: (EditorController.Mark) -> Void = { _ in }
-    var keep: (EditorController.Mark) -> Void = { _ in }
+    var ignore: (EditorController.Mark) -> Void = { _ in }
+    var learn: (EditorController.Mark) -> Void = { _ in }
+    /// Whether a mark has a word to learn: a spelling mark on one word.
+    var learnable: (EditorController.Mark) -> Bool = { _ in false }
     /// Where the pointer is, top-left origin like every mark — the
     /// screen's in the app, the test's own in the scenarios.
     var pointer: () -> CGPoint = EditorHover.systemPointer
@@ -36,10 +41,11 @@ final class EditorHover: NSObject {
     private(set) var panel: NSPanel?
     /// What the drawn shadow hosts; each card is built inside it.
     private let holder = NSView()
-    /// The card's two answers. A card for the pointer has no key of its
-    /// own, so they are Lodestar's buttons, Accept the lit one.
-    private(set) var acceptButton: RoomButton?
-    private(set) var keepButton: RoomButton?
+    /// The card's answers. A card for the pointer has no key of its own,
+    /// so they are Lodestar's buttons, the fix the one lit.
+    private(set) var fixButton: RoomButton?
+    private(set) var ignoreButton: RoomButton?
+    private(set) var learnButton: RoomButton?
     private var cardFrame = CGRect.null   // quartz
 
     // MARK: - Watching the pointer
@@ -134,14 +140,20 @@ final class EditorHover: NSObject {
         panel?.orderOut(nil)
     }
 
-    /// What the card says: the change as a line, and underneath it what
-    /// kind of mistake it is — or, when the replacement alone would not
-    /// show it, what the change does.
-    static func words(for issue: EditorIssue) -> (title: String, detail: String) {
+    /// The words on the card's two keys: the fix, and your own words as
+    /// written. A change the replacement alone would not show (a comma
+    /// gone) says what it does instead, and so does a word that should go.
+    static func answers(for issue: EditorIssue) -> (fix: String, written: String) {
+        let fix: String
         if let note = issue.note {
-            return (note.prefix(1).uppercased() + note.dropFirst(), "\(issue.original) → \(issue.replacement)")
+            fix = note.prefix(1).uppercased() + note.dropFirst()
+        } else if issue.replacement.isEmpty {
+            fix = "Remove"
+        } else {
+            fix = issue.replacement
         }
-        return ("\(issue.original) → \(issue.replacement)", issue.kind == .spelling ? "Spelling" : "Grammar")
+        let written = issue.original.trimmingCharacters(in: .whitespaces)
+        return (fix, written.isEmpty ? "Keep as written" : written)
     }
 
     func show(_ mark: EditorController.Mark) {
@@ -160,59 +172,51 @@ final class EditorHover: NSObject {
         holder.addSubview(root)
         Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
 
-        let (title, detail) = Self.words(for: mark.issue)
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 4
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        // The editor's explanation is Lodestar speaking, in its voice; the
-        // change itself is the person's words, in the interface's face.
-        let speaks = mark.issue.note != nil
-        let head = label(title, size: BarTheme.Scale.body, weight: speaks ? .regular : .semibold, color: .labelColor)
-        if speaks { head.font = BarTheme.voiceFont }
-        stack.addArrangedSubview(head)
-        stack.addArrangedSubview(label(detail, size: BarTheme.Scale.meta, weight: .regular,
-                                       color: BarTheme.secondaryColor))
-        stack.setCustomSpacing(12, after: stack.arrangedSubviews.last!)
-
+        let words = Self.answers(for: mark.issue)
         let answers = NSStackView()
         answers.orientation = .horizontal
         answers.alignment = .centerY
-        answers.spacing = 8
-        let acceptButton = RoomButton(frame: .zero)
-        acceptButton.title = "Accept"
-        acceptButton.primary = true
-        acceptButton.target = self
-        acceptButton.action = #selector(acceptPressed)
-        let keepButton = RoomButton(frame: .zero)
-        keepButton.title = "Keep as written"
-        keepButton.target = self
-        keepButton.action = #selector(keepPressed)
-        self.acceptButton = acceptButton
-        self.keepButton = keepButton
-        answers.addArrangedSubview(acceptButton)
-        answers.addArrangedSubview(keepButton)
-        stack.addArrangedSubview(answers)
+        answers.spacing = 6
+        answers.translatesAutoresizingMaskIntoConstraints = false
+        func button(_ title: String, _ action: Selector, lit: Bool = false) -> RoomButton {
+            let button = RoomButton(frame: .zero)
+            button.answer = true
+            button.title = title
+            button.primary = lit
+            button.target = self
+            button.action = action
+            answers.addArrangedSubview(button)
+            return button
+        }
+        // Only the recommendation is lit; your words and Learn are the same
+        // raised key, so the one light is the one answer suggested.
+        fixButton = button(words.fix, #selector(fixPressed), lit: true)
+        ignoreButton = button(words.written, #selector(ignorePressed))
+        ignoreButton?.setAccessibilityLabel("Keep \(words.written) as written")
+        learnButton = learnable(mark) ? button("Learn", #selector(learnPressed)) : nil
+        learnButton?.setAccessibilityLabel("Learn \(EditorController.word(mark.issue))")
 
-        root.addSubview(stack)
+        root.addSubview(answers)
+        let inset: CGFloat = 8
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 11),
-            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 14),
-            stack.trailingAnchor.constraint(lessThanOrEqualTo: root.trailingAnchor, constant: -14),
+            answers.topAnchor.constraint(equalTo: root.topAnchor, constant: inset),
+            answers.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: inset),
         ])
         root.layoutSubtreeIfNeeded()
-        let size = NSSize(width: max(200, stack.fittingSize.width + 28), height: stack.fittingSize.height + 22)
+        let size = NSSize(width: (answers.fittingSize.width + inset * 2).rounded(.up),
+                          height: (answers.fittingSize.height + inset * 2).rounded(.up))
 
-        // Below the word, where the eye already is; above it when the
-        // screen ends first.
+        // Just above the word, so the pointer resting on it is a few points
+        // from every answer and the lines being written stay in sight;
+        // below it when the screen ends first.
         guard let primary = NSScreen.screens.first else { return }
         let height = primary.frame.maxY
-        var top = mark.rect.maxY + 8
         let screen = NSScreen.screens.first { $0.frame.contains(NSPoint(x: mark.rect.midX, y: height - mark.rect.midY)) }
             ?? primary
-        if height - (top + size.height) < screen.visibleFrame.minY { top = mark.rect.minY - 8 - size.height }
-        let x = min(max(mark.rect.minX - 6, screen.visibleFrame.minX + 4), screen.visibleFrame.maxX - size.width - 4)
+        var top = (mark.rect.minY - 6 - size.height).rounded()
+        if top < height - screen.visibleFrame.maxY { top = (mark.rect.maxY + 8).rounded() }
+        let x = min(max((mark.rect.minX - inset - 2).rounded(), screen.visibleFrame.minX + 4),
+                    screen.visibleFrame.maxX - size.width - 4)
         cardFrame = CGRect(x: x, y: top, width: size.width, height: size.height)
         panel.setGlassFrame(NSRect(x: x, y: height - top - size.height, width: size.width, height: size.height),
                             display: true)
@@ -220,24 +224,21 @@ final class EditorHover: NSObject {
         shown = mark
     }
 
-    @objc private func acceptPressed() {
+    @objc private func fixPressed() {
         guard let mark = shown else { return }
         hide()
         accept(mark)
     }
 
-    @objc private func keepPressed() {
+    @objc private func ignorePressed() {
         guard let mark = shown else { return }
         hide()
-        keep(mark)
+        ignore(mark)
     }
 
-    private func label(_ text: String, size: CGFloat, weight: NSFont.Weight, color: NSColor) -> NSTextField {
-        let field = NSTextField(labelWithString: text)
-        field.font = .systemFont(ofSize: size, weight: weight)
-        field.textColor = color
-        field.lineBreakMode = .byTruncatingTail
-        field.maximumNumberOfLines = 1
-        return field
+    @objc private func learnPressed() {
+        guard let mark = shown else { return }
+        hide()
+        learn(mark)
     }
 }

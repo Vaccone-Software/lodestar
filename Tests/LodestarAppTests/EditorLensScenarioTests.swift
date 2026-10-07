@@ -4,7 +4,7 @@ import XCTest
 @testable import LodestarCore
 
 /// `lode ⇥` with the editor on: a letter on every mark, the letter fixes,
-/// ⇧ and the letter keeps, ⌫ takes the last fix back, and the lens stands
+/// ⇧ and the letter ignores, ⌥ and the letter learns, ⌫ takes the last fix back, and the lens stands
 /// until the last mark is gone.
 final class EditorLensScenarioTests: XCTestCase {
     private final class FakeLens: EditorLens {
@@ -12,14 +12,19 @@ final class EditorLensScenarioTests: XCTestCase {
         var lensMarks: [EditorController.Mark] = []
         var fixed: [EditorIssue] = []
         var kept: [EditorIssue] = []
+        var learned: [EditorIssue] = []
         var undone = 0
         func fix(_ mark: EditorController.Mark, completion: @escaping (Bool) -> Void) {
             fixed.append(mark.issue)
             lensMarks.removeAll { $0 == mark }
             completion(true)
         }
-        func dismiss(_ mark: EditorController.Mark) {
+        func ignore(_ mark: EditorController.Mark) {
             kept.append(mark.issue)
+            lensMarks.removeAll { $0 == mark }
+        }
+        func learn(_ mark: EditorController.Mark) {
+            learned.append(mark.issue)
             lensMarks.removeAll { $0 == mark }
         }
         func undoLastFix(completion: @escaping (Bool) -> Void) {
@@ -69,13 +74,24 @@ final class EditorLensScenarioTests: XCTestCase {
         XCTAssertFalse(stage.engine.stateDescription.contains("hints"), "the last mark closes the lens")
     }
 
-    func testShiftAndALetterKeepsTheWords() throws {
+    func testShiftAndALetterIgnores() throws {
         let (stage, lens) = stage(with: [mark("retile", "retiling", x: 10), mark("its", "it's", x: 120)])
         stage.lode("tab")
         let label = try XCTUnwrap(stage.engine.select.shownChips.first { $0.label.hasSuffix("retiling") }?.label.first)
         XCTAssertTrue(stage.press(label.description, shift: true))
-        XCTAssertEqual(lens.kept.map(\.original), ["retile"], "⇧ keeps, and fixes nothing")
+        XCTAssertEqual(lens.kept.map(\.original), ["retile"], "⇧ leaves the words, and fixes nothing")
         XCTAssertTrue(lens.fixed.isEmpty)
+        XCTAssertTrue(lens.learned.isEmpty, "⇧ teaches nothing")
+    }
+
+    func testOptionAndALetterLearns() throws {
+        let (stage, lens) = stage(with: [mark("Kubelet", "Kubelik", x: 10), mark("its", "it's", x: 120)])
+        stage.lode("tab")
+        let label = try XCTUnwrap(stage.engine.select.shownChips.first { $0.label.hasSuffix("Kubelik") }?.label.first)
+        XCTAssertTrue(stage.press(label.description, option: true))
+        XCTAssertEqual(lens.learned.map(\.original), ["Kubelet"], "⌥ learns the word")
+        XCTAssertTrue(lens.fixed.isEmpty)
+        XCTAssertTrue(lens.kept.isEmpty)
     }
 
     func testDeleteTakesTheLastFixBack() throws {

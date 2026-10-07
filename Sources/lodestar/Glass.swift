@@ -891,9 +891,9 @@ final class RoomField: NSView {
 final class RoomButton: NSButton {
     /// Kept for its callers; what cannot be undone is told by its words.
     var destructive = false { didSet { restyle() } }
-    /// The answer the surface exists for: raised, and lit along its top
-    /// edge in the accent, the way a chosen row catches the light. One
-    /// per surface.
+    /// The answer the surface exists for: lit as a key is lit, the
+    /// accent's face with the mark's bright top edge and the letter in the
+    /// ink that reads on it. One per surface.
     var primary = false { didSet { restyle() } }
     private var hovering = false { didSet { restyle() } }
     private let light = EdgeLight()
@@ -945,16 +945,16 @@ final class RoomButton: NSButton {
     private func restyle() {
         // A button that cannot be undone says so in its words, never in
         // an alarm colour: one light, no paint.
-        let color: NSColor = isEnabled ? .labelColor : BarTheme.secondaryColor
+        let color: NSColor = primary ? BarTheme.onAccent : (isEnabled ? .labelColor : BarTheme.secondaryColor)
         let words = super.title
         super.attributedTitle = NSAttributedString(string: words, attributes: [
             .font: BarTheme.secondaryFont, .foregroundColor: color])
         effectiveAppearance.performAsCurrentDrawingAppearance {
             if primary {
-                layer?.backgroundColor = (hovering ? BarTheme.raised.blended(withFraction: 0.08, of: .labelColor)
-                                                   : BarTheme.raised)?.cgColor
-                layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.10).cgColor
-                light.color = BarTheme.readableAccent
+                let face = BarTheme.accent
+                layer?.backgroundColor = (hovering ? face.blended(withFraction: 0.10, of: .white) ?? face : face).cgColor
+                layer?.borderColor = BarTheme.litKeyLip.cgColor
+                light.color = BarTheme.litKeyTop
             } else {
                 layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(hovering ? 0.11 : 0.06).cgColor
                 layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.12).cgColor

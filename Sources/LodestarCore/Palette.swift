@@ -24,12 +24,6 @@ public enum Palette {
     /// The light: the clay the pictures are made of, lit by their key light.
     public static let clay = Steps(ground: rgb(0xEFE7DE), pane: rgb(0xF8EFE7), raised: rgb(0xFFFBF6))
 
-    /// The light, as a light theme is made rather than as the night
-    /// inverted: near-neutral off-whites carrying a trace of warm sand,
-    /// a tenth of clay's tint, so the paper is never beige or pink and the
-    /// warmth is the orange's and the pictures'. A card is white and rises
-    /// on its hairline and shadow, not by being lighter.
-    public static let paper = Steps(ground: rgb(0xF1EFEB), pane: rgb(0xF9F8F6), raised: rgb(0xFFFFFF))
 
     /// A resting key in clay is one of the pictures' dark keycaps, with a
     /// pale letter, as the Keys picture draws them.

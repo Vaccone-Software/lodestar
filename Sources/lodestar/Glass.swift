@@ -50,11 +50,30 @@ extension Glass {
 /// `CLAY=slippure`). One image that draws whichever twin the look in force
 /// calls for, so a picture already on screen changes with the look.
 enum TonedPicture {
+    /// The drawn shadow under a picture in the light.
+    static var shadowed = ProcessInfo.processInfo.environment["LODESTAR_PICTURE_SHADOW"] != "0"
+
     static func make(night: NSImage, day: NSImage?) -> NSImage {
         guard let day else { return night }
         return NSImage(size: night.size, flipped: false) { rect in
             let dark = NSAppearance.currentDrawing().bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            (dark ? night : day).draw(in: rect)
+            if dark {
+                night.draw(in: rect)
+                return true
+            }
+            // In the light an object stands off the page by its shadow,
+            // drawn from its own outline in the surfaces' warm brown, the
+            // way the night lets a pale object stand off by its tone.
+            NSGraphicsContext.saveGraphicsState()
+            if shadowed {
+                let shadow = NSShadow()
+                shadow.shadowColor = NSColor(srgbRed: 0.35, green: 0.23, blue: 0.13, alpha: 0.30)
+                shadow.shadowBlurRadius = rect.width * 0.035
+                shadow.shadowOffset = NSSize(width: 0, height: -rect.width * 0.018)
+                shadow.set()
+            }
+            day.draw(in: rect)
+            NSGraphicsContext.restoreGraphicsState()
             return true
         }
     }
@@ -81,7 +100,7 @@ final class ToneView: NSView {
     var fill: (() -> NSColor)? { didSet { repaint() } }
     var edge: (() -> NSColor)? { didSet { repaint() } }
 
-    /// A lifted surface casts a small shadow on paper, where lighter is
+    /// A lifted surface casts a small shadow in the light, where lighter is
     /// not higher; in the night it needs none.
     private let lifted: Bool
 
@@ -241,8 +260,7 @@ final class TonedGlass: NSGlassEffectView {
         tintColor = BarTheme.glassTint.withAlphaComponent(weight.alpha)
         // On paper the text-dense panels stand nearly opaque: tinted glass
         // casts the desktop's colour over the page and reads muddy.
-        let strength = Accessibility.reduceTransparency() ? Glass.opaque
-            : Tone.systemDark ? weight.veil : max(weight.veil, 0.96)
+        let strength = Accessibility.reduceTransparency() ? Glass.opaque : weight.veil
         veil.layer?.cornerRadius = cornerRadius
         veil.layer?.backgroundColor = BarTheme.ground.withAlphaComponent(strength).cgColor
     }
@@ -611,7 +629,7 @@ enum BarTheme {
 
     /// The palette in force: the night in dark mode, clay in light.
     static var palette: Palette.Steps {
-        Tone.systemDark ? Palette.night : Palette.paper
+        Tone.systemDark ? Palette.night : Palette.clay
     }
 
     /// The pane as a colour that knows both looks, for a layer that must
@@ -619,7 +637,7 @@ enum BarTheme {
     static func dynamicGround(alpha: CGFloat = 1) -> NSColor {
         NSColor(name: nil) { appearance in
             let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            return (dark ? Palette.night : Palette.paper).pane.color.withAlphaComponent(alpha)
+            return (dark ? Palette.night : Palette.clay).pane.color.withAlphaComponent(alpha)
         }
     }
 
@@ -647,27 +665,16 @@ enum BarTheme {
     /// A raised row's top edge catches the light, as every object in the
     /// pictures does: a flat line, never a gradient.
     static var raisedRim: NSColor {
-        Tone.systemDark ? NSColor(white: 1, alpha: 0.10) : NSColor(white: 0, alpha: 0.08)
+        Tone.systemDark ? NSColor(white: 1, alpha: 0.10) : NSColor(white: 1, alpha: 0.9)
     }
 
-    /// A card: in the night a step lighter than the pane, because shadows
-    /// cannot be seen there; on paper white, lifted by a hairline and a
-    /// shadow, because lighter is not higher on a light page.
-    static let cardFill = NSColor(name: nil) { appearance in
-        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            ? NSColor(white: 1, alpha: 0.045) : .white
-    }
-    static let cardEdge = NSColor(name: nil) { appearance in
-        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            ? NSColor(white: 1, alpha: 0.08) : NSColor(white: 0, alpha: 0.09)
-    }
 
     /// The one key, resting: in the night a pale cap on the pane, in clay
     /// one of the pictures' dark keycaps with a pale letter.
     static var keyFill: NSColor {
         Tone.systemDark ? NSColor.white.withAlphaComponent(0.08) : .white
     }
-    /// On paper a key is drawn the way light keys are: a white face, a
+    /// In the light a key is drawn the way light keys are: a white face, a
     /// hairline, a darker lip. In the night the lip and the lit top do it.
     static var keyEdge: NSColor? {
         Tone.systemDark ? nil : NSColor(white: 0, alpha: 0.13)
@@ -703,7 +710,7 @@ enum BarTheme {
     /// the veil's to decide, not the tint's (see `TonedGlass.veil`).
     /// Change the number and the sweep decides, not the eye.
     static var glassTint: NSColor {
-        Tone.systemDark ? NSColor(white: 0.25, alpha: 1) : NSColor(white: 1, alpha: 1)
+        Tone.systemDark ? NSColor(white: 0.25, alpha: 1) : NSColor(white: 0.92, alpha: 1)
     }
 
     /// The accent the person chose, as a closure so a test can choose one.
@@ -747,19 +754,6 @@ enum BarTheme {
         let ratio = Readability.contrast(
             Readability.luminance(red: a.redComponent, green: a.greenComponent, blue: a.blueComponent),
             Readability.luminance(red: g.redComponent, green: g.greenComponent, blue: g.blueComponent))
-        if !Tone.systemDark {
-            // On paper the accent as text is darkened until it reads as
-            // text: International Orange is 3:1 on white, and a mark the
-            // eye must find is held to 4.5. Fills keep the accent itself.
-            var text = a
-            for _ in 0..<12 {
-                let l = Readability.luminance(red: text.redComponent, green: text.greenComponent, blue: text.blueComponent)
-                let g2 = Readability.luminance(red: g.redComponent, green: g.greenComponent, blue: g.blueComponent)
-                if Readability.contrast(l, g2) >= 4.5 { break }
-                text = (text.blended(withFraction: 0.08, of: .black) ?? text).usingColorSpace(.sRGB) ?? text
-            }
-            return text
-        }
         return ratio >= Readability.markFloor ? accent : .labelColor
     }
     /// What a key's row says it does — the reading size, not a caption.
@@ -1509,7 +1503,7 @@ final class KeyFace: NSView {
         // it sinks onto its lip, which is the lip's whole height gone.
         // Light, not ink: a dark clay key blended toward the label colour
         // barely moved, so the hover catches white in both looks.
-        // Light, not ink, in the night; on paper a white key can only darken.
+        // Light, not ink, in the night; in the light a white key can only darken.
         let toward: NSColor = Tone.systemDark || lit ? .white : .black
         let face = pointer == .resting ? resting
             : resting.blended(withFraction: pointer == .pressed ? 0.06 : (Tone.systemDark || lit ? 0.12 : 0.05), of: toward) ?? resting

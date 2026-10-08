@@ -104,6 +104,9 @@ PAL = {
     # with keycaps a step lighter than the case so each key reads as its
     # own object, the way raised keys catch the light.
     "slippure": dict(clay="#221D19", bar="#3E3631", ink="#E6DFD6", title="#2E2824", keyink="#E6DFD6", cap="#3E3530", capink="#E6DFD6"),
+    # Light look experiments: a mid-tone sand, and terracotta.
+    "sand":     dict(clay="#D6CBBF", bar="#B9AC9F", ink="#2A2522", title="#C7BAAD", keyink="#2A2522", cap="#2E2926", capink="#EFE9E2"),
+    "terra":    dict(clay="#C8846A", bar="#A86A53", ink="#2A1810", title="#B9765D", keyink="#2A1810", cap="#2E2926", capink="#EFE9E2"),
     "sliplift": dict(clay="#3D332C", bar="#5A4E45", ink="#E6DFD6", title="#4A3F37", keyink="#E6DFD6", cap="#221D19", capink="#E6DFD6"),
 }[os.environ.get("CLAY", "pale")]
 M = {

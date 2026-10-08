@@ -2027,7 +2027,9 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     /// checkout's packaging folder, and without either the card is empty.
     static func picture(_ name: String) -> NSImage? {
         guard !name.isEmpty, let night = file(name) else { return nil }
-        return TonedPicture.make(night: night, day: file(name + "-slip"))
+        // LODESTAR_PICTURES=pale|slip|sand|terra stages another light set.
+        let set = ProcessInfo.processInfo.environment["LODESTAR_PICTURES"] ?? "slip"
+        return TonedPicture.make(night: night, day: set == "pale" ? night : (file(name + "-" + set) ?? file(name + "-slip")))
     }
 
     private static func file(_ name: String) -> NSImage? {
@@ -2045,8 +2047,9 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
 
     /// One group's card: a surface on the glass, rounded on the ladder.
     static func card() -> NSView {
-        let card = ToneView(fill: BarTheme.cardFill, edge: BarTheme.cardEdge, edgeWidth: 1,
-                            radius: BarTheme.surfaceRadius, lifted: true)
+        let card = ToneView(fill: NSColor.labelColor.withAlphaComponent(0.045),
+                            edge: NSColor.labelColor.withAlphaComponent(0.08), edgeWidth: 1,
+                            radius: BarTheme.surfaceRadius)
         card.translatesAutoresizingMaskIntoConstraints = false
         return card
     }

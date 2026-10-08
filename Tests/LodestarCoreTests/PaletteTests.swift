@@ -26,7 +26,10 @@ final class PaletteTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(contrast(Readability.orangeOnPaper, Palette.clay.pane), Readability.markFloor,
                                     "the clay orange clears the floor where the true colour cannot")
         XCTAssertLessThan(contrast(Readability.orangeOnCharcoal, Palette.clay.pane), Readability.markFloor)
-        XCTAssertGreaterThanOrEqual(contrast(nearBlack, Readability.orangeOnPaper), 4.5, "a lit key's letter on clay")
+        XCTAssertGreaterThanOrEqual(contrast(Readability.orangeOnPaper, Palette.clay.pane), 4.5,
+                                    "the one light accent reads as text on clay")
+        XCTAssertGreaterThanOrEqual(contrast(Readability.RGB(red: 1, green: 1, blue: 1), Readability.orangeOnPaper), 4.5,
+                                    "a lit key's white letter on clay")
         XCTAssertGreaterThanOrEqual(contrast(Palette.clayKeyLetter, Palette.clayKey), 7, "a resting clay key")
     }
 
@@ -36,7 +39,7 @@ final class PaletteTests: XCTestCase {
         let io = Readability.orangeOnCharcoal, clay = Readability.orangeOnPaper
         XCTAssertEqual(clay.blue, 0)
         XCTAssertEqual(clay.green / clay.red, io.green / io.red, accuracy: 0.01)
-        XCTAssertGreaterThan(clay.red, 0.9)
+        XCTAssertGreaterThan(clay.red, 0.7, "deepened, not darkened to brown")
     }
 
     /// The Background choice retired: a config that made it still loads,

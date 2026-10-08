@@ -75,7 +75,9 @@ enum CoachCard {
         address.spacing = 3
         for key in offer.address {
             let cap = Keycaps.cap(key)
-            cap.alphaValue = 0.5
+            // Quiet, not gone: a white key on clay fades into the row
+            // sooner than a pale one on the night does.
+            cap.alphaValue = Tone.systemDark ? 0.5 : 0.8
             address.addArrangedSubview(cap)
         }
         line.addArrangedSubview(address)

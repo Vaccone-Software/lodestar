@@ -287,14 +287,15 @@ final class OnAccentTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(contrast(BarTheme.onAccent, on: orange), 4.5, "reading text on a fill")
     }
 
-    /// On clay the orange is the same hue a step deeper, and it still
-    /// takes ink (5.1 to 1, where white would read 3.8); a deep blue takes
-    /// white.
-    func testTheClayOrangeTakesInkAndADeepBlueTakesWhite() {
+    /// On clay the orange is the same hue deepened until it reads as text
+    /// on the pane (4.65 to 1), one accent for every use; deep enough that
+    /// a lit key's letter is white (5.3 to 1). A deep blue takes white too.
+    func testTheClayOrangeReadsAsTextAndTakesWhite() {
         let deep = NSColor(srgbRed: Readability.orangeOnPaper.red, green: Readability.orangeOnPaper.green,
                            blue: Readability.orangeOnPaper.blue, alpha: 1)
         BarTheme.accentColor = { deep }
-        XCTAssertNotEqual(BarTheme.onAccent, .white)
+        XCTAssertGreaterThanOrEqual(contrast(deep, on: Palette.clay.pane.color), 4.5, "the accent reads as text on clay")
+        XCTAssertEqual(BarTheme.onAccent, .white)
         XCTAssertGreaterThanOrEqual(contrast(BarTheme.onAccent, on: deep), 4.5)
         BarTheme.accentColor = { NSColor(srgbRed: 0.0, green: 0.3, blue: 0.8, alpha: 1) }
         XCTAssertEqual(BarTheme.onAccent, .white)
@@ -603,7 +604,8 @@ final class TonedPictureTests: XCTestCase {
             .deletingLastPathComponent().appendingPathComponent("packaging")
         for folder in ["places", "doors"] {
             let names = (try? FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent(folder).path)) ?? []
-            let pale = names.filter { $0.hasSuffix(".png") && !$0.hasSuffix("-slip.png") }
+            // The pictures themselves: place-name.png, door-name.png.
+            let pale = names.filter { $0.range(of: #"^(place|door)-[a-z]+\.png$"#, options: .regularExpression) != nil }
             XCTAssertFalse(pale.isEmpty)
             for name in pale {
                 XCTAssertTrue(names.contains(name.replacingOccurrences(of: ".png", with: "-slip.png")),

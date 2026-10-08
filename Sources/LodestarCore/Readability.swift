@@ -36,7 +36,11 @@ public enum Readability {
     /// there: the colour adapted, never replaced, because its name is part
     /// of what it means. A pair, measured, never derived at runtime.
     public static let orangeOnCharcoal = RGB(red: 1.0, green: 0.31, blue: 0.0)
-    public static let orangeOnPaper = RGB(red: 0.922, green: 0.286, blue: 0.0)
+    /// International Orange deepened until it reads as text on clay's
+    /// pane (4.65:1, #C43B00), one accent for every use in the light look
+    /// rather than a fill and a separate text colour. White letters on it
+    /// read at 5.3:1, so a lit key takes white by measure.
+    public static let orangeOnPaper = RGB(red: 0.769, green: 0.231, blue: 0.0)
 
     /// The least contrast a mark the eye must find — a cursor, a lit
     /// letter — may have against its ground before it falls back to the

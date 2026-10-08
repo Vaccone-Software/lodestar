@@ -55,7 +55,10 @@ start() {
         pgrep -f "/Applications/lodestar.app/Contents/MacOS/lodestar" >/dev/null || break
         sleep 0.5
     done
-    open -n "$APP"
+    # -g: launched behind the app in front. Brought forward, the build under
+    # test was the frontmost app while the probe posted its keys, and an
+    # app with no window to take a key answers each one with the alert.
+    open -g -n "$APP"
     echo "→ v$VERSION is running from $APP"
     [ "$MODE" = auto ] || echo "  do: one click · one scroll · one keystroke · a lode gesture"
 }

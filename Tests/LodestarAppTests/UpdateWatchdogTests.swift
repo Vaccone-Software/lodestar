@@ -21,6 +21,23 @@ final class UpdateWatchdogTests: XCTestCase {
         XCTAssertTrue(script.contains("mv \"$PREVIOUS\" \"$APP\""), "the rollback is still there")
     }
 
+    /// Every launch of a Lodestar that the person did not ask for stays
+    /// behind the app in front. Brought forward, a Lodestar with no window
+    /// to take a key answered each key typed during the handover, and each
+    /// key the smoke probe posted, with the alert.
+    func testNoLaunchOfLodestarComesForward() throws {
+        let successor = UpdateController.successorLaunch
+        XCTAssertTrue(successor.createsNewApplicationInstance, "a new instance, or the old one only comes forward")
+        XCTAssertFalse(successor.activates, "the successor launches behind the app in front")
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let smoke = try String(contentsOf: root.appendingPathComponent("scripts/smoke.sh"), encoding: .utf8)
+        for (name, text) in [("the rollback", UpdateController.watchdogScript), ("smoke.sh", smoke)] {
+            let lines = text.split(separator: "\n").filter { $0.contains("open ") && $0.contains("$APP") && !$0.trimmingCharacters(in: .whitespaces).hasPrefix("#") }
+            XCTAssertFalse(lines.isEmpty, "\(name) still launches the app")
+            for line in lines { XCTAssertTrue(line.contains("open -g"), "\(name): \(line.trimmingCharacters(in: .whitespaces))") }
+        }
+    }
+
     func testTheScriptIsValidBash() throws {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("watchdog-\(UUID().uuidString).sh")
         try UpdateController.watchdogScript.write(to: file, atomically: true, encoding: .utf8)

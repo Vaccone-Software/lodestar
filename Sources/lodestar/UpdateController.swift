@@ -502,9 +502,18 @@ final class UpdateController {
         // process, so the swapped-in build would never start — the old
         // instance would just come forward, the pid file would never
         // change hands, and the watchdog would roll the swap back.
+        NSWorkspace.shared.openApplication(at: installURL, configuration: Self.successorLaunch) { _, _ in }
+    }
+
+    /// How the successor is launched. A new instance, for the reason above,
+    /// and never activated: brought forward, it was the frontmost app for
+    /// the seconds of the handover, and with no window to take a key it
+    /// answered every key typed meanwhile with the alert.
+    static var successorLaunch: NSWorkspace.OpenConfiguration {
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.createsNewApplicationInstance = true
-        NSWorkspace.shared.openApplication(at: installURL, configuration: configuration) { _, _ in }
+        configuration.activates = false
+        return configuration
     }
 
     /// Abandon the staged build and return to idle — a fresh check can
@@ -582,7 +591,8 @@ final class UpdateController {
     printf '%s' "$VERSION" > "$MARKERS/rolled-back"
     # -n: launch a fresh instance even though the old process may still
     # be running — its boot takes the pid file and announces the marker.
-    open -n "$APP"
+    # -g: behind the app in front, so keys typed meanwhile never reach it.
+    open -g -n "$APP"
     """
 
     /// posix_spawn with SETSID: the child leads its own session, immune to

@@ -336,6 +336,26 @@ enum StripPreview {
             app.run()
         }
 
+        // 134: Lodestar speaking about itself at launch and while it updates,
+        // VOICE=ready|found|taking|updated.
+        if variant == 134 {
+            let hud = HUD()
+            switch ProcessInfo.processInfo.environment["VOICE"] ?? "found" {
+            case "ready":
+                hud.showVoice(sentence: AppDelegate.readyNote, keymap: AppDelegate.readyKeymap, detail: nil, rows: [], owner: .flash)
+            case "taking":
+                let words = UpdateController.Voice.takingOver("0.45.4")
+                hud.showVoice(sentence: words.0, detail: words.1, rows: [], owner: .flash)
+            case "updated":
+                let words = UpdateController.Voice.updated("0.45.4")
+                hud.showVoice(sentence: words.0, detail: words.1, rows: [], owner: .flash)
+            default:
+                let words = UpdateController.Voice.found("v0.45.4")
+                hud.showVoice(sentence: words.0, detail: words.1, rows: [], owner: .flash)
+            }
+            app.run()
+        }
+
         // 63: the link chip — what a clicked link leaves behind when an
         // arrangement was standing and the screen deliberately did not move.
         if variant == 63 {

@@ -5,6 +5,7 @@
 #
 #   <where> <Class>.<test>   or   <where> <Class>.*
 #   where: any (at the desk and on CI) | ci (only on CI; the desk must run it)
+#          | desk (only off CI; CI must run it)
 
 # Live tests: run on demand against a real model, microphone, app or dataset.
 any EditorAccuracyLiveTests.testTheModelAgainstTheFixture
@@ -16,9 +17,12 @@ any EditorWatchProbeTests.*
 any IntentPassLiveTests.*
 any MicBridgeLiveTests.*
 any QwenEarTests.testTokenizerFromTheFolderMatchesTransformers
-any ReplayTests.testTheAUCArithmeticReproducesThePapersOwnIndex
-any ReplayTests.testTheWindowCodeReproducesTheLogFluctuationIndex
 any WindowModelLiveTests.*
+
+# The published dataset's replay: CI fetches it and must run it; the desk
+# runs it when LODESTAR_DATASETS is set (tools/health/fetch-datasets.sh).
+desk ReplayTests.testTheAUCArithmeticReproducesThePapersOwnIndex
+desk ReplayTests.testTheWindowCodeReproducesTheLogFluctuationIndex
 
 # MLX needs a GPU, and a hosted runner's virtual machine has none.
 ci QwenEarTests.*

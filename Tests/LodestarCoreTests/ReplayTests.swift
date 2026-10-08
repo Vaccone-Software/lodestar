@@ -14,8 +14,10 @@ import XCTest
 /// and that index is exactly `WindowStats.fluct.sd`, so the replay asks
 /// whether the window code reproduces it.
 ///
-/// Skipped unless `LODESTAR_DATASETS` names a directory holding the
-/// dataset (`tools/health/fetch-datasets.sh` puts it there).
+/// Skipped when `LODESTAR_DATASETS` is unset, which only the desk may be
+/// (Tests/allowed-skips.txt); CI fetches the dataset and sets it. Named
+/// but missing the dataset is a failure, never a skip: a fetch that broke
+/// must not read as a replay that passed.
 final class ReplayTests: XCTestCase {
     private struct Subject {
         let id: String
@@ -32,7 +34,11 @@ final class ReplayTests: XCTestCase {
         }
         let dir = URL(fileURLWithPath: path).appendingPathComponent("neuroqwerty-mit-csxpd-dataset-1.0.0")
         guard FileManager.default.fileExists(atPath: dir.path) else {
-            throw XCTSkip("neuroQWERTY dataset not found under \(path)")
+            struct Missing: Error, CustomStringConvertible {
+                let path: String
+                var description: String { "LODESTAR_DATASETS is \(path), and the neuroQWERTY dataset is not there" }
+            }
+            throw Missing(path: path)
         }
         root = dir
     }

@@ -42,12 +42,24 @@ jobs:
             spm-${{ runner.os }}-${{ steps.toolchain.outputs.xcode }}-${{ hashFiles('Package.resolved') }}-
             spm-${{ runner.os }}-${{ steps.toolchain.outputs.xcode }}-
 
+      # The published keystroke dataset the replay tests read (7.3 MB),
+      # cached by the script that fetches it. A failed or changed download
+      # fails here: the script checks the archive's SHA-256, and the replay
+      # tests may not skip on CI (Tests/allowed-skips.txt).
+      - name: Restore the datasets
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/lodestar-datasets
+          key: datasets-${{ hashFiles('tools/health/fetch-datasets.sh') }}
+      - name: Fetch the datasets
+        run: ./tools/health/fetch-datasets.sh
+
       - name: Build
         run: swift build
       - name: Test
         # Sharded across a few xctest processes: the same suite, about a
         # quarter of the wall time.
-        run: ./scripts/test.sh
+        run: LODESTAR_DATASETS="$HOME/.cache/lodestar-datasets" ./scripts/test.sh
 
       # Saved from main only: pull requests restore main's build and add
       # nothing, so the repository's cache holds a few recent builds, not

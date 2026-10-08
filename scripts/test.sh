@@ -194,7 +194,7 @@ if [ "$executed" -ne "$expected" ]; then
 fi
 
 # Skips are in "Executed N"; each must be one the allowlist expects here.
-where=any
+where=desk
 [ -n "${CI:-}" ] && where=ci
 grep -hE "^Test Case '-\[\S+ \S+\]' skipped" "${logs[@]}" \
     | sed -E "s/^Test Case '-\[[A-Za-z0-9_]+\.([A-Za-z0-9_]+) ([A-Za-z0-9_]+)\]'.*/\1.\2/" | sort -u > "$OUT/skipped.txt"
@@ -205,7 +205,7 @@ skipped, allowed, where = sys.argv[1], sys.argv[2], sys.argv[3]
 rules = []
 for line in open(allowed):
     line = line.split("#")[0].split()
-    if len(line) == 2 and (line[0] == "any" or line[0] == where):
+    if len(line) == 2 and line[0] in ("any", where):
         rules.append(line[1])
 for name in (l.strip() for l in open(skipped)):
     if name and not any(fnmatch.fnmatchcase(name, r) for r in rules):
@@ -213,7 +213,7 @@ for name in (l.strip() for l in open(skipped)):
 PY
 )
 if [ -n "$unexpected" ]; then
-    echo "✕ skipped without a place in Tests/allowed-skips.txt ($where):"
+    echo "✕ skipped without a place in Tests/allowed-skips.txt (at the $where):"
     echo "$unexpected" | sed 's/^/    /'
     grep -hE -A1 "^Test Case .* skipped|: Test skipped" "${logs[@]}" | grep -F "$(echo "$unexpected" | head -3 | sed -E 's/.*\.//')" | head -6 | cut -c1-200
     failed=1

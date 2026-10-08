@@ -1063,12 +1063,11 @@ public enum Advisor {
 
     /// A mnemonic letter for the pair's breath: the apps' own initials
     /// first, then anything free. A path is free when no saved breath
-    /// equals it or nests around it — and never "b", which the breath
-    /// grammar reserves.
+    /// equals it or nests around it.
     static func breathLetter(for pair: Transitions.Pair, context: Context) -> String? {
         let taken = context.breathPaths + context.breaths.map(\.path)
         func free(_ letter: String) -> Bool {
-            letter != "b" && !taken.contains { $0 == letter || $0.hasPrefix(letter) }
+            !taken.contains { $0 == letter || $0.hasPrefix(letter) }
         }
         var candidates: [String] = []
         for app in [pair.from, pair.to] {

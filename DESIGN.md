@@ -57,9 +57,9 @@ thing being gone, the way a breath relaunches what it needs.
 
 A breath is a **snapshot** of a specific-window layout. It is not a mode. You compose a layout live (with shift, below), then save it, and can return to it later.
 
-- `lode B` + a letter chain: save / return to a breath (addressed like the graph, e.g. `lode B G B`).
-- `lode B B`: update the latest breath to the current layout. (Reserves the `B B` path from being an address.)
-- A snapshot does not auto-update. To edit: add a window with shift, or remove one by closing it, then `lode B B` to commit. To revert, re-summon the breath.
+- `lode '` + a letter chain: return to a breath (addressed like the graph, e.g. `lode ' G B`); ⇧ on the last letter saves the layout there, at any letter, B included.
+- `lode ' '`: update the latest breath to the current layout.
+- A snapshot does not auto-update. To edit: add a window with shift, or remove one by closing it, then `lode ' '` to commit. To revert, re-summon the breath.
 - Persistence: session-first is guaranteed; cross-restart is best-effort (relaunch the parent apps, reposition as well as macOS allows). Breaths pin specific windows, so restore is inherently best-effort.
 
 Breaths pin specific windows, so they carry the window-identity risk in full.

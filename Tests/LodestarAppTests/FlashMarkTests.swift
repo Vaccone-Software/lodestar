@@ -48,3 +48,13 @@ final class FlashMarkTests: XCTestCase {
         XCTAssertEqual(Actions.spoken(["Slack", "Brave", "Zoom"]), "Slack, Brave and Zoom")
     }
 }
+
+/// A breath may be saved at any letter. B was reserved while breaths lived
+/// on `lode B`; they moved to `lode '`, and the reservation outlived them.
+final class BreathPathTests: XCTestCase {
+    func testEveryLetterIsABreathPathBIncluded() {
+        XCTAssertNil(Actions.breathPathRefusal("b"))
+        XCTAssertNil(Actions.breathPathRefusal("gb"))
+        XCTAssertNotNil(Actions.breathPathRefusal(""))
+    }
+}

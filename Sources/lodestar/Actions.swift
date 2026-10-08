@@ -658,9 +658,17 @@ final class Actions {
         return .continuing(hint: nil)
     }
 
+    /// Why a path cannot hold a breath, or nil when it can. "b" was reserved
+    /// while breaths lived on `lode B` and `B B` updated the latest one.
+    /// Breaths moved to `lode '`, and `' '` updates now, so every letter is
+    /// a path, B included.
+    static func breathPathRefusal(_ path: String) -> String? {
+        path.isEmpty ? "✕ invalid breath path" : nil
+    }
+
     func bindBreath(_ letters: [String]) -> ChainStep {
         let path = letters.joined()
-        guard !path.isEmpty, path != "b" else { return .failed(flash: "✕ invalid breath path") }
+        if let refusal = Self.breathPathRefusal(path) { return .failed(flash: refusal) }
         if let shadowed = store.breathWouldShadow(path) {
             return .failed(flash: "✕ \(path.uppercased()) would shadow breath \(shadowed.uppercased())")
         }

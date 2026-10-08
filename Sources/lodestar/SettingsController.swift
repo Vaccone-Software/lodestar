@@ -1012,8 +1012,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
 
         private func tint() {
             effectiveAppearance.performAsCurrentDrawingAppearance {
-                layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.06).cgColor
-                layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.12).cgColor
+                layer?.backgroundColor = Glass.resolved(NSColor.labelColor.withAlphaComponent(0.06), in: self)
+                layer?.borderColor = Glass.resolved(NSColor.labelColor.withAlphaComponent(0.12), in: self)
             }
         }
 
@@ -1046,11 +1046,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         let center = NSPoint(x: width / 2, y: height / 2 - 8)
         let rx: CGFloat = 372, ry: CGFloat = 232
 
-        let ring = NSView(frame: NSRect(x: center.x - rx, y: center.y - ry, width: rx * 2, height: ry * 2))
-        ring.wantsLayer = true
-        ring.layer?.borderWidth = 1
-        ring.layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.06).cgColor
-        ring.layer?.cornerRadius = ry
+        let ring = ToneView(edge: NSColor.labelColor.withAlphaComponent(0.06), edgeWidth: 1, radius: ry)
+        ring.frame = NSRect(x: center.x - rx, y: center.y - ry, width: rx * 2, height: ry * 2)
         field.addSubview(ring)
 
         let markSize = BarTheme.settingsMarkSize
@@ -1938,9 +1935,9 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             row.wantsLayer = true
             row.layer?.cornerRadius = BarTheme.wellRadius
             if selected {
-                row.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.05).cgColor
+                row.layer?.backgroundColor = Glass.resolved(NSColor.labelColor.withAlphaComponent(0.05), in: row)
                 row.layer?.borderWidth = 1.5
-                row.layer?.borderColor = BarTheme.readableAccent.cgColor
+                row.layer?.borderColor = Glass.resolved(BarTheme.readableAccent, in: row)
             }
             row.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(hitClicked(_:))))
             row.setAccessibilityElement(true)
@@ -2044,20 +2041,15 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
 
     /// One group's card: a surface on the glass, rounded on the ladder.
     static func card() -> NSView {
-        let card = NSView()
-        card.wantsLayer = true
-        card.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.045).cgColor
-        card.layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.08).cgColor
-        card.layer?.borderWidth = 1
-        card.layer?.cornerRadius = BarTheme.surfaceRadius
+        let card = ToneView(fill: NSColor.labelColor.withAlphaComponent(0.045),
+                            edge: NSColor.labelColor.withAlphaComponent(0.08), edgeWidth: 1,
+                            radius: BarTheme.surfaceRadius)
         card.translatesAutoresizingMaskIntoConstraints = false
         return card
     }
 
     static func hairline(width: CGFloat) -> NSView {
-        let line = NSView()
-        line.wantsLayer = true
-        line.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.06).cgColor
+        let line = ToneView(fill: NSColor.labelColor.withAlphaComponent(0.06))
         line.translatesAutoresizingMaskIntoConstraints = false
         line.heightAnchor.constraint(equalToConstant: 1).isActive = true
         line.widthAnchor.constraint(equalToConstant: width).isActive = true
@@ -2065,10 +2057,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     }
 
     static func dot() -> NSView {
-        let dot = NSView()
-        dot.wantsLayer = true
-        dot.layer?.backgroundColor = NSColor.labelColor.cgColor
-        dot.layer?.cornerRadius = BarTheme.dotRadius
+        let dot = ToneView(fill: .labelColor, radius: BarTheme.dotRadius)
         dot.translatesAutoresizingMaskIntoConstraints = false
         dot.widthAnchor.constraint(equalToConstant: BarTheme.dotDiameter).isActive = true
         dot.heightAnchor.constraint(equalToConstant: BarTheme.dotDiameter).isActive = true

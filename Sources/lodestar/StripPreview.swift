@@ -77,7 +77,7 @@ enum StripPreview {
             // a paper ground, so light mode can be measured without
             // flipping the machine.
             StageView.light = ground == "light"
-            if StageView.light { app.appearance = NSAppearance(named: .aqua) }
+            app.appearance = NSAppearance(named: StageView.light ? .aqua : .darkAqua)
             // `LODESTAR_GROUND=light|dark` stages the other ground under
             // this appearance. Glass composites what is behind it, so a
             // veil's weight only shows over a ground that disagrees with it.

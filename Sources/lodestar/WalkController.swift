@@ -660,9 +660,9 @@ final class WalkController: NSObject {
             column.wantsLayer = true
             column.layer?.cornerRadius = BarTheme.surfaceRadius
             column.layer?.borderWidth = selected ? 1.5 : 1
-            column.layer?.borderColor = (selected ? BarTheme.accent : NSColor.labelColor.withAlphaComponent(0.1)).cgColor
-            column.layer?.backgroundColor = (selected ? BarTheme.accent.withAlphaComponent(0.08)
-                                                      : NSColor.labelColor.withAlphaComponent(0.03)).cgColor
+            column.layer?.borderColor = Glass.resolved(selected ? BarTheme.accent : NSColor.labelColor.withAlphaComponent(0.1))
+            column.layer?.backgroundColor = Glass.resolved(selected ? BarTheme.accent.withAlphaComponent(0.08)
+                                                                    : NSColor.labelColor.withAlphaComponent(0.03))
             column.translatesAutoresizingMaskIntoConstraints = false
             column.widthAnchor.constraint(equalToConstant: tileWidth).isActive = true
 
@@ -1132,14 +1132,11 @@ final class WalkController: NSObject {
         row.spacing = 8
         row.setContentHuggingPriority(.required, for: .horizontal)
         let box = keycap(cap)
-        if let action {
-            // The walk's caps keep their own family — bordered, larger,
-            // warmer than the chips' — so only the fill moves under the
-            // pointer, through the same three states everything else uses.
-            row.addArrangedSubview(Keycaps.CapGroup(content: box, paint: { state in
-                box.layer?.backgroundColor = NSColor.labelColor
-                    .withAlphaComponent(state == .resting ? 0.08 : state.fill).cgColor
-            }, action: action))
+        if let action, let face = box as? KeyFace {
+            // The one key, pressable: its own three states, which keep the
+            // letter on its face in both looks. Repainting the face with a
+            // faint wash left clay's pale letter on a pale ground.
+            row.addArrangedSubview(Keycaps.CapGroup(caps: [face], action: action))
         } else {
             row.addArrangedSubview(box)
         }

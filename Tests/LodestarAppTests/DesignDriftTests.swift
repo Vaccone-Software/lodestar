@@ -39,6 +39,23 @@ final class DesignDriftTests: XCTestCase {
         XCTAssertEqual(hits, [], "a radius comes from the theme's table, never a literal")
     }
 
+    /// A colour that follows the appearance is resolved where it is drawn.
+    /// `.cgColor` on a dynamic colour resolves it in whatever appearance is
+    /// current at the call, which off a draw pass is not the surface's: a
+    /// Lodestar started at night went on painting night's colours on
+    /// clay. `Glass.resolved(_:in:)` and `ToneView` are the two ways.
+    func testNoDynamicColourIsFixedOutsideItsAppearance() throws {
+        let files = try FileManager.default.contentsOfDirectory(
+            at: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+                .deletingLastPathComponent().appendingPathComponent("Sources/lodestar"),
+            includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "swift" && !$0.lastPathComponent.contains("Preview") }
+        let hits = try offenders(
+            #"(labelColor|secondaryColor|readableAccent|secondaryLabelColor|tertiaryLabelColor|separatorColor|controlAccentColor|textColor)[^\n]*\.cgColor"#,
+            in: files)
+        XCTAssertEqual(hits, [], "resolve it with Glass.resolved(_:in:) or draw it in a ToneView")
+    }
+
     func testNoSurfaceSetsATypeSizeOfItsOwn() throws {
         let hits = try offenders(#"ofSize:\s*[0-9]"#, in: surfaces())
         XCTAssertEqual(hits, [], "a size comes from the type scale, never a literal")

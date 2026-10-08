@@ -14,6 +14,67 @@ enum Tone {
     }
 }
 
+extension Glass {
+    /// A colour as a layer needs it, resolved in the appearance of the view
+    /// it is drawn in. `NSColor.cgColor` resolves a dynamic colour in the
+    /// appearance current at the call, which off a draw pass is not the
+    /// view's: a light surface drew dark mode's colours.
+    static func resolved(_ color: NSColor, in view: NSView? = nil) -> CGColor {
+        var resolved = color.cgColor
+        (view?.effectiveAppearance ?? NSApp.effectiveAppearance).performAsCurrentDrawingAppearance {
+            resolved = color.cgColor
+        }
+        return resolved
+    }
+}
+
+extension Glass {
+    /// The appearance a colour resolves in when it is turned into a layer's
+    /// colour outside a draw pass, kept with the system's. Left alone it is
+    /// whatever was current when the app started, so a Lodestar launched at
+    /// night went on drawing night's colours after the Mac turned light.
+    /// A net under every such conversion; `resolved(_:in:)` is the rule.
+    static func followSystemAppearance() {
+        NSAppearance.current = NSApp.effectiveAppearance
+    }
+}
+
+/// A plain surface whose fill and edge follow the appearance: a card, a
+/// rule, a dot, a caret. A layer's colour is a fixed value, so one set
+/// once keeps the look it was set in; this repaints whenever the view's
+/// appearance changes, so light and dark are always the ones on screen.
+final class ToneView: NSView {
+    var fill: NSColor? { didSet { repaint() } }
+    var edge: NSColor? { didSet { repaint() } }
+
+    init(fill: NSColor? = nil, edge: NSColor? = nil, edgeWidth: CGFloat = 0, radius: CGFloat = 0) {
+        self.fill = fill
+        self.edge = edge
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.borderWidth = edgeWidth
+        layer?.cornerRadius = radius
+        repaint()
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        repaint()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        repaint()
+    }
+
+    private func repaint() {
+        layer?.backgroundColor = fill.map { Glass.resolved($0, in: self) }
+        layer?.borderColor = edge.map { Glass.resolved($0, in: self) }
+    }
+}
+
 /// The system's accessibility settings, as the surfaces read them. Each
 /// is a closure so a test can set the switch the way a person would.
 enum Accessibility {
@@ -919,8 +980,8 @@ final class RoomField: NSView {
 
     private func tint() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.05).cgColor
-            layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.12).cgColor
+            layer?.backgroundColor = Glass.resolved(NSColor.labelColor.withAlphaComponent(0.05), in: self)
+            layer?.borderColor = Glass.resolved(NSColor.labelColor.withAlphaComponent(0.12), in: self)
         }
     }
 }
@@ -1002,8 +1063,8 @@ final class RoomButton: NSButton {
                 layer?.borderColor = BarTheme.litKeyLip.cgColor
                 light.color = BarTheme.litKeyTop
             } else {
-                layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(hovering ? 0.11 : 0.06).cgColor
-                layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.12).cgColor
+                layer?.backgroundColor = Glass.resolved(NSColor.labelColor.withAlphaComponent(hovering ? 0.11 : 0.06), in: self)
+                layer?.borderColor = Glass.resolved(NSColor.labelColor.withAlphaComponent(0.12), in: self)
                 light.color = nil
             }
         }
@@ -1121,13 +1182,18 @@ final class AccentSwitch: NSControl {
         paint()
     }
 
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        paint()
+    }
+
     /// The knob slides and the track's colour crosses with it, unless a
     /// person has asked the system for less motion, in which case both
     /// simply arrive. A layout pass never animates: the switch drawn
     /// into place must not slide into it.
     private func paint(animated: Bool = false) {
         let on = state == .on
-        let tint = (on ? BarTheme.accent : NSColor.labelColor.withAlphaComponent(0.22)).cgColor
+        let tint = Glass.resolved(on ? BarTheme.accent : NSColor.labelColor.withAlphaComponent(0.22), in: self)
         let knobSize = Self.size.height - 4
         let knobFrame = NSRect(x: on ? bounds.width - knobSize - 2 : 2, y: 2, width: knobSize, height: knobSize)
         let fromPosition = knob.presentation()?.position ?? knob.position
@@ -1321,11 +1387,13 @@ final class KeyFace: NSView {
         let resting = lit ? BarTheme.accent : BarTheme.keyFill
         // Under the pointer the face catches a little more light; pressed,
         // it sinks onto its lip, which is the lip's whole height gone.
+        // Light, not ink: a dark clay key blended toward the label colour
+        // barely moved, so the hover catches white in both looks.
         let face = pointer == .resting ? resting
-            : resting.blended(withFraction: pointer == .pressed ? 0.18 : 0.10, of: .labelColor) ?? resting
-        layer?.backgroundColor = face.cgColor
+            : resting.blended(withFraction: pointer == .pressed ? 0.06 : 0.12, of: .white) ?? resting
+        layer?.backgroundColor = Glass.resolved(face, in: self)
         layer?.shadowOffset = CGSize(width: 0, height: pointer == .pressed ? -0.5 : -1.5)
-        layer?.shadowColor = (lit ? BarTheme.litKeyLip : BarTheme.keyLip).cgColor
+        layer?.shadowColor = Glass.resolved(lit ? BarTheme.litKeyLip : BarTheme.keyLip, in: self)
         top.color = lit ? BarTheme.litKeyTop : BarTheme.keyTop
         label.textColor = lit ? BarTheme.onAccent : BarTheme.keyLetter
         CATransaction.commit()
@@ -1788,7 +1856,7 @@ enum KeyMark {
         tag.layer?.cornerRadius = radius
         tag.layer?.backgroundColor = BarTheme.ground.cgColor
         tag.layer?.borderWidth = 0.5
-        tag.layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.12).cgColor
+        tag.layer?.borderColor = Glass.resolved(NSColor.labelColor.withAlphaComponent(0.12), in: tag)
         key.frame.origin = NSPoint(x: pad, y: pad)
         tag.addSubview(key)
         label.frame.origin = NSPoint(x: key.frame.maxX + 6, y: ((height - label.frame.height) / 2).rounded())

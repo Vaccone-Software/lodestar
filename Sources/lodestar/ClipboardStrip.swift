@@ -727,7 +727,7 @@ final class ClipboardStrip {
                 let mark = NSView(frame: title.frame.insetBy(dx: -2, dy: 0))
                 mark.wantsLayer = true
                 mark.layer?.cornerRadius = BarTheme.markRadius
-                mark.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.14).cgColor
+                mark.layer?.backgroundColor = Glass.resolved(NSColor.labelColor.withAlphaComponent(0.14), in: card)
                 card.addSubview(mark)
             }
             card.addSubview(title)
@@ -735,7 +735,7 @@ final class ClipboardStrip {
             let caret = NSView(frame: NSRect(x: title.frame.minX + min(glyphs, room) + 1,
                                              y: line - 9, width: 1.5, height: 18))
             caret.wantsLayer = true
-            caret.layer?.backgroundColor = BarTheme.accent.cgColor
+            caret.layer?.backgroundColor = Glass.resolved(BarTheme.readableAccent)
             card.addSubview(caret)
         } else {
             card.addSubview(title)
@@ -882,7 +882,7 @@ final class ClipboardStrip {
             swatch.layer?.backgroundColor = NSColor(srgbRed: color.red, green: color.green, blue: color.blue,
                                                     alpha: color.alpha).cgColor
             swatch.layer?.borderWidth = 0.5
-            swatch.layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.2).cgColor
+            swatch.layer?.borderColor = Glass.resolved(NSColor.labelColor.withAlphaComponent(0.2))
             card.addSubview(swatch)
             top = max(top, swatch.frame.maxY)
         }
@@ -1058,7 +1058,7 @@ final class ClipboardStrip {
         let caret = NSView(frame: NSRect(x: x + min(glyphs, field.frame.width) + (query.isEmpty ? 0 : 2),
                                          y: (height - 20) / 2, width: 1.5, height: 20))
         caret.wantsLayer = true
-        caret.layer?.backgroundColor = BarTheme.accent.cgColor
+        caret.layer?.backgroundColor = Glass.resolved(BarTheme.readableAccent)
         bar.addSubview(caret)
         root.addSubview(bar)
     }
@@ -1093,7 +1093,7 @@ final class ClipboardStrip {
         let caret = NSView(frame: NSRect(x: 16 + glyphs + (menu.typed.isEmpty ? -3 : 2),
                                          y: fieldY + (fieldHeight - 18) / 2, width: 1.5, height: 18))
         caret.wantsLayer = true
-        caret.layer?.backgroundColor = BarTheme.accent.cgColor
+        caret.layer?.backgroundColor = Glass.resolved(BarTheme.readableAccent)
         plate.addSubview(caret)
         top = fieldY - 8
 
@@ -1125,7 +1125,7 @@ final class ClipboardStrip {
             if index == 0, ruled {
                 let rule = NSView(frame: NSRect(x: 16, y: top - 5, width: width - 32, height: 1))
                 rule.wantsLayer = true
-                rule.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.12).cgColor
+                rule.layer?.backgroundColor = Glass.resolved(NSColor.labelColor.withAlphaComponent(0.12))
                 plate.addSubview(rule)
                 top -= 9
             }
@@ -1200,7 +1200,7 @@ final class ClipboardStrip {
                     x: Self.actionInset, y: top - Self.actionSeparator / 2,
                     width: frame.width - Self.actionInset * 2, height: 1))
                 line.wantsLayer = true
-                line.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.12).cgColor
+                line.layer?.backgroundColor = Glass.resolved(NSColor.labelColor.withAlphaComponent(0.12))
                 plate.addSubview(line)
                 top -= Self.actionSeparator
             }
@@ -1281,7 +1281,7 @@ final class ClipboardStrip {
         let caret = NSView(frame: NSRect(x: field.frame.minX + min(glyphs, field.frame.width) + 2,
                                          y: (height - 20) / 2, width: 1.5, height: 20))
         caret.wantsLayer = true
-        caret.layer?.backgroundColor = BarTheme.accent.cgColor
+        caret.layer?.backgroundColor = Glass.resolved(BarTheme.readableAccent)
         plate.addSubview(caret)
         root.addSubview(plate)
     }

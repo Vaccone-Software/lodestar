@@ -938,13 +938,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func watchAppIcon() {
+        Glass.followSystemAppearance()
         refreshAppIcon()
         // Light and dark: the system says so a beat before every window
         // has taken the new look.
         iconObservers.append(DistributedNotificationCenter.default().addObserver(
             forName: Notification.Name("AppleInterfaceThemeChangedNotification"), object: nil, queue: .main
         ) { [weak self] _ in
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self?.refreshAppIcon() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                Glass.followSystemAppearance()
+                self?.refreshAppIcon()
+            }
         })
         // A new system accent.
         iconObservers.append(NotificationCenter.default.addObserver(

@@ -146,11 +146,19 @@ final class VoiceLight: NSView {
 
     /// A colour changes at once: grey becoming the accent is the
     /// moment to speak, and a cross-fade would blur the moment.
+    private var painted: NSColor?
+
     private func paint(_ color: NSColor) {
+        painted = color
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        stroke.strokeColor = color.cgColor
+        stroke.strokeColor = Glass.resolved(color, in: self)
         CATransaction.commit()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        if let painted { paint(painted) }
     }
 
     func show(_ state: State) {
@@ -828,7 +836,12 @@ final class DraftPanel {
             // A solid plate in normal mode; the system's own insertion
             // colour for the bar, which is what every field on the Mac
             // teaches the eye to look for.
-            caret.layer?.backgroundColor = (block ? NSColor.labelColor : BarTheme.readableAccent).cgColor
+            // Resolved in the panel's own appearance: a dynamic colour turned
+            // into a layer's colour takes whatever appearance is current at
+            // the call, and off the draw pass that was the dark one, so the
+            // light look drew a white plate on a light pane.
+            caret.layer?.backgroundColor = Glass.resolved(block ? NSColor.labelColor : BarTheme.readableAccent,
+                                                          in: root)
         }
 
         placeKeys(width: width)

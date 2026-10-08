@@ -335,9 +335,7 @@ final class ModePill {
     /// the band a text field, and the band must never look like a thing
     /// to click into.
     private static func caret(alpha: CGFloat) -> NSView {
-        let view = NSView()
-        view.wantsLayer = true
-        view.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(alpha).cgColor
+        let view = ToneView(fill: NSColor.labelColor.withAlphaComponent(alpha))
         view.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             view.widthAnchor.constraint(equalToConstant: 1.5),

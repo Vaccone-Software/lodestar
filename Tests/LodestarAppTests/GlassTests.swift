@@ -523,3 +523,30 @@ final class AppIconArtTests: XCTestCase {
         XCTAssertLessThan(count(blue) { $0.redComponent > $0.blueComponent + 0.4 }, 20, "no orange left in a blue icon")
     }
 }
+
+/// Light and dark are whichever the Mac shows now, not whichever it showed
+/// when Lodestar started.
+final class ToneFollowsAppearanceTests: XCTestCase {
+    func testAToneViewRepaintsWhenTheLookChanges() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 40, height: 40), styleMask: [.borderless],
+                              backing: .buffered, defer: true)
+        let view = ToneView(fill: .labelColor)
+        window.contentView = view
+        window.appearance = NSAppearance(named: .aqua)
+        let light = try XCTUnwrap(view.layer?.backgroundColor).components ?? []
+        window.appearance = NSAppearance(named: .darkAqua)
+        let dark = try XCTUnwrap(view.layer?.backgroundColor).components ?? []
+        XCTAssertNotEqual(light, dark, "the label colour is ink by day and paper by night")
+        XCTAssertLessThan(light.first ?? 1, 0.5, "dark ink on the light look")
+        XCTAssertGreaterThan(dark.first ?? 0, 0.5, "light ink on the dark look")
+    }
+
+    func testResolvedTakesTheViewsAppearanceNotTheCurrentOne() {
+        let view = NSView()
+        view.appearance = NSAppearance(named: .aqua)
+        NSAppearance(named: .darkAqua)!.performAsCurrentDrawingAppearance {
+            let ink = Glass.resolved(.labelColor, in: view).components ?? []
+            XCTAssertLessThan(ink.first ?? 1, 0.5, "the view is light, whatever is current")
+        }
+    }
+}

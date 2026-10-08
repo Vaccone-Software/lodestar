@@ -161,7 +161,7 @@ final class SelectOverlay {
                     let line = NSView(frame: NSRect(x: x, y: target.maxY, width: 1,
                                                     height: max(0, placed.frame.minY - target.maxY)))
                     line.wantsLayer = true
-                    line.layer?.backgroundColor = KeyMark.connector.cgColor
+                    line.layer?.backgroundColor = Glass.resolved(KeyMark.connector, in: root)
                     highlightHost.addSubview(line)
                     decorations.append(line)
                 }

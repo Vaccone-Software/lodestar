@@ -388,7 +388,7 @@ private final class CommandsRowView: RaisedRow {
         title.textColor = .labelColor
         crumb.textColor = BarTheme.secondaryColor
         sourceLabel.textColor = BarTheme.secondaryColor
-        sourceChip.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.08).cgColor
+        sourceChip.layer?.backgroundColor = Glass.resolved(NSColor.labelColor.withAlphaComponent(0.08), in: sourceChip)
         chip.lit = selectedState
         enter.isHidden = !selectedState
     }

@@ -46,12 +46,10 @@ extension Glass {
 
 /// The clay pictures, one per look. They were rendered pale for night,
 /// and pale clay on clay's pale page loses its edges, so each has a twin
-/// rendered in Slip, the night pane, for the light look (tools/doors,
-/// `CLAY=slippure`). One image that draws whichever twin the look in force
-/// calls for, so a picture already on screen changes with the look.
+/// rendered in sand, a warmer, deeper clay, for the light look
+/// (tools/doors, `CLAY=sand`). One image that draws whichever twin the look
+/// in force calls for, so a picture already on screen changes with the look.
 enum TonedPicture {
-    /// The drawn shadow under a picture in the light.
-    static var shadowed = ProcessInfo.processInfo.environment["LODESTAR_PICTURE_SHADOW"] != "0"
 
     static func make(night: NSImage, day: NSImage?) -> NSImage {
         guard let day else { return night }
@@ -61,19 +59,7 @@ enum TonedPicture {
                 night.draw(in: rect)
                 return true
             }
-            // In the light an object stands off the page by its shadow,
-            // drawn from its own outline in the surfaces' warm brown, the
-            // way the night lets a pale object stand off by its tone.
-            NSGraphicsContext.saveGraphicsState()
-            if shadowed {
-                let shadow = NSShadow()
-                shadow.shadowColor = NSColor(srgbRed: 0.35, green: 0.23, blue: 0.13, alpha: 0.30)
-                shadow.shadowBlurRadius = rect.width * 0.035
-                shadow.shadowOffset = NSSize(width: 0, height: -rect.width * 0.018)
-                shadow.set()
-            }
             day.draw(in: rect)
-            NSGraphicsContext.restoreGraphicsState()
             return true
         }
     }
@@ -87,6 +73,48 @@ final class AppearanceRoot: NSView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         DispatchQueue.main.async { [weak self] in self?.onAppearance?() }
+    }
+}
+
+/// A clay picture on the page. In the light an object stands off the page
+/// by its shadow, the way the night lets a pale object stand off by its
+/// tone: a soft warm shadow cast from the object's own outline, in the
+/// layer, so nothing frames it. `away` is the way the shadow falls, a unit
+/// vector with y up; on the Settings overview the mark at the centre is the
+/// light and every place's shadow falls away from it. Nil falls straight
+/// down. The night casts none.
+final class PictureView: NSImageView {
+    var away: CGVector? { didSet { restyle() } }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        restyle()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        restyle()
+    }
+
+    override func layout() {
+        super.layout()
+        restyle()
+    }
+
+    private func restyle() {
+        wantsLayer = true
+        guard let layer else { return }
+        let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        layer.masksToBounds = false
+        layer.shadowColor = CGColor(srgbRed: 0.35, green: 0.23, blue: 0.13, alpha: 1)
+        let width = max(bounds.width, 1)
+        let direction = away ?? CGVector(dx: 0, dy: -1)
+        // Cast from the mark the shadow is long and plain enough to read
+        // as direction at a glance; a lone picture's sits close beneath it.
+        layer.shadowOpacity = dark ? 0 : (away == nil ? 0.32 : 0.64)
+        let reach = width * (away == nil ? 0.03 : 0.096)
+        layer.shadowRadius = width * (away == nil ? 0.04 : 0.07)
+        layer.shadowOffset = CGSize(width: direction.dx * reach, height: direction.dy * reach)
     }
 }
 

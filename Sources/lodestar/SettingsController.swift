@@ -1042,13 +1042,16 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         let field = FlippedView()
         let width = Self.width - 64, height = Self.height - 50
         // Sized so neighbours never touch: down the sides the places sit
-        // 2·ry·sin 18° apart (143), and a place stands 124 tall.
+        // 2·ry·sin 18° apart (143), and a place stands 136 tall.
         let center = NSPoint(x: width / 2, y: height / 2 - 8)
         let rx: CGFloat = 372, ry: CGFloat = 232
 
-        let ring = ToneView(edge: NSColor.labelColor.withAlphaComponent(0.06), edgeWidth: 1, radius: ry)
+        let ring = ToneView(edge: NSColor.labelColor.withAlphaComponent(Tone.systemDark ? 0.06 : 0.11), edgeWidth: 1, radius: ry)
         ring.frame = NSRect(x: center.x - rx, y: center.y - ry, width: rx * 2, height: ry * 2)
         field.addSubview(ring)
+
+        field.addSubview(MarkPool(frame: NSRect(x: center.x - rx * 1.1, y: center.y - ry * 1.25,
+                                                width: rx * 2.2, height: ry * 2.5)))
 
         let markSize = BarTheme.settingsMarkSize
         let mark = NSImageView(frame: NSRect(x: center.x - markSize / 2, y: center.y - markSize / 2,
@@ -1059,9 +1062,12 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         for (index, section) in sections.enumerated() {
             let angle = (-90 + 36 * CGFloat(index)) * .pi / 180
             let point = NSPoint(x: center.x + rx * cos(angle), y: center.y + ry * sin(angle))
-            let tile = buildPlaceTile(section, index: index)
+            // The mark is the light: each place's shadow falls away from it,
+            // so the ring reads as objects around one light. (Flipped field:
+            // y grows down here and up in the picture.)
+            let tile = buildPlaceTile(section, index: index, away: CGVector(dx: cos(angle), dy: -sin(angle)))
             // The picture sits on the ring; its name and line hang below.
-            tile.frame = NSRect(x: point.x - 110, y: point.y - 33, width: 220, height: 124)
+            tile.frame = NSRect(x: point.x - 110, y: point.y - 45, width: 220, height: 148)
             field.addSubview(tile)
             placeViews.append(tile)
         }
@@ -1086,17 +1092,18 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         return field
     }
 
-    private func buildPlaceTile(_ section: SettingsModel.Section, index: Int) -> NSView {
+    private func buildPlaceTile(_ section: SettingsModel.Section, index: Int, away: CGVector? = nil) -> NSView {
         let tile = HandStack()
         tile.orientation = .vertical
         tile.alignment = .centerX
         tile.spacing = 5
-        let picture = NSImageView()
+        let picture = PictureView()
+        picture.away = away
         picture.image = Self.picture(section.picture)
         picture.imageScaling = .scaleProportionallyUpOrDown
         picture.translatesAutoresizingMaskIntoConstraints = false
-        picture.widthAnchor.constraint(equalToConstant: 88).isActive = true
-        picture.heightAnchor.constraint(equalToConstant: 66).isActive = true
+        picture.widthAnchor.constraint(equalToConstant: 120).isActive = true
+        picture.heightAnchor.constraint(equalToConstant: 90).isActive = true
         tile.addArrangedSubview(picture)
         let head = NSStackView()
         head.orientation = .horizontal
@@ -1250,7 +1257,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         card.translatesAutoresizingMaskIntoConstraints = false
         card.widthAnchor.constraint(equalToConstant: Self.leftColumn).isActive = true
         card.heightAnchor.constraint(equalToConstant: 172).isActive = true
-        let picture = NSImageView()
+        let picture = PictureView()
         picture.image = Self.picture(section.picture)
         picture.imageScaling = .scaleProportionallyUpOrDown
         picture.translatesAutoresizingMaskIntoConstraints = false
@@ -2027,9 +2034,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     /// checkout's packaging folder, and without either the card is empty.
     static func picture(_ name: String) -> NSImage? {
         guard !name.isEmpty, let night = file(name) else { return nil }
-        // LODESTAR_PICTURES=pale|slip|sand|terra stages another light set.
-        let set = ProcessInfo.processInfo.environment["LODESTAR_PICTURES"] ?? "slip"
-        return TonedPicture.make(night: night, day: set == "pale" ? night : (file(name + "-" + set) ?? file(name + "-slip")))
+        return TonedPicture.make(night: night, day: file(name + "-sand"))
     }
 
     private static func file(_ name: String) -> NSImage? {
@@ -2238,3 +2243,43 @@ extension SettingsController {
 /// The step a Settings row rises onto when a search lands on it: the bars'
 /// own raised row.
 private final class LandingStep: RaisedRow {}
+
+/// The mark's light on the light page: a faint warm pool spreading from
+/// the star under the ring, so the shadows falling away from it have a
+/// source. The night needs none; the mark already glows on Slip.
+final class MarkPool: NSView {
+    private let glow = CAGradientLayer()
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        glow.type = .radial
+        glow.colors = [CGColor(srgbRed: 1, green: 0.42, blue: 0.12, alpha: 0.13),
+                       CGColor(srgbRed: 1, green: 0.55, blue: 0.25, alpha: 0.05),
+                       CGColor(srgbRed: 1, green: 0.6, blue: 0.3, alpha: 0)]
+        glow.locations = [0, 0.45, 1]
+        glow.startPoint = CGPoint(x: 0.5, y: 0.5)
+        glow.endPoint = CGPoint(x: 1, y: 1)
+        layer?.addSublayer(glow)
+        restyle()
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func layout() {
+        super.layout()
+        glow.frame = bounds
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        restyle()
+    }
+
+    private func restyle() {
+        glow.frame = bounds
+        glow.isHidden = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    }
+}

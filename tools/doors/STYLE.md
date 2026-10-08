@@ -309,30 +309,40 @@ Rejected:
 Accepted as is: Move's windows clipping through each other ("fine because you
 don't want to go out too far").
 
-## The light look: Slip (October 2026)
+## The light look: sand (October 2026)
 
 Pale clay was made for dark grounds, and on light mode's pale clay page it
 lost its edges. Every door and place picture has a twin for the light look,
-rendered from the same scene in `CLAY=slippure`: Slip itself (#221D19, the
-night pane) for the objects, light ink, and keycaps a step lighter than the
-case (#3E3530) so each key reads as its own object. The user compared it
-with the old grey charcoal and with Slip lifted to the dark keycap colour,
-and chose Slip itself. The app draws the twin that matches the look in
+rendered from the same scene in `CLAY=sand`: a warm mid-tone clay (#D6CBBF)
+a step deeper than the page, dark ink, and dark keycaps (#2E2926) so the
+keys still read as objects. The app draws the twin that matches the look in
 force (`TonedPicture`), so a picture on screen changes with the look.
 
-- Files: `packaging/places/place-<name>-slip.png` (720×540) and
-  `packaging/doors/door-<name>-slip.png` (360×270), Lanczos from 1200×900.
+Tried and set aside: Slip itself (#221D19, the night pane) and Slip lifted to
+the keycap colour. On the overview, ten dark objects around a pale page read
+as holes. Terracotta was too loud for ten pictures at once. Plain pale had
+no edges. The user chose sand.
+
+On the page the light does the rest (`PictureView`): each picture casts a
+soft warm shadow from its own outline, and on the Settings overview the mark
+is the light, so every place's shadow falls straight away from the star and
+a faint warm pool (`MarkPool`) spreads under the ring. The night draws
+neither. Nothing about the shadow belongs in the render: a shadow baked into
+the PNG clips at the image's edge and cannot turn with the ring.
+
+- Files: `packaging/places/place-<name>-sand.png` (720×540) and
+  `packaging/doors/door-<name>-sand.png` (360×270), Lanczos from 1200×900.
 - Shipped variants: general-3, web-2, operate-4, meetings-5, keys-4,
   observations-7; doors at `CLOSE=1 ONLY=40`.
 - `STILL=1` for the Write door: the typo alone in plain ink. The faded copy
-  and the fixed word on the same spot striped the typo on dark clay. The
-  word is misspelled on purpose.
+  and the fixed word on the same spot striped the typo. The word is
+  misspelled on purpose.
 
 ```sh
 for pv in general-3 web-2 operate-4 meetings-5 keys-4 observations-7; do
-  CLAY=slippure FONT_DIR=$F $B -b -P places.py -- $pv out/$pv.png 48
+  CLAY=sand FONT_DIR=$F $B -b -P places.py -- $pv out/$pv.png 48
 done
 for k in write move keep speak; do
-  STILL=1 CLAY=slippure CLOSE=1 CW=1200 CH=900 ONLY=40 FONT_DIR=$F $B -b -P scene3.py -- $k out/$k 1200 48
+  STILL=1 CLAY=sand CLOSE=1 CW=1200 CH=900 ONLY=40 FONT_DIR=$F $B -b -P scene3.py -- $k out/$k 1200 48
 done
 ```

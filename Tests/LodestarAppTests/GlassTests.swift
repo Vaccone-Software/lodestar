@@ -599,7 +599,7 @@ final class TonedPictureTests: XCTestCase {
         XCTAssertLessThan(brightness(of: picture, in: .aqua), 0.1, "Slip by day")
     }
 
-    func testEveryPictureHasItsSlipTwin() {
+    func testEveryPictureHasItsSandTwin() {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("packaging")
         for folder in ["places", "doors"] {
@@ -608,8 +608,8 @@ final class TonedPictureTests: XCTestCase {
             let pale = names.filter { $0.range(of: #"^(place|door)-[a-z]+\.png$"#, options: .regularExpression) != nil }
             XCTAssertFalse(pale.isEmpty)
             for name in pale {
-                XCTAssertTrue(names.contains(name.replacingOccurrences(of: ".png", with: "-slip.png")),
-                              "\(name) has no Slip twin for the light look")
+                XCTAssertTrue(names.contains(name.replacingOccurrences(of: ".png", with: "-sand.png")),
+                              "\(name) has no sand twin for the light look")
             }
         }
     }

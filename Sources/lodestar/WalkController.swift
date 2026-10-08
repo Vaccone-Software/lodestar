@@ -646,7 +646,8 @@ final class WalkController: NSObject {
             column.spacing = 4
             column.edgeInsets = NSEdgeInsets(top: 10, left: 10, bottom: 12, right: 10)
             if let picture = Self.picture(option) {
-                let image = NSImageView(image: picture)
+                let image = PictureView()
+                image.image = picture
                 image.imageScaling = .scaleProportionallyUpOrDown
                 image.translatesAutoresizingMaskIntoConstraints = false
                 image.widthAnchor.constraint(equalToConstant: tileWidth - 20).isActive = true

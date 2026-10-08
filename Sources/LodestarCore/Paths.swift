@@ -13,6 +13,11 @@ public enum Paths {
     /// can reach a person's config or history, whatever it forgets to pass.
     private static let home = TestRun.active ? TestRun.home : FileManager.default.homeDirectoryForCurrentUser
 
+    /// The person's home, for what Lodestar keeps outside its own folders
+    /// (the login agent, the alert sound, a browser's profiles). A test run
+    /// gets its own.
+    public static var userHome: URL { home }
+
     /// What you write: the config file and the schema it points at.
     public static let config = home.appendingPathComponent(".config/lodestar", isDirectory: true)
 

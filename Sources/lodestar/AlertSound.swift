@@ -15,7 +15,7 @@ enum AlertSound {
     static let selectionKey = "com.apple.sound.beep.sound"
 
     static var directory: URL {
-        FileManager.default.homeDirectoryForCurrentUser
+        Paths.userHome
             .appendingPathComponent("Library/Sounds", isDirectory: true)
     }
     static var installed: URL { directory.appendingPathComponent("\(name).aiff") }

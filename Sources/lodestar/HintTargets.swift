@@ -256,7 +256,7 @@ enum Pointer {
             // the move before the button. Runs off the tap, so the wait is
             // nobody's keystroke.
             if step.type == .mouseMoved {
-                CGWarpMouseCursorPosition(step.point)
+                SystemEvents.warp(step.point)
                 usleep(40_000)
             } else if step.type == .leftMouseDown || step.type == .rightMouseDown {
                 usleep(30_000)

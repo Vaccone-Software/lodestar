@@ -424,7 +424,7 @@ final class Actions {
         })
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = true
-        NSWorkspace.shared.openApplication(at: entry.url, configuration: configuration) { _, error in
+        SystemEvents.openApplication(at: entry.url, configuration: configuration) { _, error in
             if let error {
                 DispatchQueue.main.async { Log.error("launch \(name): \(error.localizedDescription)") }
             }
@@ -865,7 +865,7 @@ final class Actions {
         })
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = false
-        NSWorkspace.shared.openApplication(at: entry.url, configuration: configuration)
+        SystemEvents.openApplication(at: entry.url, configuration: configuration)
     }
 
     // MARK: - Parking

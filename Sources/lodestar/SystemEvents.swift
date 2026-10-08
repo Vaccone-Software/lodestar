@@ -2,25 +2,60 @@ import AppKit
 import LodestarCore
 
 /// The one way out of the process: an event posted to the system or to an
-/// app, the general pasteboard, and focus taken or given. Under a test run
-/// each is inert (nothing posted, no focus moved, a pasteboard of the
-/// run's own), so a test that forgets its stand-in cannot type into, click
-/// on or copy over whatever the person is doing. A design drift test keeps
-/// every such call in this file.
+/// app, the pointer warped, a URL or an app opened, the general
+/// pasteboard, and focus taken or given. Under a test run each is inert
+/// (nothing posted, moved, opened or focused, a pasteboard of the run's
+/// own), so a test that forgets its stand-in cannot type into, click on,
+/// launch over or copy over whatever the person is doing. A design drift
+/// test keeps every such call in this file.
 enum SystemEvents {
-    /// Events a test run held back, for a test that wants to know.
-    private(set) static var heldBack = 0
+    private static let lock = NSLock()
+    private static var _heldBack = 0
+    /// What a test run held back, for a test that wants to know. Posts
+    /// come from background queues too (Bring's typing, the editor).
+    static var heldBack: Int { lock.withLock { _heldBack } }
+    /// True when the call must not leave the process.
+    private static func held() -> Bool {
+        guard TestRun.active else { return false }
+        lock.withLock { _heldBack += 1 }
+        return true
+    }
 
     static func post(_ event: CGEvent?, tap: CGEventTapLocation) {
-        guard let event else { return }
-        if TestRun.active { heldBack += 1; return }
+        guard let event, !held() else { return }
         event.post(tap: tap)
     }
 
     static func post(_ event: CGEvent?, toPid pid: pid_t) {
-        guard let event else { return }
-        if TestRun.active { heldBack += 1; return }
+        guard let event, !held() else { return }
         event.postToPid(pid)
+    }
+
+    /// The pointer moves, with no event: a pick that lands under the hand.
+    static func warp(_ point: CGPoint) {
+        guard !held() else { return }
+        CGWarpMouseCursorPosition(point)
+    }
+
+    @discardableResult
+    static func open(_ url: URL) -> Bool {
+        guard !held() else { return false }
+        return NSWorkspace.shared.open(url)
+    }
+
+    static func open(_ urls: [URL], withApplicationAt application: URL,
+                     configuration: NSWorkspace.OpenConfiguration,
+                     completionHandler: ((NSRunningApplication?, Error?) -> Void)? = nil) {
+        guard !held() else { return }
+        NSWorkspace.shared.open(urls, withApplicationAt: application, configuration: configuration,
+                                completionHandler: completionHandler)
+    }
+
+    static func openApplication(at application: URL, configuration: NSWorkspace.OpenConfiguration,
+                                completionHandler: ((NSRunningApplication?, Error?) -> Void)? = nil) {
+        guard !held() else { return }
+        NSWorkspace.shared.openApplication(at: application, configuration: configuration,
+                                           completionHandler: completionHandler)
     }
 
     static let pasteboard: NSPasteboard = TestRun.active
@@ -29,13 +64,13 @@ enum SystemEvents {
 
     /// Lodestar comes to the front, for a room that takes focus on purpose.
     static func activateLodestar() {
-        if TestRun.active { return }
+        guard !held() else { return }
         NSApp.activate(ignoringOtherApps: true)
     }
 
     /// Another app comes to the front.
     static func activate(_ app: NSRunningApplication) {
-        if TestRun.active { return }
+        guard !held() else { return }
         if #available(macOS 14.0, *) {
             app.activate()
         } else {

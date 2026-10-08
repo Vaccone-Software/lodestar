@@ -97,7 +97,7 @@ struct UninstallPlan {
 
     static func world() -> World {
         let fm = FileManager.default
-        let home = fm.homeDirectoryForCurrentUser
+        let home = Paths.userHome
         var bundles: [URL] = []
         let running = Bundle.main.bundleURL
         if running.path.hasSuffix("lodestar.app"), !running.path.contains("/AppTranslocation/") {

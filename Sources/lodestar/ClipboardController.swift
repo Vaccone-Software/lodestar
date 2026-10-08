@@ -43,7 +43,7 @@ final class ClipboardController {
     /// Where a saved image lands unless the typed name says otherwise.
     var saveFolder = "~/Downloads"
     /// The home folder `~` stands for; the stage points it elsewhere.
-    var home = NSHomeDirectory()
+    var home = Paths.userHome.path
     /// The last file a save wrote, for the tests.
     private(set) var lastSavedPath: String?
     /// A guard on the design, not on the user: the index lives in memory

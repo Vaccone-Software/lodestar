@@ -147,11 +147,14 @@ final class WindowModelOffMainTests: XCTestCase {
         model.onCreated = { created.append($0) }
         model.receiveForTesting(kAXWindowCreatedNotification, element: window(2), pid: appPid)
         model.receiveForTesting(kAXUIElementDestroyedNotification, element: window(2), pid: appPid)
-        // The read finishes, and its answer has had its turn on main: a
-        // fixed wait could end before the read did and pass on nothing.
-        pump(until: { reader.done(2) })
+        // The read finishes and its answer has had its turn on main: a
+        // refresh of the same app queues behind it on that app's serial
+        // queue, and its completion comes home after the read's answer.
+        var barrier = false
+        model.refreshWindows(pids: [appPid]) { barrier = true }
+        pump(until: { barrier })
+        XCTAssertTrue(barrier)
         XCTAssertTrue(reader.done(2), "the read finished")
-        pump(until: { false }, within: 0.1)
         XCTAssertNil(model.window(12))
         XCTAssertTrue(created.isEmpty, "a popup that closed before it was read is never announced")
     }

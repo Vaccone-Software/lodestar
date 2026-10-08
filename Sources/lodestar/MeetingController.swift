@@ -366,7 +366,7 @@ final class MeetingController: NSObject {
            }).first,
            let url = URL(string: native.url) {
             Log.info("meeting", ["join": occurrence.link.provider.rawValue, "via": "app"])
-            NSWorkspace.shared.open([url], withApplicationAt: appURL,
+            SystemEvents.open([url], withApplicationAt: appURL,
                                     configuration: NSWorkspace.OpenConfiguration())
             return true
         }
@@ -376,7 +376,7 @@ final class MeetingController: NSObject {
             openWeb?(occurrence.link.url, profile)
         } else if let url = URL(string: occurrence.link.url) {
             // No profiles registered at all: the plain system open.
-            NSWorkspace.shared.open(url)
+            SystemEvents.open(url)
         }
         return true
     }

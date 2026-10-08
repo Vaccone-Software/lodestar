@@ -115,7 +115,7 @@ final class UpdateController {
         // dist/ to be tested, older than the latest release, would have
         // downloaded that release and replaced itself there.
         installURL = Updater.isInstalled(bundlePath: Bundle.main.bundlePath,
-                                         home: FileManager.default.homeDirectoryForCurrentUser.path)
+                                         home: Paths.userHome.path)
             ? Bundle.main.bundleURL : nil
     }
 
@@ -518,7 +518,7 @@ final class UpdateController {
         // process, so the swapped-in build would never start — the old
         // instance would just come forward, the pid file would never
         // change hands, and the watchdog would roll the swap back.
-        NSWorkspace.shared.openApplication(at: installURL, configuration: Self.successorLaunch) { _, _ in }
+        SystemEvents.openApplication(at: installURL, configuration: Self.successorLaunch) { _, _ in }
     }
 
     /// How the successor is launched. A new instance, for the reason above,

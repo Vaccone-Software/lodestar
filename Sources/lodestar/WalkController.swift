@@ -437,7 +437,7 @@ final class WalkController: NSObject {
             _ = Permissions.requestIfNeeded()
         } else if let url = URL(string:
             "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-            NSWorkspace.shared.open(url)
+            SystemEvents.open(url)
         }
         renderDoor()
         pollTrust()

@@ -1430,11 +1430,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let privacy = "x-apple.systempreferences:com.apple.preference.security?"
         switch action {
         case "open-accessibility":
-            NSWorkspace.shared.open(URL(string: privacy + "Privacy_Accessibility")!)
+            SystemEvents.open(URL(string: privacy + "Privacy_Accessibility")!)
         case "open-screen-recording":
-            NSWorkspace.shared.open(URL(string: privacy + "Privacy_ScreenCapture")!)
+            SystemEvents.open(URL(string: privacy + "Privacy_ScreenCapture")!)
         case "open-calendars":
-            NSWorkspace.shared.open(URL(string: privacy + "Privacy_Calendars")!)
+            SystemEvents.open(URL(string: privacy + "Privacy_Calendars")!)
         case "clear-clipboard":
             clipboardController.clearHistory()
         case "delete-logbook":
@@ -1743,7 +1743,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// for, because the setting is a long way down that page.
     private func openDefaultBrowserSettings() {
         let pane = URL(string: "x-apple.systempreferences:com.apple.Desktop-Settings.extension")
-        if let pane { NSWorkspace.shared.open(pane) }
+        if let pane { SystemEvents.open(pane) }
         hud.flash("Choose “lodestar” as your default web browser, then links follow your rules",
                   seconds: 9)
     }
@@ -2402,7 +2402,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // build under test again, not the app in Applications (2026-09-28,
         // and every hand smoke before it).
         guard Updater.isInstalled(bundlePath: bundlePath,
-                                  home: FileManager.default.homeDirectoryForCurrentUser.path) else {
+                                  home: Paths.userHome.path) else {
             Log.info("login-item", ["skipped": "not installed in an Applications folder"])
             return
         }
@@ -2419,7 +2419,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             break
         }
-        let agent = FileManager.default.homeDirectoryForCurrentUser
+        let agent = Paths.userHome
             .appendingPathComponent("Library/LaunchAgents/com.vaccone.lodestar.plist")
         let exists = FileManager.default.fileExists(atPath: agent.path)
         if config.startAtLogin {

@@ -129,7 +129,7 @@ final class ClickHandler {
         // Named here rather than inside the completion: the app is known
         // now, and the completion runs on whatever queue AppKit hands it.
         let target = GraphTarget.app(application.deletingPathExtension().lastPathComponent)
-        NSWorkspace.shared.open([url], withApplicationAt: application,
+        SystemEvents.open([url], withApplicationAt: application,
                                 configuration: configuration) { [flash, arrived] _, error in
             guard let error else {
                 // Only once the OS says the open took. Settling a link the

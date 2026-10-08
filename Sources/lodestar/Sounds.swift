@@ -15,7 +15,11 @@ enum Sounds {
     /// Replaced by the tests, which hear what would have played. A test
     /// run plays nothing by default: the suite once played "Listening"
     /// through the person's speakers.
-    static var play: (Cue) -> Void = TestRun.active ? { _ in } : playThroughSpeakers
+    static var play: (Cue) -> Void = defaultPlay
+    private static var defaultPlay: (Cue) -> Void { TestRun.active ? { _ in } : playThroughSpeakers }
+
+    /// Back to the default, for a test that listened.
+    static func reset() { play = defaultPlay }
 
     static let playThroughSpeakers: (Cue) -> Void = { cue in
         guard let sound = loaded[cue] ?? load(cue) else {

@@ -30,7 +30,7 @@ final class AppIndex {
         "/Applications/Utilities",
         "/System/Applications",
         "/System/Applications/Utilities",
-        NSHomeDirectory() + "/Applications",
+        Paths.userHome.path + "/Applications",
     ]
 
     /// A stale index refreshes off the main thread — the disk walk reads

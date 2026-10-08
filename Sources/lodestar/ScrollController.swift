@@ -456,7 +456,7 @@ final class ScrollController {
         Log.info("scroll", ["aimed": true, "pane": aimedPane != nil, "away": away])
         defer { onAimed?() }
         guard sink == nil else { return }
-        CGWarpMouseCursorPosition(point)
+        SystemEvents.warp(point)
     }
 
     // MARK: - Physics
@@ -464,7 +464,7 @@ final class ScrollController {
     private func warpToCurrent() {
         guard sink == nil else { return }
         let target = currentPaneFrame
-        CGWarpMouseCursorPosition(CGPoint(x: target.midX, y: target.midY))
+        SystemEvents.warp(CGPoint(x: target.midX, y: target.midY))
     }
 
     private func postVertical(_ down: Int32) {

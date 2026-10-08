@@ -328,9 +328,19 @@ final class DesignDriftTests: XCTestCase {
     func testEverythingThatLeavesTheProcessGoesThroughSystemEvents() throws {
         let files = Self.swiftFiles(under: Self.appSources).filter { $0.lastPathComponent != "SystemEvents.swift" }
         let hits = try offenders(
-            #"\.post\(tap:|\.postToPid\(|NSPasteboard\.general|NSApp\.activate\(|\.activate\(options:|[a-z]\.activate\(\)"#,
+            #"\.post\(tap:|\.postToPid\(|NSPasteboard\.general|NSApp\.activate\(|\.activate\(options:|[A-Za-z0-9_)?]\.activate\(\)|CGWarpMouseCursorPosition|NSWorkspace\.shared\.open"#,
             in: files)
-        XCTAssertEqual(hits, [], "post, paste and activate through SystemEvents")
+        XCTAssertEqual(hits, [], "post, warp, open, paste and activate through SystemEvents")
+    }
+
+    /// The person's home is Paths.userHome, which a test run replaces.
+    /// Two reads are allowed the real one: a model already downloaded to
+    /// the Hugging Face cache, and a path shortened to ~ for display.
+    func testThePersonsHomeIsReachedThroughPaths() throws {
+        let allowed: Set<String> = ["EditorModel.swift", "RepoNames.swift"]
+        let files = Self.swiftFiles(under: Self.appSources).filter { !allowed.contains($0.lastPathComponent) }
+        let hits = try offenders(#"homeDirectoryForCurrentUser|NSHomeDirectory\(\)"#, in: files)
+        XCTAssertEqual(hits, [], "use Paths.userHome")
     }
 
     func testATestRunHoldsTheSystemBack() {

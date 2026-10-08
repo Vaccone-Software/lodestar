@@ -154,7 +154,7 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
         let file = FileManager.default.temporaryDirectory
             .appendingPathComponent("Lodestar diagnostic report.txt")
         guard (try? report().write(to: file, atomically: true, encoding: .utf8)) != nil else { return }
-        NSWorkspace.shared.open(file)
+        SystemEvents.open(file)
     }
 
     private func send() {

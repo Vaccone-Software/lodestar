@@ -386,6 +386,7 @@ final class Stage {
         health.setEnabled(true)
         scroller.sink = { [unowned self] dx, dy in self.wheel.append((dx, dy)) }
         Pointer.post = { [unowned self] steps in self.clicks.append(steps) }
+        Self.live = ObjectIdentifier(self)
         clipboard.postPaste = { [unowned self] in self.stripPastes += 1 }
         clipboard.flash = { [unowned self] text in self.hud.flash(text) }
         draft.observations = observations
@@ -439,11 +440,19 @@ final class Stage {
     /// The stand-in screen: 1920 by 1050, off every real display.
     static let screen = NSRect(x: -40_000, y: -40_000, width: 1920, height: 1050)
 
+    /// The stage that set the globals last. One stage can replace another
+    /// (`stage = Stage()`): the new one's init runs before the old one's
+    /// deinit, which must then leave the new one's settings alone.
+    private static var live: ObjectIdentifier?
+
     deinit {
         // What this stage pointed at itself goes back: a later post through
         // the pointer would otherwise reach a stage that is gone.
-        Pointer.post = Pointer.postToSystem
-        ActivePolicy.frameOverride = nil
+        if Self.live == ObjectIdentifier(self) {
+            Pointer.post = Pointer.postToSystem
+            ActivePolicy.frameOverride = nil
+            Self.live = nil
+        }
         health.setEnabled(false)
         clipboard.stop()
         hud.hide()

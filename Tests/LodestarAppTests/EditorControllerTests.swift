@@ -1048,7 +1048,10 @@ final class EditorReadinessTests: XCTestCase {
         let field = EditorRig.field("Their going to push it. We need to recieve them.")
         source.field = field
         controller.receive(field)
-        for _ in 0..<10 { Stage.pump() }
+        // The marks are worked out on the editor's queue and come home on
+        // main: wait for them, not for ten turns (a loaded machine missed).
+        let marked = Date().addingTimeInterval(5)
+        while controller.lensMarks.isEmpty, Date() < marked { Stage.pump() }
         queue.sync {}
         XCTAssertTrue(reader.asked.isEmpty, "downloading: nothing asked")
         XCTAssertEqual(controller.lensMarks.map(\.issue.original), ["recieve"], "spelling marks meanwhile")

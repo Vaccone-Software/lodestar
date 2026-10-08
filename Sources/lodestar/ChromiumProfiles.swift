@@ -103,7 +103,7 @@ enum ChromiumProfiles {
 
     private static func directories(for browser: ChromiumBrowser) -> [String: String] {
         if let cached = directoriesByBrowser[browser] { return cached }
-        let localState = FileManager.default.homeDirectoryForCurrentUser
+        let localState = Paths.userHome
             .appendingPathComponent("Library/Application Support/\(browser.localStateSubpath)")
         let loaded: [String: String]
         if let data = try? Data(contentsOf: localState) {

@@ -16,6 +16,23 @@ final class WindowModelOffMainTests: XCTestCase {
         var focused: [pid_t: AXUIElement] = [:]       // app pid → focused element
         var frames: [pid_t: CGRect] = [:]              // element pid → frame
         var frameDelay: TimeInterval = 0
+        /// Reads of these elements stay out until the test lets them go,
+        /// so "main never waited" is an order the test sees, not a time
+        /// it measures: the call returned while its read was still held.
+        var held = Set<pid_t>()
+        var holdFrames = false
+        let entered = DispatchSemaphore(value: 0)
+        private let released = DispatchSemaphore(value: 0)
+        private(set) var finished = Set<pid_t>()
+
+        func release(_ count: Int = 8) { for _ in 0..<count { released.signal() } }
+        func done(_ n: Int32) -> Bool { lock.withLock { finished.contains(900_000 + n) } }
+        private func holdIfAsked(_ pid: pid_t, frames: Bool = false) {
+            let asked = lock.withLock { held.contains(pid) || (frames && holdFrames) }
+            guard asked else { return }
+            entered.signal()
+            _ = released.wait(timeout: .now() + 5)
+        }
 
         private func pid(_ element: AXUIElement) -> pid_t {
             var pid: pid_t = 0
@@ -25,6 +42,8 @@ final class WindowModelOffMainTests: XCTestCase {
         private func wait(_ element: AXUIElement) {
             let seconds = lock.withLock { delay[pid(element)] ?? 0 }
             if seconds > 0 { Thread.sleep(forTimeInterval: seconds) }
+            holdIfAsked(pid(element))
+            lock.withLock { _ = finished.insert(pid(element)) }
         }
         func windowID(of element: AXUIElement) -> CGWindowID? {
             wait(element)
@@ -46,6 +65,7 @@ final class WindowModelOffMainTests: XCTestCase {
                 (frames[pid(element)] ?? CGRect(x: 10, y: 10, width: 500, height: 400), frameDelay)
             }
             if seconds > 0 { Thread.sleep(forTimeInterval: seconds) }
+            holdIfAsked(pid(element), frames: true)
             return seen
         }
         var appWindows: [pid_t: [AXUIElement]] = [:]   // app pid → its windows' elements
@@ -105,14 +125,14 @@ final class WindowModelOffMainTests: XCTestCase {
     func testANewWindowFromAHungAppNeverHoldsTheMainThread() {
         let reader = ScriptedReader()
         reader.ids[900_001] = 11
-        reader.delay[900_001] = 1.0
+        reader.held = [900_001]
         let model = model(reader)
         var created: [CGWindowID] = []
         model.onCreated = { created.append($0) }
-        let started = Date()
         model.receiveForTesting(kAXWindowCreatedNotification, element: window(1), pid: appPid)
-        XCTAssertLessThan(Date().timeIntervalSince(started), 0.05, "the notification came straight back")
+        XCTAssertFalse(reader.done(1), "the notification came back while the hung read was still out")
         XCTAssertNil(model.window(11), "not known until the reading lands")
+        reader.release()
         pump { model.window(11) != nil }
         XCTAssertEqual(model.window(11)?.appName, "App \(appPid)")
         XCTAssertEqual(created, [11], "announced once, when it is known")
@@ -170,13 +190,13 @@ final class WindowModelOffMainTests: XCTestCase {
         XCTAssertEqual(model.window(16)?.title, "Draft")
         reader.lock.withLock {
             reader.titles[900_006] = "Final"
-            reader.delay[900_006] = 0.5
+            reader.held = [900_006]
         }
         var changed: [CGWindowID] = []
         model.onTitleChanged = { changed.append($0) }
-        let started = Date()
         model.receiveForTesting(kAXTitleChangedNotification, element: window(6), pid: appPid)
-        XCTAssertLessThan(Date().timeIntervalSince(started), 0.05, "the title is not read on main")
+        XCTAssertTrue(changed.isEmpty, "the title is not read on main: the read is still held")
+        reader.release()
         pump { !changed.isEmpty }
         XCTAssertEqual(model.window(16)?.title, "Final")
         XCTAssertEqual(changed, [16])
@@ -213,12 +233,16 @@ final class WindowModelOffMainTests: XCTestCase {
         let last = CGRect(x: 300, y: 200, width: 600, height: 400)
         reader.lock.withLock {
             reader.frames[900_012] = first
-            reader.frameDelay = 0.25
+            reader.holdFrames = true
         }
         model.receiveForTesting(kAXMovedNotification, element: window(12), pid: appPid)
-        Thread.sleep(forTimeInterval: 0.05)                 // the read is out, and has seen `first`
+        // The read is out, and has seen `first`: it says so, rather than a
+        // sleep that hoped so.
+        XCTAssertEqual(reader.entered.wait(timeout: .now() + 2), .success, "the frame read started")
         reader.lock.withLock { reader.frames[900_012] = last }
         model.receiveForTesting(kAXMovedNotification, element: window(12), pid: appPid)
+        reader.lock.withLock { reader.holdFrames = false }
+        reader.release()
         pump(until: { model.window(22)?.frame == last }, within: 2)
         XCTAssertEqual(model.window(22)?.frame, last, "where the window ended, not where the first read found it")
     }

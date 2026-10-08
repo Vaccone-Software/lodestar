@@ -32,16 +32,20 @@ final class HealthEraTests: XCTestCase {
         let hung = DispatchSemaphore(value: 0)
         let reads = NSLock()
         var readCount = 0
+        var answered = 0
         health.readSettings = {
             reads.withLock { readCount += 1 }
-            _ = hung.wait(timeout: .now() + 1)
+            _ = hung.wait(timeout: .now() + 5)
+            reads.withLock { answered += 1 }
             return InputSettings()
         }
 
         let started = Date()
         health.setEnabled(true)
         for minute in 1...3 { health.tick(now: started.addingTimeInterval(Double(minute) * 60)) }
-        XCTAssertLessThan(Date().timeIntervalSince(started), 0.5, "main came straight back")
+        // Main came back while the read was still hung: had it waited, the
+        // read would have answered first.
+        XCTAssertEqual(reads.withLock { answered }, 0, "main came straight back")
 
         hung.signal()
         health.drainErasForTesting()

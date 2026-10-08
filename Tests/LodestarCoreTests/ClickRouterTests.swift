@@ -114,10 +114,10 @@ final class ClickRouterTests: XCTestCase {
             .merging(["x.com": "personal"]) { a, _ in a }
         let context = context(routes: routes)
         let urls = (0..<10_000).map { "https://sub\($0).x.com/path/\($0)?q=\($0)" }
-        let started = Date()
         var diverted = 0
-        for url in urls where ClickRouter.route(url, in: context) != .passThrough { diverted += 1 }
-        let elapsed = Date().timeIntervalSince(started)
+        let (_, elapsed) = ThreadClock.measure {
+            for url in urls where ClickRouter.route(url, in: context) != .passThrough { diverted += 1 }
+        }
         let each = elapsed / 10_000
         XCTAssertEqual(diverted, 10_000)
         // Measured at ~20µs per decision, and release is no faster than

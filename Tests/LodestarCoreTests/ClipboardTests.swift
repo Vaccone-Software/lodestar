@@ -854,18 +854,18 @@ final class ClipboardSearchTests: XCTestCase {
         // The strip keeps one index: the first search folds every clip once,
         // and each keystroke after it compares bytes.
         let index = ClipboardSearchIndex()
-        var started = Date()
-        _ = Clipboard.search(clips, query: "m", index: index)
-        let folding = Date().timeIntervalSince(started)
-        started = Date()
-        let hits = Clipboard.search(clips, query: "marker9999", index: index)
-        let elapsed = Date().timeIntervalSince(started)
+        // Thread CPU time, not the wall: a busy machine slowed the fold to
+        // four seconds on a desk without the code changing at all.
+        let (_, folding) = ThreadClock.measure { Clipboard.search(clips, query: "m", index: index) }
+        let (hits, elapsed) = ThreadClock.measure { Clipboard.search(clips, query: "marker9999", index: index) }
         XCTAssertEqual(hits.first?.id, "c9999")
         // The shipped app is optimized; a debug run carries bounds checks and
         // no inlining and lands roughly ten times slower, so the number that
         // matters is the release one.
+        // The debug fold measures about 2.4 s of CPU on an M1 Max; the bound
+        // is there to catch a change of order, which costs a hundredfold.
         #if DEBUG
-        var (ceiling, foldCeiling) = (1.0, 3.0)
+        var (ceiling, foldCeiling) = (1.0, 6.0)
         #else
         var (ceiling, foldCeiling) = (0.05, 0.3)
         #endif

@@ -27,6 +27,9 @@ final class FakeFieldSource: EditorFieldSource, @unchecked Sendable {
     /// Read the field as the read begins, then stall: the answer is what
     /// was there when it looked, whatever the hand does during the wait.
     var looksFirst = false
+    /// Signalled when a looking read has seen the field, so a test waits
+    /// on the fact instead of sleeping on a guess.
+    let looked = DispatchSemaphore(value: 0)
 
     private func wait() {
         let seconds = stall
@@ -36,6 +39,7 @@ final class FakeFieldSource: EditorFieldSource, @unchecked Sendable {
     func focusedField(frontmost: pid_t?) -> EditorField? {
         if looksFirst {
             let seen = field
+            looked.signal()
             wait()
             lock.withLock { _reads += 1 }
             return seen
@@ -362,9 +366,11 @@ final class EditorControllerTests: XCTestCase {
             text += "Thanks for the update \(text.count), we should of shipped it but their was a problem. "
         }
         text += "Can you recieve it."
-        let started = Date()
         rig.type(text)
-        XCTAssertLessThan(Date().timeIntervalSince(started), 0.05, "the keystroke's read came straight back")
+        // Worked out on main, the marks would be there when the keystroke
+        // returned. They follow it.
+        XCTAssertFalse(rig.controller.lensMarks.contains { $0.issue.original == "recieve" },
+                       "the keystroke's read came straight back, before its marks")
         rig.settle("the marks arrive") { rig.controller.lensMarks.contains { $0.issue.original == "recieve" } }
     }
 
@@ -603,7 +609,9 @@ final class EditorStallTests: XCTestCase {
             var ran = false
             DispatchQueue.main.async { ran = true }
             while !ran { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.005)) }
-            XCTAssertLessThan(Date().timeIntervalSince(started), 0.25, "\(what) held the main thread")
+            // The app stalls 1.5 s: a main thread that waited on it would
+            // be held that long. A loaded machine costs main a fraction.
+            XCTAssertLessThan(Date().timeIntervalSince(started), 1.0, "\(what) held the main thread")
         }
         mainFree("a poll") { rig.controller.poll() }
         mainFree("a beat's geometry") { rig.type("We need to recieve them now.") }
@@ -1108,7 +1116,7 @@ final class EditorReadinessTests: XCTestCase {
         rig.source.field = EditorRig.field("We ship")
         rig.source.stall = 0.3
         rig.controller.poll()
-        usleep(50_000) // the read has looked, and sleeps
+        XCTAssertEqual(rig.source.looked.wait(timeout: .now() + 2), .success, "the read has looked, and sleeps")
         XCTAssertNil(rig.controller.field, "no field known yet")
         rig.source.field = EditorRig.field("We ship it.")
         rig.controller.noticed(kAXValueChangedNotification)

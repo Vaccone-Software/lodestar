@@ -122,3 +122,85 @@ final class UninstallPlanTests: XCTestCase {
         XCTAssertEqual((job["KeepAlive"] as? [String: Bool])?["SuccessfulExit"], false)
     }
 }
+
+/// The login agent's stub, run under a home of its own with `defaults`
+/// and `launchctl` recorded: with the app there it is the app; with the
+/// app in the Trash it takes the agent and the sound with it, hands the
+/// alert back only if it was Lodestar's, and stops.
+final class LoginAgentStubRunTests: XCTestCase {
+    private var home: URL!
+    private var calls: URL { home.appendingPathComponent("calls.log") }
+    private var plist: URL { home.appendingPathComponent("Library/LaunchAgents/\(UninstallPlan.agentLabel).plist") }
+    private var sound: URL { home.appendingPathComponent("Library/Sounds/\(AlertSound.name).aiff") }
+
+    override func setUpWithError() throws {
+        home = FileManager.default.temporaryDirectory.appendingPathComponent("stub-run-\(UUID().uuidString)")
+        let fm = FileManager.default
+        for dir in ["Library/LaunchAgents", "Library/Sounds", "bin"] {
+            try fm.createDirectory(at: home.appendingPathComponent(dir), withIntermediateDirectories: true)
+        }
+        try "plist".write(to: plist, atomically: true, encoding: .utf8)
+        try "aiff".write(to: sound, atomically: true, encoding: .utf8)
+        try executable("bin/launchctl", "#!/bin/sh\necho \"launchctl $*\" >> \"\(calls.path)\"\n")
+    }
+
+    override func tearDown() { try? FileManager.default.removeItem(at: home) }
+
+    private func executable(_ path: String, _ text: String) throws {
+        let url = home.appendingPathComponent(path)
+        try text.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
+    /// `defaults` answering a read of the alert's selection with `selected`.
+    private func alertSelection(_ selected: String?) throws {
+        let read = selected.map { "echo \"\($0)\"" } ?? "exit 1"
+        try executable("bin/defaults", """
+        #!/bin/sh
+        echo "defaults $*" >> "\(calls.path)"
+        case "$1" in read) \(read);; esac
+        """)
+    }
+
+    private func run(binary: String) throws -> (status: Int32, calls: [String]) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = Array((LoginAgent.job(binary: binary)["ProgramArguments"] as? [String] ?? []).dropFirst())
+        process.environment = ["HOME": home.path, "PATH": home.appendingPathComponent("bin").path + ":/usr/bin:/bin"]
+        try process.run()
+        process.waitUntilExit()
+        let log = (try? String(contentsOf: calls, encoding: .utf8)) ?? ""
+        return (process.terminationStatus, log.split(separator: "\n").map(String.init))
+    }
+
+    func testWithTheAppInPlaceTheStubIsTheApp() throws {
+        try alertSelection(nil)
+        let ran = home.appendingPathComponent("app-ran")
+        try executable("lodestar", "#!/bin/sh\ntouch \"\(ran.path)\"\nexit 0\n")
+        let result = try run(binary: home.appendingPathComponent("lodestar").path)
+        XCTAssertEqual(result.status, 0)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: ran.path), "the app ran")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: plist.path), "the agent stays")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sound.path), "the sound stays")
+        XCTAssertEqual(result.calls, [], "nothing asked of launchd or the defaults")
+    }
+
+    func testWithTheAppInTheTrashTheStubCleansUpAndStops() throws {
+        try alertSelection(sound.path)
+        let result = try run(binary: home.appendingPathComponent("gone/lodestar").path)
+        XCTAssertEqual(result.status, 0, "a clean exit, so launchd does not ask again")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: plist.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sound.path))
+        XCTAssertTrue(result.calls.contains("defaults delete -g \(AlertSound.selectionKey)"),
+                      "the alert named Lodestar's sound, so it goes back to the Mac's: \(result.calls)")
+        XCTAssertTrue(result.calls.contains { $0.hasPrefix("launchctl bootout gui/") && $0.hasSuffix("/\(UninstallPlan.agentLabel)") })
+    }
+
+    func testAnAlertThePersonChoseElsewhereIsLeftAlone() throws {
+        try alertSelection("/System/Library/Sounds/Boop.aiff")
+        let result = try run(binary: home.appendingPathComponent("gone/lodestar").path)
+        XCTAssertEqual(result.status, 0)
+        XCTAssertFalse(result.calls.contains { $0.hasPrefix("defaults delete") }, "\(result.calls)")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: plist.path))
+    }
+}

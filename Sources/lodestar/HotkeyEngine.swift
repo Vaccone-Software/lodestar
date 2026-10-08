@@ -79,6 +79,10 @@ final class HotkeyEngine {
     /// kind and circumstances. The keycode is read here to name the hand
     /// and the kind and goes no further.
     var onHumanPress: ((KeyPress) -> Void)?
+    /// The same press, with its keycode and keydown stamp for the health
+    /// record's exact keyboard attribution, which compares them in memory
+    /// and keeps neither.
+    var onHumanPressMatch: ((KeyPress, Int64, Double?) -> Void)?
     /// How late this callback ran after the event's own stamp.
     var onStampJitter: ((Double) -> Void)?
     /// The tap was disabled and re-enabled.
@@ -569,12 +573,18 @@ final class HotkeyEngine {
             // release the tap missed; a key held that long is.
             let ceiling = press.modifier.isEmpty ? olderThan : Self.modifierStrandSeconds
             guard all || now.timeIntervalSince(press.down) > ceiling else { continue }
-            onHumanPress?(press.keyPress(keycode: keycode, hold: nil))
+            emitPress(press, keycode: keycode, hold: nil)
             pressedAt.removeValue(forKey: keycode)
         }
     }
 
     static let modifierStrandSeconds: TimeInterval = 60
+
+    private func emitPress(_ press: Press, keycode: Int64, hold: Double?) {
+        let record = press.keyPress(keycode: keycode, hold: hold)
+        onHumanPress?(record)
+        onHumanPressMatch?(record, keycode, press.stamp)
+    }
 
     /// A modifier went down or came up: its own press record, timed
     /// from the flags transitions the way a key's is from its keydown
@@ -585,7 +595,7 @@ final class HotkeyEngine {
         let keycode = event.getIntegerValueField(.keyboardEventKeycode)
         guard let modifier = Keys.modifier(for: keycode) else { return }
         if let press = pressedAt.removeValue(forKey: keycode) {
-            onHumanPress?(press.keyPress(keycode: keycode, hold: press.hold(until: at, stamp: stamp)))
+            emitPress(press, keycode: keycode, hold: press.hold(until: at, stamp: stamp))
         } else {
             strand(now: at)
             var press = Press(down: at, stamp: stamp, lens: core.state != .idle,
@@ -676,7 +686,7 @@ final class HotkeyEngine {
             if let press = pressedAt.removeValue(forKey: keycode), actingInputWasHuman {
                 let hold = press.hold(until: at, stamp: stamp)
                 if !press.repeated { onHumanKeyHold?(hold) }
-                onHumanPress?(press.keyPress(keycode: keycode, hold: hold))
+                emitPress(press, keycode: keycode, hold: hold)
                 if event.timestamp != 0 { onStampJitter?(clock.now().timeIntervalSince(at)) }
             }
             guard let key = Keys.name(for: keycode) else { return Unmanaged.passUnretained(event) }

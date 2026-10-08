@@ -162,6 +162,9 @@ public struct Config {
     /// clusters. Only the finger column reads it; the hand column is the
     /// windows' class and never moves.
     public var fingerMap = FingerMap()
+    /// `health.exact-keyboards`: charge each press to the keyboard whose
+    /// HID report matches it. Off by default; needs Input Monitoring.
+    public var healthExactKeyboards = false
     public var coachEnabled = true
     /// The walk: a cue at a stopping point after `standAfterMinutes` of
     /// unbroken work.
@@ -304,6 +307,7 @@ public struct Config {
                     value: .string(allowed: nil, description: "Where the key sits on this keyboard, as a side and a finger: right thumb, either thumb, left pinky."),
                     description: "One keyboard's keys that sit somewhere other than standard, by name: left-shift, right-shift, left-control, right-control, left-option, right-option, left-command, right-command, fn, space, enter, backspace, tab, escape."),
                 description: "Keyboard id (vendor:product:hash, as the Keyboards page shows it) → the keys a split or custom board moves. Letters keep their columns everywhere and are never here."),
+            "exact-keyboards": .boolean(description: "Charge each press to the keyboard that sent it, by matching it to that keyboard's own report. Needs Input Monitoring. Off by default; without it a press two keyboards could have sent is charged to neither."),
         ], description: "About you, for the health record. Local, optional, never sent."),
         "keys": .freeTable(value: .string(allowed: nil, description: "The key name this keycode produces."),
                            description: "Keycode → key-name overrides for non-ANSI layouts."),
@@ -594,6 +598,9 @@ public struct Config {
         }
         if let enabled = effective.value(at: ["observations", "health"])?.bool {
             config.observationsHealth = enabled
+        }
+        if let enabled = effective.value(at: ["health", "exact-keyboards"])?.bool {
+            config.healthExactKeyboards = enabled
         }
         if let enabled = effective.value(at: ["coach", "enabled"])?.bool {
             config.coachEnabled = enabled

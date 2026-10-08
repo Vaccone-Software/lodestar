@@ -34,6 +34,13 @@ public struct EraInfo: Codable, Equatable {
     /// and go: the tracker writes an era when an attached keyboard's
     /// interval is not yet written down (`EraTracker`).
     public var reportIntervals: [String: ReportInterval]?
+    /// The keyboard column was written by matching each press to its
+    /// keyboard's own report (`health.exact-keyboards`, Input Monitoring
+    /// granted), falling back to the roster's attribution only when no
+    /// single physical keyboard matched. Nil or false: the roster's
+    /// attribution alone. It changes what the column means, so it is part
+    /// of the fingerprint when on.
+    public var exactKeyboards: Bool?
     /// "boot", "changed", or "keyboard" when only a keyboard's interval is
     /// new.
     public var reason: String
@@ -42,7 +49,7 @@ public struct EraInfo: Codable, Equatable {
                 keyboards: [String] = [], pointers: [String] = [], displays: [DisplayInfo] = [],
                 settings: InputSettings = InputSettings(), lid: Bool? = nil,
                 fingerMap: String? = nil, reportIntervals: [String: ReportInterval]? = nil,
-                reason: String = "boot") {
+                exactKeyboards: Bool? = nil, reason: String = "boot") {
         self.appVersion = appVersion
         self.keySchema = keySchema
         self.pointerSchema = pointerSchema
@@ -54,6 +61,7 @@ public struct EraInfo: Codable, Equatable {
         self.lid = lid
         self.fingerMap = fingerMap
         self.reportIntervals = reportIntervals
+        self.exactKeyboards = exactKeyboards
         self.reason = reason
     }
 
@@ -69,6 +77,7 @@ public struct EraInfo: Codable, Equatable {
         var parts = [appVersion, "\(keySchema)", "\(pointerSchema)", layout ?? "",
                      screens.joined(separator: "|"), settings.fingerprint]
         if let fingerMap, !fingerMap.isEmpty { parts.append("fingers=" + fingerMap) }
+        if exactKeyboards == true { parts.append("exact-keyboards") }
         return parts.joined(separator: ";")
     }
 }

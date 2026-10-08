@@ -476,8 +476,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         engine.onHumanKeyHold = { [weak self] seconds in
             self?.health.noteHold(seconds)
         }
-        engine.onHumanPress = { [weak self] press in
-            self?.health.notePress(press)
+        engine.onHumanPressMatch = { [weak self] press, keycode, stamp in
+            self?.health.notePress(press, match: (keycode, stamp))
             self?.stand.keyPressed()
         }
         engine.onStampJitter = { [weak self] seconds in self?.health.noteJitter(seconds) }
@@ -501,6 +501,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         health.setEnabled(loaded.observationsHealth)
         health.setFingerMap(loaded.fingerMap)
+        health.setExactKeyboards(loaded.healthExactKeyboards)
 
         // The coach: decisions in LodestarCore, this wiring is the coat.
         coach = CoachController()
@@ -1244,6 +1245,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let engine = self?.editorController?.engine ?? EditorEngine.resolved(self?.config.editorModel ?? "")
             state.editorEngineCurrent = self?.config.editorModel ?? ""
             state.earStatus = self?.earHost.status ?? ""
+            state.inputMonitoring = Permissions.canListenToKeyboards ? "Granted" : "Not granted"
             state.draftModelAutomatic = EarTier.resolved("", memoryGB: EditorEngine.physicalGB, hasModel: { _ in true }).name
             state.draftModelLabels = EarTier.allCases.map { $0.label(memoryGB: EditorEngine.physicalGB) }
             state.draftModelsUnavailable = Set(EarTier.allCases
@@ -2254,6 +2256,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         observationStore?.setLogbookBound(loaded.logbookBytes)
         health.setEnabled(loaded.observationsHealth)
         health.setFingerMap(loaded.fingerMap)
+        health.setExactKeyboards(loaded.healthExactKeyboards)
         if let clears = observationStore?.consumeClearRequest(), clears.logbook || clears.health {
             if clears.logbook { observationStore?.clearLogbook() }
             if clears.health {

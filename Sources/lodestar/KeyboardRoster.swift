@@ -160,6 +160,18 @@ class DeviceRoster {
         return 0
     }
 
+    /// The one-based index of the keyboard a press is charged to. An exact
+    /// match (`KeyReportMatcher`) to a keyboard on the list decides; any
+    /// other outcome, or a matched keyboard the list does not show, falls
+    /// back to `attribute`, which writes zero when it cannot tell either.
+    static func charge(_ devices: [Device], exact: KeyReportMatcher.Match?, lidClosed: Bool?,
+                       keyboardType: Int) -> Int {
+        if case .device(let id)? = exact, let index = devices.firstIndex(where: { $0.id == id }) {
+            return index + 1
+        }
+        return attribute(devices, lidClosed: lidClosed, keyboardType: keyboardType)
+    }
+
     static func describe(_ device: IOHIDDevice) -> Device {
         func property(_ key: String) -> Any? { IOHIDDeviceGetProperty(device, key as CFString) }
         let vendor = property(kIOHIDVendorIDKey) as? Int ?? 0
@@ -176,6 +188,24 @@ class DeviceRoster {
             builtIn: (property(kIOHIDBuiltInKey) as? Bool) ?? ((property(kIOHIDBuiltInKey) as? Int) == 1),
             keyboardType: subinterface(of: device),
             reportInterval: ReportInterval(registry: property(kIOHIDReportIntervalKey) as? Int))
+    }
+
+    /// A device a program made, not one a hand types on: a remapper's
+    /// re-emitting keyboard (Karabiner's DriverKit keyboard among them), or
+    /// any user-space HID device. Exact attribution never charges a press to
+    /// one, because the board the hand was on is behind it, and a listener
+    /// that does not seize the board never hears it while the remapper has.
+    static func isVirtual(_ device: IOHIDDevice) -> Bool {
+        func property(_ key: String) -> Any? { IOHIDDeviceGetProperty(device, key as CFString) }
+        return isVirtual(transport: property(kIOHIDTransportKey) as? String,
+                         product: property(kIOHIDProductKey) as? String,
+                         flagged: (property("VirtualDevice") as? Bool) ?? (property("HIDVirtualDevice") as? Bool) ?? false)
+    }
+
+    static func isVirtual(transport: String?, product: String?, flagged: Bool) -> Bool {
+        if flagged { return true }
+        let words = [transport, product].compactMap { $0?.lowercased() }
+        return words.contains { $0.contains("virtual") || $0.contains("karabiner") }
     }
 
     /// The keyboard type the device's key events will carry. It lives on

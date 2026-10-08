@@ -267,6 +267,8 @@ public enum SettingsModel {
         public var editorEngineCurrent = ""
         /// The dictation model in use, or what it is fetching, for its row.
         public var earStatus = ""
+        /// Input Monitoring, for exact keyboard attribution: "Granted" or not.
+        public var inputMonitoring = "unknown"
         /// The health record's size warning, once it is near its bound.
         public var healthWarning: String?
         /// What Automatic picks for dictation on this Mac, named in its label.
@@ -747,6 +749,14 @@ public enum SettingsModel {
                 control: .number(Int(config.healthBytes >> 20), min: Retention.healthMinimumMB, max: 16_384, unit: "MB"),
                 detail: config.observationsHealth ? "Lodestar tells you when the record nears this. Health is never deleted on its own" : "Needs health",
                 isDefault: config.healthBytes == Retention.healthBytes,
+                dimmed: !config.observationsHealth, group: "Health"),
+            Row(title: "Exact Keyboard", path: "health.exact-keyboards",
+                control: .toggle(config.healthExactKeyboards),
+                detail: !config.observationsHealth ? "Needs health"
+                    : config.healthExactKeyboards && machine.inputMonitoring != "Granted"
+                    ? "Needs Input Monitoring in Privacy & Security"
+                    : "Charge each press to the keyboard that sent it. Needs Input Monitoring",
+                isDefault: !config.healthExactKeyboards,
                 dimmed: !config.observationsHealth, group: "Health"),
             Row(title: "Born", path: "health.born",
                 control: .text(config.healthBorn.map(String.init) ?? "", placeholder: "Year"),

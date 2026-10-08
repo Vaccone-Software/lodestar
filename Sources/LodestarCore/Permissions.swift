@@ -1,5 +1,6 @@
 import ApplicationServices
 import Darwin
+import IOKit.hid
 
 public enum Permissions {
     /// Whether this process (via its responsible app — the terminal, when run
@@ -13,6 +14,21 @@ public enum Permissions {
     public static func requestIfNeeded() -> Bool {
         let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
         return AXIsProcessTrustedWithOptions([key: true] as CFDictionary)
+    }
+
+    /// Input Monitoring: listening to keyboards through the HID manager,
+    /// which the health record's exact keyboard attribution needs
+    /// (`health.exact-keyboards`). Asked only when that is turned on; the
+    /// event tap needs Accessibility and never this.
+    public static var canListenToKeyboards: Bool {
+        IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeGranted
+    }
+
+    /// Like `canListenToKeyboards`, but asks macOS to show the prompt when
+    /// it has not been answered.
+    @discardableResult
+    public static func requestKeyboardListening() -> Bool {
+        IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
     }
 
     /// Whether this account is an administrator, the `admin` group (80)

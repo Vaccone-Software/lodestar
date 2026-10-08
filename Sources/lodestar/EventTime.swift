@@ -57,6 +57,12 @@ enum EventTime {
         return nil
     }
 
+    /// Mach ticks (a HID report's timestamp) as nanoseconds on the
+    /// monotonic clock, the scale `monotonic(of:)` reads a tap event on.
+    static func nanoseconds(ticks: UInt64) -> Double {
+        Double(ticks) * timebase.numer / timebase.denom
+    }
+
     /// The wall-clock moment the event was generated, placed by its age
     /// against the same monotonic clock read now. Nil for an event with no
     /// stamp. For the record: an interval is taken from the stamps.

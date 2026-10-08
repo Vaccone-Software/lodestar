@@ -53,12 +53,12 @@ final class SettingsPlacesTests: XCTestCase {
         var performed: [String] = []
         settings.perform = { performed.append($0) }
         settings.pressForTesting("9")
-        settings.pressForTesting("j")
+        settings.pressForTesting("k")
         XCTAssertEqual(performed, [], "the first press only asks")
         settings.pressForTesting("b")
         XCTAssertEqual(performed, [], "any other key lets the ask go")
-        settings.pressForTesting("j")
-        settings.pressForTesting("j")
+        settings.pressForTesting("k")
+        settings.pressForTesting("k")
         XCTAssertEqual(performed, ["delete-logbook"])
         settings.close()
     }

@@ -80,6 +80,7 @@ final class ConfigCoverageTests: XCTestCase {
         Probe(path: ["coach", "stand"], value: .bool(false)) { !$0.standEnabled },
         Probe(path: ["coach", "stand-after"], value: .int(45)) { $0.standAfterMinutes == 45 },
         Probe(path: ["health", "born"], value: .string("1990")) { $0.healthBorn == 1990 },
+        Probe(path: ["health", "exact-keyboards"], value: .bool(true)) { $0.healthExactKeyboards },
         Probe(path: ["health", "hand"], value: .string("left")) { $0.healthHand == "left" },
 
         Probe(path: ["keys", "50"], value: .string("-")) { $0.keyOverrides[50] == "-" },

@@ -65,11 +65,18 @@ final class HealthMonitor {
     private var lidCached: Bool?
     private var lidAt = Date.distantPast
     private var pressureSamples = 0
+    private var minutes = 0
     /// The spans the instrument cannot see right now, and the last run's
     /// stop or heartbeat, kept in `blind.json` so a span left open by a
     /// quit or a crash is closed at the next start (`BlindLedger`).
     private var ledger = BlindLedger()
     private let ledgerFile: URL
+    /// Exact attribution (`KeyReportMatcher`): the keyboards' own reports,
+    /// waiting for the presses they produced, and each reporting device's
+    /// roster id and whether it is virtual, resolved once per device.
+    private var matcher = KeyReportMatcher()
+    private var exactOnQueue = false
+    private var reporters: [UnsafeMutableRawPointer: (device: IOHIDDevice, id: String, virtual: Bool)] = [:]
 
     /// The raw records beneath every summary, and the era file, beside
     /// the directory the monitor is given — the real one in the app, a
@@ -227,6 +234,7 @@ final class HealthMonitor {
             }
             startFlushTimer()
             startSeeing()
+            reconcileExact()
             checkEra()
         } else {
             stopMouseTap()
@@ -234,6 +242,7 @@ final class HealthMonitor {
             flushTimer?.invalidate()
             flushTimer = nil
             stopSeeing(.healthOff)
+            reconcileExact()
             flush()
         }
     }
@@ -308,7 +317,11 @@ final class HealthMonitor {
     /// A hardware press, complete: the raw store keeps it, the window
     /// describes it. The shell adds which keyboard, by the press's own
     /// keyboard type and then the lid, before either sees it.
-    func notePress(_ press: KeyPress) {
+    ///
+    /// `match` is the press's keycode and keydown stamp, for exact
+    /// attribution only: compared against the keyboards' reports in memory
+    /// and dropped, never stored.
+    func notePress(_ press: KeyPress, match: (keycode: Int64, stamp: Double?)? = nil) {
         guard enabled else { return }
         queue.async { [self] in
             var press = press
@@ -316,7 +329,12 @@ final class HealthMonitor {
             press.lid = lid ?? false
             // One read: the index and the list it points into must agree.
             let devices = roster.current(now: press.down)
-            press.keyboard = DeviceRoster.attribute(devices, lidClosed: lid, keyboardType: press.keyboardType)
+            // The keyboard whose own report produced the press, when one
+            // physical keyboard did; otherwise the roster's attribution,
+            // which writes zero when it cannot tell either. Never a guess.
+            let exact = exactOnQueue ? match.map { matcher.match(keycode: $0.keycode, stamp: $0.stamp) } : nil
+            press.keyboard = DeviceRoster.charge(devices, exact: exact, lidClosed: lid,
+                                                 keyboardType: press.keyboardType)
             // The finger the tap named is the convention's; the board
             // this press came from may put the key under another digit.
             let ids = devices.map(\.id)
@@ -463,6 +481,78 @@ final class HealthMonitor {
 
     /// Tests: the ledger as the queue holds it.
     func ledgerForTesting() -> BlindLedger { queue.sync { ledger } }
+
+    // MARK: - Exact keyboards (entry point on the listener's thread, work on the queue)
+
+    private var exactWanted = false
+    private lazy var listener = KeyboardListener { [weak self] usage, stamp, device in
+        // The listener's thread: hand the four fields on and return.
+        self?.queue.async { self?.reportLocked(usage: usage, stamp: stamp, device: device) }
+    }
+    /// Main. Whether presses are being matched to reports right now: the
+    /// setting is on, health is on, Input Monitoring is granted, and the
+    /// manager opened. The era says so.
+    private(set) var exactActive = false
+    /// Whether Input Monitoring is granted. Replaced by the tests.
+    var canListen: () -> Bool = { Permissions.canListenToKeyboards }
+    /// Asks macOS for Input Monitoring. Replaced by the tests.
+    var requestListening: () -> Void = { Permissions.requestKeyboardListening() }
+
+    /// Config's `health.exact-keyboards`. Main thread. Turned on without
+    /// the permission, macOS is asked once, then and only then; until it
+    /// is granted nothing is opened and attribution is the roster's.
+    func setExactKeyboards(_ on: Bool) {
+        let turnedOn = on && !exactWanted
+        exactWanted = on
+        if turnedOn, enabled, !canListen() { requestListening() }
+        let was = exactActive
+        reconcileExact()
+        if enabled, was != exactActive { checkEra() }
+    }
+
+    /// Main. Start or stop the listener to match the setting, the switch
+    /// and the permission; run again each minute, so a grant made while
+    /// Lodestar runs takes effect without a relaunch.
+    private func reconcileExact() {
+        let want = exactWanted && enabled && canListen()
+        if want, !exactActive {
+            exactActive = listener.start()
+        } else if !want, exactActive {
+            listener.stop()
+            exactActive = false
+        }
+        let active = exactActive
+        queue.async { [self] in
+            if exactOnQueue != active { matcher = KeyReportMatcher() }
+            exactOnQueue = active
+        }
+    }
+
+    /// Queue. A keyboard's keydown report, waiting for its press.
+    private func reportLocked(usage: UInt32, stamp: Double, device: IOHIDDevice) {
+        guard exactOnQueue else { return }
+        let key = Unmanaged.passUnretained(device).toOpaque()
+        if reporters[key] == nil {
+            let described = DeviceRoster.describe(device)
+            reporters[key] = (device, described.id, DeviceRoster.isVirtual(device))
+        }
+        guard let reporter = reporters[key] else { return }
+        matcher.report(usage: usage, device: reporter.id, virtual: reporter.virtual, stamp: stamp)
+    }
+
+    /// Tests: a keyboard report, as the listener would hand it on, by
+    /// roster id.
+    func reportForTesting(usage: UInt32, stamp: Double, device: String, virtual: Bool = false) {
+        queue.async { [self] in
+            matcher.report(usage: usage, device: device, virtual: virtual, stamp: stamp)
+        }
+    }
+
+    /// Tests: the matcher on, as a granted permission would turn it.
+    func activateExactForTesting() {
+        queue.sync { exactOnQueue = true }
+        exactActive = true
+    }
 
     // MARK: - The mouse side (entry point on the tap thread, work on the queue)
 
@@ -752,6 +842,7 @@ final class HealthMonitor {
         let displays = Environment.displays()
         let fingerprint = declaredFingers.fingerprint
         let readSettings = readSettings
+        let exact = exactActive
         eraReads.async { [weak self] in
             guard let self else { return }
             let info = EraInfo(appVersion: Lodestar.version, keySchema: Int(KeyStore.version),
@@ -759,7 +850,8 @@ final class HealthMonitor {
                                keyboards: roster.ids, pointers: pointers.ids,
                                displays: displays, settings: readSettings(),
                                lid: Lid.isClosed(), fingerMap: fingerprint,
-                               reportIntervals: roster.reportIntervals)
+                               reportIntervals: roster.reportIntervals,
+                               exactKeyboards: exact ? true : nil)
             let event = eras.check(info)
             DispatchQueue.main.async {
                 self.eraInFlight = false
@@ -848,7 +940,15 @@ final class HealthMonitor {
             pointerStore.flush()
             ledger.heartbeat(at: now)
             saveLedgerLocked()
+            minutes += 1
+            // Once an hour, how the exact matches went: counts by outcome,
+            // never a key, so the field can say whether it works here.
+            if exactOnQueue, minutes % 60 == 0, !matcher.outcomes.isEmpty {
+                Log.info("health: keyboard matches \(matcher.outcomes.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " "))")
+                matcher.resetOutcomes()
+            }
         }
+        reconcileExact()
         checkEra()
         if enabled, listensToTheMouse, tap == nil, Permissions.isTrusted {
             tapThread = nil

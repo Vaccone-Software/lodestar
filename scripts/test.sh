@@ -6,6 +6,11 @@
 #
 #   scripts/test.sh              six app shards plus the core bundle
 #   TEST_SHARDS=8 scripts/test.sh
+#   TEST_SHARD_PLAN=.build/test-shards-failed scripts/test.sh
+#                                the same classes in the same processes as
+#                                the run that failed: which tests share a
+#                                process changes run to run, so a failure
+#                                that depends on order is replayed exactly
 #
 # Not `swift test --parallel`: that spawns one process per test, each
 # reloading AppKit, and measured slower than serial. Not concurrent
@@ -73,6 +78,10 @@ fi
 
 # LPT: the slowest class first, each onto the lightest shard. The core
 # bundle is a few seconds in all, so it is one shard of its own.
+if [ -n "${TEST_SHARD_PLAN:-}" ]; then
+    cp "$TEST_SHARD_PLAN"/*.list "$OUT"/ || { echo "✕ no shard plan in $TEST_SHARD_PLAN"; exit 1; }
+    echo "→ replaying the shard plan in $TEST_SHARD_PLAN"
+else
 python3 - "$OUT/tests.txt" "$TIMINGS" "$SHARDS" "$OUT" <<'PY'
 import sys, heapq, os
 tests, timings, n, out = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4]
@@ -94,6 +103,7 @@ for load, i, members in heap:
         open(f"{out}/app{i}.list", "w").write(",".join(members))
 open(f"{out}/core.list", "w").write(",".join(core))
 PY
+fi
 
 pids=()
 logs=()
@@ -211,7 +221,9 @@ fi
 
 if [ "$failed" -ne 0 ]; then
     grep -hE "error: -\[|: error: |Fatal error|exited with|signal" "${logs[@]}" | grep -v "CoreData" | head -40
+    rm -rf .build/test-shards-failed && cp -R "$OUT" .build/test-shards-failed
     echo "✕ tests failed ($executed run, $(( $(date +%s) - started )) s; logs in $OUT)"
+    echo "  the same shards again: TEST_SHARD_PLAN=.build/test-shards-failed scripts/test.sh"
     exit 1
 fi
 echo "✓ $((executed - skipped)) tests passed, $skipped skipped as allowed, in $(( $(date +%s) - started )) s across $(( ${#logs[@]} )) processes"

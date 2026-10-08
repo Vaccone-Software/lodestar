@@ -69,8 +69,18 @@ final class ShipScriptTests: XCTestCase {
         echo 777 > "$S/run";;
     run)
         case "$2" in
-        list) [ -f "$S/run" ] && echo 777; exit 0;;
+        list)
+            case "$*" in
+            *ci.yml*) [ -f "$S/ci_run" ] && cat "$S/ci_run";;
+            *) [ -f "$S/run" ] && echo 777;;
+            esac
+            exit 0;;
         view)
+            if [ "$3" = 888 ]; then
+                n=$(cat "$S/ci_polls" 2>/dev/null || echo 0)
+                if [ "$n" -gt 0 ]; then echo $((n - 1)) > "$S/ci_polls"; echo ""; else cat "$S/ci_result"; fi
+                exit 0
+            fi
             consume view && blip
             n=$(cat "$S/polls")
             if [ "$n" -gt 0 ]; then echo $((n - 1)) > "$S/polls"; echo ""; else cat "$S/verify_result"; fi;;
@@ -105,7 +115,8 @@ final class ShipScriptTests: XCTestCase {
     /// reads (a create that lands then errors).
     private func run(_ arguments: [String], state: String = "none", failing: [String: Int] = [:],
                      flags: [String] = [], verify: String = "success", polls: Int = 0,
-                     verifySeconds: Int = 3) throws -> Outcome {
+                     verifySeconds: Int = 3, ci: String? = nil, ciPolls: Int = 0,
+                     environment: [String: String] = [:]) throws -> Outcome {
         let bin = scratch.appendingPathComponent("bin")
         let gh = scratch.appendingPathComponent("state")
         for dir in [bin, gh] { try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
@@ -119,6 +130,11 @@ final class ShipScriptTests: XCTestCase {
             try String(count).write(to: gh.appendingPathComponent("fail_\(name)"), atomically: true, encoding: .utf8)
         }
         for flag in flags { try "1".write(to: gh.appendingPathComponent(flag), atomically: true, encoding: .utf8) }
+        if let ci {
+            try "888".write(to: gh.appendingPathComponent("ci_run"), atomically: true, encoding: .utf8)
+            try ci.write(to: gh.appendingPathComponent("ci_result"), atomically: true, encoding: .utf8)
+            try String(ciPolls).write(to: gh.appendingPathComponent("ci_polls"), atomically: true, encoding: .utf8)
+        }
 
         let notes = scratch.appendingPathComponent("v9.9.9.md")
         let zip = scratch.appendingPathComponent("lodestar-9.9.9.zip")
@@ -139,7 +155,7 @@ final class ShipScriptTests: XCTestCase {
             "REPO": "test/repo",
             "RELEASE_RETRY_DELAY": "0", "RELEASE_POLL_DELAY": "0", "RELEASE_FIND_DELAY": "0",
             "RELEASE_VERIFY_SECONDS": String(verifySeconds),
-        ]
+        ].merging(environment) { _, new in new }
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
@@ -168,6 +184,42 @@ final class ShipScriptTests: XCTestCase {
 
     /// 0.39.4: the create made the draft and the upload timed out, so the
     /// next ship found an empty draft and could not create another.
+    /// 0.44.0, 0.45.0 and 0.45.1 shipped with CI red: nothing read it.
+    func testAShipWaitsForCIOnItsCommitAndGoesOnWhenItPassed() throws {
+        let result = try run(["ci", "9.9.9", "abc1234"], ci: "success", ciPolls: 2)
+        XCTAssertEqual(result.status, 0, result.output)
+        XCTAssertEqual(result.count("run view 888"), 3, "asked until the run had finished")
+        XCTAssertTrue(result.calls.contains { $0.contains("--commit abc1234") }, "the run for this commit, not the newest")
+    }
+
+    func testAShipStopsWhenCIFailed() throws {
+        let result = try run(["ci", "9.9.9", "abc1234"], ci: "failure")
+        XCTAssertEqual(result.status, 1)
+        XCTAssertTrue(result.output.contains("ended failure"), result.output)
+    }
+
+    func testAShipStopsWhenNoCIRunAppears() throws {
+        let result = try run(["ci", "9.9.9", "abc1234"], environment: ["RELEASE_CI_SECONDS": "1"])
+        XCTAssertEqual(result.status, 1)
+        XCTAssertTrue(result.output.contains("no CI run"), result.output)
+    }
+
+    func testAShipStopsWhenCINeverFinishes() throws {
+        let result = try run(["ci", "9.9.9", "abc1234"], ci: "success", ciPolls: 1_000,
+                             environment: ["RELEASE_CI_SECONDS": "1"])
+        XCTAssertEqual(result.status, 1)
+        XCTAssertTrue(result.output.contains("did not finish"), result.output)
+    }
+
+    /// The tag names the commit that was built, not whatever the default
+    /// branch holds by the time the draft is made.
+    func testTheDraftIsTaggedOnTheShippedCommit() throws {
+        let result = try run(publish, environment: ["RELEASE_TARGET": "abc1234"])
+        XCTAssertEqual(result.status, 0, result.output)
+        XCTAssertTrue(result.calls.contains { $0.hasPrefix("release create") && $0.contains("--target abc1234") },
+                      result.calls.joined(separator: "\n"))
+    }
+
     func testAnEmptyDraftLeftByAStoppedShipIsFinishedNotFoughtOver() throws {
         let result = try run(publish, state: "draft")
         XCTAssertEqual(result.status, 0, result.output)

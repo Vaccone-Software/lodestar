@@ -21,15 +21,22 @@
 #     are immutable, and the answer is a version bump.
 #
 #   ./scripts/github-release.sh check   <version>
+#   ./scripts/github-release.sh ci      <version> <commit>
 #   ./scripts/github-release.sh publish <version> <notes-file> <zip> <dmg>
 #
 # `check` is what ship.sh asks before it spends minutes building. Exit
 # status: 0 fine, 1 a real problem, 2 GitHub could not be reached.
 #
+# `ci` waits for the CI run on the commit being shipped and fails unless it
+# passed. 0.44.0, 0.45.0 and 0.45.1 shipped while CI was red, because
+# nothing between the push and the publish ever read it.
+#
 # Environment: REPO (Vaccone-Software/lodestar), RELEASE_TRIES,
 # RELEASE_RETRY_DELAY (see retry.sh), RELEASE_POLL_DELAY (20 s between
 # looks at the verification), RELEASE_FIND_DELAY (2 s while the run
-# appears), RELEASE_VERIFY_SECONDS (3600).
+# appears), RELEASE_VERIFY_SECONDS (3600), RELEASE_CI_SECONDS (1800),
+# RELEASE_TARGET (the commit the tag is made on, so the tag names the
+# source that was built and not whatever the default branch holds).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 # shellcheck source=scripts/retry.sh
@@ -81,8 +88,38 @@ check)
     esac
     exit 0
     ;;
+ci)
+    COMMIT="${3:?commit}"
+    CI_SECONDS="${RELEASE_CI_SECONDS:-1800}"
+    find_ci() {
+        CI_RUN=$(gh run list --repo "$REPO" --workflow ci.yml --commit "$COMMIT" --event push --limit 5 \
+            --json databaseId -q '.[0].databaseId // empty') || return 1
+        [ -n "$CI_RUN" ]
+    }
+    CI_RUN=""
+    deadline=$((SECONDS + CI_SECONDS))
+    echo "→ waiting for CI on ${COMMIT:0:7}"
+    while [ "$SECONDS" -lt "$deadline" ]; do
+        find_ci 2>/dev/null && break
+        sleep "$FIND_DELAY"
+    done
+    [ -n "$CI_RUN" ] || { echo "✕ no CI run for ${COMMIT:0:7} appeared in ${CI_SECONDS}s; nothing was published"; exit 1; }
+    echo "  run $CI_RUN"
+    answer=""
+    while [ "$SECONDS" -lt "$deadline" ]; do
+        answer=$(gh run view "$CI_RUN" --repo "$REPO" --json status,conclusion \
+            --jq 'if .status == "completed" then .conclusion else "" end' 2>/dev/null) || answer=""
+        [ -n "$answer" ] && break
+        sleep "$POLL_DELAY"
+    done
+    case "$answer" in
+        success) echo "✓ CI passed on ${COMMIT:0:7}"; exit 0;;
+        "") echo "✕ CI on ${COMMIT:0:7} did not finish in ${CI_SECONDS}s; nothing was published (gh run view $CI_RUN --repo $REPO)"; exit 1;;
+        *) echo "✕ CI on ${COMMIT:0:7} ended $answer; nothing was published. Fix it, commit, and ship again (gh run view $CI_RUN --repo $REPO)"; exit 1;;
+    esac
+    ;;
 publish) ;;
-*) echo "usage: github-release.sh check <version> | publish <version> <notes> <zip> <dmg>"; exit 64;;
+*) echo "usage: github-release.sh check <version> | ci <version> <commit> | publish <version> <notes> <zip> <dmg>"; exit 64;;
 esac
 
 NOTES="${3:?notes file}"
@@ -100,6 +137,7 @@ ensure_draft() {
     lookup_release || return 1
     if [ "$RELEASE_STATE" = none ]; then
         gh release create "$TAG" $PRERELEASE --draft --title "Lodestar $VERSION" \
+            ${RELEASE_TARGET:+--target "$RELEASE_TARGET"} \
             --notes-file "$NOTES" --repo "$REPO" >/dev/null || true
         lookup_release || return 1
         [ "$RELEASE_STATE" != none ]

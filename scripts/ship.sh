@@ -1,6 +1,7 @@
 #!/bin/bash
-# The whole ship, one command: push, notarized build, a draft release
-# proven on every macOS it claims, then published, then the cask.
+# The whole ship, one command, from main: push, notarized build, CI passed
+# on the pushed commit, a draft release tagged on that commit and proven on
+# every macOS it claims, then published, then the cask.
 # Requires a notes file — a release without notes is not a release — and
 # a smoke: the signed build run with a click, a scroll and a keystroke
 # through its real taps (scripts/smoke.sh auto), before anything is
@@ -30,6 +31,15 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
 fi
 
 VERSION=$(grep 'public static let version' Sources/LodestarCore/Version.swift | cut -d'"' -f2)
+
+# What is built is the checkout; what is pushed and tagged is main. They
+# must be the same commit, or the release names source it was not built
+# from.
+COMMIT=$(git rev-parse HEAD)
+if [ "$COMMIT" != "$(git rev-parse main)" ]; then
+    echo "✕ HEAD is $(git rev-parse --abbrev-ref HEAD), not main: merge into main and ship from there"
+    exit 1
+fi
 
 # What CI and the release need of the notes, found out now and not after a
 # notarized build: named for this version, and committed — `git diff` does
@@ -78,6 +88,10 @@ fi
 STEP="pushing main"
 echo "→ pushing main"
 retry git push -q origin main
+if [ "$(git rev-parse origin/main)" != "$COMMIT" ]; then
+    echo "✕ origin/main is not ${COMMIT:0:7} after the push"
+    exit 1
+fi
 
 # Notarized artifacts left by a ship that stopped later are kept when they
 # are still the ones for this binary: newer than it, and both stapled.
@@ -101,8 +115,18 @@ fi
 # are immutable. The build is started on every macOS it claims before it
 # is published (verify-build.yml); 0.37.0 started only where it was built.
 # All of it, retried and resumable, is github-release.sh.
+# CI on the pushed commit ran while this one notarized. Nothing is drafted
+# until it passes. SHIP_SKIP_CI=1 is for a CI that cannot run at all (a
+# GitHub outage), never for one that failed.
+STEP="waiting for CI"
+if [ "${SHIP_SKIP_CI:-}" = 1 ]; then
+    echo "→ CI not waited for (SHIP_SKIP_CI=1)"
+else
+    ./scripts/github-release.sh ci "$VERSION" "$COMMIT"
+fi
+
 STEP="the GitHub release"
-./scripts/github-release.sh publish "$VERSION" "$NOTES" "$ZIP" "$DMG"
+RELEASE_TARGET="$COMMIT" ./scripts/github-release.sh publish "$VERSION" "$NOTES" "$ZIP" "$DMG"
 
 STEP="bumping the cask"
 echo "→ bumping cask"

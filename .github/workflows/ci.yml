@@ -10,6 +10,9 @@ jobs:
     # The codebase compiles against the macOS 26 SDK (glass effect views,
     # availability gated at runtime) — the runner image must match.
     runs-on: macos-26
+    # A hung build or test holds a runner for GitHub's default six hours;
+    # the suite itself is a few minutes, and test.sh stops a hung shard.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Metal toolchain

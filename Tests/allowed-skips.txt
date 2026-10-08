@@ -1,0 +1,25 @@
+# Tests allowed to skip, and where. scripts/test.sh fails on any skip not
+# listed here: a precondition that quietly went missing (no GPU, a moved
+# fixture, a renamed environment variable) turns a test into a pass that
+# tested nothing, and a skip is counted in "Executed N tests".
+#
+#   <where> <Class>.<test>   or   <where> <Class>.*
+#   where: any (at the desk and on CI) | ci (only on CI; the desk must run it)
+
+# Live tests: run on demand against a real model, microphone, app or dataset.
+any EditorAccuracyLiveTests.testTheModelAgainstTheFixture
+any EditorConformanceTests.*
+any EditorCostTests.*
+any EditorDownloadLiveTests.*
+any EditorRegionLiveTests.*
+any EditorWatchProbeTests.*
+any IntentPassLiveTests.*
+any MicBridgeLiveTests.*
+any QwenEarTests.testTokenizerFromTheFolderMatchesTransformers
+any ReplayTests.testTheAUCArithmeticReproducesThePapersOwnIndex
+any ReplayTests.testTheWindowCodeReproducesTheLogFluctuationIndex
+any WindowModelLiveTests.*
+
+# MLX needs a GPU, and a hosted runner's virtual machine has none.
+ci QwenEarTests.*
+ci EditorRandomStateTests.*

@@ -14,16 +14,33 @@
 # Classes are balanced by the time each took last run (.build/test-timings.txt,
 # rewritten after every run; a class with no timing yet goes to the lightest
 # shard). A shard that runs no tests fails the run: a bad -XCTest name runs
-# nothing and exits 0. So does a total that does not match the test list.
+# nothing and exits 0. So does a total that does not match the test list,
+# a shard still running after TEST_SHARD_SECONDS (300; its stack is sampled
+# to .build/test-shards/<shard>.hang.txt), and a skip that
+# Tests/allowed-skips.txt does not allow.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
 SHARDS=${TEST_SHARDS:-6}
+SHARD_SECONDS=${TEST_SHARD_SECONDS:-300}
 OUT=.build/test-shards
 TIMINGS=.build/test-timings.txt
 started=$(date +%s)
 
-if ! build=$(swift build --build-tests 2>&1); then
+build_tests() { build=$(swift build --build-tests 2>&1); }
+built=1
+if ! build_tests; then
+    built=0
+    # macOS remounts the Metal toolchain (MLX's kernels) under a new path
+    # now and then, and the cached build plan keeps the old one. The plan
+    # is a cache: dropped, it is made again.
+    if grep -q "MetalToolchain.*No such file" <<<"$build"; then
+        echo "→ the Metal toolchain moved; rebuilding the build plan"
+        rm -rf .build/out/Intermediates.noindex/XCBuildData
+        build_tests && built=1
+    fi
+fi
+if [ "$built" -ne 1 ]; then
     echo "$build" | grep -E "error|warning: unreachable" | head -40
     echo "✕ the tests do not build"
     exit 1
@@ -89,9 +106,36 @@ for list in "$OUT"/app*.list "$OUT/core.list"; do
     logs+=("$OUT/$name.log")
 done
 
+# A shard that hangs (a deadlock, a wait that never ends) would hold the
+# run, and a ship, for ever. Past the limit its stack is sampled, so the
+# hang can be read, and it is stopped.
 failed=0
+deadline=$((SECONDS + SHARD_SECONDS))
+while :; do
+    alive=()
+    for index in "${!pids[@]}"; do
+        kill -0 "${pids[$index]}" 2>/dev/null && alive+=("$index")
+    done
+    [ ${#alive[@]} -eq 0 ] && break
+    if [ "$SECONDS" -ge "$deadline" ]; then
+        for index in "${alive[@]}"; do
+            pid=${pids[$index]}
+            name=$(basename "${logs[$index]}" .log)
+            in=$(grep -E "^Test Case .* started" "${logs[$index]}" | tail -1)
+            echo "✕ $name still running after ${SHARD_SECONDS}s, in: $in"
+            sample "$pid" 2 -file "$OUT/$name.hang.txt" >/dev/null 2>&1 \
+                && echo "  its stack: $OUT/$name.hang.txt"
+            kill -TERM "$pid" 2>/dev/null
+        done
+        sleep 2
+        for index in "${alive[@]}"; do kill -KILL "${pids[$index]}" 2>/dev/null; done
+        failed=1
+        break
+    fi
+    sleep 0.5
+done
 for index in "${!pids[@]}"; do
-    wait "${pids[$index]}" || failed=1
+    wait "${pids[$index]}" 2>/dev/null || failed=1
 done
 
 # A process that died mid-run (a crash, an abort, an exit) leaves the
@@ -120,8 +164,10 @@ for log in "${logs[@]}"; do
     fi
 done
 
-# Next run's balance: seconds per class, summed from every test line.
-cat "${logs[@]}" | python3 -c '
+# Next run's balance: seconds per class, summed from every test line. Only
+# a whole run is a measure: a stopped one would leave most classes untimed
+# and pile them onto one shard next time.
+[ "$executed" -eq "$expected" ] && cat "${logs[@]}" | python3 -c '
 import re, sys, collections
 seconds = collections.Counter()
 for line in sys.stdin:
@@ -137,9 +183,35 @@ if [ "$executed" -ne "$expected" ]; then
     failed=1
 fi
 
+# Skips are in "Executed N"; each must be one the allowlist expects here.
+where=any
+[ -n "${CI:-}" ] && where=ci
+grep -hE "^Test Case '-\[\S+ \S+\]' skipped" "${logs[@]}" \
+    | sed -E "s/^Test Case '-\[[A-Za-z0-9_]+\.([A-Za-z0-9_]+) ([A-Za-z0-9_]+)\]'.*/\1.\2/" | sort -u > "$OUT/skipped.txt"
+skipped=$(wc -l < "$OUT/skipped.txt" | tr -d ' ')
+unexpected=$(python3 - "$OUT/skipped.txt" Tests/allowed-skips.txt "$where" <<'PY'
+import sys, fnmatch
+skipped, allowed, where = sys.argv[1], sys.argv[2], sys.argv[3]
+rules = []
+for line in open(allowed):
+    line = line.split("#")[0].split()
+    if len(line) == 2 and (line[0] == "any" or line[0] == where):
+        rules.append(line[1])
+for name in (l.strip() for l in open(skipped)):
+    if name and not any(fnmatch.fnmatchcase(name, r) for r in rules):
+        print(name)
+PY
+)
+if [ -n "$unexpected" ]; then
+    echo "✕ skipped without a place in Tests/allowed-skips.txt ($where):"
+    echo "$unexpected" | sed 's/^/    /'
+    grep -hE -A1 "^Test Case .* skipped|: Test skipped" "${logs[@]}" | grep -F "$(echo "$unexpected" | head -3 | sed -E 's/.*\.//')" | head -6 | cut -c1-200
+    failed=1
+fi
+
 if [ "$failed" -ne 0 ]; then
     grep -hE "error: -\[|: error: |Fatal error|exited with|signal" "${logs[@]}" | grep -v "CoreData" | head -40
     echo "✕ tests failed ($executed run, $(( $(date +%s) - started )) s; logs in $OUT)"
     exit 1
 fi
-echo "✓ $executed tests passed in $(( $(date +%s) - started )) s across $(( ${#logs[@]} )) processes"
+echo "✓ $((executed - skipped)) tests passed, $skipped skipped as allowed, in $(( $(date +%s) - started )) s across $(( ${#logs[@]} )) processes"

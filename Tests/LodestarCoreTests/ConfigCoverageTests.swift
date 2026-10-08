@@ -77,6 +77,8 @@ final class ConfigCoverageTests: XCTestCase {
         Probe(path: ["observations", "health-mb"], value: .int(2048)) { $0.healthBytes == 2048 << 20 },
         Probe(path: ["observations", "health"], value: .bool(false)) { !$0.observationsHealth },
         Probe(path: ["coach", "enabled"], value: .bool(false)) { !$0.coachEnabled },
+        Probe(path: ["coach", "stand"], value: .bool(false)) { !$0.standEnabled },
+        Probe(path: ["coach", "stand-after"], value: .int(45)) { $0.standAfterMinutes == 45 },
         Probe(path: ["health", "born"], value: .string("1990")) { $0.healthBorn == 1990 },
         Probe(path: ["health", "hand"], value: .string("left")) { $0.healthHand == "left" },
 

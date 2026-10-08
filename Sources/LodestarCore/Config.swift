@@ -163,6 +163,10 @@ public struct Config {
     /// windows' class and never moves.
     public var fingerMap = FingerMap()
     public var coachEnabled = true
+    /// The walk: a cue at a stopping point after `standAfterMinutes` of
+    /// unbroken work.
+    public var standEnabled = true
+    public var standAfterMinutes = 30
     /// The chain guide fades as a subtree is learned: the map waits for
     /// recall before it appears. The coach's doctrine, not a switch.
     public var guideFade: Bool { true }
@@ -289,6 +293,8 @@ public struct Config {
         ], description: "What Lodestar observes, in two records with their own switches. Nothing leaves the machine."),
         "coach": .table([
             "enabled": .boolean(description: "Let Lodestar offer one improvement at a time, in quiet moments, priced in seconds."),
+            "stand": .boolean(description: "After a stretch of work with no break, a cue to walk for two minutes, at the next natural stopping point. Twice at most in a stretch."),
+            "stand-after": .number(min: 15, max: 120, description: "Minutes of unbroken work before the walk is due. The research supports thirty: two minutes of walking every twenty to thirty minutes."),
         ], description: "The coach: rare, evidence-backed suggestions drawn from the observations."),
         "health": .table([
             "born": .string(allowed: nil, description: "The year you were born, four digits. Age is the first thing a reading of the hands is adjusted for. Optional."),
@@ -591,6 +597,12 @@ public struct Config {
         }
         if let enabled = effective.value(at: ["coach", "enabled"])?.bool {
             config.coachEnabled = enabled
+        }
+        if let enabled = effective.value(at: ["coach", "stand"])?.bool {
+            config.standEnabled = enabled
+        }
+        if let minutes = effective.value(at: ["coach", "stand-after"])?.double {
+            config.standAfterMinutes = Int(min(120, max(15, minutes.rounded())))
         }
         if let born = effective.value(at: ["health", "born"])?.string {
             let digits = born.trimmingCharacters(in: .whitespaces)

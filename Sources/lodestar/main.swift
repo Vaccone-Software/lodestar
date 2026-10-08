@@ -93,6 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let meetings = MeetingController()
     private let linkChip = LinkChip()
     private let presenting = Presenting()
+    private let stand = StandCueController()
     private let control = ControlSocket()
     private let settings = SettingsController()
     private let health = HealthMonitor()
@@ -475,7 +476,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         engine.onHumanKeyHold = { [weak self] seconds in
             self?.health.noteHold(seconds)
         }
-        engine.onHumanPress = { [weak self] press in self?.health.notePress(press) }
+        engine.onHumanPress = { [weak self] press in
+            self?.health.notePress(press)
+            self?.stand.keyPressed()
+        }
         engine.onStampJitter = { [weak self] seconds in self?.health.noteJitter(seconds) }
         engine.onTapReset = { [weak self] in self?.health.noteTapReset() }
         health.context = { [weak draft] in
@@ -590,6 +594,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return self.walk.isUp || self.meetings.chipVisible || self.presenting.isOn
         }
         presenting.meetingInProgress = { [weak self] in self?.meetings.inProgress ?? false }
+        wireStand()
         // Suppression only gates what has not been drawn yet. A chip already
         // standing when the call starts has to be told to go, or the one
         // case this exists for — you join, and the suggestion from four
@@ -1322,6 +1327,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         settings.redo = { [weak self] in self?.redoSettingsChange() ?? false }
         settings.dismissSheet = { [weak self] in self?.engine.dismissSheet() ?? false }
         engine.settingsUp = { [weak self] in self?.settings.isVisible ?? false }
+    }
+
+    /// The walk: thirty minutes without a break, then a cue at the next
+    /// stopping point, in the coach's quiet. See `StandCue`.
+    private func wireStand() {
+        stand.enabled = { [weak self] in self?.config.standEnabled ?? false }
+        stand.minutes = { [weak self] in self?.config.standAfterMinutes ?? 30 }
+        stand.quiet = { [weak self] in
+            guard let self, let coach = self.coach, let hud = self.hud else { return false }
+            return coach.engineQuiet() && !coach.suppressed() && !coach.chipVisible
+                && hud.owner == .none && !self.presenting.isOn && !CameraProbe.anyCameraRunning()
+        }
+        stand.draftOpen = { [weak self] in self?.draftController?.isOpen ?? false }
+        stand.lastKeyAt = { [weak self] in self?.engine?.lastHumanInputAt ?? .distantPast }
+        stand.show = { [weak self] sentence, detail, share in
+            self?.hud.showVoice(sentence: sentence, detail: detail, rows: [], owner: .flash,
+                                seconds: 8, mark: share)
+        }
+        stand.hide = { [weak self] sentence in
+            guard let hud = self?.hud, hud.voiceSentence == sentence else { return }
+            hud.hide()
+        }
+        stand.start()
     }
 
     @objc private func openSettingsWindow() {

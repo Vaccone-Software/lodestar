@@ -260,6 +260,8 @@ public enum ConfigDefaults {
         ]),
         "coach": .table([
             "enabled": .bool(true),
+            "stand": .bool(true),
+            "stand-after": .int(30),
         ]),
         "health": .table([
             "keyboards": .table([:]),

@@ -360,6 +360,16 @@ enum StripPreview {
             app.run()
         }
 
+        // 135: the walk's cue, STAND=30|60: the mark lit as far into the
+        // hour as the stretch has run.
+        if variant == 135 {
+            let hud = HUD()
+            let minutes = ProcessInfo.processInfo.environment["STAND"] == "60" ? 60 : 30
+            hud.showVoice(sentence: StandCue.sentence(minutes: minutes), detail: StandCue.instruction, rows: [],
+                          owner: .flash, mark: minutes == 60 ? 1 : 0.5)
+            app.run()
+        }
+
         // 63: the link chip — what a clicked link leaves behind when an
         // arrangement was standing and the screen deliberately did not move.
         if variant == 63 {

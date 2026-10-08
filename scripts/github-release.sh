@@ -50,7 +50,7 @@ VERIFY_SECONDS="${RELEASE_VERIFY_SECONDS:-3600}"
 MODE="${1:-}"
 VERSION="${2:-}"
 [ -n "$MODE" ] && [ -n "$VERSION" ] || {
-    echo "usage: github-release.sh check <version> | publish <version> <notes> <zip> <dmg>"
+    echo "usage: github-release.sh check <version> | ci <version> <commit> | publish <version> <notes> <zip> <dmg>"
     exit 64
 }
 TAG="v$VERSION"
@@ -207,7 +207,7 @@ fi
 if [ "$REUSED" = 1 ]; then
     echo "  the draft was already there; refreshing its notes and title"
     retry gh release edit "$TAG" $PRERELEASE --title "Lodestar $VERSION" --notes-file "$NOTES" \
-        --repo "$REPO" >/dev/null || { echo "✕ could not refresh the draft's notes. Run ship.sh again."; exit 1; }
+        ${RELEASE_TARGET:+--target "$RELEASE_TARGET"} --repo "$REPO" >/dev/null || { echo "✕ could not refresh the draft's notes. Run ship.sh again."; exit 1; }
 fi
 
 echo "→ uploading the notarized artifacts"

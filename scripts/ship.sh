@@ -36,7 +36,11 @@ VERSION=$(grep 'public static let version' Sources/LodestarCore/Version.swift | 
 # must be the same commit, or the release names source it was not built
 # from.
 COMMIT=$(git rev-parse HEAD)
-if [ "$COMMIT" != "$(git rev-parse main)" ]; then
+if ! MAIN=$(git rev-parse --verify -q refs/heads/main); then
+    echo "✕ there is no local main to ship from"
+    exit 1
+fi
+if [ "$COMMIT" != "$MAIN" ]; then
     echo "✕ HEAD is $(git rev-parse --abbrev-ref HEAD), not main: merge into main and ship from there"
     exit 1
 fi
@@ -71,7 +75,14 @@ STEP="looking for v$VERSION on GitHub"
 STEP="building and smoking"
 SMOKED="dist/.smoked"
 BIN="dist/lodestar.app/Contents/MacOS/lodestar"
-smoked() { [ -f "$SMOKED" ] && [ -f "$BIN" ] && [ "$(cat "$SMOKED")" = "$VERSION" ] && [ "$SMOKED" -nt "$BIN" ]; }
+# The commit the signed build was made from. A build, a smoke and a
+# notarization are kept across a stopped ship only while they were made
+# from this commit: a fix committed after a failed CI, at the same
+# version, would otherwise ship the old bytes under a tag naming the fix.
+BUILT_FROM="dist/.built-from"
+# release.sh build writes it, from a clean tree only.
+built_here() { [ -f "$BUILT_FROM" ] && [ "$(cat "$BUILT_FROM")" = "$COMMIT" ]; }
+smoked() { built_here && [ -f "$SMOKED" ] && [ -f "$BIN" ] && [ "$(cat "$SMOKED")" = "$VERSION" ] && [ "$SMOKED" -nt "$BIN" ]; }
 if smoked; then
     echo "→ v$VERSION already smoked; shipping the smoked build"
 else
@@ -99,7 +110,7 @@ fi
 ZIP="dist/lodestar-$VERSION.zip"
 DMG="dist/lodestar-$VERSION.dmg"
 artifacts_current() {
-    [ -f "$ZIP" ] && [ -f "$DMG" ] && [ "$ZIP" -nt "$BIN" ] && [ "$DMG" -nt "$BIN" ] \
+    built_here && [ -f "$ZIP" ] && [ -f "$DMG" ] && [ "$ZIP" -nt "$BIN" ] && [ "$DMG" -nt "$BIN" ] \
         && xcrun stapler validate dist/lodestar.app >/dev/null 2>&1 \
         && xcrun stapler validate "$DMG" >/dev/null 2>&1
 }

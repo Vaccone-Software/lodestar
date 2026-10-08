@@ -29,6 +29,9 @@ if [ -z "$IDENTITY" ]; then
 fi
 
 if [ "$PHASE" = "build" ] || [ "$PHASE" = "all" ]; then
+    # The commit these bytes are made from, for ship.sh to match before it
+    # keeps a build across a stopped ship. Gone until the build succeeds.
+    rm -f dist/.built-from
     echo "→ testing"
     ./scripts/test.sh || { echo "✕ tests failed — no release from a red suite (run: scripts/test.sh)"; exit 1; }
 
@@ -49,6 +52,9 @@ if [ "$PHASE" = "build" ] || [ "$PHASE" = "all" ]; then
     # What the site reads from a release: the schema the binary emits, and
     # the download fallback's version, written to the site checkout.
     ./scripts/site-sync.sh "$APP"
+    if git diff --quiet && git diff --cached --quiet; then
+        git rev-parse HEAD > dist/.built-from
+    fi
 fi
 if [ "$PHASE" = "build" ]; then
     echo "✓ built and signed: $APP — smoke it (scripts/smoke.sh auto), then release.sh publish"

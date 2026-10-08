@@ -220,6 +220,15 @@ final class ShipScriptTests: XCTestCase {
                       result.calls.joined(separator: "\n"))
     }
 
+    /// A draft an earlier ship left was made at that ship's commit; the
+    /// refresh moves its tag to this one.
+    func testAReusedDraftIsRetargetedAtTheShippedCommit() throws {
+        let result = try run(publish, state: "draft", environment: ["RELEASE_TARGET": "abc1234"])
+        XCTAssertEqual(result.status, 0, result.output)
+        XCTAssertTrue(result.calls.contains { $0.hasPrefix("release edit v9.9.9 --title") && $0.contains("--target abc1234") },
+                      result.calls.joined(separator: "\n"))
+    }
+
     func testAnEmptyDraftLeftByAStoppedShipIsFinishedNotFoughtOver() throws {
         let result = try run(publish, state: "draft")
         XCTAssertEqual(result.status, 0, result.output)

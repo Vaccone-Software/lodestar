@@ -13,7 +13,11 @@ import LodestarCore
 /// it are the same table entry by construction.
 enum KeyboardLayout {
     /// The letter rows' physical positions, ANSI keycodes, in the order
-    /// labels spend them: home row, then the top row, then the bottom.
+    /// labels spend them: home row, then the top row, then the bottom, and
+    /// within each row the right hand first, from the index finger out,
+    /// then the left, the way Keep lays its cards over J K L ; F D S A. The
+    /// first label goes to the right index finger, the strongest finger of
+    /// the hand that is free while the left holds lode.
     /// The hand owns the home row outright, so it is never left for a
     /// second row while single letters remain; past it, reaching up beats
     /// reaching down — the top row is ten keys to the bottom's seven, and
@@ -22,9 +26,9 @@ enum KeyboardLayout {
     /// the fingers to curl under. The order is fixed and never sorted by
     /// anything else, because a chip that moved rows between windows
     /// would be a fresh decision every time.
-    private static let homeRowCodes: [Int64] = [0, 1, 2, 3, 5, 4, 38, 40, 37]
-    private static let topRowCodes: [Int64] = [12, 13, 14, 15, 17, 16, 32, 34, 31, 35]
-    private static let bottomRowCodes: [Int64] = [6, 7, 8, 9, 11, 45, 46]
+    private static let homeRowCodes: [Int64] = [38, 40, 37, 3, 2, 1, 0, 4, 5]          // j k l f d s a h g
+    private static let topRowCodes: [Int64] = [32, 34, 31, 35, 15, 14, 13, 12, 16, 17]  // u i o p r e w q y t
+    private static let bottomRowCodes: [Int64] = [46, 45, 9, 8, 7, 6, 11]              // m n v c x z b
 
     /// Install the active layout's characters into the key-name table.
     /// Called at boot and on every input-source change.
@@ -44,7 +48,7 @@ enum KeyboardLayout {
     /// rather than the whole alphabet, and the home row's own failure
     /// still falls back to the row the product has always used.
     static func chipAlphabet() -> String {
-        let rows = [row(homeRowCodes) ?? "asdfghjkl", row(topRowCodes), row(bottomRowCodes)]
+        let rows = [row(homeRowCodes) ?? HintLabels.homeRow, row(topRowCodes), row(bottomRowCodes)]
         var seen = Set<Character>()
         var letters = ""
         for character in rows.compactMap({ $0 }).joined() where !seen.contains(character) {

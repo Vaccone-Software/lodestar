@@ -4,6 +4,10 @@ import Foundation
 /// are prefix-free (typing one can never fire while another remains
 /// reachable) and drawn from the user's own alphabet.
 public enum HintLabels {
+    /// The home row in the order labels spend it: the right hand from the
+    /// index finger out, then the left.
+    public static let homeRow = "jklfdsahg"
+
     /// Lowercased, deduplicated, letters only. A config alphabet that
     /// leaves fewer than four usable letters falls back to the home row —
     /// a bad config must degrade, not break.
@@ -14,7 +18,7 @@ public enum HintLabels {
             seen.insert(ch)
             letters.append(ch)
         }
-        return letters.count >= 4 ? letters : Array("asdfghjkl")
+        return letters.count >= 4 ? letters : Array(homeRow)
     }
 
     /// Single letters while they suffice; beyond that, uniform two-letter

@@ -77,7 +77,7 @@ final class SelectController {
     private let overlay = SelectOverlay()
 
     /// Chip alphabet, shared with hints — one set of label letters to own.
-    var letters = "asdfghjkl"
+    var letters = HintLabels.homeRow
     var flash: (String) -> Void = { _ in }
     var observations: ObservationStore?
 

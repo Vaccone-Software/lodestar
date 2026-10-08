@@ -28,8 +28,10 @@ final class HintLabelsTests: XCTestCase {
 
     func testSanitizeDedupesAndFallsBack() {
         XCTAssertEqual(HintLabels.sanitize("AaSsDdFf"), ["a", "s", "d", "f"])
-        XCTAssertEqual(HintLabels.sanitize("a1b!c"), Array("asdfghjkl"), "3 letters is too few")
-        XCTAssertEqual(HintLabels.sanitize(""), Array("asdfghjkl"))
+        XCTAssertEqual(HintLabels.sanitize("a1b!c"), Array(HintLabels.homeRow), "3 letters is too few")
+        XCTAssertEqual(HintLabels.sanitize(""), Array(HintLabels.homeRow))
+        XCTAssertEqual(HintLabels.labels(count: 3, alphabet: HintLabels.homeRow), ["j", "k", "l"],
+                       "the right index finger takes the first label")
     }
 
     func testCapacityIsAlphabetSquared() {

@@ -21,6 +21,11 @@ final class StandCueController {
     var lastKeyAt: () -> Date = { .distantPast }
     var show: (_ sentence: String, _ detail: String, _ share: Double) -> Void = { _, _, _ in }
     var hide: (_ sentence: String) -> Void = { _ in }
+    /// The clock and the timer the controller reads, replaced by the tests.
+    var now: () -> Date = Date.init
+    var after: (_ seconds: TimeInterval, _ work: DispatchWorkItem) -> Void = { seconds, work in
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
+    }
 
     private var cue = StandCue()
     private var shown: (sentence: String, at: Date)?
@@ -42,7 +47,7 @@ final class StandCueController {
                 guard let cg = event.cgEvent, Coach.isHumanOrigin(
                     sourceStateID: cg.getIntegerValueField(.eventSourceStateID),
                     postingPID: cg.getIntegerValueField(.eventSourceUnixProcessID)) else { return }
-                DispatchQueue.main.async { self?.input(at: Date()) }
+                DispatchQueue.main.async { self?.input(at: self?.now() ?? Date()) }
             }) {
                 monitors.append(monitor)
             }
@@ -53,7 +58,7 @@ final class StandCueController {
             let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
             self?.activated(app)
         }
-        activeApp = NSWorkspace.shared.frontmostApplication.map { ($0.processIdentifier, Date()) }
+        activeApp = NSWorkspace.shared.frontmostApplication.map { ($0.processIdentifier, now()) }
     }
 
     func stop() {
@@ -65,9 +70,12 @@ final class StandCueController {
         observer = nil
     }
 
-    /// A key reached the tap from a hand.
+    /// A key reached the tap from a hand. Called inside the tap, so all
+    /// it does there is note the time: taking the cue down is window work,
+    /// and window work waits until the key has gone on its way.
     func keyPressed() {
-        input(at: Date())
+        let time = now()
+        OffTap.run { [weak self] in self?.input(at: time) }
     }
 
     private func input(at time: Date) {
@@ -83,15 +91,21 @@ final class StandCueController {
     }
 
     private func activated(_ app: NSRunningApplication?) {
-        let now = Date()
-        defer { activeApp = app.map { ($0.processIdentifier, now) } }
-        guard let app, app.processIdentifier != getpid(),
-              let previous = activeApp, previous.pid != app.processIdentifier,
-              now.timeIntervalSince(previous.since) >= cue.settings.dwell else { return }
+        activated(pid: app?.processIdentifier)
+    }
+
+    /// Another app came to the front. Leaving one worked in for a while is
+    /// a stopping point.
+    func activated(pid: pid_t?) {
+        let time = now()
+        defer { activeApp = pid.map { ($0, time) } }
+        guard let pid, pid != getpid(),
+              let previous = activeApp, previous.pid != pid,
+              time.timeIntervalSince(previous.since) >= cue.settings.dwell else { return }
         offer(.appSwitch)
     }
 
-    private func tick() {
+    func tick() {
         guard enabled() else { return }
         if cue.settings.after != TimeInterval(minutes() * 60) { refreshSettings() }
         // Keys are read from the tap's clock; a key since the last look is
@@ -104,14 +118,14 @@ final class StandCueController {
         // Words into the draft are work too, and the draft closing is a
         // stopping point.
         let open = draftOpen()
-        if open { input(at: Date()) }
+        if open { input(at: now()) }
         if draftWasOpen, !open { offer(.draft) }
         draftWasOpen = open
-        if let pending, Date().timeIntervalSince(pending.at) > 600, cue.elapsed(at: Date()) > 0 {
+        if let pending, now().timeIntervalSince(pending.at) > 600, cue.elapsed(at: now()) > 0 {
             Log.info("stand", ["cue": pending.index, "taken": false])
             self.pending = nil
         }
-        if quiet(), !open, let given = cue.check(at: Date()) {
+        if quiet(), !open, let given = cue.check(at: now()) {
             present(given)
         }
     }
@@ -120,16 +134,16 @@ final class StandCueController {
     /// prove it has stopped, then show it if the moment is still quiet.
     private func offer(_ kind: StandCue.Boundary) {
         guard enabled() else { return }
-        guard let due = cue.dueAt(), Date() >= due, cue.elapsed(at: Date()) > 0 else { return }
+        guard let due = cue.dueAt(), now() >= due, cue.elapsed(at: now()) > 0 else { return }
         settle?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.enabled(), self.quiet(), !self.draftOpen(),
-                  Date().timeIntervalSince(self.lastKeyAt()) >= 2.5,
-                  let given = self.cue.boundary(kind, at: Date()) else { return }
+                  self.now().timeIntervalSince(self.lastKeyAt()) >= 2.5,
+                  let given = self.cue.boundary(kind, at: self.now()) else { return }
             self.present(given)
         }
         settle = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: work)
+        after(3, work)
     }
 
     /// The threshold follows the setting; a change starts the count over.
@@ -142,8 +156,8 @@ final class StandCueController {
     private func present(_ given: StandCue.Cue) {
         let sentence = StandCue.sentence(minutes: given.minutes)
         show(sentence, StandCue.instruction, given.share)
-        shown = (sentence, Date())
-        pending = (given.index, Date())
+        shown = (sentence, now())
+        pending = (given.index, now())
         // Counts and timings only: which cue, how long the stretch, what
         // kind of stopping point let it in.
         Log.info("stand", ["cue": given.index, "minutes": given.minutes, "via": given.via.rawValue])

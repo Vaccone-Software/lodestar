@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import IOKit.hid
+import LodestarCore
 
 /// The input devices attached right now, by identity and transport.
 ///
@@ -33,6 +34,9 @@ class DeviceRoster {
         /// The type its key events carry, when the registry says; nil
         /// when it does not. Only a keyboard's is ever read.
         var keyboardType: Int? = nil
+        /// How often it reports, as the registry states it; `unknown`
+        /// when it states none.
+        var reportInterval: ReportInterval = .unknown
     }
 
     static let cacheSeconds: TimeInterval = 30
@@ -115,6 +119,11 @@ class DeviceRoster {
 
     var ids: [String] { current().map { $0.id } }
 
+    /// Each attached device's report interval, by id.
+    var reportIntervals: [String: ReportInterval] {
+        Dictionary(current().map { ($0.id, $0.reportInterval) }, uniquingKeysWith: { first, _ in first })
+    }
+
     /// The one-based index, in `devices`, of the device an act is
     /// charged to; zero when two could have made it.
     ///
@@ -165,7 +174,8 @@ class DeviceRoster {
             name: property(kIOHIDProductKey) as? String ?? "device",
             transport: property(kIOHIDTransportKey) as? String ?? "unknown",
             builtIn: (property(kIOHIDBuiltInKey) as? Bool) ?? ((property(kIOHIDBuiltInKey) as? Int) == 1),
-            keyboardType: subinterface(of: device))
+            keyboardType: subinterface(of: device),
+            reportInterval: ReportInterval(registry: property(kIOHIDReportIntervalKey) as? Int))
     }
 
     /// The keyboard type the device's key events will carry. It lives on

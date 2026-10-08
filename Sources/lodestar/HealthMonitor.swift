@@ -621,7 +621,8 @@ final class HealthMonitor {
                                pointerSchema: Int(PointerStore.version), layout: layout,
                                keyboards: roster.ids, pointers: pointers.ids,
                                displays: displays, settings: readSettings(),
-                               lid: Lid.isClosed(), fingerMap: fingerprint)
+                               lid: Lid.isClosed(), fingerMap: fingerprint,
+                               reportIntervals: roster.reportIntervals)
             let event = eras.check(info)
             DispatchQueue.main.async {
                 self.eraInFlight = false

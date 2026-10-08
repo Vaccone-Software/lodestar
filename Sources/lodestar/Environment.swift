@@ -82,15 +82,25 @@ final class EraTracker {
     private struct Stored: Codable {
         var fingerprint: String
         var at: Date
+        /// Every keyboard's report interval written down so far, by id.
+        /// Absent in a file from before intervals were read.
+        var intervals: [String: ReportInterval]?
     }
 
-    /// The event to record, or nil when nothing changed.
+    /// The event to record, or nil when nothing changed. A keyboard whose
+    /// interval has not been written down (attached for the first time, or
+    /// reporting differently) is a change too; one going away is not, for
+    /// the reason devices are not in the fingerprint.
     func check(_ info: EraInfo, now: Date = Date()) -> ObservationEvent? {
         let stored = (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode(Stored.self, from: $0) }
-        guard stored?.fingerprint != info.fingerprint else { return nil }
+        let known = stored?.intervals ?? [:]
+        let unseen = (info.reportIntervals ?? [:]).filter { known[$0.key] != $0.value }
+        let changed = stored?.fingerprint != info.fingerprint
+        guard changed || !unseen.isEmpty else { return nil }
         var info = info
-        info.reason = stored == nil ? "boot" : "changed"
-        if let data = try? JSONEncoder().encode(Stored(fingerprint: info.fingerprint, at: now)) {
+        info.reason = stored == nil ? "boot" : changed ? "changed" : "keyboard"
+        let intervals = known.merging(info.reportIntervals ?? [:]) { _, new in new }
+        if let data = try? JSONEncoder().encode(Stored(fingerprint: info.fingerprint, at: now, intervals: intervals)) {
             try? data.write(to: file, options: .atomic)
             Paths.restrict(file)
         }

@@ -68,4 +68,34 @@ final class EraTests: XCTestCase {
         XCTAssertEqual(ObservationEvent.healthKinds, [.pulse, .window, .era, .clicks],
                        "the click pulse is gated by the health switch, so it is kept with health")
     }
+
+    /// A keyboard's report interval is what the registry states, or
+    /// "unknown": a number or the word in the JSON, never a guess.
+    func testAReportIntervalIsTheRegistrysOrUnknown() throws {
+        XCTAssertEqual(ReportInterval(registry: 8000), .microseconds(8000))
+        XCTAssertEqual(ReportInterval(registry: nil), .unknown)
+        XCTAssertEqual(ReportInterval(registry: 0), .unknown, "zero states nothing")
+        var info = era()
+        info.reportIntervals = ["kb": .microseconds(8000), "bt": .unknown]
+        let json = String(decoding: try JSONEncoder().encode(info), as: UTF8.self)
+        XCTAssertTrue(json.contains("\"kb\":8000"), json)
+        XCTAssertTrue(json.contains("\"bt\":\"unknown\""), json)
+        XCTAssertEqual(try JSONDecoder().decode(EraInfo.self, from: Data(json.utf8)), info)
+        XCTAssertThrowsError(try JSONDecoder().decode(ReportInterval.self, from: Data("\"fast\"".utf8)))
+    }
+
+    /// An era written before intervals were read still reads, with none.
+    func testAnEraFromBeforeIntervalsStillReads() throws {
+        var old = try JSONSerialization.jsonObject(with: JSONEncoder().encode(era())) as! [String: Any]
+        old.removeValue(forKey: "reportIntervals")
+        let back = try JSONDecoder().decode(EraInfo.self, from: JSONSerialization.data(withJSONObject: old))
+        XCTAssertNil(back.reportIntervals)
+        XCTAssertEqual(back.appVersion, "0.35.0")
+    }
+
+    func testIntervalsAreNotPartOfTheFingerprint() {
+        var with = era()
+        with.reportIntervals = ["kb": .microseconds(8000)]
+        XCTAssertEqual(with.fingerprint, era().fingerprint)
+    }
 }

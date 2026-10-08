@@ -26,13 +26,23 @@ public struct EraInfo: Codable, Equatable {
     /// what the stored finger column means from here on. Nil in an era
     /// written before the map existed, and empty when nothing is declared.
     public var fingerMap: String?
-    /// "boot" or "changed".
+    /// How often each attached keyboard reports, by its roster id: the
+    /// grain every stamp from it, and so every hold, is quantised to (the
+    /// built-in's 8 ms is the comb its holds were found to sit on). What
+    /// the device says, or `unknown`; never a guess. Nil in an era written
+    /// before it was read. Not part of the fingerprint, since devices come
+    /// and go: the tracker writes an era when an attached keyboard's
+    /// interval is not yet written down (`EraTracker`).
+    public var reportIntervals: [String: ReportInterval]?
+    /// "boot", "changed", or "keyboard" when only a keyboard's interval is
+    /// new.
     public var reason: String
 
     public init(appVersion: String, keySchema: Int, pointerSchema: Int, layout: String? = nil,
                 keyboards: [String] = [], pointers: [String] = [], displays: [DisplayInfo] = [],
                 settings: InputSettings = InputSettings(), lid: Bool? = nil,
-                fingerMap: String? = nil, reason: String = "boot") {
+                fingerMap: String? = nil, reportIntervals: [String: ReportInterval]? = nil,
+                reason: String = "boot") {
         self.appVersion = appVersion
         self.keySchema = keySchema
         self.pointerSchema = pointerSchema
@@ -43,6 +53,7 @@ public struct EraInfo: Codable, Equatable {
         self.settings = settings
         self.lid = lid
         self.fingerMap = fingerMap
+        self.reportIntervals = reportIntervals
         self.reason = reason
     }
 
@@ -59,6 +70,40 @@ public struct EraInfo: Codable, Equatable {
                      screens.joined(separator: "|"), settings.fingerprint]
         if let fingerMap, !fingerMap.isEmpty { parts.append("fingers=" + fingerMap) }
         return parts.joined(separator: ";")
+    }
+}
+
+/// How often a device sends a report, as the device states it in the HID
+/// registry (`ReportInterval`, microseconds), or `unknown` when it states
+/// none or states zero. Written as a number or as "unknown".
+public enum ReportInterval: Codable, Equatable, Sendable {
+    case microseconds(Int)
+    case unknown
+
+    /// From the registry's value: nothing, or nothing positive, is unknown.
+    public init(registry value: Int?) {
+        if let value, value > 0 { self = .microseconds(value) } else { self = .unknown }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let value = try? container.decode(Int.self) {
+            self = .microseconds(value)
+        } else {
+            let word = try container.decode(String.self)
+            guard word == "unknown" else {
+                throw DecodingError.dataCorruptedError(in: container, debugDescription: "not an interval: \(word)")
+            }
+            self = .unknown
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .microseconds(let value): try container.encode(value)
+        case .unknown: try container.encode("unknown")
+        }
     }
 }
 

@@ -122,7 +122,7 @@ final class ModePill {
     private var placing = false
 
     init() {
-        panel = Glass.makePanel(level: .statusBar)
+        panel = Glass.makePanel(level: .statusBar, takesKeys: false)
         SoftShadow.host(root, in: panel, cornerRadius: Self.radius)
         _ = Glass.installBackdrop(in: root, cornerRadius: Self.radius)
         // Draggable by its glass, the way the coach's chip is: one home by

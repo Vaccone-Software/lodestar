@@ -91,7 +91,7 @@ final class HUD {
 
     init(clock: Clock = .live) {
         self.clock = clock
-        panel = Glass.makePanel(level: .statusBar)
+        panel = Glass.makePanel(level: .statusBar, takesKeys: false)
         // Shut until it offers something: the coach's chip.
         gate = SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius, takesPointer: false)
         Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)

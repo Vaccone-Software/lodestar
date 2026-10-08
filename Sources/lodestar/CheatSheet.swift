@@ -15,7 +15,7 @@ final class CheatSheet {
     private var content: NSStackView?
 
     init() {
-        panel = Glass.makePanel(level: .statusBar)
+        panel = Glass.makePanel(level: .statusBar, takesKeys: false)
         // Shown, never touched: the drawn shadow, and no mouse anywhere.
         SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius, takesPointer: false)
         Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)

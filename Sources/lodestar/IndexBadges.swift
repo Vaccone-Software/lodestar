@@ -21,7 +21,7 @@ final class IndexBadges {
                 x: (item.frame.midX - size / 2).rounded(),
                 y: (primaryHeight - item.frame.midY - size / 2).rounded()
             )
-            let panel = Glass.makePanel(level: .statusBar)
+            let panel = Glass.makePanel(level: .statusBar, takesKeys: false)
             panel.ignoresMouseEvents = true
             panel.hasShadow = false
             let root = NSView()

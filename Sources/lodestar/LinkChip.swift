@@ -32,7 +32,7 @@ final class LinkChip {
     /// at the door is more urgent and sits in the same corner.
     var suppressed: () -> Bool = { false }
 
-    private let panel = Glass.makePanel(level: .floating)
+    private let panel = Glass.makePanel(level: .floating, takesKeys: false)
     private let root = NSView()
     private var expiry: Timer?
 

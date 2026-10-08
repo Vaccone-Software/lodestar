@@ -44,7 +44,7 @@ final class SelectOverlay {
     /// Clear water between the band and the bottom of the usable screen.
 
     init() {
-        panel = Glass.makePanel(level: .statusBar)
+        panel = Glass.makePanel(level: .statusBar, takesKeys: false)
         panel.ignoresMouseEvents = true
         // Each mark draws its own soft shadow. The window server's would trace
         // a hard ring round every one.

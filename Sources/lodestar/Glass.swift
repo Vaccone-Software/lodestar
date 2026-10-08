@@ -199,7 +199,14 @@ enum Glass {
         return backdrop
     }
 
-    static func makePanel(level: NSWindow.Level) -> NSPanel {
+    /// `takesKeys: false` is for a surface that only shows: a note, the
+    /// pill, the overlays, the sheet. Its panel never becomes the key
+    /// window, because a titled panel ordered in can take key status
+    /// without its app coming forward, and every key typed while it stood
+    /// then reached a window with nothing to take it and was answered with
+    /// the alert: the launch note's two and a half seconds rang like that
+    /// on every start. Lodestar's keys come through its tap, never here.
+    static func makePanel(level: NSWindow.Level, takesKeys: Bool = true) -> NSPanel {
         // Titled + fullSizeContentView, exactly like the searcher's
         // KeyablePanel — and not for the shadow this time. Liquid Glass
         // senses its backdrop through the window: behind a raw borderless
@@ -207,12 +214,11 @@ enum Glass {
         // ⌘K card could resolve white beside a charcoal launcher. Behind a
         // titled window it honors the window's appearance — the pinned
         // dark holds.
-        let panel = GlassPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
-            styleMask: [.titled, .fullSizeContentView, .nonactivatingPanel],
-            backing: .buffered,
-            defer: true
-        )
+        let frame = NSRect(x: 0, y: 0, width: 100, height: 100)
+        let style: NSWindow.StyleMask = [.titled, .fullSizeContentView, .nonactivatingPanel]
+        let panel: GlassPanel = takesKeys
+            ? GlassPanel(contentRect: frame, styleMask: style, backing: .buffered, defer: true)
+            : ShowingPanel(contentRect: frame, styleMask: style, backing: .buffered, defer: true)
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
         panel.standardWindowButton(.closeButton)?.isHidden = true
@@ -248,6 +254,12 @@ enum Glass {
 /// it never asks again. Without the shadow the pane sits flush on the
 /// wallpaper and its rim reads as a drawn rectangle instead of an edge.
 /// Re-deriving after every reframe and every ordering keeps it lifted.
+/// A glass panel that only shows, and so is never the key window.
+final class ShowingPanel: GlassPanel {
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+}
+
 class GlassPanel: NSPanel {
     /// A titled window is screen-constrained: AppKit slides it down until
     /// its title bar clears the menu bar, and never gives the height back.

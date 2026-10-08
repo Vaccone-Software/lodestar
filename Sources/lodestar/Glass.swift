@@ -39,6 +39,22 @@ extension Glass {
     }
 }
 
+/// The clay pictures, one per look. They were rendered pale for night,
+/// and pale clay on clay's pale page loses its edges, so each has a twin
+/// rendered in Slip, the night pane, for the light look (tools/doors,
+/// `CLAY=slippure`). One image that draws whichever twin the look in force
+/// calls for, so a picture already on screen changes with the look.
+enum TonedPicture {
+    static func make(night: NSImage, day: NSImage?) -> NSImage {
+        guard let day else { return night }
+        return NSImage(size: night.size, flipped: false) { rect in
+            let dark = NSAppearance.currentDrawing().bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            (dark ? night : day).draw(in: rect)
+            return true
+        }
+    }
+}
+
 /// A plain surface whose fill and edge follow the appearance: a card, a
 /// rule, a dot, a caret. A layer's colour is a fixed value, so one set
 /// once keeps the look it was set in; this repaints whenever the view's

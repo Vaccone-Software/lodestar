@@ -97,6 +97,14 @@ def mat(name, color, rough=0.6, emit=None, emit_strength=0.0, coat=0.0, spec=0.5
 PAL = {
     "pale":    dict(clay="#E6DFD6", bar="#BEB4AB", ink="#2A2522", title="#CFC6BC", keyink="#2A2522", cap="#2E2926", capink="#EFE9E2"),
     "charcoal": dict(clay="#3B3936", bar="#5A5652", ink="#E2DCD4", title="#4A4744", keyink="#E2DCD4", cap="#1E1D1C", capink="#E2DCD4"),
+    # Light mode's pictures: Slip (#221D19, the night pane) lifted to the
+    # dark keycap clay mode already draws, so the bevels still read.
+    "slip":     dict(clay="#2E2926", bar="#4A423C", ink="#E6DFD6", title="#3A332E", keyink="#E6DFD6", cap="#1B1714", capink="#E6DFD6"),
+    # Light mode's pictures: Slip itself, the night pane, for the objects,
+    # with keycaps a step lighter than the case so each key reads as its
+    # own object, the way raised keys catch the light.
+    "slippure": dict(clay="#221D19", bar="#3E3631", ink="#E6DFD6", title="#2E2824", keyink="#E6DFD6", cap="#3E3530", capink="#E6DFD6"),
+    "sliplift": dict(clay="#3D332C", bar="#5A4E45", ink="#E6DFD6", title="#4A3F37", keyink="#E6DFD6", cap="#221D19", capink="#E6DFD6"),
 }[os.environ.get("CLAY", "pale")]
 M = {
     "clay": mat("clay", PAL["clay"], 0.62),
@@ -261,8 +269,13 @@ def door_write(g):
         return X + e1 - (a1 - a0) - a0
     tail_typo, tail_fix = tail_at("See you tomorow"), tail_at("See you tomorrow")
     text("See you", "sans", 0.19, M["ink"], g, (X, -0.03, 0.34))
-    text("tomorow", "sans", 0.19, typo, g, (xa - w0, -0.03, 0.34))
-    text("tomorrow", "sans", 0.19, fixed, g, (xa - w0, -0.03, 0.34))
+    STILL = bool(os.environ.get("STILL"))
+    # A still shows the typo marked, never the crossing: plain ink, and no
+    # fix standing on the same spot. The faded copy and the word under it
+    # striped the typo where light ink sits on dark clay.
+    text("tomorow", "sans", 0.19, M["ink"] if STILL else typo, g, (xa - w0, -0.03, 0.34))
+    if not STILL:
+        text("tomorrow", "sans", 0.19, fixed, g, (xa - w0, -0.03, 0.34))
     tail = text("at ten.", "sans", 0.19, M["ink"], g, (tail_typo, -0.03, 0.34))
     pen = empty("pen", (xa, 0, 0.235), (0, 0, 0)); pen.parent = g
     ink = own("orange", "underline")

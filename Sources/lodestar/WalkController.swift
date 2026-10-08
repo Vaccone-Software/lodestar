@@ -694,8 +694,7 @@ final class WalkController: NSObject {
     /// shipped in the app's resources. Absent (a test run, a bare build),
     /// the tile is its name and line alone.
     private static func picture(_ door: Walk.Door) -> NSImage? {
-        guard let url = Bundle.main.url(forResource: "door-\(door.rawValue)", withExtension: "png") else { return nil }
-        return NSImage(contentsOf: url)
+        SettingsController.picture("door-\(door.rawValue)")
     }
 
     // MARK: - Companion copy

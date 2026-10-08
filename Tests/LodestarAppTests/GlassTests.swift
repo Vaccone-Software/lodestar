@@ -550,3 +550,45 @@ final class ToneFollowsAppearanceTests: XCTestCase {
         }
     }
 }
+
+/// The clay pictures wear the look in force: pale by night, Slip by day.
+final class TonedPictureTests: XCTestCase {
+    private func solid(_ color: NSColor) -> NSImage {
+        NSImage(size: NSSize(width: 4, height: 4), flipped: false) { rect in
+            color.setFill(); rect.fill(); return true
+        }
+    }
+
+    private func brightness(of image: NSImage, in appearance: NSAppearance.Name) -> CGFloat {
+        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 4, pixelsHigh: 4, bitsPerSample: 8,
+                                   samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                   colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        NSAppearance(named: appearance)!.performAsCurrentDrawingAppearance {
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+            image.draw(in: NSRect(x: 0, y: 0, width: 4, height: 4))
+            NSGraphicsContext.restoreGraphicsState()
+        }
+        return rep.colorAt(x: 2, y: 2)?.brightnessComponent ?? -1
+    }
+
+    func testThePictureFollowsTheLook() {
+        let picture = TonedPicture.make(night: solid(.white), day: solid(.black))
+        XCTAssertGreaterThan(brightness(of: picture, in: .darkAqua), 0.9, "pale by night")
+        XCTAssertLessThan(brightness(of: picture, in: .aqua), 0.1, "Slip by day")
+    }
+
+    func testEveryPictureHasItsSlipTwin() {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("packaging")
+        for folder in ["places", "doors"] {
+            let names = (try? FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent(folder).path)) ?? []
+            let pale = names.filter { $0.hasSuffix(".png") && !$0.hasSuffix("-slip.png") }
+            XCTAssertFalse(pale.isEmpty)
+            for name in pale {
+                XCTAssertTrue(names.contains(name.replacingOccurrences(of: ".png", with: "-slip.png")),
+                              "\(name) has no Slip twin for the light look")
+            }
+        }
+    }
+}

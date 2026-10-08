@@ -2026,7 +2026,11 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     /// doors. A bare build (the tests, `swift run`) finds them in the
     /// checkout's packaging folder, and without either the card is empty.
     static func picture(_ name: String) -> NSImage? {
-        guard !name.isEmpty else { return nil }
+        guard !name.isEmpty, let night = file(name) else { return nil }
+        return TonedPicture.make(night: night, day: file(name + "-slip"))
+    }
+
+    private static func file(_ name: String) -> NSImage? {
         if let url = Bundle.main.url(forResource: name, withExtension: "png") { return NSImage(contentsOf: url) }
         #if DEBUG
         let packaging = URL(fileURLWithPath: #filePath).deletingLastPathComponent()

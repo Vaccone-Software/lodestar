@@ -41,6 +41,7 @@ enum StripPreview {
     private static var heldLink: LinkChip?
     private static var heldStrip: ClipboardStrip?
     private static var heldHover: EditorHover?
+    private static var heldCoachHUD: HUD?
 
     /// The flat ground alone, for a harness that stages its own panels.
     static func stageOnly() { stage() }
@@ -303,15 +304,23 @@ enum StripPreview {
 
         // 62: the coach chip, worded exactly as Coach.chip words a bind
         // offer — the copy here quotes the real templates, not a mock.
-        if variant == 62 {
+        if variant == 62 || variant == 131 {
             let hud = HUD()
-            hud.showVoice(sentence: "Figma could be one key away",
-                          keymap: Coach.Keymap(keys: ["lode", "F"], target: "Figma"),
-                          detail: "You searched for it 31 times across 6 weeks"
-                              + " · about 40 seconds a week, about half an hour a year",
-                          rows: [GuideRow(keys: ["lode", "lode"], label: "Accept", action: {}),
-                                 GuideRow(keys: ["lode", "⌫"], label: "Decline", action: {})],
-                          owner: .coach)
+            func icon(_ bundle: String) -> NSImage? {
+                NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle)
+                    .map { NSWorkspace.shared.icon(forFile: $0.path) }
+            }
+            let offer = variant == 62
+                ? CoachCard.Offer(sentence: "Notes could be one key away", icons: [icon("com.apple.Notes")].compactMap { $0 },
+                                  name: "Notes", address: ["lode", "N"], record: "You searched for it 31 times across 6 weeks",
+                                  accept: {}, decline: {})
+                : CoachCard.Offer(sentence: "Slack and Zoom could stand side by side with one key",
+                                  icons: [icon("com.tinyspeck.slackmacgap"), icon("us.zoom.xos")].compactMap { $0 },
+                                  name: "Slack and Zoom", address: ["lode", "'", "W"],
+                                  record: "You arrange them side by side about four times a week",
+                                  accept: {}, decline: {})
+            hud.showCoach(offer)
+            heldCoachHUD = hud
             app.run()
         }
 

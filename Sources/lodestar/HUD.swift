@@ -75,7 +75,9 @@ final class HUD {
     /// Opens the glass to the pointer only while the coach offers something.
     private let gate: PointerGate
     private let root = NSView()
-    private var content: NSStackView?
+    private var content: NSView?
+    /// An app's icon by name, for the coach's row. Wired by the app.
+    var appIcon: (String) -> NSImage? = { _ in nil }
     private var hideWork: DispatchWorkItem?
     /// A flash is one line and takes the width of its words; a guide
     /// keeps a floor so a short map does not draw as a sliver.
@@ -129,6 +131,29 @@ final class HUD {
         let work = DispatchWorkItem { [weak self] in self?.hide() }
         hideWork = work
         clock.after(seconds, work)
+    }
+
+    /// The coach's offer: one sentence in the voice over the row you would
+    /// take, with the record and the way out in a whisper beneath.
+    func showCoach(_ offer: CoachCard.Offer) {
+        handOver(to: .coach)
+        voiceTag = nil
+        hideWork?.cancel()
+        hideWork = nil
+        showingFlash = false
+        content?.removeFromSuperview()
+        voiceSentence = offer.sentence
+        let card = CoachCard.build(offer)
+        root.addSubview(card)
+        let inset = CoachCard.inset
+        NSLayoutConstraint.activate([
+            card.topAnchor.constraint(equalTo: root.topAnchor, constant: inset),
+            card.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -inset),
+            card.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: inset),
+            card.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -inset),
+        ])
+        content = card
+        present()
     }
 
     /// A transient message, optionally wearing the app it acted on. It

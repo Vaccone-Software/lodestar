@@ -403,6 +403,13 @@ enum BarTheme {
         return descriptor.flatMap { NSFont(descriptor: $0, size: size) } ?? NSFont.systemFont(ofSize: size)
     }()
     static let stubDetailFont = NSFont.systemFont(ofSize: 11.5)
+    /// The coach's sentence over its row: the voice at the body's size, so
+    /// the card stays a line of type and a row.
+    static let coachVoiceFont: NSFont = {
+        let size = Scale.body
+        let descriptor = NSFont.systemFont(ofSize: size).fontDescriptor.withDesign(.serif)
+        return descriptor.flatMap { NSFont(descriptor: $0, size: size) } ?? NSFont.systemFont(ofSize: size)
+    }()
     static let dotFont = NSFont.systemFont(ofSize: 8)
     /// Controls and marks on the ladder: a glass chip and a settings well
     /// are controls; a match's wash on the page is a mark. The hairline

@@ -58,3 +58,24 @@ final class BreathPathTests: XCTestCase {
         XCTAssertNotNil(Actions.breathPathRefusal(""))
     }
 }
+
+/// The coach's compact card: the names it shows and the record it whispers.
+final class CoachCardTests: XCTestCase {
+    func testAppNamesGetTheirCapitalsBack() {
+        XCTAssertEqual(CoachCard.displayName("brave browser"), "Brave Browser")
+        XCTAssertEqual(CoachCard.displayName("Figma"), "Figma")
+        XCTAssertEqual(CoachCard.displayName("iTerm2"), "iTerm2", "a name with its own casing is left alone")
+    }
+
+    func testTheWhisperIsTheRecordsFirstClause() {
+        XCTAssertEqual(CoachCard.record(from: "You searched for it 31 times across 6 weeks · about 40 seconds a week"),
+                       "You searched for it 31 times across 6 weeks")
+    }
+
+    func testTheCardIsAReadableGroup() {
+        let card = CoachCard.build(.init(sentence: "Notes could be one key away", icons: [], name: "Notes",
+                                         address: ["lode", "N"], record: "31 searches", accept: {}, decline: {}))
+        XCTAssertEqual(card.accessibilityRole(), .group)
+        XCTAssertEqual(card.accessibilityLabel(), "Notes could be one key away. 31 searches")
+    }
+}

@@ -195,17 +195,20 @@ final class CoachPowersTests: XCTestCase {
             return XCTFail("a breath offer carries its compose")
         }
         XCTAssertEqual(Set(apps), Set(["ghostty", "brave browser"]))
-        XCTAssertEqual(path, "g", "the mnemonic letter comes first")
+        XCTAssertEqual(path, "b", "the mnemonic letter comes first, B included now")
     }
 
-    func testBreathLetterAvoidsTakenPathsAndB() {
-        // g taken; brave's mnemonic is b, which the breath grammar
-        // reserves — so the letter walks on to the alphabet.
-        let candidate = Advisor.breathCandidates(breathContext(paths: ["g"])).first
+    func testBreathLetterAvoidsTakenPaths() {
+        // b taken: the other app's mnemonic comes next; both taken, the
+        // letter walks on to the alphabet.
+        let candidate = Advisor.breathCandidates(breathContext(paths: ["b"])).first
         guard case .composeBreath(_, let path)? = candidate?.rec.edit else {
             return XCTFail("still offerable at another letter")
         }
-        XCTAssertEqual(path, "a")
+        XCTAssertEqual(path, "g")
+        let both = Advisor.breathCandidates(breathContext(paths: ["b", "g"])).first
+        guard case .composeBreath(_, let next)? = both?.rec.edit else { return XCTFail() }
+        XCTAssertEqual(next, "a")
     }
 
     func testBreathChipNamesTheAddressAndTheCompose() {
@@ -213,7 +216,7 @@ final class CoachPowersTests: XCTestCase {
             return XCTFail()
         }
         let chip = Coach.chip(for: rec, observations: Observations())
-        XCTAssertTrue(chip.headline.contains("lode ' G"), chip.headline)
+        XCTAssertTrue(chip.headline.contains("lode ' B"), chip.headline)
         XCTAssertTrue(chip.footer.contains("saves them side by side"), chip.footer)
     }
 

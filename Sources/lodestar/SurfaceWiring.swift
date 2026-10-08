@@ -46,6 +46,19 @@ enum SurfaceWiring {
             // A keymap is drawn as keys; an offer with no keymap keeps its
             // address as words in the measurements line.
             let keymap = Coach.Keymap.parse(chip.headline)
+            // An offer with an address is a row you take: the compact card.
+            if let keymap, let hud {
+                let apps = keymap.target.components(separatedBy: " + ")
+                hud.showCoach(CoachCard.Offer(
+                    sentence: chip.sentence.isEmpty ? chip.headline : chip.sentence,
+                    icons: apps.compactMap { hud.appIcon($0) },
+                    name: apps.map(CoachCard.displayName).joined(separator: " and "),
+                    address: keymap.keys,
+                    record: CoachCard.record(from: chip.evidence),
+                    accept: { [weak coach] in coach?.lodeDoubleTapped() },
+                    decline: { [weak coach] in _ = coach?.lodeDelete() }))
+                return
+            }
             hud?.showVoice(
                 sentence: chip.sentence.isEmpty ? chip.headline : chip.sentence,
                 keymap: keymap,

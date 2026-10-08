@@ -550,6 +550,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // it. Every voice on the floor shares the lode-lode grammar, so the
         // floor has one owner at a time: walk, then meeting, then the link
         // chip, then the coach. An assent can only ever mean one thing.
+        hud.appIcon = { [weak self] name in self?.actions.icon(forAppNamed: name) }
         SurfaceWiring.wire(engine: engine, hud: hud, coach: coach, voices: [
             Voice(assent: { [weak self] in
                       guard let self, self.walk.cardVisible else { return false }

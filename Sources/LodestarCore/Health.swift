@@ -7,7 +7,10 @@ import Foundation
 /// What it keeps beyond counts is shape, never keycodes: which keys were
 /// pressed are not recorded on general typing, not as a courtesy but
 /// because no analysis in the literature wants them, while which *hand*
-/// pressed is fair to keep because the literature does. The discipline
+/// pressed is fair to keep because the literature does. (The pulse's
+/// moments and histograms carry no order of presses and so nothing of
+/// what was typed; the raw record beneath it does, partly. See
+/// `KeyPress`.) The discipline
 /// lives in what the instrument says and what leaves the machine, not in
 /// what it collects (DESIGN, the bouts paragraph). So this records global
 /// counts, global inter-key moments, and exactly one named key —

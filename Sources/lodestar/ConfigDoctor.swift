@@ -746,7 +746,7 @@ func runObservations(clear: Bool, logbookOnly: Bool = false, healthOnly: Bool = 
     // is the shortest span a rhythm shows in.
     if let health = Health.summary(events: events, days: 28) {
         print("health · last \(health.days) active day\(health.days == 1 ? "" : "s")"
-            + " · counts and moments only, never which keys")
+            + " · counts and moments only, no key or order kept")
         var input = pad("  input", 10)
         let keysPerDay = Double(health.keys) / Double(max(1, health.days))
         input += pad(keysPerDay >= 1000

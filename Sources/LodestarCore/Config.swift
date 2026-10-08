@@ -288,7 +288,7 @@ public struct Config {
         "observations": .table([
             "logbook": .boolean(description: "Keep the logbook: how you move between apps, windows and gestures, on this machine only. Sites by name, never their pages, titles or what you type. The coach reads it."),
             "logbook-mb": .number(min: Double(Retention.logbookMinimumMB), max: 4096, description: "Disk the logbook may claim. Once it is full the oldest months leave first; their monthly summaries stay."),
-            "health": .boolean(description: "Keep the health record: when each key goes down and how long it is held, by hand and finger, and how the pointer moves. Never which keys or what you type. Independent of the logbook."),
+            "health": .boolean(description: "Keep the health record: when each key goes down and how long it is held, by hand, finger and kind of key, and how the pointer moves. No key is stored, but the pattern can partly show what you typed, so it stays on this machine and is included in backups. Independent of the logbook."),
             "health-mb": .number(min: Double(Retention.healthMinimumMB), max: 16_384, description: "The size Lodestar tells you the health record is nearing. Health is never deleted on its own."),
         ], description: "What Lodestar observes, in two records with their own switches. Nothing leaves the machine."),
         "coach": .table([

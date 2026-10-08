@@ -6,8 +6,10 @@ import Foundation
 /// Everything else the health instrument writes is a summary — moments,
 /// histograms, windows — and a summary answers the questions it was
 /// designed for. This is the layer beneath: the press and release stamps
-/// themselves, unkeyed, so that a question nobody has asked yet can still
-/// be put to this year's typing in five years. Every window statistic is
+/// themselves, with no key's identity (though hand, finger and kind leave
+/// typed text partly recoverable; see `KeyPress`), so that a question
+/// nobody has asked yet can still be put to this year's typing in five
+/// years. Every window statistic is
 /// recomputable from here; nothing here is recomputable from anything.
 ///
 /// The format is deliberately dull. A `DayFile` header — the format, the

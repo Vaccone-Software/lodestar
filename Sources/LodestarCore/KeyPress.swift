@@ -1,12 +1,15 @@
 import Foundation
 
-/// One press, unkeyed: when it went down, how long it was held, which
-/// hand and what kind of key, and the circumstances an analysis will
-/// want to split on or exclude. The keycode is looked at exactly once, at
-/// the tap, to produce the hand and the kind, and never leaves the
-/// engine. Which keys were pressed are not kept on general typing because
-/// no analysis in the literature wants them; which hand pressed is kept
-/// because the literature does (DESIGN, the bouts paragraph).
+/// One press: when it went down, how long it was held, which hand, finger
+/// and kind of key, and the circumstances an analysis will want to split
+/// on or exclude. The keycode is looked at exactly once, at the tap, to
+/// produce those, and is never stored. That keeps the key's identity out
+/// of the record, not what was typed: hand, finger and kind sort letters
+/// into eight groups with spaces at word ends, and most common words have
+/// a sequence of groups no other word shares, so text is partly
+/// recoverable from a day's rows. Which is why the record stays on the
+/// machine and any export is a consented step (DESIGN, the bouts
+/// paragraph).
 public struct KeyPress: Codable, Equatable {
     public var down: Date
     /// Press to release, seconds. Nil when the release was never seen —

@@ -740,7 +740,7 @@ public enum SettingsModel {
                 dimmed: !config.logbookEnabled, group: "Logbook"),
             Row(title: "Health", path: "observations.health",
                 control: .toggle(config.observationsHealth),
-                detail: "The rhythm of your hands, by hand and finger, and how the pointer moves. Never which keys or what you type",
+                detail: "The rhythm of your hands, by hand and finger, and how the pointer moves. No key is stored, but the pattern can partly show what you typed, so it stays on this Mac",
                 isDefault: config.observationsHealth, group: "Health",
                 problem: machine.healthWarning),
             Row(title: "Limit", path: "observations.health-mb",

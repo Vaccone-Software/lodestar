@@ -10,9 +10,9 @@ import Foundation
 /// hard word. This keeps the *shape* and stays cheap enough to write on
 /// every pulse forever.
 ///
-/// The line the pulse lives under is unchanged and this does not approach
-/// it: a histogram of how long presses lasted is not a record of which
-/// keys were pressed. Shape, never identity.
+/// A histogram of how long presses lasted keeps no order and no key, so
+/// nothing of what was typed survives into it: shape, never identity. (The
+/// raw record beneath the pulse is another matter; see `KeyPress`.)
 ///
 /// Edges are fixed constants rather than data-dependent quantiles on
 /// purpose — two histograms can only be merged if they agree on their

@@ -2045,9 +2045,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
 
     /// One group's card: a surface on the glass, rounded on the ladder.
     static func card() -> NSView {
-        let card = ToneView(fill: NSColor.labelColor.withAlphaComponent(0.045),
-                            edge: NSColor.labelColor.withAlphaComponent(0.08), edgeWidth: 1,
-                            radius: BarTheme.surfaceRadius)
+        let card = ToneView(fill: BarTheme.cardFill, edge: BarTheme.cardEdge, edgeWidth: 1,
+                            radius: BarTheme.surfaceRadius, lifted: true)
         card.translatesAutoresizingMaskIntoConstraints = false
         return card
     }

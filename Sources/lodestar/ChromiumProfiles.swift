@@ -93,7 +93,7 @@ enum ChromiumProfiles {
         if let url { arguments.append(url) }
         process.arguments = arguments
         do {
-            try process.run()
+            try SystemEvents.run(process)
             return true
         } catch {
             Log.error("\(profile.browser.rawValue): open failed: \(error)")

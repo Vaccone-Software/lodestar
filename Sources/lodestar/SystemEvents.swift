@@ -62,6 +62,17 @@ enum SystemEvents {
         ? NSPasteboard(name: NSPasteboard.Name("lodestar.test.\(ProcessInfo.processInfo.processIdentifier)"))
         : .general
 
+    /// Under a test run, a process that changes something outside (a
+    /// browser opened, launchctl, an uninstall step) is not started.
+    struct Held: Error {}
+
+    /// Start a process that acts on the Mac. Throws `Held` under a test
+    /// run, so a caller's "could not start" path is the one taken.
+    static func run(_ process: Process) throws {
+        if held() { throw Held() }
+        try process.run()
+    }
+
     /// Lodestar comes to the front, for a room that takes focus on purpose.
     static func activateLodestar() {
         guard !held() else { return }

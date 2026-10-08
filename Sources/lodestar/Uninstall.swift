@@ -183,7 +183,7 @@ struct UninstallPlan {
         task.arguments = arguments
         task.standardOutput = Pipe()
         task.standardError = Pipe()
-        guard (try? task.run()) != nil else { return }
+        guard (try? SystemEvents.run(task)) != nil else { return }
         task.waitUntilExit()
     }
 

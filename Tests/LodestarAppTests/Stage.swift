@@ -464,7 +464,11 @@ final class Stage {
         // ran in two seconds alone and twenty-seven late in the run.
         // Tests run one at a time, so at this moment every live window is
         // this stage's; close them all.
-        for window in NSApplication.shared.windows { window.close() }
+        // Unless a newer stage has taken over (stage = Stage()): then the
+        // windows are its too, and it closes them all when it goes.
+        if Self.live == nil || Self.live == ObjectIdentifier(self) {
+            for window in NSApplication.shared.windows { window.close() }
+        }
         try? FileManager.default.removeItem(at: directory)
     }
 
@@ -514,10 +518,12 @@ final class Stage {
     /// macOS switches the tap off (it took too long, or the person's input
     /// interrupted it) and tells the callback so. Events that fell while it
     /// was off never arrive, so the held lode is forgotten here too.
-    func tapDisabled(byTimeout: Bool = true) {
+    /// `lodeStillDown`: the finger stayed on lode through the outage, so
+    /// the next key arrives carrying its flags.
+    func tapDisabled(byTimeout: Bool = true, lodeStillDown: Bool = false) {
         guard let event = CGEvent(source: nil) else { return }
         event.type = byTimeout ? .tapDisabledByTimeout : .tapDisabledByUserInput
-        lodeHeld = false
+        lodeHeld = lodeStillDown
         send(event)
     }
 

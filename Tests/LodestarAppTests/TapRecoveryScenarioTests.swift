@@ -47,6 +47,21 @@ final class TapRecoveryScenarioTests: XCTestCase {
         XCTAssertFalse(stage.press("j"), "j is a letter again")
     }
 
+    /// The finger stays on lode through the outage: the chain is gone,
+    /// and the next key under lode is a fresh gesture, not the old chain's
+    /// next letter and not a swallowed key.
+    func testLodeHeldThroughAnOutageStartsAFreshGesture() {
+        let stage = Stage()
+        chainInFlight(stage)
+        stage.tapDisabled(lodeStillDown: true)
+        XCTAssertEqual(stage.engine.grammarState, .idle)
+        stage.press("space")
+        stage.pump(until: { stage.searcher.isVisible })
+        stage.release()
+        stage.press("escape")
+        XCTAssertFalse(stage.press("a"), "and after it, letters are letters")
+    }
+
     func testAGestureWorksAgainAfterAnOutage() {
         let stage = Stage()
         stage.hold()

@@ -308,7 +308,6 @@ final class WindowModelOffMainTests: XCTestCase {
     }
 }
 
-
 /// Against the apps really running, on by environment: the launch scan
 /// no longer holds main, and the windows still arrive.
 final class WindowModelLiveTests: XCTestCase {

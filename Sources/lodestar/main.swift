@@ -2546,7 +2546,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         task.arguments = arguments
         task.standardOutput = Pipe()
         task.standardError = Pipe()
-        guard (try? task.run()) != nil else {
+        guard (try? SystemEvents.run(task)) != nil else {
             Log.error("login-item", ["launchctl": "could not run"])
             return false
         }

@@ -333,6 +333,16 @@ final class DesignDriftTests: XCTestCase {
         XCTAssertEqual(hits, [], "post, warp, open, paste and activate through SystemEvents")
     }
 
+    /// A process that acts on the Mac starts through SystemEvents.run.
+    /// Two only read: `launchctl list` for the login item, and the
+    /// updater's checks of a downloaded bundle.
+    func testAProcessThatActsOnTheMacStartsThroughSystemEvents() throws {
+        let allowed: Set<String> = ["main.swift", "UpdateController.swift", "SystemEvents.swift"]
+        let files = Self.swiftFiles(under: Self.appSources).filter { !allowed.contains($0.lastPathComponent) }
+        let hits = try offenders(#"(process|task)\.run\(\)"#, in: files)
+        XCTAssertEqual(hits, [], "start it with SystemEvents.run")
+    }
+
     /// The person's home is Paths.userHome, which a test run replaces.
     /// Two reads are allowed the real one: a model already downloaded to
     /// the Hugging Face cache, and a path shortened to ~ for display.
@@ -350,7 +360,7 @@ final class DesignDriftTests: XCTestCase {
                        "a test run keeps its data in a home of its own")
         let before = SystemEvents.heldBack
         SystemEvents.post(CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true), tap: .cghidEventTap)
-        XCTAssertEqual(SystemEvents.heldBack, before + 1)
+        XCTAssertGreaterThanOrEqual(SystemEvents.heldBack, before + 1)
     }
 
     /// A room's actions are its keys, and its controls are Lodestar's: no

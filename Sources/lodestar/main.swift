@@ -695,7 +695,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                           systemIdleSeconds: idle, now: Date())
         }
         updater.flash = { [weak self] text, seconds in self?.hud.flash(text, seconds: seconds) }
-        updater.voice = { [weak self] sentence, detail in self?.voice(sentence, detail: detail) }
+        updater.voice = { [weak self] sentence, detail, mark, stands in
+            self?.voice(sentence, detail: detail, mark: mark, stands: stands)
+        }
+        updater.lightMark = { [weak self] share in self?.hud.lightMark(share) }
         updater.requiresRouting = { [weak self] in self?.config.webHandleClicks ?? false }
         updater.start()
         // Browser-role bookkeeping belongs to the bundle that can actually
@@ -2479,7 +2482,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Readiness is about you, not the app, so the app is not named;
         // the way in is drawn as the keys it is.
         hud.showVoice(sentence: Self.readyNote, keymap: Self.readyKeymap, detail: nil, rows: [],
-                      owner: .flash, seconds: 2.5)
+                      owner: .flash, seconds: 2.5, mark: 1)
         Log.info("ready: \(detail)")
         // The instance that says ready is the resident one, so it is the
         // one that retires the update's markers.
@@ -2493,10 +2496,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Lodestar speaking briefly about itself: a note in the voice that
     /// goes on its own, the way a flash does.
-    private func voice(_ sentence: String, detail: String?) {
+    private func voice(_ sentence: String, detail: String?, mark: Double? = nil, stands: Bool = false) {
         hud.showVoice(sentence: sentence, detail: detail, rows: [], owner: .flash,
-                      seconds: Readability.flashSeconds(for: sentence))
+                      seconds: stands ? Self.standingNoteCeiling : Readability.flashSeconds(for: sentence),
+                      mark: mark)
     }
+
+    /// A standing note is replaced by the next thing said; this only keeps
+    /// one from outliving a path that says nothing.
+    static let standingNoteCeiling: TimeInterval = 180
 
     /// Whether launchctl did what it was asked.
     @discardableResult

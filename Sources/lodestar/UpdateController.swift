@@ -47,7 +47,12 @@ final class UpdateController {
     /// facts beneath it. The four moments the app has something to say
     /// about itself; every failure stays a flash, a fact in the
     /// interface's face.
-    var voice: (_ sentence: String, _ detail: String?) -> Void = { _, _ in }
+    /// Every one of them carries the mark, lit as far as the update has
+    /// come. `stands` keeps a note up until the next one replaces it, for
+    /// the download, whose end is the next thing said.
+    var voice: (_ sentence: String, _ detail: String?, _ mark: Double, _ stands: Bool) -> Void = { _, _, _, _ in }
+    /// The download's progress, for the mark on the note standing now.
+    var lightMark: (Double) -> Void = { _ in }
 
     /// The words, kept in one place so a test can hold them. Lodestar is
     /// named only where Lodestar is the subject, and never says I.
@@ -185,7 +190,7 @@ final class UpdateController {
                 Log.info("update", ["phase": "completed", "version": version])
                 DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [voice] in
                     let (sentence, detail) = Voice.updated(version)
-                    voice(sentence, detail)
+                    voice(sentence, detail, 1, false)
                 }
             } else {
                 // Applied, relaunched, and still not that version: the
@@ -304,7 +309,7 @@ final class UpdateController {
         if let message { Log.error("update check: \(message)") }
         DispatchQueue.main.async {
             self.phase = .idle
-            if force { self.voice(words.0, words.1) }
+            if force { self.voice(words.0, words.1, 1, false) }
         }
     }
 
@@ -316,12 +321,12 @@ final class UpdateController {
         Log.info("update", ["phase": "downloading", "asset": release.zipName])
         if force {
             let (sentence, detail) = Voice.found(release.tag)
-            DispatchQueue.main.async { self.voice(sentence, detail) }
+            DispatchQueue.main.async { self.voice(sentence, detail, 0, true) }
         }
         let semaphore = DispatchSemaphore(value: 0)
         var fetched: URL?
         var problem: String?
-        network.downloadTask(with: url) { location, response, error in
+        let task = network.downloadTask(with: url) { location, response, error in
             problem = error.map { String(describing: $0) }
                 ?? Updater.httpProblem(status: (response as? HTTPURLResponse)?.statusCode)
             if problem == nil, let location {
@@ -332,8 +337,19 @@ final class UpdateController {
                 }
             }
             semaphore.signal()
-        }.resume()
+        }
+        // Only a check someone asked for has a note on screen to light.
+        var shown = -1
+        let watching = force ? task.progress.observe(\.fractionCompleted) { [weak self] progress, _ in
+            let share = progress.fractionCompleted
+            let faces = LitMark.litCount(share)
+            guard faces != shown else { return }
+            shown = faces
+            DispatchQueue.main.async { self?.lightMark(share) }
+        } : nil
+        task.resume()
         semaphore.wait()
+        watching?.invalidate()
         guard let zip = fetched else {
             finishCheck(force: force, note: "✕ update download failed, see the log",
                         log: "download failed (\(problem ?? "no file"))", failed: true)
@@ -471,7 +487,7 @@ final class UpdateController {
         phase = .applying(version: version)
         if force {
             let (sentence, detail) = Voice.takingOver(version)
-            voice(sentence, detail)
+            voice(sentence, detail, 1, false)
         }
         Log.info("update", ["phase": "applying", "to": version])
 

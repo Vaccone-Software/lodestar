@@ -67,6 +67,8 @@ final class HUD {
     /// card answered by lode lode must still be the one showing, and any
     /// other drawing clears this.
     private(set) var voiceTag: String?
+    /// The mark the standing voice note carries, if it carries one.
+    private(set) var voiceMark: LitMark?
     /// The last flash or guide title as drawn: its mark and its words.
     private(set) var titleSymbol: String?
     private(set) var titleText: String?
@@ -119,18 +121,27 @@ final class HUD {
     /// it is a note that goes on its own, the way a flash does; without,
     /// it stands like a guide.
     func showVoice(sentence: String, keymap: Coach.Keymap? = nil, detail: String?, rows: [GuideRow],
-                   owner: SurfaceOwner = .coach, seconds: TimeInterval? = nil, tag: String? = nil) {
+                   owner: SurfaceOwner = .coach, seconds: TimeInterval? = nil, tag: String? = nil,
+                   mark: Double? = nil) {
         handOver(to: owner)
         voiceTag = tag
         hideWork?.cancel()
         hideWork = nil
         showingFlash = false
+        voiceMark = mark.map { LitMark(lit: $0) }
         buildVoice(sentence: sentence, keymap: keymap, detail: detail, rows: rows)
         present()
         guard let seconds else { return }
         let work = DispatchWorkItem { [weak self] in self?.hide() }
         hideWork = work
         clock.after(seconds, work)
+    }
+
+    /// The mark on the note standing now, lit further as a download lands.
+    /// Nothing happens when the note has gone or never carried one.
+    func lightMark(_ share: Double) {
+        guard let voiceMark, voiceMark.window != nil else { return }
+        voiceMark.lit = share
     }
 
     /// The coach's offer: one sentence in the voice over the row you would
@@ -207,7 +218,7 @@ final class HUD {
     private func buildVoice(sentence: String, keymap: Coach.Keymap?, detail: String?, rows: [GuideRow]) {
         content?.removeFromSuperview()
         voiceSentence = sentence
-        let stack = VoiceCard.build(sentence: sentence, keymap: keymap, detail: detail, rows: rows)
+        let stack = VoiceCard.build(sentence: sentence, keymap: keymap, detail: detail, rows: rows, mark: voiceMark)
         root.addSubview(stack)
         let inset = ModePill.inset
         NSLayoutConstraint.activate([

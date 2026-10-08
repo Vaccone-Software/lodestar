@@ -337,21 +337,25 @@ enum StripPreview {
         }
 
         // 134: Lodestar speaking about itself at launch and while it updates,
-        // VOICE=ready|found|taking|updated.
+        // VOICE=ready|found|taking|updated; LIT= the share of the mark lit
+        // while found is downloading.
         if variant == 134 {
             let hud = HUD()
-            switch ProcessInfo.processInfo.environment["VOICE"] ?? "found" {
+            let env = ProcessInfo.processInfo.environment
+            switch env["VOICE"] ?? "found" {
             case "ready":
-                hud.showVoice(sentence: AppDelegate.readyNote, keymap: AppDelegate.readyKeymap, detail: nil, rows: [], owner: .flash)
+                hud.showVoice(sentence: AppDelegate.readyNote, keymap: AppDelegate.readyKeymap, detail: nil, rows: [],
+                              owner: .flash, mark: 1)
             case "taking":
-                let words = UpdateController.Voice.takingOver("0.45.4")
-                hud.showVoice(sentence: words.0, detail: words.1, rows: [], owner: .flash)
+                let words = UpdateController.Voice.takingOver("0.45.5")
+                hud.showVoice(sentence: words.0, detail: words.1, rows: [], owner: .flash, mark: 1)
             case "updated":
-                let words = UpdateController.Voice.updated("0.45.4")
-                hud.showVoice(sentence: words.0, detail: words.1, rows: [], owner: .flash)
+                let words = UpdateController.Voice.updated("0.45.5")
+                hud.showVoice(sentence: words.0, detail: words.1, rows: [], owner: .flash, mark: 1)
             default:
-                let words = UpdateController.Voice.found("v0.45.4")
-                hud.showVoice(sentence: words.0, detail: words.1, rows: [], owner: .flash)
+                let words = UpdateController.Voice.found("v0.45.5")
+                hud.showVoice(sentence: words.0, detail: words.1, rows: [], owner: .flash,
+                              mark: Double(env["LIT"] ?? "") ?? 0.6)
             }
             app.run()
         }

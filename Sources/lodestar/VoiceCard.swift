@@ -113,8 +113,26 @@ enum GuideRows {
 /// as key rows. The HUD, the meeting, and the walk's lessons all draw it,
 /// each on its own glass.
 enum VoiceCard {
+    /// With `mark`, the card is Lodestar speaking about itself: the mark
+    /// stands before the words, lit as far as the thing spoken of has come.
     static func build(sentence: String, keymap: Coach.Keymap? = nil, detail: String?,
-                      rows: [GuideRow]) -> NSStackView {
+                      rows: [GuideRow], mark: LitMark? = nil) -> NSStackView {
+        let words = words(sentence: sentence, keymap: keymap, detail: detail, rows: rows)
+        guard let mark else { return words }
+        let card = NSStackView(views: [mark, words])
+        card.orientation = .horizontal
+        card.alignment = .centerY
+        card.spacing = markGap
+        card.translatesAutoresizingMaskIntoConstraints = false
+        return card
+    }
+
+    /// The mark to the words: a little more than a wing, so the picture
+    /// reads as standing beside the sentence rather than a glyph in it.
+    static let markGap: CGFloat = 16
+
+    private static func words(sentence: String, keymap: Coach.Keymap?, detail: String?,
+                              rows: [GuideRow]) -> NSStackView {
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading

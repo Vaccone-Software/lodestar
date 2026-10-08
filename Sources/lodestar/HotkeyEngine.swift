@@ -87,6 +87,9 @@ final class HotkeyEngine {
     /// A press in flight, everything its release will need.
     private struct Press {
         var down: Date
+        /// The keydown's own stamp on the monotonic clock, for the hold;
+        /// nil for an event with none (the scenario harness's).
+        var stamp: Double?
         var repeated = false
         var shift = false
         var chord = false
@@ -101,6 +104,11 @@ final class HotkeyEngine {
         var modifier: Keys.Modifiers = []
         /// For a modifier's own press: keys struck while it was held.
         var struck = 0
+
+        /// Down to `up`, from the stamps when both have one.
+        func hold(until up: Date, stamp: Double?) -> TimeInterval {
+            EventTime.interval(from: (down, self.stamp), to: (up, stamp))
+        }
 
         func keyPress(keycode: Int64, hold: Double?) -> KeyPress {
             KeyPress(down: down, hold: hold, hand: Keys.hand(for: keycode),
@@ -553,14 +561,14 @@ final class HotkeyEngine {
     /// and keyup. Its hold is the sustained load the letters' records
     /// cannot show, so it goes to the raw store and the windows and
     /// never into the typing hold channel.
-    private func noteModifier(_ event: CGEvent, at: Date) {
+    private func noteModifier(_ event: CGEvent, at: Date, stamp: Double?) {
         let keycode = event.getIntegerValueField(.keyboardEventKeycode)
         guard let modifier = Keys.modifier(for: keycode) else { return }
         if let press = pressedAt.removeValue(forKey: keycode) {
-            onHumanPress?(press.keyPress(keycode: keycode, hold: at.timeIntervalSince(press.down)))
+            onHumanPress?(press.keyPress(keycode: keycode, hold: press.hold(until: at, stamp: stamp)))
         } else {
             strand(now: at)
-            var press = Press(down: at, lens: core.state != .idle,
+            var press = Press(down: at, stamp: stamp, lens: core.state != .idle,
                               keyboardType: Int(event.getIntegerValueField(.keyboardEventKeyboardType)))
             press.modifiers = Self.modifiers(of: event.flags).subtracting(modifier)
             press.modifier = modifier
@@ -604,6 +612,7 @@ final class HotkeyEngine {
         // handler runs on the main run loop and reads the scheduler's
         // delay into every interval it times from its own clock.
         let at = EventTime.date(of: event) ?? clock.now()
+        let stamp = EventTime.monotonic(of: event)
         if type == .flagsChanged {
             // The coach's assent gesture watches the classified lode state
             // and consumes nothing — fed first, so no other path can
@@ -628,7 +637,7 @@ final class HotkeyEngine {
                 // double-tap agrees to nothing.
                 arm()
             }
-            if actingInputWasHuman { noteModifier(event, at: at) }
+            if actingInputWasHuman { noteModifier(event, at: at, stamp: stamp) }
             handleFlagsChanged(event)
             return Unmanaged.passUnretained(event)
         }
@@ -641,7 +650,7 @@ final class HotkeyEngine {
             // next: a swallowed key was still pressed by a hand, and the
             // pulse measures the hand and not the effect.
             if let press = pressedAt.removeValue(forKey: keycode), actingInputWasHuman {
-                let hold = at.timeIntervalSince(press.down)
+                let hold = press.hold(until: at, stamp: stamp)
                 if !press.repeated { onHumanKeyHold?(hold) }
                 onHumanPress?(press.keyPress(keycode: keycode, hold: hold))
                 if event.timestamp != 0 { onStampJitter?(clock.now().timeIntervalSince(at)) }
@@ -678,6 +687,7 @@ final class HotkeyEngine {
             } else if pressedAt[keycode] == nil {
                 var press = Press(
                     down: at,
+                    stamp: stamp,
                     shift: event.flags.contains(.maskShift),
                     chord: !event.flags.intersection([.maskCommand, .maskControl, .maskAlternate]).isEmpty,
                     lens: core.state != .idle,

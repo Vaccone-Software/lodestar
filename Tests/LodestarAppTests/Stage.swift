@@ -556,6 +556,20 @@ final class Stage {
         return swallowed
     }
 
+    /// One key, down then up, each event carrying the HID stamp a real
+    /// keyboard's would (monotonic nanoseconds), so the hold is timed from
+    /// the stamps and not from the virtual clock.
+    func pressStamped(_ name: String, down: CGEventTimestamp, up: CGEventTimestamp) {
+        let code = Self.keycode(name)
+        let flags: CGEventFlags = lodeHeld ? Self.lodeFlags : []
+        let downEvent = event(type: .keyDown, keycode: code, flags: flags, posted: false)
+        downEvent.timestamp = down
+        send(downEvent)
+        let upEvent = event(type: .keyUp, keycode: code, flags: flags, posted: false)
+        upEvent.timestamp = up
+        send(upEvent)
+    }
+
     /// One key, down and up with time between them — the shape a hold
     /// is measured from. The clock moves between the two events, which
     /// is the whole difference from `press`.

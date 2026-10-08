@@ -259,9 +259,9 @@ final class SelectCoreTests: XCTestCase {
     }
 
     func testTwoLetterLabelsPickInTwoCapitals() {
-        // Twelve matches on a nine-letter alphabet: labels go uniform pairs.
+        // Twelve matches on a four-letter alphabet: labels go uniform pairs.
         let text = Array(repeating: "xy", count: 12).joined(separator: " ")
-        var c = core([text], alphabet: "asd")
+        var c = core([text], alphabet: "asdf")
         _ = c.key("x", shift: false)
         _ = c.key("y", shift: false)
         XCTAssertTrue(c.labels.allSatisfy { $0.count == 2 })
@@ -274,14 +274,14 @@ final class SelectCoreTests: XCTestCase {
         // Shift is the door, not a hold: once a label is underway, every
         // further letter can only be finishing it — labels are prefix-free.
         let text = Array(repeating: "xy", count: 12).joined(separator: " ")
-        var c = core([text], alphabet: "asd")
+        var c = core([text], alphabet: "asdf")
         _ = c.key("x", shift: false)
         _ = c.key("y", shift: false)
         XCTAssertEqual(c.key("a", shift: true), .updated, "shift opens the pick")
         XCTAssertEqual(c.key("s", shift: false), .anchored,
                        "the second letter needs no shift")
         // And a symbol mid-pick abandons back to searching.
-        var d = core([text], alphabet: "asd")
+        var d = core([text], alphabet: "asdf")
         _ = d.key("x", shift: false)
         _ = d.key("y", shift: false)
         _ = d.key("a", shift: true)

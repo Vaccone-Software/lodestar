@@ -492,6 +492,15 @@ enum BarTheme {
     static var keyFill: NSColor {
         Tone.systemDark ? NSColor.white.withAlphaComponent(0.08) : Palette.clayKey.color
     }
+    /// A key laid over another app's window: the same cap made opaque, so
+    /// nothing of the window beneath shows through it, with a brighter
+    /// letter, because a mark is read against someone else's content.
+    static var markFill: NSColor {
+        Tone.systemDark ? (ground.blended(withFraction: 0.08, of: .white) ?? ground) : Palette.clayKey.color
+    }
+    static var markLetter: NSColor {
+        Tone.systemDark ? NSColor(white: 0.92, alpha: 1) : Palette.clayKeyLetter.color
+    }
     static var keyLetter: NSColor {
         if Accessibility.increaseContrast() { return Tone.systemDark ? .labelColor : Palette.clayKeyLetter.color }
         return Tone.systemDark ? secondaryColor : Palette.clayKeyLetter.color
@@ -1695,5 +1704,113 @@ final class ShadowHostView: NSView {
         let local = convert(point, from: superview)
         guard content.frame.contains(local) else { return nil }
         return super.hitTest(point)
+    }
+}
+
+/// Marks laid over another app's window, drawn as the one key: the dark cap
+/// with its lit top edge and its lip, standing on a short warm shadow so it
+/// reads over any app, light or dark. A mark the hand has begun typing
+/// lights, the accent's face with the mark's ink, the way a key lights when
+/// it is the one about to be pressed. Built by hand, without layout, because
+/// a window of click hints can be four hundred of them at once.
+enum KeyMark {
+    static let height: CGFloat = BarTheme.chipHeight
+    /// The peek's numerals: the same key at a size read across the screen.
+    static let peekHeight: CGFloat = 48
+    static let peekFont = NSFont.monospacedSystemFont(ofSize: 24, weight: .semibold)
+    /// The neutral hairline from a displaced tag to its word.
+    static var connector: NSColor { NSColor.labelColor.withAlphaComponent(Tone.systemDark ? 0.38 : 0.35) }
+    /// The underline's weight: the editor's line, select's matches, a held span.
+    static let underline: CGFloat = 2.5
+    /// The anchor's and the held span's heavier line.
+    static let heavyUnderline: CGFloat = 3.5
+
+    /// One key, origin at zero, sized to its letters.
+    static func key(_ text: String, lit: Bool, peek: Bool = false) -> NSView {
+        let height = peek ? peekHeight : height
+        let radius = peek ? BarTheme.chipRadius * BarTheme.phi : BarTheme.chipRadius
+        let label = NSTextField(labelWithString: text.uppercased())
+        label.font = peek ? peekFont : BarTheme.chipFont
+        label.textColor = lit ? BarTheme.onAccent : BarTheme.markLetter
+        label.alignment = .center
+        label.sizeToFit()
+        let width = max(height, ceil(label.frame.width) + BarTheme.chipPadX * 2)
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+        view.wantsLayer = true
+        guard let layer = view.layer else { return view }
+        layer.masksToBounds = false
+        layer.cornerRadius = radius
+        layer.backgroundColor = (lit ? BarTheme.accent : BarTheme.markFill).cgColor
+        // The lip: the key's own shadow, straight down and unblurred.
+        layer.shadowColor = (lit ? BarTheme.litKeyLip : BarTheme.keyLip).cgColor
+        layer.shadowOpacity = 1
+        layer.shadowRadius = 0
+        layer.shadowOffset = CGSize(width: 0, height: peek ? -3 : -1.5)
+        layer.shadowPath = CGPath(roundedRect: view.bounds, cornerWidth: radius, cornerHeight: radius, transform: nil)
+        // The top edge catching the light.
+        let top = CALayer()
+        top.frame = CGRect(x: radius * 0.8, y: height - 1, width: max(0, width - radius * 1.6), height: 1)
+        top.backgroundColor = (lit ? BarTheme.litKeyTop : BarTheme.keyTop).cgColor
+        top.cornerRadius = 0.5
+        layer.addSublayer(top)
+        label.frame = NSRect(x: 0, y: ((height - label.frame.height) / 2).rounded(), width: width,
+                             height: label.frame.height)
+        view.addSubview(label)
+        return standing(view, radius: radius)
+    }
+
+    /// The editor lens's tag: the key and the fix in words, on a small
+    /// surface of the palette in force, just above the word it fixes.
+    static func tag(letter: String, word: String, lit: Bool) -> NSView {
+        let pad: CGFloat = 3
+        let radius = BarTheme.chipRadius + pad
+        let key = KeyMark.key(letter, lit: lit)
+        let label = NSTextField(labelWithString: word)
+        label.font = BarTheme.secondaryFont
+        label.textColor = .labelColor
+        label.sizeToFit()
+        let height = key.frame.height + pad * 2
+        let width = ceil(pad + key.frame.width + 6 + label.frame.width + 8)
+        let tag = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+        tag.wantsLayer = true
+        tag.layer?.cornerRadius = radius
+        tag.layer?.backgroundColor = BarTheme.ground.cgColor
+        tag.layer?.borderWidth = 0.5
+        tag.layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.12).cgColor
+        key.frame.origin = NSPoint(x: pad, y: pad)
+        tag.addSubview(key)
+        label.frame.origin = NSPoint(x: key.frame.maxX + 6, y: ((height - label.frame.height) / 2).rounded())
+        tag.addSubview(label)
+        return standing(tag, radius: radius)
+    }
+
+    /// A short warm shadow under a mark, so it stands off whatever window
+    /// it lies on. The mark keeps its own layer's shadow for its lip.
+    private static func standing(_ content: NSView, radius: CGFloat) -> NSView {
+        let holder = NSView(frame: content.frame)
+        holder.wantsLayer = true
+        guard let layer = holder.layer else { return content }
+        layer.masksToBounds = false
+        layer.shadowColor = (Tone.systemDark
+            ? NSColor(srgbRed: 0.03, green: 0.016, blue: 0.004, alpha: 0.3)
+            : NSColor(srgbRed: 0.37, green: 0.24, blue: 0.14, alpha: 0.2)).cgColor
+        layer.shadowOpacity = 1
+        layer.shadowRadius = 7
+        layer.shadowOffset = CGSize(width: 0, height: -4)
+        layer.shadowPath = CGPath(roundedRect: holder.bounds, cornerWidth: radius, cornerHeight: radius, transform: nil)
+        content.frame.origin = .zero
+        holder.addSubview(content)
+        return holder
+    }
+
+    /// An underline in the accent along the foot of `rect` (AppKit
+    /// coordinates in the view it is added to).
+    static func underline(under rect: NSRect, weight: CGFloat) -> NSView {
+        let line = NSView(frame: NSRect(x: rect.minX + 1, y: rect.minY - weight + 1,
+                                        width: max(2, rect.width - 2), height: weight))
+        line.wantsLayer = true
+        line.layer?.backgroundColor = BarTheme.accent.cgColor
+        line.layer?.cornerRadius = weight / 2
+        return line
     }
 }

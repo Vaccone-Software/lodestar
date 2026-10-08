@@ -61,17 +61,14 @@ final class GlassTests: XCTestCase {
         XCTAssertEqual(root.subviews.first, normal, "installed under everything else")
     }
 
-    func testAChipIsTheLaunchersGlassWithTheLabelOnTop() {
-        let (chip, label) = GlassChip.make("ab")
-        let backdrop = chip.subviews.first { Glass.weight(in: $0) != nil }
-        XCTAssertNotNil(backdrop, "the one backdrop recipe")
-        XCTAssertEqual(Glass.weight(in: backdrop!), .normal, "the launcher's own tint, not a heavier one")
-        XCTAssertTrue(chip.subviews.contains(label), "the label rides above the material, not inside it")
-        XCTAssertNil(label.shadow, "no halo: the frost makes it unnecessary")
-        XCTAssertNotNil(chip.layer?.shadowColor, "still lifted off the content beneath")
-        if #available(macOS 26.0, *) {
-            XCTAssertEqual((backdrop as? NSGlassEffectView)?.style, .regular, "never clear")
-        }
+    func testAMarkIsTheOneKeyStandingOnAShadow() {
+        let mark = KeyMark.key("ab", lit: false)
+        XCTAssertNotNil(mark.layer?.shadowPath, "stands on a short warm shadow")
+        let key = try? XCTUnwrap(mark.subviews.first)
+        XCTAssertEqual(key?.layer?.backgroundColor, BarTheme.markFill.cgColor, "the key's face, opaque over the app")
+        let label = key?.subviews.compactMap { $0 as? NSTextField }.first
+        XCTAssertEqual(label?.stringValue, "AB")
+        XCTAssertEqual(mark.frame.height, KeyMark.height)
     }
 
     func testTheStripsCardsAreTheLaunchersGlassAndOnlyTheLitOneIsRaised() {

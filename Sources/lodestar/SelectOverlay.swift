@@ -1,9 +1,9 @@
 import AppKit
 import LodestarCore
 
-/// Select's glass: accent highlights on every match, a capital chip at
-/// each, the anchor held in a stronger tint, and a query band along the
-/// bottom that shows what has been typed and what stage the span is in.
+/// Select's glass: an accent underline under every match, a key at each,
+/// the anchor's line heavier, and the editor lens's tags. Every label is
+/// the one key, and the only paint is the accent's line.
 /// Never key, ignores the mouse — the window underneath keeps focus and
 /// receives the selection when the mode commits.
 final class SelectOverlay {
@@ -15,13 +15,24 @@ final class SelectOverlay {
         /// detaches from the text the eye actually reads. Targets pin the
         /// label at the frame's top-left corner, overlapping it, the way
         /// hints always did.
-        enum Style: Equatable { case match, target }
+        enum Style: Equatable {
+            case match, target
+            /// The editor's lens: the key and the fix in words, on a tag
+            /// above the word; the word's own underline is the editor's.
+            case tag(String)
+        }
 
         let label: String
         /// One rect per fragment the match crosses — a phrase over a bold
         /// boundary highlights as several honest rectangles.
         let frames: [CGRect]
         var style: Style = .match
+
+        /// The fix a lens tag carries, if this is one.
+        var fix: String? {
+            if case .tag(let word) = style { return word }
+            return nil
+        }
     }
 
     private let panel: NSPanel
@@ -30,13 +41,14 @@ final class SelectOverlay {
     private let chipHost = NSView()
     private var decorations: [NSView] = []
 
-    private static let chipFont = NSFont.monospacedSystemFont(ofSize: BarTheme.Scale.meta, weight: .bold)
-    private static let chipHeight: CGFloat = 20
     /// Clear water between the band and the bottom of the usable screen.
 
     init() {
         panel = Glass.makePanel(level: .statusBar)
         panel.ignoresMouseEvents = true
+        // Each mark draws its own soft shadow. The window server's would trace
+        // a hard ring round every one.
+        panel.hasShadow = false
         panel.contentView = root
 
         highlightHost.translatesAutoresizingMaskIntoConstraints = false
@@ -126,55 +138,88 @@ final class SelectOverlay {
                    width: quartz.width, height: quartz.height)
         }
 
-        // The anchor first: the start of the span, held in a stronger tint
-        // for as long as the far end is being chosen.
+        // The anchor first: the start of the span, its line heavier for as
+        // long as the far end is being chosen.
         for rect in anchor {
-            let view = NSView()
-            view.wantsLayer = true
-            view.layer?.backgroundColor = BarTheme.accent
-                .withAlphaComponent(0.45).cgColor
-            view.layer?.cornerRadius = BarTheme.highlightRadius
-            view.frame = appKitRect(rect).insetBy(dx: -1.5, dy: -1.5)
-            highlightHost.addSubview(view)
-            decorations.append(view)
+            let line = KeyMark.underline(under: appKitRect(rect), weight: KeyMark.heavyUnderline)
+            highlightHost.addSubview(line)
+            decorations.append(line)
         }
 
+        let lit = !typed.isEmpty
+        var placedTags: [NSRect] = []
         for chip in Self.narrowed(chips, typed: typed) {
-            if chip.style == .match {
-                // The match itself, washed in accent — the chip names it,
-                // the highlight is it.
-                for rect in chip.frames {
-                    let highlight = NSView()
-                    highlight.wantsLayer = true
-                    highlight.layer?.backgroundColor = BarTheme.accent
-                        .withAlphaComponent(0.22).cgColor
-                    highlight.layer?.cornerRadius = BarTheme.highlightRadius
-                    highlight.frame = appKitRect(rect).insetBy(dx: -1.5, dy: -1.5)
-                    highlightHost.addSubview(highlight)
-                    decorations.append(highlight)
-                }
-            }
             guard let first = chip.frames.first else { continue }
-
-            // Literally the hints chip — one design, one factory. The
-            // letters already typed of the label wear the accent.
-            let (cap, label) = GlassChip.make(chip.label, lit: typed.count)
-            let width = label.frame.width + 7
-            let height = GlassChip.height
             let target = appKitRect(first)
+            switch chip.style {
+            case .tag(let word):
+                let tag = KeyMark.tag(letter: chip.label, word: word, lit: lit)
+                let placed = Self.place(tag.frame.size, above: target, avoiding: placedTags,
+                                        within: NSRect(origin: .zero, size: panel.frame.size))
+                tag.frame.origin = placed.frame.origin
+                if let x = placed.connectorX {
+                    let line = NSView(frame: NSRect(x: x, y: target.maxY, width: 1,
+                                                    height: max(0, placed.frame.minY - target.maxY)))
+                    line.wantsLayer = true
+                    line.layer?.backgroundColor = KeyMark.connector.cgColor
+                    highlightHost.addSubview(line)
+                    decorations.append(line)
+                }
+                placedTags.append(placed.frame)
+                chipHost.addSubview(tag)
+                decorations.append(tag)
+                continue
+            case .match:
+                // The match itself, underlined in the accent: the key
+                // names it, the line is it.
+                for rect in chip.frames {
+                    let line = KeyMark.underline(under: appKitRect(rect), weight: KeyMark.underline)
+                    highlightHost.addSubview(line)
+                    decorations.append(line)
+                }
+            case .target:
+                break
+            }
+            let key = KeyMark.key(chip.label, lit: lit)
+            let width = key.frame.width, height = key.frame.height
             let x = min(max(target.minX - 2, 0), panel.frame.width - width)
-            // A match's label floats just above the word; a target's pins
-            // to the frame's top-left corner, overlapping it — attached to
-            // the box it fires, however large the box.
-            let raw = chip.style == .match ? target.maxY + 1 : target.maxY - height + 4
+            // A match's key floats just above the word; a target's pins to
+            // the frame's top-left corner, overlapping it — attached to the
+            // box it fires, however large the box.
+            let raw = chip.style == .match ? target.maxY + 2 : target.maxY - height + 4
             let y = min(max(raw, 0), panel.frame.height - height)
-            cap.frame = NSRect(x: x, y: y, width: width, height: height)
-            GlassChip.settleShadow(cap)
-            label.frame = NSRect(x: 0, y: (height - label.frame.height) / 2,
-                                 width: width, height: label.frame.height)
-            chipHost.addSubview(cap)
-            decorations.append(cap)
+            key.frame.origin = NSPoint(x: x, y: y)
+            chipHost.addSubview(key)
+            decorations.append(key)
         }
+    }
+
+    /// Where a lens tag stands: just above its word, aligned to it. A tag
+    /// that would cover one already placed steps up a row until it is
+    /// clear, and a stepped tag is joined to its word by a hairline that
+    /// runs clear of the tags beneath it. An undisturbed tag needs none.
+    static func place(_ size: NSSize, above target: NSRect, avoiding placed: [NSRect],
+                      within bounds: NSRect) -> (frame: NSRect, connectorX: CGFloat?) {
+        let gap: CGFloat = 4
+        let x = min(max(target.minX - 3, bounds.minX), bounds.maxX - size.width)
+        var frame = NSRect(x: x, y: target.maxY + gap, width: size.width, height: size.height)
+        var steps = 0
+        while steps < 4, placed.contains(where: { $0.insetBy(dx: -gap / 2, dy: -gap / 2).intersects(frame) }) {
+            frame.origin.y += size.height + gap
+            steps += 1
+        }
+        frame.origin.y = min(frame.origin.y, bounds.maxY - size.height)
+        guard steps > 0 else { return (frame, nil) }
+        // The line drops from the tag's foot to the word; it starts near
+        // the word's front and moves right past any tag it would cross.
+        var lineX = target.minX + 8
+        for other in placed.sorted(by: { $0.minX < $1.minX })
+        where other.minY < frame.minY && other.maxY > target.maxY && other.minX <= lineX && other.maxX >= lineX {
+            lineX = other.maxX + 4
+        }
+        lineX = min(lineX, max(target.minX + 2, target.maxX - 2))
+        lineX = min(max(lineX, frame.minX + 6), frame.maxX - 6)
+        return (frame, lineX.rounded())
     }
 
     /// The held highlight that outlives the mode: the span's rectangles
@@ -191,16 +236,12 @@ final class SelectOverlay {
         guard let primary = NSScreen.screens.first else { return }
         let primaryHeight = primary.frame.maxY
         for rect in spans {
-            let view = NSView()
-            view.wantsLayer = true
-            view.layer?.backgroundColor = BarTheme.accent
-                .withAlphaComponent(0.35).cgColor
-            view.layer?.cornerRadius = BarTheme.highlightRadius
-            view.frame = NSRect(x: rect.minX - panel.frame.minX - 1.5,
-                                y: primaryHeight - rect.maxY - panel.frame.minY - 1.5,
-                                width: rect.width + 3, height: rect.height + 3)
-            highlightHost.addSubview(view)
-            decorations.append(view)
+            let appKit = NSRect(x: rect.minX - panel.frame.minX,
+                                y: primaryHeight - rect.maxY - panel.frame.minY,
+                                width: rect.width, height: rect.height)
+            let line = KeyMark.underline(under: appKit, weight: KeyMark.heavyUnderline)
+            highlightHost.addSubview(line)
+            decorations.append(line)
         }
     }
 

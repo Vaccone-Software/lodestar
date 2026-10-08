@@ -63,7 +63,7 @@ final class EditorLensScenarioTests: XCTestCase {
         XCTAssertTrue(stage.engine.stateDescription.contains("hints"))
         let chips = stage.engine.select.shownChips
         XCTAssertEqual(chips.count, 2)
-        XCTAssertTrue(chips.contains { $0.label.hasSuffix("· They're") }, "the letter wears the fix it applies")
+        XCTAssertTrue(chips.contains { $0.fix == "They're" }, "the letter's tag carries the fix it applies")
         let first = try XCTUnwrap(chips.first?.label.first).description
         XCTAssertTrue(stage.press(first))
         XCTAssertEqual(lens.fixed.count, 1, "a letter fixes")
@@ -77,7 +77,7 @@ final class EditorLensScenarioTests: XCTestCase {
     func testShiftAndALetterIgnores() throws {
         let (stage, lens) = stage(with: [mark("retile", "retiling", x: 10), mark("its", "it's", x: 120)])
         stage.lode("tab")
-        let label = try XCTUnwrap(stage.engine.select.shownChips.first { $0.label.hasSuffix("retiling") }?.label.first)
+        let label = try XCTUnwrap(stage.engine.select.shownChips.first { $0.fix == "retiling" }?.label.first)
         XCTAssertTrue(stage.press(label.description, shift: true))
         XCTAssertEqual(lens.kept.map(\.original), ["retile"], "⇧ leaves the words, and fixes nothing")
         XCTAssertTrue(lens.fixed.isEmpty)
@@ -87,7 +87,7 @@ final class EditorLensScenarioTests: XCTestCase {
     func testOptionAndALetterLearns() throws {
         let (stage, lens) = stage(with: [mark("Kubelet", "Kubelik", x: 10), mark("its", "it's", x: 120)])
         stage.lode("tab")
-        let label = try XCTUnwrap(stage.engine.select.shownChips.first { $0.label.hasSuffix("Kubelik") }?.label.first)
+        let label = try XCTUnwrap(stage.engine.select.shownChips.first { $0.fix == "Kubelik" }?.label.first)
         XCTAssertTrue(stage.press(label.description, option: true))
         XCTAssertEqual(lens.learned.map(\.original), ["Kubelet"], "⌥ learns the word")
         XCTAssertTrue(lens.fixed.isEmpty)

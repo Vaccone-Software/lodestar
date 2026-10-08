@@ -13,29 +13,21 @@ final class IndexBadges {
         let primaryHeight = primary.frame.maxY
 
         for item in items.prefix(10) {
-            let size: CGFloat = 56
+            // The one key at peek size, on room for its shadow.
+            let key = KeyMark.key("\(item.index)", lit: false, peek: true)
+            let margin: CGFloat = 16
+            let size = key.frame.width + margin * 2
             let origin = NSPoint(
-                x: item.frame.midX - size / 2,
-                y: primaryHeight - item.frame.midY - size / 2
+                x: (item.frame.midX - size / 2).rounded(),
+                y: (primaryHeight - item.frame.midY - size / 2).rounded()
             )
             let panel = Glass.makePanel(level: .statusBar)
             panel.ignoresMouseEvents = true
+            panel.hasShadow = false
             let root = NSView()
             panel.contentView = root
-            Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
-
-            let label = NSTextField(labelWithString: "\(item.index)")
-            let base = BarTheme.badgeFont
-            let rounded = base.fontDescriptor.withDesign(.rounded).flatMap { NSFont(descriptor: $0, size: 27) }
-            label.font = rounded ?? base
-            label.textColor = .labelColor
-            label.alignment = .center
-            label.translatesAutoresizingMaskIntoConstraints = false
-            root.addSubview(label)
-            NSLayoutConstraint.activate([
-                label.centerXAnchor.constraint(equalTo: root.centerXAnchor),
-                label.centerYAnchor.constraint(equalTo: root.centerYAnchor),
-            ])
+            key.frame.origin = NSPoint(x: margin, y: margin)
+            root.addSubview(key)
 
             panel.setFrame(NSRect(origin: origin, size: NSSize(width: size, height: size)), display: true)
             panel.orderFrontRegardless()

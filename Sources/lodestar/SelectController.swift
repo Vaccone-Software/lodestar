@@ -184,6 +184,15 @@ final class SelectController {
     /// sensor settled, unique once it did, or a pasted one — so the
     /// engine can step scroll mode back on its own.
     var onAimLanded: (() -> Void)?
+    /// The word an aim landed on, kept underlined while scroll mode stands.
+    private var aimMark: CGRect?
+
+    /// Scroll mode ended (or aims again): the aimed word's line goes.
+    func clearAimMark() {
+        guard aimMark != nil else { return }
+        aimMark = nil
+        if ghost == nil { overlay.hide() }
+    }
     /// Uniqueness may commit at the doors whose pick is harmless to land
     /// early: an anchor lights a word, an aim moves the pointer. At the
     /// click door a pick is a click, and an action must never fire itself
@@ -242,6 +251,8 @@ final class SelectController {
     // MARK: - Lifecycle
 
     func enter(door: Door = .anchor, sticky: Bool = false) -> Bool {
+        // A new aim, or another door, replaces the last aim's line.
+        aimMark = nil
         // The draft's lens draws over the draft, whatever window is or is
         // not beneath it.
         if door == .editor, let editor, let canvas = editor.lensCanvas {
@@ -343,7 +354,7 @@ final class SelectController {
         // hiding unconditionally here wiped the highlight the commit had
         // just painted. The overlay is the ghost's canvas: it stays up
         // exactly as long as the ghost stands.
-        if ghost == nil { overlay.hide() }
+        if ghost == nil, aimMark == nil { overlay.hide() }
         pill?.hide()
         // A harvest is up to 600 units, each carrying its OCR-recognized
         // lines; none of it means anything once the mode is over, and
@@ -641,8 +652,7 @@ final class SelectController {
     private func renderEditor() {
         let chips: [SelectOverlay.Chip] = zip(entryLabels, editorMarks).compactMap { label, mark in
             guard entryTyped.isEmpty || label.hasPrefix(entryTyped) else { return nil }
-            return SelectOverlay.Chip(label: "\(label) · \(mark.issue.shown)", frames: [mark.rect],
-                                      style: .match)
+            return SelectOverlay.Chip(label: label, frames: [mark.rect], style: .tag(mark.issue.shown))
         }
         showPill(text: nil)
         overlay.show(chips: chips, anchor: [], over: windowFrame, typed: entryTyped)
@@ -864,17 +874,25 @@ final class SelectController {
         let text = unit.run.text as NSString
         let label = NSMaxRange(range) <= text.length ? text.substring(with: range) : nil
         Log.info("select", ["outcome": "aimed", "chars": range.length, "world": world])
-        let land: (CGPoint) -> Void = { [weak self] point in
-            DispatchQueue.main.async { self?.aim?(point, label) }
+        let frame = windowFrame
+        let land: (CGRect) -> Void = { [weak self] rect in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.aim?(CGPoint(x: rect.midX, y: rect.midY), label)
+                // The aimed word keeps its line while scroll mode stands:
+                // the place the wheel acts on stays marked until it ends.
+                self.aimMark = rect
+                self.overlay.hold(spans: [rect], over: frame)
+            }
         }
         if case .ocr = unit.geometry,
            let rect = boundsRects(unit: unit, range: range).first {
-            land(CGPoint(x: rect.midX, y: rect.midY))
+            land(rect)
             return
         }
         OffTap.run { [weak self] in
             guard let self, let rect = self.boundsRects(unit: unit, range: range).first else { return }
-            land(CGPoint(x: rect.midX, y: rect.midY))
+            land(rect)
         }
     }
 

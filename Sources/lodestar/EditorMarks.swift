@@ -58,10 +58,12 @@ final class EditorMarks: EditorMarksDrawing {
         var lines: [(x: CGFloat, width: CGFloat, y: CGFloat)] = []
         override var isOpaque: Bool { false }
         override func draw(_ dirtyRect: NSRect) {
-            BarTheme.accent.withAlphaComponent(0.9).setStroke()
+            // The accent at full strength, the one underline every mark in
+            // Lodestar wears: select's matches, the held span, the draft's.
+            BarTheme.accent.setStroke()
             for line in lines {
                 let path = NSBezierPath()
-                path.lineWidth = 2
+                path.lineWidth = KeyMark.underline
                 path.lineCapStyle = .round
                 path.move(to: NSPoint(x: line.x + 1, y: line.y))
                 path.line(to: NSPoint(x: line.x + line.width - 1, y: line.y))

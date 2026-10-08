@@ -42,6 +42,10 @@ enum StripPreview {
     private static var heldStrip: ClipboardStrip?
     private static var heldHover: EditorHover?
     private static var heldCoachHUD: HUD?
+    private static var heldPreviewWindow: NSWindow?
+    private static var heldBadges: IndexBadges?
+    private static var heldMarks: EditorMarks?
+    private static var heldOverlay: SelectOverlay?
 
     /// The flat ground alone, for a harness that stages its own panels.
     static func stageOnly() { stage() }
@@ -390,6 +394,65 @@ enum StripPreview {
 
         // 128, 129: the editor's card over a word, a spelling mark (fix,
         // your word, Learn) and a grammar mark (fix, your words).
+        // 132: the marks over another app's text: the editor's underline
+        // and lens tags on two neighbouring words, select's underlined
+        // matches with their keys and the anchor, click hint keys. 133:
+        // the peek's numerals over three windows.
+        if variant == 132 || variant == 133 {
+            DispatchQueue.main.async {
+                let dark = Tone.systemDark
+                let frame = NSRect(x: 260, y: 260, width: 760, height: 300)
+                let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+                window.backgroundColor = dark ? NSColor(srgbRed: 0.10, green: 0.11, blue: 0.13, alpha: 1) : .white
+                window.level = .floating
+                let text = NSTextView(frame: NSRect(origin: .zero, size: frame.size))
+                text.drawsBackground = false
+                text.textContainerInset = NSSize(width: 28, height: 56)
+                text.font = BarTheme.titleFont
+                text.textColor = dark ? NSColor(white: 0.84, alpha: 1) : NSColor(white: 0.11, alpha: 1)
+                let body = "I think teh recieve date moved again.\n\n\nThe review moved to Thursday after the standup.\nBring the Thursday notes.\n\nReply    Forward    Archive"
+                text.string = body
+                window.contentView = text
+                window.orderFrontRegardless()
+                heldPreviewWindow = window
+                guard let primary = NSScreen.screens.first else { return }
+                func quartz(_ word: String, _ nth: Int = 0) -> CGRect {
+                    var range = NSRange(location: 0, length: 0)
+                    var from = 0
+                    for _ in 0...nth {
+                        range = (body as NSString).range(of: word, range: NSRange(location: from, length: (body as NSString).length - from))
+                        from = range.location + range.length
+                    }
+                    var actual = NSRange()
+                    let r = text.firstRect(forCharacterRange: range, actualRange: &actual)
+                    return CGRect(x: r.minX, y: primary.frame.maxY - r.maxY, width: r.width, height: r.height)
+                }
+                let windowQuartz = CGRect(x: frame.minX, y: primary.frame.maxY - frame.maxY, width: frame.width, height: frame.height)
+                if variant == 133 {
+                    let badges = IndexBadges()
+                    badges.show([(1, CGRect(x: windowQuartz.minX, y: windowQuartz.minY, width: windowQuartz.width / 2, height: windowQuartz.height)),
+                                 (2, CGRect(x: windowQuartz.midX, y: windowQuartz.minY, width: windowQuartz.width / 2, height: windowQuartz.height / 2)),
+                                 (3, CGRect(x: windowQuartz.midX, y: windowQuartz.midY, width: windowQuartz.width / 2, height: windowQuartz.height / 2))])
+                    heldBadges = badges
+                    return
+                }
+                let marks = EditorMarks()
+                marks.show([quartz("teh"), quartz("recieve")], over: windowQuartz)
+                heldMarks = marks
+                let overlay = SelectOverlay()
+                overlay.show(chips: [
+                    .init(label: "j", frames: [quartz("teh")], style: .tag("the")),
+                    .init(label: "k", frames: [quartz("recieve")], style: .tag("receive")),
+                    .init(label: "l", frames: [quartz("Thursday", 1)], style: .match),
+                    .init(label: "f", frames: [quartz("Reply")], style: .target),
+                    .init(label: "d", frames: [quartz("Forward")], style: .target),
+                    .init(label: "s", frames: [quartz("Archive")], style: .target),
+                ], anchor: [quartz("Thursday")], over: windowQuartz)
+                heldOverlay = overlay
+            }
+            app.run()
+        }
+
         if variant == 128 || variant == 129 {
             let hover = EditorHover()
             hover.learnable = { $0.issue.kind == .spelling }

@@ -43,7 +43,7 @@ final class DraftEditorScenarioTests: XCTestCase {
         XCTAssertEqual(stage.engine.select.door, .editor, "lode ⇥ with the draft open is the draft's lens")
         let chips = stage.engine.select.shownChips
         XCTAssertEqual(chips.count, 2)
-        let receive = try XCTUnwrap(chips.first { $0.label.hasSuffix("· receive") }?.label.first).description
+        let receive = try XCTUnwrap(chips.first { $0.fix == "receive" }?.label.first).description
         XCTAssertTrue(stage.press(receive))
         XCTAssertEqual(stage.draft.buffer.text, "We need to receive the the files.")
         XCTAssertTrue(stage.draft.isOpen, "a fix is the draft's own edit; the draft stays")
@@ -54,7 +54,7 @@ final class DraftEditorScenarioTests: XCTestCase {
         stage.lode(".")
         stage.speech.settle("We need to recieve the the files.")
         stage.lode("tab")
-        let receive = try XCTUnwrap(stage.engine.select.shownChips.first { $0.label.hasSuffix("· receive") }?.label.first)
+        let receive = try XCTUnwrap(stage.engine.select.shownChips.first { $0.fix == "receive" }?.label.first)
         XCTAssertTrue(stage.press(receive.description))
         XCTAssertEqual(stage.draft.buffer.text, "We need to receive the the files.")
         stage.press("delete")

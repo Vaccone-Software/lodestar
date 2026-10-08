@@ -8,9 +8,9 @@ import XCTest
 final class ChipAlphabetTests: XCTestCase {
     func testRowsComeInOneFixedOrder() {
         let alphabet = KeyboardLayout.chipAlphabet()
-        XCTAssertTrue(alphabet.hasPrefix("asdfghjkl"), "the home row is spent first")
-        XCTAssertEqual(alphabet, "asdfghjklqwertyuiopzxcvbnm",
-                       "home row, then the top row, then the bottom")
+        XCTAssertTrue(alphabet.hasPrefix("jklfdsahg"), "the home row is spent first, the right hand leading")
+        XCTAssertEqual(alphabet, "jklfdsahguioprewqytmnvcxzb",
+                       "home row, then the top row, then the bottom, each from the right hand out")
     }
 
     func testEveryLetterIsALetterAndAppearsOnce() {
@@ -25,7 +25,7 @@ final class ChipAlphabetTests: XCTestCase {
         // one keystroke where nine letters made every one of them two.
         let labels = HintLabels.labels(count: 26, alphabet: KeyboardLayout.chipAlphabet())
         XCTAssertTrue(labels.allSatisfy { $0.count == 1 })
-        XCTAssertEqual(labels.first, "a")
-        XCTAssertEqual(labels[9], "q", "the tenth chip is the top row's first key")
+        XCTAssertEqual(labels.first, "j")
+        XCTAssertEqual(labels[9], "u", "the tenth chip is the top row's first key")
     }
 }

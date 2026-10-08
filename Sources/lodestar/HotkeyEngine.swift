@@ -1384,6 +1384,7 @@ final class HotkeyEngine {
             case .scrollGuide:
                 showScrollPill()
             case .scrollExit(let reason):
+                select.clearAimMark()
                 stopWatchingScrollInterrupts()
                 scroller.exit(reason: reason)
                 pill.hide()

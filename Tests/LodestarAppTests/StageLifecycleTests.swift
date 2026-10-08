@@ -48,4 +48,32 @@ final class StageLifecycleTests: XCTestCase {
         let after = pumpCost()
         XCTAssertLessThan(after, max(0.5, baseline * 2), "thirty dead stages must not slow the run loop")
     }
+
+    /// The suite runs while a person works: its panels are laid out on the
+    /// stand-in screen, off every real display, so none crosses theirs.
+    func testAStagesPanelsStayOffEveryRealDisplay() {
+        let stage = Stage()
+        var shown: [NSWindow] = []
+        func look() {
+            Stage.pump()
+            shown += NSApplication.shared.windows.filter {
+                $0.isVisible && String(describing: type(of: $0)) != "TUINSWindow" && !shown.contains($0)
+            }
+        }
+        stage.lode("space")        // the launcher
+        stage.pump(until: { stage.searcher.isVisible })
+        look()
+        stage.press("escape")
+        _ = stage.openStrip()      // Keep's strip
+        look()
+        stage.press("escape")
+        stage.lode(".")            // the draft
+        look()
+        let screens = NSScreen.screens.map(\.frame)
+        XCTAssertFalse(shown.isEmpty, "something was shown to check")
+        for window in shown {
+            XCTAssertFalse(screens.contains { $0.intersects(window.frame) },
+                           "\(type(of: window)) at \(window.frame) is on a real display")
+        }
+    }
 }

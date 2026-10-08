@@ -18,7 +18,7 @@ final class DraftFoldTests: XCTestCase {
         // runner's display is smaller than a desk's, and its Reduce Motion
         // is on. The stage's screen, and motion as most people have it.
         frame = ActivePolicy.frameOverride
-        ActivePolicy.frameOverride = NSRect(x: 0, y: 0, width: 1920, height: 1050)
+        ActivePolicy.frameOverride = Stage.screen
         reduceMotion = Accessibility.reduceMotion
         Accessibility.reduceMotion = { false }
         panel = DraftPanel()

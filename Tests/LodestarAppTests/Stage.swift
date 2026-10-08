@@ -281,8 +281,10 @@ final class Stage {
     init(voices: [Voice] = []) {
         _ = NSApplication.shared
         // The screen every scenario is laid out on, whatever machine runs
-        // it: a runner's virtual display is narrower than a desk's.
-        ActivePolicy.frameOverride = NSRect(x: 0, y: 0, width: 1920, height: 1050)
+        // it: a runner's virtual display is narrower than a desk's. It sits
+        // far off every real display, so the suite's panels are laid out
+        // and drawn without crossing the screen of the person running it.
+        ActivePolicy.frameOverride = Self.screen
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("lodestar-stage-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -434,7 +436,14 @@ final class Stage {
         }
     }
 
+    /// The stand-in screen: 1920 by 1050, off every real display.
+    static let screen = NSRect(x: -40_000, y: -40_000, width: 1920, height: 1050)
+
     deinit {
+        // What this stage pointed at itself goes back: a later post through
+        // the pointer would otherwise reach a stage that is gone.
+        Pointer.post = Pointer.postToSystem
+        ActivePolicy.frameOverride = nil
         health.setEnabled(false)
         clipboard.stop()
         hud.hide()

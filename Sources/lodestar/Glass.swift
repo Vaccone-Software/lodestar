@@ -188,14 +188,25 @@ final class ToneView: NSView {
 /// The system's accessibility settings, as the surfaces read them. Each
 /// is a closure so a test can set the switch the way a person would.
 enum Accessibility {
-    static var reduceTransparency: () -> Bool = {
-        NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
-    }
-    static var increaseContrast: () -> Bool = {
-        NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
-    }
-    static var reduceMotion: () -> Bool = {
-        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    static var reduceTransparency: () -> Bool = defaults.reduceTransparency
+    static var increaseContrast: () -> Bool = defaults.increaseContrast
+    static var reduceMotion: () -> Bool = defaults.reduceMotion
+
+    /// The Mac's own settings, or under a test run all off: a test that
+    /// "restored" the live value handed every later test in the process
+    /// the machine's Reduce Motion, and a runner with it on turned CI red.
+    private static let defaults: (reduceTransparency: () -> Bool, increaseContrast: () -> Bool,
+                                  reduceMotion: () -> Bool) = TestRun.active
+        ? ({ false }, { false }, { false })
+        : ({ NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency },
+           { NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast },
+           { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion })
+
+    /// Back to the defaults, for a test that changed a setting.
+    static func reset() {
+        reduceTransparency = defaults.reduceTransparency
+        increaseContrast = defaults.increaseContrast
+        reduceMotion = defaults.reduceMotion
     }
 }
 

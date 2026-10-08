@@ -8,10 +8,8 @@ import XCTest
 final class GlassTests: XCTestCase {
     /// The veil these tests read is the frost's, not the opaque one a
     /// runner with Reduce Transparency on would draw.
-    override func setUp() { Accessibility.reduceTransparency = { false } }
-    override func tearDown() {
-        Accessibility.reduceTransparency = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency }
-    }
+    override func setUp() { Accessibility.reset() }
+    override func tearDown() { Accessibility.reset() }
 
     /// A toned glass in a window, the way a backdrop stands.
     @available(macOS 26.0, *)
@@ -108,8 +106,7 @@ final class GlassTests: XCTestCase {
 /// and a mark's accent never sits on its ground.
 final class AccessibilitySettingsTests: XCTestCase {
     override func tearDown() {
-        Accessibility.reduceTransparency = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency }
-        Accessibility.increaseContrast = { NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast }
+        Accessibility.reset()
         BarTheme.accentColor = { .controlAccentColor }
     }
 
@@ -315,7 +312,7 @@ final class OnAccentTests: XCTestCase {
 final class AccentSwitchTests: XCTestCase {
     override func tearDown() {
         BarTheme.accentColor = { .controlAccentColor }
-        Accessibility.reduceMotion = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+        Accessibility.reset()
     }
 
     /// A switch on screen, the way the settings window holds one: layers
@@ -413,7 +410,7 @@ final class SettingsSwitchSurvivalTests: XCTestCase {
     /// render re-hosts the switch — which is the whole point of keeping it.
     func testASlideOutlivesTheRenderAWriteCauses() {
         Accessibility.reduceMotion = { false }
-        defer { Accessibility.reduceMotion = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion } }
+        defer { Accessibility.reset() }
         let controller = SettingsController.preview(0)
         controller.rerender()
         let toggle = controller.switchView(for: "app.auto-update")!

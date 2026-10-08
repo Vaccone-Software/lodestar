@@ -268,7 +268,46 @@ final class WindowModelOffMainTests: XCTestCase {
         XCTAssertEqual(created, 1)
         XCTAssertEqual(reader.lock.withLock { reader.reads }, 1, "one reading for both notices")
     }
+
+    /// Zoom rebuilds its accessibility tree mid-meeting: the meeting window
+    /// keeps its id while the element the model holds dies and is buried.
+    /// A fresh element for that id takes the record over, alive, keeping
+    /// when it was last focused; it was once ignored until pruneDead,
+    /// seven minutes later.
+    func testAFreshElementForABuriedWindowRevivesIt() {
+        let reader = ScriptedReader()
+        let me = appPid
+        reader.ids[900_030] = 50
+        reader.ids[900_031] = 50                       // the same window, a new element
+        reader.titles[900_031] = "Zoom Meeting"
+        let model = model(reader)
+        model.frontmostPid = { me }
+        var destroyed: [CGWindowID] = []
+        model.onDestroyed = { destroyed.append($0) }
+        model.receiveForTesting(kAXFocusedWindowChangedNotification, element: window(30), pid: me)
+        pump { model.focusedID == 50 }
+        let focusedAt = model.window(50)?.lastFocused
+        XCTAssertNotNil(focusedAt)
+
+        model.receiveForTesting(kAXUIElementDestroyedNotification, element: window(30), pid: me)
+        XCTAssertEqual(model.window(50)?.isAlive, false, "the dead handle buries the record")
+        XCTAssertEqual(destroyed, [50])
+
+        model.receiveForTesting(kAXFocusedWindowChangedNotification, element: window(31), pid: me)
+        pump { model.window(50)?.isAlive == true }
+        XCTAssertEqual(model.window(50)?.isAlive, true, "revived, not ignored")
+        XCTAssertEqual(model.window(50)?.title, "Zoom Meeting")
+        var pid: pid_t = 0
+        if let element = model.window(50)?.element { AXUIElementGetPid(element, &pid) }
+        XCTAssertEqual(pid, 900_031, "the fresh element is the one held")
+        XCTAssertNotNil(model.window(50)?.lastFocused, "its history kept")
+        XCTAssertEqual(model.focusedID, 50, "and focused again")
+        // The old element's death, heard late, does not bury the revived window.
+        model.receiveForTesting(kAXUIElementDestroyedNotification, element: window(30), pid: me)
+        XCTAssertEqual(model.window(50)?.isAlive, true)
+    }
 }
+
 
 /// Against the apps really running, on by environment: the launch scan
 /// no longer holds main, and the windows still arrive.

@@ -78,6 +78,33 @@ enum StripPreview {
             // flipping the machine.
             StageView.light = ground == "light"
             app.appearance = NSAppearance(named: StageView.light ? .aqua : .darkAqua)
+            // `LODESTAR_FLIP=1`: start in this look and turn to the other
+            // three seconds in, the way the Mac turns at sunrise, to see
+            // what a standing surface does when the look changes under it.
+            if ProcessInfo.processInfo.environment["LODESTAR_FLIP"] != nil {
+                let to: NSAppearance.Name = StageView.light ? .darkAqua : .aqua
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                    app.appearance = NSAppearance(named: to)
+                    StageView.light = to == .aqua
+                    Glass.followSystemAppearance()
+                    for window in app.windows { window.contentView?.needsDisplay = true }
+                    if ProcessInfo.processInfo.environment["LODESTAR_FLIP"] == "trace" {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                            func walk(_ view: NSView, _ depth: Int) {
+                                if view is ToneView {
+                                    let c = view.layer?.backgroundColor?.components ?? []
+                                    FileHandle.standardError.write("tone \(view.effectiveAppearance.name.rawValue) \(c)\n".data(using: .utf8)!)
+                                }
+                                for sub in view.subviews { walk(sub, depth + 1) }
+                            }
+                            for window in app.windows {
+                                FileHandle.standardError.write("window \(type(of: window)) \(window.effectiveAppearance.name.rawValue)\n".data(using: .utf8)!)
+                                if let content = window.contentView { walk(content, 0) }
+                            }
+                        }
+                    }
+                }
+            }
             // `LODESTAR_GROUND=light|dark` stages the other ground under
             // this appearance. Glass composites what is behind it, so a
             // veil's weight only shows over a ground that disagrees with it.

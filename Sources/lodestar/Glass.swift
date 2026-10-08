@@ -19,10 +19,15 @@ extension Glass {
     /// it is drawn in. `NSColor.cgColor` resolves a dynamic colour in the
     /// appearance current at the call, which off a draw pass is not the
     /// view's: a light surface drew dark mode's colours.
-    static func resolved(_ color: NSColor, in view: NSView? = nil) -> CGColor {
-        var resolved = color.cgColor
+    ///
+    /// The colour is an expression, evaluated inside the view's appearance:
+    /// `labelColor.withAlphaComponent(…)` is not dynamic but fixed the moment
+    /// it is made, in whatever look is current then, so it has to be made in
+    /// the right one.
+    static func resolved(_ color: @autoclosure () -> NSColor, in view: NSView? = nil) -> CGColor {
+        var resolved = CGColor(gray: 0, alpha: 0)
         (view?.effectiveAppearance ?? NSApp.effectiveAppearance).performAsCurrentDrawingAppearance {
-            resolved = color.cgColor
+            resolved = color().cgColor
         }
         return resolved
     }
@@ -55,17 +60,31 @@ enum TonedPicture {
     }
 }
 
+/// A root view that says when the look changes, for a surface that bakes
+/// its colours into what it renders and so must render again.
+final class AppearanceRoot: NSView {
+    var onAppearance: (() -> Void)?
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        DispatchQueue.main.async { [weak self] in self?.onAppearance?() }
+    }
+}
+
 /// A plain surface whose fill and edge follow the appearance: a card, a
 /// rule, a dot, a caret. A layer's colour is a fixed value, so one set
 /// once keeps the look it was set in; this repaints whenever the view's
 /// appearance changes, so light and dark are always the ones on screen.
 final class ToneView: NSView {
-    var fill: NSColor? { didSet { repaint() } }
-    var edge: NSColor? { didSet { repaint() } }
+    /// Expressions, made again in the view's look at every paint: a colour
+    /// with an alpha applied is fixed when made, so it cannot be stored.
+    var fill: (() -> NSColor)? { didSet { repaint() } }
+    var edge: (() -> NSColor)? { didSet { repaint() } }
 
-    init(fill: NSColor? = nil, edge: NSColor? = nil, edgeWidth: CGFloat = 0, radius: CGFloat = 0) {
-        self.fill = fill
-        self.edge = edge
+    init(fill: @autoclosure @escaping () -> NSColor? = nil, edge: @autoclosure @escaping () -> NSColor? = nil,
+         edgeWidth: CGFloat = 0, radius: CGFloat = 0) {
+        self.fill = fill() == nil ? nil : { fill()! }
+        self.edge = edge() == nil ? nil : { edge()! }
         super.init(frame: .zero)
         wantsLayer = true
         layer?.borderWidth = edgeWidth
@@ -75,19 +94,35 @@ final class ToneView: NSView {
 
     required init?(coder: NSCoder) { nil }
 
+    // Painted in the layer pass, which AppKit runs with the view's own
+    // appearance in force whenever the view is marked for display, and
+    // marked whenever the look changes. Painting from the change callback
+    // alone left a view that draws nothing else in the look it was born in.
+    override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        paint()
+    }
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        repaint()
+        paint()
+        needsDisplay = true
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        repaint()
+        paint()
     }
 
     private func repaint() {
-        layer?.backgroundColor = fill.map { Glass.resolved($0, in: self) }
-        layer?.borderColor = edge.map { Glass.resolved($0, in: self) }
+        paint()
+        needsDisplay = true
+    }
+
+    private func paint() {
+        layer?.backgroundColor = fill.map { make in Glass.resolved(make(), in: self) }
+        layer?.borderColor = edge.map { make in Glass.resolved(make(), in: self) }
     }
 }
 
@@ -257,12 +292,27 @@ enum Glass {
             glass.weight = weight
             backdrop = glass
         } else {
+            // Before Liquid Glass: the system's own adaptive frost, and over
+            // it the ground the glass above lands on, so a panel is clay by
+            // day and night by night on every system Lodestar runs on. The
+            // HUD material alone carried no ground of its own, so light
+            // mode's ink sat on whatever tone the HUD chose.
             let effect = NSVisualEffectView()
-            effect.material = .hudWindow
+            effect.material = .popover
+            effect.blendingMode = .behindWindow
             effect.state = .active
             effect.wantsLayer = true
             effect.layer?.cornerRadius = cornerRadius
             effect.layer?.masksToBounds = true
+            let veil = ToneView(fill: BarTheme.dynamicGround(alpha: weight.veil), radius: cornerRadius)
+            veil.translatesAutoresizingMaskIntoConstraints = false
+            effect.addSubview(veil)
+            NSLayoutConstraint.activate([
+                veil.topAnchor.constraint(equalTo: effect.topAnchor),
+                veil.bottomAnchor.constraint(equalTo: effect.bottomAnchor),
+                veil.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
+                veil.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
+            ])
             backdrop = effect
         }
         backdrop.translatesAutoresizingMaskIntoConstraints = false
@@ -547,6 +597,15 @@ enum BarTheme {
     /// The palette in force: the night in dark mode, clay in light.
     static var palette: Palette.Steps {
         Tone.systemDark ? Palette.night : Palette.clay
+    }
+
+    /// The pane as a colour that knows both looks, for a layer that must
+    /// change with the look while it stands (`ToneView` resolves it).
+    static func dynamicGround(alpha: CGFloat = 1) -> NSColor {
+        NSColor(name: nil) { appearance in
+            let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            return (dark ? Palette.night : Palette.clay).pane.color.withAlphaComponent(alpha)
+        }
     }
 
     /// The panels' ground, for anything that must be judged against it:
@@ -1867,12 +1926,9 @@ enum KeyMark {
         label.sizeToFit()
         let height = key.frame.height + pad * 2
         let width = ceil(pad + key.frame.width + 6 + label.frame.width + 8)
-        let tag = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
-        tag.wantsLayer = true
-        tag.layer?.cornerRadius = radius
-        tag.layer?.backgroundColor = BarTheme.ground.cgColor
-        tag.layer?.borderWidth = 0.5
-        tag.layer?.borderColor = Glass.resolved(NSColor.labelColor.withAlphaComponent(0.12), in: tag)
+        let tag = ToneView(fill: BarTheme.dynamicGround(), edge: NSColor.labelColor.withAlphaComponent(0.12),
+                           edgeWidth: 0.5, radius: radius)
+        tag.frame = NSRect(x: 0, y: 0, width: width, height: height)
         key.frame.origin = NSPoint(x: pad, y: pad)
         tag.addSubview(key)
         label.frame.origin = NSPoint(x: key.frame.maxX + 6, y: ((height - label.frame.height) / 2).rounded())

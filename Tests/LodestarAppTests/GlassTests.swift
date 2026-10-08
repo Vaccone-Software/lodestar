@@ -541,6 +541,26 @@ final class ToneFollowsAppearanceTests: XCTestCase {
         XCTAssertGreaterThan(dark.first ?? 0, 0.5, "light ink on the dark look")
     }
 
+    /// The bug that hid the draft's cursor: a colour with an alpha applied
+    /// is fixed when it is made, so a surface that stored one kept the look
+    /// it was made in. Made again at each paint, it follows.
+    func testAColourWithAnAlphaFollowsTheLookToo() throws {
+        let app = NSApplication.shared
+        let before = app.appearance
+        defer { app.appearance = before }
+        app.appearance = NSAppearance(named: .darkAqua)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 40, height: 40), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        let view = ToneView(fill: NSColor.labelColor.withAlphaComponent(0.5))
+        window.contentView = view
+        let night = try XCTUnwrap(view.layer?.backgroundColor).components ?? []
+        app.appearance = NSAppearance(named: .aqua)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        let day = try XCTUnwrap(view.layer?.backgroundColor).components ?? []
+        XCTAssertGreaterThan(night.first ?? 0, 0.5, "paper ink by night")
+        XCTAssertLessThan(day.first ?? 1, 0.5, "dark ink by day, though made at night")
+    }
+
     func testResolvedTakesTheViewsAppearanceNotTheCurrentOne() {
         let view = NSView()
         view.appearance = NSAppearance(named: .aqua)

@@ -203,7 +203,7 @@ final class VoiceLight: NSView {
 /// the microphone, which toggles, and the input, which is a menu.
 final class DraftPanel {
     let panel: NSPanel
-    private let root = NSView()
+    private let root = AppearanceRoot()
     private let gate: PointerGate
     /// Where the glass is going: the surface's frame as last laid out,
     /// which a quick fold reaches a tenth of a second later.
@@ -509,6 +509,14 @@ final class DraftPanel {
     private var lastView: DraftView?
 
     func show(_ view: DraftView) {
+        if root.onAppearance == nil {
+            // The draft bakes its colours into its text and layers at each
+            // render, so a change of look renders it again in the new one.
+            root.onAppearance = { [weak self] in
+                guard let self, self.panel.isVisible, let last = self.lastView else { return }
+                self.show(last)
+            }
+        }
         let opening = lastView == nil
         let wasExpanded = expanded
         lastView = view

@@ -1150,7 +1150,7 @@ final class SelectController {
             settleCopy(attempt, token: token, began: began)
             return
         }
-        let before = NSPasteboard.general.changeCount
+        let before = SystemEvents.pasteboard.changeCount
         // ⌘C once the app has taken the mouse-up, then a short watch for
         // the pasteboard to move.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.09) { [weak self] in
@@ -1172,7 +1172,7 @@ final class SelectController {
 
     private func awaitAppCopy(_ attempt: VerifiedCopy, token: Int, before: Int, polls: Int, began: Date) {
         guard copyGeneration == token else { return }
-        let board = NSPasteboard.general
+        let board = SystemEvents.pasteboard
         if board.changeCount != before {
             attempt.appText = board.string(forType: .string)
             attempt.appDone = true
@@ -1229,7 +1229,7 @@ final class SelectController {
         attempt.settled = true
         let final = attempt.reread ?? attempt.pixel
         if final != attempt.pixel
-            || NSPasteboard.general.string(forType: .string) != SelectCore.trimmedForCopy(final) {
+            || SystemEvents.pasteboard.string(forType: .string) != SelectCore.trimmedForCopy(final) {
             serve(final)
         }
         Log.info("select", ["copy": attempt.reread == nil ? "pixel" : "reread",
@@ -1301,7 +1301,7 @@ final class SelectController {
                                       keyDown: down) else { continue }
             event.flags = .maskCommand
             event.setIntegerValueField(.eventSourceUserData, value: ownMark)
-            event.post(tap: .cghidEventTap)
+            SystemEvents.post(event, tap: .cghidEventTap)
         }
     }
 
@@ -1309,8 +1309,8 @@ final class SelectController {
     /// one place a copy is trimmed: no space, tab or line break at its
     /// ends (`SelectCore.trimmedForCopy`).
     private func serve(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(SelectCore.trimmedForCopy(text), forType: .string)
+        SystemEvents.pasteboard.clearContents()
+        SystemEvents.pasteboard.setString(SelectCore.trimmedForCopy(text), forType: .string)
     }
 
     /// ⌘C with a start anchored and no far end yet: take that word and end

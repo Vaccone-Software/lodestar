@@ -9,7 +9,9 @@ import Foundation
 /// layouts, a log carrying window titles, and clipboard history most of all
 /// — lives somewhere a `git add .` will never reach.
 public enum Paths {
-    private static let home = FileManager.default.homeDirectoryForCurrentUser
+    /// A test run resolves every path into a home of its own, so no test
+    /// can reach a person's config or history, whatever it forgets to pass.
+    private static let home = TestRun.active ? TestRun.home : FileManager.default.homeDirectoryForCurrentUser
 
     /// What you write: the config file and the schema it points at.
     public static let config = home.appendingPathComponent(".config/lodestar", isDirectory: true)

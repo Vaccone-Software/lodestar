@@ -1074,7 +1074,7 @@ final class HotkeyEngine {
                 bringQuery += text
                 renderBring()
             case .bringPaste:
-                let pasted = Clipboard.pastedQuery(NSPasteboard.general.string(forType: .string) ?? "")
+                let pasted = Clipboard.pastedQuery(SystemEvents.pasteboard.string(forType: .string) ?? "")
                 guard !pasted.isEmpty else { break }
                 bringQuery += pasted
                 renderBring()
@@ -1175,14 +1175,14 @@ final class HotkeyEngine {
                 // line, joins the query the way it joins any input.
                 noteStripKey()
                 let pasted = Clipboard.pastedQuery(
-                    NSPasteboard.general.string(forType: .string) ?? "")
+                    SystemEvents.pasteboard.string(forType: .string) ?? "")
                 guard !pasted.isEmpty else { break }
                 stripSession?.typed += pasted.count
                 pasteQuery = (pasteQuery ?? "") + pasted
                 pasteSelection = 0
                 renderStrip()
             case .selectPaste:
-                select.paste(NSPasteboard.general.string(forType: .string) ?? "")
+                select.paste(SystemEvents.pasteboard.string(forType: .string) ?? "")
             case .pasteSearchDelete(let scope):
                 noteStripKey()
                 let query = pasteQuery ?? ""
@@ -1273,7 +1273,7 @@ final class HotkeyEngine {
             case .pasteNamePaste:
                 noteStripKey()
                 guard var current = naming else { break }
-                let pasted = Clipboard.pastedQuery(NSPasteboard.general.string(forType: .string) ?? "")
+                let pasted = Clipboard.pastedQuery(SystemEvents.pasteboard.string(forType: .string) ?? "")
                 guard !pasted.isEmpty else { break }
                 current.text = current.selected ? pasted : current.text + pasted
                 current.selected = false
@@ -1315,7 +1315,7 @@ final class HotkeyEngine {
             case .pasteSavePaste:
                 noteStripKey()
                 let pasted = Clipboard.pastedQuery(
-                    NSPasteboard.general.string(forType: .string) ?? "")
+                    SystemEvents.pasteboard.string(forType: .string) ?? "")
                 guard !pasted.isEmpty else { break }
                 stripSession?.typed += pasted.count
                 saveName += pasted

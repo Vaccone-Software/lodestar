@@ -247,7 +247,7 @@ enum Pointer {
                 || step.type == .rightMouseDown || step.type == .rightMouseUp {
                 event.setIntegerValueField(.mouseEventClickState, value: 1)
             }
-            event.post(tap: .cghidEventTap)
+            SystemEvents.post(event, tap: .cghidEventTap)
             // The walk must land before the press. Posted back to back, the
             // press reached apps before the cursor had moved, so it landed
             // where the pointer last rested and the release at the target:

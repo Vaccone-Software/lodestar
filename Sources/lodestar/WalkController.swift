@@ -399,7 +399,7 @@ final class WalkController: NSObject {
     /// The note an administrator needs, on the pasteboard: what Lodestar
     /// is, the one permission, and why.
     @objc private func copyNotePressed() {
-        let board = NSPasteboard.general
+        let board = SystemEvents.pasteboard
         board.clearContents()
         board.setString(Self.itNote, forType: .string)
         noteCopied = true

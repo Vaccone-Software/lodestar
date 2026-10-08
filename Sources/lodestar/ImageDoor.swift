@@ -175,7 +175,7 @@ final class ImageDoor {
         if front?.processIdentifier != ProcessInfo.processInfo.processIdentifier {
             returnsFocusTo = front
         }
-        NSApp.activate(ignoringOtherApps: true)
+        SystemEvents.activateLodestar()
         panel.makeKeyAndOrderFront(nil)
         CATransaction.commit()
         NSAnimationContext.endGrouping()
@@ -186,7 +186,7 @@ final class ImageDoor {
         stopWatching()
         panel.orderOut(nil)
         if let back = returnsFocusTo, !back.isTerminated {
-            back.activate()
+            SystemEvents.activate(back)
         }
         returnsFocusTo = nil
         imageView.image = nil

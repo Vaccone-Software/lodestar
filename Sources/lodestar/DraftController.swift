@@ -388,14 +388,14 @@ final class DraftController {
         self.clock = clock
         frontmost = Self.systemFrontmost
         writePasteboard = { text in
-            let board = NSPasteboard.general
+            let board = SystemEvents.pasteboard
             board.clearContents()
             board.setString(text, forType: .string)
         }
         postKey = Self.post
         readField = Self.readFieldAX
         selectAll = Self.selectAllAX
-        readPasteboard = { NSPasteboard.general.string(forType: .string) }
+        readPasteboard = { SystemEvents.pasteboard.string(forType: .string) }
         enumerateInputs = { done in
             Self.inputQueue.async {
                 let names = AudioInput.inputDevices().map(\.name)
@@ -1852,8 +1852,8 @@ final class DraftController {
         up?.flags = flags
         // A beat for the pasteboard to settle: some apps read it lazily.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
-            down?.post(tap: .cgSessionEventTap)
-            up?.post(tap: .cgSessionEventTap)
+            SystemEvents.post(down, tap: .cgSessionEventTap)
+            SystemEvents.post(up, tap: .cgSessionEventTap)
         }
     }
 

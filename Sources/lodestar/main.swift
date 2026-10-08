@@ -1763,7 +1763,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let policy = NSApp.activationPolicy()
         NSApp.setActivationPolicy(.regular)
         // Deployment target is 13; activate() is 14-only.
-        NSApp.activate(ignoringOtherApps: true)
+        SystemEvents.activateLodestar()
         NSWorkspace.shared.setDefaultApplication(
             at: Bundle.main.bundleURL, toOpenURLsWithScheme: "https"
         ) { [weak self] error in

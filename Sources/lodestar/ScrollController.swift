@@ -484,6 +484,6 @@ final class ScrollController {
                                   wheelCount: 2, wheel1: dy, wheel2: dx, wheel3: 0) else { return }
         // ⇧ is the speed here, and lode may still be down: neither is the wheel's.
         event.flags = event.flags.withoutModifiers
-        event.post(tap: .cghidEventTap)
+        SystemEvents.post(event, tap: .cghidEventTap)
     }
 }

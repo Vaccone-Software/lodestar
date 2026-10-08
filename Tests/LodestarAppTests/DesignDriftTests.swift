@@ -1,6 +1,7 @@
 import AppKit
 import XCTest
 @testable import lodestar
+import LodestarCore
 
 /// The design language never drifts: a radius, a type size or a symbol
 /// configuration reaches a surface only through the theme, the way the
@@ -10,21 +11,42 @@ final class DesignDriftTests: XCTestCase {
     /// The theme's homes: the values live here and nowhere else.
     private static let homes: Set<String> = ["Glass.swift", "ModePill.swift"]
 
-    private func surfaces() throws -> [URL] {
-        let sources = URL(fileURLWithPath: #filePath)
+    /// Every Swift file under a folder, subfolders included: a guard that
+    /// read only the top level would exempt any folder added later.
+    static func swiftFiles(under dir: URL) -> [URL] {
+        let files = (FileManager.default.enumerator(at: dir, includingPropertiesForKeys: nil)?
+            .compactMap { $0 as? URL } ?? [])
+            .filter { $0.pathExtension == "swift" }
+            .sorted { $0.path < $1.path }
+        XCTAssertGreaterThan(files.count, 20, "the sources under \(dir.lastPathComponent) were found")
+        return files
+    }
+
+    static var appSources: URL {
+        URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Sources/lodestar")
-        let files = try FileManager.default.contentsOfDirectory(at: sources, includingPropertiesForKeys: nil)
-            .filter { $0.pathExtension == "swift" && !Self.homes.contains($0.lastPathComponent) }
-        XCTAssertGreaterThan(files.count, 20, "the sources were found")
-        return files
+    }
+
+    /// The code without its comments, so a guard neither fails on prose
+    /// that names a pattern nor passes on code it should have read.
+    static func code(_ text: String) -> String {
+        var out = text.replacingOccurrences(of: #"/\*[\s\S]*?\*/"#, with: "", options: .regularExpression)
+        out = out.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces).hasPrefix("//") ? "" : String($0) }
+            .joined(separator: "\n")
+        return out
+    }
+
+    private func surfaces() throws -> [URL] {
+        Self.swiftFiles(under: Self.appSources).filter { !Self.homes.contains($0.lastPathComponent) }
     }
 
     private func offenders(_ pattern: String, in files: [URL]) throws -> [String] {
         let regex = try NSRegularExpression(pattern: pattern)
         var found: [String] = []
         for file in files {
-            let text = try String(contentsOf: file, encoding: .utf8)
+            let text = Self.code(try String(contentsOf: file, encoding: .utf8))
             let matches = regex.matches(in: text, range: NSRange(location: 0, length: (text as NSString).length))
             for match in matches {
                 let line = (text as NSString).substring(with: match.range)
@@ -45,11 +67,7 @@ final class DesignDriftTests: XCTestCase {
     /// Lodestar started at night went on painting night's colours on
     /// clay. `Glass.resolved(_:in:)` and `ToneView` are the two ways.
     func testNoDynamicColourIsFixedOutsideItsAppearance() throws {
-        let files = try FileManager.default.contentsOfDirectory(
-            at: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-                .deletingLastPathComponent().appendingPathComponent("Sources/lodestar"),
-            includingPropertiesForKeys: nil)
-            .filter { $0.pathExtension == "swift" && !$0.lastPathComponent.contains("Preview") }
+        let files = Self.swiftFiles(under: Self.appSources).filter { !$0.lastPathComponent.contains("Preview") }
         let hits = try offenders(
             #"(labelColor|secondaryColor|readableAccent|secondaryLabelColor|tertiaryLabelColor|separatorColor|controlAccentColor|textColor)[^\n]*\.cgColor"#,
             in: files)
@@ -140,12 +158,8 @@ final class DesignDriftTests: XCTestCase {
 
     /// Every Swift file in the app, named, with its text.
     private func sources() throws -> [(name: String, text: String)] {
-        let dir = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/lodestar")
-        return try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
-            .filter { $0.pathExtension == "swift" }
-            .map { ($0.lastPathComponent, try String(contentsOf: $0, encoding: .utf8)) }
+        try Self.swiftFiles(under: Self.appSources)
+            .map { ($0.lastPathComponent, Self.code(try String(contentsOf: $0, encoding: .utf8))) }
     }
 
     /// The surfaces that still wear the system's shadow. The list only
@@ -304,6 +318,29 @@ final class DesignDriftTests: XCTestCase {
             .filter { $0.pathExtension == "swift" && $0.lastPathComponent != "DesignDriftTests.swift" }
         let hits = try offenders(#"NSPasteboard\.general\.(setString|clearContents|writeObjects|setData)"#, in: files)
         XCTAssertEqual(hits, [], "use a named pasteboard of the test's own")
+    }
+
+    /// Nothing leaves the process but through `SystemEvents`: an event
+    /// posted to the system or an app, the general pasteboard, focus taken
+    /// or given. Under a test run that one file is inert, so a test that
+    /// forgets its stand-in cannot type, click or copy into the person's
+    /// work, and the suite cannot take their focus.
+    func testEverythingThatLeavesTheProcessGoesThroughSystemEvents() throws {
+        let files = Self.swiftFiles(under: Self.appSources).filter { $0.lastPathComponent != "SystemEvents.swift" }
+        let hits = try offenders(
+            #"\.post\(tap:|\.postToPid\(|NSPasteboard\.general|NSApp\.activate\(|\.activate\(options:|[a-z]\.activate\(\)"#,
+            in: files)
+        XCTAssertEqual(hits, [], "post, paste and activate through SystemEvents")
+    }
+
+    func testATestRunHoldsTheSystemBack() {
+        XCTAssertTrue(TestRun.active)
+        XCTAssertNotEqual(SystemEvents.pasteboard.name, NSPasteboard.general.name)
+        XCTAssertFalse(Paths.data.path.hasPrefix(FileManager.default.homeDirectoryForCurrentUser.path),
+                       "a test run keeps its data in a home of its own")
+        let before = SystemEvents.heldBack
+        SystemEvents.post(CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true), tap: .cghidEventTap)
+        XCTAssertEqual(SystemEvents.heldBack, before + 1)
     }
 
     /// A room's actions are its keys, and its controls are Lodestar's: no

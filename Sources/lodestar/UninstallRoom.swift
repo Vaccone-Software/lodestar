@@ -50,7 +50,7 @@ final class UninstallRoom: NSObject {
     func show() {
         everything.state = .off
         render()
-        NSApp.activate(ignoringOtherApps: true)
+        SystemEvents.activateLodestar()
         panel.makeKeyAndOrderFront(nil)
     }
 

@@ -86,7 +86,7 @@ enum BringTyping {
                     event.keyboardSetUnicodeString(stringLength: units.count, unicodeString: units)
                     event.flags = []
                     event.setIntegerValueField(.eventSourceUserData, value: SelectController.ownMark)
-                    event.postToPid(pid)
+                    SystemEvents.post(event, toPid: pid)
                     usleep(4_000)
                 }
             }

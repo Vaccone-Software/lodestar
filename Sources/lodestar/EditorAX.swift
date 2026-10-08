@@ -49,7 +49,7 @@ struct AXFieldSource: EditorFieldSource {
             event.keyboardSetUnicodeString(stringLength: units.count, unicodeString: units)
             event.flags = event.flags.withoutModifiers
             event.setIntegerValueField(.eventSourceUserData, value: SelectController.ownMark)
-            event.postToPid(pid)
+            SystemEvents.post(event, toPid: pid)
             usleep(15_000)
         }
     }

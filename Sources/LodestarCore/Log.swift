@@ -44,11 +44,7 @@ public enum Log {
     /// Off under any test runner. `swift test` says so in the environment;
     /// `xcrun xctest` run directly (scripts/test.sh's shards) does not, so
     /// the loaded XCTest framework is asked too — the app never links it.
-    public static var fileEnabled: Bool = {
-        let env = ProcessInfo.processInfo.environment
-        return env["XCTestConfigurationFilePath"] == nil && env["SWIFT_TESTING_ENABLED"] == nil
-            && NSClassFromString("XCTestCase") == nil
-    }()
+    public static var fileEnabled: Bool = !TestRun.active
 
     public static func info(_ event: String, _ fields: KeyValuePairs<String, Any> = [:]) {
         write("INFO", event, fields)

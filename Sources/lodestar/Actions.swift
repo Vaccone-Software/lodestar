@@ -1036,11 +1036,7 @@ final class Actions {
             ax?.raise()
             DispatchQueue.main.async {
                 guard let app = NSRunningApplication(processIdentifier: window.pid) else { return }
-                if #available(macOS 14.0, *) {
-                    app.activate()
-                } else {
-                    app.activate(options: [.activateIgnoringOtherApps])
-                }
+                SystemEvents.activate(app)
             }
         }
     }

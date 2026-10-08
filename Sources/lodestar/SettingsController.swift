@@ -179,7 +179,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             // A click moves on from a landing, as a key does.
             self.clearLanding()
             guard !self.panel.isKeyWindow else { return event }
-            NSApp.activate(ignoringOtherApps: true)
+            SystemEvents.activateLodestar()
             self.panel.makeKeyAndOrderFront(nil)
             return event
         }
@@ -216,7 +216,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         panel.setFrame(NSRect(x: visible.midX - Self.width / 2,
                               y: visible.midY - Self.height / 2 + 20,
                               width: Self.width, height: Self.height), display: true)
-        NSApp.activate(ignoringOtherApps: true)
+        SystemEvents.activateLodestar()
         watchClicks()
         panel.makeKeyAndOrderFront(nil)
         // AppKit hands focus to the first field in the key loop, which

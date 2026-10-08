@@ -21,7 +21,7 @@ final class ClipboardController {
     /// word is exactly the kind of silence that makes a tool untrustworthy.
     var bootWarning: String? { store.bootWarning }
     private var poll: Timer?
-    private var lastChangeCount = NSPasteboard.general.changeCount
+    private var lastChangeCount = SystemEvents.pasteboard.changeCount
     private var clearPollTick = 0
     /// Our own writes must not read back as new copies, or pasting would
     /// silently reorder the list it is supposed to leave alone.
@@ -86,7 +86,7 @@ final class ClipboardController {
         // declines it. The price is one absent card after a restart; the
         // alternative recorded from excluded apps whenever a restart
         // followed the copy.
-        lastChangeCount = NSPasteboard.general.changeCount
+        lastChangeCount = SystemEvents.pasteboard.changeCount
         poll = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { [weak self] _ in
             self?.capture()
         }
@@ -135,7 +135,7 @@ final class ClipboardController {
                 flash("⌂ clipboard history cleared")
             }
         }
-        let board = NSPasteboard.general
+        let board = SystemEvents.pasteboard
         let count = board.changeCount
         guard count != lastChangeCount else { return }
         lastChangeCount = count
@@ -445,8 +445,8 @@ final class ClipboardController {
         // A beat for the pasteboard to settle: some apps read it lazily, and
         // a paste that lands first inserts the previous clip.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
-            down?.post(tap: .cgSessionEventTap)
-            up?.post(tap: .cgSessionEventTap)
+            SystemEvents.post(down, tap: .cgSessionEventTap)
+            SystemEvents.post(up, tap: .cgSessionEventTap)
         }
     }
 

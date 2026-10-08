@@ -502,6 +502,16 @@ final class Stage {
         return verdict == nil
     }
 
+    /// macOS switches the tap off (it took too long, or the person's input
+    /// interrupted it) and tells the callback so. Events that fell while it
+    /// was off never arrive, so the held lode is forgotten here too.
+    func tapDisabled(byTimeout: Bool = true) {
+        guard let event = CGEvent(source: nil) else { return }
+        event.type = byTimeout ? .tapDisabledByTimeout : .tapDisabledByUserInput
+        lodeHeld = false
+        send(event)
+    }
+
     /// The lode key goes down (or, held already, shift joins it).
     func hold(shift: Bool = false, posted: Bool = false) {
         lodeHeld = true

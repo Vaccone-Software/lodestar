@@ -118,6 +118,12 @@ public struct ObservationEvent: Codable, Equatable {
         /// `era` carries all of it, so a change in the data can be told
         /// from a change in the hand without reading a log.
         case era
+        /// The instrument could not see: `blind` carries the kind (secure
+        /// input, the tap off, no accessibility, health off, not running,
+        /// asleep) and the end, `t` the start. The kind and the edges and
+        /// nothing else; never which app held secure input. An analysis
+        /// excludes these spans instead of reading them as rest.
+        case blind
         /// A window joined a layout beside others by the hand — a shift
         /// summon, a chord letter, a beside move: `app` the arrival,
         /// `apps` the members it joined. Never a breath restore, which
@@ -134,7 +140,7 @@ public struct ObservationEvent: Codable, Equatable {
 
     /// The kinds that are the health record: what leaves a retired
     /// shard for the health archive instead of dying with it.
-    public static let healthKinds: Set<Kind> = [.pulse, .window, .era, .clicks]
+    public static let healthKinds: Set<Kind> = [.pulse, .window, .era, .clicks, .blind]
 
     public var t: Date
     public var kind: Kind
@@ -272,6 +278,7 @@ public struct ObservationEvent: Codable, Equatable {
     public var lid: Bool?
     /// An era's description.
     public var era: EraInfo?
+    public var blind: BlindSpan?
 
     public init(t: Date, kind: Kind) {
         self.t = t

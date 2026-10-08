@@ -265,6 +265,36 @@ public struct HealthPulse: Equatable {
         return flushed
     }
 
+    /// The instrument stopped seeing at `start` (`BlindSpan`). The rhythm
+    /// clock goes: a gap measured across a span nobody could see is not a
+    /// typing gap, so it reaches neither the moments, nor the pause tail,
+    /// nor the histogram. Called at a span's start when it is known then,
+    /// and through `blindEnded` for one learned of afterwards.
+    public mutating func blindBegan() {
+        closeRun()
+        lastKeyAt = nil
+        lastScrollAt = nil
+    }
+
+    /// Seeing again after a span from `start` to `end`. Blind time is
+    /// never quiet time: a span shorter than the bout gap moves the bout
+    /// clock to its end, so the hands are not counted as resting through
+    /// it and the bout runs on; a span that reaches the bout gap ends the
+    /// bout, censored rather than rested, closing the window at the
+    /// span's start (the `blind` event says which it was). Returns the
+    /// closed window's pulse, if one closed.
+    public mutating func blindEnded(from start: Date, to end: Date) -> ObservationEvent? {
+        blindBegan()
+        if end.timeIntervalSince(start) >= Self.boutGap {
+            let pulse = closedWindow()
+            reset(windowStart: nil)
+            endBout()
+            return pulse
+        }
+        if let last = lastInputAt { lastInputAt = max(last, end) }
+        return nil
+    }
+
     /// Close the open window unconditionally — shutdown's path, and the
     /// switch being turned off. Either way the bout is over: whatever
     /// comes back later starts a new one.

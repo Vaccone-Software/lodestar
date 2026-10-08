@@ -83,6 +83,19 @@ final class HotkeyEngine {
     var onStampJitter: ((Double) -> Void)?
     /// The tap was disabled and re-enabled.
     var onTapReset: (() -> Void)?
+    /// The tap was off from (at the latest) the first date to the second,
+    /// learned when it came back: a notice from macOS, or the watchdog
+    /// finding it off. The start is a bound, the last moment the tap was
+    /// known to see (an event it handled, or the watchdog's last look).
+    var onTapOutage: ((Date, Date) -> Void)?
+    /// No tap at all, since (at the latest) the date: `untrusted` when
+    /// accessibility is gone, `tapOff` when the tap would not come back.
+    var onTapLost: ((BlindKind, Date) -> Void)?
+    /// The watchdog has a tap again.
+    var onTapRestored: ((Date) -> Void)?
+    /// The last moment the tap was known to see: an event it handled, or
+    /// the watchdog finding it on. Five seconds is the watchdog's grain.
+    private var tapSeenAt: Date?
 
     /// A press in flight, everything its release will need.
     private struct Press {
@@ -451,11 +464,15 @@ final class HotkeyEngine {
         if let tap {
             if CGEvent.tapIsEnabled(tap: tap) {
                 tapWasDead = false
+                tapSeenAt = clock.now()
                 return
             }
             CGEvent.tapEnable(tap: tap, enable: true)
             if CGEvent.tapIsEnabled(tap: tap) {
                 Log.error("hotkeys: tap had stopped — re-enabled")
+                let now = clock.now()
+                onTapOutage?(tapSeenAt ?? now, now)
+                tapSeenAt = now
                 // Keys were dropped while it was off, so anything in
                 // flight is waiting on a letter that never arrived — the
                 // same reason the tapDisabled branch resets.
@@ -475,23 +492,26 @@ final class HotkeyEngine {
         // which is exactly the case this watchdog exists for. Only the
         // announcement is rate-limited, never the retry.
         guard Permissions.isTrusted else {
-            announceDeadTap()
+            announceDeadTap(.untrusted)
             return
         }
         guard start() else {
-            announceDeadTap()
+            announceDeadTap(.tapOff)
             return
         }
         tapWasDead = false
+        tapSeenAt = clock.now()
+        onTapRestored?(clock.now())
         resetToIdle(reason: "tap rebuilt")
         Log.error("hotkeys: tap rebuilt after being lost")
         hud.flash("⌖ gestures restored", seconds: 3)
     }
 
     /// Said once per outage, not once every five seconds.
-    private func announceDeadTap() {
+    private func announceDeadTap(_ kind: BlindKind) {
         guard !tapWasDead else { return }
         tapWasDead = true
+        onTapLost?(kind, tapSeenAt ?? clock.now())
         Log.error("hotkeys: no event tap — gestures are inert until accessibility is granted")
         hud.flash("⚠ Lodestar lost its keyboard access, re-grant it in Privacy & Security", seconds: 10)
     }
@@ -597,11 +617,15 @@ final class HotkeyEngine {
             // was out.
             strand(all: true, now: clock.now())
             onTapReset?()
+            let now = clock.now()
+            onTapOutage?(tapSeenAt ?? now, now)
+            tapSeenAt = now
             guard let tap else { return Unmanaged.passUnretained(event) }
             CGEvent.tapEnable(tap: tap, enable: true)
             Log.info("hotkeys: tap re-enabled", ["alive": CGEvent.tapIsEnabled(tap: tap)])
             return Unmanaged.passUnretained(event)
         }
+        tapSeenAt = clock.now()
         // Past the disable notices, everything here is input. Who made it is
         // recorded before it is acted on, so the coach can ask later.
         lastEventSourceStateID = event.getIntegerValueField(.eventSourceStateID)

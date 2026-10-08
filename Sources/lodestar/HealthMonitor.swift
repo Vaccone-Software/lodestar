@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import CoreGraphics
+import Carbon.HIToolbox
 import IOKit.ps
 import LodestarCore
 
@@ -64,6 +65,11 @@ final class HealthMonitor {
     private var lidCached: Bool?
     private var lidAt = Date.distantPast
     private var pressureSamples = 0
+    /// The spans the instrument cannot see right now, and the last run's
+    /// stop or heartbeat, kept in `blind.json` so a span left open by a
+    /// quit or a crash is closed at the next start (`BlindLedger`).
+    private var ledger = BlindLedger()
+    private let ledgerFile: URL
 
     /// The raw records beneath every summary, and the era file, beside
     /// the directory the monitor is given — the real one in the app, a
@@ -92,6 +98,11 @@ final class HealthMonitor {
         pointerStore = PointerStore(directory: directory.appendingPathComponent(PointerStore.subdirectory, isDirectory: true),
                                     installID: Install.id(in: directory))
         eras = EraTracker(file: directory.appendingPathComponent("era.json"))
+        ledgerFile = directory.appendingPathComponent("blind.json")
+        if let data = try? Data(contentsOf: ledgerFile),
+           let stored = try? JSONDecoder().decode(BlindLedger.self, from: data) {
+            ledger = stored
+        }
     }
 
     // Main-thread state.
@@ -100,6 +111,18 @@ final class HealthMonitor {
     private var tapThread: Thread?
     private var flushTimer: Timer?
     private var pressureMonitor: Any?
+    private var secureTimer: Timer?
+    private var secureOn = false
+    private var secureSeenOffAt: Date?
+    private var sleepObservers: [NSObjectProtocol] = []
+    /// Whether secure event input is on. Replaced by the tests.
+    var secureInput: () -> Bool = { IsSecureEventInputEnabled() }
+    /// Secure input has no notification and while it is on no key reaches
+    /// the tap, so it is sampled: every two seconds, one call that reads a
+    /// flag. A span runs from the last sample that saw it off to the first
+    /// that sees it off again, so it covers the true span to within two
+    /// seconds at each end, erring wide.
+    static let secureInputInterval: TimeInterval = 2
 
     /// A click with its target's class resolved: the pid the element
     /// belongs to and its accessibility role. Nothing else about the
@@ -203,12 +226,14 @@ final class HealthMonitor {
                 startPressureMonitor()
             }
             startFlushTimer()
+            startSeeing()
             checkEra()
         } else {
             stopMouseTap()
             stopPressureMonitor()
             flushTimer?.invalidate()
             flushTimer = nil
+            stopSeeing(.healthOff)
             flush()
         }
     }
@@ -327,6 +352,117 @@ final class HealthMonitor {
             if let flushed = pulse.tapReset(at: now) { emitPulse(flushed) }
         }
     }
+
+    // MARK: - Blindness (entry points on main, work on the queue)
+
+    /// Main. Seeing begins: whatever the last run or the switch left behind
+    /// is written down (`BlindLedger.start`), then secure input is sampled
+    /// and sleep is listened for.
+    private func startSeeing() {
+        let now = Date()
+        queue.async { [self] in
+            for event in ledger.start(at: now) { recordBlindLocked(event) }
+            saveLedgerLocked()
+        }
+        secureOn = false
+        secureSeenOffAt = nil
+        sampleSecureInput()
+        let timer = Timer(timeInterval: Self.secureInputInterval, repeats: true) { [weak self] _ in
+            self?.sampleSecureInput()
+        }
+        timer.tolerance = 0.2
+        RunLoop.main.add(timer, forMode: .common)
+        secureTimer = timer
+        let center = NSWorkspace.shared.notificationCenter
+        sleepObservers = [
+            center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
+                self?.noteBlindBegan(.asleep)
+            },
+            center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+                self?.noteBlindEnded(.asleep)
+            },
+        ]
+    }
+
+    /// Main. Seeing stops, for a quit or the switch: the moment is noted
+    /// at once, on disk, and what it closes is written at the next start.
+    func stopSeeing(_ why: BlindKind) {
+        secureTimer?.invalidate()
+        secureTimer = nil
+        for observer in sleepObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
+        sleepObservers = []
+        let now = Date()
+        queue.sync {
+            ledger.stop(why, at: now)
+            saveLedgerLocked()
+        }
+    }
+
+    /// Main. The app is quitting: the time away begins now. With health
+    /// off the switch's own stop stands, so a quit never rewrites it.
+    func quitting() {
+        guard enabled else { return }
+        stopSeeing(.notRunning)
+    }
+
+    /// Main. One sample of secure input; the harness calls it directly.
+    func sampleSecureInput(now: Date = Date()) {
+        let on = secureInput()
+        if on, !secureOn {
+            noteBlindBegan(.secureInput, at: secureSeenOffAt ?? now, resolution: Self.secureInputInterval)
+        } else if !on, secureOn {
+            noteBlindEnded(.secureInput, at: now)
+        }
+        secureOn = on
+        if !on { secureSeenOffAt = now }
+    }
+
+    /// A span begins and is open until `noteBlindEnded`.
+    func noteBlindBegan(_ kind: BlindKind, at start: Date = Date(), startBound: Bool = false,
+                        resolution: Double? = nil) {
+        guard enabled else { return }
+        queue.async { [self] in
+            guard ledger.begin(kind, at: start, startBound: startBound, resolution: resolution) else { return }
+            pulse.blindBegan()
+            if let closed = window.close() { emitWindow(closed) }
+            saveLedgerLocked()
+        }
+    }
+
+    func noteBlindEnded(_ kind: BlindKind, at end: Date = Date()) {
+        guard enabled else { return }
+        queue.async { [self] in
+            guard let event = ledger.end(kind, at: end) else { return }
+            recordBlindLocked(event)
+            saveLedgerLocked()
+        }
+    }
+
+    /// A span learned of after it ended: the tap was off and is on again.
+    func noteBlind(_ kind: BlindKind, from start: Date, to end: Date, startBound: Bool = false) {
+        guard enabled else { return }
+        queue.async { [self] in
+            recordBlindLocked(BlindSpan.event(kind, from: start, to: end, startBound: startBound))
+        }
+    }
+
+    /// Queue. The pulse and the window learn the span, and it is sent.
+    private func recordBlindLocked(_ event: ObservationEvent) {
+        guard let span = event.blind else { return }
+        if let closed = window.close() { emitWindow(closed) }
+        if let flushed = pulse.blindEnded(from: event.t, to: span.end) { emitPulse(flushed) }
+        deliverAsync(event)
+    }
+
+    /// Queue.
+    private func saveLedgerLocked() {
+        guard let data = try? JSONEncoder().encode(ledger) else { return }
+        try? data.write(to: ledgerFile, options: .atomic)
+        Paths.restrict(ledgerFile)
+    }
+
+    /// Tests: the ledger as the queue holds it.
+    func ledgerForTesting() -> BlindLedger { queue.sync { ledger } }
 
     // MARK: - The mouse side (entry point on the tap thread, work on the queue)
 
@@ -575,6 +711,7 @@ final class HealthMonitor {
         case .pulse: observations?.healthPulse(event)
         case .clicks: observations?.clickPulse(event)
         case .window: observations?.healthWindow(event)
+        case .blind: observations?.blind(event)
         default: break
         }
     }
@@ -709,6 +846,8 @@ final class HealthMonitor {
             if let closed = window.closeIfStale(now: now) { emitWindow(closed) }
             keys.flush()
             pointerStore.flush()
+            ledger.heartbeat(at: now)
+            saveLedgerLocked()
         }
         checkEra()
         if enabled, listensToTheMouse, tap == nil, Permissions.isTrusted {

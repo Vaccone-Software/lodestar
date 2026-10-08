@@ -455,6 +455,13 @@ public final class ObservationStore {
         recordHealth(event)
     }
 
+    /// A span the instrument could not see. The pulse's gate: the record
+    /// of its own blindness travels with the health record it qualifies.
+    public func blind(_ event: ObservationEvent) {
+        guard event.kind == .blind else { return }
+        recordHealth(event)
+    }
+
     /// Off means no pulse is recorded; the accumulator upstream also stops
     /// feeding, but the store enforces its own gate so a straggler flush
     /// cannot land after the switch.

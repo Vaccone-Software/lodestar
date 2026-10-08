@@ -482,6 +482,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         engine.onStampJitter = { [weak self] seconds in self?.health.noteJitter(seconds) }
         engine.onTapReset = { [weak self] in self?.health.noteTapReset() }
+        // When the tap could not see: an outage learned of afterwards, and
+        // a tap lost until the watchdog has it back.
+        engine.onTapOutage = { [weak self] from, to in
+            self?.health.noteBlind(.tapOff, from: from, to: to, startBound: true)
+        }
+        engine.onTapLost = { [weak self] kind, since in
+            self?.health.noteBlindBegan(kind, at: since, startBound: true)
+        }
+        engine.onTapRestored = { [weak self] at in
+            self?.health.noteBlindEnded(.untrusted, at: at)
+            self?.health.noteBlindEnded(.tapOff, at: at)
+        }
         health.context = { [weak draft] in
             HealthMonitor.WindowContext(
                 app: NSWorkspace.shared.frontmostApplication?.localizedName,
@@ -803,6 +815,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // a state file that is already complete. The second save records
         // the emptied parking map when the restore does finish.
         store?.save()
+        health.quitting()
         health.flush()
         observationStore?.flush()
         clipboardController?.flushForQuit()

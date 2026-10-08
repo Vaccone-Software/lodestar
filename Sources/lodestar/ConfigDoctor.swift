@@ -779,6 +779,12 @@ func runObservations(clear: Bool, logbookOnly: Bool = false, healthOnly: Bool = 
             rhythm += String(format: "inter-key %.0fms", mean * 1000)
         }
         print(rhythm)
+        // When the instrument could not see, so a quiet stretch is read as
+        // rest only where it was: secure input, the tap off, no
+        // accessibility, health off, not running, asleep.
+        if let blind = BlindSummary.line(BlindSummary.rows(events: events, days: 28)) {
+            print(pad("  blind", 10) + blind)
+        }
         if let peak = health.hourMinutes.enumerated().max(by: { $0.element < $1.element }),
            peak.element > 0 {
             let late = health.hourMinutes[23] + health.hourMinutes[0]

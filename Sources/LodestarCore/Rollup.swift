@@ -373,6 +373,11 @@ public struct Rollup: Codable, Equatable {
         /// Every build that wrote into the month, from its era events —
         /// so a step in the data can be told from a step in the hand.
         public var versions: [String] = []
+        /// When the instrument could not see, by kind: spans and seconds,
+        /// each span counted in the month it began. The spans themselves
+        /// stay in the health log for an analysis to exclude.
+        public var blindSpans: [String: Int] = [:]
+        public var blindSeconds: [String: Double] = [:]
 
         public init(firstEvent: Date, lastEvent: Date) {
             self.firstEvent = firstEvent
@@ -428,6 +433,8 @@ public struct Rollup: Codable, Equatable {
             weeks = try container.decodeIfPresent([String: WeekHealth].self,
                                                   forKey: .weeks) ?? [:]
             versions = try container.decodeIfPresent([String].self, forKey: .versions) ?? []
+            blindSpans = try container.decodeIfPresent([String: Int].self, forKey: .blindSpans) ?? [:]
+            blindSeconds = try container.decodeIfPresent([String: Double].self, forKey: .blindSeconds) ?? [:]
         }
     }
 
@@ -786,6 +793,11 @@ public struct Rollup: Codable, Equatable {
             guard let surface = event.verb, let seconds = event.seconds, seconds > 0
             else { return }
             month.latency[surface, default: Stat()].add(log(seconds))
+
+        case .blind:
+            guard let span = event.blind else { return }
+            month.blindSpans[span.kind, default: 0] += 1
+            month.blindSeconds[span.kind, default: 0] += max(0, span.end.timeIntervalSince(event.t))
 
         case .era:
             guard let era = event.era, !month.versions.contains(era.appVersion) else { return }

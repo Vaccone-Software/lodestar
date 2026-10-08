@@ -7,6 +7,7 @@ import LodestarCore
 final class FakeIntent: @unchecked Sendable {
     private let lock = NSLock()
     private var _asked: [String] = []
+    private var _answered = 0
     var answer: (String) -> String
     var delay: Double
     init(delay: Double = 0, answer: @escaping (String) -> String) {
@@ -14,10 +15,14 @@ final class FakeIntent: @unchecked Sendable {
         self.delay = delay
     }
     var asked: [String] { lock.lock(); defer { lock.unlock() }; return _asked }
+    /// Answers returned, for a test that expects the answer to change nothing.
+    var answered: Int { lock.lock(); defer { lock.unlock() }; return _answered }
     func rewrite(_ text: String) async -> String? {
         lock.lock(); _asked.append(text); lock.unlock()
         if delay > 0 { try? await Task.sleep(nanoseconds: UInt64(delay * 1e9)) }
-        return answer(text)
+        let result = answer(text)
+        lock.lock(); _answered += 1; lock.unlock()
+        return result
     }
 }
 
@@ -64,7 +69,8 @@ final class IntentPassScenarioTests: XCTestCase {
         let stage = stage(intent)
         stage.lode(".")
         stage.speech.settle("Use the red one, actually no, the blue one.")
-        stage.pump(until: { intent.asked.count == 1 && false }, turns: 40)
+        stage.pump(until: { intent.answered == 1 })
+        stage.settle(turns: 20)
         XCTAssertEqual(intent.asked.count, 1)
         XCTAssertEqual(stage.draft.buffer.text, "Use the red one, actually no, the blue one.")
     }
@@ -74,7 +80,7 @@ final class IntentPassScenarioTests: XCTestCase {
         let stage = stage(intent)
         stage.lode(".")
         stage.speech.settle("Make the hint labels a little bigger.")
-        stage.pump(until: { false }, turns: 20)
+        stage.settle(turns: 20)
         XCTAssertEqual(intent.asked, [])
     }
 
@@ -83,7 +89,7 @@ final class IntentPassScenarioTests: XCTestCase {
         let stage = stage(intent)
         stage.lode(".")
         stage.speech.settle("Send it to Mahavir.")
-        stage.pump(until: { false }, turns: 10)
+        stage.settle(turns: 10)
         XCTAssertEqual(intent.asked, [], "nothing to act on yet")
         stage.speech.settle("Wait, I didn't mean him, send it to Ana.")
         stage.pump(until: { stage.draft.buffer.text == "Send it to Ana." })
@@ -110,7 +116,7 @@ final class IntentPassScenarioTests: XCTestCase {
         stage.press("escape")
         stage.press("x")
         let edited = stage.draft.buffer.text
-        stage.pump(until: { false }, turns: 150)
+        stage.settle(turns: 150)
         XCTAssertEqual(stage.draft.buffer.text, edited, "the hand's edit wins")
     }
 
@@ -127,15 +133,20 @@ final class IntentPassScenarioTests: XCTestCase {
         XCTAssertEqual(intent.asked, ["Rename it to draft controller dot swift."], "the ear's words, not the live ones")
     }
 
+    /// The model is still rewriting when ⏎ comes: what lands is the
+    /// rewrite, not the words as spoken. (This once spoke "scratch that",
+    /// which the draft's own rule settles without the model, and passed
+    /// on a wait that gave up quietly.)
     func testReturnWaitsForARewriteUnderWay() {
-        let intent = FakeIntent(delay: 0.1) { _ in "Archive the cache folder." }
+        let intent = FakeIntent(delay: 0.1) { _ in "Use the blue one." }
         let stage = stage(intent)
         stage.lode(".")
-        stage.speech.settle("Delete the cache folder. Scratch that. Archive the cache folder.")
+        stage.speech.settle("Use the red one, actually no, the blue one.")
         stage.pump(until: { !intent.asked.isEmpty })
+        XCTAssertEqual(intent.answered, 0, "still rewriting when the hand presses return")
         stage.press("return")
         stage.pump(until: { !stage.pasteboard.isEmpty })
-        XCTAssertEqual(stage.pasteboard.last, "Archive the cache folder.")
+        XCTAssertEqual(stage.pasteboard.last, "Use the blue one.")
     }
 
     func testAnUndoneRewriteIsNotOfferedAgain() {
@@ -147,7 +158,7 @@ final class IntentPassScenarioTests: XCTestCase {
         stage.press("escape")
         stage.press("u")
         stage.press("a", shift: true)
-        stage.pump(until: { false }, turns: 20)
+        stage.settle(turns: 20)
         XCTAssertEqual(intent.asked.count, 1)
         XCTAssertEqual(stage.draft.buffer.text, "Open the, the settings pane.")
     }
@@ -156,7 +167,7 @@ final class IntentPassScenarioTests: XCTestCase {
         let stage = Stage()
         stage.lode(".")
         stage.speech.settle("Use the red one, actually no, the blue one.")
-        stage.pump(until: { false }, turns: 20)
+        stage.settle(turns: 20)
         XCTAssertEqual(stage.draft.buffer.text, "Use the red one, actually no, the blue one.")
     }
 }

@@ -10,6 +10,9 @@ final class FakeEar: SettlingEar, @unchecked Sendable {
     var answers: [String]
     var delay: Double
     private(set) var heard: [Int] = []
+    /// Answers returned, so a test that expects nothing to change waits
+    /// for the answer it is refusing instead of for a while.
+    private(set) var answered = 0
     init(answer: String, delay: Double = 0) {
         self.answers = [answer]
         self.delay = delay
@@ -23,6 +26,7 @@ final class FakeEar: SettlingEar, @unchecked Sendable {
     func transcribe(_ samples: [Float], context: [String]) async throws -> Heard {
         heard.append(samples.count)
         if delay > 0 { try await Task.sleep(nanoseconds: UInt64(delay * 1e9)) }
+        defer { answered += 1 }
         return Heard(answers[min(heard.count, answers.count) - 1])
     }
 }
@@ -100,7 +104,8 @@ final class SettlingEarScenarioTests: XCTestCase {
         stage.draft.earContext = ["Lodestar", "Ghostty", "Xonar", "Kindora"]
         stage.lode(".")
         stage.speech.settle(timed("Okay.", 0, 1.5))
-        stage.pump(until: { ear.heard.count == 1 && false }, turns: 50)
+        stage.pump(until: { ear.answered == 1 })
+        stage.settle(turns: 20)
         XCTAssertEqual(stage.draft.buffer.text, "Okay.")
     }
 
@@ -111,7 +116,8 @@ final class SettlingEarScenarioTests: XCTestCase {
         stage.speech.settle(timed("Ship the bill tonight.", 0, 2))
         stage.press("escape")
         stage.press("x")
-        stage.pump(until: { ear.heard.count == 1 && false }, turns: 60)
+        stage.pump(until: { ear.answered == 1 })
+        stage.settle(turns: 20)
         XCTAssertFalse(stage.draft.buffer.text.contains("build"), "the hand's edit wins")
     }
 

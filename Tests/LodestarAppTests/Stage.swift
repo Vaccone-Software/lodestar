@@ -693,8 +693,32 @@ final class Stage {
     /// Spin the main run loop until `condition` holds or a bounded number
     /// of turns pass — for the real timers a surface owns (scroll's 120Hz
     /// glide) that no virtual clock drives.
-    func pump(until condition: () -> Bool, turns: Int = 200) {
-        for _ in 0..<turns where !condition() { Self.pump() }
+    /// Turn the main queue until `condition` holds. Running out of turns
+    /// fails the test: a wait that gave up quietly let an assertion that
+    /// something did *not* happen pass on work that had not run yet. A
+    /// wait for nothing in particular (letting the queue settle) asks for
+    /// it with `settle(turns:)`.
+    ///
+    /// The wait is at least `turns` turns and at least `within` seconds: a
+    /// loaded machine stretches the fakes' real delays, and since running
+    /// out now fails, a long bound costs nothing until something is wrong.
+    func pump(until condition: () -> Bool, turns: Int = 200, within seconds: TimeInterval = 5,
+              file: StaticString = #filePath, line: UInt = #line) {
+        let deadline = Date().addingTimeInterval(seconds)
+        var turned = 0
+        while !condition() {
+            if turned >= turns && Date() >= deadline {
+                XCTFail("still waiting after \(turned) turns and \(seconds) s of the main queue", file: file, line: line)
+                return
+            }
+            Self.pump()
+            turned += 1
+        }
+    }
+
+    /// Turn the main queue `turns` times, waiting for nothing in particular.
+    func settle(turns: Int) {
+        for _ in 0..<turns { Self.pump() }
     }
 
     /// `lode` + key as one gesture: down, letter, up.

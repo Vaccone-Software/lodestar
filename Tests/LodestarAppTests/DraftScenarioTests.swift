@@ -46,7 +46,7 @@ final class DraftScenarioTests: XCTestCase {
         cmd(stage, "t", shift: true)
         for key in ["u", "e", "s", "d", "a", "y"] { cmd(stage, key) }
         cmd(stage, "return")
-        stage.pump(until: { false }, turns: 100)
+        stage.settle(turns: 100)
         XCTAssertEqual(learned, [])
     }
 

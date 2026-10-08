@@ -39,7 +39,7 @@ final class ScrollScenarioTests: XCTestCase {
 
         stage.keyUp("j")
         stage.wheel = []
-        stage.pump(until: { false }, turns: 5)
+        stage.settle(turns: 5)
         XCTAssertTrue(stage.wheel.isEmpty, "the glide stops the instant the key lifts")
     }
 
@@ -221,7 +221,7 @@ final class ScrollScenarioTests: XCTestCase {
         stage.scroller.readNaturalScroll = { true }
         enterScroll(stage)
         stage.press("escape")
-        stage.pump(until: { false }, turns: 5)
+        stage.settle(turns: 5)
 
         let hung = DispatchSemaphore(value: 0)
         stage.scroller.readNaturalScroll = { _ = hung.wait(timeout: .now() + 5); return false }
@@ -236,7 +236,7 @@ final class ScrollScenarioTests: XCTestCase {
         stage.keyUp("j")
         stage.press("escape")
         hung.signal()
-        stage.pump(until: { false }, turns: 5)
+        stage.settle(turns: 5)
 
         stage.wheel = []
         enterScroll(stage)

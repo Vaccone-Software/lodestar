@@ -1744,6 +1744,7 @@ final class HotkeyEngine {
             ])]
         case .select where select.door == .editor:
             return [.init(header: "Editor", rows: [
+                GuideRow(key: "⏎", label: "Fix every mark · ⌫ then takes them all back"),
                 GuideRow(key: "a…z", label: "Fix the mark with this letter"),
                 GuideRow(key: "⇧A…Z", label: "Leave it as written"),
                 GuideRow(key: "⌥A…Z", label: "Learn the word"),

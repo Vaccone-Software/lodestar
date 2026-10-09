@@ -1722,6 +1722,7 @@ final class HotkeyEngine {
             ])]
         case .paste(let searching) where !searching:
             return [.init(header: "Keep", rows: [
+                GuideRow(key: "⏎", label: "Paste the lit card, the latest"),
                 GuideRow(key: "J…A", label: "Paste the card over that key · ⇧ as copied · ⌃ its reading"),
                 GuideRow(key: "1…4", label: "Paste the keepsake in that place"),
                 GuideRow(key: "⌘J…A", label: "The card's actions: keep, edit, delete, save"),

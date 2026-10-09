@@ -1080,6 +1080,9 @@ public struct EngineCore {
                 return [.exitHints]
             case .pending, .ignored:
                 return []
+            case .handBack:
+                state = .idle
+                return [.exitHints, .passThrough]
             }
         }
     }
@@ -1263,6 +1266,15 @@ public struct EngineCore {
                 if control { return [] }
                 return [.pasteSearchType(typed)]
             }
+        }
+
+        // ⏎ takes the lit card, the latest, exactly as its letter does and
+        // in whichever form its modifier says: ⏎ means yes to what is lit,
+        // here as in the launcher and in a search.
+        if key == "return", let first = Clipboard.recentLabels.first {
+            guard world.pasteCardExists(address: first) else { return [] }
+            return pastePress(key: first, held: false, shift: shift, command: command, option: option,
+                              control: control, searching: false, world: world)
         }
 
         // ⌘ addressing a card opens its actions; ⌘ anything else says the

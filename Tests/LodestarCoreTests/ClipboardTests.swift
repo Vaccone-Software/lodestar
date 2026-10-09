@@ -263,6 +263,24 @@ final class PasteModeTests: XCTestCase {
         XCTAssertEqual(press("f", shift: true), [.pasteRecent(label: "f", action: .native), .exitPaste])
     }
 
+    /// ⏎ is yes to the lit card, the latest: J's paste, J's forms.
+    func testReturnPastesTheLitCardInEveryForm() {
+        world.pasteCards.insert("j")
+        open()
+        XCTAssertEqual(press("return"), [.pasteRecent(label: "j", action: .plain), .exitPaste])
+        open()
+        XCTAssertEqual(press("return", shift: true), [.pasteRecent(label: "j", action: .native), .exitPaste])
+        open()
+        XCTAssertEqual(press("return", command: true),
+                       [.pasteRecent(label: "j", action: .panel), .pastePanelShow])
+    }
+
+    func testReturnWithNothingCopiedIsSwallowed() {
+        open()
+        XCTAssertEqual(press("return"), [], "no lit card, nothing to take")
+        XCTAssertEqual(core.state, .paste(searching: false))
+    }
+
     func testDigitsAddressPinsAndOnlyTheSlotsThatExist() {
         open()
         XCTAssertEqual(press("2"), [.pastePinned(slot: 2, action: .plain), .exitPaste])

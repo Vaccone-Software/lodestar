@@ -483,7 +483,7 @@ final class MeetingController: NSObject {
         // The perforation: where the stub tears from the ticket.
         let perforation = PerforationView()
         perforation.translatesAutoresizingMaskIntoConstraints = false
-        perforation.ink = stub.lit ? BarTheme.onAccent.withAlphaComponent(0.3) : NSColor.labelColor.withAlphaComponent(0.16)
+        perforation.ink = stub.lit ? BarTheme.onAccent.withAlphaComponent(0.3) : BarTheme.hairline
         content.addSubview(perforation)
 
         let title = NSTextField(labelWithString: occurrence.title)
@@ -768,7 +768,7 @@ extension MeetingController {
 /// The stub's tear line: short dashes down the seam, flat, one hairline
 /// wide, in whatever ink reads on the side it is drawn against.
 final class PerforationView: NSView {
-    var ink: NSColor = .labelColor.withAlphaComponent(0.16) { didSet { needsDisplay = true } }
+    var ink: NSColor = BarTheme.hairline { didSet { needsDisplay = true } }
 
     override func draw(_ dirtyRect: NSRect) {
         let path = NSBezierPath()

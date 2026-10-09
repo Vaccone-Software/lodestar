@@ -608,15 +608,16 @@ enum BarTheme {
     /// The strip's search field, the index badge, and the searcher's dot:
     /// sizes with one home each, so the drift guard can hold the line.
     static let stripInputFont = handFont(19)
-    /// The meeting's stub: its count in digits that hold their width while
-    /// they change, a word ("Now") a size down, and the unit in small caps.
-    static let stubCountFont = NSFont.monospacedDigitSystemFont(ofSize: 19, weight: .semibold)
-    static let stubWordFont = NSFont.systemFont(ofSize: 15, weight: .semibold)
+    /// The meeting's stub, on the scale like everything read: its count at
+    /// the title's size in digits that hold their width while they change,
+    /// a word ("Now") at the body's, and the unit in small caps at meta.
+    static let stubCountFont = NSFont.monospacedDigitSystemFont(ofSize: Scale.title, weight: .semibold)
+    static let stubWordFont = NSFont.systemFont(ofSize: Scale.body, weight: .semibold)
     static let stubUnitFont = NSFont.systemFont(ofSize: Scale.meta, weight: .semibold)
-    /// The meeting's name on its stub, in the voice a size under the body,
+    /// The meeting's name on its stub, in the voice at the body's size,
     /// and the line beneath it.
     static let stubTitleFont: NSFont = {
-        let size: CGFloat = 15
+        let size = Scale.body
         let descriptor = NSFont.systemFont(ofSize: size).fontDescriptor.withDesign(.serif)
         return descriptor.flatMap { NSFont(descriptor: $0, size: size) } ?? NSFont.systemFont(ofSize: size)
     }()
@@ -743,10 +744,15 @@ enum BarTheme {
     /// The key's top face catches the light; its front lip falls in shadow.
     static var keyTop: NSColor { NSColor.white.withAlphaComponent(Tone.systemDark ? 0.11 : 0.9) }
     static var keyLip: NSColor { NSColor.black.withAlphaComponent(Tone.systemDark ? 0.6 : 0.16) }
-    /// A quiet key's face: the shallow well it lies in. Not raised, so it
-    /// catches no light (no top edge, no lip), and its letter stays in the
-    /// second grey, readable.
-    static var keyWell: NSColor { NSColor.labelColor.withAlphaComponent(0.045) }
+    /// The neutral matter, two steps and no more. A well is what a field,
+    /// a note box, a choice, a group's card, a chip read rather than
+    /// pressed and a quiet key lie in; a hairline is an edge, a rule or a
+    /// rim. Anything grey that is not text is one of the two, and a thing
+    /// under the pointer takes the next step up, the hairline's weight,
+    /// rather than a weight of its own. Eight inline opacities, from 0.03
+    /// to 0.2, had made one material read as several near-misses.
+    static var well: NSColor { NSColor.labelColor.withAlphaComponent(0.05) }
+    static var hairline: NSColor { NSColor.labelColor.withAlphaComponent(0.12) }
     /// A lit key is a small piece of the mark: the accent, its top edge the
     /// mark's brightest face and its lip the darkest.
     static var litKeyTop: NSColor { accent.blended(withFraction: 0.4, of: .white) ?? accent }
@@ -1170,8 +1176,8 @@ final class RoomField: NSView {
 
     private func tint() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = Glass.resolved(NSColor.labelColor.withAlphaComponent(0.05), in: self)
-            layer?.borderColor = Glass.resolved(NSColor.labelColor.withAlphaComponent(0.12), in: self)
+            layer?.backgroundColor = Glass.resolved(BarTheme.well, in: self)
+            layer?.borderColor = Glass.resolved(BarTheme.hairline, in: self)
         }
     }
 }
@@ -1253,8 +1259,8 @@ final class RoomButton: NSButton {
                 layer?.borderColor = BarTheme.litKeyLip.cgColor
                 light.color = BarTheme.litKeyTop
             } else {
-                layer?.backgroundColor = Glass.resolved(NSColor.labelColor.withAlphaComponent(hovering ? 0.11 : 0.06), in: self)
-                layer?.borderColor = Glass.resolved(NSColor.labelColor.withAlphaComponent(0.12), in: self)
+                layer?.backgroundColor = Glass.resolved(hovering ? BarTheme.hairline : BarTheme.well, in: self)
+                layer?.borderColor = Glass.resolved(BarTheme.hairline, in: self)
                 light.color = nil
             }
         }
@@ -1456,7 +1462,7 @@ extension BarTheme {
             let dot = NSRect(x: rect.minX, y: rect.minY, width: diameter, height: diameter).insetBy(dx: 0.5, dy: 0.5)
             color.setFill()
             NSBezierPath(ovalIn: dot).fill()
-            NSColor.labelColor.withAlphaComponent(0.18).setStroke()
+            BarTheme.hairline.setStroke()
             let rim = NSBezierPath(ovalIn: dot)
             rim.lineWidth = 1
             rim.stroke()
@@ -1592,7 +1598,7 @@ final class KeyFace: NSView {
         let face = pointer == .resting ? resting
             : resting.blended(withFraction: pointer == .pressed ? 0.06 : (Tone.systemDark || lit ? 0.12 : 0.05), of: toward) ?? resting
         if quiet, !lit {
-            layer?.backgroundColor = Glass.resolved(BarTheme.keyWell, in: self)
+            layer?.backgroundColor = Glass.resolved(BarTheme.well, in: self)
             layer?.borderWidth = 0
             layer?.borderColor = nil
             layer?.shadowOpacity = 0
@@ -2065,7 +2071,7 @@ enum KeyMark {
         label.sizeToFit()
         let height = key.frame.height + pad * 2
         let width = ceil(pad + key.frame.width + 6 + label.frame.width + 8)
-        let tag = ToneView(fill: BarTheme.dynamicGround(), edge: NSColor.labelColor.withAlphaComponent(0.12),
+        let tag = ToneView(fill: BarTheme.dynamicGround(), edge: BarTheme.hairline,
                            edgeWidth: 0.5, radius: radius)
         tag.frame = NSRect(x: 0, y: 0, width: width, height: height)
         key.frame.origin = NSPoint(x: pad, y: pad)

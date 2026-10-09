@@ -211,6 +211,25 @@ final class DesignDriftTests: XCTestCase {
         XCTAssertEqual(offenders, [], "use BarTheme.motion")
     }
 
+    /// Grey matter is a well or a hairline (`BarTheme.well`,
+    /// `BarTheme.hairline`), never an opacity chosen where it is drawn.
+    /// What remains inline is not matter: a selection's wash over text, a
+    /// caret, and the overview's ring, tuned per look.
+    func testGreyMatterIsAWellOrAHairline() throws {
+        let notMatter: [String: Int] = [
+            "DraftPanel.swift": 1,      // the draft's selection
+            "ClipboardStrip.swift": 1,  // an offered name standing selected
+            "ModePill.swift": 1,        // the band's still caret
+            "SettingsController.swift": 1, // the overview's ring
+        ]
+        var offenders: [String] = []
+        for (name, text) in try sources() where name != "Glass.swift" {
+            let count = text.components(separatedBy: "labelColor.withAlphaComponent(").count - 1
+            if count > notMatter[name, default: 0] { offenders.append(name) }
+        }
+        XCTAssertEqual(offenders, [], "use BarTheme.well or BarTheme.hairline")
+    }
+
     /// The drawn shadow is window, not glass: a hosted surface that took
     /// the mouse everywhere would eat clicks in its shadow. It takes the
     /// mouse through a `PointerGate`, or not at all.

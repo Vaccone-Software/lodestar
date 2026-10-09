@@ -882,7 +882,7 @@ final class ClipboardStrip {
             swatch.layer?.backgroundColor = NSColor(srgbRed: color.red, green: color.green, blue: color.blue,
                                                     alpha: color.alpha).cgColor
             swatch.layer?.borderWidth = 0.5
-            swatch.layer?.borderColor = Glass.resolved(NSColor.labelColor.withAlphaComponent(0.2))
+            swatch.layer?.borderColor = Glass.resolved(BarTheme.hairline)
             card.addSubview(swatch)
             top = max(top, swatch.frame.maxY)
         }
@@ -1125,7 +1125,7 @@ final class ClipboardStrip {
             if index == 0, ruled {
                 let rule = NSView(frame: NSRect(x: 16, y: top - 5, width: width - 32, height: 1))
                 rule.wantsLayer = true
-                rule.layer?.backgroundColor = Glass.resolved(NSColor.labelColor.withAlphaComponent(0.12))
+                rule.layer?.backgroundColor = Glass.resolved(BarTheme.hairline)
                 plate.addSubview(rule)
                 top -= 9
             }
@@ -1200,7 +1200,7 @@ final class ClipboardStrip {
                     x: Self.actionInset, y: top - Self.actionSeparator / 2,
                     width: frame.width - Self.actionInset * 2, height: 1))
                 line.wantsLayer = true
-                line.layer?.backgroundColor = Glass.resolved(NSColor.labelColor.withAlphaComponent(0.12))
+                line.layer?.backgroundColor = Glass.resolved(BarTheme.hairline)
                 plate.addSubview(line)
                 top -= Self.actionSeparator
             }

@@ -1000,8 +1000,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
 
         private func tint() {
             effectiveAppearance.performAsCurrentDrawingAppearance {
-                layer?.backgroundColor = Glass.resolved(NSColor.labelColor.withAlphaComponent(0.06), in: self)
-                layer?.borderColor = Glass.resolved(NSColor.labelColor.withAlphaComponent(0.12), in: self)
+                layer?.backgroundColor = Glass.resolved(BarTheme.well, in: self)
+                layer?.borderColor = Glass.resolved(BarTheme.hairline, in: self)
             }
         }
 
@@ -1235,7 +1235,10 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         column.addArrangedSubview(backRow)
         column.setCustomSpacing(20, after: backRow)
 
-        let card = Self.card()
+        // The place's picture floats on its own shadow, as it does on the
+        // overview: a picture is an object with no floor, never one set in
+        // a box.
+        let card = NSView()
         card.translatesAutoresizingMaskIntoConstraints = false
         card.widthAnchor.constraint(equalToConstant: Self.leftColumn).isActive = true
         card.heightAnchor.constraint(equalToConstant: 172).isActive = true
@@ -1554,17 +1557,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             // does: the raised step and its lit edge, never the accent
             // washed across it.
             if let focus = listFocus, focus.row == paneRow, focus.entry == entryIndex {
-                let step = LandingStep()
-                step.translatesAutoresizingMaskIntoConstraints = false
-                step.setupRaised()
-                step.applyRaised(true)
-                row.addSubview(step, positioned: .below, relativeTo: nil)
-                NSLayoutConstraint.activate([
-                    step.topAnchor.constraint(equalTo: row.topAnchor, constant: -3),
-                    step.bottomAnchor.constraint(equalTo: row.bottomAnchor, constant: 3),
-                    step.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: -8),
-                    step.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: 8),
-                ])
+                raise(row, sides: 8, ends: 3)
             }
             column.addArrangedSubview(row)
         }
@@ -1918,7 +1911,13 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             row.translatesAutoresizingMaskIntoConstraints = false
             row.widthAnchor.constraint(equalToConstant: width).isActive = true
             let parts = hit.address.split(separator: " ").map(String.init)
-            for part in parts { row.addArrangedSubview(keycap(part)) }
+            // The chosen result is the launcher's chosen row: it rises, and
+            // its keys light where the hand goes next.
+            for part in parts {
+                let cap = Keycaps.cap(part)
+                cap.lit = selected
+                row.addArrangedSubview(cap)
+            }
             row.addArrangedSubview(label(hit.title, size: BarTheme.Scale.body, weight: .medium, color: .labelColor))
             row.addArrangedSubview(label(hit.sectionName, size: BarTheme.Scale.meta, weight: .regular,
                                          color: BarTheme.secondaryColor))
@@ -1927,13 +1926,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                 row.addArrangedSubview(label("Suggested", size: BarTheme.Scale.meta, weight: .regular,
                                              color: BarTheme.secondaryColor))
             }
-            row.wantsLayer = true
-            row.layer?.cornerRadius = BarTheme.wellRadius
-            if selected {
-                row.layer?.backgroundColor = Glass.resolved(NSColor.labelColor.withAlphaComponent(0.05), in: row)
-                row.layer?.borderWidth = 1.5
-                row.layer?.borderColor = Glass.resolved(BarTheme.readableAccent, in: row)
-            }
+            if selected { raise(row, sides: 0, ends: 0) }
             row.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(hitClicked(_:))))
             row.setAccessibilityElement(true)
             row.setAccessibilityRole(.button)
@@ -1959,21 +1952,30 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     /// at once. It is a chosen row, not an alarm, so it neither glows nor
     /// settles.
     private func addLanding(to row: NSView) {
+        landing = raise(row, sides: -4, ends: -3)
+        DispatchQueue.main.async { [weak row] in
+            row?.scrollToVisible(row?.bounds.insetBy(dx: 0, dy: -24) ?? .zero)
+        }
+    }
+
+    /// Raise a row onto the bars' step, the one way this window says
+    /// chosen: a landing, the entry the keys are on, the result picked.
+    /// The step reaches `sides` past the row's sides and `ends` past its
+    /// top and bottom; a negative reach tucks it inside.
+    @discardableResult
+    private func raise(_ row: NSView, sides: CGFloat, ends: CGFloat) -> NSView {
         let step = LandingStep()
         step.translatesAutoresizingMaskIntoConstraints = false
         step.setupRaised()
         step.applyRaised(true)
         row.addSubview(step, positioned: .below, relativeTo: nil)
         NSLayoutConstraint.activate([
-            step.topAnchor.constraint(equalTo: row.topAnchor, constant: 3),
-            step.bottomAnchor.constraint(equalTo: row.bottomAnchor, constant: -3),
-            step.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 4),
-            step.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -4),
+            step.topAnchor.constraint(equalTo: row.topAnchor, constant: -ends),
+            step.bottomAnchor.constraint(equalTo: row.bottomAnchor, constant: ends),
+            step.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: -sides),
+            step.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: sides),
         ])
-        landing = step
-        DispatchQueue.main.async { [weak row] in
-            row?.scrollToVisible(row?.bounds.insetBy(dx: 0, dy: -24) ?? .zero)
-        }
+        return step
     }
 
     /// The landing is over: the row settles back, and is not raised again.
@@ -2040,15 +2042,15 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
 
     /// One group's card: a surface on the glass, rounded on the ladder.
     static func card() -> NSView {
-        let card = ToneView(fill: NSColor.labelColor.withAlphaComponent(0.045),
-                            edge: NSColor.labelColor.withAlphaComponent(0.08), edgeWidth: 1,
+        let card = ToneView(fill: BarTheme.well,
+                            edge: BarTheme.hairline, edgeWidth: 1,
                             radius: BarTheme.surfaceRadius)
         card.translatesAutoresizingMaskIntoConstraints = false
         return card
     }
 
     static func hairline(width: CGFloat) -> NSView {
-        let line = ToneView(fill: NSColor.labelColor.withAlphaComponent(0.06))
+        let line = ToneView(fill: BarTheme.hairline)
         line.translatesAutoresizingMaskIntoConstraints = false
         line.heightAnchor.constraint(equalToConstant: 1).isActive = true
         line.widthAnchor.constraint(equalToConstant: width).isActive = true

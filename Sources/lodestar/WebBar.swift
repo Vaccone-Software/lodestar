@@ -533,7 +533,7 @@ private final class ChipGround: NSView {
 
     private func tint() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = Glass.resolved(NSColor.labelColor.withAlphaComponent(0.08), in: self)
+            layer?.backgroundColor = Glass.resolved(BarTheme.well, in: self)
         }
     }
 }

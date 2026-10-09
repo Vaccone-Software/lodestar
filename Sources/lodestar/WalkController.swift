@@ -661,9 +661,9 @@ final class WalkController: NSObject {
             column.wantsLayer = true
             column.layer?.cornerRadius = BarTheme.surfaceRadius
             column.layer?.borderWidth = selected ? 1.5 : 1
-            column.layer?.borderColor = Glass.resolved(selected ? BarTheme.accent : NSColor.labelColor.withAlphaComponent(0.1))
+            column.layer?.borderColor = Glass.resolved(selected ? BarTheme.accent : BarTheme.hairline)
             column.layer?.backgroundColor = Glass.resolved(selected ? BarTheme.accent.withAlphaComponent(0.08)
-                                                                    : NSColor.labelColor.withAlphaComponent(0.03))
+                                                                    : BarTheme.well)
             column.translatesAutoresizingMaskIntoConstraints = false
             column.widthAnchor.constraint(equalToConstant: tileWidth).isActive = true
 

@@ -31,7 +31,8 @@ final class DraftEditor: EditorLens {
     private var inFlight: Set<String> = []
     private var working = false
     private var pauseWork: DispatchWorkItem?
-    private var fixes: [(range: NSRange, original: String, replacement: String)] = []
+    private var fixes: [(range: NSRange, original: String, replacement: String, batch: Int)] = []
+    private var batches = 0
 
     init(proofreader: EditorProofreader, clock: Clock = .live) {
         self.proofreader = proofreader
@@ -124,11 +125,33 @@ final class DraftEditor: EditorLens {
             completion(false)
             return
         }
+        batches += 1
         fixes.append((NSRange(location: issue.range.location, length: (issue.replacement as NSString).length),
-                      issue.original, issue.replacement))
-        if fixes.count > 20 { fixes.removeFirst() }
+                      issue.original, issue.replacement, batches))
+        trimFixes()
         observations?.edited(action: "applied", kind: issue.kind.rawValue, app: "draft", via: "keys", at: clock.now())
         completion(true)
+    }
+
+    /// ⏎ in the lens, as `EditorController` does it: last in the text
+    /// first, one batch, one ⌫.
+    func fixAll(_ marks: [EditorController.Mark], completion: @escaping (Int) -> Void) {
+        guard let draft else { completion(0); return }
+        let landed = EditorController.fixOrder(marks.map(\.issue)).filter {
+            draft.editorReplace($0.range, expected: $0.original, with: $0.replacement)
+        }
+        guard !landed.isEmpty else { completion(0); return }
+        batches += 1
+        for (issue, range) in zip(landed, EditorController.settled(landed)) {
+            fixes.append((range, issue.original, issue.replacement, batches))
+            observations?.edited(action: "applied", kind: issue.kind.rawValue, app: "draft", via: "all", at: clock.now())
+        }
+        trimFixes()
+        completion(landed.count)
+    }
+
+    private func trimFixes() {
+        while fixes.count > 20, fixes.first?.batch != batches { fixes.removeFirst() }
     }
 
     func ignore(_ mark: EditorController.Mark) { settle(mark, learning: false) }
@@ -160,11 +183,14 @@ final class DraftEditor: EditorLens {
     }
 
     func undoLastFix(completion: @escaping (Bool) -> Void) {
-        guard let last = fixes.popLast(), let draft,
-              draft.editorReplace(last.range, expected: last.replacement, with: last.original) else {
-            completion(false)
-            return
+        guard let last = fixes.last, let draft else { completion(false); return }
+        let group = fixes.reversed().prefix { $0.batch == last.batch }
+        fixes.removeLast(group.count)
+        var done = true
+        for fix in group.sorted(by: { $0.range.location > $1.range.location }) {
+            done = draft.editorReplace(fix.range, expected: fix.replacement, with: fix.original) && done
         }
+        guard done else { completion(false); return }
         observations?.edited(action: "undone", kind: nil, app: "draft", at: clock.now())
         completion(true)
     }

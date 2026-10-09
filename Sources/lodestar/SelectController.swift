@@ -399,7 +399,7 @@ final class SelectController {
 
     /// The pill's reading of this door: listening while nothing is typed,
     /// folded to the letters once something is.
-    private func showPill(text: String?, anchored: String? = nil) {
+    private func showPill(text: String?, anchored: String? = nil, offer: ModePill.Offer? = nil) {
         let mode: ModePill.Mode
         switch door {
         case .anchor: mode = .select
@@ -409,7 +409,7 @@ final class SelectController {
         }
         pill?.show(ModePill.State(mode: mode, app: appName,
                                   icon: NSRunningApplication(processIdentifier: focusedPid)?.icon,
-                                  listening: true, text: text, anchored: anchored))
+                                  listening: true, text: text, anchored: anchored, offer: offer))
     }
 
     /// The word the start anchor holds, for the pill: the hand's word,
@@ -528,6 +528,11 @@ final class SelectController {
         // The editor's lens: a letter fixes, ⇧ and a letter leaves the
         // words as written, ⌥ and a letter learns the word.
         if door == .editor {
+            if editorMarks.isEmpty {
+                handingBack = true
+                return .pending
+            }
+            if key == "return", !shift, !option { return editorFixAll() }
             guard key.count == 1, key.first?.isLetter == true else { return .pending }
             return editorPick(letter: key, answer: option ? .learn : shift ? .ignore : .fix)
         }
@@ -654,7 +659,9 @@ final class SelectController {
             guard entryTyped.isEmpty || label.hasPrefix(entryTyped) else { return nil }
             return SelectOverlay.Chip(label: label, frames: [mark.rect], style: .tag(mark.issue.shown))
         }
-        showPill(text: nil)
+        // ⏎ takes every fix the lens shows, and the pill says how many
+        // before the hand presses it.
+        showPill(text: nil, offer: Self.fixAllOffer(count: editorMarks.count))
         overlay.show(chips: chips, anchor: [], over: windowFrame, typed: entryTyped)
     }
 
@@ -665,12 +672,44 @@ final class SelectController {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self, self.generation == expected, self.door == .editor, let editor = self.editor else { return }
             let marks = editor.lensMarks
-            if marks.isEmpty { self.overlay.hide(); return }
+            if marks.isEmpty {
+                // Nothing to letter: the lens waits on ⌫ or hands the next
+                // key back.
+                self.editorMarks = []
+                self.overlay.hide()
+                return
+            }
             self.labelEditor(marks)
         }
     }
 
     enum EditorAnswer { case fix, ignore, learn }
+
+    static func fixAllOffer(count: Int) -> ModePill.Offer? {
+        guard count > 0 else { return nil }
+        return ModePill.Offer(key: "⏎", words: count > 1 ? "Fix all \(count)" : "Fix", lit: true)
+    }
+
+    static let undoOffer = ModePill.Offer(key: "⌫", words: "Undo", lit: false)
+
+    /// ⏎: every fix the lens shows, at once. The lens stands one key
+    /// longer with ⌫ offered, which takes the whole batch back; any other
+    /// key ends it and goes to the app, so a second ⏎ sends the message.
+    private func editorFixAll() -> SelectStep {
+        guard let editor, !editorMarks.isEmpty else { return .pending }
+        let marks = editorMarks
+        editorMarks = []
+        entryTyped = ""
+        entryLabels = []
+        editor.fixAll(marks) { _ in }
+        overlay.hide()
+        showPill(text: nil, offer: Self.undoOffer)
+        return .done
+    }
+
+    /// The lens has nothing lettered: the next key that is not its own
+    /// belongs to the app.
+    private var handingBack = false
 
     private func editorPick(letter: String, answer: EditorAnswer) -> SelectStep {
         let candidate = entryTyped + letter.lowercased()
@@ -712,7 +751,12 @@ final class SelectController {
         controlAtPick = control
         firedTextInput = false
         defer { controlAtPick = false }
-        switch key(letter, shift: shift, option: option) {
+        let step = key(letter, shift: shift, option: option)
+        if handingBack {
+            handingBack = false
+            return .handBack
+        }
+        switch step {
         case .done: return firedTextInput ? .firedFocus : .fired
         case .pending: return .pending
         }

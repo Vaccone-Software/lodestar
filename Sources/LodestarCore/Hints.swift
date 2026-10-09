@@ -137,4 +137,7 @@ public enum HintStep: Equatable {
     case firedFocus
     /// The letter matched nothing and was dropped.
     case ignored
+    /// The lens has nothing left to letter and this key is not its own:
+    /// the mode ends and the key goes to the app, as if no lens stood.
+    case handBack
 }

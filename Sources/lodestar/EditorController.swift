@@ -9,6 +9,9 @@ protocol EditorLens: AnyObject {
     /// over the focused window (the draft draws over its own panel).
     var lensCanvas: CGRect? { get }
     func fix(_ mark: EditorController.Mark, completion: @escaping (Bool) -> Void)
+    /// ⏎: every fix the lens shows, at once, taken back together by one ⌫.
+    /// Answers how many landed.
+    func fixAll(_ marks: [EditorController.Mark], completion: @escaping (Int) -> Void)
     /// ⇧ and a letter: the words stay as written while their sentence
     /// stands, and nothing is learned.
     func ignore(_ mark: EditorController.Mark)
@@ -44,6 +47,8 @@ final class EditorController: EditorLens {
         let range: NSRange          // where the replacement now stands
         let original: String
         let replacement: String
+        /// Fixes made by one ⏎ share a batch, and one ⌫ takes them all.
+        let batch: Int
     }
 
     var flash: (String) -> Void = { _ in }
@@ -115,6 +120,7 @@ final class EditorController: EditorLens {
     private var lastGeometry = Date.distantPast
     private var geometryGeneration = 0
     private var fixes: [Fix] = []
+    private var batches = 0
     /// The mark counted as shown once per issue, for the record.
     private var countedShown: Set<String> = []
 
@@ -548,11 +554,13 @@ final class EditorController: EditorLens {
             DispatchQueue.main.async {
                 guard let self else { return }
                 if done {
+                    self.batches += 1
                     self.fixes.append(Fix(pid: field.pid, element: field.element,
                                           range: NSRange(location: issue.range.location,
                                                          length: (issue.replacement as NSString).length),
-                                          original: issue.original, replacement: issue.replacement))
-                    if self.fixes.count > 20 { self.fixes.removeFirst() }
+                                          original: issue.original, replacement: issue.replacement,
+                                          batch: self.batches))
+                    self.trimFixes()
                     self.marks.removeAll { $0.issue == issue }
                     self.hover?.marksChanged()
                     self.redraw(over: field)
@@ -566,6 +574,70 @@ final class EditorController: EditorLens {
                 completion(done)
             }
         }
+    }
+
+    /// ⏎ in the lens: every fix shown, applied from the end of the text
+    /// back so each lands where it was found, and kept as one batch so one
+    /// ⌫ takes the lot back. A mark overlapping one already fixed is left.
+    func fixAll(_ marks: [Mark], completion: @escaping (Int) -> Void) {
+        guard let field, !marks.isEmpty else { completion(0); return }
+        let order = Self.fixOrder(marks.map(\.issue))
+        let source = self.source
+        axQueue.async { [weak self] in
+            let landed = order.filter {
+                source.replace($0.range, expected: $0.original, with: $0.replacement, in: field)
+            }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if landed.isEmpty {
+                    self.flash("✕ The text changed before the fixes landed")
+                    completion(0)
+                    return
+                }
+                self.batches += 1
+                for (issue, range) in zip(landed, Self.settled(landed)) {
+                    self.fixes.append(Fix(pid: field.pid, element: field.element, range: range,
+                                          original: issue.original, replacement: issue.replacement,
+                                          batch: self.batches))
+                    self.observations?.edited(action: "applied", kind: issue.kind.rawValue, app: field.appName,
+                                              via: "all", at: self.clock.now())
+                }
+                self.trimFixes()
+                self.marks.removeAll { mark in landed.contains(mark.issue) }
+                self.hover?.marksChanged()
+                self.redraw(over: field)
+                self.issuesText = ""
+                self.onFixed()
+                completion(landed.count)
+            }
+        }
+    }
+
+    /// The fixes to apply, last in the text first, so an earlier fix never
+    /// moves a later one's range; one that overlaps a fix already taken is
+    /// dropped rather than applied over it.
+    static func fixOrder(_ issues: [EditorIssue]) -> [EditorIssue] {
+        var taken: [EditorIssue] = []
+        for issue in issues.sorted(by: { $0.range.location > $1.range.location }) {
+            if let lower = taken.last, issue.range.location + issue.range.length > lower.range.location { continue }
+            taken.append(issue)
+        }
+        return taken
+    }
+
+    /// Where each applied fix's words stand once every fix in the batch
+    /// has landed: its own start moved by every fix before it.
+    static func settled(_ applied: [EditorIssue]) -> [NSRange] {
+        applied.map { issue in
+            let shift = applied.filter { $0.range.location < issue.range.location }
+                .reduce(0) { $0 + ($1.replacement as NSString).length - $1.range.length }
+            return NSRange(location: issue.range.location + shift, length: (issue.replacement as NSString).length)
+        }
+    }
+
+    /// Twenty fixes are remembered, and never part of the latest batch.
+    private func trimFixes() {
+        while fixes.count > 20, fixes.first?.batch != batches { fixes.removeFirst() }
     }
 
     /// Three answers to a mark, and the two that are not a fix are kept
@@ -616,15 +688,22 @@ final class EditorController: EditorLens {
             && (word.first?.isUppercase == true || EditorSpelling.isMisspelled(word, language: language))
     }
 
-    /// ⌫ in the lens: the last fix, taken back.
+    /// ⌫ in the lens: the last fix, taken back, or the whole of the last
+    /// ⏎, last in the text first so the others' ranges hold.
     func undoLastFix(completion: @escaping (Bool) -> Void) {
-        guard let last = fixes.popLast(), let field, field.pid == last.pid else {
+        guard let last = fixes.last, let field, field.pid == last.pid else {
             completion(false)
             return
         }
+        let group = fixes.reversed().prefix { $0.batch == last.batch }
+        fixes.removeLast(group.count)
+        let reverts = group.sorted { $0.range.location > $1.range.location }
         let source = self.source
         axQueue.async { [weak self] in
-            let done = source.replace(last.range, expected: last.replacement, with: last.original, in: field)
+            var done = true
+            for fix in reverts {
+                done = source.replace(fix.range, expected: fix.replacement, with: fix.original, in: field) && done
+            }
             DispatchQueue.main.async {
                 guard let self else { return }
                 if done { self.observations?.edited(action: "undone", kind: nil, app: field.appName, at: self.clock.now()) }

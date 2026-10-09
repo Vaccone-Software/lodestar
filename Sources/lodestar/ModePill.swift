@@ -56,17 +56,29 @@ final class ModePill {
         /// shown ahead of the text while the far end is chosen. It folds
         /// the wings the way text does.
         var anchored: String? = nil
+        /// A key the lens answers to, said beside it: the editor's ⏎ lit
+        /// over every fix it shows ("Fix all 3"), and ⌫ quiet once they
+        /// have landed ("Undo").
+        var offer: Offer? = nil
 
         static func == (lhs: State, rhs: State) -> Bool {
             lhs.mode == rhs.mode && lhs.app == rhs.app && lhs.listening == rhs.listening
                 && lhs.text == rhs.text && lhs.anchored == rhs.anchored && lhs.icon === rhs.icon
+                && lhs.offer == rhs.offer
         }
+    }
+
+    struct Offer: Equatable {
+        var key: String
+        var words: String
+        var lit: Bool
     }
 
     /// What the pill draws, pure, so a stage can read the composition
     /// instead of pixels.
     enum Piece: Equatable {
         case symbol(String), modeWord(String), caret, text(String), anchored(String), appWord(String), appIcon
+        case offer(Offer)
     }
 
     static func layout(for state: State) -> [Piece] {
@@ -85,6 +97,7 @@ final class ModePill {
         }
         var pieces: [Piece] = [.symbol(state.mode.symbol), .modeWord(state.mode.word)]
         if state.listening { pieces.append(.caret) }
+        if let offer = state.offer { pieces.append(.offer(offer)) }
         pieces.append(.appWord(state.app))
         if state.icon != nil { pieces.append(.appIcon) }
         return pieces
@@ -283,6 +296,9 @@ final class ModePill {
             return view
         case .modeWord(let word):
             return Self.label(word, font: BarTheme.bodyFont, color: .labelColor)
+        case .offer(let offer):
+            // The pill's one light, when the offer is ⏎: the key, lit.
+            return Keycaps.line([.init([offer.key], offer.words, lit: offer.lit, quiet: !offer.lit)])
         case .appWord(let word):
             return Self.label(word, font: BarTheme.bodyFont, color: BarTheme.secondaryColor)
         case .appIcon:

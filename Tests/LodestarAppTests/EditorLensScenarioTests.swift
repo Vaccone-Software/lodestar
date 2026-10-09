@@ -27,6 +27,11 @@ final class EditorLensScenarioTests: XCTestCase {
             learned.append(mark.issue)
             lensMarks.removeAll { $0 == mark }
         }
+        func fixAll(_ marks: [EditorController.Mark], completion: @escaping (Int) -> Void) {
+            fixed.append(contentsOf: marks.map(\.issue))
+            lensMarks.removeAll { marks.contains($0) }
+            completion(marks.count)
+        }
         func undoLastFix(completion: @escaping (Bool) -> Void) {
             undone += 1
             completion(true)
@@ -72,6 +77,32 @@ final class EditorLensScenarioTests: XCTestCase {
         XCTAssertTrue(stage.press(second))
         XCTAssertEqual(lens.fixed.count, 2)
         XCTAssertFalse(stage.engine.stateDescription.contains("hints"), "the last mark closes the lens")
+    }
+
+    /// ⏎ is yes to what is lit: every fix the lens shows, at once, said
+    /// on the pill before it is pressed, and the lens closes behind it.
+    func testReturnFixesEveryMarkTheLensShows() {
+        let (stage, lens) = stage(with: [mark("its", "it's", x: 10), mark("your", "you're", x: 120),
+                                         mark("recieve", "receive", x: 240)])
+        stage.lode("tab")
+        XCTAssertEqual(stage.engine.select.pill?.state?.offer?.words, "Fix all 3", "the pill says what ⏎ takes")
+        XCTAssertTrue(stage.press("return"))
+        XCTAssertEqual(Set(lens.fixed.map(\.original)), ["its", "your", "recieve"])
+        XCTAssertEqual(stage.engine.select.pill?.state?.offer, SelectController.undoOffer,
+                       "the lens stands one key longer, offering ⌫")
+        stage.press("delete")
+        XCTAssertEqual(lens.undone, 1, "one ⌫ takes the batch back")
+    }
+
+    /// After ⏎, any key that is not ⌫ ends the lens and reaches the app:
+    /// a second ⏎ sends the message.
+    func testAfterFixingAllTheNextKeyGoesToTheApp() {
+        let (stage, _) = stage(with: [mark("its", "it's", x: 10), mark("your", "you're", x: 120)])
+        stage.lode("tab")
+        stage.press("return")
+        XCTAssertTrue(stage.engine.stateDescription.contains("hints"))
+        XCTAssertFalse(stage.press("return"), "the second ⏎ is the app's")
+        XCTAssertFalse(stage.engine.stateDescription.contains("hints"))
     }
 
     func testShiftAndALetterIgnores() throws {

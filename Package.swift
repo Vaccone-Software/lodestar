@@ -51,6 +51,10 @@ let package = Package(
         ]),
         // Slice 0: the window-identity probe. Throwaway by design.
         .executableTarget(name: "probe", dependencies: ["LodestarCore", "LodestarEars"]),
+        // A stand-in app with plain windows, for the tests that move real
+        // windows with Lodestar's own actions. Built beside the tests,
+        // never shipped.
+        .executableTarget(name: "WindowFixture", path: "Tests/WindowFixture"),
         .testTarget(name: "LodestarCoreTests", dependencies: ["LodestarCore"],
                     // The editor's accuracy fixture, read by path.
                     exclude: ["Fixtures"]),

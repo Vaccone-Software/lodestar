@@ -97,12 +97,16 @@ final class EditorLensScenarioTests: XCTestCase {
     /// After ⏎, any key that is not ⌫ ends the lens and reaches the app:
     /// a second ⏎ sends the message.
     func testAfterFixingAllTheNextKeyGoesToTheApp() {
-        let (stage, _) = stage(with: [mark("its", "it's", x: 10), mark("your", "you're", x: 120)])
-        stage.lode("tab")
-        stage.press("return")
-        XCTAssertTrue(stage.engine.stateDescription.contains("hints"))
-        XCTAssertFalse(stage.press("return"), "the second ⏎ is the app's")
-        XCTAssertFalse(stage.engine.stateDescription.contains("hints"))
+        let (stage, lens) = stage(with: [mark("its", "it's", x: 10), mark("your", "you're", x: 120)])
+        // The engine holds the editor weakly: the lens must outlive the presses.
+        withExtendedLifetime(lens) {
+            stage.lode("tab")
+            stage.press("return")
+            XCTAssertEqual(lens.fixed.count, 2)
+            XCTAssertTrue(stage.engine.stateDescription.contains("hints"), "the lens stands one key longer")
+            XCTAssertFalse(stage.press("return"), "the second ⏎ is the app's")
+            XCTAssertFalse(stage.engine.stateDescription.contains("hints"))
+        }
     }
 
     func testShiftAndALetterIgnores() throws {

@@ -143,15 +143,10 @@ final class AudioKeeperTests: XCTestCase {
 
     /// Once is an engine that may have been born deaf; twice is the device.
     /// One silent window charges the device once, so the rebuild gives the
-    /// same device a fresh engine.
-    ///
-    /// Fails today: the watch's rebuild calls `startNow`, whose `stopNow`
-    /// judges the engine the watch just judged, ran a whole window and
-    /// heard nothing, and charges the device a second time. One silent
-    /// window writes a device off, and the rebuild reads elsewhere at once.
-    /// Strict, so the fix turns this red until the expectation is removed.
+    /// same device a fresh engine. The rebuild stops the deaf engine first,
+    /// and that stop must not judge the window the watch already judged:
+    /// it once did, and one silent window wrote a device off.
     func testOneSilentWindowIsChargedOnce() {
-        XCTExpectFailure("the rebuild's own stop charges the window a second time", strict: true)
         let ears = Ears()
         ears.start()
         ears.run(1.6)
@@ -240,10 +235,8 @@ final class AudioKeeperTests: XCTestCase {
     }
 
     /// Twice is the device: the first silent window gives the default a
-    /// fresh engine, the second writes it off. Fails today for the reason
-    /// `testOneSilentWindowIsChargedOnce` gives.
+    /// fresh engine, the second writes it off.
     func testTwoSilentWindowsWriteTheDefaultOff() {
-        XCTExpectFailure("the rebuild's own stop charges the window a second time", strict: true)
         let ears = Ears()
         ears.live = [Self.builtIn]
         ears.start()

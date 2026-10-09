@@ -93,6 +93,11 @@ struct AudioKeeper {
                                roster: () -> Set<AudioDeviceID>) -> Verdict {
         guard watching, !signalled else { return .keep }
         deaf = true
+        // The window is judged here, once. The rebuild that follows stops
+        // this engine first, and that stop must not judge the same window
+        // again: a device charged twice for one silence was written off
+        // after a single window, when twice is what calls it the device.
+        runningSince = nil
         return .rebuild(device.map { charge($0, roster: roster()) })
     }
 

@@ -466,10 +466,12 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
                                         app: entry.name),
            confirmedRoad != entry.name.lowercased() {
             confirmedRoad = entry.name.lowercased()
-            // Two things and no more: one more ⏎ opens it, and the address
-            // to use next time. The row already names the app.
+            // Two things and no more: it takes a second press, and the
+            // address that takes none. The row already names the app and
+            // lights its ⏎, so the footer draws no ⏎ of its own. "Again",
+            // not "twice": the first press is what brought the note up.
             let address = (["lode"] + chain.map { $0.uppercased() }).map { "[\($0)]" }.joined()
-            setFooter(("[⏎] again to open", "Next time \(address)"))
+            setFooter(("Press again to open", address))
             reposition()
             return
         }

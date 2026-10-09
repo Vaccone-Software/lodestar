@@ -190,6 +190,27 @@ final class DesignDriftTests: XCTestCase {
         XCTAssertEqual(stale, [], "moved onto the drawn shadow: take it off the not-yet list")
     }
 
+    /// No window wears the window server's shadow: it cannot be shaped to
+    /// the glass, and a room in it reads as a system window in costume.
+    /// `Glass.makePanel` sets it only for `SoftShadow.host` to take away.
+    func testNoWindowWearsTheSystemShadow() throws {
+        let offenders = try sources()
+            .filter { $0.name != "Glass.swift" && $0.text.contains("hasShadow = true") }
+            .map(\.name)
+        XCTAssertEqual(offenders, [], "host the surface on SoftShadow instead")
+    }
+
+    /// One curve for everything that moves: `BarTheme.motion`. Three
+    /// curves chosen surface by surface made the app move like three
+    /// materials.
+    func testEverythingMovesOnOneCurve() throws {
+        let offenders = try sources()
+            .filter { $0.text.contains("CAMediaTimingFunction(") && !($0.name == "Glass.swift"
+                && $0.text.components(separatedBy: "CAMediaTimingFunction(").count == 2) }
+            .map(\.name)
+        XCTAssertEqual(offenders, [], "use BarTheme.motion")
+    }
+
     /// The drawn shadow is window, not glass: a hosted surface that took
     /// the mouse everywhere would eat clicks in its shadow. It takes the
     /// mouse through a `PointerGate`, or not at all.
@@ -333,7 +354,7 @@ final class DesignDriftTests: XCTestCase {
     /// A label is a name, capitalized: a section's title, a link, a
     /// button, and the words beside a key.
     func testLabelsAreNames() throws {
-        let hits = try offenders(#"header: "[a-z]|smallLink\("[a-z]|HandButton\(title: "[a-z]|GuideRow\((key|keys): [^\n]*label: "[a-z]|\brow\("[^"\n]*", "[a-z]|KeyRow\("[^"\n]*", "[a-z]|smallLink\([^\n]*"[a-z]"#,
+        let hits = try offenders(#"header: "[a-z]|smallLink\("[a-z]|RoomButton\(title: "[a-z]|GuideRow\((key|keys): [^\n]*label: "[a-z]|\brow\("[^"\n]*", "[a-z]|KeyRow\("[^"\n]*", "[a-z]|smallLink\([^\n]*"[a-z]"#,
                                  in: surfaces())
         XCTAssertEqual(hits, [], "capitalize it as a name")
         var words: [String] = []

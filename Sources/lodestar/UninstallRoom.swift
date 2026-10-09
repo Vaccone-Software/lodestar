@@ -32,10 +32,9 @@ final class UninstallRoom: NSObject {
         panel.level = .modalPanel
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
-        panel.contentView = root
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
         _ = Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
         panel.onKeyDown = { [weak self] event in self?.key(event) ?? false }
         Movable.enable(panel)
@@ -154,9 +153,9 @@ final class UninstallRoom: NSObject {
         let size = NSSize(width: Self.width, height: stack.fittingSize.height + Self.inset * 2)
         let visible = ActivePolicy.presentationFrame
         let origin = panel.isVisible
-            ? NSPoint(x: panel.frame.minX, y: panel.frame.maxY - size.height)
+            ? NSPoint(x: panel.glassFrame.minX, y: panel.glassFrame.maxY - size.height)
             : NSPoint(x: visible.midX - size.width / 2, y: visible.midY - size.height / 2 + 40)
-        panel.setFrame(NSRect(origin: origin, size: size), display: true)
+        panel.setGlassFrame(NSRect(origin: origin, size: size), display: true)
     }
 
     private func wrapped(_ text: String, color: NSColor, width: CGFloat,

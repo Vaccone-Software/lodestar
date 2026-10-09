@@ -147,7 +147,6 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         panel.level = .floating
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
         panel.isReleasedWhenClosed = false
         panel.isMovable = true
         panel.isMovableByWindowBackground = true
@@ -157,7 +156,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         panel.styleMask.remove(.nonactivatingPanel)
         panel.autorecalculatesKeyViewLoop = true
         panel.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
-        panel.contentView = root
+        // A room floats like every other object, on its own drawn shadow.
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
         _ = Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
         panel.onKeyDown = { [weak self] event in
             guard let self, let key = Keys.name(for: Int64(event.keyCode)) else { return false }
@@ -213,7 +213,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         editing = [:]
         render()
         let visible = ActivePolicy.presentationFrame
-        panel.setFrame(NSRect(x: visible.midX - Self.width / 2,
+        panel.setGlassFrame(NSRect(x: visible.midX - Self.width / 2,
                               y: visible.midY - Self.height / 2 + 20,
                               width: Self.width, height: Self.height), display: true)
         SystemEvents.activateLodestar()
@@ -971,18 +971,6 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         }
     }
 
-    /// Buttons and click targets wear the pointing hand, and join the
-    /// key view loop so tab reaches them and space presses them — the
-    /// letters and digits are the point of this window, and a control
-    /// the keyboard cannot reach breaks the promise.
-    private final class HandButton: NSButton {
-        override var acceptsFirstResponder: Bool { true }
-        override var canBecomeKeyView: Bool { true }
-        override func resetCursorRects() {
-            addCursorRect(bounds, cursor: .pointingHand)
-        }
-    }
-
     /// A choice, behaving as the system's popup does (keys, tabbing, the
     /// tokens the rows store) and drawn as Lodestar's: the room field's
     /// face, and a menu whose rows rise like the bars' rows with the
@@ -1075,14 +1063,10 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         let title = label("Settings", size: BarTheme.Scale.title, weight: .semibold, color: .labelColor)
         title.frame = NSRect(x: 0, y: 0, width: 200, height: 24)
         field.addSubview(title)
-        let search = HandButton(title: "", target: self, action: #selector(searchPressed))
-        search.isBordered = false
-        search.attributedTitle = NSAttributedString(string: "Search", attributes: [
-            .font: BarTheme.secondaryFont, .foregroundColor: BarTheme.secondaryColor])
-        let searchCap = keycap("/")
-        let searchRow = NSStackView(views: [searchCap, search])
-        searchRow.orientation = .horizontal
-        searchRow.spacing = 8
+        // The room's ways are its keys, drawn as every footer draws them.
+        let searchRow = Keycaps.line([
+            .init(["/"], "Search", action: { [weak self] in self?.searchPressed() }),
+        ])
         searchRow.frame = NSRect(x: width - 120, y: 0, width: 120, height: 24)
         field.addSubview(searchRow)
 
@@ -1241,15 +1225,13 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         column.widthAnchor.constraint(equalToConstant: Self.leftColumn).isActive = true
         column.heightAnchor.constraint(equalToConstant: Self.height - 50).isActive = true
 
-        let back = HandButton(title: "", target: self,
-                              action: openPage == nil ? #selector(overviewPressed) : #selector(backPressed))
-        back.isBordered = false
         let backTo = openPage == nil ? "Settings" : (pageReturn.map { sections[$0].name } ?? section.parent ?? "Settings")
-        back.attributedTitle = NSAttributedString(string: backTo, attributes: [
-            .font: BarTheme.secondaryFont, .foregroundColor: BarTheme.secondaryColor])
-        let backRow = NSStackView(views: [keycap("esc"), back])
-        backRow.orientation = .horizontal
-        backRow.spacing = 10
+        let backRow = Keycaps.line([
+            .init(["esc"], backTo, action: { [weak self] in
+                guard let self else { return }
+                if self.openPage == nil { self.overviewPressed() } else { self.backPressed() }
+            }),
+        ])
         column.addArrangedSubview(backRow)
         column.setCustomSpacing(20, after: backRow)
 
@@ -1374,10 +1356,9 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         if !row.isDefault, !row.path.isEmpty {
             switch row.control {
             case .choice, .number, .text:
-                let reset = HandButton(title: "Reset", target: self, action: #selector(resetPressed(_:)))
-                reset.isBordered = false
-                reset.attributedTitle = NSAttributedString(string: "Reset", attributes: [
-                    .font: BarTheme.secondaryFont, .foregroundColor: BarTheme.secondaryColor])
+                // An action is a key, never a word in grey that happens
+                // to be clickable.
+                let reset = RoomButton(title: "Reset", target: self, action: #selector(resetPressed(_:)))
                 reset.identifier = NSUserInterfaceItemIdentifier(row.path)
                 line.addArrangedSubview(reset)
             default:
@@ -1569,11 +1550,21 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                                     action: #selector(removePressed(_:)))
             button.identifier = NSUserInterfaceItemIdentifier("\(addKey(kind))|\(entry.key)")
             row.addArrangedSubview(button)
+            // The entry the keys are on rises, as the launcher's chosen row
+            // does: the raised step and its lit edge, never the accent
+            // washed across it.
             if let focus = listFocus, focus.row == paneRow, focus.entry == entryIndex {
-                row.wantsLayer = true
-                row.layer?.backgroundColor = BarTheme.accent
-                    .withAlphaComponent(0.14).cgColor
-                row.layer?.cornerRadius = BarTheme.chipRadius
+                let step = LandingStep()
+                step.translatesAutoresizingMaskIntoConstraints = false
+                step.setupRaised()
+                step.applyRaised(true)
+                row.addSubview(step, positioned: .below, relativeTo: nil)
+                NSLayoutConstraint.activate([
+                    step.topAnchor.constraint(equalTo: row.topAnchor, constant: -3),
+                    step.bottomAnchor.constraint(equalTo: row.bottomAnchor, constant: 3),
+                    step.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: -8),
+                    step.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: 8),
+                ])
             }
             column.addArrangedSubview(row)
         }
@@ -1865,13 +1856,10 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         list.orientation = .vertical
         list.alignment = .leading
         list.spacing = 22
-        let back = HandButton(title: "", target: self, action: #selector(searchBackPressed))
-        back.isBordered = false
-        back.attributedTitle = NSAttributedString(string: place.map { sections[$0].name } ?? "Settings", attributes: [
-            .font: BarTheme.secondaryFont, .foregroundColor: BarTheme.secondaryColor])
-        let backRow = NSStackView(views: [keycap("esc"), back])
-        backRow.orientation = .horizontal
-        backRow.spacing = 10
+        let backRow = Keycaps.line([
+            .init(["esc"], place.map { sections[$0].name } ?? "Settings",
+                  action: { [weak self] in self?.searchBackPressed() }),
+        ])
         list.addArrangedSubview(backRow)
 
         let fieldRow = NSStackView()
@@ -2246,7 +2234,9 @@ private final class LandingStep: RaisedRow {}
 
 /// The mark's light on the light page: a faint warm pool spreading from
 /// the star under the ring, so the shadows falling away from it have a
-/// source. The night needs none; the mark already glows on Slip.
+/// source. The night needs none; the mark already glows on Slip. The pool
+/// is the mark's own light, so it is the person's accent: a fixed orange
+/// beside any other accent was a second light in the room.
 final class MarkPool: NSView {
     private let glow = CAGradientLayer()
 
@@ -2254,9 +2244,6 @@ final class MarkPool: NSView {
         super.init(frame: frame)
         wantsLayer = true
         glow.type = .radial
-        glow.colors = [CGColor(srgbRed: 1, green: 0.42, blue: 0.12, alpha: 0.13),
-                       CGColor(srgbRed: 1, green: 0.55, blue: 0.25, alpha: 0.05),
-                       CGColor(srgbRed: 1, green: 0.6, blue: 0.3, alpha: 0)]
         glow.locations = [0, 0.45, 1]
         glow.startPoint = CGPoint(x: 0.5, y: 0.5)
         glow.endPoint = CGPoint(x: 1, y: 1)
@@ -2281,5 +2268,11 @@ final class MarkPool: NSView {
     private func restyle() {
         glow.frame = bounds
         glow.isHidden = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let light = BarTheme.accent.usingColorSpace(.sRGB) ?? .orange
+        // Warmer and paler as it spreads, as the fixed pool was.
+        let spread = light.blended(withFraction: 0.18, of: .white) ?? light
+        glow.colors = [light.withAlphaComponent(0.13).cgColor,
+                       spread.withAlphaComponent(0.05).cgColor,
+                       spread.withAlphaComponent(0).cgColor]
     }
 }

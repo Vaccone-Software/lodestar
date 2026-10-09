@@ -65,10 +65,9 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
         panel.level = .modalPanel
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
-        panel.contentView = root
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
         _ = Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
         panel.onKeyDown = { [weak self] event in self?.key(event) ?? false }
         Movable.enable(panel)
@@ -313,9 +312,9 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
         // the note and the thanks loses the eye that was on it.
         let visible = ActivePolicy.presentationFrame
         let origin = panel.isVisible
-            ? NSPoint(x: panel.frame.minX, y: panel.frame.maxY - size.height)
+            ? NSPoint(x: panel.glassFrame.minX, y: panel.glassFrame.maxY - size.height)
             : NSPoint(x: visible.midX - size.width / 2, y: visible.midY - size.height / 2 + 40)
-        panel.setFrame(NSRect(origin: origin, size: size), display: true)
+        panel.setGlassFrame(NSRect(origin: origin, size: size), display: true)
     }
 
     private func label(_ text: String, size: CGFloat, weight: NSFont.Weight,

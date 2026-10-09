@@ -77,15 +77,15 @@ final class ImageDoor {
         panel.level = .statusBar
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
-        panel.ignoresMouseEvents = false
         // Every key the grammar did not take arrives here; none has a
         // meaning, and a key window that beeps at each is not quiet.
         panel.onKeyDown = { _ in true }
-        panel.contentView = root
+        // The door floats on its drawn shadow, and takes the pointer only
+        // over its glass.
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
         backdrop = Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
 
         scroll.contentView = clip
@@ -141,8 +141,7 @@ final class ImageDoor {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
 
-        panel.setFrame(frame, display: false)
-        root.frame = NSRect(origin: .zero, size: frame.size)
+        panel.setGlassFrame(frame, display: false)
         backdrop?.frame = root.bounds
 
         scroll.frame = NSRect(x: Self.pad, y: Self.footerHeight + Self.pad,
@@ -238,7 +237,7 @@ extension ImageDoor {
     private func gesture(_ event: NSEvent) -> Bool {
         guard isVisible else { return false }
         let pointer = NSEvent.mouseLocation
-        guard panel.frame.contains(pointer) else { return false }
+        guard panel.glassFrame.contains(pointer) else { return false }
         switch event.type {
         case .magnify:
             pinch(by: event.magnification, at: pointer)

@@ -31,8 +31,10 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     var machineState: () -> SettingsModel.MachineState = { .init() }
     /// The machine's calendars and accounts, once access is granted.
     var calendarChoices: () -> [String] = { [] }
-    /// A bundle identifier's human name, for the exclusion list.
+    /// A bundle identifier's human name and icon, for the app lists: an
+    /// app is shown as people know it, never by its identifier.
     var appDisplayName: (String) -> String? = { _ in nil }
+    var appIcon: (String) -> NSImage? = { _ in nil }
     /// The doctor's findings, rendered beside the rows that fix them.
     var problems: () -> [String] = { [] }
     /// The boards the Keyboards page can speak for: attached right now by
@@ -1522,12 +1524,20 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             row.alignment = .centerY
             row.spacing = 10
             var display = entry.display
-            var sub = entry.sub
+            let sub = entry.sub
             if kind == .excludeApps || kind == .editorSkipApps {
-                if let name = appDisplayName(entry.key) {
-                    display = name
-                    sub = entry.key
-                }
+                // The app's icon and name, as the Dock shows it. The
+                // identifier is shown only for an app no longer on this
+                // Mac, when it is all there is to recognise.
+                if let name = appDisplayName(entry.key) { display = name }
+                let icon = NSImageView(image: appIcon(entry.key) ?? NSImage())
+                icon.translatesAutoresizingMaskIntoConstraints = false
+                NSLayoutConstraint.activate([
+                    icon.widthAnchor.constraint(equalToConstant: BarTheme.rowIcon),
+                    icon.heightAnchor.constraint(equalToConstant: BarTheme.rowIcon),
+                ])
+                row.addArrangedSubview(icon)
+                row.setCustomSpacing(8, after: icon)
             }
             let name = label(display, size: BarTheme.Scale.meta, weight: .regular, color: .labelColor)
             row.addArrangedSubview(name)

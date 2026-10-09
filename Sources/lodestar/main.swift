@@ -1320,6 +1320,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return FileManager.default.displayName(atPath: url.path)
                 .replacingOccurrences(of: ".app", with: "")
         }
+        settings.appIcon = { bundleID in
+            NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
+                .map { NSWorkspace.shared.icon(forFile: $0.path) }
+        }
         settings.calendarChoices = { [weak self] in
             self?.meetings.calendarNames() ?? []
         }

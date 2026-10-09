@@ -62,6 +62,22 @@ final class DraftEditorScenarioTests: XCTestCase {
         XCTAssertEqual(stage.draft.buffer.text, "We need to recieve the the files.", "⌫ takes the fix back")
     }
 
+    /// ⏎ in the draft's lens fixes every mark at once, the pill having
+    /// said how many, and one ⌫ takes them all back.
+    func testReturnInTheLensFixesEveryMarkAndOneBackspaceTakesThemBack() throws {
+        let (stage, _, _, _) = stage()
+        stage.lode(".")
+        stage.speech.settle("We need to recieve the the files.")
+        stage.lode("tab")
+        XCTAssertEqual(stage.engine.select.pill?.state?.offer?.words, "Fix all 2")
+        XCTAssertTrue(stage.press("return"))
+        XCTAssertEqual(stage.draft.buffer.text, "We need to receive the files.")
+        XCTAssertTrue(stage.draft.isOpen, "fixing is the draft's own edit; the draft stays")
+        stage.press("delete")
+        stage.clock.advance(by: 0.5)
+        XCTAssertEqual(stage.draft.buffer.text, "We need to recieve the the files.", "one ⌫, every fix back")
+    }
+
     /// Through the wiring that ships: the kept word is written to the
     /// config and the engine takes the new config. Written inside the
     /// keystroke, that re-entered the engine's core and aborted the app.

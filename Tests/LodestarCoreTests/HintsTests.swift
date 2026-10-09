@@ -209,6 +209,16 @@ final class EngineHintsTests: XCTestCase {
         XCTAssertEqual(core.state, .hints(sticky: true), "the clicking lens stays open")
     }
 
+    /// The editor's lens with nothing left lettered hands the next key
+    /// back: the lens ends and the key reaches the app, as if it never
+    /// stood (the ⏎ that sends a message after ⏎ fixed it).
+    func testAHandedBackKeyEndsTheLensAndReachesTheApp() {
+        _ = press(";", shift: true)
+        world.hintOutcomes["return"] = .handBack
+        XCTAssertEqual(press("return", held: false), [.exitHints, .passThrough])
+        XCTAssertEqual(core.state, .idle)
+    }
+
     func testPendingAndIgnoredAreSwallowed() {
         _ = press(";")
         world.hintOutcomes["a"] = .pending

@@ -45,6 +45,10 @@ enum StatusIcon {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+    /// The menu's first line: the name and the version, which is what
+    /// helping someone starts from, and nothing else.
+    static var menuHeader: String { "Lodestar \(Lodestar.version)" }
+
     private var config = Config()
     private var model: WindowModel!
     private var parking: ParkingLot!
@@ -910,7 +914,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Mac's convention marks a verb that opens a window, and every
         // verb here does.
         let menu = NSMenu()
-        let header = NSMenuItem(title: "Lodestar \(Lodestar.version)", action: nil, keyEquivalent: "")
+        let header = NSMenuItem(title: Self.menuHeader, action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
         menu.addItem(.separator())

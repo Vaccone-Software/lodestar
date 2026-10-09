@@ -2228,6 +2228,29 @@ extension SettingsController {
     func switchView(for path: String) -> AccentSwitch? { switches[path] }
     /// For the tests: a render, the way a config write causes one.
     func rerender() { render() }
+    /// For the tests: a place drawn without the window ever being shown.
+    func renderForTesting(place index: Int?) {
+        place = index
+        openPage = nil
+        render()
+    }
+    /// For the tests: a search with a query typed and its first result
+    /// picked, drawn without the window being shown.
+    func searchForTesting(_ query: String) {
+        searchPressed()
+        searchField?.stringValue = query
+        hits = SettingsModel.search(query, in: sections)
+        hitSelection = 0
+        renderHits()
+    }
+    /// For the tests: every word drawn in the window, and every view of a
+    /// kind, found by walking the views.
+    var shownTextsForTesting: [String] { Self.views(in: root, of: NSTextField.self).map(\.stringValue) }
+    func viewsForTesting<T: NSView>(of kind: T.Type) -> [T] { Self.views(in: root, of: kind) }
+    var searchRowsForTesting: [NSView] { hitsStack?.arrangedSubviews ?? [] }
+    private static func views<T: NSView>(in view: NSView, of kind: T.Type) -> [T] {
+        ((view as? T).map { [$0] } ?? []) + view.subviews.flatMap { views(in: $0, of: kind) }
+    }
 
     /// Machine state moved (a model downloading): drawn again when the
     /// pane is open and nothing is being typed into it — a render
@@ -2242,7 +2265,7 @@ extension SettingsController {
 
 /// The step a Settings row rises onto when a search lands on it: the bars'
 /// own raised row.
-private final class LandingStep: RaisedRow {}
+final class LandingStep: RaisedRow {}
 
 /// The mark's light on the light page: a faint warm pool spreading from
 /// the star under the ring, so the shadows falling away from it have a
@@ -2287,4 +2310,9 @@ final class MarkPool: NSView {
                        spread.withAlphaComponent(0.05).cgColor,
                        spread.withAlphaComponent(0).cgColor]
     }
+
+    #if DEBUG
+    /// The pool's colours, centre outward, for the tests.
+    var colors: [CGColor] { (glow.colors as? [CGColor]) ?? [] }
+    #endif
 }

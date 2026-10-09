@@ -200,6 +200,26 @@ final class DesignDriftTests: XCTestCase {
         XCTAssertEqual(offenders, [], "host the surface on SoftShadow instead")
     }
 
+    /// Every window Lodestar makes floats on the drawn shadow, not only
+    /// the ones `Glass.makePanel` builds: a panel made by hand keeps the
+    /// window server's shadow unless it says otherwise, which is how four
+    /// rooms kept it. A file that makes a window hosts its surface on
+    /// `SoftShadow`, or turns the shadow off and draws its own.
+    func testEveryWindowMadeByHandCastsTheDrawnShadow() throws {
+        let makesWindow = ["KeyablePanel(", "NSPanel(", "NSWindow(", "GlassPanel(", "ShowingPanel("]
+        var missing: [String] = []
+        // The render tool's flat ground and stand-in app window are the
+        // scene a surface is photographed over, not surfaces.
+        let notSurfaces: Set<String> = ["Glass.swift", "StripPreview.swift"]
+        for (name, text) in try sources() where !notSurfaces.contains(name) {
+            guard makesWindow.contains(where: text.contains) else { continue }
+            let drawn = text.contains("SoftShadow.host(") || text.contains("SoftShadow.object(")
+                || text.contains("hasShadow = false")
+            if !drawn { missing.append(name) }
+        }
+        XCTAssertEqual(missing, [], "host the surface on SoftShadow")
+    }
+
     /// One curve for everything that moves: `BarTheme.motion`. Three
     /// curves chosen surface by surface made the app move like three
     /// materials.

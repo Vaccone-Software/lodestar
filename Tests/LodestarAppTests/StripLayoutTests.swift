@@ -515,6 +515,17 @@ final class StripSecretTests: XCTestCase {
         stage.press("escape")
     }
 
+    /// ⏎ in Keep pastes the lit card, the latest, as J does.
+    func testReturnPastesTheLatestClip() {
+        let stage = Stage()
+        stage.seedClip("the older clip")
+        stage.seedClip("the latest clip")
+        stage.openStrip()
+        XCTAssertTrue(stage.press("return"))
+        XCTAssertEqual(stage.clipboard.pasteboard.string(forType: .string), "the latest clip")
+        XCTAssertFalse(stage.engine.strip.isVisible, "a paste closes Keep")
+    }
+
     /// A secret pasted back is marked concealed, so other clipboard tools
     /// look away; an ordinary clip is not.
     func testASecretPastesBackConcealed() {

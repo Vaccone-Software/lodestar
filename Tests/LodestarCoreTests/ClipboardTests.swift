@@ -275,6 +275,24 @@ final class PasteModeTests: XCTestCase {
                        [.pasteRecent(label: "j", action: .panel), .pastePanelShow])
     }
 
+    /// ⌃⏎ is J's reading, and is refused like ⌃J when J has none.
+    func testControlReturnIsTheLitCardsReading() {
+        world.pasteCards.insert("j")
+        open()
+        XCTAssertEqual(press("return", control: true), [.pasteRecent(label: "j", action: .reading), .exitPaste])
+        world.readings = []
+        open()
+        XCTAssertEqual(press("return", control: true), [], "no reading, nothing pasted")
+        XCTAssertEqual(core.state, .paste(searching: false))
+    }
+
+    /// While searching, ⏎ is still the best match's, never J's.
+    func testReturnWhileSearchingStaysTheBestMatch() {
+        world.pasteCards.insert("j")
+        openSearching()
+        XCTAssertEqual(press("return"), [.pasteSearchCommit(action: .plain), .exitPaste])
+    }
+
     func testReturnWithNothingCopiedIsSwallowed() {
         open()
         XCTAssertEqual(press("return"), [], "no lit card, nothing to take")

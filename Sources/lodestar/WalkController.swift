@@ -879,6 +879,26 @@ final class WalkController: NSObject {
                 position < total ? "The next lesson arrives in a few days" : "That was the last lesson")
     }
 
+    /// A lesson's rows. The first is what the lesson asks the hand to do,
+    /// so its keys are lit; an answerable lesson's (the editor's) is its
+    /// answer, pressable as well. Later closes them, on the keys every ask
+    /// answers to: passing a lesson is the walk's one decision.
+    static func lessonRows(_ card: LessonCard, answerable: Bool, answer: @escaping () -> Void,
+                           later: @escaping () -> Void) -> [GuideRow] {
+        var rows = card.rows.enumerated().map { index, row in
+            answerable && index == 0
+                ? GuideRow(keys: row.keys, label: row.label, action: answer, lit: true)
+                : GuideRow(keys: row.keys, label: row.label, lit: index == 0)
+        }
+        rows.append(GuideRow(keys: ["lode", "⌫"], label: "Later", action: later))
+        return rows
+    }
+
+    /// The walk card's heading: the door and how far through it, in words.
+    static func heading(door: String, position: Int, total: Int) -> String {
+        "\(door) · \(position) of \(total)"
+    }
+
     /// A lesson on the companion's glass, in the voice.
     private func renderLesson(_ lesson: Curriculum.Lesson) {
         for view in cardRoot.subviews where view is NSStackView { view.removeFromSuperview() }
@@ -888,17 +908,9 @@ final class WalkController: NSObject {
             stack = VoiceCard.build(sentence: note.sentence, detail: note.detail, rows: [])
         } else {
             let card = Self.lessonCard(lesson)
-            var rows = card.rows.enumerated().map { index, row in
-                // The first row is what the lesson asks the hand to do, so
-                // its keys are lit; the editor's is its answer, pressable
-                // as well.
-                lesson == .editor && index == 0
-                    ? GuideRow(keys: row.keys, label: row.label, action: { [weak self] in self?.assent() }, lit: true)
-                    : GuideRow(keys: row.keys, label: row.label, lit: index == 0)
-            }
-            // Later on the same keys every ask answers to, pressable as
-            // well: passing a lesson is the walk's one decision.
-            rows.append(GuideRow(keys: ["lode", "⌫"], label: "Later", action: { [weak self] in _ = self?.pass() }))
+            let rows = Self.lessonRows(card, answerable: lesson == .editor,
+                                       answer: { [weak self] in self?.assent() },
+                                       later: { [weak self] in _ = self?.pass() })
             stack = VoiceCard.build(sentence: card.sentence, detail: card.detail, rows: rows)
         }
         cardRoot.addSubview(stack)
@@ -930,7 +942,7 @@ final class WalkController: NSObject {
         let content = self.content(for: walk.step, door: walk.door)
         let progress = walk.progress
         let header: String? = walk.step == .done ? nil
-            : "\(walk.door.name) · \(progress.position) of \(progress.total)"
+            : Self.heading(door: walk.door.name, position: progress.position, total: progress.total)
         let footer: (title: String, action: Selector) = walk.step == .done
             ? ("Done", #selector(donePressed))
             : ("Skip this step", #selector(skipPressed))

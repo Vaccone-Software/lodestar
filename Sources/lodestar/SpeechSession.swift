@@ -249,10 +249,9 @@ final class AudioInput: @unchecked Sendable {
     /// The session in flight — the device asked for and the sink — kept
     /// so a configuration change can rebuild it. nil between sessions.
     private var inFlight: (device: String?, sink: (AVAudioPCMBuffer) -> Void)?
-    /// Rebuilds this session has spent: a radio that keeps flipping must
-    /// not rebuild forever.
-    private var rebuilds = 0
     private var rebuildPending = false
+    /// Rebuilds a session may spend: a radio that keeps flipping must not
+    /// rebuild forever.
     static let rebuildCap = 6
     /// Which engine a configuration-change notice was about: each build
     /// stamps the next number and observes its own engine by object, so
@@ -268,33 +267,10 @@ final class AudioInput: @unchecked Sendable {
     private let deliveryLock = NSLock()
     private var delivered = 0
     private var signalled = false
-    /// When the engine last started and reported running; nil while it
-    /// is not. What a stop measures the run against before believing
-    /// the device heard nothing.
-    private var runningSince: Date?
-    /// The engine ran and heard nothing, so the next start builds a new
-    /// one rather than restarting this.
-    private var deaf = false
-    /// How many whole windows each device has run through in silence.
-    ///
-    /// A system default that delivers nothing will deliver nothing on
-    /// the next draft too, and retrying it every time is how a dictation
-    /// feature spends a whole evening hearing silence: a monitor or a
-    /// dock that presents an input with no microphone behind it is the
-    /// ordinary way to end up here, and it can be the default without
-    /// anyone having chosen it. Once is an engine that may have been
-    /// born deaf and is rebuilt; twice is the device, and the default is
-    /// read elsewhere. Never a device a hand named on the register line:
-    /// `choose` reads that one as named, whatever this says about it.
-    private var silentWindows: [AudioDeviceID: Int] = [:]
-    /// The inputs the machine had when the last window was charged. The
-    /// write-off lasts only while that set stands: a device arriving or
-    /// leaving clears it, so a headset that was slow once is not held
-    /// against it after it reconnects, and a pin made under one set of
-    /// devices never outlives them. It used to last the process, and
-    /// one evening that pinned every session to a microphone the lid
-    /// had switched off, whatever the register line was set to.
-    private var silentRoster: Set<AudioDeviceID> = []
+    /// The silence watch, the write-offs and the rebuild budget: the
+    /// decisions about this engine that are not the engine's (see
+    /// `AudioKeeper`). Touched only on `queue`.
+    private var keeper = AudioKeeper()
     /// Windows in silence before a device is read no more.
     static let windowsToWriteOff = 2
     /// How long a running engine may deliver no signal before it is not
@@ -495,7 +471,7 @@ final class AudioInput: @unchecked Sendable {
         do {
             try engine.start()
             rebuildPending = false
-            runningSince = engine.isRunning ? Date() : nil
+            keeper.ran(running: engine.isRunning, at: Date())
             Log.info("draft", ["speech": "audio configuration changed", "restarted": true, "attempt": attempt])
         } catch {
             Log.info("draft", ["speech": "audio configuration changed",
@@ -515,11 +491,10 @@ final class AudioInput: @unchecked Sendable {
     private func rebuild(attempt: Int) {
         dispatchPrecondition(condition: .onQueue(queue))
         guard let inFlight else { return } // the session ended while this waited
-        guard rebuilds < Self.rebuildCap else {
-            Log.info("draft", ["speech": "audio configuration changed", "rebuilds": rebuilds, "gaveUp": true])
+        guard keeper.mayRebuild() else {
+            Log.info("draft", ["speech": "audio configuration changed", "rebuilds": keeper.rebuilds, "gaveUp": true])
             return
         }
-        rebuilds += 1
         do {
             let started = try startNow(device: inFlight.device, sink: inFlight.sink, fresh: true)
             Log.info("draft", ["speech": "audio configuration changed", "rebuilt": true,
@@ -688,7 +663,7 @@ final class AudioInput: @unchecked Sendable {
     func start(device: String?, sink: @escaping (AVAudioPCMBuffer) -> Void,
                completion: @escaping (Result<(format: AVAudioFormat, name: String?), Error>) -> Void) {
         queue.async {
-            self.rebuilds = 0
+            self.keeper.sessionBegan()
             completion(Result { try self.startNow(device: device, sink: sink) })
         }
     }
@@ -732,18 +707,17 @@ final class AudioInput: @unchecked Sendable {
         if logs, device != nil, wanted == nil {
             Log.info("draft", ["speech": "input not found", "wanted": device ?? ""])
         }
-        let roster = Set(devices.map(\.id))
-        if logs, !silentWindows.isEmpty, !Self.writeOffHolds(roster: roster, chargedUnder: silentRoster) {
-            Log.info("draft", ["speech": "inputs changed", "silence forgotten": silentWindows.count])
-            silentWindows = [:]
-        }
-        let writtenOff = Set(silentWindows.filter { $0.value >= Self.windowsToWriteOff }.map(\.key))
         let systemDefault = Self.defaultInput()
         let lidClosed = Lid.isClosed() == true
-        let headset = devices.map(\.id).first { !writtenOff.contains($0) && Self.isBluetooth($0) }
+        let machine = AudioKeeper.Machine(devices: devices.map(\.id), systemDefault: systemDefault,
+                                          builtIn: Self.builtInInput(), lidClosed: lidClosed,
+                                          isBluetooth: Self.isBluetooth)
+        let (choice, forgotten) = keeper.choose(wanted: wanted, on: machine)
+        if logs, let forgotten {
+            Log.info("draft", ["speech": "inputs changed", "silence forgotten": forgotten])
+        }
         let target: AudioDeviceID?
-        switch Self.choose(wanted: wanted, systemDefault: systemDefault, writtenOff: writtenOff,
-                           builtIn: Self.builtInInput(), lidClosed: lidClosed, headset: headset) {
+        switch choice {
         case .off(let why):
             if logs { Log.info("draft", ["speech": "input is off", "why": why]) }
             throw InputOff(why: why)
@@ -770,7 +744,7 @@ final class AudioInput: @unchecked Sendable {
             let current = engine?.inputNode.inputFormat(forBus: 0)
             let stale = Self.engineIsStale(
                 hasEngine: engine != nil, builtFor: engineDevice, target: target,
-                attempt: attempt, deaf: deaf,
+                attempt: attempt, deaf: keeper.deaf,
                 nowReading: current.map { ($0.sampleRate, $0.channelCount) },
                 builtReading: engineFormat)
             if stale { discard(); _ = build(for: target) }
@@ -817,8 +791,7 @@ final class AudioInput: @unchecked Sendable {
                            "inHz": Int(input.inputFormat(forBus: 0).sampleRate),
                            "inCh": Int(input.inputFormat(forBus: 0).channelCount),
                            "voiceProcessing": input.isVoiceProcessingEnabled])
-        deaf = false
-        runningSince = engine.isRunning ? Date() : nil
+        keeper.started(running: engine.isRunning, at: Date())
         watchForSilence(generation: engineGeneration)
         return (format, name)
     }
@@ -842,31 +815,30 @@ final class AudioInput: @unchecked Sendable {
     private func watchForSilence(generation: Int) {
         let window = deafnessWindow
         queue.asyncAfter(deadline: .now() + window) { [weak self] in
-            guard let self, self.engineGeneration == generation, self.inFlight != nil,
-                  let engine = self.engine, engine.isRunning else { return }
-            guard !self.heardSignal() else { return }
-            self.deaf = true
+            guard let self else { return }
+            let watching = self.engineGeneration == generation && self.inFlight != nil
+                && self.engine?.isRunning == true
             // Rebuilding the same device is only worth doing once: an
             // engine can be born deaf, but a device silent through two
             // windows is a device with no microphone behind it, and the
             // rebuild's own start reads the default elsewhere.
-            self.charge(self.engineDevice)
+            guard case .rebuild(let charge) = self.keeper.windowClosed(
+                watching: watching, signalled: watching && self.heardSignal(), device: self.engineDevice,
+                roster: { Set(Self.inputDevices().map(\.id)) }) else { return }
+            self.logCharge(charge)
             Log.info("draft", ["speech": "engine heard nothing", "buffers": self.deliveredCount(),
-                               "seconds": window, "rebuilds": self.rebuilds])
+                               "seconds": window, "rebuilds": self.keeper.rebuilds])
             self.rebuild(attempt: 1)
         }
     }
 
     /// One whole window of silence, against the device that ran it.
-    private func charge(_ device: AudioDeviceID?) {
-        dispatchPrecondition(condition: .onQueue(queue))
-        guard let device else { return }
-        silentWindows[device, default: 0] += 1
-        silentRoster = Set(Self.inputDevices().map(\.id))
+    private func logCharge(_ charge: AudioKeeper.Charge?) {
+        guard let charge else { return }
         Log.info("draft", ["speech": "input heard nothing",
-                           "input": Self.name(of: device) ?? "unknown",
-                           "windows": silentWindows[device] ?? 0,
-                           "writtenOff": (silentWindows[device] ?? 0) >= Self.windowsToWriteOff])
+                           "input": Self.name(of: charge.device) ?? "unknown",
+                           "windows": charge.windows,
+                           "writtenOff": charge.writtenOff])
     }
 
     func pause() {
@@ -877,7 +849,7 @@ final class AudioInput: @unchecked Sendable {
         queue.async {
             guard self.tapInstalled, let engine = self.engine else { return }
             try? engine.start()
-            self.runningSince = engine.isRunning ? Date() : nil
+            self.keeper.ran(running: engine.isRunning, at: Date())
             // Coming back from a pause is a start like any other, and an
             // engine can be deaf on either side of one.
             self.watchForSilence(generation: self.engineGeneration)
@@ -909,13 +881,9 @@ final class AudioInput: @unchecked Sendable {
         // indicts the device too, which is what stops the next draft
         // opening the same silence. A session stopped sooner, which is
         // what a timed-out start's retry is, says nothing about either.
-        let ran = runningSince.map { Date().timeIntervalSince($0) }
-        runningSince = nil
-        if inFlight != nil, engine != nil,
-           Self.indicts(ranFor: ran, signalled: heardSignal(), window: deafnessWindow) {
-            deaf = true
-            charge(engineDevice)
-        }
+        logCharge(keeper.stopped(at: Date(), inFlight: inFlight != nil, hasEngine: engine != nil,
+                                 signalled: heardSignal, window: { self.deafnessWindow },
+                                 device: engineDevice, roster: { Set(Self.inputDevices().map(\.id)) }))
         inFlight = nil
         guard let engine else { return }
         if tapInstalled {
@@ -1171,10 +1139,11 @@ private actor AnalyzerBox {
     /// names and is judged by its own silence watch; the bridge is never
     /// charged and never charges it.
     private func openBridge(for wanted: String?, gate: Handover, say: (SpeechState) -> Void) async {
-        guard ProcessInfo.processInfo.environment["LODESTAR_NO_BRIDGE"] == nil,
-              let builtIn = AudioInput.builtInInput(), Lid.isClosed() == false,
-              let target = AudioInput.plannedTarget(device: wanted),
-              target != builtIn, AudioInput.isBluetooth(target) else { return }
+        guard let (builtIn, target) = BridgeMic.plan(
+            disabled: ProcessInfo.processInfo.environment["LODESTAR_NO_BRIDGE"] != nil,
+            builtIn: AudioInput.builtInInput, lidClosed: Lid.isClosed,
+            target: { AudioInput.plannedTarget(device: wanted) }, isBluetooth: AudioInput.isBluetooth)
+        else { return }
         let bridge = self.bridge
         let ticket = bridge.reserveTicket()
         bridgeTicket = ticket
@@ -1313,7 +1282,37 @@ private actor AnalyzerBox {
 /// a while before it is disposed.
 final class BridgeMic: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.vaccone.lodestar.audio.bridge", qos: .userInitiated)
-    private var audioQueue: AudioQueueRef?
+    /// One bridge, open: how to pause, resume and let it go.
+    struct Opened {
+        let pause: () -> Void
+        let resume: () -> Void
+        let stop: () -> Void
+    }
+    /// What opens the device on the bridge's queue, feeding `sink`: the
+    /// audio queue below, or a stand-in under the tests. Nil when it would
+    /// not open.
+    typealias Opener = (_ device: AudioDeviceID, _ queue: DispatchQueue,
+                        _ sink: @escaping (AVAudioPCMBuffer) -> Void) -> Opened?
+    private let opener: Opener
+    private var opened: Opened?
+
+    init(opener: @escaping Opener = BridgeMic.audioQueue) {
+        self.opener = opener
+    }
+
+    /// Whether a session gets a bridge: the Mac's own microphone, standing
+    /// in for the device the session will read. Only with the lid known
+    /// to be open (closed, it reads zeros), only for a Bluetooth target
+    /// that is not the Mac's microphone itself, and never when switched
+    /// off. The facts that cost a CoreAudio query are asked only as far
+    /// as needed.
+    static func plan(disabled: Bool, builtIn: () -> AudioDeviceID?, lidClosed: () -> Bool?,
+                     target: () -> AudioDeviceID?, isBluetooth: (AudioDeviceID) -> Bool)
+        -> (bridge: AudioDeviceID, target: AudioDeviceID)? {
+        guard !disabled, let builtIn = builtIn(), lidClosed() == false,
+              let target = target(), target != builtIn, isBluetooth(target) else { return nil }
+        return (builtIn, target)
+    }
     /// Whose bridge is open. One bridge serves every draft in turn, and a
     /// draft winding down after the next one opened used to stop the new
     /// draft's bridge along with its own. A ticket is taken before the
@@ -1337,40 +1336,50 @@ final class BridgeMic: @unchecked Sendable {
                completion: @escaping (Bool) -> Void) {
         queue.async {
             self.stopNow()
-            guard var uid = Self.uid(of: device) else { completion(false); return }
-            var description = Self.format.streamDescription.pointee
-            var made: AudioQueueRef?
-            let status = AudioQueueNewInputWithDispatchQueue(&made, &description, 0, self.queue) { aq, raw, _, _, _ in
-                let frames = raw.pointee.mAudioDataByteSize / UInt32(MemoryLayout<Float>.size)
-                if frames > 0, let buffer = AVAudioPCMBuffer(pcmFormat: Self.format, frameCapacity: frames),
-                   let channel = buffer.floatChannelData?[0] {
-                    buffer.frameLength = frames
-                    channel.update(from: raw.pointee.mAudioData.assumingMemoryBound(to: Float.self), count: Int(frames))
-                    sink(buffer)
-                }
-                AudioQueueEnqueueBuffer(aq, raw, 0, nil)
-            }
-            guard status == noErr, let aq = made else { completion(false); return }
-            guard AudioQueueSetProperty(aq, kAudioQueueProperty_CurrentDevice, &uid,
-                                        UInt32(MemoryLayout<CFString>.size)) == noErr else {
-                AudioQueueDispose(aq, true); completion(false); return
-            }
-            for _ in 0..<3 {
-                var buffer: AudioQueueBufferRef?
-                AudioQueueAllocateBuffer(aq, Self.framesPerBuffer * UInt32(MemoryLayout<Float>.size), &buffer)
-                if let buffer { AudioQueueEnqueueBuffer(aq, buffer, 0, nil) }
-            }
-            guard AudioQueueStart(aq, nil) == noErr else {
-                AudioQueueDispose(aq, true); completion(false); return
-            }
-            self.audioQueue = aq
+            guard let opened = self.opener(device, self.queue, sink) else { completion(false); return }
+            self.opened = opened
             self.openTicket = ticket
             completion(true)
         }
     }
 
-    func pause() { queue.async { if let aq = self.audioQueue { AudioQueuePause(aq) } } }
-    func resume() { queue.async { if let aq = self.audioQueue { AudioQueueStart(aq, nil) } } }
+    /// The bridge as the app runs it: an audio queue on the device's UID.
+    static func audioQueue(device: AudioDeviceID, queue: DispatchQueue,
+                           sink: @escaping (AVAudioPCMBuffer) -> Void) -> Opened? {
+        guard var uid = Self.uid(of: device) else { return nil }
+        var description = Self.format.streamDescription.pointee
+        var made: AudioQueueRef?
+        let status = AudioQueueNewInputWithDispatchQueue(&made, &description, 0, queue) { aq, raw, _, _, _ in
+            let frames = raw.pointee.mAudioDataByteSize / UInt32(MemoryLayout<Float>.size)
+            if frames > 0, let buffer = AVAudioPCMBuffer(pcmFormat: Self.format, frameCapacity: frames),
+               let channel = buffer.floatChannelData?[0] {
+                buffer.frameLength = frames
+                channel.update(from: raw.pointee.mAudioData.assumingMemoryBound(to: Float.self), count: Int(frames))
+                sink(buffer)
+            }
+            AudioQueueEnqueueBuffer(aq, raw, 0, nil)
+        }
+        guard status == noErr, let aq = made else { return nil }
+        guard AudioQueueSetProperty(aq, kAudioQueueProperty_CurrentDevice, &uid,
+                                    UInt32(MemoryLayout<CFString>.size)) == noErr else {
+            AudioQueueDispose(aq, true); return nil
+        }
+        for _ in 0..<3 {
+            var buffer: AudioQueueBufferRef?
+            AudioQueueAllocateBuffer(aq, Self.framesPerBuffer * UInt32(MemoryLayout<Float>.size), &buffer)
+            if let buffer { AudioQueueEnqueueBuffer(aq, buffer, 0, nil) }
+        }
+        guard AudioQueueStart(aq, nil) == noErr else {
+            AudioQueueDispose(aq, true); return nil
+        }
+        return Opened(pause: { AudioQueuePause(aq) }, resume: { AudioQueueStart(aq, nil) }, stop: {
+            AudioQueueStop(aq, true)
+            queue.asyncAfter(deadline: .now() + AudioInput.retirement) { AudioQueueDispose(aq, true) }
+        })
+    }
+
+    func pause() { queue.async { self.opened?.pause() } }
+    func resume() { queue.async { self.opened?.resume() } }
     /// Whatever is open: a new draft, or the session ending.
     func stop() { queue.async { self.stopNow() } }
 
@@ -1383,12 +1392,16 @@ final class BridgeMic: @unchecked Sendable {
     }
 
     private func stopNow() {
-        guard let aq = audioQueue else { return }
-        audioQueue = nil
+        guard let opened else { return }
+        self.opened = nil
         openTicket = nil
-        AudioQueueStop(aq, true)
-        queue.asyncAfter(deadline: .now() + AudioInput.retirement) { AudioQueueDispose(aq, true) }
+        opened.stop()
     }
+
+    #if DEBUG
+    /// For the tests: everything asked of the bridge's queue so far, done.
+    func drain() { queue.sync {} }
+    #endif
 
     private static func uid(of device: AudioDeviceID) -> CFString? {
         var address = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyDeviceUID,

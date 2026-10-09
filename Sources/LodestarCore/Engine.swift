@@ -849,7 +849,7 @@ public struct EngineCore {
                 state = .idle
                 effects.append(contentsOf: [
                     .hideGuide,
-                    .flash("⌖ lode \(Self.display(letters)) moved to lode \(moved)"),
+                    .flash("✕ That address moved\n\(Self.keyed(Self.display(letters))) is now \(Self.keyed(moved))"),
                 ])
             } else if firstLetter {
                 // A complete failed gesture, not an abandoned traversal —
@@ -1397,7 +1397,7 @@ public struct EngineCore {
                                          world: EngineWorld) -> [EngineEffect] {
         guard held else { return [] } // the draft's; swallowed if it reaches here
         if key == "." {
-            return shift ? [] : [.flash("the clipboard view has no microphone")]
+            return shift ? [] : [.flash("✕ The clipboard view has no microphone")]
         }
         state = .idle
         var effects: [EngineEffect] = [.pasteDoorClose(reason: "lode"), .exitPaste]
@@ -1651,5 +1651,10 @@ public struct EngineCore {
 
     static func display(_ letters: [String]) -> String {
         letters.map { $0.uppercased() }.joined(separator: " ")
+    }
+
+    /// An address as a flash writes it, its keys drawn: `[lode][B][X]`.
+    static func keyed(_ display: String) -> String {
+        "[lode]" + display.split(separator: " ").map { "[\($0)]" }.joined()
     }
 }

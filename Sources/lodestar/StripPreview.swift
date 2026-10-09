@@ -343,7 +343,7 @@ enum StripPreview {
             }
             let offer = variant == 62
                 ? CoachCard.Offer(sentence: "Notes could be one key away", icons: [icon("com.apple.Notes")].compactMap { $0 },
-                                  name: "Notes", address: ["lode", "N"], record: "You searched for it 31 times across 6 weeks",
+                                  name: "Notes", address: ["lode", "N"], record: "Searched 31 times across 6 weeks",
                                   accept: {}, decline: {})
                 : CoachCard.Offer(sentence: "Slack and Zoom could stand side by side with one key",
                                   icons: [icon("com.tinyspeck.slackmacgap"), icon("us.zoom.xos")].compactMap { $0 },

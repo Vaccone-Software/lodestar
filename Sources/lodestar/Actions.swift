@@ -160,7 +160,7 @@ final class Actions {
                                 source: "typed", row: row)
         coachWebOpen?(host)
         guard ChromiumProfiles.openURL(url, in: profile) else {
-            hud.flash("✕ profile '\(profile.display)' not found in \(profile.browser.label)")
+            hud.flash("✕ No profile named \(profile.display) in \(profile.browser.label)")
             return
         }
         if let window = ChromiumProfiles.window(for: profile, in: model) {
@@ -362,7 +362,7 @@ final class Actions {
             return
         }
         guard let entry else {
-            hud.flash("✕ no app matches '\(name)'")
+            hud.flash("✕ No app is named \(name)")
             return
         }
         launch(entry, beside: beside)
@@ -398,7 +398,7 @@ final class Actions {
         // kept: a failed open with a 12-second intent standing would claim
         // whatever matching window the user then opens by hand.
         guard ChromiumProfiles.openWindow(profile) else {
-            hud.flash("✕ \(profile.browser.label) profile '\(profile.display)' not found")
+            hud.flash("✕ No profile named \(profile.display) in \(profile.browser.label)")
             return
         }
         beginOpening("\(profile.browser.label) · \(profile.display)",
@@ -438,7 +438,7 @@ final class Actions {
     /// ⇧ joins beside instead of taking over.
     func maximizeFocused(beside: Bool) {
         guard let window = model.focusedWindowNow() else {
-            hud.flash("✕ no focused window to maximize")
+            hud.flash("✕ No window in front to fill the screen")
             return
         }
         Log.info("maximize", ["window": window.id, "app": window.appName, "beside": beside])
@@ -449,7 +449,7 @@ final class Actions {
     func summonWindow(_ id: CGWindowID, beside: Bool) {
         roads?.summoned(via: .chooser)
         guard let window = model.window(id), model.verify(id) else {
-            hud.flash("✕ that window is gone")
+            hud.flash("✕ That window has closed")
             return
         }
         place(window, beside: beside)
@@ -500,18 +500,18 @@ final class Actions {
         chordSummons = nil
         if let display = layout.undo() {
             focusFirst(on: display)
-            hud.flash("⟲ layout")
+            hud.flash("⟲ Layout undone")
         } else {
-            hud.flash("✕ nothing to undo")
+            hud.flash("✕ Nothing to undo")
         }
     }
 
     func redoLayout() {
         if let display = layout.redo() {
             focusFirst(on: display)
-            hud.flash("⟳ layout")
+            hud.flash("⟲ Layout redone")
         } else {
-            hud.flash("✕ nothing to redo")
+            hud.flash("✕ Nothing to redo")
         }
     }
 
@@ -519,19 +519,19 @@ final class Actions {
     /// plain arrives full-screen there, shift arrives beside.
     func moveFocusedDisplay(direction: Int, beside: Bool) {
         guard let focused = model.focusedWindowNow() else {
-            hud.flash("✕ no focused window")
+            hud.flash("✕ No window in front")
             return
         }
         guard let home = Displays.display(containing: focused.frame),
               let destination = Displays.neighbor(of: home, direction: direction) else {
-            hud.flash("✕ only one display")
+            hud.flash("✕ Only one display is attached")
             return
         }
         Log.info("move-display", ["window": focused.id, "from": home.id,
                                   "to": destination.id, "beside": beside])
         if beside {
             guard layout.add(focused.id, on: destination.id) else {
-                hud.flash("✕ nine windows is the cap · plain [ ] replaces")
+                hud.flash("✕ A layout holds nine windows\n[[] or []] replaces the focused one")
                 return
             }
         } else {
@@ -545,11 +545,11 @@ final class Actions {
     func reorderFocused(toDigit digit: Int) {
         guard let focused = model.focusedWindow, model.verify(focused.id),
               let display = layout.display(of: focused.id) else {
-            hud.flash("✕ the focused window is not in a layout")
+            hud.flash("✕ The window in front is not in a layout")
             return
         }
         guard layout.move(focused.id, toDigit: digit, on: display) else {
-            hud.flash("✕ can't move to position \(digit)")
+            hud.flash("✕ This layout has no place \(digit)")
             return
         }
         raise(focused)
@@ -568,7 +568,7 @@ final class Actions {
         guard let active = layout.activeDisplay(),
               let id = layout.windowID(atDigit: digit, on: active.id),
               let window = model.window(id), model.verify(id) else {
-            hud.flash("✕ no window \(digit)")
+            hud.flash("✕ No window \(digit) in this layout")
             return
         }
         raise(window)
@@ -577,7 +577,7 @@ final class Actions {
     func flipOrientation() {
         guard let active = layout.activeDisplay() else { return }
         layout.flipOrientation(on: active.id)
-        hud.flash("↺ \(layout.orientation(on: active.id).rawValue)")
+        hud.flash(layout.orientation(on: active.id) == .horizontal ? "↺ Side by side" : "↺ Stacked")
     }
 
     /// Rows for the persistent breath guide: layouts saved under this prefix.
@@ -883,7 +883,7 @@ final class Actions {
         // outrun them.
         parking.waitForWrites()
         store.setParked(parking.snapshot())
-        hud.flash("⤺ restored \(count) parked window\(count == 1 ? "" : "s")")
+        hud.flash("⤺ \(count) parked window\(count == 1 ? "" : "s") restored")
     }
 
     // MARK: - Plumbing
@@ -929,7 +929,7 @@ final class Actions {
         // Backstop for every path that hands an id straight here: a window
         // that died without telling anyone must not become a layout member.
         guard model.verify(window.id) else {
-            hud.flash("✕ that window is gone")
+            hud.flash("✕ That window has closed")
             return
         }
         // Any placement at all, by any road — the link chip's whole claim
@@ -991,7 +991,7 @@ final class Actions {
             // world exactly as it was — a half-acted gesture would be
             // worse than a declined one.
             guard layout.add(window.id, on: active.id) else {
-                hud.flash("✕ nine windows is the cap · plain summon replaces")
+                hud.flash("✕ A layout holds nine windows\n[lode] and a letter alone replaces the focused one")
                 return
             }
             // The hand composed a pair: what a breath offer is priced on.

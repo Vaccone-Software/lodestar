@@ -233,10 +233,10 @@ final class CoachTests: XCTestCase {
         let chip = Coach.chip(for: bindRec(seconds: 40), observations: o)
         XCTAssertEqual(chip.headline, "lode F → facetime")
         XCTAssertEqual(chip.sentence, "facetime could be one key away", "what the offer means, said plainly")
-        XCTAssertTrue(chip.evidence.hasPrefix("You searched for it 31 times"),
+        XCTAssertTrue(chip.evidence.hasPrefix("Searched 31 times across"),
                       "the user can verify every clause from experience, and the line opens with a capital")
-        XCTAssertTrue(chip.evidence.contains("about 40 seconds a week, about half an hour a year"),
-                      "the measurement, then the same measurement at a scale a person can feel")
+        XCTAssertFalse(chip.evidence.contains("seconds a week"),
+                       "one line on the card: the count and the span, the price stays the offer's reason")
         XCTAssertTrue(chip.footer.hasPrefix("Accept"), "the footer says what accepting does")
         XCTAssertFalse(chip.footer.contains("fades"), "the chip's own life is not the reader's business")
         for line in [chip.headline, chip.evidence, chip.footer] {

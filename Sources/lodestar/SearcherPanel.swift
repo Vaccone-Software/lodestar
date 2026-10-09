@@ -64,7 +64,9 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     private let magnifier = NSImageView()
     private let separator = NSBox()
     private let rowsStack = NSStackView()
-    private let footer = NSTextField(labelWithString: "")
+    /// The footer: a note in the band under the rows, its keys drawn.
+    private let footer = NSStackView()
+    private var footerShown = false
     private let appIndex: AppIndex
     private let actions: Actions
     private let model: WindowModel
@@ -109,7 +111,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     private let rowHeight = BarTheme.rowHeight
     /// The bar has no legend. The footer's band exists only while a note
     /// stands in it: the coach's toll on a closed road.
-    private var footerHeight: CGFloat { footer.stringValue.isEmpty ? BarTheme.barFoot : BarTheme.footerHeight }
+    private var footerHeight: CGFloat { footerShown ? BarTheme.footerHeight : BarTheme.barFoot }
 
     init(appIndex: AppIndex, actions: Actions, model: WindowModel) {
         self.appIndex = appIndex
@@ -164,9 +166,9 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         rowsStack.translatesAutoresizingMaskIntoConstraints = false
         keys.install(root: root, below: rowsStack)
 
-        footer.font = BarTheme.footerFont
-        footer.textColor = BarTheme.secondaryColor
-        footer.alignment = .center
+        footer.orientation = .horizontal
+        footer.alignment = .centerY
+        footer.spacing = 8
         footer.translatesAutoresizingMaskIntoConstraints = false
 
         root.addSubview(magnifier)
@@ -227,7 +229,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         openedAt = Date()
         firstKeyAt = nil
         confirmedRoad = nil
-        footer.stringValue = ""
+        setFooter(nil)
         requery()
         present()
     }
@@ -438,6 +440,19 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         if rowViews.indices.contains(selected) { rowViews[selected].setSelected(true) }
     }
 
+    /// The footer's note: what to do now on the left, what to do next time
+    /// on the right. Nil clears the band.
+    private func setFooter(_ note: (now: String, next: String)?) {
+        footer.arrangedSubviews.forEach { footer.removeArrangedSubview($0); $0.removeFromSuperview() }
+        footerShown = note != nil
+        guard let note else { return }
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        footer.addArrangedSubview(Keycaps.sentence(note.now))
+        footer.addArrangedSubview(spacer)
+        footer.addArrangedSubview(Keycaps.sentence(note.next))
+    }
+
     private func pick(beside: Bool) {
         guard rows.indices.contains(selected) else { return }
         let row = rows[selected]
@@ -451,8 +466,10 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
                                         app: entry.name),
            confirmedRoad != entry.name.lowercased() {
             confirmedRoad = entry.name.lowercased()
-            let shown = "lode " + chain.map { $0.uppercased() }.joined(separator: " ")
-            footer.stringValue = "\(shown) reaches \(entry.name)    ↵ again to open it anyway"
+            // Two things and no more: one more ⏎ opens it, and the address
+            // to use next time. The row already names the app.
+            let address = (["lode"] + chain.map { $0.uppercased() }).map { "[\($0)]" }.joined()
+            setFooter(("[⏎] again to open", "Next time \(address)"))
             reposition()
             return
         }

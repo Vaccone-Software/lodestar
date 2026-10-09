@@ -155,7 +155,7 @@ final class SupersedeTests: XCTestCase {
         _ = engine.keyDown(key: "b", held: true, shift: false, world: world)
         let effects = engine.keyDown(key: "x", held: true, shift: false, world: world)
 
-        XCTAssertEqual(effects, [.hideGuide, .flash("⌖ lode B X moved to lode X")])
+        XCTAssertEqual(effects, [.hideGuide, .flash("✕ That address moved\n[lode][B][X] is now [lode][X]")])
         XCTAssertEqual(engine.state, .idle,
                        "a moved address ends the gesture, it does not park you in a mode")
     }
@@ -179,7 +179,7 @@ final class SupersedeTests: XCTestCase {
         var (engine, world) = core(graph: ["v": .miss], superseded: ["v": "X"])
         let effects = engine.keyDown(key: "v", held: true, shift: false, world: world)
 
-        XCTAssertEqual(effects, [.hideGuide, .flash("⌖ lode V moved to lode X")])
+        XCTAssertEqual(effects, [.hideGuide, .flash("✕ That address moved\n[lode][V] is now [lode][X]")])
         XCTAssertEqual(engine.state, .idle)
     }
 

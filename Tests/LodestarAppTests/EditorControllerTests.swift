@@ -460,7 +460,7 @@ final class EditorControllerTests: XCTestCase {
         rig.settle("the refusal") { done != nil }
         XCTAssertEqual(done, false)
         XCTAssertEqual(rig.source.text, "So we need to recieve them.", "nothing overwritten")
-        XCTAssertEqual(rig.flashes, ["✕ the text changed under the mark"])
+        XCTAssertEqual(rig.flashes, ["✕ The text changed before the fix landed"])
     }
 
     func testStillReadsChecksTheWordsAndTheBounds() {

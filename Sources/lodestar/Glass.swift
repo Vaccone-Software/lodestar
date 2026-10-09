@@ -577,7 +577,9 @@ enum BarTheme {
     /// asks, teaches or reflects, and the note on a clip it has read;
     /// facts, addresses, keys and the hand's words never wear it.
     static let voiceFont: NSFont = {
-        let size: CGFloat = 20
+        // The title size, the size Settings speaks in: a voice card's
+        // sentence once sat at 20, a fourth reading size.
+        let size: CGFloat = Scale.title
         let descriptor = NSFont.systemFont(ofSize: size).fontDescriptor.withDesign(.serif)
         return descriptor.flatMap { NSFont(descriptor: $0, size: size) } ?? NSFont.systemFont(ofSize: size)
     }()
@@ -605,7 +607,7 @@ enum BarTheme {
     /// they change, a word ("Now") a size down, and the unit in small caps.
     static let stubCountFont = NSFont.monospacedDigitSystemFont(ofSize: 19, weight: .semibold)
     static let stubWordFont = NSFont.systemFont(ofSize: 15, weight: .semibold)
-    static let stubUnitFont = NSFont.systemFont(ofSize: 9.5, weight: .semibold)
+    static let stubUnitFont = NSFont.systemFont(ofSize: Scale.meta, weight: .semibold)
     /// The meeting's name on its stub, in the voice a size under the body,
     /// and the line beneath it.
     static let stubTitleFont: NSFont = {
@@ -613,7 +615,9 @@ enum BarTheme {
         let descriptor = NSFont.systemFont(ofSize: size).fontDescriptor.withDesign(.serif)
         return descriptor.flatMap { NSFont(descriptor: $0, size: size) } ?? NSFont.systemFont(ofSize: size)
     }()
-    static let stubDetailFont = NSFont.systemFont(ofSize: 11.5)
+    /// Nothing read is set under the meta size: the coach's record and its
+    /// way out, the stub's line, were 11.5 point in grey.
+    static let stubDetailFont = NSFont.systemFont(ofSize: Scale.meta)
     /// The coach's sentence over its row: the voice at the body's size, so
     /// the card stays a line of type and a row.
     static let coachVoiceFont: NSFont = {
@@ -734,6 +738,10 @@ enum BarTheme {
     /// The key's top face catches the light; its front lip falls in shadow.
     static var keyTop: NSColor { NSColor.white.withAlphaComponent(Tone.systemDark ? 0.11 : 0.9) }
     static var keyLip: NSColor { NSColor.black.withAlphaComponent(Tone.systemDark ? 0.6 : 0.16) }
+    /// A quiet key's face: the shallow well it lies in. Not raised, so it
+    /// catches no light (no top edge, no lip), and its letter stays in the
+    /// second grey, readable.
+    static var keyWell: NSColor { NSColor.labelColor.withAlphaComponent(0.045) }
     /// A lit key is a small piece of the mark: the accent, its top edge the
     /// mark's brightest face and its lip the darkest.
     static var litKeyTop: NSColor { accent.blended(withFraction: 0.4, of: .white) ?? accent }
@@ -1024,6 +1032,31 @@ enum Keycaps {
         }
     }
 
+    /// A line written with its keys in brackets (`FlashLine`): words and
+    /// key groups on one row, every key centred on the words' middle, in
+    /// the footer's size and grey. A flash's way and the launcher's
+    /// footer are drawn by it, so a key named in a sentence is a key.
+    static func sentence(_ line: String) -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 5
+        for part in FlashLine.parts(line) {
+            switch part {
+            case .words(let text):
+                row.addArrangedSubview(word(text, color: BarTheme.secondaryColor))
+            case .keys(let keys):
+                let group = NSStackView(views: keys.map { cap($0) })
+                group.orientation = .horizontal
+                group.alignment = .centerY
+                group.spacing = 3
+                row.addArrangedSubview(group)
+            }
+        }
+        row.setAccessibilityLabel(FlashLine.plain(line))
+        return row
+    }
+
     /// A single cap: the one key, the launcher's, so a key never looks
     /// like two different things on two surfaces.
     static func cap(_ text: String) -> CapView {
@@ -1056,7 +1089,7 @@ enum Keycaps {
             let caps = gesture.keys.map { cap($0) }
             for capView in caps {
                 capView.lit = gesture.lit && !gesture.quiet
-                if gesture.quiet { capView.alphaValue = 0.45 }
+                capView.quiet = gesture.quiet
             }
             if let action = gesture.action, !gesture.quiet {
                 // One view for the whole gesture, so hover lights both caps
@@ -1073,7 +1106,6 @@ enum Keycaps {
             // "esc Back", never "esc back".
             let verb = word(gesture.verb.prefix(1).uppercased() + gesture.verb.dropFirst(),
                             color: gesture.lit && !gesture.quiet ? .labelColor : BarTheme.secondaryColor)
-            if gesture.quiet { verb.alphaValue = 0.6 }
             add(verb, spacingBefore: 7)
         }
         return row
@@ -1483,6 +1515,14 @@ extension Readability.RGB {
 final class KeyFace: NSView {
     let label = NSTextField(labelWithString: "")
     var lit = false { didSet { if lit != oldValue { refresh() } } }
+    /// A key you could press but are not being asked to: the address the
+    /// coach offers for later, a cheat sheet's unused gesture, an action
+    /// not available yet. It lies flat. The light falls on raised things,
+    /// so a key that is not raised loses its lit top edge and its lip and
+    /// sits in a shallow well; resting keys stand, the lit key glows.
+    /// Depth carries the importance, never a fade: a translucent key is
+    /// not a thing a light falls on, and on clay it all but vanished.
+    var quiet = false { didSet { if quiet != oldValue { refresh() } } }
     /// What a pointer is doing to a key that can be clicked: it brightens
     /// under the pointer and sinks onto its lip when pressed.
     private var pointer = Keycaps.CapState.resting
@@ -1546,6 +1586,17 @@ final class KeyFace: NSView {
         let toward: NSColor = Tone.systemDark || lit ? .white : .black
         let face = pointer == .resting ? resting
             : resting.blended(withFraction: pointer == .pressed ? 0.06 : (Tone.systemDark || lit ? 0.12 : 0.05), of: toward) ?? resting
+        if quiet, !lit {
+            layer?.backgroundColor = Glass.resolved(BarTheme.keyWell, in: self)
+            layer?.borderWidth = 0
+            layer?.borderColor = nil
+            layer?.shadowOpacity = 0
+            top.color = nil
+            label.textColor = BarTheme.secondaryColor
+            CATransaction.commit()
+            return
+        }
+        layer?.shadowOpacity = 1
         layer?.backgroundColor = Glass.resolved(face, in: self)
         let edge = lit ? nil : BarTheme.keyEdge
         layer?.borderWidth = edge == nil ? 0 : 0.5

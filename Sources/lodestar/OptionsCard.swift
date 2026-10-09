@@ -303,7 +303,7 @@ final class OptionsCard {
     private func keycap(_ text: String, quiet: Bool = false, caps: Bool = true) -> NSView {
         let key = KeyFace(caps ? text.uppercased() : text)
         key.setContentHuggingPriority(.required, for: .horizontal)
-        if quiet { key.alphaValue = 0.6 }
+        key.quiet = quiet
         return key
     }
 

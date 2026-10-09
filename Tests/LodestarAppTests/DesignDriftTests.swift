@@ -288,9 +288,46 @@ final class DesignDriftTests: XCTestCase {
     /// Keys are drawn, never typed into a sentence: "esc back" as letters
     /// is a key the eye has to find inside the words.
     func testKeysAreDrawnNotTyped() throws {
-        let hits = try offenders(#"stringValue = "[^"]*(\besc [a-z]|⌫ [a-z]|⇥ [a-z]|⏎ [a-z]|h j k l)"#,
+        let hits = try offenders(#"stringValue = "[^"]*(\besc [a-z]|⌫ [a-z]|⇥ [a-z]|⏎ [a-z]|↵|h j k l|lode [A-Z] )"#,
                                  in: surfaces())
         XCTAssertEqual(hits, [], "draw keys with Keycaps.line or a footer line")
+    }
+
+    /// Every flash literal in the app's sources, as written.
+    private func flashLiterals() throws -> [(file: String, text: String)] {
+        let regex = try NSRegularExpression(pattern: #"flash\("((?:[^"\\]|\\.)*)""#)
+        var found: [(String, String)] = []
+        for file in Self.swiftFiles(under: Self.appSources) {
+            let text = Self.code(try String(contentsOf: file, encoding: .utf8))
+            for match in regex.matches(in: text, range: NSRange(location: 0, length: (text as NSString).length)) {
+                found.append((file.lastPathComponent, (text as NSString).substring(with: match.range(at: 1))))
+            }
+        }
+        XCTAssertGreaterThan(found.count, 60, "the flashes were found")
+        return found
+    }
+
+    /// One voice for every flash (DESIGN, the flash rules): it opens with
+    /// one of the marks, then a capital; a key it names is drawn, written
+    /// in brackets; no timer and no "see the log" on the glass.
+    func testEveryFlashSpeaksOneWay() throws {
+        let marks: Set<Character> = ["✕", "⚠", "✓", "⌂", "◎", "⟲", "↺", "⤺", "☰"]
+        var unmarked: [String] = [], lowercase: [String] = [], typed: [String] = [], timers: [String] = []
+        for (file, literal) in try flashLiterals() {
+            guard let first = literal.first else { continue }
+            let where_ = "\(file): \(literal)"
+            if !marks.contains(first) { unmarked.append(where_); continue }
+            let rest = literal.dropFirst().drop { $0 == " " }
+            if let letter = rest.first, letter.isLowercase { lowercase.append(where_) }
+            // Keys outside brackets are typed into the words.
+            let unbracketed = literal.replacingOccurrences(of: #"\[\]\]|\[[^\]]+\]"#, with: "", options: .regularExpression)
+            if unbracketed.rangeOfCharacter(from: CharacterSet(charactersIn: "⌘⌃⌥⇧⏎↵⌫⇥")) != nil { typed.append(where_) }
+            if literal.range(of: #"\b[0-9]+ ?s\b|see (the )?log"#, options: .regularExpression) != nil { timers.append(where_) }
+        }
+        XCTAssertEqual(unmarked, [], "open with a mark: ✕ refused, ⚠ needs you, ✓ done, ⌂ Keep, ◎ a breath, ⟲ ↺ ⤺ layout, ☰ the menu bar")
+        XCTAssertEqual(lowercase, [], "the fact opens with a capital")
+        XCTAssertEqual(typed, [], "write a key as [⌘], and it is drawn")
+        XCTAssertEqual(timers, [], "no timer and no log on the glass")
     }
 
     /// A label is a name, capitalized: a section's title, a link, a

@@ -77,7 +77,7 @@ final class ClipDoorGrammarTests: XCTestCase {
 
     func testLodeDotFlashesInsteadOfOpeningAMicrophone() {
         openDoor()
-        XCTAssertEqual(press(".", held: true), [.flash("the clipboard view has no microphone")])
+        XCTAssertEqual(press(".", held: true), [.flash("✕ The clipboard view has no microphone")])
         XCTAssertEqual(core.state, .pasteDoor(searching: false), "the door stands")
         XCTAssertEqual(press(".", held: true, shift: true), [],
                        "⇧. asks for the silence the door already has")

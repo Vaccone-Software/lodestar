@@ -349,7 +349,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                    alsoKeeping: Set([self?.earHost.wantedCleanup?.manifest.folder].compactMap { $0 }))
             self?.editorController?.refreshModel()
             if let self { self.applyEditor(self.config) }
-            self?.hud.flash("✓ the \(engine.name) model is ready, grammar is marked now")
+            self?.hud.flash("✓ The \(engine.name) model is ready\nGrammar is marked as you type")
         }
         let scroller = ScrollController(model: model)
         scroller.latency = { [weak self] surface, seconds in
@@ -386,7 +386,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.settings.machineStateChanged()
         }
         earHost.ready = { [weak self] tier in
-            self?.hud.flash("✓ the \(tier.name.lowercased()) dictation model is ready, it hears what you say twice now")
+            self?.hud.flash("✓ The \(tier.name.lowercased()) dictation model is ready\nIt now hears each phrase twice")
         }
         draft.inputDevice = config.draftInput.isEmpty ? nil : config.draftInput
         draft.sounds = config.sounds
@@ -414,7 +414,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if crashedLastRun, let stranded = try? String(contentsOf: stashFile, encoding: .utf8),
            !stranded.isEmpty {
             draft.writePasteboard(stranded)
-            hud.flash("⌂ recovered your draft to the clipboard")
+            hud.flash("⌂ Your draft is on the clipboard")
             Log.info("draft", ["recovered": stranded.count])
         }
         try? FileManager.default.removeItem(at: stashFile)
@@ -479,6 +479,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         engine.onHumanPressMatch = { [weak self] press, keycode, stamp in
             self?.health.notePress(press, match: (keycode, stamp))
             self?.stand.keyPressed()
+            // A flash that needs you goes at your next key, after the tap
+            // has let the key go.
+            OffTap.run { self?.hud.keyStruck() }
         }
         engine.onStampJitter = { [weak self] seconds in self?.health.noteJitter(seconds) }
         engine.onTapReset = { [weak self] in self?.health.noteTapReset() }
@@ -557,8 +560,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 // A ledger fact, not a write: the accepted entry the coach
                 // records next is the closure, and `Coach.roadClosed`
                 // reads it back until the address's curve bends.
-                let shown = "lode " + chain.map { $0.uppercased() }.joined(separator: " ")
-                self.hud.flash("✓ the launcher asks twice for \(app) until \(shown) is learned")
+                let keys = (["lode"] + chain.map { $0.uppercased() }).map { "[\($0)]" }.joined()
+                self.hud.flash("✓ The launcher asks twice for \(app)\nUntil \(keys) is in your hands")
                 return nil
             }
         }
@@ -712,7 +715,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                           humanInput: self.engine.lastHumanInputAt,
                                           systemIdleSeconds: idle, now: Date())
         }
-        updater.flash = { [weak self] text, seconds in self?.hud.flash(text, seconds: seconds) }
+        updater.flash = { [weak self] text in self?.hud.flash(text) }
         updater.voice = { [weak self] sentence, detail, mark, stands in
             self?.voice(sentence, detail: detail, mark: mark, stands: stands)
         }
@@ -773,11 +776,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if engine.start() {
             flashReady("\(model.windows.count) windows tracked, \(config.graph.children.count) graph roots")
         } else {
-            hud.flash("✕ Lodestar could not install its event tap", seconds: 6)
+            hud.flash("⚠ Lodestar cannot hear the keyboard\nAllow it in Privacy & Security, under Accessibility")
         }
         for warning in [store.bootWarning, clipboardController?.bootWarning].compactMap({ $0 }) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [hud] in
-                hud?.flash("⚠ \(warning)", seconds: 8)
+                hud?.flash("⚠ \(warning)")
             }
         }
         let allProblems = problems
@@ -787,7 +790,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Log.error("config", ["problem": problem])
         }
         if !allProblems.isEmpty {
-            hud.flash("config: \(allProblems[0])\(allProblems.count > 1 ? " (+\(allProblems.count - 1) more, see log)" : "")", seconds: 4)
+            hud.flash("⚠ \(allProblems[0])" + (allProblems.count > 1 ? "\n\(allProblems.count - 1) more, listed by lodestar check" : ""))
         }
     }
 
@@ -1016,7 +1019,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menuBarHideTimer?.invalidate()
         menuBarHideTimer = nil
         if !config.showMenuBar {
-            hud.flash("☰ menu bar revealed for 60s")
+            hud.flash("☰ Menu bar shown")
             menuBarHideTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: false) { [weak self] _ in
                 guard let self, !self.config.showMenuBar else { return }
                 self.removeStatusItem()
@@ -1145,7 +1148,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func installMeetings() {
         meetings.observations = observationStore
-        meetings.flash = { [weak self] text in self?.hud.flash(text, seconds: 8) }
+        meetings.flash = { [weak self] text in self?.hud.flash(text) }
         meetings.onChipShown = { [weak self] in self?.coach.surfaceClaimed() }
         meetings.openWeb = { [weak self] url, profile in
             self?.actions.openWeb(url: url, profile: profile, beside: false)
@@ -1454,7 +1457,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             clipboardController.clearHistory()
         case "delete-logbook":
             observationStore?.clearLogbook()
-            hud.flash("⌂ logbook deleted")
+            hud.flash("✓ Logbook deleted")
         case let undo where undo.hasPrefix("undo:"):
             let id = String(undo.dropFirst(5))
             guard let entry = ConfigHistory.read().first(where: { $0.id == id }) else { return }
@@ -1462,7 +1465,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case "delete-health":
             observationStore?.clearHealth()
             health.forgetBuffered()
-            hud.flash("⌂ health record deleted")
+            hud.flash("✓ Health record deleted")
         default:
             Log.error("settings", ["unknown action": action])
         }
@@ -1552,7 +1555,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         handler.savedBrowser = { [weak self] in self?.config.webClickBrowser ?? "" }
         // The HUD is not up yet at install time, and a link is not worth
         // waiting for one; failures flash if there is anything to flash with.
-        handler.flash = { [weak self] text in self?.hud?.flash(text, seconds: 5) }
+        handler.flash = { [weak self] text in self?.hud?.flash(text) }
         handler.adoptIfUnconfigured = { [weak self] in self?.adoptBrowserRoleIfNeeded() }
         // The store does not exist yet at install time; the closure looks
         // it up per link, so early clicks simply go unobserved.
@@ -1608,7 +1611,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard config.webHandleClicks else { return }
         guard ClickRouter.selfCheck() else {
             Log.error("click", ["self-check": "failed", "router": false])
-            hud.flash("⚠ Lodestar is your browser but cannot route links", seconds: 8)
+            hud.flash("⚠ Lodestar holds your links but cannot route them\nOpen Settings, under Web")
             return
         }
         updater.confirmRoutingHealthy()
@@ -1621,8 +1624,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Log.error("click", ["browser": config.webClickBrowser.isEmpty
                                     ? "none on file, falling back to discovery"
                                     : "not installed: \(config.webClickBrowser)"])
-            hud.flash("⚠ Lodestar is your browser but no browser is set, see web.clicks.browser",
-                      seconds: 8)
+            hud.flash("⚠ Lodestar holds your links but has no browser to send them to\nChoose one in Settings, under Web")
         }
     }
 
@@ -1730,7 +1732,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if browser.isEmpty {
             guard let discovered = ClickHandler.discoverBrowser(),
                   let bundleID = Bundle(url: discovered)?.bundleIdentifier else {
-                hud.flash("⚠ Lodestar is your default browser but no browser is set, see web.clicks.browser", seconds: 8)
+                hud.flash("⚠ Lodestar holds your links but has no browser to send them to\nChoose one in Settings, under Web")
                 Log.error("click", ["adopt": "no browser to hand off to"])
                 return
             }
@@ -1741,8 +1743,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         recordClickSettings(enabled: true, browser: browser)
         let name = Self.shortBrowserName(browser)
         hud.flash(guessed
-            ? "⌖ Routing links · unrouted go to \(name)? change it with web.clicks.browser"
-            : "⌖ Routing links · unrouted go to \(name)", seconds: 6)
+            ? "✓ Links route through Lodestar\nOthers go to \(name), change it in Settings, under Web"
+            : "✓ Links route through Lodestar\nOthers go to \(name)")
     }
 
     /// com.brave.Browser reads as Brave. A bundle id in a flash is furniture.
@@ -1759,8 +1761,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func openDefaultBrowserSettings() {
         let pane = URL(string: "x-apple.systempreferences:com.apple.Desktop-Settings.extension")
         if let pane { SystemEvents.open(pane) }
-        hud.flash("Choose “lodestar” as your default web browser, then links follow your rules",
-                  seconds: 9)
+        hud.flash("⚠ Choose Lodestar as your default browser\nThen links follow your rules")
     }
 
     /// Take the role, or take you to where it is taken.
@@ -1815,8 +1816,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 }
                 let previous = self.config.webClickBrowser
                 self.recordClickSettings(enabled: true, browser: previous)
-                self.hud.flash("⌖ Links now route through Lodestar · unrouted go to "
-                    + Self.shortBrowserName(previous), seconds: 4)
+                self.hud.flash("✓ Links route through Lodestar\nOthers go to "
+                    + Self.shortBrowserName(previous))
                 Log.info("default-browser", ["took-over-from": previous])
             }
         }
@@ -1847,7 +1848,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 }
                 NSWorkspace.shared.setDefaultApplication(at: application,
                                                          toOpenURLsWithScheme: "http") { _ in }
-                self.hud.flash("Links go straight to \(name) again", seconds: 4)
+                self.hud.flash("✓ Links go straight to \(name) again")
             }
         }
     }
@@ -1921,7 +1922,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         } catch {
             Log.error("clipboard", ["exclude-failed": "\(error)"])
-            hud.flash("⚠ could not save that. \(error)", seconds: 5)
+            hud.flash("✕ That setting could not be saved")
             return
         }
         Log.info("clipboard", ["excluded-app": bundleID])
@@ -2292,7 +2293,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // door) reloads without a word.
             if !successFlash.isEmpty { hud.flash(successFlash) }
         } else {
-            hud.flash("config: \(problems[0])\(problems.count > 1 ? " (+\(problems.count - 1) more, see log)" : "")", seconds: 4)
+            hud.flash("⚠ \(problems[0])" + (problems.count > 1 ? "\n\(problems.count - 1) more, listed by lodestar check" : ""))
         }
         Log.info("config-reload", [
             "graph": graphAddressByApp.count, "links": loaded.webLinks.count,
@@ -2386,8 +2387,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if let contents = try? String(contentsOf: Config.file, encoding: .utf8),
                (try? Json.parse(contents)) == nil {
                 Log.error("config-autoreload: the file does not parse — keeping the last good config")
-                self.hud.flash("Config not applied: the file does not parse. Fix it and save again.",
-                               seconds: 6)
+                self.hud.flash("⚠ The config file does not parse\nFix it and save again")
                 self.updateConfigWatcher() // re-arm; the fix deserves a reload too
                 return
             }
@@ -2408,7 +2408,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // agent (or anything) to that path breaks every future login —
         // tell the user the one move that fixes it, and touch nothing.
         if bundlePath.contains("/AppTranslocation/") {
-            hud.flash("Move Lodestar to Applications, then open it again", seconds: 10)
+            hud.flash("⚠ Move Lodestar to Applications\nThen open it again")
             Log.error("running translocated — asked the user to move the app")
             return
         }

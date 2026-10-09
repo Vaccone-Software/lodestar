@@ -164,11 +164,11 @@ public enum Updater {
         case .idle:
             return .startCheck
         case .checking:
-            return .refuse(note: "⌖ already checking for updates…")
+            return .refuse(note: "⟲ Already checking for updates")
         case .ready:
             return .applyStaged
         case .applying(let version):
-            return .refuse(note: "⌖ already updating to \(version) — the new build takes over shortly")
+            return .refuse(note: "⟲ Already updating to \(version)\nThe new build takes over on its own")
         }
     }
 

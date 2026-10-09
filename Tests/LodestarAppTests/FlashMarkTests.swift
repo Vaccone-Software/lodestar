@@ -29,7 +29,7 @@ final class FlashMarkTests: XCTestCase {
 
     func testTheGuideAndTheFlashDrawTheMark() {
         let hud = HUD()
-        hud.flash("◎ Breath W saved with 2 windows", seconds: 60)
+        hud.flash("◎ Breath W saved with 2 windows")
         XCTAssertEqual(hud.titleSymbol, "wind")
         XCTAssertEqual(hud.titleText, "Breath W saved with 2 windows")
         hud.showGuide(mark: BarTheme.breathSymbol, keys: ["lode", "'", "W"],
@@ -38,6 +38,19 @@ final class FlashMarkTests: XCTestCase {
         XCTAssertEqual(hud.titleText, "lode ' W", "the header is the chain so far, as keys")
         hud.showGuide(keys: ["lode"], rows: [])
         XCTAssertNil(hud.titleSymbol, "the graph's guide has no mark; its header is the keys alone")
+        hud.hide()
+    }
+
+    /// The fact, then the way under it, its keys drawn: one string at the
+    /// call site, split at the newline.
+    func testAFlashCarriesItsWayOnASecondLine() {
+        let hud = HUD()
+        hud.flash("⌂ This field only takes a paste you press\n[⌘][V] pastes it")
+        XCTAssertEqual(hud.titleSymbol, "doc.on.clipboard")
+        XCTAssertEqual(hud.titleText, "This field only takes a paste you press")
+        XCTAssertEqual(hud.titleWay, "[⌘][V] pastes it")
+        hud.flash("⟲ Layout redone")
+        XCTAssertNil(hud.titleWay, "a fact with no way is one line")
         hud.hide()
     }
 
@@ -77,5 +90,33 @@ final class CoachCardTests: XCTestCase {
                                          address: ["lode", "N"], record: "31 searches", accept: {}, decline: {}))
         XCTAssertEqual(card.accessibilityRole(), .group)
         XCTAssertEqual(card.accessibilityLabel(), "Notes could be one key away. 31 searches")
+    }
+}
+
+/// A flash that needs you stays until your next key, not for a time chosen
+/// for you; every other flash goes after its words are read.
+final class HeldFlashTests: XCTestCase {
+    func testAFlashThatNeedsYouWaitsForAKey() {
+        let stage = Stage()
+        stage.hud.flash("⚠ Lodestar lost its keyboard access\nTurn it back on in Privacy & Security, under Accessibility")
+        XCTAssertEqual(stage.hud.owner, .flash)
+        stage.clock.advance(by: 10)
+        XCTAssertEqual(stage.hud.owner, .flash, "still there after ten seconds")
+        stage.hud.keyStruck()
+        XCTAssertEqual(stage.hud.owner, .none, "the next key takes it down")
+    }
+
+    func testAKeyTooSoonDoesNotSweepItAway() {
+        let stage = Stage()
+        stage.hud.flash("⚠ Move Lodestar to Applications\nThen open it again")
+        stage.hud.keyStruck()
+        XCTAssertEqual(stage.hud.owner, .flash, "a key already on its way when it appeared is not an answer")
+    }
+
+    func testAnOrdinaryFlashIsNotHeld() {
+        let stage = Stage()
+        stage.hud.flash("✕ Nothing to undo")
+        stage.clock.advance(by: 5)
+        XCTAssertEqual(stage.hud.owner, .none, "four seconds at most")
     }
 }

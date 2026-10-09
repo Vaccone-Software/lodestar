@@ -779,7 +779,7 @@ final class ClipboardStrip {
         var leading = Self.pad
         if wearsKey {
             let cap = addKey("\(slot)", lit: false, to: card, height: size.height)
-            cap.alphaValue = 0.55
+            (cap as? KeyFace)?.quiet = true
             leading = cap.frame.maxX + 8
         }
         let label = NSTextField(labelWithString: "Keep here")

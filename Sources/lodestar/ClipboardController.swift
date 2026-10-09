@@ -69,7 +69,7 @@ final class ClipboardController {
     func clearHistory() {
         store.clearAll()
         onCapture?()
-        flash("⌂ clipboard history cleared")
+        flash("⌂ Keep cleared")
     }
 
     func setEnabled(_ enabled: Bool) {
@@ -132,7 +132,7 @@ final class ClipboardController {
             if store.consumeClearRequest() {
                 store.clearAll()
                 onCapture?()
-                flash("⌂ clipboard history cleared")
+                flash("⌂ Keep cleared")
             }
         }
         let board = SystemEvents.pasteboard
@@ -343,7 +343,7 @@ final class ClipboardController {
         }
 
         guard !items.isEmpty, board.writeObjects(items) else {
-            flash("✕ that clip could not be read")
+            flash("✕ That clip could not be read")
             return
         }
         selfWrittenChangeCount = board.changeCount
@@ -353,7 +353,7 @@ final class ClipboardController {
         // field would swallow the paste in silence. The clip is on the
         // pasteboard either way — hand off rather than fail.
         if secureInput() {
-            flash("press ⌘V to paste, this field blocks synthetic input")
+            flash("⌂ This field only takes a paste you press\n[⌘][V] pastes it")
             return
         }
         // Only when the file could not be written does the last keystroke go
@@ -363,7 +363,7 @@ final class ClipboardController {
             kind: clip.kind,
             frontmostBundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         ), !handedOverAsFile {
-            flash("press ⌃V to paste, that image could not be written to a file")
+            flash("⌂ That image could not be saved as a file\n[⌃][V] pastes it as an image")
             return
         }
         postPaste()
@@ -375,13 +375,13 @@ final class ClipboardController {
         let board = pasteboard
         board.clearContents()
         guard board.setString(text, forType: .string) else {
-            flash("✕ that reading could not be pasted")
+            flash("✕ That reading could not be pasted")
             return
         }
         selfWrittenChangeCount = board.changeCount
         lastChangeCount = board.changeCount
         if secureInput() {
-            flash("press ⌘V to paste, this field blocks synthetic input")
+            flash("⌂ This field only takes a paste you press\n[⌘][V] pastes it")
             return
         }
         postPaste()
@@ -481,7 +481,7 @@ final class ClipboardController {
     /// the tap.
     func saveImage(_ clip: Clipboard.Clip, as typed: String) {
         guard let (data, _) = imageBytes(of: clip) else {
-            flash("✕ nothing to save")
+            flash("✕ Nothing to save")
             return
         }
         let path = Clipboard.saveDestination(typed: typed,
@@ -504,7 +504,7 @@ final class ClipboardController {
             bytes = nil
         }
         guard let bytes else {
-            flash("✕ could not save the image")
+            flash("✕ The image could not be saved")
             return
         }
         let url = URL(fileURLWithPath: path)
@@ -513,11 +513,11 @@ final class ClipboardController {
                                                     withIntermediateDirectories: true)
             try bytes.write(to: url)
             lastSavedPath = path
-            flash("⌂ saved \(url.lastPathComponent) to \(Clipboard.folderName(of: path, home: home))")
+            flash("⌂ Saved \(url.lastPathComponent) to \(Clipboard.folderName(of: path, home: home))")
             Log.info("strip", ["saved": format.rawValue, "bytes": bytes.count,
                                "folder": Clipboard.folderName(of: path, home: home)])
         } catch {
-            flash("✕ could not save to \(Clipboard.folderName(of: path, home: home))")
+            flash("✕ Could not save to \(Clipboard.folderName(of: path, home: home))")
         }
     }
 
@@ -533,9 +533,9 @@ final class ClipboardController {
     /// `⏎` in the clip door with changed text: the card replaced in place.
     func replaceText(of clip: Clipboard.Clip, with text: String) {
         if store.replace(clip, withText: text) != nil {
-            flash("⌂ saved to the card")
+            flash("⌂ Saved to the card")
         } else {
-            flash("✕ the card could not be saved")
+            flash("✕ The card could not be saved")
         }
     }
 
@@ -543,9 +543,9 @@ final class ClipboardController {
     /// original left alone.
     func fileEdit(of clip: Clipboard.Clip, text: String) {
         if store.fileEdit(from: clip, text: text) != nil {
-            flash("⌂ edit kept as a new card")
+            flash("⌂ Kept as a new card")
         } else {
-            flash("✕ the edit could not be kept")
+            flash("✕ The edit could not be kept")
         }
     }
 
@@ -553,21 +553,21 @@ final class ClipboardController {
     func togglePin(_ clip: Clipboard.Clip) {
         if clip.isPinned {
             store.unpin(clip.id)
-            flash("⌂ let go")
+            flash("⌂ Let go")
         } else if store.pin(clip.id) {
-            flash("⌂ kept")
+            flash("⌂ Kept")
         } else {
-            flash("✕ all \(Clipboard.pinSlots) places are full")
+            flash("✕ All \(Clipboard.pinSlots) keepsake places are full\n[⌘][1] to [⌘][\(Clipboard.pinSlots)] replaces one")
         }
     }
 
     func excludeApp(of clip: Clipboard.Clip) -> String? {
         guard let bundleID = clip.sourceBundleID else {
-            flash("✕ that clip has no source app")
+            flash("✕ That clip has no app to exclude")
             return nil
         }
         store.delete(clip.id)
-        flash("⌂ never saving from \(clip.sourceAppName ?? bundleID) again")
+        flash("⌂ Nothing from \(clip.sourceAppName ?? bundleID) will be kept")
         return bundleID
     }
 }

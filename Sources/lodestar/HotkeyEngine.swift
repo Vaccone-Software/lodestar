@@ -508,7 +508,7 @@ final class HotkeyEngine {
         onTapRestored?(clock.now())
         resetToIdle(reason: "tap rebuilt")
         Log.error("hotkeys: tap rebuilt after being lost")
-        hud.flash("⌖ gestures restored", seconds: 3)
+        hud.flash("✓ Gestures work again")
     }
 
     /// Said once per outage, not once every five seconds.
@@ -517,7 +517,7 @@ final class HotkeyEngine {
         tapWasDead = true
         onTapLost?(kind, tapSeenAt ?? clock.now())
         Log.error("hotkeys: no event tap — gestures are inert until accessibility is granted")
-        hud.flash("⚠ Lodestar lost its keyboard access, re-grant it in Privacy & Security", seconds: 10)
+        hud.flash("⚠ Lodestar lost its keyboard access\nTurn it back on in Privacy & Security, under Accessibility")
     }
 
     /// Drop any chain, peek, or mode in flight and go quiet.
@@ -2254,12 +2254,12 @@ extension HotkeyEngine: EngineWorld {
         // in front since, nothing is typed into it unseen.
         guard bringFront() == target else {
             Log.info("bring", ["outcome": "refused", "why": "front changed"])
-            hud.flash("✕ the app you were in is no longer in front")
+            hud.flash("✕ The app you were typing in is no longer in front")
             return
         }
         guard !bringSecureInput() else {
             Log.info("bring", ["outcome": "refused", "why": "secure input"])
-            hud.flash("✕ this field takes no typed input")
+            hud.flash("✕ This field takes no typing")
             return
         }
         Log.info("bring", ["outcome": "brought", "chars": (text as NSString).length,
@@ -2317,7 +2317,7 @@ extension HotkeyEngine: EngineWorld {
             if !clipboard.history.pin(clip.id) {
                 // Full: Keep stays, and a place is chosen by its number.
                 placed = false
-                hud.flash("⌂ all four places are full, ⌘1 to ⌘4 replaces one")
+                hud.flash("⌂ All four keepsake places are full\n[⌘][1] to [⌘][4] replaces one")
             }
             let named = stripSession?.outcome
             stripSession?.outcome = ("acted", named?.source, "keep", named?.rank)
@@ -2332,7 +2332,7 @@ extension HotkeyEngine: EngineWorld {
         guard let current = naming else { return }
         naming = nil
         guard current.placed else {
-            hud.flash("✕ nothing kept, all four places are full")
+            hud.flash("✕ Nothing kept, all four places are full")
             if case .paste = core.state { renderStrip() }
             return
         }
@@ -2436,15 +2436,15 @@ extension HotkeyEngine: EngineWorld {
     private func openClipDoor(_ clip: Clipboard.Clip) {
         panelClip = nil
         guard !draft.isOpen else {
-            hud.flash("✕ the draft is already open")
+            hud.flash("✕ The draft is already open")
             clipDoorClosed(); return
         }
         guard clip.isEditable, let text = clipboard.plainText(of: clip) else {
-            hud.flash("✕ that card cannot be opened here")
+            hud.flash("✕ That card cannot be opened here")
             clipDoorClosed(); return
         }
         guard text.count <= DraftController.clipCap else {
-            hud.flash("✕ too much text to open here")
+            hud.flash("✕ Too much text to open in the draft")
             clipDoorClosed(); return
         }
         doorClip = clip
@@ -2470,7 +2470,7 @@ extension HotkeyEngine: EngineWorld {
     private func openImageDoor(_ clip: Clipboard.Clip) {
         panelClip = nil
         guard let (data, pixels) = clipboard.imageBytes(of: clip) else {
-            hud.flash("✕ that image cannot be opened")
+            hud.flash("✕ That image cannot be opened")
             imageDoorClosed(); return
         }
         imageDoorClip = clip
@@ -2484,7 +2484,7 @@ extension HotkeyEngine: EngineWorld {
         OffTap.run { [weak self] in
             guard let self, self.imageDoorClip?.id == clip.id else { return }
             guard let image = NSImage(data: data) else {
-                self.hud.flash("✕ that image cannot be opened")
+                self.hud.flash("✕ That image cannot be opened")
                 self.imageDoorClosed(); return
             }
             self.imageDoor.show(image: image, pixels: pixels, caption: caption)
@@ -2573,7 +2573,7 @@ extension HotkeyEngine: EngineWorld {
             strip.hide()
             guard let reading = Clipboard.reading(of: clip, units: strip.units, zones: strip.timeZones) else {
                 stripSession?.outcome = ("abandoned", source, nil, rank)
-                hud.flash("✕ that card has no reading")
+                hud.flash("✕ That card has no reading")
                 return
             }
             stripSession?.outcome = ("pasted", source, "reading", rank)

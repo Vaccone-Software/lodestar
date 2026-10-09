@@ -39,7 +39,7 @@ final class CoachVoiceTests: XCTestCase {
     }
 
     func testTheVoiceIsTheSystemSerifAndNothingElseWearsIt() {
-        XCTAssertEqual(BarTheme.voiceFont.pointSize, 20)
+        XCTAssertEqual(BarTheme.voiceFont.pointSize, BarTheme.Scale.title, "the size Settings speaks in")
         let design = BarTheme.voiceFont.fontDescriptor.object(forKey: .init(rawValue: "NSCTFontUIUsageAttribute"))
         XCTAssertNotNil(BarTheme.voiceFont.familyName)
         XCTAssertTrue(BarTheme.voiceFont.familyName?.contains("New York") == true

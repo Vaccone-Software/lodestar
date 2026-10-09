@@ -1000,7 +1000,7 @@ final class WalkController: NSObject {
             image.heightAnchor.constraint(equalToConstant: 30).isActive = true
             row.addArrangedSubview(image)
         }
-        row.addArrangedSubview(label(text, size: 22, weight: .semibold, color: .labelColor))
+        row.addArrangedSubview(label(text, size: BarTheme.Scale.title, weight: .semibold, color: .labelColor))
         return row
     }
 

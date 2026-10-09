@@ -214,7 +214,7 @@ final class ImageDoorScenarioTests: XCTestCase {
         XCTAssertEqual(stage.engine.grammarState, .paste(searching: false))
         XCTAssertNil(stage.engine.strip.shownSave, "the band is gone")
         XCTAssertTrue(stage.engine.strip.isVisible, "the strip stays")
-        XCTAssertEqual(flashed.last, "⌂ saved \(Clipboard.imageFileName(for: clip)) to \(folder.lastPathComponent)")
+        XCTAssertEqual(flashed.last, "⌂ Saved \(Clipboard.imageFileName(for: clip)) to \(folder.lastPathComponent)")
     }
 
     func testTheOfferedNameIsEditedFromItsEnd() {

@@ -330,7 +330,7 @@ final class SelectController {
             } else if !self.screenAccessPrompted {
                 self.screenAccessPrompted = true
                 DispatchQueue.global(qos: .utility).async { CGRequestScreenCaptureAccess() }
-                self.flash("⌖ grant Screen Recording to select in every window · using accessibility for now")
+                self.flash("⚠ Select reads only some windows\nAllow Screen Recording in Privacy & Security to read every window")
             }
             if captured != nil { self.windowFrame = display }
             self.frozen = captured
@@ -1048,7 +1048,7 @@ final class SelectController {
                 let error = AXUIElementSetAttributeValue(
                     editable, kAXSelectedTextRangeAttribute as CFString, value)
                 if error != .success {
-                    flash("✕ the app refused the selection")
+                    flash("✕ The app refused the selection")
                 }
             }
             Log.info("select", ["outcome": "selected", "chars": only.range.length])
@@ -1082,7 +1082,7 @@ final class SelectController {
 
     private func hold(_ span: (text: String, rects: [CGRect]), pieces: Int) {
         guard !span.rects.isEmpty else {
-            flash("✕ that text lost its place on screen")
+            flash("✕ That text moved before it was picked")
             return
         }
         Log.info("select", ["outcome": "held",
@@ -1319,12 +1319,12 @@ final class SelectController {
     /// word needs, and most of what anyone reaches for is one word.
     func copySelection() -> SelectStep {
         guard let anchor = core?.anchor, units.indices.contains(anchor.element) else {
-            flash("⌖ ⇧letter first, then ⌘C takes that word")
+            flash("✕ Nothing is selected yet\n[⇧] and a letter selects, then [⌘][C] copies")
             return .pending
         }
         let span = gather([anchor])
         guard !span.text.isEmpty else {
-            flash("✕ that text lost its place on screen")
+            flash("✕ That text moved before it was picked")
             return .pending
         }
         serve(span.text)

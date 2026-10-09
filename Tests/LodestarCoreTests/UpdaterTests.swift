@@ -109,7 +109,7 @@ final class UpdaterTests: XCTestCase {
 
     func testRepeatedCheckJoinsTheRunInFlight() {
         XCTAssertEqual(Updater.checkDecision(in: .checking),
-                       .refuse(note: "⌖ already checking for updates…"))
+                       .refuse(note: "⟲ Already checking for updates"))
         XCTAssertEqual(Updater.checkDecision(in: .ready(version: "0.9.12")), .applyStaged)
     }
 

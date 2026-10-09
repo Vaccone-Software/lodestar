@@ -42,7 +42,7 @@ final class UpdateController {
     var engineQuiet: () -> Bool = { false }
     /// The last moment a hand was at the keyboard, gesture or not.
     var lastActivity: () -> Date = { .distantPast }
-    var flash: (String, TimeInterval) -> Void = { _, _ in }
+    var flash: (String) -> Void = { _ in }
     /// Lodestar speaking, briefly: a sentence in the voice and a line of
     /// facts beneath it. The four moments the app has something to say
     /// about itself; every failure stays a flash, a fact in the
@@ -212,7 +212,7 @@ final class UpdateController {
             try? version.write(to: Self.refusedFile, atomically: true, encoding: .utf8)
             Log.error("update rolled back: \(version) never took the pid file — refusing it until a newer release ships")
             DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [flash] in
-                flash("⚠ update to \(version) failed, rolled back, still on \(Lodestar.version)", 8)
+                flash("⚠ \(version) did not start, so Lodestar went back to \(Lodestar.version)")
             }
         }
     }
@@ -229,13 +229,13 @@ final class UpdateController {
     /// joins the run in flight; it never starts a second one.
     func check(force: Bool) {
         guard let installURL else {
-            if force { flash("updates manage the installed app only", 3) }
+            if force { flash("✕ Updates apply to the installed app only") }
             return
         }
         guard enabled || force else { return }
         switch Updater.checkDecision(in: phase) {
         case .refuse(let note):
-            if force { flash(note, 3) }
+            if force { flash(note) }
             return
         case .applyStaged:
             tryApply(force: force)
@@ -259,7 +259,7 @@ final class UpdateController {
             let problem = error.map { String(describing: $0) }
                 ?? Updater.httpProblem(status: (response as? HTTPURLResponse)?.statusCode)
             guard problem == nil, let data, let release = Updater.parseFeed(data) else {
-                self.finishCheck(force: force, note: "✕ update check failed, see the log",
+                self.finishCheck(force: force, note: "✕ Could not check for updates",
                                  log: "feed unreadable (\(problem ?? "no release with a zip"))", failed: true)
                 return
             }
@@ -271,7 +271,7 @@ final class UpdateController {
             }
             guard Updater.shouldOffer(release, refusedTag: self.refusedTag) else {
                 self.finishCheck(force: force,
-                                 note: "⌖ \(release.tag) already failed to start, waiting for a newer release",
+                                 note: "✓ \(release.tag) already failed to start here\nLodestar waits for a newer release",
                                  log: "refusing \(release.tag): it was rolled back once")
                 return
             }
@@ -284,12 +284,12 @@ final class UpdateController {
         let parent = installURL.deletingLastPathComponent()
         guard FileManager.default.isWritableFile(atPath: parent.path) else {
             Log.error("update: \(parent.path) is not writable — leaving the manual lanes to it")
-            if force { flash("✕ update: install location not writable, see the log", 4) }
+            if force { flash("✕ Lodestar cannot update where it is installed\nMove it to Applications") }
             return false
         }
         guard FileManager.default.fileExists(atPath: installURL.path) else {
             Log.error("update: nothing at \(installURL.path) — standing down")
-            if force { flash("✕ update: the install is missing, see the log", 4) }
+            if force { flash("✕ The installed Lodestar is missing\nDownload it again from the site") }
             return false
         }
         return true
@@ -299,7 +299,7 @@ final class UpdateController {
         if let message { Log.error("update check: \(message)") }
         DispatchQueue.main.async {
             self.phase = .idle
-            if force { self.flash(note, 3) }
+            if force { self.flash(note) }
             if failed { self.scheduleRetry() }
         }
     }
@@ -315,7 +315,7 @@ final class UpdateController {
 
     private func download(_ release: Updater.Release, force: Bool) {
         guard let url = URL(string: release.zipURL) else {
-            finishCheck(force: force, note: "✕ update check failed, see the log", log: "bad asset url")
+            finishCheck(force: force, note: "✕ Could not check for updates", log: "bad asset url")
             return
         }
         Log.info("update", ["phase": "downloading", "asset": release.zipName])
@@ -351,7 +351,7 @@ final class UpdateController {
         semaphore.wait()
         watching?.invalidate()
         guard let zip = fetched else {
-            finishCheck(force: force, note: "✕ update download failed, see the log",
+            finishCheck(force: force, note: "✕ The update did not download",
                         log: "download failed (\(problem ?? "no file"))", failed: true)
             return
         }
@@ -397,7 +397,7 @@ final class UpdateController {
             clearStaging()
             DispatchQueue.main.async {
                 self.phase = .idle
-                self.flash("Lodestar \(stagedVersion) \(why), so this Mac stays on \(Lodestar.version)", 10)
+                self.flash("⚠ Lodestar \(stagedVersion) \(why), so this Mac stays on \(Lodestar.version)")
             }
             return
         }
@@ -415,7 +415,7 @@ final class UpdateController {
         clearStaging()
         DispatchQueue.main.async {
             self.phase = .idle
-            if force { self.flash("✕ update failed verification, see the log", 4) }
+            if force { self.flash("✕ The update failed its check and was not installed") }
         }
     }
 
@@ -480,7 +480,7 @@ final class UpdateController {
         let previous = parent.appendingPathComponent("lodestar.app.previous")
         guard !FileManager.default.fileExists(atPath: previous.path) else {
             Log.info("update", ["phase": "deferred", "reason": "an earlier swap is still unresolved"])
-            if force { flash("⌖ an earlier update is still settling, retrying shortly", 4) }
+            if force { flash("⟲ An earlier update is still finishing\nLodestar tries again on its own") }
             return
         }
 
@@ -501,7 +501,7 @@ final class UpdateController {
                 try? FileManager.default.moveItem(at: previous, to: installURL)
             }
             Log.error("update swap failed: \(error)")
-            standDown(force: force, note: "✕ update failed, see the log")
+            standDown(force: force, note: "✕ The update did not install")
             return
         }
 
@@ -538,7 +538,7 @@ final class UpdateController {
     private func standDown(force: Bool = false, note: String? = nil) {
         stagedBundle = nil
         phase = .idle
-        if force, let note { flash(note, 4) }
+        if force, let note { flash(note) }
         worker.async { self.clearStaging() }
     }
 

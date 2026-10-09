@@ -122,8 +122,8 @@ final class CheatSheet {
         // A dormant gesture draws quiet, cap and all: the eye reads the
         // sheet for what it uses, and a row it never uses recedes.
         text.textColor = row.dimmed ? BarTheme.secondaryColor : .labelColor
-        // Quiet the way every quiet key is: the same key, receded.
-        if row.dimmed { chip.alphaValue = 0.5 }
+        // Quiet the way every quiet key is: lying flat.
+        chip.quiet = row.dimmed
         text.lineBreakMode = .byTruncatingTail
         text.setContentCompressionResistancePriority(.init(500), for: .horizontal)
         container.setClippingResistancePriority(.init(900), for: .horizontal)

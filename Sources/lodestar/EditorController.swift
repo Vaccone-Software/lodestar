@@ -561,7 +561,7 @@ final class EditorController: EditorLens {
                                               via: via, at: self.clock.now())
                     self.onFixed()
                 } else {
-                    self.flash("✕ the text changed under the mark")
+                    self.flash("✕ The text changed before the fix landed")
                 }
                 completion(done)
             }

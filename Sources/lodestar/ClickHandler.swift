@@ -110,7 +110,7 @@ final class ClickHandler {
         guard let application = browserURL() else {
             // Nothing installed to hand it to at all. Say so rather than
             // swallowing a click.
-            flash("✕ no browser to open that link, set web.clicks.browser")
+            flash("✕ No browser to open that link\nChoose one in Settings, under Web")
             Log.error("click", ["handoff": "no browser"])
             return
         }
@@ -118,7 +118,7 @@ final class ClickHandler {
         // to come forward is never the one blamed.
         guard loopGuard.admit(url.absoluteString,
                               at: Date().timeIntervalSinceReferenceDate) else {
-            flash("✕ that link keeps coming back, check web.clicks.browser")
+            flash("✕ That link keeps coming back to Lodestar\nChoose another browser in Settings, under Web")
             Log.error("click", ["handoff": "refused, the same link kept returning",
                                 "target": application.lastPathComponent])
             return
@@ -137,7 +137,7 @@ final class ClickHandler {
                 DispatchQueue.main.async { arrived(target) }
                 return
             }
-            flash("✕ could not open that link")
+            flash("✕ That link would not open")
             // Domain and code only: the OS likes to render the document
             // into its localized description, and this log never carries
             // a URL.

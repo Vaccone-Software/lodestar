@@ -84,6 +84,12 @@ final class HUD {
     /// A flash is one line and takes the width of its words; a guide
     /// keeps a floor so a short map does not draw as a sliver.
     private var showingFlash = false
+    /// A flash that needs the person (it opens with ⚠): it stays until
+    /// their next key rather than for a time chosen for them, up to this.
+    private var heldSince: Date?
+    static let heldCeiling: TimeInterval = 60
+    /// The way line under the fact, for a test that reads it.
+    private(set) var titleWay: String?
     /// The occupant this drawing is replacing — read by `present` to tell a
     /// chip being redrawn from a chip arriving.
     private var cameFromCoach = false
@@ -169,12 +175,20 @@ final class HUD {
 
     /// A transient message, optionally wearing the app it acted on. It
     /// stays as long as it takes to read unless a caller says otherwise.
-    func flash(_ text: String, icon: NSImage? = nil, seconds: TimeInterval? = nil) {
-        let seconds = seconds ?? Readability.flashSeconds(for: text)
+    /// A flash: the fact, and after a newline the way forward, keys written
+    /// in brackets (`FlashLine`). It stays as long as its words take to
+    /// read, four seconds at most; one that needs you stays until your next
+    /// key (`keyStruck`).
+    func flash(_ text: String, icon: NSImage? = nil) {
+        let (fact, way) = FlashLine.split(text)
+        let held = fact.first == "⚠"
+        let spoken = FlashLine.plain(fact) + (way.map { " " + FlashLine.plain($0) } ?? "")
+        let seconds = held ? Self.heldCeiling : Readability.flashSeconds(for: spoken)
         handOver(to: .flash)
         showingFlash = true
-        let mark = FlashMark.parse(text)
-        build(mark: mark.symbol, keys: [], text: mark.text, titleIcon: icon, rows: [], footer: nil)
+        let mark = FlashMark.parse(fact)
+        build(mark: mark.symbol, keys: [], text: mark.text, way: way, titleIcon: icon, rows: [], footer: nil)
+        heldSince = held ? clock.now() : nil
         present()
         hideWork?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.hide() }
@@ -182,7 +196,15 @@ final class HUD {
         clock.after(seconds, work)
     }
 
+    /// A key from the hand: a flash that was waiting for it goes. Called off
+    /// the tap, never inside it.
+    func keyStruck() {
+        guard showingFlash, let since = heldSince, clock.now().timeIntervalSince(since) > 0.6 else { return }
+        hide()
+    }
+
     func hide() {
+        heldSince = nil
         handOver(to: .none)
         hideWork?.cancel()
         hideWork = nil
@@ -230,12 +252,13 @@ final class HUD {
         content = stack
     }
 
-    private func build(mark: String?, keys: [String], text: String?, titleIcon: NSImage?,
+    private func build(mark: String?, keys: [String], text: String?, way: String? = nil, titleIcon: NSImage?,
                        rows: [GuideRow], footer: String?) {
         content?.removeFromSuperview()
         voiceSentence = nil
         titleSymbol = mark
         titleText = text ?? keys.joined(separator: " ")
+        titleWay = way
 
         let stack = NSStackView()
         stack.orientation = .vertical
@@ -249,6 +272,7 @@ final class HUD {
         titleRow.spacing = 4
         // The mark, in the pill's configuration: what kind of line this
         // is, drawn the way the pill draws its mode.
+        var markView: NSView?
         if let mark, let image = NSImage(systemSymbolName: mark, accessibilityDescription: nil)?
             .withSymbolConfiguration(BarTheme.symbol) {
             let view = NSImageView(image: image)
@@ -256,6 +280,7 @@ final class HUD {
             view.setContentHuggingPriority(.required, for: .horizontal)
             titleRow.addArrangedSubview(view)
             titleRow.setCustomSpacing(ModePill.wordGap, after: view)
+            markView = view
         }
         if let titleIcon {
             let iconView = NSImageView(image: titleIcon)
@@ -274,7 +299,33 @@ final class HUD {
             let titleLabel = NSTextField(labelWithString: text)
             titleLabel.font = BarTheme.bodyFont
             titleLabel.textColor = .labelColor
-            titleRow.addArrangedSubview(titleLabel)
+            if let way {
+                // The fact, then the way under it, both beside the mark;
+                // the mark stays on the fact's line.
+                let column = NSStackView(views: [titleLabel, Keycaps.sentence(way)])
+                column.orientation = .vertical
+                column.alignment = .leading
+                column.spacing = 5
+                titleRow.alignment = .top
+                titleRow.addArrangedSubview(column)
+                if let markView {
+                    markView.translatesAutoresizingMaskIntoConstraints = false
+                    titleRow.removeArrangedSubview(markView)
+                    let holder = NSView()
+                    holder.translatesAutoresizingMaskIntoConstraints = false
+                    holder.addSubview(markView)
+                    titleRow.insertArrangedSubview(holder, at: 0)
+                    titleRow.setCustomSpacing(ModePill.wordGap, after: holder)
+                    NSLayoutConstraint.activate([
+                        holder.widthAnchor.constraint(equalTo: markView.widthAnchor),
+                        holder.heightAnchor.constraint(equalTo: titleLabel.heightAnchor),
+                        markView.centerXAnchor.constraint(equalTo: holder.centerXAnchor),
+                        markView.centerYAnchor.constraint(equalTo: holder.centerYAnchor),
+                    ])
+                }
+            } else {
+                titleRow.addArrangedSubview(titleLabel)
+            }
         }
         stack.addArrangedSubview(titleRow)
 

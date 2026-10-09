@@ -743,9 +743,11 @@ public enum Coach {
                 // lifetime, so the weeks beside it must be too, or the chip
                 // tells a six-month user their history is twelve weeks old.
                 let weeks = observations.observedWeeks(app: rec.target)
-                evidence = "you searched for it \(record.searcher) times"
+                // One line on the card: the count and the span. The time it
+                // costs is the offer's own reason; the record only says
+                // what the hand did.
+                evidence = "searched \(record.searcher) times"
                     + " across \(weeks) week\(weeks == 1 ? "" : "s")"
-                    + secondsClause(rec.secondsPerWeek)
             } else if rec.kind == .shorten,
                       let record = observations.addresses[rec.target] {
                 let shownOld = rec.target.split(separator: " ")

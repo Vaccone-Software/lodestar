@@ -470,7 +470,7 @@ final class MeetingController: NSObject {
         if let unit = stub.unit {
             unitField.attributedStringValue = NSAttributedString(string: unit.uppercased(), attributes: [
                 .font: BarTheme.stubUnitFont, .kern: 0.6,
-                .foregroundColor: stub.lit ? BarTheme.onAccent.withAlphaComponent(0.8) : NSColor.tertiaryLabelColor])
+                .foregroundColor: stub.lit ? BarTheme.onAccent.withAlphaComponent(0.8) : BarTheme.secondaryColor])
         }
         unitField.alignment = .center
         let count = NSStackView(views: stub.unit == nil ? [number] : [number, unitField])

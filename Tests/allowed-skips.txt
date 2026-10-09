@@ -18,6 +18,12 @@ any IntentPassLiveTests.*
 any MicBridgeLiveTests.*
 any QwenEarTests.testTokenizerFromTheFolderMatchesTransformers
 any WindowModelLiveTests.*
+# Real windows moved off every display: needs Accessibility, which a hosted
+# runner never has. The desk has it and must run them.
+ci RealWindowActionsTests.*
+# Real windows a person can see (a Dock tile, a second display): on demand,
+# LODESTAR_DESK_WINDOWS=1.
+any RealWindowDeskTests.*
 
 # The published dataset's replay: CI fetches it and must run it; the desk
 # runs it when LODESTAR_DATASETS is set (tools/health/fetch-datasets.sh).

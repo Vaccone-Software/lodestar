@@ -187,7 +187,7 @@ final class VoiceLight: NSView {
         CATransaction.begin()
         if falling, target > 0, !Accessibility.reduceMotion() {
             CATransaction.setAnimationDuration(Self.release)
-            CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
+            CATransaction.setAnimationTimingFunction(BarTheme.motion)
         } else {
             CATransaction.setDisableActions(true)
         }
@@ -881,7 +881,7 @@ final class DraftPanel {
             }
             NSAnimationContext.runAnimationGroup({ context in
                 context.duration = Self.foldSeconds
-                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                context.timingFunction = BarTheme.motion
                 panel.animator().setFrame(outset, display: true)
             }, completionHandler: land)
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.foldSeconds + 0.05, execute: land)

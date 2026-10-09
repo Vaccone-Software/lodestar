@@ -66,15 +66,6 @@ final class SelectOverlay {
 
     }
 
-    private static func lift(_ view: NSView) {
-        view.wantsLayer = true
-        view.layer?.masksToBounds = false
-        view.layer?.shadowColor = NSColor.black.withAlphaComponent(0.4).cgColor
-        view.layer?.shadowOpacity = 1
-        view.layer?.shadowRadius = 3.5
-        view.layer?.shadowOffset = CGSize(width: 0, height: -1)
-    }
-
     /// The glass goes up over the window before anything is known: the
     /// pill says what is being read; this only takes its place.
     func showScanning(over windowFrame: CGRect) {

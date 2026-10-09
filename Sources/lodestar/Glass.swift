@@ -496,6 +496,12 @@ class GlassPanel: NSPanel {
 /// search must feel like a single instrument — same width, rhythm, and
 /// type — so the tokens live here, where drift can't hide in literals.
 enum BarTheme {
+    /// How everything Lodestar draws moves: one curve, decelerating, so a
+    /// thing arrives and settles the way an object set down does. A
+    /// surface, a switch's knob and a line falling back all move alike;
+    /// only the time differs, and nothing moves under Reduce Motion.
+    static var motion: CAMediaTimingFunction { CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1) }
+
     static let panelWidth: CGFloat = 640
     static let inputHeight: CGFloat = 60
     static let rowHeight: CGFloat = 48
@@ -602,7 +608,6 @@ enum BarTheme {
     /// The strip's search field, the index badge, and the searcher's dot:
     /// sizes with one home each, so the drift guard can hold the line.
     static let stripInputFont = handFont(19)
-    static let badgeFont = NSFont.systemFont(ofSize: 27, weight: .bold)
     /// The meeting's stub: its count in digits that hold their width while
     /// they change, a word ("Now") a size down, and the unit in small caps.
     static let stubCountFont = NSFont.monospacedDigitSystemFont(ofSize: 19, weight: .semibold)
@@ -1399,7 +1404,7 @@ final class AccentSwitch: NSControl {
             slide.fromValue = NSValue(point: fromPosition)
             slide.toValue = NSValue(point: knob.position)
             slide.duration = Self.slide
-            slide.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            slide.timingFunction = BarTheme.motion
             knob.add(slide, forKey: "slide")
             let cross = CABasicAnimation(keyPath: "backgroundColor")
             cross.fromValue = fromTint

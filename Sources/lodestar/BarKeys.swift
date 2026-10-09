@@ -86,14 +86,14 @@ enum KeysMotion {
         }
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = growSeconds
-            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1)
+            context.timingFunction = BarTheme.motion
             panel.animator().setFrame(frame, display: true)
         }, completionHandler: completion)
         guard let view else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + revealDelay) {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = growSeconds - revealDelay
-                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                context.timingFunction = BarTheme.motion
                 view.animator().alphaValue = 1
             }
         }
@@ -111,7 +111,7 @@ enum KeysMotion {
         }
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = shrinkSeconds
-            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1)
+            context.timingFunction = BarTheme.motion
             view?.animator().alphaValue = 0
             panel.animator().setFrame(frame, display: true)
         }, completionHandler: {

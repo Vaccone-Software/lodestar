@@ -910,7 +910,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Mac's convention marks a verb that opens a window, and every
         // verb here does.
         let menu = NSMenu()
-        let header = NSMenuItem(title: "Lodestar \(Lodestar.version) · Destination over Process", action: nil, keyEquivalent: "")
+        let header = NSMenuItem(title: "Lodestar \(Lodestar.version)", action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
         menu.addItem(.separator())

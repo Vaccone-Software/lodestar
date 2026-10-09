@@ -889,10 +889,12 @@ final class WalkController: NSObject {
         } else {
             let card = Self.lessonCard(lesson)
             var rows = card.rows.enumerated().map { index, row in
-                // The editor's one row is its answer, pressable as well.
+                // The first row is what the lesson asks the hand to do, so
+                // its keys are lit; the editor's is its answer, pressable
+                // as well.
                 lesson == .editor && index == 0
-                    ? GuideRow(keys: row.keys, label: row.label, action: { [weak self] in self?.assent() })
-                    : GuideRow(keys: row.keys, label: row.label)
+                    ? GuideRow(keys: row.keys, label: row.label, action: { [weak self] in self?.assent() }, lit: true)
+                    : GuideRow(keys: row.keys, label: row.label, lit: index == 0)
             }
             // Later on the same keys every ask answers to, pressable as
             // well: passing a lesson is the walk's one decision.
@@ -928,7 +930,7 @@ final class WalkController: NSObject {
         let content = self.content(for: walk.step, door: walk.door)
         let progress = walk.progress
         let header: String? = walk.step == .done ? nil
-            : "⌖ \(walk.door.name) · \(progress.position) of \(progress.total)"
+            : "\(walk.door.name) · \(progress.position) of \(progress.total)"
         let footer: (title: String, action: Selector) = walk.step == .done
             ? ("Done", #selector(donePressed))
             : ("Skip this step", #selector(skipPressed))

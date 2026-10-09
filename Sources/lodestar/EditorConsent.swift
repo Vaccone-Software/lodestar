@@ -26,7 +26,7 @@ final class EditorConsent {
 
     func ask(detail: String) {
         present(Self.sentence, detail, [
-            GuideRow(keys: ["lode", "lode"], label: "Accept", action: { [weak self] in _ = self?.assent() }),
+            GuideRow(keys: ["lode", "lode"], label: "Accept", action: { [weak self] in _ = self?.assent() }, lit: true),
             GuideRow(keys: ["lode", "⌫"], label: "Decline", action: { [weak self] in _ = self?.dismiss() }),
         ])
     }

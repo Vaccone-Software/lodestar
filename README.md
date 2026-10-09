@@ -1,7 +1,9 @@
 # Lodestar
 
-**Master your Mac.** Free tools that make your Mac second nature: Write,
-Switch, Keep and Speak. [lodestar.vaccone.software](https://lodestar.vaccone.software)
+**Everything one key away**
+
+Free tools that make your Mac second nature: Write, Switch, Keep and Speak.
+[lodestar.vaccone.software](https://lodestar.vaccone.software)
 
 <!-- TODO: demo GIF. Ten seconds of one door working. -->
 

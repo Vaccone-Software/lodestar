@@ -49,8 +49,9 @@ if [ "$PHASE" = "build" ] || [ "$PHASE" = "all" ]; then
     echo "→ self-test on the signed build"
     "$APP/Contents/MacOS/lodestar" --self-test || { echo "✕ self-test failed — refusing to release"; exit 1; }
 
-    # What the site reads from a release: the schema the binary emits, and
-    # the download fallback's version, written to the site checkout.
+    # What the site reads from a release: the schema the binary emits,
+    # written to the site checkout. (Its download button follows stable,
+    # which the site works out for itself.)
     ./scripts/site-sync.sh "$APP"
     if git diff --quiet && git diff --cached --quiet; then
         git rev-parse HEAD > dist/.built-from

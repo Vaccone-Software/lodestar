@@ -1,12 +1,12 @@
 #!/bin/bash
 # The one lever on the stable channel, for a build that must not reach it.
 # A release is immutable but its title is not, so a hold is a word in the
-# title: "[held]". Promotion then passes over that build and every build
-# of its line published before it, and the line's clock starts again at
-# the next build — the fix. Stable is recomputed from scratch on every
-# read, so a hold on a build already promoted steps stable back for new
-# installs; Macs already on it stay (the updater never downgrades) and
-# take the fix when it is promoted.
+# title: "[held]". The site's promotion rule (/api/stable) then passes over
+# that build and the builds of its line still waiting when the hold came,
+# and the line's clock starts again at the next build — the fix. Stable is
+# recomputed on every read, so a hold on a build already promoted steps
+# stable back for new installs; Macs already on it stay (the updater never
+# downgrades) and take the fix when it is promoted.
 #   ./scripts/hold.sh 0.48.2           hold it
 #   ./scripts/hold.sh --lift 0.48.2    take the hold off again
 set -euo pipefail

@@ -3,8 +3,9 @@
 # on the pushed commit, a draft release tagged on that commit and proven on
 # every macOS it claims, then published. Published means preview: every
 # Mac on the preview channel takes it at its next check. Stable follows on
-# its own once the build's line has soaked (Promotion.swift); the cask and
-# the site's download button follow stable, the cask through promote.yml.
+# its own once the build's line has soaked, as the site decides
+# (/api/stable); the cask and the download button follow stable, the cask
+# through promote.yml.
 # Nothing here touches stable, and nothing needs to.
 # Requires a notes file — a release without notes is not a release — and
 # a smoke: the signed build run with a click, a scroll and a keystroke

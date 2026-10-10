@@ -1,16 +1,19 @@
 name: Promote
 
 # The cask follows stable. Stable is not a flag on a release (published
-# releases are immutable, their prerelease flag included) but the answer
-# Promotion.swift computes from the releases list and the clock, the same
-# answer every stable Mac computes for itself. Four times a day this asks
-# it, and when the cask points elsewhere, points it at stable: the zip is
-# downloaded from the release and bump-cask.sh writes version, sha and
-# the build's own requirements, as it did when ship.sh ran it.
+# releases are immutable, their prerelease flag included) but the site's
+# answer: lodestar.vaccone.software/api/stable, the one place the
+# promotion rule lives, read the same way by every stable Mac and the
+# download button. Four times a day this asks it, and when the cask points
+# elsewhere, points it at stable: the zip is downloaded from the release
+# and bump-cask.sh writes version, sha and the build's own requirements,
+# as it did when ship.sh ran it.
 #
-# A failed run changes nothing and the next one tries again; the updater
-# and the site do not depend on it. Run it by hand to move the cask at
-# once (Actions → Promote → Run workflow).
+# The answer is checked the way the app checks it (scripts/channel.sh): a
+# 503 or an answer that does not name one of Lodestar's own releases fails
+# the run loudly and moves nothing. A failed run changes nothing and the
+# next one tries again; the updater and the site do not depend on it. Run
+# it by hand to move the cask at once (Actions → Promote → Run workflow).
 #
 # Secrets: TAP_TOKEN, fine-grained PAT, contents:write on homebrew-tap
 # (the same one release.yml used for the cask).
@@ -30,37 +33,23 @@ concurrency:
 jobs:
   cask:
     runs-on: macos-26
-    timeout-minutes: 30
+    timeout-minutes: 15
     env:
       GH_TOKEN: ${{ github.token }}
+    # Named, so every step runs with pipefail: a channel.sh that fails
+    # inside a pipe still fails the run.
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
-
-      - name: Toolchain
-        id: toolchain
-        run: echo "xcode=$(xcodebuild -version | tr '\n' ' ' | tr -cs 'A-Za-z0-9.' '-')" >> "$GITHUB_OUTPUT"
-
-      # CI's cache, read only: the channel tool needs LodestarCore alone,
-      # but resolving the package still fetches every dependency.
-      - name: Restore the build
-        uses: actions/cache/restore@v4
-        with:
-          path: .build
-          key: spm-${{ runner.os }}-${{ steps.toolchain.outputs.xcode }}-${{ hashFiles('Package.resolved') }}-${{ github.sha }}
-          restore-keys: |
-            spm-${{ runner.os }}-${{ steps.toolchain.outputs.xcode }}-${{ hashFiles('Package.resolved') }}-
-            spm-${{ runner.os }}-${{ steps.toolchain.outputs.xcode }}-
-
-      - name: Build the channel tool
-        run: swift build --product channel
 
       - name: Where stable stands
         id: stable
         run: |
-          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" > releases.json
-          .build/debug/channel --status < releases.json | tee -a "$GITHUB_STEP_SUMMARY"
-          TAG=$(.build/debug/channel < releases.json) || { echo "✕ no stable release in the list"; exit 1; }
-          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          ./scripts/channel.sh | tee -a "$GITHUB_STEP_SUMMARY"
+          VERSION=$(./scripts/channel.sh --version)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Where the cask points
         id: cask
@@ -78,6 +67,8 @@ jobs:
           TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
           VERSION: ${{ steps.stable.outputs.version }}
         run: |
+          # The tag's own release, through GitHub, never a URL the answer
+          # supplied: the site only names the version.
           gh release download "v$VERSION" --repo "$GITHUB_REPOSITORY" \
             --pattern "lodestar-$VERSION.zip" --dir dist
           ./scripts/bump-cask.sh "$VERSION" "dist/lodestar-$VERSION.zip"

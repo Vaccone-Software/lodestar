@@ -442,6 +442,53 @@
       ]
     },
     {
+      "name": "a hold on a patch keeps the stable beneath it",
+      "releases": [
+        {
+          "tag": "v1.0.0",
+          "published": "2026-01-01T00:00:00Z",
+          "title": "Lodestar 1.0.0",
+          "zip": true,
+          "draft": false
+        },
+        {
+          "tag": "v1.1.0",
+          "published": "2026-01-02T00:00:00Z",
+          "title": "Lodestar 1.1.0",
+          "zip": true,
+          "draft": false
+        },
+        {
+          "tag": "v1.1.1",
+          "published": "2026-01-12T00:00:00Z",
+          "title": "Lodestar 1.1.1 [held]",
+          "zip": true,
+          "draft": false
+        },
+        {
+          "tag": "v1.1.2",
+          "published": "2026-01-14T00:00:00Z",
+          "title": "Lodestar 1.1.2",
+          "zip": true,
+          "draft": false
+        }
+      ],
+      "checks": [
+        {
+          "now": "2026-01-10T00:00:00Z",
+          "stable": "v1.1.0"
+        },
+        {
+          "now": "2026-01-16T00:00:00Z",
+          "stable": "v1.1.0"
+        },
+        {
+          "now": "2026-01-17T00:00:00Z",
+          "stable": "v1.1.2"
+        }
+      ]
+    },
+    {
       "name": "two lines run on their own clocks",
       "releases": [
         {

@@ -21,10 +21,12 @@ import Foundation
 ///     says. When the newest patch is too young the one before it goes
 ///     instead, so daily patches can delay nothing.
 ///   - A release whose title carries "[held]" stops its line: it and every
-///     build of that line published at or before it are passed over, and
-///     the line's clock starts again at the next build. Stable is computed
-///     from scratch, so a late hold steps it back; installed apps never
-///     downgrade, but new installs and the cask follow.
+///     build of that line still waiting, published at or before it, are
+///     passed over, and the line's clock starts again at the next build.
+///     A hold reaches only builds newer than stable: holding a bad 0.47.1
+///     keeps the 0.47.0 beneath it. Stable is computed from scratch, so a
+///     late hold steps it back; installed apps never downgrade, but new
+///     installs and the cask follow.
 ///
 /// Every release below `history` shipped before there were channels, to
 /// everyone at once; the newest of them is where stable starts, so the
@@ -34,7 +36,8 @@ import Foundation
 /// Stable is found by walking time forward from there (or from the oldest
 /// release in the list, once history has scrolled out of it): at each
 /// step the earliest moment any build becomes eligible, and stable moves
-/// to the newest build eligible then. The walk never depends
+/// to the newest build eligible then. A hold counts from the moment it was
+/// published, so the walk stops there first. The walk never depends
 /// on its own answer, so every reader of the same list agrees.
 public enum Promotion {
     /// One published release, as far as promotion cares.
@@ -107,7 +110,7 @@ public enum Promotion {
         let (stable, pool) = walk(builds, now: now, policy: policy)
         guard let stable else { return [] }
         let candidates = pool.filter { Updater.isNewer($0.version, than: stable.version) }
-        return lines(of: candidates).map { line, members in
+        return waiting(candidates, holdsBy: now).map { line, members in
             let isPatch = line == stable.line
             let since = members.map(\.published).min()!
             let soak = isPatch ? policy.patchSoak : policy.minorSoak
@@ -122,14 +125,15 @@ public enum Promotion {
 
     private static func walk(_ builds: [Build], now: Date, policy: Policy) -> (stable: Build?, pool: [Build]) {
         let pool = usable(builds, now: now)
-        guard var stable = pool.last(where: { Updater.isNewer(history, than: $0.version) }) ?? pool.first
+        let unheld = pool.filter { !$0.isHeld }
+        guard var stable = unheld.last(where: { Updater.isNewer(history, than: $0.version) }) ?? unheld.first
         else { return (nil, pool) }
         var time = stable.published
         while true {
             let candidates = pool.filter { Updater.isNewer($0.version, than: stable.version) }
             var soonest: Date?
             var eligibleAt: [(Build, Date)] = []
-            for (line, members) in lines(of: candidates) {
+            for (line, members) in waiting(candidates, holdsBy: time) {
                 let since = members.map(\.published).min()!
                 let soak = line == stable.line ? policy.patchSoak : policy.minorSoak
                 for build in members {
@@ -141,6 +145,14 @@ public enum Promotion {
             guard let soonest else { break }
             let moment = max(soonest, time)
             guard moment <= now else { break }
+            // A hold published before that moment changes what is waiting:
+            // step to it and look again, rather than let a hold reach back
+            // past a build that was already stable when it came.
+            if let hold = candidates.filter({ $0.isHeld && $0.published > time && $0.published <= moment })
+                .map(\.published).min() {
+                time = hold
+                continue
+            }
             stable = eligibleAt.filter { $0.1 <= moment }.map(\.0)
                 .max { Updater.isNewer($1.version, than: $0.version) }!
             time = moment
@@ -155,21 +167,25 @@ public enum Promotion {
     }
 
     /// The builds promotion may consider, oldest version first: published
-    /// by now, not drafts, carrying the zip the updater installs, and not
-    /// passed over by a hold.
+    /// by now, not drafts, and carrying the zip the updater installs.
     private static func usable(_ builds: [Build], now: Date) -> [Build] {
-        let shipped = builds.filter { !$0.draft && $0.hasZip && $0.published <= now }
-        var lastHold: [[Int]: Date] = [:]
-        for build in shipped where build.isHeld {
-            lastHold[build.line] = max(lastHold[build.line] ?? build.published, build.published)
-        }
-        return shipped
-            .filter { build in lastHold[build.line].map { build.published > $0 } ?? true }
+        builds.filter { !$0.draft && $0.hasZip && $0.published <= now }
             .sorted { Updater.isNewer($1.version, than: $0.version) }
     }
 
-    private static func lines(of builds: [Build]) -> [[Int]: [Build]] {
-        Dictionary(grouping: builds, by: \.line)
+    /// The builds newer than stable, by line, less what a hold passed over:
+    /// a held build always, and its line's earlier builds once the hold is
+    /// out (published by `time`). Applied to the waiting builds only, never
+    /// the pool, so a hold cannot take back a build that was already stable
+    /// when it came. A line with nothing left is gone.
+    private static func waiting(_ candidates: [Build], holdsBy time: Date) -> [[Int]: [Build]] {
+        Dictionary(grouping: candidates, by: \.line).compactMapValues { members in
+            let hold = members.filter { $0.isHeld && $0.published <= time }.map(\.published).max()
+            let live = members.filter { build in
+                !build.isHeld && (hold.map { build.published > $0 } ?? true)
+            }
+            return live.isEmpty ? nil : live
+        }
     }
 
     // MARK: - The feed

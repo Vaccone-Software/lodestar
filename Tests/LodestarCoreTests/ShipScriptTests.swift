@@ -335,7 +335,8 @@ final class ShipScriptTests: XCTestCase {
         let result = try run(["check", "9.9.9"], state: "published")
         XCTAssertEqual(result.status, 1)
         XCTAssertTrue(result.output.contains("bump"), result.output)
-        XCTAssertTrue(result.output.contains("bump-cask.sh"), "and says how to finish a cask that is all that is left")
+        XCTAssertTrue(result.output.contains("channel.sh"),
+                      "and says the cask is no longer the ship's to finish: it follows stable")
     }
 
     func testTheCheckSaysSoWhenGitHubCannotBeReached() throws {

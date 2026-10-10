@@ -1,5 +1,6 @@
 #!/bin/bash
-# The one lever on the stable channel, for a build that must not reach it.
+# One of the two levers on the stable channel, for a build that must not
+# reach it (scripts/hotfix.sh is the other, for one that must reach it now).
 # A release is immutable but its title is not, so a hold is a word in the
 # title: "[held]". The site's promotion rule (/api/stable) then passes over
 # that build and the builds of its line still waiting when the hold came,

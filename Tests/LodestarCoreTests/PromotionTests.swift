@@ -10,7 +10,10 @@ final class PromotionTests: XCTestCase {
         .appendingPathComponent("Fixtures/promotion.json")
 
     private struct Fixture: Decodable {
-        struct Policy: Decodable { let minorSoakDays, patchSoakDays, settleDays: Double }
+        struct Policy: Decodable {
+            let minorSoakDays, patchSoakDays, settleDays: Double
+            let historyBelow: String
+        }
         struct Release: Decodable {
             let tag, published, title: String
             let zip, draft: Bool
@@ -43,6 +46,7 @@ final class PromotionTests: XCTestCase {
         XCTAssertEqual(fixture.policy.minorSoakDays * 86_400, Promotion.Policy.standard.minorSoak)
         XCTAssertEqual(fixture.policy.patchSoakDays * 86_400, Promotion.Policy.standard.patchSoak)
         XCTAssertEqual(fixture.policy.settleDays * 86_400, Promotion.Policy.standard.settle)
+        XCTAssertEqual(Updater.parseVersion(fixture.policy.historyBelow), Promotion.history)
     }
 
     func testEveryFixtureCase() throws {
@@ -69,27 +73,27 @@ final class PromotionTests: XCTestCase {
     }
 
     func testAPatchStartsTheTimer() {
-        let builds = [build("v0.47.0", 0), build("v0.47.1", 10)]
-        XCTAssertEqual(Promotion.stable(builds, now: day(12.9))?.tag, "v0.47.0")
-        XCTAssertEqual(Promotion.stable(builds, now: day(13))?.tag, "v0.47.1")
+        let builds = [build("v1.47.0", 0), build("v1.47.1", 10)]
+        XCTAssertEqual(Promotion.stable(builds, now: day(12.9))?.tag, "v1.47.0")
+        XCTAssertEqual(Promotion.stable(builds, now: day(13))?.tag, "v1.47.1")
     }
 
     func testPatchesNeverResetAMinorsClock() {
         // A patch a day after the minor, and another just before its week
         // is up: the week still ends on the minor's day, with the newest
         // build that has settled.
-        let builds = [build("v0.47.0", 0), build("v0.48.0", 1), build("v0.48.1", 2), build("v0.48.2", 7.5)]
-        XCTAssertEqual(Promotion.stable(builds, now: day(7.9))?.tag, "v0.47.0")
-        XCTAssertEqual(Promotion.stable(builds, now: day(8))?.tag, "v0.48.1")
-        XCTAssertEqual(Promotion.stable(builds, now: day(10.5))?.tag, "v0.48.2")
+        let builds = [build("v1.47.0", 0), build("v1.48.0", 1), build("v1.48.1", 2), build("v1.48.2", 7.5)]
+        XCTAssertEqual(Promotion.stable(builds, now: day(7.9))?.tag, "v1.47.0")
+        XCTAssertEqual(Promotion.stable(builds, now: day(8))?.tag, "v1.48.1")
+        XCTAssertEqual(Promotion.stable(builds, now: day(10.5))?.tag, "v1.48.2")
     }
 
     func testDailyPatchesNeverStall() {
         // A month of a patch every day. Stable keeps moving the whole time,
         // never more than a soak and a settle behind the head.
-        var builds = [build("v0.47.0", 0), build("v0.48.0", 1)]
-        for k in 1...30 { builds.append(build("v0.48.\(k)", 1 + Double(k))) }
-        var last = [0, 47, 0]
+        var builds = [build("v1.47.0", 0), build("v1.48.0", 1)]
+        for k in 1...30 { builds.append(build("v1.48.\(k)", 1 + Double(k))) }
+        var last = [1, 47, 0]
         for now in stride(from: 8.0, through: 31, by: 1) {
             let stable = Promotion.stable(builds, now: day(now))!
             XCTAssertFalse(Updater.isNewer(last, than: stable.version), "stable stepped back at day \(now)")
@@ -100,41 +104,49 @@ final class PromotionTests: XCTestCase {
     }
 
     func testTheSettleFloorPassesOverABuildTooYoung() {
-        let builds = [build("v0.47.0", 0), build("v0.48.0", 1), build("v0.48.1", 7.9)]
-        XCTAssertEqual(Promotion.stable(builds, now: day(8))?.tag, "v0.48.0")
+        let builds = [build("v1.47.0", 0), build("v1.48.0", 1), build("v1.48.1", 7.9)]
+        XCTAssertEqual(Promotion.stable(builds, now: day(8))?.tag, "v1.48.0")
     }
 
     func testAHoldRestartsTheClock() {
-        let builds = [build("v0.47.0", 0), build("v0.48.0", 1, title: "Lodestar 0.48.0 [held]"),
-                      build("v0.48.1", 4)]
-        XCTAssertEqual(Promotion.stable(builds, now: day(8))?.tag, "v0.47.0")
-        XCTAssertEqual(Promotion.stable(builds, now: day(10.9))?.tag, "v0.47.0")
-        XCTAssertEqual(Promotion.stable(builds, now: day(11))?.tag, "v0.48.1")
+        let builds = [build("v1.47.0", 0), build("v1.48.0", 1, title: "Lodestar 1.48.0 [held]"),
+                      build("v1.48.1", 4)]
+        XCTAssertEqual(Promotion.stable(builds, now: day(8))?.tag, "v1.47.0")
+        XCTAssertEqual(Promotion.stable(builds, now: day(10.9))?.tag, "v1.47.0")
+        XCTAssertEqual(Promotion.stable(builds, now: day(11))?.tag, "v1.48.1")
     }
 
     func testAHoldOnlyStopsItsOwnLine() {
-        let builds = [build("v0.47.0", 0), build("v0.47.1", 1), build("v0.48.0", 2, title: "[Held] bad audio")]
-        XCTAssertEqual(Promotion.stable(builds, now: day(30))?.tag, "v0.47.1")
+        let builds = [build("v1.47.0", 0), build("v1.47.1", 1), build("v1.48.0", 2, title: "[Held] bad audio")]
+        XCTAssertEqual(Promotion.stable(builds, now: day(30))?.tag, "v1.47.1")
     }
 
     func testTwoLinesRunIndependently() {
-        let builds = [build("v0.47.0", 0), build("v0.47.1", 1), build("v0.48.0", 2)]
-        XCTAssertEqual(Promotion.stable(builds, now: day(4))?.tag, "v0.47.1")
-        XCTAssertEqual(Promotion.stable(builds, now: day(9))?.tag, "v0.48.0")
+        let builds = [build("v1.47.0", 0), build("v1.47.1", 1), build("v1.48.0", 2)]
+        XCTAssertEqual(Promotion.stable(builds, now: day(4))?.tag, "v1.47.1")
+        XCTAssertEqual(Promotion.stable(builds, now: day(9))?.tag, "v1.48.0")
     }
 
     func testZiplessDraftAndFutureReleasesAreSkipped() {
         let builds = [
-            build("v0.47.0", 0),
-            Promotion.Build(tag: "v0.48.0", version: [0, 48, 0], published: day(1), hasZip: false),
-            Promotion.Build(tag: "v0.49.0", version: [0, 49, 0], published: day(1), draft: true),
-            build("v0.50.0", 40),
+            build("v1.47.0", 0),
+            Promotion.Build(tag: "v1.48.0", version: [1, 48, 0], published: day(1), hasZip: false),
+            Promotion.Build(tag: "v1.49.0", version: [1, 49, 0], published: day(1), draft: true),
+            build("v1.50.0", 40),
         ]
-        XCTAssertEqual(Promotion.stable(builds, now: day(30))?.tag, "v0.47.0")
+        XCTAssertEqual(Promotion.stable(builds, now: day(30))?.tag, "v1.47.0")
+    }
+
+    func testStableStartsAtTheNewestReleaseFromBeforeChannels() {
+        // 0.47.0 had already reached every Mac when channels began; the
+        // first channel build waits its week behind it, not behind 0.40.
+        let builds = [build("v0.40.0", 0), build("v0.47.0", 5), build("v0.48.0", 6)]
+        XCTAssertEqual(Promotion.stable(builds, now: day(6))?.tag, "v0.47.0")
+        XCTAssertEqual(Promotion.stable(builds, now: day(13))?.tag, "v0.48.0")
     }
 
     func testOrderOfTheListDoesNotMatter() {
-        let builds = [build("v0.48.0", 1), build("v0.47.0", 0), build("v0.47.1", 1.5)]
+        let builds = [build("v1.48.0", 1), build("v1.47.0", 0), build("v1.47.1", 1.5)]
         XCTAssertEqual(Promotion.stable(builds, now: day(9))?.tag,
                        Promotion.stable(builds.reversed(), now: day(9))?.tag)
     }
@@ -142,16 +154,16 @@ final class PromotionTests: XCTestCase {
     // MARK: - Pending lines
 
     func testPendingNamesEachLineAndWhenItLands() {
-        let builds = [build("v0.47.0", 0), build("v0.47.1", 1), build("v0.48.0", 2), build("v0.48.1", 3)]
+        let builds = [build("v1.47.0", 0), build("v1.47.1", 1), build("v1.48.0", 2), build("v1.48.1", 3)]
         let pending = Promotion.pending(builds, now: day(3.5))
-        XCTAssertEqual(pending.map(\.line), [[0, 47], [0, 48]])
+        XCTAssertEqual(pending.map(\.line), [[1, 47], [1, 48]])
         XCTAssertEqual(pending[0].isPatch, true)
         XCTAssertEqual(pending[0].promotes, day(4))
-        XCTAssertEqual(pending[0].build.tag, "v0.47.1")
+        XCTAssertEqual(pending[0].build.tag, "v1.47.1")
         XCTAssertEqual(pending[1].isPatch, false)
         XCTAssertEqual(pending[1].since, day(2))
         XCTAssertEqual(pending[1].promotes, day(9))
-        XCTAssertEqual(pending[1].build.tag, "v0.48.1")
+        XCTAssertEqual(pending[1].build.tag, "v1.48.1")
         XCTAssertTrue(Promotion.pending(builds, now: day(30)).isEmpty)
     }
 
@@ -159,16 +171,16 @@ final class PromotionTests: XCTestCase {
 
     func testParsesGitHubsReleaseList() {
         let feed = """
-        [{"tag_name": "v0.47.0", "name": "Lodestar 0.47.0 [held]", "draft": false,
+        [{"tag_name": "v1.47.0", "name": "Lodestar 1.47.0 [held]", "draft": false,
           "published_at": "2026-10-09T23:00:01Z",
-          "assets": [{"name": "lodestar-0.47.0.zip"}, {"name": "lodestar-0.47.0.dmg"}]},
-         {"tag_name": "v0.46.0", "name": null, "draft": true, "published_at": null, "assets": []},
+          "assets": [{"name": "lodestar-1.47.0.zip"}, {"name": "lodestar-1.47.0.dmg"}]},
+         {"tag_name": "v1.46.0", "name": null, "draft": true, "published_at": null, "assets": []},
          {"tag_name": "nightly", "name": "x", "published_at": "2026-10-01T00:00:00Z", "assets": []},
-         {"tag_name": "v0.45.0", "name": "Lodestar 0.45.0", "published_at": "2026-10-06T23:22:17Z",
-          "assets": [{"name": "lodestar-0.45.0.dmg"}]}]
+         {"tag_name": "v1.45.0", "name": "Lodestar 1.45.0", "published_at": "2026-10-06T23:22:17Z",
+          "assets": [{"name": "lodestar-1.45.0.dmg"}]}]
         """
         let builds = Promotion.parseFeed(Data(feed.utf8))!
-        XCTAssertEqual(builds.map(\.tag), ["v0.47.0", "v0.45.0"])
+        XCTAssertEqual(builds.map(\.tag), ["v1.47.0", "v1.45.0"])
         XCTAssertTrue(builds[0].isHeld)
         XCTAssertTrue(builds[0].hasZip)
         XCTAssertEqual(builds[0].published, iso.date(from: "2026-10-09T23:00:01Z"))

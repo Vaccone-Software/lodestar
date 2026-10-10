@@ -26,9 +26,15 @@ import Foundation
 ///     from scratch, so a late hold steps it back; installed apps never
 ///     downgrade, but new installs and the cask follow.
 ///
-/// Stable is found by walking time forward from the oldest release in the
-/// list: at each step the earliest moment any build becomes eligible, and
-/// stable moves to the newest build eligible then. The walk never depends
+/// Every release below `history` shipped before there were channels, to
+/// everyone at once; the newest of them is where stable starts, so the
+/// first week of channels does not hand new installs a build from before
+/// the current one.
+///
+/// Stable is found by walking time forward from there (or from the oldest
+/// release in the list, once history has scrolled out of it): at each
+/// step the earliest moment any build becomes eligible, and stable moves
+/// to the newest build eligible then. The walk never depends
 /// on its own answer, so every reader of the same list agrees.
 public enum Promotion {
     /// One published release, as far as promotion cares.
@@ -73,6 +79,9 @@ public enum Promotion {
         public static let standard = Policy(minorSoak: 7 * 86_400, patchSoak: 3 * 86_400, settle: 86_400)
     }
 
+    /// Releases below this version shipped before channels existed.
+    public static let history: [Int] = [0, 48, 0]
+
     /// A line still on its way to stable, for `channel --status`.
     public struct Pending: Equatable {
         public let line: [Int]
@@ -113,7 +122,8 @@ public enum Promotion {
 
     private static func walk(_ builds: [Build], now: Date, policy: Policy) -> (stable: Build?, pool: [Build]) {
         let pool = usable(builds, now: now)
-        guard var stable = pool.first else { return (nil, pool) }
+        guard var stable = pool.last(where: { Updater.isNewer(history, than: $0.version) }) ?? pool.first
+        else { return (nil, pool) }
         var time = stable.published
         while true {
             let candidates = pool.filter { Updater.isNewer($0.version, than: stable.version) }

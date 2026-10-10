@@ -3,7 +3,8 @@
   "policy": {
     "minorSoakDays": 7,
     "patchSoakDays": 3,
-    "settleDays": 1
+    "settleDays": 1,
+    "historyBelow": "0.48.0"
   },
   "cases": [
     {
@@ -517,6 +518,46 @@
         {
           "now": "2026-01-10T00:00:00Z",
           "stable": "v1.2.0"
+        }
+      ]
+    },
+    {
+      "name": "releases from before channels count as already stable",
+      "releases": [
+        {
+          "tag": "v0.46.0",
+          "published": "2026-01-01T00:00:00Z",
+          "title": "Lodestar 0.46.0",
+          "zip": true,
+          "draft": false
+        },
+        {
+          "tag": "v0.47.0",
+          "published": "2026-01-02T00:00:00Z",
+          "title": "Lodestar 0.47.0",
+          "zip": true,
+          "draft": false
+        },
+        {
+          "tag": "v0.48.0",
+          "published": "2026-01-03T00:00:00Z",
+          "title": "Lodestar 0.48.0",
+          "zip": true,
+          "draft": false
+        }
+      ],
+      "checks": [
+        {
+          "now": "2026-01-02T00:00:00Z",
+          "stable": "v0.47.0"
+        },
+        {
+          "now": "2026-01-09T23:45:36Z",
+          "stable": "v0.47.0"
+        },
+        {
+          "now": "2026-01-10T00:00:00Z",
+          "stable": "v0.48.0"
         }
       ]
     },

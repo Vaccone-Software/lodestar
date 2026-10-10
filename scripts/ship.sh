@@ -1,7 +1,11 @@
 #!/bin/bash
 # The whole ship, one command, from main: push, notarized build, CI passed
 # on the pushed commit, a draft release tagged on that commit and proven on
-# every macOS it claims, then published, then the cask.
+# every macOS it claims, then published. Published means preview: every
+# Mac on the preview channel takes it at its next check. Stable follows on
+# its own once the build's line has soaked (Promotion.swift); the cask and
+# the site's download button follow stable, the cask through promote.yml.
+# Nothing here touches stable, and nothing needs to.
 # Requires a notes file — a release without notes is not a release — and
 # a smoke: the signed build run with a click, a scroll and a keystroke
 # through its real taps (scripts/smoke.sh auto), before anything is
@@ -12,8 +16,7 @@
 # stopped — a timeout mid-upload, a laptop that slept — is resumed by the
 # same command: a smoked build is kept, notarized artifacts that are still
 # current are not notarized again, an empty draft release is finished
-# rather than fought (scripts/github-release.sh), and a cask already at
-# this version is left alone. What it will not do is touch a release that
+# rather than fought (scripts/github-release.sh). What it will not do is touch a release that
 # is already published: that is a version bump.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -139,7 +142,5 @@ fi
 STEP="the GitHub release"
 RELEASE_TARGET="$COMMIT" ./scripts/github-release.sh publish "$VERSION" "$NOTES" "$ZIP" "$DMG"
 
-STEP="bumping the cask"
-echo "→ bumping cask"
-retry ./scripts/bump-cask.sh "$VERSION" "$ZIP"
-echo "✓ shipped v$VERSION"
+echo "✓ shipped v$VERSION to preview; stable follows on its own"
+./scripts/channel.sh || true

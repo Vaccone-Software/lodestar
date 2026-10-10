@@ -1,0 +1,84 @@
+name: Promote
+
+# The cask follows stable. Stable is not a flag on a release (published
+# releases are immutable, their prerelease flag included) but the answer
+# Promotion.swift computes from the releases list and the clock, the same
+# answer every stable Mac computes for itself. Four times a day this asks
+# it, and when the cask points elsewhere, points it at stable: the zip is
+# downloaded from the release and bump-cask.sh writes version, sha and
+# the build's own requirements, as it did when ship.sh ran it.
+#
+# A failed run changes nothing and the next one tries again; the updater
+# and the site do not depend on it. Run it by hand to move the cask at
+# once (Actions → Promote → Run workflow).
+#
+# Secrets: TAP_TOKEN, fine-grained PAT, contents:write on homebrew-tap
+# (the same one release.yml used for the cask).
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: promote
+  cancel-in-progress: false
+
+jobs:
+  cask:
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        id: toolchain
+        run: echo "xcode=$(xcodebuild -version | tr '\n' ' ' | tr -cs 'A-Za-z0-9.' '-')" >> "$GITHUB_OUTPUT"
+
+      # CI's cache, read only: the channel tool needs LodestarCore alone,
+      # but resolving the package still fetches every dependency.
+      - name: Restore the build
+        uses: actions/cache/restore@v4
+        with:
+          path: .build
+          key: spm-${{ runner.os }}-${{ steps.toolchain.outputs.xcode }}-${{ hashFiles('Package.resolved') }}-${{ github.sha }}
+          restore-keys: |
+            spm-${{ runner.os }}-${{ steps.toolchain.outputs.xcode }}-${{ hashFiles('Package.resolved') }}-
+            spm-${{ runner.os }}-${{ steps.toolchain.outputs.xcode }}-
+
+      - name: Build the channel tool
+        run: swift build --product channel
+
+      - name: Where stable stands
+        id: stable
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" > releases.json
+          .build/debug/channel --status < releases.json | tee -a "$GITHUB_STEP_SUMMARY"
+          TAG=$(.build/debug/channel < releases.json) || { echo "✕ no stable release in the list"; exit 1; }
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Where the cask points
+        id: cask
+        run: |
+          CASK=$(gh api repos/Vaccone-Software/homebrew-tap/contents/Casks/lodestar.rb \
+            -H 'Accept: application/vnd.github.raw')
+          VERSION=$(printf '%s\n' "$CASK" | sed -n 's/^ *version "\(.*\)"$/\1/p' | head -1)
+          [ -n "$VERSION" ] || { echo "✕ could not read the cask's version"; exit 1; }
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "cask → $VERSION, stable → ${{ steps.stable.outputs.version }}"
+
+      - name: Point the cask at stable
+        if: steps.cask.outputs.version != steps.stable.outputs.version
+        env:
+          TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+          VERSION: ${{ steps.stable.outputs.version }}
+        run: |
+          gh release download "v$VERSION" --repo "$GITHUB_REPOSITORY" \
+            --pattern "lodestar-$VERSION.zip" --dir dist
+          ./scripts/bump-cask.sh "$VERSION" "dist/lodestar-$VERSION.zip"
+          echo "cask → $VERSION" >> "$GITHUB_STEP_SUMMARY"

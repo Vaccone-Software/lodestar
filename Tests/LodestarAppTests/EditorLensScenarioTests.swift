@@ -14,9 +14,13 @@ final class EditorLensScenarioTests: XCTestCase {
         var kept: [EditorIssue] = []
         var learned: [EditorIssue] = []
         var undone = 0
+        /// The real editor's marks still describe the text before a fix
+        /// until it has read the field again and checked the sentence
+        /// (a third of a second on Standard): a stale lens keeps them.
+        var stale = false
         func fix(_ mark: EditorController.Mark, completion: @escaping (Bool) -> Void) {
             fixed.append(mark.issue)
-            lensMarks.removeAll { $0 == mark }
+            if !stale { lensMarks.removeAll { $0 == mark } }
             completion(true)
         }
         func ignore(_ mark: EditorController.Mark) {
@@ -29,7 +33,7 @@ final class EditorLensScenarioTests: XCTestCase {
         }
         func fixAll(_ marks: [EditorController.Mark], completion: @escaping (Int) -> Void) {
             fixed.append(contentsOf: marks.map(\.issue))
-            lensMarks.removeAll { marks.contains($0) }
+            if !stale { lensMarks.removeAll { marks.contains($0) } }
             completion(marks.count)
         }
         func undoLastFix(completion: @escaping (Bool) -> Void) {
@@ -106,6 +110,44 @@ final class EditorLensScenarioTests: XCTestCase {
             XCTAssertTrue(stage.engine.stateDescription.contains("hints"), "the lens stands one key longer")
             XCTAssertFalse(stage.press("return"), "the second ⏎ is the app's")
             XCTAssertFalse(stage.engine.stateDescription.contains("hints"))
+        }
+    }
+
+    /// The lens looks again a beat after every fix, and the editor has not
+    /// read the field again by then: its marks still name the words just
+    /// fixed. 0.47.0 lettered those again, so after ⏎ the old chips came
+    /// back over fixed text and every key that was not one of their letters
+    /// vanished until Escape.
+    func testAfterFixingAllTheLensNeverLettersTheFixedWordsAgain() {
+        let (stage, lens) = stage(with: [mark("everyting", "everything", x: 10), mark("seasn", "season", x: 120),
+                                         mark("tiem", "time", x: 240)])
+        lens.stale = true
+        withExtendedLifetime(lens) {
+            stage.lode("tab")
+            stage.press("return")
+            XCTAssertEqual(lens.fixed.count, 3)
+            stage.pump(until: { stage.engine.select.rescansSettled }, within: 2)
+            XCTAssertTrue(stage.engine.select.shownChips.isEmpty, "no chip over a word already fixed")
+            XCTAssertEqual(stage.engine.select.pill?.state?.offer, SelectController.undoOffer,
+                           "the lens still offers ⌫ for the batch")
+            XCTAssertFalse(stage.press("x"), "the next key is the app's, not swallowed")
+            XCTAssertFalse(stage.engine.stateDescription.contains("hints"))
+        }
+    }
+
+    /// The same beat after a letter: the fixed word stays unlettered and
+    /// the others keep theirs.
+    func testAfterOneFixTheLensLettersOnlyWhatIsLeft() throws {
+        let (stage, lens) = stage(with: [mark("its", "it's", x: 10), mark("recieve", "receive", x: 120)])
+        lens.stale = true
+        try withExtendedLifetime(lens) {
+            stage.lode("tab")
+            let first = try XCTUnwrap(stage.engine.select.shownChips.first)
+            stage.press(String(first.label.first!))
+            stage.pump(until: { stage.engine.select.rescansSettled }, within: 2)
+            let chips = stage.engine.select.shownChips
+            XCTAssertEqual(chips.count, 1)
+            XCTAssertFalse(chips.contains { $0.fix == first.fix }, "the fixed word is not lettered again")
         }
     }
 

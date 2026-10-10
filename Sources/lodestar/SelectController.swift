@@ -492,9 +492,11 @@ final class SelectController {
                 entryTyped.removeLast()
                 renderEditor()
             } else {
-                // ⌫ with nothing typed: the last fix, taken back.
+                // ⌫ with nothing typed: the last fix, taken back, and
+                // its words may be marked again.
                 editor?.undoLastFix { [weak self] done in
                     guard done else { return }
+                    self?.answered = []
                     self?.relabelEditor(after: 0.35)
                 }
             }
@@ -616,6 +618,7 @@ final class SelectController {
         entryChipsSettled = false
         entryLabels = []
         entryTyped = ""
+        answered = []
         entryChipsAtEntry = 0
         firstKeyAt = nil
         pendingKeys = []
@@ -645,6 +648,20 @@ final class SelectController {
 
     // MARK: - The editor door
 
+    /// Every mark the lens has answered since it was entered. A fix lands
+    /// before the editor has read the field again, so for a beat its marks
+    /// still name the words as they were written; the look the lens takes
+    /// after each fix would letter them again, chips over fixed words that
+    /// hold every key meant for the app. What was answered is never
+    /// lettered again, and a mark the editor finds in the new text is a
+    /// new mark. ⌫ takes the answers back with their fixes.
+    private var answered: [EditorIssue] = []
+
+    /// Looks scheduled after a fix that have not run yet. For the tests,
+    /// which wait on the look rather than on the clock.
+    private var pendingRelabels = 0
+    var rescansSettled: Bool { pendingRelabels == 0 }
+
     private func labelEditor(_ marks: [EditorController.Mark]) {
         editorMarks = marks
         entryTyped = ""
@@ -669,9 +686,12 @@ final class SelectController {
     /// has settled, and lettered afresh.
     private func relabelEditor(after delay: Double) {
         let expected = generation
+        pendingRelabels += 1
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            guard let self, self.generation == expected, self.door == .editor, let editor = self.editor else { return }
-            let marks = editor.lensMarks
+            guard let self else { return }
+            self.pendingRelabels -= 1
+            guard self.generation == expected, self.door == .editor, let editor = self.editor else { return }
+            let marks = editor.lensMarks.filter { !self.answered.contains($0.issue) }
             if marks.isEmpty {
                 // Nothing to letter: the lens waits on ⌫ or hands the next
                 // key back.
@@ -698,6 +718,7 @@ final class SelectController {
     private func editorFixAll() -> SelectStep {
         guard let editor, !editorMarks.isEmpty else { return .pending }
         let marks = editorMarks
+        answered.append(contentsOf: marks.map(\.issue))
         editorMarks = []
         entryTyped = ""
         entryLabels = []
@@ -716,6 +737,7 @@ final class SelectController {
         switch HintLabels.match(typed: candidate, labels: entryLabels) {
         case .exact(let index):
             let mark = editorMarks[index]
+            answered.append(mark.issue)
             entryTyped = ""
             editorMarks.remove(at: index)
             entryLabels = HintLabels.labels(count: editorMarks.count, alphabet: letters)

@@ -88,6 +88,96 @@ final class UpdaterTests: XCTestCase {
         XCTAssertNil(Updater.parseFeed(feed("[{\"tag_name\": \"nightly\", \"assets\": []}]")))
     }
 
+    // MARK: - Channels
+
+    /// The site's stable answer as it serves it.
+    private func stable(tag: String = "v1.47.1", version: String = "1.47.1",
+                        zipName: String? = nil, zipURL: String? = nil) -> Data {
+        let name = zipName ?? "lodestar-\(version).zip"
+        let url = zipURL ?? "https://github.com/Vaccone-Software/lodestar/releases/download/\(tag)/\(name)"
+        return feed("""
+        {"tag": "\(tag)", "version": "\(version)", "published": "2026-10-02T00:00:00Z",
+         "zip": {"name": "\(name)", "url": "\(url)"},
+         "preview": {"tag": "v1.48.0"},
+         "pending": [{"line": "1.48", "kind": "minor", "since": "2026-10-08T00:00:00Z",
+                      "promotes": "2026-10-15T00:00:00Z", "tag": "v1.48.0"}],
+         "policy": {"minorSoakDays": 7, "patchSoakDays": 3, "settleDays": 1}}
+        """)
+    }
+
+    func testPreviewTakesTheNewestBuild() {
+        let release = Updater.parse(feed("""
+        [{"tag_name": "v1.48.0", "draft": false, "assets": [
+            {"name": "lodestar-1.48.0.zip", "browser_download_url": "https://example.com/48.zip"}]},
+         {"tag_name": "v1.47.1", "draft": false, "assets": [
+            {"name": "lodestar-1.47.1.zip", "browser_download_url": "https://example.com/471.zip"}]}]
+        """), channel: .preview)
+        XCTAssertEqual(release?.tag, "v1.48.0")
+    }
+
+    func testStableTakesTheSitesAnswer() {
+        let release = Updater.parse(stable(), channel: .stable)
+        XCTAssertEqual(release?.tag, "v1.47.1")
+        XCTAssertEqual(release?.version, [1, 47, 1])
+        XCTAssertEqual(release?.zipName, "lodestar-1.47.1.zip")
+        XCTAssertEqual(release?.zipURL,
+                       "https://github.com/Vaccone-Software/lodestar/releases/download/v1.47.1/lodestar-1.47.1.zip")
+    }
+
+    func testStableRefusesAZipFromAnywhereButTheTagsDownloads() {
+        // The site names a build; it never gets to say where a binary
+        // comes from. Another host, another repository, another tag's
+        // folder, or plain http are all a failed check.
+        for url in [
+            "https://example.com/lodestar-1.47.1.zip",
+            "https://github.com/someone/lodestar/releases/download/v1.47.1/lodestar-1.47.1.zip",
+            "https://github.com/Vaccone-Software/lodestar/releases/download/v1.48.0/lodestar-1.47.1.zip",
+            "http://github.com/Vaccone-Software/lodestar/releases/download/v1.47.1/lodestar-1.47.1.zip",
+            "https://github.com/Vaccone-Software/lodestar/releases/download/v1.47.1/lodestar-1.47.1.zip?x=1",
+        ] {
+            XCTAssertNil(Updater.parse(stable(zipURL: url), channel: .stable), url)
+        }
+    }
+
+    func testStableRefusesATagZipOrVersionThatDisagree() {
+        XCTAssertNil(Updater.parse(stable(tag: "v1.48.0"), channel: .stable))
+        XCTAssertNil(Updater.parse(stable(tag: "1.47.1"), channel: .stable))
+        XCTAssertNil(Updater.parse(stable(zipName: "lodestar-1.48.0.zip"), channel: .stable))
+        XCTAssertNil(Updater.parse(stable(zipName: "symbols.zip"), channel: .stable))
+        XCTAssertNil(Updater.parse(stable(tag: "vnightly", version: "nightly"), channel: .stable))
+    }
+
+    func testStableReadsTheSitesErrorAsNoAnswer() {
+        // The site answers 503 with this body when GitHub cannot be read:
+        // the status is a problem on its own, and the body is no release.
+        XCTAssertEqual(Updater.httpProblem(status: 503), "HTTP 503")
+        XCTAssertNil(Updater.parse(feed(#"{"error": "GitHub could not be read"}"#), channel: .stable))
+        XCTAssertNil(Updater.parse(feed("not json"), channel: .stable))
+        XCTAssertNil(Updater.parse(feed("[]"), channel: .stable))
+    }
+
+    func testStableNeverReadsTheReleasesList() {
+        // A releases list handed to the stable parser is not an answer:
+        // stable is the site's to say, never the newest build's.
+        XCTAssertNil(Updater.parse(feed("""
+        [{"tag_name": "v1.48.0", "draft": false, "assets": [
+            {"name": "lodestar-1.48.0.zip", "browser_download_url": "https://example.com/48.zip"}]}]
+        """), channel: .stable))
+    }
+
+    func testAMacAheadOfStableStaysPut() {
+        // Switched from preview while on 1.48.0: stable says 1.47.1, which
+        // is not newer, so nothing is offered and nothing moves back.
+        let release = Updater.parse(stable(), channel: .stable)!
+        XCTAssertFalse(Updater.isNewer(release.version, than: [1, 48, 0]))
+    }
+
+    func testStableAsksTheSiteFeedbackGoesTo() {
+        XCTAssertEqual(Updater.stableURL.host, Feedback.endpoint.host)
+        XCTAssertEqual(Updater.stableURL.scheme, "https")
+        XCTAssertEqual(Updater.stableURL.path, "/api/stable")
+    }
+
     // MARK: - The quiet gate
 
     func testGateNeedsBothQuietAndSilence() {

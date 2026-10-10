@@ -1,0 +1,75 @@
+name: Promote
+
+# The cask follows stable. Stable is not a flag on a release (published
+# releases are immutable, their prerelease flag included) but the site's
+# answer: lodestar.vaccone.software/api/stable, the one place the
+# promotion rule lives, read the same way by every stable Mac and the
+# download button. Four times a day this asks it, and when the cask points
+# elsewhere, points it at stable: the zip is downloaded from the release
+# and bump-cask.sh writes version, sha and the build's own requirements,
+# as it did when ship.sh ran it.
+#
+# The answer is checked the way the app checks it (scripts/channel.sh): a
+# 503 or an answer that does not name one of Lodestar's own releases fails
+# the run loudly and moves nothing. A failed run changes nothing and the
+# next one tries again; the updater and the site do not depend on it. Run
+# it by hand to move the cask at once (Actions → Promote → Run workflow).
+#
+# Secrets: TAP_TOKEN, fine-grained PAT, contents:write on homebrew-tap
+# (the same one release.yml used for the cask).
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: promote
+  cancel-in-progress: false
+
+jobs:
+  cask:
+    runs-on: macos-26
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+    # Named, so every step runs with pipefail: a channel.sh that fails
+    # inside a pipe still fails the run.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Where stable stands
+        id: stable
+        run: |
+          ./scripts/channel.sh | tee -a "$GITHUB_STEP_SUMMARY"
+          VERSION=$(./scripts/channel.sh --version)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Where the cask points
+        id: cask
+        run: |
+          CASK=$(gh api repos/Vaccone-Software/homebrew-tap/contents/Casks/lodestar.rb \
+            -H 'Accept: application/vnd.github.raw')
+          VERSION=$(printf '%s\n' "$CASK" | sed -n 's/^ *version "\(.*\)"$/\1/p' | head -1)
+          [ -n "$VERSION" ] || { echo "✕ could not read the cask's version"; exit 1; }
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "cask → $VERSION, stable → ${{ steps.stable.outputs.version }}"
+
+      - name: Point the cask at stable
+        if: steps.cask.outputs.version != steps.stable.outputs.version
+        env:
+          TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+          VERSION: ${{ steps.stable.outputs.version }}
+        run: |
+          # The tag's own release, through GitHub, never a URL the answer
+          # supplied: the site only names the version.
+          gh release download "v$VERSION" --repo "$GITHUB_REPOSITORY" \
+            --pattern "lodestar-$VERSION.zip" --dir dist
+          ./scripts/bump-cask.sh "$VERSION" "dist/lodestar-$VERSION.zip"
+          echo "cask → $VERSION" >> "$GITHUB_STEP_SUMMARY"

@@ -32,6 +32,9 @@ public struct Config {
     /// Keep Lodestar current: check daily, verify, apply when idle
     /// (installed app only).
     public var autoUpdate = true
+    /// Which releases those updates follow: stable, a build that has soaked
+    /// on the preview Macs, or preview, every build as it ships.
+    public var channel = Updater.Channel.stable
     /// Lodestar's own sounds, together. The alert sound is the Mac's.
     public var sounds = true
     /// Keep the login LaunchAgent installed (installed app only).
@@ -215,6 +218,8 @@ public struct Config {
         ], description: "The lode key."),
         "app": .table([
             "auto-update": .boolean(description: "Keep Lodestar current: check daily, verify the download, apply quietly when idle (installed app only)."),
+            "channel": .string(allowed: ["stable", "preview"],
+                               description: "Which releases updates follow. Stable takes a build once it has run on preview Macs for a few days. Preview takes every build as it ships."),
             "sounds": .boolean(description: "Lodestar's own sounds, together: today the draft's note when the microphone is live and when the words land. The alert sound is the Mac's own setting."),
             "start-at-login": .boolean(description: "Keep the login LaunchAgent installed (installed app only)."),
             "show-menu-bar": .boolean(description: "Show the status item permanently; false hides it until lodestar is picked in the launcher."),
@@ -422,6 +427,13 @@ public struct Config {
         }
         if let autoUpdate = effective.value(at: ["app", "auto-update"])?.bool {
             config.autoUpdate = autoUpdate
+        }
+        if let channel = effective.value(at: ["app", "channel"])?.string {
+            if let parsed = Updater.Channel(rawValue: channel) {
+                config.channel = parsed
+            } else {
+                problems.append("unknown app.channel '\(channel)' — using stable")
+            }
         }
         if let startAtLogin = effective.value(at: ["app", "start-at-login"])?.bool {
             config.startAtLogin = startAtLogin

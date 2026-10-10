@@ -39,6 +39,10 @@ final class UpdateController {
             if case .ready = phase { standDown() }
         }
     }
+    /// The releases this Mac follows. A switch takes effect at the next
+    /// check; a Mac ahead of its new channel stays where it is until the
+    /// channel passes it, because the updater never moves backwards.
+    var channel = Updater.Channel.stable
     var engineQuiet: () -> Bool = { false }
     /// The last moment a hand was at the keyboard, gesture or not.
     var lastActivity: () -> Date = { .distantPast }
@@ -251,16 +255,19 @@ final class UpdateController {
         guard canSwap(installURL: installURL, force: force) else { return }
 
         phase = .checking
-        Log.info("update", ["phase": "checking", "force": "\(force)"])
-        var request = URLRequest(url: Self.feedURL, timeoutInterval: 30)
+        // Read here, on the caller's thread, not in the answer's handler.
+        let channel = self.channel
+        Log.info("update", ["phase": "checking", "force": "\(force)", "channel": channel.rawValue])
+        let feed = channel == .stable ? Updater.stableURL : Self.feedURL
+        var request = URLRequest(url: feed, timeoutInterval: 30)
         request.setValue("lodestar/\(Lodestar.version)", forHTTPHeaderField: "User-Agent")
         network.dataTask(with: request) { [weak self] data, response, error in
             guard let self else { return }
             let problem = error.map { String(describing: $0) }
                 ?? Updater.httpProblem(status: (response as? HTTPURLResponse)?.statusCode)
-            guard problem == nil, let data, let release = Updater.parseFeed(data) else {
+            guard problem == nil, let data, let release = Updater.parse(data, channel: channel) else {
                 self.finishCheck(force: force, note: "✕ Could not check for updates",
-                                 log: "feed unreadable (\(problem ?? "no release with a zip"))", failed: true)
+                                 log: "\(channel.rawValue) feed unreadable (\(problem ?? "no release with a zip"))", failed: true)
                 return
             }
             DispatchQueue.main.async { self.failedChecks = 0 }

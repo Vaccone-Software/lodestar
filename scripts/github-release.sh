@@ -82,7 +82,7 @@ check)
     case "$RELEASE_STATE" in
         published)
             echo "✕ $TAG is already published, and published releases are immutable: bump Lodestar.version and write notes/v<new>.md"
-            echo "  (if only its cask bump is left: ./scripts/bump-cask.sh $VERSION dist/lodestar-$VERSION.zip, which is safe to repeat)"
+            echo "  (it is on preview already; stable and the cask follow on their own: ./scripts/channel.sh)"
             exit 1;;
         draft) echo "→ a draft of $TAG is already on GitHub (an earlier ship stopped); this ship will finish it";;
     esac

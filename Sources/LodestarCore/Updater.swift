@@ -20,31 +20,65 @@ public enum Updater {
     }
 
     /// Which releases this Mac takes. Preview is every build the moment it
-    /// is published; stable is the point `Promotion` computes from the same
-    /// list. One stream, two distances behind its head.
+    /// is published, read from GitHub's releases list. Stable is the build
+    /// the site says has soaked: the promotion rule lives there and nowhere
+    /// else, so fixing it or changing its timings is a site deploy and never
+    /// waits on every installed copy updating. One stream, two distances
+    /// behind its head.
     public enum Channel: String, CaseIterable, Equatable, Sendable {
         case stable, preview
     }
 
-    /// The release this Mac's channel points at, from the releases list
-    /// (releases?per_page=100 — never releases/latest, which excludes
-    /// prereleases, and every release before 1.0 is one; a hundred so the
-    /// stable walk sees months of history, not a week of daily patches).
-    public static func parseFeed(_ data: Data, channel: Channel, now: Date) -> Release? {
+    /// The site's answer for stable. It only names a build: the zip still
+    /// comes from GitHub, and the staged bundle must still carry this
+    /// team's Developer ID and the tag's version, so the most a wrong
+    /// answer from here can do is hold an update back.
+    public static let stableURL = URL(string: "https://lodestar.vaccone.software/api/stable")!
+
+    /// Where every release's files live. The site's zip URL must be exactly
+    /// the one GitHub serves for the tag it names.
+    static let downloads = Lodestar.repository + "/releases/download/"
+
+    /// The release a channel's answer points at, or nil for anything that
+    /// is not a clean answer: then this check is a failed one, and the
+    /// usual retry asks again.
+    public static func parse(_ data: Data, channel: Channel) -> Release? {
         switch channel {
-        case .preview:
-            return parseFeed(data)
-        case .stable:
-            guard let builds = Promotion.parseFeed(data),
-                  let stable = Promotion.stable(builds, now: now) else { return nil }
-            return releases(in: data).first { $0.tag == stable.tag }
+        case .preview: return parseFeed(data)
+        case .stable: return parseStable(data)
         }
     }
 
-    /// The newest release carrying a lodestar zip: the preview channel.
-    /// The whole list rather than the first entry, so the skip can skip: a
-    /// newest entry with no zip, or a tag that is not a version, falls
-    /// through to the one before it.
+    /// The site's stable answer, believed only when it names one of
+    /// Lodestar's own releases the way GitHub names it: tag v<version>,
+    /// zip lodestar-<version>.zip, at that tag's download path on
+    /// github.com. Fields the updater does not need (pending lines, the
+    /// policy, preview) are the terminal's and the workflow's to read.
+    public static func parseStable(_ data: Data) -> Release? {
+        struct Zip: Decodable {
+            let name: String
+            let url: String
+        }
+        struct Answer: Decodable {
+            let tag: String
+            let version: String
+            let zip: Zip
+        }
+        guard let answer = try? JSONDecoder().decode(Answer.self, from: data),
+              let version = parseVersion(answer.version),
+              answer.tag == "v" + answer.version,
+              answer.zip.name == "lodestar-\(answer.version).zip",
+              answer.zip.url == downloads + answer.tag + "/" + answer.zip.name
+        else { return nil }
+        return Release(tag: answer.tag, version: version, zipName: answer.zip.name, zipURL: answer.zip.url)
+    }
+
+    /// The newest release carrying a lodestar zip: the preview channel,
+    /// from the releases list (releases?per_page=10 — never
+    /// releases/latest, which excludes prereleases, and every release
+    /// before 1.0 is one). The whole list rather than the first entry, so
+    /// the skip can skip: a newest entry with no zip, or a tag that is not
+    /// a version, falls through to the one before it.
     public static func parseFeed(_ data: Data) -> Release? {
         releases(in: data).first
     }

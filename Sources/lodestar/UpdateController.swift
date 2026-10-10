@@ -24,7 +24,7 @@ final class UpdateController {
     private static let refusedFile = directory.appendingPathComponent("refused")
     private static let feedURL = URL(string: Lodestar.repository
         .replacingOccurrences(of: "https://github.com/", with: "https://api.github.com/repos/")
-        + "/releases?per_page=100")!
+        + "/releases?per_page=10")!
     private static let requirement = """
         anchor apple generic and identifier "com.vaccone.lodestar" \
         and certificate leaf[subject.OU] = "\(Lodestar.teamID)"
@@ -258,15 +258,16 @@ final class UpdateController {
         // Read here, on the caller's thread, not in the answer's handler.
         let channel = self.channel
         Log.info("update", ["phase": "checking", "force": "\(force)", "channel": channel.rawValue])
-        var request = URLRequest(url: Self.feedURL, timeoutInterval: 30)
+        let feed = channel == .stable ? Updater.stableURL : Self.feedURL
+        var request = URLRequest(url: feed, timeoutInterval: 30)
         request.setValue("lodestar/\(Lodestar.version)", forHTTPHeaderField: "User-Agent")
         network.dataTask(with: request) { [weak self] data, response, error in
             guard let self else { return }
             let problem = error.map { String(describing: $0) }
                 ?? Updater.httpProblem(status: (response as? HTTPURLResponse)?.statusCode)
-            guard problem == nil, let data, let release = Updater.parseFeed(data, channel: channel, now: Date()) else {
+            guard problem == nil, let data, let release = Updater.parse(data, channel: channel) else {
                 self.finishCheck(force: force, note: "✕ Could not check for updates",
-                                 log: "feed unreadable (\(problem ?? "no release with a zip"))", failed: true)
+                                 log: "\(channel.rawValue) feed unreadable (\(problem ?? "no release with a zip"))", failed: true)
                 return
             }
             DispatchQueue.main.async { self.failedChecks = 0 }

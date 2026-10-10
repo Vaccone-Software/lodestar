@@ -51,9 +51,6 @@ let package = Package(
         ]),
         // Slice 0: the window-identity probe. Throwaway by design.
         .executableTarget(name: "probe", dependencies: ["LodestarCore", "LodestarEars"]),
-        // The stable channel from a terminal or a workflow: Promotion over
-        // the releases list. LodestarCore only, so CI builds it without MLX.
-        .executableTarget(name: "channel", dependencies: ["LodestarCore"]),
         // A stand-in app with plain windows, for the tests that move real
         // windows with Lodestar's own actions. Built beside the tests,
         // never shipped.

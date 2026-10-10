@@ -411,6 +411,12 @@ public enum SettingsModel {
                 control: .toggle(config.startAtLogin), isDefault: config.startAtLogin, group: "Lodestar"),
             Row(title: "Automatic updates", path: "app.auto-update",
                 control: .toggle(config.autoUpdate), isDefault: config.autoUpdate, group: "Lodestar"),
+            Row(title: "Updates", path: "app.channel",
+                control: .choice(options: ["stable", "preview"],
+                                 labels: ["Stable", "Preview"],
+                                 current: config.channel.rawValue),
+                detail: "Stable takes a build once it has run on preview Macs for a few days. Preview takes every build as it ships",
+                isDefault: config.channel == .stable, group: "Lodestar"),
             Row(title: "Menu bar icon", path: "app.show-menu-bar",
                 control: .toggle(config.showMenuBar), isDefault: config.showMenuBar, group: "Lodestar"),
             Row(title: "Accent", path: "appearance.accent",
@@ -1002,7 +1008,7 @@ public enum SettingsModel {
 
     /// The words people type for a place that is named by what it does.
     static let aliases: [String: String] = [
-        "General": "login startup updates accent colour color dark night sound menu bar display accessibility permission",
+        "General": "login startup updates stable preview channel release accent colour color dark night sound menu bar display accessibility permission",
         "Write": "editor grammar spelling typos proofread",
         "Switch": "windows launcher apps graph letters breaths layout maximize",
         "Keep": "clipboard copy paste history clips",

@@ -704,6 +704,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Accessibility prompt still deserves fixes.
         updater = UpdateController()
         updater.enabled = config.autoUpdate
+        updater.channel = config.channel
         // Quiet means nobody at the keys and nobody on a call. Lode gestures
         // alone set it before, so ten minutes of plain typing, or a long
         // call, read as away and the swap restarted the app under the hand.
@@ -2249,6 +2250,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         refreshAppIcon()
         webBar.config = loaded
         updater.enabled = loaded.autoUpdate
+        updater.channel = loaded.channel
         clipboardController.excludedApps = loaded.clipboardExcludedApps
         clipboardController.excludedPatterns = loaded.clipboardExcludePatterns
         draftController?.words = loaded.draftWords

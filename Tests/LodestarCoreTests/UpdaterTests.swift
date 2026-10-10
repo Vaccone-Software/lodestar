@@ -88,6 +88,48 @@ final class UpdaterTests: XCTestCase {
         XCTAssertNil(Updater.parseFeed(feed("[{\"tag_name\": \"nightly\", \"assets\": []}]")))
     }
 
+    // MARK: - Channels
+
+    /// Three releases as GitHub lists them, newest first: a minor two days
+    /// old, the patch before it, and the minor that patch sits on.
+    private let channelFeed = """
+    [{"tag_name": "v0.48.0", "name": "Lodestar 0.48.0", "draft": false, "published_at": "2026-10-08T00:00:00Z",
+      "assets": [{"name": "lodestar-0.48.0.zip", "browser_download_url": "https://example.com/48.zip"}]},
+     {"tag_name": "v0.47.1", "name": "Lodestar 0.47.1", "draft": false, "published_at": "2026-10-02T00:00:00Z",
+      "assets": [{"name": "lodestar-0.47.1.zip", "browser_download_url": "https://example.com/471.zip"}]},
+     {"tag_name": "v0.47.0", "name": "Lodestar 0.47.0", "draft": false, "published_at": "2026-09-20T00:00:00Z",
+      "assets": [{"name": "lodestar-0.47.0.zip", "browser_download_url": "https://example.com/470.zip"}]}]
+    """
+    private let tenth = ISO8601DateFormatter().date(from: "2026-10-10T00:00:00Z")!
+
+    func testPreviewTakesTheNewestBuild() {
+        let release = Updater.parseFeed(feed(channelFeed), channel: .preview, now: tenth)
+        XCTAssertEqual(release?.tag, "v0.48.0")
+    }
+
+    func testStableTakesThePromotedBuildWithItsZip() {
+        let release = Updater.parseFeed(feed(channelFeed), channel: .stable, now: tenth)
+        XCTAssertEqual(release?.tag, "v0.47.1")
+        XCTAssertEqual(release?.zipURL, "https://example.com/471.zip")
+    }
+
+    func testStableCatchesUpOnceTheMinorHasSoaked() {
+        let week = ISO8601DateFormatter().date(from: "2026-10-15T00:00:00Z")!
+        XCTAssertEqual(Updater.parseFeed(feed(channelFeed), channel: .stable, now: week)?.tag, "v0.48.0")
+    }
+
+    func testAMacAheadOfStableStaysPut() {
+        // Switched from preview while on 0.48.0: stable says 0.47.1, which
+        // is not newer, so nothing is offered and nothing moves back.
+        let release = Updater.parseFeed(feed(channelFeed), channel: .stable, now: tenth)!
+        XCTAssertFalse(Updater.isNewer(release.version, than: [0, 48, 0]))
+    }
+
+    func testStableSurvivesAMalformedFeed() {
+        XCTAssertNil(Updater.parseFeed(feed("not json"), channel: .stable, now: tenth))
+        XCTAssertNil(Updater.parseFeed(feed("[]"), channel: .stable, now: tenth))
+    }
+
     // MARK: - The quiet gate
 
     func testGateNeedsBothQuietAndSilence() {

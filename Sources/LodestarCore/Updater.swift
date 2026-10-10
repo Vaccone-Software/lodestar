@@ -19,12 +19,39 @@ public enum Updater {
         }
     }
 
-    /// The newest release carrying a lodestar zip, from the releases list
-    /// (releases?per_page=10 — never releases/latest, which excludes
-    /// prereleases, and every release before 1.0 is one). Ten, not one, so
-    /// the skip below can skip: a newest entry with no zip, or a tag that
-    /// is not a version, falls through to the one before it.
+    /// Which releases this Mac takes. Preview is every build the moment it
+    /// is published; stable is the point `Promotion` computes from the same
+    /// list. One stream, two distances behind its head.
+    public enum Channel: String, CaseIterable, Equatable, Sendable {
+        case stable, preview
+    }
+
+    /// The release this Mac's channel points at, from the releases list
+    /// (releases?per_page=100 — never releases/latest, which excludes
+    /// prereleases, and every release before 1.0 is one; a hundred so the
+    /// stable walk sees months of history, not a week of daily patches).
+    public static func parseFeed(_ data: Data, channel: Channel, now: Date) -> Release? {
+        switch channel {
+        case .preview:
+            return parseFeed(data)
+        case .stable:
+            guard let builds = Promotion.parseFeed(data),
+                  let stable = Promotion.stable(builds, now: now) else { return nil }
+            return releases(in: data).first { $0.tag == stable.tag }
+        }
+    }
+
+    /// The newest release carrying a lodestar zip: the preview channel.
+    /// The whole list rather than the first entry, so the skip can skip: a
+    /// newest entry with no zip, or a tag that is not a version, falls
+    /// through to the one before it.
     public static func parseFeed(_ data: Data) -> Release? {
+        releases(in: data).first
+    }
+
+    /// Every installable release in the list, in the list's order (newest
+    /// first, as GitHub answers).
+    static func releases(in data: Data) -> [Release] {
         struct Asset: Decodable {
             let name: String
             let browser_download_url: String
@@ -34,16 +61,15 @@ public enum Updater {
             let draft: Bool?
             let assets: [Asset]?
         }
-        guard let entries = try? JSONDecoder().decode([Entry].self, from: data) else { return nil }
-        for entry in entries where entry.draft != true {
-            guard let version = parseVersion(entry.tag_name) else { continue }
-            guard let zip = (entry.assets ?? []).first(where: {
-                $0.name.hasPrefix("lodestar-") && $0.name.hasSuffix(".zip")
-            }) else { continue }
+        guard let entries = try? JSONDecoder().decode([Entry].self, from: data) else { return [] }
+        return entries.compactMap { entry in
+            guard entry.draft != true, let version = parseVersion(entry.tag_name),
+                  let zip = (entry.assets ?? []).first(where: {
+                      $0.name.hasPrefix("lodestar-") && $0.name.hasSuffix(".zip")
+                  }) else { return nil }
             return Release(tag: entry.tag_name, version: version,
                            zipName: zip.name, zipURL: zip.browser_download_url)
         }
-        return nil
     }
 
     /// When to ask again after a check that failed, by how many have failed

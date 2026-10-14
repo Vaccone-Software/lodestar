@@ -120,9 +120,12 @@ jobs:
 
       - name: Metal toolchain
         # MLX compiles its GPU kernels with `metal`, a separate download
-        # since Xcode 26; a runner image may not carry it.
+        # since Xcode 26; a runner image may not carry it. Xcode 27 ships a
+        # `metal` stub that `xcrun -f` finds, so ask for the component itself.
         if: steps.existing.outputs.skip != 'true'
-        run: xcrun -f metal >/dev/null 2>&1 || xcodebuild -downloadComponent MetalToolchain
+        run: |
+          xcodebuild -showComponent MetalToolchain 2>/dev/null | grep -q "Status: installed" \
+            || xcodebuild -downloadComponent MetalToolchain
 
       - name: Test, build, sign, notarize, staple
         if: steps.existing.outputs.skip != 'true'

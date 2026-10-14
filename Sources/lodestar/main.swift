@@ -1,5 +1,6 @@
 import AppKit
 import LodestarCore
+import StoicStore
 import LodestarEars
 
 /// The lodestar mark in the menu bar: the star with depth as one
@@ -132,10 +133,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// A crash is better than a freeze: see `MainThreadWatchdog`.
     private let watchdog = MainThreadWatchdog()
+    private var launchGuard: LaunchGuard?
+    private var launchMode = RunMarker.Mode.normal
+
+    /// Count this launch, after the takeover (the process it replaced has
+    /// finished writing its own state) and before the watchdog starts. A
+    /// launch that is still up after thirty seconds is marked stable; a
+    /// quit marks it clean. Three launches in a row that were neither put
+    /// the app in safe mode, where a stall is logged and not aborted:
+    /// the abort and relaunch is how a past crash loop kept going. The
+    /// guard must never itself be the reason the app cannot start, so
+    /// any trouble with its file is logged and the launch goes on.
+    private func beginLaunchGuard() {
+        // The data directory is made properly at migration, further down;
+        // on the very first launch it may not exist yet.
+        try? FileManager.default.createDirectory(
+            at: Paths.data, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let guardian = RunMarker.launchGuard(in: Paths.data, build: Lodestar.version)
+        launchGuard = guardian
+        do {
+            launchMode = RunMarker.Mode(try guardian.beginLaunch())
+        } catch {
+            Log.error("launch guard: could not read or write its state — \(error)")
+        }
+        if case .safe(let unclean) = launchMode {
+            Log.error("launch guard", [
+                "unclean-launches": unclean,
+                "mode": "safe",
+                "effect": "the main-thread watchdog logs a stall instead of aborting",
+            ])
+            watchdog.response = .logOnly
+        }
+        guardian.markStable(after: RunMarker.stableAfter)
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Log.info("Lodestar \(Lodestar.version) starting (pid \(ProcessInfo.processInfo.processIdentifier))")
         takeOverPidFile()
+        beginLaunchGuard()
         watchdog.start()
         // Before any panel exists: the chords a text field answers are
         // routed through the main menu, and an accessory app has none
@@ -812,6 +847,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // A draft still open keeps its text on the pasteboard, as every
         // other exit does.
         draftController?.cancel(reason: "quit")
+        // A quit is not a launch that failed to finish.
+        do {
+            try launchGuard?.markCleanExit()
+        } catch {
+            Log.error("launch guard: could not record the clean exit — \(error)")
+        }
         // The door shuts first. Unparking below is seconds of AX work, and
         // a verb accepted during it would be answered by an instance on its
         // way out — worse than being told nobody is home, which is what a

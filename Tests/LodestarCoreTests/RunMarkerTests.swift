@@ -27,3 +27,63 @@ final class RunMarkerTests: XCTestCase {
         XCTAssertNil(RunMarker.pid(in: "quit"))
     }
 }
+
+/// The crash-loop breaker beside the run marker.
+final class LaunchGuardTests: XCTestCase {
+    private var directory: URL!
+
+    override func setUp() {
+        directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("launch-guard-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+
+    override func tearDown() {
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    private func launch(build: String = "0.41.0") throws -> RunMarker.Mode {
+        // A fresh guard each time: each launch is a new process.
+        RunMarker.Mode(try RunMarker.launchGuard(in: directory, build: build, bootSession: "boot-1").beginLaunch())
+    }
+
+    func testLaunchesThatNeverFinishPutTheNextOneInSafeMode() throws {
+        XCTAssertEqual(try launch(), .normal)
+        XCTAssertEqual(try launch(), .normal, "one died")
+        XCTAssertEqual(try launch(), .normal, "two died")
+        XCTAssertEqual(try launch(), .safe(uncleanLaunches: 3), "three in a row")
+    }
+
+    func testAStableLaunchStartsTheCountOver() throws {
+        XCTAssertEqual(try launch(), .normal)
+        XCTAssertEqual(try launch(), .normal)
+        try RunMarker.launchGuard(in: directory, build: "0.41.0", bootSession: "boot-1").markStable()
+        XCTAssertEqual(try launch(), .normal)
+        XCTAssertEqual(try launch(), .normal)
+        XCTAssertEqual(try launch(), .normal, "the two before the stable launch no longer count")
+    }
+
+    func testAQuitIsNotACrash() throws {
+        for _ in 0..<6 {
+            XCTAssertEqual(try launch(), .normal)
+            try RunMarker.launchGuard(in: directory, build: "0.41.0", bootSession: "boot-1").markCleanExit()
+        }
+    }
+
+    func testANewBuildIsTheWayOutOfALoop() throws {
+        for _ in 0..<4 { _ = try launch() }
+        XCTAssertEqual(try launch(), .safe(uncleanLaunches: 4))
+        XCTAssertEqual(try launch(build: "0.41.1"), .normal)
+    }
+
+    func testTheStateFileSitsBesideTheOtherState() throws {
+        _ = try launch()
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: directory.appendingPathComponent(RunMarker.launchGuardFile).path))
+    }
+
+    func testAGuardThatCannotWriteThrowsRatherThanBlockingTheLaunch() {
+        let missing = directory.appendingPathComponent("nowhere", isDirectory: true)
+        XCTAssertThrowsError(try RunMarker.launchGuard(in: missing, build: "x", bootSession: nil).beginLaunch())
+    }
+}

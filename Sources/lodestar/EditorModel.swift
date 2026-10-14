@@ -4,6 +4,7 @@ import MLX
 import MLXHuggingFace
 import MLXLLM
 import MLXLMCommon
+import Stoic
 import Tokenizers
 #if canImport(FoundationModels)
 import FoundationModels
@@ -368,33 +369,26 @@ actor EditorModel: EditorProofreader {
 
     /// `work`'s answer, or nil when it has not come by the deadline — the
     /// work is cancelled and its late answer dropped.
+    ///
+    /// Stoic's `abandoningAsyncAfter`: the caller stops waiting at the
+    /// deadline whether or not the model's generation looks at its
+    /// cancellation, and the timer is cancelled when the answer wins (the
+    /// sleeping task this replaces ran out its full deadline every time).
+    /// A generation still running is on the ledger, and the label refuses
+    /// a third while two have not come back, so a model that has stopped
+    /// answering is not asked again and again; the refusal reads as nil,
+    /// like any other answer that did not come.
     static func within<T: Sendable>(_ seconds: TimeInterval,
                                     _ work: @escaping @Sendable () async -> T?) async -> T? {
-        let once = Once()
-        return await withCheckedContinuation { continuation in
-            let task = Task {
-                let value = await work()
-                if once.claim() { continuation.resume(returning: value) }
+        do throws(PolicyError<Never>) {
+            return try await abandoningAsyncAfter(.seconds(seconds), label: "editor.model", limit: 3) {
+                await work()
             }
-            Task {
-                try? await Task.sleep(for: .seconds(seconds))
-                if once.claim() {
-                    task.cancel()
-                    continuation.resume(returning: nil)
-                }
+        } catch {
+            if error.rejection?.reason == .abandonmentLimit {
+                Log.error("editor: the model is wedged — earlier answers never came back")
             }
-        }
-    }
-
-    private final class Once: @unchecked Sendable {
-        private let lock = NSLock()
-        private var claimed = false
-        func claim() -> Bool {
-            lock.lock()
-            defer { lock.unlock() }
-            if claimed { return false }
-            claimed = true
-            return true
+            return nil
         }
     }
 

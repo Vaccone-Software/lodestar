@@ -1,3 +1,6 @@
+import Stoic
+import StoicTesting
+import Testing
 import XCTest
 @testable import lodestar
 
@@ -37,6 +40,55 @@ final class SpeechDeadlineTests: XCTestCase {
             XCTFail("no failure")
         } catch {
             XCTAssertTrue(error is Boom, "\(error)")
+        }
+    }
+
+    /// The sleeper the hand-rolled deadline never cancelled: when the work
+    /// wins, nothing is left waiting on the clock.
+    func testTheTimerIsGoneWhenTheWorkWins() async throws {
+        let clock = TestClock()
+        try await withTestAmbient(clock: clock) {
+            let value = try await SpeechStart.withDeadline(2.5) { 7 }
+            XCTAssertEqual(value, 7)
+            XCTAssertEqual(clock.sleeperCount, 0, "the deadline's timer was cancelled")
+        }
+    }
+
+    /// At the deadline the caller is told, and the work is cancelled in
+    /// case it looks; the clock is virtual, so no time passes for real.
+    func testTheDeadlineCancelsTheWorkAndSaysTimedOut() async throws {
+        let clock = TestClock()
+        let cancelled = expectation(description: "work saw its cancellation")
+        try await withTestAmbient(clock: clock) {
+            let waiting = Task {
+                try await SpeechStart.withDeadline(2.5) { () async throws -> Int in
+                    do { try await Task.sleep(for: .seconds(60)) } catch { cancelled.fulfill(); throw error }
+                    return 1
+                }
+            }
+            await clock.waitForSleepers()
+            await clock.advance(by: .seconds(3))
+            do {
+                _ = try await waiting.value
+                XCTFail("a start that never answered returned")
+            } catch {
+                XCTAssertTrue(error is SpeechStart.TimedOut, "\(error)")
+            }
+        }
+        await fulfillment(of: [cancelled], timeout: 2)
+    }
+
+    /// A caller that is cancelled is not a microphone that did not answer.
+    func testACancelledCallerIsCancelledNotTimedOut() async {
+        let waiting = Task {
+            try await SpeechStart.withDeadline(30) { await Self.stuck(0.05) }
+        }
+        waiting.cancel()
+        do {
+            _ = try await waiting.value
+            XCTFail("returned")
+        } catch {
+            XCTAssertTrue(error is CancellationError, "\(error)")
         }
     }
 

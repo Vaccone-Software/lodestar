@@ -2,6 +2,8 @@ import CryptoKit
 import Foundation
 import LodestarCore
 import LodestarEars
+import Stoic
+import StoicStore
 
 /// A model's files, pinned: the revision the accuracy fixture was recorded
 /// against, each file's size and hash. A download is these bytes or it is
@@ -174,7 +176,8 @@ final class EditorDownload: NSObject, URLSessionDataDelegate {
     let root: URL
     private let manifests: (ModelID) -> EditorManifest?
     private let freeSpace: (URL) -> Int64
-    private let retryDelays: [TimeInterval]
+    private let retrySchedule: Schedule
+    private let random: RandomSource
     private var session: URLSession!
     private let delegateQueue: OperationQueue = {
         let queue = OperationQueue()
@@ -191,8 +194,9 @@ final class EditorDownload: NSObject, URLSessionDataDelegate {
     private var before: Int64 = 0          // bytes of the files already whole
     private var task: URLSessionDataTask?
     private var lastReport = Date.distantPast
-    /// Network failures in a row, for the retry's wait; reset by bytes.
-    private var failures = 0
+    /// Where the retry's wait has got to after the network failures in a
+    /// row; started afresh by bytes arriving.
+    private var backoff: Schedule.Stepper
     /// Files that arrived and did not match their hash, this fetch: never
     /// reset by bytes arriving, or a server sending the wrong ones would
     /// be fetched from forever.
@@ -210,11 +214,14 @@ final class EditorDownload: NSObject, URLSessionDataDelegate {
     init(root: URL = EditorModels.root, protocolClasses: [AnyClass]? = nil,
          manifests: @escaping (ModelID) -> EditorManifest? = ModelID.manifest,
          freeSpace: @escaping (URL) -> Int64 = EditorDownload.availableSpace,
-         retryDelays: [TimeInterval] = [10, 60, 300]) {
+         retrySchedule: Schedule = EditorDownload.defaultRetrySchedule,
+         random: RandomSource = .system) {
         self.root = root
         self.manifests = manifests
         self.freeSpace = freeSpace
-        self.retryDelays = retryDelays
+        self.retrySchedule = retrySchedule
+        self.random = random
+        self.backoff = retrySchedule.makeStepper(random: random.generator())
         super.init()
         let configuration = URLSessionConfiguration.default
         configuration.waitsForConnectivity = true
@@ -225,6 +232,35 @@ final class EditorDownload: NSObject, URLSessionDataDelegate {
         configuration.urlCache = nil
         if let protocolClasses { configuration.protocolClasses = protocolClasses }
         session = URLSession(configuration: configuration, delegate: self, delegateQueue: delegateQueue)
+    }
+
+    /// How long a failed fetch waits before it resumes: ten seconds, then
+    /// six times that, then the five-minute ceiling it used to reach by a
+    /// table of [10, 60, 300]. Equal jitter (half to all of each wait), so
+    /// a fleet of Macs cut off together by the same outage does not come
+    /// back to Hugging Face in the same second, and no wait is ever
+    /// shorter than half of its step or longer than the old one.
+    ///
+    /// Unbounded on purpose, which is why it is stepped here and not run
+    /// by Stoic's `retry` (that takes only a bounded schedule): the
+    /// person turned the editor on and agreed to the download, the fetch
+    /// resumes by byte range, and a Mac that is offline for a day should
+    /// still finish it when the network returns while the app runs. What
+    /// cannot get better by waiting stops instead, see `isRetryable`.
+    static let defaultRetrySchedule = Schedule
+        .exponential(base: .seconds(10), factor: 6)
+        .capped(at: .seconds(300))
+        .jittered(.equal)
+
+    /// Whether another try could change the answer. A client error is the
+    /// server saying the request is wrong (a model that moved, a revision
+    /// that is gone, a gated repository): asking again every five minutes
+    /// for ever only fills the log. Timeout (408) and rate limit (429) are
+    /// the two that say "later". Everything else, a status of nothing
+    /// included, is a connection that failed.
+    static func isRetryable(status: Int) -> Bool {
+        guard (400..<500).contains(status) else { return true }
+        return status == 408 || status == 429
     }
 
     static func availableSpace(_ url: URL) -> Int64 {
@@ -322,7 +358,7 @@ final class EditorDownload: NSObject, URLSessionDataDelegate {
             return
         }
         index = 0
-        failures = 0
+        backoff = retrySchedule.makeStepper(random: random.generator())
         mismatches = 0
         let folder = partial(manifest)
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -390,12 +426,16 @@ final class EditorDownload: NSObject, URLSessionDataDelegate {
             return
         }
         let final = root.appendingPathComponent(manifest.folder, isDirectory: true)
-        try? FileManager.default.removeItem(at: final)
         do {
-            try FileManager.default.moveItem(at: folder, to: final)
+            // One swap, not a delete and then a move: a crash or a power
+            // cut between those two used to leave neither the old model
+            // nor the new, after a download of gigabytes. Now the folder
+            // is the old model whole or the new one whole.
+            try AtomicFile().replaceItem(at: final.path, withItemAt: folder.path)
             Log.info("editor", ["downloaded": manifest.folder, "bytes": manifest.total])
             post(.ready, generation: generation)
         } catch {
+            Log.error("editor: \(manifest.folder) could not be put in place: \(error)")
             post(.failed("could not be put in place"), generation: generation)
         }
     }
@@ -425,7 +465,7 @@ final class EditorDownload: NSObject, URLSessionDataDelegate {
             return
         }
         fileDone += Int64(data.count)
-        failures = 0
+        backoff = retrySchedule.makeStepper(random: random.generator())
         if Date().timeIntervalSince(lastReport) > 0.5 {
             lastReport = Date()
             post(.downloading(done: before + fileDone, total: manifest.total),
@@ -454,9 +494,16 @@ final class EditorDownload: NSObject, URLSessionDataDelegate {
             return
         }
         if (error as? URLError)?.code == .cancelled, status == 0 { return }
-        // A failure waits and resumes where it stopped; the waits grow.
-        let delay = retryDelays[min(failures, retryDelays.count - 1)]
-        failures += 1
+        // A request the server refuses for good says so and stops; the
+        // person can ask again from Settings, which resumes from the
+        // partial file. Anything else waits and resumes where it stopped,
+        // the waits growing, jittered, up to five minutes.
+        guard Self.isRetryable(status: status) else {
+            Log.error("editor: download of \(manifest.folder) refused (http \(status)) — not retrying")
+            post(.failed("could not be downloaded (\(status))"), generation: generation)
+            return
+        }
+        let delay = backoff.next(elapsed: .zero).map(\.seconds) ?? 300
         let why = status >= 400 ? "could not be downloaded (\(status))" : "download paused, retrying"
         Log.info("editor", ["download": manifest.folder, "error": error.map { "\($0)" } ?? "http \(status)",
                             "retry": Int(delay)])
@@ -464,5 +511,11 @@ final class EditorDownload: NSObject, URLSessionDataDelegate {
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay) { [weak self] in
             self?.delegateQueue.addOperation { self?.next(generation: generation) }
         }
+    }
+}
+
+private extension Duration {
+    var seconds: TimeInterval {
+        TimeInterval(components.seconds) + TimeInterval(components.attoseconds) / 1e18
     }
 }

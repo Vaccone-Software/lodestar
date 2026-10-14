@@ -56,6 +56,8 @@ let package = Package(
             .product(name: "HuggingFace", package: "swift-huggingface"),
             .product(name: "Tokenizers", package: "swift-transformers"),
             .product(name: "OrderedCollections", package: "swift-collections"),
+            .product(name: "Stoic", package: "stoic"),
+            .product(name: "StoicStore", package: "stoic"),
         ]),
         // Slice 0: the window-identity probe. Throwaway by design.
         .executableTarget(name: "probe", dependencies: ["LodestarCore", "LodestarEars"]),
@@ -63,12 +65,18 @@ let package = Package(
         // windows with Lodestar's own actions. Built beside the tests,
         // never shipped.
         .executableTarget(name: "WindowFixture", path: "Tests/WindowFixture"),
-        .testTarget(name: "LodestarCoreTests", dependencies: ["LodestarCore"],
+        .testTarget(name: "LodestarCoreTests", dependencies: [
+                        "LodestarCore",
+                        .product(name: "StoicTesting", package: "stoic"),
+                    ],
                     // The editor's accuracy fixture, read by path.
                     exclude: ["Fixtures"]),
         // The scenario harness: the real engine, glass, and coach wired the
         // way the app wires them, driven by scripted keystrokes against a
         // world that never moves a window.
-        .testTarget(name: "LodestarAppTests", dependencies: ["lodestar", "LodestarCore"]),
+        .testTarget(name: "LodestarAppTests", dependencies: [
+            "lodestar", "LodestarCore",
+            .product(name: "StoicTesting", package: "stoic"),
+        ]),
     ]
 )

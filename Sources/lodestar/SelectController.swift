@@ -321,7 +321,7 @@ final class SelectController {
             var captured: CGImage?
             var stack: [CGRect] = []
             if CGPreflightScreenCaptureAccess() {
-                captured = CGWindowListCreateImage(display, .optionOnScreenOnly,
+                captured = WindowCapture.image(display, .optionOnScreenOnly,
                                                    kCGNullWindowID, [.bestResolution])
                 // The same instant as the frame: which window owns each
                 // pixel of it, so a line is stitched only with lines of

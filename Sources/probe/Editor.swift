@@ -578,7 +578,7 @@ private func editorField(_ args: inout [String]) {
     if let window, let windowFrame, let id = windowID(of: window) {
         if !CGPreflightScreenCaptureAccess() {
             print("geometry check skipped: no Screen Recording permission for this shell")
-        } else if let image = CGWindowListCreateImage(.null, .optionIncludingWindow, id,
+        } else if let image = WindowCapture.image(.null, .optionIncludingWindow, id,
                                                       [.boundsIgnoreFraming, .bestResolution]) {
             let scale = CGFloat(image.width) / windowFrame.width
             var matched = 0

@@ -4,8 +4,9 @@ import PackageDescription
 let package = Package(
     name: "lodestar",
     platforms: [
-        // 14 for MLX, the editor's runtime.
-        .macOS(.v14)
+        // 27 for Stoic, the robustness layer (deadlines, retry, atomic
+        // files, locks); MLX alone would allow 14.
+        .macOS("27.0")
     ],
     // The one exception to zero dependencies: Apple's MLX, which runs the
     // editor's language model on the GPU, and the tokenizer and loader its
@@ -22,10 +23,17 @@ let package = Package(
         // (swift_initBorrow), and 0.37.0 would not start on anything older.
         // The tokenizer and template packages that use it accept any 1.x.
         .package(url: "https://github.com/apple/swift-collections", "1.3.0"..<"1.4.0"),
+        // Stoic: deadlines, bounded retry, atomic and locked files, crash-loop
+        // detection. Ours (Vaccone Software), pinned to a reviewed commit.
+        .package(url: "https://github.com/Vaccone-Software/stoic", revision: "39ea430e64dcf2e853f3abcb6513d15f24879831"),
     ],
     targets: [
-        // The AX layer every slice builds on. No dependencies, by design.
-        .target(name: "LodestarCore"),
+        // The AX layer every slice builds on. Its one dependency is Stoic,
+        // for the robustness its files, waits and retries need.
+        .target(name: "LodestarCore", dependencies: [
+            .product(name: "Stoic", package: "stoic"),
+            .product(name: "StoicStore", package: "stoic"),
+        ]),
         // Dictation's settling ears: second recognizers that re-hear a
         // phrase, on MLX (Qwen3-ASR) or the Neural Engine (Parakeet, Core
         // ML, a system framework).

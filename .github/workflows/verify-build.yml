@@ -26,9 +26,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Apple silicon runners, from the oldest macOS the build claims
-        # (LSMinimumSystemVersion 14.0) to the newest the runners offer.
-        os: [macos-14, macos-15, macos-26]
+        # Apple silicon runners on the oldest macOS the build claims
+        # (LSMinimumSystemVersion 27.0).
+        os: [xcode-27]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:

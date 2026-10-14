@@ -39,7 +39,7 @@ cp packaging/lodestar.icns "$APP/Contents/Resources/lodestar.icns"
 # the file older systems need.
 ICONWORK=$(mktemp -d)
 if [ -d packaging/Lodestar.icon ] && xcrun actool packaging/Lodestar.icon \
-        --compile "$ICONWORK" --platform macosx --minimum-deployment-target 14.0 \
+        --compile "$ICONWORK" --platform macosx --minimum-deployment-target 27.0 \
         --app-icon Lodestar --output-partial-info-plist "$ICONWORK/partial.plist" \
         --errors >/dev/null 2>&1 && [ -f "$ICONWORK/Assets.car" ]; then
     cp "$ICONWORK/Assets.car" "$APP/Contents/Resources/Assets.car"

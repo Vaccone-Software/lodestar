@@ -28,6 +28,14 @@
       }
     },
     {
+      "identity" : "stoic",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Vaccone-Software/stoic",
+      "state" : {
+        "revision" : "39ea430e64dcf2e853f3abcb6513d15f24879831"
+      }
+    },
+    {
       "identity" : "swift-argument-parser",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-argument-parser",

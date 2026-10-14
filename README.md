@@ -31,7 +31,7 @@ untouched. One private API call, [documented](FINDINGS.md).
 
 ## Install
 
-Requires a Mac with Apple silicon and macOS 14 or later. Best on macOS 26.
+Requires a Mac with Apple silicon and macOS 27 or later.
 
 [Download it from the website](https://lodestar.vaccone.software), or with
 Homebrew:

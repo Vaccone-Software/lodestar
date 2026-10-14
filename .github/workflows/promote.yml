@@ -32,7 +32,7 @@ concurrency:
 
 jobs:
   cask:
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 15
     env:
       GH_TOKEN: ${{ github.token }}

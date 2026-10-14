@@ -40,7 +40,7 @@ permissions:
 
 jobs:
   release:
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 45
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -154,7 +154,7 @@ jobs:
   verify:
     needs: release
     if: github.event_name == 'push'
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 15
     env:
       VERSION: ${{ needs.release.outputs.version }}

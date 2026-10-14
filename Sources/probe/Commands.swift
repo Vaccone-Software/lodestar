@@ -815,7 +815,7 @@ func runOCRLive(_ args: inout [String]) {
     let cg = CGWindows.list(onScreenOnly: true).first { $0.pid == running.processIdentifier && $0.layer == 0 }
     guard let cg else { print("no on-screen window"); return }
     let began = Date()
-    guard let image = CGWindowListCreateImage(.null, .optionIncludingWindow, cg.id,
+    guard let image = WindowCapture.image(.null, .optionIncludingWindow, cg.id,
                                               [.boundsIgnoreFraming, .bestResolution]) else {
         print("capture failed")
         return
@@ -853,7 +853,7 @@ func runSelectSense(_ args: inout [String]) {
     guard let cg = candidates.max(by: {
         $0.bounds.width * $0.bounds.height < $1.bounds.width * $1.bounds.height
     }) else { print("\(appName): no on-screen window"); return }
-    guard let image = CGWindowListCreateImage(.null, .optionIncludingWindow, cg.id,
+    guard let image = WindowCapture.image(.null, .optionIncludingWindow, cg.id,
                                               [.boundsIgnoreFraming, .bestResolution]) else {
         print("capture failed")
         return
@@ -1165,7 +1165,7 @@ func runPressables(_ args: inout [String]) {
         // and every target then reads as wordless — so this mirrors the
         // app exactly rather than approximating it.
         let display = Displays.display(containing: windowFrame)?.bounds ?? windowFrame
-        if let image = CGWindowListCreateImage(display, .optionOnScreenOnly,
+        if let image = WindowCapture.image(display, .optionOnScreenOnly,
                                                kCGNullWindowID, [.bestResolution]) {
             let began = Date()
             let lines = OCRSense.recognize(image: image, windowFrame: display)

@@ -213,7 +213,7 @@ fi
 echo "→ uploading the notarized artifacts"
 retry upload_assets || { echo "✕ the artifacts did not all reach GitHub; $TAG stays a draft. Run ship.sh again: it picks up from here."; exit 1; }
 
-echo "→ starting it on macOS 14, 15 and 26 (verify-build.yml)"
+echo "→ starting it on macOS 27 (verify-build.yml)"
 VERIFY_SINCE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 retry dispatch_verify || { echo "✕ the verification run could not be started; $TAG stays a draft. Run ship.sh again."; exit 1; }
 for _ in $(seq 1 30); do

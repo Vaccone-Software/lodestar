@@ -952,7 +952,7 @@ public struct Rollup: Codable, Equatable {
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(),
                                                  withIntermediateDirectories: true)
         do {
-            try data.write(to: file, options: .atomic)
+            try DurableFile.write(data, to: file, newFileMode: 0o600)
             // Behavioral: which sites, which profiles, month after month.
             Paths.restrict(file)
             Paths.excludeFromBackup(file)

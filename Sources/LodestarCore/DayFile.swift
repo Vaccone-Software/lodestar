@@ -202,23 +202,17 @@ public enum DayFile {
         // `write(contentsOf:)` throws where `write(_:)` raised an Objective-C
         // exception Swift cannot catch: a full disk took the process down,
         // and the flush that failed ran again at the next launch.
+        // One O_APPEND open serves both: a fresh segment is created by it,
+        // and an existing one is added to and never replaced. The old
+        // fallback wrote `data` as a whole new file when the open failed,
+        // which for a segment being continued meant records with no header
+        // over a day of them.
         var wrote = false
-        if !needsHeader, let handle = try? FileHandle(forWritingTo: target) {
-            do {
-                try handle.seekToEnd()
-                try handle.write(contentsOf: data)
-                wrote = true
-            } catch {
-                Log.error("\(prefix): could not append to \(target.lastPathComponent): \(error.localizedDescription)")
-            }
-            try? handle.close()
-        } else {
-            do {
-                try data.write(to: target)
-                wrote = true
-            } catch {
-                Log.error("\(prefix): could not write \(target.lastPathComponent): \(error.localizedDescription)")
-            }
+        do {
+            try DurableFile.append(data, to: target, newFileMode: 0o644)
+            wrote = true
+        } catch {
+            Log.error("\(prefix): could not append to \(target.lastPathComponent): \(error.localizedDescription)")
         }
         // A write that failed may have left part of itself: the segment is
         // read and checked at the next append, not taken on trust.

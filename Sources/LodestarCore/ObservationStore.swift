@@ -620,7 +620,7 @@ public final class ObservationStore {
         guard let data = try? encoder.encode(snapshot) else { return }
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
-        try? data.write(to: file, options: .atomic)
+        DurableFile.save(data, to: file, as: "observations", newFileMode: 0o600)
         Paths.restrict(file)
         Paths.excludeFromBackup(file)
     }

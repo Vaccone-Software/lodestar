@@ -99,13 +99,14 @@ public final class DictationJournal: @unchecked Sendable {
         Paths.excludeFromBackup(folder)
         let file = folder.appendingPathComponent(Self.day(now) + ".jsonl")
         let line = data + Data("\n".utf8)
-        if let handle = try? FileHandle(forWritingTo: file) {
-            handle.seekToEndOfFile()
-            handle.write(line)
-            try? handle.close()
-        } else {
-            try? line.write(to: file)
-            Paths.restrict(file)
+        // The raising `write(_:)` this used to call takes the process down
+        // on a full disk; the append here throws, and the entry is lost
+        // with a line in the log instead of the app.
+        do {
+            try DurableFile.append(line, to: file)
+        } catch {
+            Log.error("dictation journal: could not append to \(file.lastPathComponent)",
+                      ["error": "\(error)"])
         }
         prune(now: now)
     }

@@ -91,13 +91,15 @@ public enum ConfigHistory {
         }
         let fm = FileManager.default
         try? fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if let handle = try? FileHandle(forWritingTo: file) {
-            defer { try? handle.close() }
-            _ = try? handle.seekToEnd()
-            try? handle.write(contentsOf: Data(lines.utf8))
-        } else {
-            try? Data(lines.utf8).write(to: file, options: .atomic)
-            Paths.restrict(file)
+        // An O_APPEND open that creates the file when it is not there and
+        // never replaces it when it is: the old fallback wrote a new file
+        // holding only these lines over a history that merely failed to open.
+        do {
+            try DurableFile.append(Data(lines.utf8), to: file)
+        } catch {
+            Log.error("config history: could not append to \(file.lastPathComponent)",
+                      ["error": "\(error)"])
+            return
         }
         trim(file)
     }
@@ -127,7 +129,7 @@ public enum ConfigHistory {
         let lines = text.split(separator: "\n", omittingEmptySubsequences: true)
         guard lines.count > keep * 2 else { return }
         let kept = lines.suffix(keep).joined(separator: "\n") + "\n"
-        try? Data(kept.utf8).write(to: file, options: .atomic)
+        DurableFile.save(Data(kept.utf8), to: file, as: "config history", newFileMode: 0o600)
         Paths.restrict(file)
     }
 }

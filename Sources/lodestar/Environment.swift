@@ -101,7 +101,7 @@ final class EraTracker {
         info.reason = stored == nil ? "boot" : changed ? "changed" : "keyboard"
         let intervals = known.merging(info.reportIntervals ?? [:]) { _, new in new }
         if let data = try? JSONEncoder().encode(Stored(fingerprint: info.fingerprint, at: now, intervals: intervals)) {
-            try? data.write(to: file, options: .atomic)
+            DurableFile.save(data, to: file, as: "era", newFileMode: 0o600)
             Paths.restrict(file)
         }
         var event = ObservationEvent(t: now, kind: .era)

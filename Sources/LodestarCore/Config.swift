@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import StoicStore
 
 public struct Config {
     public enum Trigger: String {
@@ -331,7 +332,10 @@ public struct Config {
         var out = Json.pruned(clean, defaults: ConfigDefaults.tree)
         out["$schema"] = .string("lodestar-schema.json")
         out["version"] = .string(Lodestar.version)
-        try Json.emit(out).write(to: target, atomically: true, encoding: .utf8)
+        // Stoic's atomic write with the envelope off: the same bytes on
+        // disk, but synced (file and directory) before this returns, and a
+        // failure thrown rather than half-done.
+        try DurableFile.write(Data(Json.emit(out).utf8), to: target)
     }
 
     /// Why an edit could not happen. Both cases mean the same thing to a
@@ -339,11 +343,15 @@ public struct Config {
     public enum EditError: Error, CustomStringConvertible {
         case unreadable(String)
         case unparsed(String)
+        /// Another process (the app, the CLI) held the config's lock for
+        /// the whole wait.
+        case busy(String)
 
         public var description: String {
             switch self {
             case .unreadable(let name): return "could not read \(name)"
             case .unparsed(let detail): return "the config does not parse — \(detail)"
+            case .busy(let detail): return "the config is being written by another process — \(detail)"
             }
         }
     }
@@ -360,9 +368,47 @@ public struct Config {
     ///
     /// An absent file is not a failure — that is a genuine first write,
     /// and it starts from an empty tree.
+    ///
+    /// The read and the write are one step under a lock on a sidecar file
+    /// (`config.json.lock`) that the CLI and the app both take. Without it
+    /// `lodestar config set` and a settings toggle could each read the old
+    /// tree, each change one key, and the second to write silently undid
+    /// the first. The wait is bounded: a holder that never lets go is
+    /// reported, not waited on forever, and the lock dies with its process.
     @discardableResult
     public static func edit(
         in target: URL = Config.file,
+        lockTimeout: TimeInterval = 2,
+        _ transform: ([String: ConfigValue]) throws -> [String: ConfigValue]
+    ) throws -> [String: ConfigValue] {
+        try? FileManager.default.createDirectory(at: target.deletingLastPathComponent(),
+                                                 withIntermediateDirectories: true)
+        let lock = FileLock(path: target.path + ".lock")
+        try acquire(lock, timeout: lockTimeout, name: target.lastPathComponent)
+        defer { try? lock.release() }
+        return try editLocked(in: target, transform)
+    }
+
+    /// Takes the lock, polling without a thread-blocking wait longer than a
+    /// poll: the callers include the main thread, which must not be held
+    /// past the timeout.
+    private static func acquire(_ lock: FileLock, timeout: TimeInterval, name: String) throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while true {
+            do {
+                if try lock.tryAcquire() { return }
+            } catch {
+                throw EditError.busy("could not open the lock for \(name): \(error)")
+            }
+            guard Date() < deadline else {
+                throw EditError.busy("waited \(Int(timeout)) s for the lock on \(name)")
+            }
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+    }
+
+    private static func editLocked(
+        in target: URL,
         _ transform: ([String: ConfigValue]) throws -> [String: ConfigValue]
     ) throws -> [String: ConfigValue] {
         var tree: [String: ConfigValue] = [:]

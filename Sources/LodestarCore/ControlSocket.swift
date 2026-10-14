@@ -32,8 +32,14 @@ public final class ControlSocket {
 
     private let path: URL
 
-    public init(path: URL = ControlSocket.defaultPath) {
+    /// How long `start` waits for a socket that something is still
+    /// listening on, in case it is an instance on its way out (an update
+    /// hands over from the old process to the new one within moments).
+    private let claimWait: TimeInterval
+
+    public init(path: URL = ControlSocket.defaultPath, claimWait: TimeInterval = 1) {
         self.path = path
+        self.claimWait = claimWait
     }
 
     /// Bigger than any verb and small enough that a wedged or hostile
@@ -51,11 +57,21 @@ public final class ControlSocket {
     /// slow client must not be able to hold the keyboard.
     private let queue = DispatchQueue(label: "lodestar.control")
 
+    /// Whether this instance owns the socket at the path: only an owner
+    /// unlinks it when it stops.
+    public var isListening: Bool { listener >= 0 }
+
     public func start() {
         let path = self.path.path
-        // A socket file outlives a crash. Unlinking first is what makes a
-        // restart after one work rather than fail to bind forever.
-        unlink(path)
+        // A socket file outlives a crash, so unlinking it first is what
+        // makes a restart after one work rather than fail to bind forever.
+        // But a file with something listening behind it is not a leftover:
+        // a second instance used to unlink it anyway, and the first went on
+        // running with a socket nobody could reach. Ask before taking it.
+        if !Self.claim(path, waiting: claimWait) {
+            Log.error("control", ["socket": "another instance is listening on \(path) — left alone, no control socket here"])
+            return
+        }
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         let capacity = MemoryLayout.size(ofValue: address.sun_path)
@@ -104,9 +120,73 @@ public final class ControlSocket {
     public func stop() {
         source?.cancel()
         source = nil
+        // Only the instance that bound the socket removes it; one that
+        // declined to take it over must not unlink the live owner's.
+        if listener >= 0 { unlink(path.path) }
         listener = -1
-        unlink(path.path)
     }
+
+    /// Clears the way to bind at `path`: true when nothing is there or
+    /// what is there is a leftover (and is now unlinked), false when a
+    /// process is accepting connections on it. A live one is given
+    /// `waiting` seconds to go away before it is believed.
+    static func claim(_ path: String, waiting: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(waiting)
+        while isListening(at: path) {
+            guard Date() < deadline else { return false }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        unlink(path)
+        return true
+    }
+
+    /// Whether something answers at `path`. Refused or missing means a
+    /// leftover; anything else (a full backlog, a permission failure) is not
+    /// proof of one, and is treated as alive.
+    ///
+    /// A connection that only connects and hangs up is not a polite probe:
+    /// the listener accepts it after the peer is gone, where setting
+    /// SO_NOSIGPIPE can fail and the reply's `send` then raises SIGPIPE in
+    /// the process being probed. So the probe says something the listener
+    /// answers harmlessly (a request with no verb, refused as such) and
+    /// leaves only once the answer is in, or a second has passed.
+    private static func isListening(at path: String) -> Bool {
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let capacity = MemoryLayout.size(ofValue: address.sun_path)
+        guard path.utf8.count < capacity else { return false }
+        _ = withUnsafeMutablePointer(to: &address.sun_path) { field in
+            field.withMemoryRebound(to: CChar.self, capacity: capacity) { buffer in
+                strncpy(buffer, path, capacity - 1)
+            }
+        }
+        // Not a socket at all (a stray file at the path) cannot be listening.
+        var node = stat()
+        guard lstat(path, &node) == 0, node.st_mode & S_IFMT == S_IFSOCK else { return false }
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+        var noSignal: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout<Int32>.size))
+        _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
+        let size = socklen_t(MemoryLayout<sockaddr_un>.size)
+        let result = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, size) }
+        }
+        guard result == 0 else {
+            return errno != ECONNREFUSED && errno != ENOENT
+        }
+        let request = Array("{\"args\":[]}\n".utf8)
+        guard send(fd, request, request.count, 0) == request.count else { return true }
+        var ready = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+        _ = poll(&ready, 1, probeWait)
+        var buffer = [UInt8](repeating: 0, count: 256)
+        _ = read(fd, &buffer, buffer.count)
+        return true
+    }
+
+    /// How long a probe waits for the listener's answer, in milliseconds.
+    static var probeWait: Int32 = 1_000
 
     private func serveOne() {
         let client = accept(listener, nil, nil)
@@ -119,8 +199,13 @@ public final class ControlSocket {
         // and the default disposition of SIGPIPE is to end the process.
         // Lodestar is a menu-bar app that has to outlive an impatient ⌃C.
         var noSignal: Int32 = 1
-        setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &noSignal,
-                   socklen_t(MemoryLayout<Int32>.size))
+        // A peer that has already gone refuses the option, and a reply to
+        // it would then raise the signal: such a client is simply dropped.
+        guard setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &noSignal,
+                         socklen_t(MemoryLayout<Int32>.size)) == 0 else {
+            close(client)
+            return
+        }
 
         var request = Data()
         var buffer = [UInt8](repeating: 0, count: 4096)

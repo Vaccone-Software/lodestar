@@ -475,7 +475,7 @@ final class HealthMonitor {
     /// Queue.
     private func saveLedgerLocked() {
         guard let data = try? JSONEncoder().encode(ledger) else { return }
-        try? data.write(to: ledgerFile, options: .atomic)
+        DurableFile.save(data, to: ledgerFile, as: "health", newFileMode: 0o600)
         Paths.restrict(ledgerFile)
     }
 

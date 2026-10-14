@@ -131,9 +131,7 @@ public final class StateStore {
             self.state = state
             // The last-known-good generation: one backup per boot, so a
             // future corruption always has somewhere to fall back to.
-            try? FileManager.default.removeItem(at: backupFile)
-            try? FileManager.default.copyItem(at: file, to: backupFile)
-            Paths.excludeFromBackup(backupFile)
+            refreshBackup()
             Log.info("state: loaded \(state.breaths.count) breaths, \(state.parked.count) parked")
             return
         }
@@ -152,6 +150,18 @@ public final class StateStore {
         }
     }
 
+    /// The backup is replaced, never removed and then recreated: the old
+    /// way left a window between the two with no last-known-good file at
+    /// all, and a crash in it cost exactly the safety net the backup is
+    /// for. The new bytes are written beside it, synced, and renamed over
+    /// it, so at every instant `state.json.bak` is the old generation or the
+    /// new one whole. The name and the bytes are what a copy made.
+    private func refreshBackup() {
+        guard let raw = try? Data(contentsOf: file) else { return }
+        guard DurableFile.save(raw, to: backupFile, as: "state", newFileMode: 0o600) else { return }
+        Paths.excludeFromBackup(backupFile)
+    }
+
     private func decode(at url: URL) -> PersistedState? {
         guard let raw = try? Data(contentsOf: url) else { return nil }
         return try? JSONDecoder().decode(PersistedState.self, from: StateMigrations.lift(raw))
@@ -166,7 +176,7 @@ public final class StateStore {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         guard let data = try? encoder.encode(state) else { return }
         do {
-            try data.write(to: file, options: .atomic)
+            try DurableFile.write(data, to: file, newFileMode: 0o600)
             Paths.restrict(file)
             // An atomic write is a new inode, and a new inode is backed up
             // until something says otherwise.

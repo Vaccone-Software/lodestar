@@ -1,3 +1,5 @@
+import Stoic
+import StoicTesting
 import XCTest
 @testable import lodestar
 
@@ -96,4 +98,99 @@ final class MainThreadWatchdogTests: XCTestCase {
         watchdog.stop()
         XCTAssertEqual(lock.withLock { late }, 0)
     }
+
+    // MARK: - The clock
+
+    private typealias Instant = AnyClock.Instant
+    private func at(_ seconds: Double) -> Instant { Instant(offset: .seconds(seconds)) }
+
+    /// The decision reads two instants and nothing else, so it can be
+    /// held against any clock.
+    func testTheVerdictFollowsTheClockReadings() {
+        let ceiling = Duration.seconds(8), late = Duration.seconds(1)
+        func judge(now: Double, answered: Double?) -> MainThreadWatchdog.Verdict {
+            MainThreadWatchdog.judge(asked: at(10), now: at(now), answered: answered.map(at),
+                                     limit: ceiling, lateThreshold: late)
+        }
+        XCTAssertEqual(judge(now: 10.05, answered: nil), .waiting)
+        XCTAssertEqual(judge(now: 17.9, answered: nil), .waiting)
+        XCTAssertEqual(judge(now: 18, answered: nil), .stalled)
+        XCTAssertEqual(judge(now: 10.1, answered: 10.02), .answered(late: nil))
+        XCTAssertEqual(judge(now: 12, answered: 11.5), .answered(late: .seconds(1.5)))
+        // An answer that arrived is an answer, even when the allowance
+        // ran out while the thread was looking.
+        XCTAssertEqual(judge(now: 30, answered: 10.2), .answered(late: nil))
+    }
+
+    /// A Mac that sleeps with a ping outstanding wakes to hours of wall
+    /// time and none on the clock that stands still while it sleeps. The
+    /// wall time here is a real 90 ms against a 30 ms ceiling; the clock
+    /// does not move, so it is not a stall.
+    func testWallTimeThatTheClockDidNotCountIsNotAStall() {
+        let clock = TestClock()
+        let watchdog = MainThreadWatchdog(interval: 0.02, ceiling: 0.03, launchCeiling: 0.03,
+                                          lateThreshold: 0.02, clock: clock.erased)
+        let lock = NSLock()
+        var stalls = 0, lates = 0
+        watchdog.onStall = { _ in lock.withLock { stalls += 1 } }
+        watchdog.onLate = { _, _ in lock.withLock { lates += 1 } }
+        watchdog.start()
+        Thread.sleep(forTimeInterval: 0.09)             // main unanswering, the way sleep leaves it
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.03))
+        watchdog.stop()
+        XCTAssertEqual(lock.withLock { stalls }, 0)
+        XCTAssertEqual(lock.withLock { lates }, 0)
+    }
+
+    /// And the other way: time the clock counts is a stall, however little
+    /// wall time passed. Main is held on a semaphore until the stall is
+    /// reported, while the clock is advanced from outside.
+    func testTimeTheClockCountedIsAStall() {
+        let clock = TestClock()
+        let watchdog = MainThreadWatchdog(interval: 0.02, ceiling: 8, launchCeiling: 8, clock: clock.erased)
+        let reported = DispatchSemaphore(value: 0)
+        watchdog.onStall = { _ in reported.signal() }
+        watchdog.start()
+        let stop = Flag()
+        Task.detached {
+            while !stop.isSet {
+                await clock.advance(by: .seconds(9))
+                try? await Task.sleep(for: .milliseconds(5))
+            }
+        }
+        let result = reported.wait(timeout: .now() + 3)   // main blocked, not answering
+        stop.set()
+        watchdog.stop()
+        XCTAssertEqual(result, .success, "a clock that moved past the ceiling is a stall")
+    }
+
+    /// Safe mode: the stall is written down and the process lives. (If the
+    /// default response aborted, this test would take the shard with it.)
+    func testSafeModeLogsAStallInsteadOfAborting() {
+        let clock = TestClock()
+        let watchdog = MainThreadWatchdog(interval: 0.02, ceiling: 8, launchCeiling: 8, clock: clock.erased)
+        XCTAssertEqual(watchdog.response, .abort, "the default is still a crash")
+        watchdog.response = .logOnly
+        let logged = DispatchSemaphore(value: 0)
+        watchdog.onLogged = { logged.signal() }
+        watchdog.start()
+        let stop = Flag()
+        Task.detached {
+            while !stop.isSet {
+                await clock.advance(by: .seconds(9))
+                try? await Task.sleep(for: .milliseconds(5))
+            }
+        }
+        let result = logged.wait(timeout: .now() + 3)
+        stop.set()
+        watchdog.stop()
+        XCTAssertEqual(result, .success)
+    }
+}
+
+private final class Flag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    var isSet: Bool { lock.withLock { value } }
+    func set() { lock.withLock { value = true } }
 }

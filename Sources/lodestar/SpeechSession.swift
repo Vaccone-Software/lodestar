@@ -2,6 +2,7 @@ import AVFoundation
 import Foundation
 import LodestarCore
 import Speech
+import Stoic
 
 /// What the recognizer is doing, for the register line to say.
 /// How long one attempt at opening the microphone is given, and what a
@@ -52,45 +53,43 @@ enum SpeechStart {
     /// the runtime: the point is that the caller stops waiting, so it can
     /// say what happened instead of never speaking again.
     ///
-    /// Two unstructured tasks and whichever answers first. It was a task
-    /// group, and a task group does not return until every child has — so
-    /// a start stuck in a continuation held the "deadline" until the start
-    /// itself came back (measured: a one-second deadline on a four-second
-    /// wait returned after 4.3 s). Every microphone start past its
-    /// deadline was then thrown away when it finally landed, and retried.
+    /// Stoic's `abandoningAsyncAfter`, because the work is a start stuck
+    /// in a continuation that nothing can cancel. It was a task group, and
+    /// a task group does not return until every child has — so a start
+    /// stuck in a continuation held the "deadline" until the start itself
+    /// came back (measured: a one-second deadline on a four-second wait
+    /// returned after 4.3 s). It was then two unstructured tasks and a
+    /// first-answer box, whose sleeper was never cancelled when the work
+    /// won. Now the timer is cancelled when the work wins, the work is
+    /// cancelled at the deadline in case it does look, and what is still
+    /// running is on Stoic's ledger rather than forgotten. Every microphone
+    /// start past its deadline was once thrown away when it finally landed,
+    /// and retried; the caller still stops waiting at the deadline.
+    ///
+    /// A label holds at most `limit` of these, running or abandoned, and
+    /// refuses once every slot is held by a start that never came back —
+    /// a wedged audio stack, which asking again does not unwedge. That
+    /// reads as a spent deadline too.
     static func withDeadline<T: Sendable>(
         _ seconds: TimeInterval,
+        label: String = "speech.start",
+        limit: Int = 4,
         _ work: @escaping @Sendable () async throws -> T
     ) async throws -> T {
-        let once = FirstAnswer()
-        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, Error>) in
-            let worker = Task {
-                do {
-                    let value = try await work()
-                    if once.claim() { continuation.resume(returning: value) }
-                } catch {
-                    if once.claim() { continuation.resume(throwing: error) }
-                }
+        do throws(PolicyError<any Error>) {
+            return try await abandoningAsyncAfter(.seconds(seconds), label: label, limit: limit) {
+                try await work()
             }
-            Task {
-                try? await Task.sleep(for: .seconds(seconds))
-                if once.claim() {
-                    worker.cancel()
-                    continuation.resume(throwing: TimedOut())
+        } catch {
+            switch error {
+            case .failed(let failure):
+                throw failure
+            case .rejected(let rejection):
+                if rejection.isCancellation { throw CancellationError() }
+                if rejection.reason == .abandonmentLimit {
+                    Log.error("speech: \(label) is wedged — every slot holds a start that never came back")
                 }
-            }
-        }
-    }
-
-    /// The one answer a race gives, whoever is first.
-    final class FirstAnswer: @unchecked Sendable {
-        private let lock = NSLock()
-        private var answered = false
-        func claim() -> Bool {
-            lock.withLock {
-                guard !answered else { return false }
-                answered = true
-                return true
+                throw TimedOut()
             }
         }
     }
@@ -1251,15 +1250,23 @@ private actor AnalyzerBox {
             // Let the last words settle; the probe measured ~100ms. Bounded,
             // so a wedged recognizer can never hold the paste: past the
             // deadline it is cut off, not waited for.
-            let finish = Task { () -> Bool in
-                try? await analyzer.finalizeAndFinishThroughEndOfInput()
-                return true
+            //
+            // Stoic's `abandoningAsyncAfter`, not `race`: the loser here
+            // must be left to finish. `race` cancels and then awaits its
+            // loser, and a wedged recognizer is exactly the one that does
+            // not come back when cancelled. The finish keeps running past
+            // the deadline by design — `cancelAndFinishNow` below is what
+            // ends it — and the timer is cancelled when the finish wins,
+            // which the sleeping task it replaces never was.
+            let finished: Bool
+            do {
+                try await abandoningAsyncAfter(.milliseconds(700), label: "speech.finish", limit: 4) {
+                    try? await analyzer.finalizeAndFinishThroughEndOfInput()
+                }
+                finished = true
+            } catch {
+                finished = false
             }
-            let timeout = Task { () -> Bool in
-                try? await Task.sleep(for: .milliseconds(700))
-                return false
-            }
-            let finished = await Task.select(finish, timeout)
             if !finished { await analyzer.cancelAndFinishNow() }
         }
         results?.cancel()
@@ -1568,18 +1575,5 @@ private final class AudioFeed: @unchecked Sendable {
         let level = max(0, min(1, (db + 55) / 45))
         peak = max(peak, rms)
         DispatchQueue.main.async { self.onLevel(level, Double(db)) }
-    }
-}
-
-private extension Task where Failure == Never {
-    /// Whichever finishes first; the other keeps running.
-    static func select(_ a: Task<Success, Never>, _ b: Task<Success, Never>) async -> Success {
-        await withTaskGroup(of: Success.self) { group in
-            group.addTask { await a.value }
-            group.addTask { await b.value }
-            let first = await group.next()!
-            group.cancelAll()
-            return first
-        }
     }
 }

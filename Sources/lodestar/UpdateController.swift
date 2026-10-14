@@ -1,5 +1,6 @@
 import AppKit
 import LodestarCore
+import Stoic
 
 /// Silent self-update for the installed app. The cycle: check the releases
 /// feed daily, download and unpack the zip in the background, verify it,
@@ -87,10 +88,25 @@ final class UpdateController {
     /// this process's pid so no earlier build's marker can stand in for it.
     func confirmRoutingHealthy() {
         let marker = Self.directory.appendingPathComponent("routes-ok")
-        try? FileManager.default.createDirectory(at: Self.directory,
-                                                withIntermediateDirectories: true)
-        try? "\(ProcessInfo.processInfo.processIdentifier)"
-            .write(to: marker, atomically: true, encoding: .utf8)
+        Self.writeMarker("\(ProcessInfo.processInfo.processIdentifier)", to: marker,
+                         what: "the routing-healthy marker",
+                         consequence: "the watchdog will not bless this build and rolls it back")
+    }
+
+    /// Write one of the updater's markers, and say so when it does not
+    /// land. These were `try?` writes: the refusal tombstone failing
+    /// silently once left a rolled-back release on offer, and the
+    /// update-and-rollback went round again every check, a relaunch loop.
+    /// A failure is an error in the log, with what it will cost.
+    @discardableResult
+    static func writeMarker(_ text: String, to url: URL, what: String, consequence: String) -> Bool {
+        do {
+            try Updater.writeMarker(text, to: url)
+            return true
+        } catch {
+            Log.error("update: could not write \(what) at \(url.path) — \(consequence): \(error)")
+            return false
+        }
     }
 
     /// The single-flight rule, main-thread only: one run at a time, and
@@ -132,7 +148,7 @@ final class UpdateController {
     private func scheduleRetry() {
         failedChecks += 1
         retry?.invalidate()
-        guard let delay = Updater.retryDelay(afterFailures: failedChecks) else {
+        guard let delay = Updater.jitteredRetryDelay(afterFailures: failedChecks) else {
             retry = nil
             return
         }
@@ -204,7 +220,8 @@ final class UpdateController {
                 // restoring parked windows on the way out. Refused the way
                 // a rollback is refused, until a newer release ships.
                 try? FileManager.default.removeItem(at: updated)
-                try? version.write(to: Self.refusedFile, atomically: true, encoding: .utf8)
+                Self.writeMarker(version, to: Self.refusedFile, what: "the refusal tombstone",
+                                 consequence: "this release will be offered, applied and relaunched again at the next check — a relaunch loop")
                 Log.error("update to \(version) did not change the binary — still \(Lodestar.version); refusing it until a newer release ships")
             }
         }
@@ -213,7 +230,8 @@ final class UpdateController {
             // The tombstone outlives the announcement: a release that could
             // not take the pid file must not be offered again, or every
             // check re-applies it and the watchdog rolls it back forever.
-            try? version.write(to: Self.refusedFile, atomically: true, encoding: .utf8)
+            Self.writeMarker(version, to: Self.refusedFile, what: "the refusal tombstone",
+                             consequence: "this release will be offered and rolled back again at the next check — a relaunch loop")
             Log.error("update rolled back: \(version) never took the pid file — refusing it until a newer release ships")
             DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [flash] in
                 flash("⚠ \(version) did not start, so Lodestar went back to \(Lodestar.version)")
@@ -368,23 +386,16 @@ final class UpdateController {
     private func stage(zip: URL, release: Updater.Release, force: Bool) {
         let staging = Self.directory.appendingPathComponent("staged", isDirectory: true)
         try? FileManager.default.removeItem(at: staging)
-        guard run("/usr/bin/ditto", "-x", "-k", zip.path, staging.path) else {
-            failStage(force: force, log: "unpack failed")
-            return
-        }
+        guard step("unpack", force: force, "/usr/bin/ditto", "-x", "-k", zip.path, staging.path) else { return }
         try? FileManager.default.removeItem(at: zip)
         let bundle = staging.appendingPathComponent("lodestar.app")
 
         // The gate, in three locks: integrity, identity, and the version
         // actually being the one the release claims.
-        guard run("/usr/bin/codesign", "--verify", "--strict", "--deep", bundle.path) else {
-            failStage(force: force, log: "codesign integrity check failed")
-            return
-        }
-        guard run("/usr/bin/codesign", "--verify", "-R=\(Self.requirement)", bundle.path) else {
-            failStage(force: force, log: "signature is not this team's Developer ID")
-            return
-        }
+        guard step("codesign integrity check", force: force,
+                   "/usr/bin/codesign", "--verify", "--strict", "--deep", bundle.path) else { return }
+        guard step("signature check (this team's Developer ID)", force: force,
+                   "/usr/bin/codesign", "--verify", "-R=\(Self.requirement)", bundle.path) else { return }
         let plist = NSDictionary(contentsOf: bundle.appendingPathComponent("Contents/Info.plist"))
         guard let stagedVersion = plist?["CFBundleShortVersionString"] as? String,
               let staged = Updater.parseVersion(stagedVersion),
@@ -400,7 +411,8 @@ final class UpdateController {
             minimumSystem: plist?["LSMinimumSystemVersion"] as? String,
             appleSilicon: Self.appleSilicon, system: ProcessInfo.processInfo.operatingSystemVersion) {
             Log.info("update", ["phase": "refused", "version": stagedVersion, "reason": why])
-            try? release.tag.write(to: Self.refusedFile, atomically: true, encoding: .utf8)
+            Self.writeMarker(release.tag, to: Self.refusedFile, what: "the refusal tombstone",
+                             consequence: "this release will be downloaded and refused again at the next check")
             clearStaging()
             DispatchQueue.main.async {
                 self.phase = .idle
@@ -450,15 +462,86 @@ final class UpdateController {
         try? FileManager.default.removeItem(at: Self.directory.appendingPathComponent("staged"))
     }
 
-    private func run(_ launchPath: String, _ arguments: String...) -> Bool {
+    /// How long one of the staging tools may take. `ditto` unpacking a
+    /// bundle and `codesign` verifying it take seconds; two minutes is far
+    /// past any healthy run, and short of leaving the update `.checking`
+    /// for ever, which refuses every later check.
+    static let toolDeadline: Duration = .seconds(120)
+
+    /// One staging command, and the update failing if it does not pass
+    /// or does not finish. Worker queue.
+    private func step(_ what: String, force: Bool, _ launchPath: String, _ arguments: String...) -> Bool {
+        switch Self.run(launchPath, arguments) {
+        case .succeeded:
+            return true
+        case .failed:
+            failStage(force: force, log: "\(what) failed")
+        case .timedOut:
+            failStage(force: force, log: "\(what) did not finish in \(Int(Self.toolDeadline.components.seconds)) s")
+        }
+        return false
+    }
+
+    enum RunOutcome: Equatable { case succeeded, failed, timedOut }
+
+    /// A tool that never exits is stopped waiting for. The wait is
+    /// Stoic's `abandoningAfter` (the call blocks a thread, so it runs on
+    /// Dispatch and holds a slot until it returns); at the deadline the
+    /// process is also terminated, which is what lets that thread come
+    /// back, killed outright if it ignores the first ask. The calling
+    /// thread is the update's worker queue, which blocks here by design.
+    static func run(_ launchPath: String, _ arguments: [String],
+                    within deadline: Duration = toolDeadline) -> RunOutcome {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: launchPath)
         process.arguments = arguments
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
-        do { try process.run() } catch { return false }
-        process.waitUntilExit()
-        return process.terminationStatus == 0
+        let held = HeldProcess(process)
+        let outcome = OutcomeBox()
+        let finished = DispatchSemaphore(value: 0)
+        let name = URL(fileURLWithPath: launchPath).lastPathComponent
+        Task.detached {
+            do throws(PolicyError<any Error>) {
+                let status = try await abandoningAfter(deadline, label: "update.\(name)", limit: 2) { () throws -> Int32 in
+                    try held.process.run()
+                    held.process.waitUntilExit()
+                    return held.process.terminationStatus
+                }
+                outcome.set(status == 0 ? .succeeded : .failed)
+            } catch {
+                if case .rejected = error {
+                    held.stop()
+                    outcome.set(.timedOut)
+                } else {
+                    outcome.set(.failed)
+                }
+            }
+            finished.signal()
+        }
+        finished.wait()
+        return outcome.value
+    }
+
+    private final class HeldProcess: @unchecked Sendable {
+        let process: Process
+        init(_ process: Process) { self.process = process }
+        /// Ask it to stop, and make sure a few seconds on.
+        func stop() {
+            guard process.isRunning else { return }
+            process.terminate()
+            let pid = process.processIdentifier
+            DispatchQueue.global().asyncAfter(deadline: .now() + 5) { [process] in
+                if process.isRunning { kill(pid, SIGKILL) }
+            }
+        }
+    }
+
+    private final class OutcomeBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stored = RunOutcome.failed
+        var value: RunOutcome { lock.withLock { stored } }
+        func set(_ outcome: RunOutcome) { lock.withLock { stored = outcome } }
     }
 
     // MARK: - The swap
@@ -513,7 +596,8 @@ final class UpdateController {
         }
 
         let marker = Self.directory.appendingPathComponent("updated-to")
-        try? version.write(to: marker, atomically: true, encoding: .utf8)
+        Self.writeMarker(version, to: marker, what: "the updated-to marker",
+                         consequence: "the new build will not announce the update")
         spawnWatchdog(app: installURL, previous: previous, version: version)
         stagedBundle = nil
         // The successor's boot takes over the pid file and SIGTERMs this
@@ -557,7 +641,8 @@ final class UpdateController {
     /// successor's word that its router answered when links depend on it.
     private func spawnWatchdog(app: URL, previous: URL, version: String) {
         let path = Self.directory.appendingPathComponent("watchdog.sh")
-        try? Self.watchdogScript.write(to: path, atomically: true, encoding: .utf8)
+        Self.writeMarker(Self.watchdogScript, to: path, what: "the watchdog script",
+                         consequence: "the swap has no one to roll it back, or an older script runs in its place")
         let pidFile = Paths.pidFile
         spawnDetached(["/bin/bash", path.path, app.path, previous.path,
                        "\(ProcessInfo.processInfo.processIdentifier)", version,

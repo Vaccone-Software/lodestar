@@ -1,4 +1,5 @@
 import CryptoKit
+import Stoic
 import XCTest
 @testable import lodestar
 @testable import LodestarCore
@@ -114,11 +115,11 @@ final class EditorDownloadTests: XCTestCase {
         try? FileManager.default.removeItem(at: root)
     }
 
-    private func download(free: Int64 = 100_000_000_000, retry: [TimeInterval] = [0.05]) -> EditorDownload {
+    private func download(free: Int64 = 100_000_000_000, retry: Schedule = .fixed(.milliseconds(50))) -> EditorDownload {
         let manifest = self.manifest
         return EditorDownload(root: root, protocolClasses: [StubHub.self],
                               manifests: { $0 == .editor(.standard) ? manifest : nil },
-                              freeSpace: { _ in free }, retryDelays: retry)
+                              freeSpace: { _ in free }, retrySchedule: retry)
     }
 
     private func settle(_ download: EditorDownload, until done: (EditorDownload.State) -> Bool,
@@ -206,6 +207,74 @@ final class EditorDownloadTests: XCTestCase {
         download.fetch(.standard)
         settle(download) { $0 == .ready }
         XCTAssertEqual(StubHub.requests.filter { $0.path == "model.safetensors" }.count, 3)
+    }
+
+    /// A 4xx is the server saying the request is wrong; asking again every
+    /// five minutes for ever fixes nothing. It is said, once, as a failure
+    /// the person can ask to retry from Settings.
+    func testAClientErrorIsSaidAndNotRetried() {
+        var behavior = StubHub.behavior
+        behavior.failures = ["model.safetensors": (404, 99)]
+        StubHub.reset(behavior)
+        let download = download()
+        download.fetch(.standard)
+        settle(download) { if case .failed = $0 { return true } else { return false } }
+        XCTAssertEqual(download.state, .failed("could not be downloaded (404)"))
+        // The schedule says 50 ms; wait past two of them.
+        let until = Date().addingTimeInterval(0.09)
+        while Date() < until { Stage.pump() }
+        XCTAssertEqual(StubHub.requests.filter { $0.path == "model.safetensors" }.count, 1, "asked once")
+        guard case .failed = download.state else { return XCTFail("left the failure: \(download.state)") }
+    }
+
+    func testARateLimitIsRetried() {
+        var behavior = StubHub.behavior
+        behavior.failures = ["model.safetensors": (429, 1)]
+        StubHub.reset(behavior)
+        let download = download()
+        download.fetch(.standard)
+        settle(download) { $0 == .ready }
+        XCTAssertEqual(StubHub.requests.filter { $0.path == "model.safetensors" }.count, 2)
+    }
+
+    func testOnlyTheClientErrorsThatCannotImproveAreFinal() {
+        for status in [0, 200, 206, 301, 408, 429, 500, 502, 503] {
+            XCTAssertTrue(EditorDownload.isRetryable(status: status), "\(status)")
+        }
+        for status in [400, 401, 403, 404, 410, 416] {
+            XCTAssertFalse(EditorDownload.isRetryable(status: status), "\(status)")
+        }
+    }
+
+    /// The waits climb from ten seconds to the five-minute ceiling, and
+    /// the jitter never lengthens one nor takes more than half off it.
+    func testTheRetryWaitsClimbToFiveMinutesAndAreJittered() {
+        let schedule = EditorDownload.defaultRetrySchedule
+        XCTAssertEqual(schedule.maximalDelays(limit: 5), [.seconds(10), .seconds(60), .seconds(300), .seconds(300), .seconds(300)])
+        var stepper = schedule.makeStepper(random: RandomSource.seeded(7).generator())
+        var drawn: [Duration] = []
+        for ceiling in [10.0, 60, 300, 300, 300, 300] {
+            let delay = stepper.next(elapsed: .zero)
+            XCTAssertNotNil(delay, "it keeps trying")
+            drawn.append(delay ?? .zero)
+            let seconds = Double(delay?.components.seconds ?? 0)
+            XCTAssertLessThanOrEqual(seconds, ceiling)
+            XCTAssertGreaterThanOrEqual(seconds, ceiling / 2 - 1)
+        }
+        XCTAssertGreaterThan(Set(drawn[2...]).count, 1, "three waits at the ceiling are not the same wait")
+    }
+
+    /// The finished folder replaces the old one in one swap and leaves no
+    /// partial behind.
+    func testAFinishedModelReplacesWhatWasThere() throws {
+        try FileManager.default.createDirectory(at: finalFolder, withIntermediateDirectories: true)
+        try Data("stale".utf8).write(to: finalFolder.appendingPathComponent("old.txt"))
+        let download = download()
+        download.fetch(.standard)
+        settle(download) { $0 == .ready }
+        XCTAssertEqual(try Data(contentsOf: finalFolder.appendingPathComponent("model.safetensors")), weights)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: finalFolder.appendingPathComponent("old.txt").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent(".tiny-model.partial").path))
     }
 
     func testAWholeModelIsNotFetchedAgain() throws {

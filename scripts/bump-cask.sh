@@ -36,7 +36,7 @@ git -c credential.helper="$HELPER" clone -q "$TAP" "$STAGE/tap"
 python3 - "$STAGE/tap/Casks/lodestar.rb" "$VERSION" "$SHA" "$MINOS" "$ARCHS" <<'PY'
 import re, sys
 path, version, sha, minos, archs = sys.argv[1:6]
-names = {"13": "ventura", "14": "sonoma", "15": "sequoia", "26": "tahoe"}
+names = {"13": "ventura", "14": "sonoma", "15": "sequoia", "26": "tahoe", "27": "golden_gate"}
 major = minos.split(".")[0]
 if major not in names:
     sys.exit(f"✕ no cask name for macOS {minos}")

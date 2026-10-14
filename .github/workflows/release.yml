@@ -114,6 +114,10 @@ jobs:
             echo "✕ no notary secrets configured"; exit 1
           fi
 
+      - name: Xcode 27
+        # Stoic needs Swift 6.4; the image's default Xcode may be older.
+        run: sudo xcode-select -s /Applications/Xcode_27.0.app && swift --version
+
       - name: Metal toolchain
         # MLX compiles its GPU kernels with `metal`, a separate download
         # since Xcode 26; a runner image may not carry it.

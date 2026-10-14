@@ -24,8 +24,8 @@ let package = Package(
         // The tokenizer and template packages that use it accept any 1.x.
         .package(url: "https://github.com/apple/swift-collections", "1.3.0"..<"1.4.0"),
         // Stoic: deadlines, bounded retry, atomic and locked files, crash-loop
-        // detection. Ours (Vaccone Software), pinned to a reviewed commit.
-        .package(url: "https://github.com/Vaccone-Software/stoic", revision: "39ea430e64dcf2e853f3abcb6513d15f24879831"),
+        // detection. Ours (Vaccone Software).
+        .package(url: "https://github.com/Vaccone-Software/stoic", .upToNextMinor(from: "0.2.0")),
     ],
     targets: [
         // The AX layer every slice builds on. Its one dependency is Stoic,

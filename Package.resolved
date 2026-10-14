@@ -32,7 +32,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Vaccone-Software/stoic",
       "state" : {
-        "revision" : "39ea430e64dcf2e853f3abcb6513d15f24879831"
+        "revision" : "39ea430e64dcf2e853f3abcb6513d15f24879831",
+        "version" : "0.2.0"
       }
     },
     {

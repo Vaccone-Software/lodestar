@@ -56,3 +56,44 @@ final class UpdaterResilienceTests: XCTestCase {
         XCTAssertEqual(release.tag, "v0.39.8")
     }
 }
+
+/// The retry wait and the markers, now through Stoic.
+final class UpdaterStoicTests: XCTestCase {
+    /// The schedule keeps its shape — a quarter of an hour, then an hour,
+    /// then nothing — and the jitter only ever shortens a wait, by at most
+    /// half, so no Mac waits longer than before and a fleet spreads out.
+    func testTheRetryDelayIsJitteredWithinTheScheduleShape() {
+        for seed in UInt64(0)..<40 {
+            let first = Updater.jitteredRetryDelay(afterFailures: 1, random: .seeded(seed))
+            let second = Updater.jitteredRetryDelay(afterFailures: 2, random: .seeded(seed))
+            XCTAssertNotNil(first)
+            XCTAssertTrue((7.5 * 60)...(15 * 60) ~= first ?? 0, "\(String(describing: first))")
+            XCTAssertTrue((30 * 60)...(60 * 60) ~= second ?? 0, "\(String(describing: second))")
+        }
+        let spread = Set((0..<40).compactMap { Updater.jitteredRetryDelay(afterFailures: 1, random: .seeded($0)) })
+        XCTAssertGreaterThan(spread.count, 10, "the waits differ from Mac to Mac")
+        XCTAssertNil(Updater.jitteredRetryDelay(afterFailures: 3), "then the daily check again")
+        XCTAssertNil(Updater.jitteredRetryDelay(afterFailures: 0))
+    }
+
+    func testAMarkerIsExactlyItsBytesAndReplacesTheLast() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("updater-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let marker = directory.appendingPathComponent("refused")   // the directory does not exist yet
+        try Updater.writeMarker("v0.40.1", to: marker)
+        XCTAssertEqual(try Data(contentsOf: marker), Data("v0.40.1".utf8), "no envelope: scripts read these with cat")
+        try Updater.writeMarker("v0.40.2", to: marker)
+        XCTAssertEqual(try String(contentsOf: marker, encoding: .utf8), "v0.40.2")
+        let siblings = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        XCTAssertEqual(siblings, ["refused"], "no temporary left behind")
+    }
+
+    func testAMarkerThatCannotBeWrittenSaysSo() {
+        // A file where the directory should be.
+        let blocker = FileManager.default.temporaryDirectory.appendingPathComponent("blocker-\(UUID().uuidString)")
+        FileManager.default.createFile(atPath: blocker.path, contents: Data())
+        defer { try? FileManager.default.removeItem(at: blocker) }
+        XCTAssertThrowsError(try Updater.writeMarker("v1", to: blocker.appendingPathComponent("refused")))
+    }
+}

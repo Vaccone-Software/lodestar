@@ -1,4 +1,6 @@
 import Foundation
+import Stoic
+import StoicStore
 
 /// Self-update, the pure half: feed parsing, version ordering, and the
 /// quiet gate. The effectful half — network, codesign verification, bundle
@@ -117,6 +119,32 @@ public enum Updater {
         case 2: return 60 * 60
         default: return nil
         }
+    }
+
+    /// `retryDelay`, spread so that Macs whose checks failed in the same
+    /// outage do not all come back to the feed in the same minute. Equal
+    /// jitter (half to all of the delay): the schedule keeps its shape, a
+    /// quarter of an hour and then an hour at the most, and never waits
+    /// longer than it used to.
+    public static func jitteredRetryDelay(afterFailures failures: Int,
+                                          random: RandomSource = .system) -> TimeInterval? {
+        guard let delay = retryDelay(afterFailures: failures) else { return nil }
+        var stepper = Schedule.fixed(.seconds(delay)).jittered(.equal)
+            .makeStepper(random: random.generator(discriminator: UInt64(failures)))
+        guard let jittered = stepper.next(elapsed: .zero) else { return delay }
+        return TimeInterval(jittered.components.seconds) + TimeInterval(jittered.components.attoseconds) / 1e18
+    }
+
+    /// Write a marker the updater, the watchdog script or the next boot
+    /// reads: the same bytes `write(atomically:)` left, but through
+    /// Stoic's `AtomicFile`, so a power cut leaves the old marker or the
+    /// new one and never a torn or missing file, and a failure is thrown
+    /// where the caller can say so. No checksum envelope: the watchdog
+    /// script reads some of these with `cat`.
+    public static func writeMarker(_ text: String, to url: URL) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try AtomicFile(options: .init(envelope: false)).write(Array(text.utf8), to: url.path)
     }
 
     /// What is wrong with an HTTP answer, or nil when it is an answer. A

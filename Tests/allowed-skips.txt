@@ -30,6 +30,16 @@ any RealWindowDeskTests.*
 desk ReplayTests.testTheAUCArithmeticReproducesThePapersOwnIndex
 desk ReplayTests.testTheWindowCodeReproducesTheLogFluctuationIndex
 
+# Vision's accurate text model reads nothing on a hosted runner's macOS 27
+# image (the fast pass still reads); the desk must run these.
+ci OCRSenseTests.testAnImageSaysWhatItShows
+ci OCRSenseTests.testCharacterRangeRectsAreNarrowerThanTheirLine
+ci OCRSenseTests.testCleanProseIsReadVerbatimWithHonestGeometry
+ci OCRSenseTests.testGroundingRepairsTheGlyphConfusionRecognitionActuallyMakes
+ci OCRSenseTests.testIdentifiersSurviveWithoutLanguageCorrection
+ci OCRSenseTests.testRereadingACroppedLineReadsThatLine
+ci OCRSenseTests.testTerminalStyleLightOnDarkReads
+
 # MLX needs a GPU, and a hosted runner's virtual machine has none.
 ci QwenEarTests.*
 ci EditorRandomStateTests.*

@@ -46,7 +46,18 @@ final class OCRSenseTests: XCTestCase {
         return (context.makeImage()!, drawn)
     }
 
-    func testCleanProseIsReadVerbatimWithHonestGeometry() {
+    /// The accurate pass is Vision's own model, and a hosted runner's
+    /// macOS 27 image reads nothing with it (the fast pass still reads).
+    /// Skip only when plain drawn words come back empty; Tests/allowed-skips.txt
+    /// allows that on CI alone, so the desk must still run every reading test.
+    private func requireTheAccuratePass() throws {
+        let (image, _) = render(lines: ["the quick brown fox jumps here"])
+        let lines = OCRSense.recognize(image: image, windowFrame: CGRect(x: 0, y: 0, width: 900, height: 300))
+        try XCTSkipIf(lines.isEmpty, "Vision's accurate recognizer read nothing on this machine")
+    }
+
+    func testCleanProseIsReadVerbatimWithHonestGeometry() throws {
+        try requireTheAccuratePass()
         let windowFrame = CGRect(x: 100, y: 200, width: 900, height: 300)
         let (image, drawn) = render(lines: [
             "The quick brown fox jumps over it",
@@ -70,7 +81,8 @@ final class OCRSenseTests: XCTestCase {
         }
     }
 
-    func testGroundingRepairsTheGlyphConfusionRecognitionActuallyMakes() {
+    func testGroundingRepairsTheGlyphConfusionRecognitionActuallyMakes() throws {
+        try requireTheAccuratePass()
         // Reproduced live by this very suite: "7f3a9c1e" read as
         // "7f3a9cle". The grounding layer must hand back the truth when
         // accessibility read the same region.
@@ -104,7 +116,8 @@ final class OCRSenseTests: XCTestCase {
                      "two passing windows that disagree is a guess")
     }
 
-    func testIdentifiersSurviveWithoutLanguageCorrection() {
+    func testIdentifiersSurviveWithoutLanguageCorrection() throws {
+        try requireTheAccuratePass()
         // The copy path's whole fidelity case: an identifier must come out
         // character-for-character, not "corrected" into a word.
         let windowFrame = CGRect(x: 0, y: 0, width: 900, height: 300)
@@ -115,7 +128,8 @@ final class OCRSenseTests: XCTestCase {
                       "identifier mangled: \(joined)")
     }
 
-    func testTerminalStyleLightOnDarkReads() {
+    func testTerminalStyleLightOnDarkReads() throws {
+        try requireTheAccuratePass()
         let windowFrame = CGRect(x: 0, y: 0, width: 900, height: 300)
         let (image, _) = render(lines: [
             "vac@mac lodestar % swift test",
@@ -139,7 +153,8 @@ final class OCRSenseTests: XCTestCase {
         XCTAssertTrue(joined.contains("quick"), "fast read: \(joined)")
     }
 
-    func testCharacterRangeRectsAreNarrowerThanTheirLine() {
+    func testCharacterRangeRectsAreNarrowerThanTheirLine() throws {
+        try requireTheAccuratePass()
         let windowFrame = CGRect(x: 0, y: 0, width: 900, height: 300)
         let (image, _) = render(lines: ["alpha beta gamma delta epsilon zeta"])
         guard let line = OCRSense.recognize(image: image, windowFrame: windowFrame)
@@ -209,7 +224,8 @@ final class OCRSenseTests: XCTestCase {
         XCTAssertNil(OCRSense.overlay(reading: "short", onto: "a longer first reading"))
     }
 
-    func testRereadingACroppedLineReadsThatLine() {
+    func testRereadingACroppedLineReadsThatLine() throws {
+        try requireTheAccuratePass()
         let lines = ["first line of prose", "SESSION_ID = 4c9f1b", "third line here"]
         let (image, drawn) = render(lines: lines, width: 700, height: 200)
         let frame = CGRect(x: 100, y: 50, width: 700, height: 200)
@@ -222,6 +238,7 @@ final class OCRSenseTests: XCTestCase {
     // MARK: - An image says what it shows
 
     func testAnImageSaysWhatItShows() throws {
+        try requireTheAccuratePass()
         let (image, _) = render(lines: ["Fatal error: index out of range", "at main.swift line 42"])
         let data = NSMutableData()
         let destination = try XCTUnwrap(

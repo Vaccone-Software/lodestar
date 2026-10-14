@@ -16,6 +16,10 @@ final class StageLifecycleTests: XCTestCase {
 
     func testADeadStageLeavesNothingAlive() {
         let baseline = pumpCost()
+        // Only this test's stages are on trial: a window an earlier test in
+        // the same process left behind (ScrollScenarioTests' sheet case
+        // leaves one) would otherwise fail whichever suite runs after it.
+        let before = Set(NSApplication.shared.windows.map(ObjectIdentifier.init))
         weak var clipboard: ClipboardController?
         weak var engine: HotkeyEngine?
         weak var hud: HUD?
@@ -43,7 +47,9 @@ final class StageLifecycleTests: XCTestCase {
         // whole process the first time any text view in it takes focus, and
         // no close removes it: it is macOS's, not a stage's, and whether an
         // earlier test in this process typed decides whether it is here.
-        let ours = NSApplication.shared.windows.filter { String(describing: type(of: $0)) != "TUINSWindow" }
+        let ours = NSApplication.shared.windows.filter {
+            String(describing: type(of: $0)) != "TUINSWindow" && !before.contains(ObjectIdentifier($0))
+        }
         XCTAssertEqual(ours.count, 0, "no panel outlives its stage")
         let after = pumpCost()
         XCTAssertLessThan(after, max(0.5, baseline * 2), "thirty dead stages must not slow the run loop")

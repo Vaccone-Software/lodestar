@@ -49,6 +49,27 @@ jobs:
             spm-${{ runner.os }}-${{ steps.toolchain.outputs.xcode }}-${{ hashFiles('Package.resolved') }}-
             spm-${{ runner.os }}-${{ steps.toolchain.outputs.xcode }}-
 
+      # The restored build plan names the Metal compiler by an absolute
+      # path under a cryptex mount whose suffix is random per machine, so a
+      # plan saved on one runner sends `metal` to a path the next one lacks.
+      # Point each old mount at this runner's toolchain; if that cannot be
+      # done, drop the plan (the compiled objects stay) and let it replan.
+      - name: Point the cached build at this Metal toolchain
+        run: |
+          now=$(xcodebuild -showComponent MetalToolchain 2>/dev/null | sed -n 's/^Toolchain Search Path: //p')
+          plan=.build/out/Intermediates.noindex/XCBuildData
+          [ -d "$plan" ] || exit 0
+          for old in $(grep -raoh '/var/run/com.apple.security.cryptexd/mnt/com.apple.MobileAsset.MetalToolchain-[^/]*' "$plan" | sort -u); do
+            [ -e "$old" ] && continue
+            if [ -n "$now" ] && [ -d "$now" ] && sudo ln -s "$now" "$old"; then
+              echo "→ $old → $now"
+            else
+              echo "→ no Metal toolchain to point $old at; replanning"
+              rm -rf "$plan"
+              break
+            fi
+          done
+
       # The published keystroke dataset the replay tests read (7.3 MB),
       # cached by the script that fetches it. A failed or changed download
       # fails here: the script checks the archive's SHA-256, and the replay

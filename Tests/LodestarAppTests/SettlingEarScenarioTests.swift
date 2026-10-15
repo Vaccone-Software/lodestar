@@ -17,6 +17,20 @@ final class FakeEar: SettlingEar, @unchecked Sendable {
         self.answers = [answer]
         self.delay = delay
     }
+    /// Holds the first hearing until `release()`, so a test can settle the
+    /// next phrase while that hearing is surely still out.
+    private let gate = NSLock()
+    private var holding = false
+    private var waiting: CheckedContinuation<Void, Never>?
+    func holdFirst() { gate.withLock { holding = true } }
+    func release() {
+        let waiter = gate.withLock { () -> CheckedContinuation<Void, Never>? in
+            holding = false
+            defer { waiting = nil }
+            return waiting
+        }
+        waiter?.resume()
+    }
     init(answers: [String]) {
         self.answers = answers
         self.delay = 0
@@ -25,6 +39,15 @@ final class FakeEar: SettlingEar, @unchecked Sendable {
     func unload() {}
     func transcribe(_ samples: [Float], context: [String]) async throws -> Heard {
         heard.append(samples.count)
+        if heard.count == 1 {
+            await withCheckedContinuation { continuation in
+                let held = gate.withLock { () -> Bool in
+                    if holding { waiting = continuation }
+                    return holding
+                }
+                if !held { continuation.resume() }
+            }
+        }
         if delay > 0 { try await Task.sleep(nanoseconds: UInt64(delay * 1e9)) }
         defer { answered += 1 }
         return Heard(answers[min(heard.count, answers.count) - 1])
@@ -123,11 +146,15 @@ final class SettlingEarScenarioTests: XCTestCase {
 
     func testTwoPhrasesAreHeardAgainAsOneRun() {
         let ear = FakeEar(answer: "Open the file and look at the function that closes it.")
+        // The first hearing's answer already says "closes": were it back
+        // before the second phrase, the wait below would end on it.
+        ear.holdFirst()
         let stage = stageWithAudio(ear)
         stage.lode(".")
         stage.speech.settle(timed("Open the file and look at the.", 0, 2))
         stage.pump(until: { ear.heard.count == 1 })
         stage.speech.settle(timed("Function that clothes it.", 3, 5))
+        ear.release()
         stage.pump(until: { stage.draft.buffer.text.contains("closes") })
         XCTAssertEqual(stage.draft.buffer.text, "Open the file and look at the function that closes it.")
         XCTAssertEqual(ear.heard.last.map { $0 >= 16_000 * 5 }, true, "the second hearing spans the whole run")

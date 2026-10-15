@@ -191,7 +191,7 @@ jobs:
           # so, or an older Mac would be offered a build it cannot open.
           lipo -archs "$APP/Contents/MacOS/lodestar" | grep -q arm64 || { echo "✕ no arm64 slice"; exit 1; }
           MINOS=$(plutil -extract LSMinimumSystemVersion raw "$APP/Contents/Info.plist")
-          [ "$MINOS" = "14.0" ] || { echo "✕ LSMinimumSystemVersion is $MINOS, the build needs 14.0"; exit 1; }
+          [ "$MINOS" = "27.0" ] || { echo "✕ LSMinimumSystemVersion is $MINOS, the build needs 27.0"; exit 1; }
           # `schema` touches no config, no socket, no permission: the
           # cheapest proof the binary links and starts on a clean machine.
           "$APP/Contents/MacOS/lodestar" schema | python3 -c 'import json,sys; json.load(sys.stdin)'

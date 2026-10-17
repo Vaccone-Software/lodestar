@@ -1237,3 +1237,80 @@ extension ClipboardTests {
         XCTAssertEqual(again.sourceHost, "example.com")
     }
 }
+
+/// A card's line of text is cut from the front of the copy, not from a
+/// folded copy of all of it, and must be the line it always was.
+final class ClipboardPreviewTests: XCTestCase {
+    /// What `preview(of:)` was before it stopped reading what it cuts off:
+    /// fold the whole text, trim it, cut it.
+    private func reference(_ text: String, limit: Int) -> String {
+        let collapsed = text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return collapsed.count <= limit ? collapsed : String(collapsed.prefix(limit))
+    }
+
+    private struct SplitMix: RandomNumberGenerator {
+        var state: UInt64
+        mutating func next() -> UInt64 {
+            state &+= 0x9E37_79B9_7F4A_7C15
+            var z = state
+            z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+            z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+            return z ^ (z >> 31)
+        }
+    }
+
+    /// Pieces that stress the trimming and the character count: every kind
+    /// of whitespace, CRLF and its halves, marks that join the character
+    /// before them, emoji that join with each other, and long runs.
+    private static let pieces = [
+        "a", "bc", "word", " ", "  ", "\t", "\n", "\r\n", "\r", "\n\n", "\u{00A0}", "\u{2028}", "\u{3000}",
+        "e\u{0301}", "\u{0301}", "👩\u{200D}💻", "🇫🇷", "🇩🇪🇺🇸", "日本語", "ü", "\u{200B}", "-", ".",
+        String(repeating: " ", count: 40), String(repeating: "x", count: 30),
+    ]
+
+    func testThePreviewIsWhatTheFoldedTextWouldHaveGiven() {
+        var rng = SplitMix(state: 42)
+        for _ in 0..<3_000 {
+            let text = (0..<Int(rng.next() % 60)).map { _ in Self.pieces[Int(rng.next() % UInt64(Self.pieces.count))] }.joined()
+            for limit in [0, 1, 2, 5, 17, 2000] {
+                XCTAssertEqual(Clipboard.preview(of: text, limit: limit), reference(text, limit: limit),
+                               "limit \(limit) of \(text.debugDescription)")
+            }
+        }
+    }
+
+    func testTheEdgesOfTheCut() {
+        // Whitespace on both ends of text longer than the limit, and text
+        // that is the limit exactly with whitespace after it.
+        XCTAssertEqual(Clipboard.preview(of: "  \n abcdef \n ", limit: 3), "abc")
+        XCTAssertEqual(Clipboard.preview(of: "abc" + String(repeating: " ", count: 100), limit: 3), "abc")
+        XCTAssertEqual(Clipboard.preview(of: String(repeating: " ", count: 5_000)), "")
+        XCTAssertEqual(Clipboard.preview(of: ""), "")
+        XCTAssertEqual(Clipboard.preview(of: "a\r\nb\r\nc", limit: 3), "a\nb", "a CRLF is one character, so three of them reach a, CRLF and b")
+        XCTAssertEqual(Clipboard.preview(of: "e\u{0301}x", limit: 1), "e\u{0301}", "a mark stays with its letter")
+        // A CR before a CRLF folds into a CRLF of its own, which is one
+        // character where the two were three scalars and two characters.
+        XCTAssertEqual(Clipboard.preview(of: "a\r\r\nb", limit: 2), "a\r\n")
+        XCTAssertEqual(Clipboard.preview(of: String(repeating: "x\r\r\n", count: 5_000), limit: 7),
+                       String(repeating: "x\r\n", count: 3) + "x")
+        let flags = String(repeating: "🇫🇷", count: 50)
+        XCTAssertEqual(Clipboard.preview(of: flags, limit: 7), String(repeating: "🇫🇷", count: 7))
+    }
+
+    func testAHugeTextIsCutWithoutBeingReadWhole() {
+        // Characters that need several scalars each, far more of them than
+        // the limit and far more scalars than the first look takes.
+        let text = String(repeating: "e\u{0301}\u{0302}\u{0303}\u{0304}\u{0305}\u{0306}\u{0307}\u{0308}", count: 30_000)
+        let line = Clipboard.preview(of: text)
+        XCTAssertEqual(line.count, 2000)
+        XCTAssertEqual(line, String(text.prefix(2000)))
+        let big = "  " + String(repeating: "word ", count: 4_000_000) + "  "
+        let started = Date()
+        XCTAssertEqual(Clipboard.preview(of: big).count, 2000)
+        // A debug build is slow at anything; the fold of this text took
+        // seconds there, and cutting a line from its front does not.
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1.0)
+    }
+}

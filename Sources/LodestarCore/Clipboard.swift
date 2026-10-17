@@ -418,11 +418,35 @@ public enum Clipboard {
 
     /// The card's line of text: collapsed whitespace, bounded, so a clip of
     /// a whole file does not become a giant index entry.
+    ///
+    /// Only the front of the text is read. It is trimmed of whitespace at
+    /// both ends, and as many scalars of what is left are folded (CRLF to
+    /// LF) as it takes to be sure of the first `limit` characters: the same
+    /// line as folding all of it and cutting that, which for 19 MB was most
+    /// of half a second of the main thread.
     public static func preview(of text: String, limit: Int = 2000) -> String {
-        let collapsed = text
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return collapsed.count <= limit ? collapsed : String(collapsed.prefix(limit))
+        let scalars = text.unicodeScalars
+        let edge = CharacterSet.whitespacesAndNewlines
+        guard let start = scalars.firstIndex(where: { !edge.contains($0) }) else { return "" }
+        var end = scalars.endIndex
+        while end > start {
+            let before = scalars.index(before: end)
+            guard edge.contains(scalars[before]) else { break }
+            end = before
+        }
+        let kept = scalars[start..<end]
+        var count = limit * 4 + 8
+        while true {
+            let cut = kept.index(kept.startIndex, offsetBy: count, limitedBy: kept.endIndex) ?? kept.endIndex
+            let folded = String(kept[kept.startIndex..<cut]).replacingOccurrences(of: "\r\n", with: "\n")
+            // All of the text, or enough of it that the cut cannot have
+            // changed the first `limit` characters: a cut between a CR and
+            // the LF after it leaves the last two characters other than
+            // they will be (a CR before "\r\n" folds into a CRLF of its
+            // own), and nothing before them is touched.
+            if cut == kept.endIndex || folded.count >= limit + 2 { return String(folded.prefix(limit)) }
+            count *= 2
+        }
     }
 
     /// ⌥⌫ — drop the last word, and any whitespace trailing it, the way

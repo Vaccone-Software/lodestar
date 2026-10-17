@@ -15,10 +15,11 @@ extension Backend {
 /// Reading the feed changes nothing, so it is `readOnly`, and Stoic derives
 /// the rest from who is waiting (`withUrgency`): the periodic check, which
 /// nobody watches, is patient and waits out an open breaker; the menu item,
-/// which someone pressed, gives up quickly. A failure that still stands
-/// after that is left to `UpdateController`'s own timer, which asks again
-/// in a quarter of an hour and then an hour: that is a later check, not a
-/// retry of this one.
+/// which someone pressed and will wait a few seconds for, gives up within
+/// about the thirty seconds the single request was given. A failure that
+/// still stands after that is left to `UpdateController`'s own timer, which
+/// asks again in a quarter of an hour and then an hour: that is a later
+/// check, not a retry of this one.
 public enum UpdateFeed {
     static let fetch = Backend.updateFeed.readOnly("fetch")
 

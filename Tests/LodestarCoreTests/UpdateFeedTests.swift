@@ -81,7 +81,7 @@ final class UpdateFeedTests: XCTestCase {
     }
 
     func testARateLimitIsNotAskedAgainInSecondsWhateverTheUrgency() async throws {
-        for urgency in [Urgency.background, .interactive] {
+        for urgency in [Urgency.background, .userInitiated] {
             for status in [403, 429] {
                 let outcome = try await fetch([.answer(status), .answer(200)], urgency: urgency)
                 XCTAssertNil(outcome.data, "\(status) at \(urgency)")
@@ -106,15 +106,17 @@ final class UpdateFeedTests: XCTestCase {
     }
 
     func testAConnectionThatKeepsFailingGivesUpAfterTheAttemptsItsUrgencyAllows() async throws {
-        for urgency in [Urgency.interactive, .background] {
+        for urgency in [Urgency.userInitiated, .background] {
             let attempts = UpdateFeed.fetch.policy(at: urgency).schedule.maximumAttempts
             let outcome = try await fetch([.fail(.timedOut)], urgency: urgency)
             XCTAssertEqual(outcome.requests, attempts, "\(urgency)")
             XCTAssertTrue(outcome.problem?.contains("NSURLErrorDomain") == true, "the transport's own error: \(outcome.problem ?? "nil")")
         }
-        XCTAssertLessThan(UpdateFeed.fetch.policy(at: .interactive).schedule.maximumAttempts,
+        XCTAssertLessThan(UpdateFeed.fetch.policy(at: .userInitiated).schedule.maximumAttempts,
                           UpdateFeed.fetch.policy(at: .background).schedule.maximumAttempts,
                           "a pressed menu item gives up sooner than the daily check")
+        XCTAssertEqual(UpdateFeed.fetch.policy(at: .userInitiated).deadline, .seconds(30),
+                       "the menu item is held to the thirty seconds the single request had")
     }
 
     /// Erased to `any Error`, which is all `URLSession` hands back, a

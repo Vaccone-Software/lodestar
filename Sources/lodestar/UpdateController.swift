@@ -280,8 +280,10 @@ final class UpdateController {
         var request = URLRequest(url: feed, timeoutInterval: 30)
         request.setValue("lodestar/\(Lodestar.version)", forHTTPHeaderField: "User-Agent")
         // Who is waiting decides how patiently the feed is asked: the
-        // periodic check is nobody's, the menu item is someone's.
-        let urgency: Urgency = force ? .interactive : .background
+        // periodic check is nobody's; the menu item was pressed by someone
+        // who will wait seconds for the answer (not a tap's instant
+        // feedback), which is also the thirty seconds it always had.
+        let urgency: Urgency = force ? .userInitiated : .background
         Task { [weak self] in
             guard let self else { return }
             var data: Data?

@@ -37,11 +37,32 @@ final class ClipboardStore {
     var readText: (Data) -> String? = { OCRSense.readText(imageData: $0) }
     /// Decoded thumbnails, so a strip of image cards costs no decoding —
     /// bounded, because a decoded image is far larger than its file and a
-    /// menu-bar app runs for weeks. The strip shows at most fourteen at
-    /// once, so this only ever has to cover a little scrollback.
+    /// menu-bar app runs for weeks.
+    ///
+    /// The strip shows twelve cards at most — eight recents and four
+    /// keepsakes — and a card is at most 480 pixels on a side, so a decoded
+    /// one is 0.6 MB for a screenshot's proportions and 0.9 MB at the very
+    /// worst. Forty-eight is four strips' worth: the cards on show and
+    /// three more screens of them, which is what typing and deleting in the
+    /// search band walks back and forth over, for 28 MB typically and 44 MB
+    /// at the worst, held for the weeks the app runs. The 32 it had was
+    /// under three strips, and a search that wandered past them decoded the
+    /// same cards again.
     private var thumbnails: [String: NSImage] = [:]
     private var thumbnailOrder: [String] = []
-    private static let thumbnailLimit = 32
+    static let thumbnailLimit = 48
+    /// Where a thumbnail is read and decoded: not the main thread, which is
+    /// drawing, and not the io queue, which may be writing a screenshot.
+    private let decoder = DispatchQueue(label: "lodestar.clipboard.thumbnails", qos: .userInitiated)
+    /// Ids being decoded now, and ids whose file would not read — asked
+    /// for once, not on every redraw.
+    private var decoding: Set<String> = []
+    private var thumbnailless: Set<String> = []
+    private var refreshPending = false
+    /// Decodes started, for the tests.
+    private(set) var decodes = 0
+    /// How many are held, for the tests.
+    var cachedThumbnails: Int { thumbnails.count }
     /// Fired on the main thread once a clip's thumbnail exists, since the
     /// bytes land after the index does.
     var onThumbnail: (() -> Void)?
@@ -215,8 +236,10 @@ final class ClipboardStore {
             if known, FileManager.default.fileExists(atPath: thumbFile.path) { return }
             guard let thumbnail = Self.thumbnail(from: imageData) else { return }
             try? thumbnail.write(to: thumbFile)
+            // Decoded here, so the first draw has nothing left to decode.
+            let image = Self.decodedImage(from: thumbnail)
             DispatchQueue.main.async {
-                if let image = NSImage(data: thumbnail) { self.cache(image, for: id) }
+                if let image { self.cache(image, for: id) }
                 self.onThumbnail?()
             }
         }
@@ -428,19 +451,64 @@ final class ClipboardStore {
         return out as Data
     }
 
+    /// A thumbnail's pixels, decoded now rather than at the first draw,
+    /// which would be the main thread's. Safe off the main thread, like
+    /// `thumbnail(from:)`. The size in points is the size in pixels, as a
+    /// PNG that says nothing of its resolution has always been read.
+    static func decodedImage(from data: Data) -> NSImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(
+                source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
+        else { return nil }
+        return NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
+    }
+
+    /// What is decoded, now — or nil, and `onThumbnail` fires when the
+    /// card's picture has been read and decoded off the main thread. A
+    /// redraw shows what it has and fills in the rest as it lands; it used
+    /// to read and decode every missing card on the main thread, with the
+    /// strip's key tap waiting.
     func thumbnail(for id: String) -> NSImage? {
         if let cached = thumbnails[id] {
             cache(cached, for: id)
             return cached
         }
+        guard !decoding.contains(id), !thumbnailless.contains(id) else { return nil }
+        decoding.insert(id)
+        decodes += 1
         let url = thumbs.appendingPathComponent("\(id).png")
-        guard let image = NSImage(contentsOf: url) else { return nil }
+        decoder.async { [weak self] in
+            let image = (try? Data(contentsOf: url)).flatMap(Self.decodedImage(from:))
+            DispatchQueue.main.async { self?.decoded(image, for: id) }
+        }
+        return nil
+    }
+
+    private func decoded(_ image: NSImage?, for id: String) {
+        decoding.remove(id)
+        // A card deleted while its picture was being read stays deleted.
+        guard contains(id) else { return }
+        guard let image else {
+            // Unless the copy's own thumbnail has landed since: it is
+            // written after the card exists, and a read that lost the race
+            // with it must not outlive it.
+            if thumbnails[id] == nil { thumbnailless.insert(id) }
+            return
+        }
         cache(image, for: id)
-        return image
+        // A strip's worth of cards arrive within a few milliseconds of one
+        // another; one redraw takes them all.
+        guard !refreshPending else { return }
+        refreshPending = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
+            self?.refreshPending = false
+            self?.onThumbnail?()
+        }
     }
 
     /// Most recently used last; the front falls off the end.
     private func cache(_ image: NSImage, for id: String) {
+        thumbnailless.remove(id)
         thumbnails[id] = image
         thumbnailOrder.removeAll { $0 == id }
         thumbnailOrder.append(id)
@@ -573,6 +641,7 @@ final class ClipboardStore {
     private func removeFiles(of id: String) {
         thumbnails[id] = nil
         thumbnailOrder.removeAll { $0 == id }
+        thumbnailless.remove(id)
         io.async { [items, thumbs] in
             let fm = FileManager.default
             for url in (try? fm.contentsOfDirectory(at: items, includingPropertiesForKeys: nil)) ?? []
@@ -598,6 +667,7 @@ final class ClipboardStore {
         index.clips.removeAll()
         thumbnails.removeAll()
         thumbnailOrder.removeAll()
+        thumbnailless.removeAll()
         io.async { [items, thumbs] in
             let fm = FileManager.default
             try? fm.removeItem(at: items)

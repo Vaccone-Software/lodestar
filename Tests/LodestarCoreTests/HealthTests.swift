@@ -324,9 +324,8 @@ final class HealthTests: XCTestCase {
     func testHealthGateHoldsEvenWhenTheMasterIsOpen() {
         let directory = scratch()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let store = ObservationStore(
-            file: directory.appendingPathComponent("observations.json"),
-            log: EventLog(file: directory.appendingPathComponent("events.jsonl")))
+        let store = ObservationStore(file: directory.appendingPathComponent("observations.json"), vault: SealedFixture.vault(directory.appendingPathComponent("observations.json").deletingLastPathComponent()),
+            log: SealedFixture.eventLog(directory.appendingPathComponent("events.jsonl")))
         store.setHealthEnabled(false)
         store.healthPulse(pulseEvent(at: start))
         XCTAssertTrue(store.healthLog.readAll().isEmpty,
@@ -340,9 +339,8 @@ final class HealthTests: XCTestCase {
     func testLatencyEventsRecord() {
         let directory = scratch()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let store = ObservationStore(
-            file: directory.appendingPathComponent("observations.json"),
-            log: EventLog(file: directory.appendingPathComponent("events.jsonl")))
+        let store = ObservationStore(file: directory.appendingPathComponent("observations.json"), vault: SealedFixture.vault(directory.appendingPathComponent("observations.json").deletingLastPathComponent()),
+            log: SealedFixture.eventLog(directory.appendingPathComponent("events.jsonl")))
         store.latency(surface: "scroll-panes", seconds: 1.4, at: start)
         store.latency(surface: "", seconds: 1, at: start)
         store.latency(surface: "retile", seconds: 0, at: start)

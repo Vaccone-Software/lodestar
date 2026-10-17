@@ -23,8 +23,8 @@ final class StripObservationTests: XCTestCase {
             .appendingPathComponent("lodestar-strip-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let log = EventLog(file: directory.appendingPathComponent("events.jsonl"))
-        let store = ObservationStore(file: directory.appendingPathComponent("observations.json"),
+        let log = SealedFixture.eventLog(directory.appendingPathComponent("events.jsonl"))
+        let store = ObservationStore(file: directory.appendingPathComponent("observations.json"), vault: SealedFixture.vault(directory.appendingPathComponent("observations.json").deletingLastPathComponent()),
                                      log: log)
         store.pasted(app: "Slack", action: "pasted", source: "search", row: "native",
                      rank: 2, typed: 5, seconds: 3.5, firstKey: 0.8, at: start)
@@ -39,7 +39,7 @@ final class StripObservationTests: XCTestCase {
         XCTAssertEqual(event.seconds, 3.5)
         XCTAssertEqual(event.openToFirstKey, 0.8)
         store.flush()
-        let line = try String(contentsOf: log.file, encoding: .utf8)
+        let line = SealedFixture.text(of: log.file)
         XCTAssertFalse(line.contains("preview"), "never the clip")
         XCTAssertTrue(line.contains("\"paste\""))
     }

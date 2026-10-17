@@ -42,16 +42,24 @@ public enum Retention {
         }
     }
 
-    /// The ring's bytes: the live file and every shard beside it.
+    /// The ring's bytes: the live file and every shard beside it, sealed
+    /// journals (with their snapshots) and any plaintext an earlier build
+    /// left until migration has taken it in.
     public static func behavioralUsage(in directory: URL, base: String = "events") -> Usage {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
         let bytes = names
-            .filter { $0 == "\(base).jsonl" || ($0.hasPrefix("\(base)-") && $0.hasSuffix(".jsonl")) }
+            .filter { name in
+                if name == "\(base).jsonl" { return true }
+                if name.hasPrefix("\(base).") { return RecordFiles.isJournalFile(name) }
+                return name.hasPrefix("\(base)-") && (name.hasSuffix(".jsonl") || RecordFiles.isJournalFile(name))
+            }
             .reduce(Int64(0)) { $0 + size(directory.appendingPathComponent($1)) }
         return Usage(bytes: bytes, bound: behavioralBytes)
     }
 
-    /// The health record's bytes across its three stores.
+    /// The health record's bytes across its stores: the day journals (and any
+/// plaintext day files not yet sealed), the health log and its shards, and
+/// the archive months, in either form.
     public static func healthUsage(in directory: URL) -> Usage {
         var bytes: Int64 = 0
         for sub in [KeyStore.subdirectory, PointerStore.subdirectory] {
@@ -59,7 +67,10 @@ public enum Retention {
         }
         let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
         bytes += names
-            .filter { $0.hasPrefix("health-") && ($0.hasSuffix(".jsonl.z") || $0.hasSuffix(".jsonl")) }
+            .filter { name in
+                name.hasPrefix("health-") && (name.hasSuffix(".jsonl.z") || name.hasSuffix(".jsonl")
+                    || name.hasSuffix(".jsonl.z" + RecordFiles.archiveSealedSuffix) || RecordFiles.isJournalFile(name))
+            }
             .reduce(Int64(0)) { $0 + size(directory.appendingPathComponent($1)) }
         return Usage(bytes: bytes, bound: healthBytes)
     }

@@ -271,6 +271,12 @@ public enum SettingsModel {
         public var inputMonitoring = "unknown"
         /// The health record's size warning, once it is near its bound.
         public var healthWarning: String?
+        /// Why the health record is not being read or written, when it is
+        /// paused (the keychain is locked or refused) or its key is gone.
+        public var healthKeyProblem: String?
+        /// The health key is gone and sealed files need it: the row that
+        /// starts a new record is shown.
+        public var healthKeyLost = false
         /// What Automatic picks for dictation on this Mac, named in its label.
         public var draftModelAutomatic = "Full"
         /// Each dictation tier as its row lists it, Apple only first: the
@@ -731,7 +737,7 @@ public enum SettingsModel {
         // 9 · Observations: two records, each with its switch, its limit,
         // and what reads it. The coach reads the logbook; Born and
         // Dominant hand belong to health.
-        sections.append(Section(name: "Observations", rows: [
+        var observationRows: [Row] = [
             Row(title: "Logbook", path: "observations.logbook",
                 control: .toggle(config.logbookEnabled),
                 detail: "How you move between apps, windows and gestures. Sites by name, never their pages, titles or what you type",
@@ -750,7 +756,7 @@ public enum SettingsModel {
                 control: .toggle(config.observationsHealth),
                 detail: "The rhythm of your hands, by hand and finger, and how the pointer moves. No key is stored, but the pattern can partly show what you typed, so it stays on this Mac",
                 isDefault: config.observationsHealth, group: "Health",
-                problem: machine.healthWarning),
+                problem: machine.healthKeyProblem ?? machine.healthWarning),
             Row(title: "Limit", path: "observations.health-mb",
                 control: .number(Int(config.healthBytes >> 20), min: Retention.healthMinimumMB, max: 16_384, unit: "MB"),
                 detail: config.observationsHealth ? "Lodestar tells you when the record nears this. Health is never deleted on its own" : "Needs health",
@@ -789,7 +795,19 @@ public enum SettingsModel {
                 detail: "Years of baseline nothing can rebuild, gone from this Mac", group: "Delete")
                 .doing(Action(id: "delete-health", label: "Delete", destructive: true,
                               confirm: "Press the letter again to delete the health record. It cannot be undone")),
-        ], picture: "place-observations",
+        ]
+        if machine.healthKeyLost {
+            // Never automatic: the unreadable files are moved, not deleted, and a
+            // new record begins. The person decides, with the reason in front of them.
+            let index = observationRows.firstIndex { $0.path == "observations.health" }.map { $0 + 1 } ?? 0
+            observationRows.insert(
+                Row(title: "Start a new health record", control: .readout("", sub: nil),
+                    detail: "The key that opens the health record is gone, so it cannot be read. Nothing has been deleted: this moves the unreadable files into a dated health-unreadable folder here and starts again", group: "Health")
+                    .doing(Action(id: "start-new-health", label: "Start", destructive: false,
+                                  confirm: "Press the letter again to move the unreadable health record aside and start a new one")),
+                at: index)
+        }
+        sections.append(Section(name: "Observations", rows: observationRows, picture: "place-observations",
            sentence: "Everything Lodestar observes stays on this Mac",
            status: "Logbook and health",
            note: "The coach reads the logbook. Health is its own record, kept whatever the logbook is set to"))

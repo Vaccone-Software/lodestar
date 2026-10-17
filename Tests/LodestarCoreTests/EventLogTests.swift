@@ -21,7 +21,7 @@ final class EventLogTests: XCTestCase {
     }
 
     private func makeLog() -> EventLog {
-        EventLog(file: directory.appendingPathComponent("events.jsonl"))
+        SealedFixture.eventLog(directory.appendingPathComponent("events.jsonl"))
     }
 
     private func chainEvent(at date: Date) -> ObservationEvent {
@@ -45,23 +45,23 @@ final class EventLogTests: XCTestCase {
         let old = Date(timeIntervalSince1970: 1_700_000_000)
         for offset in 0..<5 { log.append(chainEvent(at: old.addingTimeInterval(Double(offset)))) }
         log.flush()
-        XCTAssertEqual(EventLog(file: log.file).readAll().count, 5)
+        XCTAssertEqual(SealedFixture.eventLog(log.file).readAll().count, 5)
+        log.close()
 
-        // Make the file unopenable for writing, then try to add to it.
-        try FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: log.file.path)
-        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644],
-                                                       ofItemAtPath: log.file.path) }
+        // Make the journal unopenable for writing, then try to add to it.
+        let journal = LineStore.journalPath(forPlaintext: log.file)
+        try FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: journal)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: journal) }
         log.append(chainEvent(at: old.addingTimeInterval(100)))
         log.flush()
 
-        XCTAssertEqual(EventLog(file: log.file).readAll().count, 5,
+        XCTAssertEqual(SealedFixture.eventLog(log.file).readAll().count, 5,
                        "the existing ring must survive a failed write")
 
         // The batch was held, not dropped, so it lands once writing works.
-        try FileManager.default.setAttributes([.posixPermissions: 0o644],
-                                              ofItemAtPath: log.file.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: journal)
         log.flush()
-        XCTAssertEqual(EventLog(file: log.file).readAll().count, 6,
+        XCTAssertEqual(SealedFixture.eventLog(log.file).readAll().count, 6,
                        "the held batch should append once the file opens again")
     }
 
@@ -77,7 +77,7 @@ final class EventLogTests: XCTestCase {
         log.append(reach)
         log.flush()
 
-        let back = EventLog(file: log.file).readAll()
+        let back = SealedFixture.eventLog(log.file).readAll()
         XCTAssertEqual(back.count, 2)
         XCTAssertEqual(back.first?.kind, .chain)
         XCTAssertEqual(back.first?.gaps ?? [], [0.25])
@@ -108,7 +108,7 @@ final class EventLogTests: XCTestCase {
         log.append(chainEvent(at: now.addingTimeInterval(-3600)))
         log.flush()
         log.compact(now: now)
-        let kept = EventLog(file: log.file).readAll()
+        let kept = SealedFixture.eventLog(log.file).readAll()
         XCTAssertEqual(kept.count, 2, "the ring is bounded by size, never by age")
         XCTAssertEqual(kept.last?.t.timeIntervalSince(now) ?? 0, -3600, accuracy: 5)
     }
@@ -120,13 +120,13 @@ final class EventLogTests: XCTestCase {
         log.clear()
         XCTAssertEqual(log.readAll().count, 0)
         XCTAssertFalse(FileManager.default.fileExists(atPath: log.file.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: LineStore.journalPath(forPlaintext: log.file)))
     }
 
     // MARK: - The store keeps its books
 
     func testStoreViewEqualsReplayOfItsOwnLog() {
-        let store = ObservationStore(
-            file: directory.appendingPathComponent("observations.json"),
+        let store = ObservationStore(file: directory.appendingPathComponent("observations.json"), vault: SealedFixture.vault(directory.appendingPathComponent("observations.json").deletingLastPathComponent()),
             log: makeLog())
         let date = Date(timeIntervalSince1970: 1_700_000_000)
         store.chainCompleted(["b", "g"], gaps: [0.3, 0.4], peeked: true, at: date)
@@ -148,8 +148,7 @@ final class EventLogTests: XCTestCase {
     }
 
     func testABreathRestoreReachesEveryAppInItsLayout() {
-        let store = ObservationStore(
-            file: directory.appendingPathComponent("observations.json"),
+        let store = ObservationStore(file: directory.appendingPathComponent("observations.json"), vault: SealedFixture.vault(directory.appendingPathComponent("observations.json").deletingLastPathComponent()),
             log: makeLog())
         let date = Date(timeIntervalSince1970: 1_700_000_000)
         store.breathRestored(path: "X", apps: ["Brave Browser", "Ghostty"], at: date)
@@ -166,7 +165,7 @@ final class EventLogTests: XCTestCase {
     func testStoreLoadRebuildsFromLogWhenViewIsMissingOrStale() {
         let file = directory.appendingPathComponent("observations.json")
         let log = makeLog()
-        let store = ObservationStore(file: file, log: log)
+        let store = ObservationStore(file: file, vault: SealedFixture.vault(file.deletingLastPathComponent()), log: log)
         // Recent, because load() compacts the ring first and a stale
         // fixture would age out — which is itself correct behavior.
         let date = Date().addingTimeInterval(-3600)
@@ -175,15 +174,14 @@ final class EventLogTests: XCTestCase {
         // No view file at all — a fresh install onto an existing log, or a
         // schema bump: either way the log answers.
         try? FileManager.default.removeItem(at: file)
-        let reloaded = ObservationStore(file: file, log: EventLog(file: log.file))
+        let reloaded = ObservationStore(file: file, vault: SealedFixture.vault(file.deletingLastPathComponent()), log: SealedFixture.eventLog(log.file))
         reloaded.load()
         XCTAssertEqual(reloaded.observations.addresses["g"]?.completions, 1,
                        "the truth is the log; the view is a cache")
     }
 
     func testDisabledStoreRecordsNothing() {
-        let store = ObservationStore(
-            file: directory.appendingPathComponent("observations.json"),
+        let store = ObservationStore(file: directory.appendingPathComponent("observations.json"), vault: SealedFixture.vault(directory.appendingPathComponent("observations.json").deletingLastPathComponent()),
             log: makeLog())
         store.setEnabled(false)
         store.chainCompleted(["g"], gaps: [0.2], peeked: false)

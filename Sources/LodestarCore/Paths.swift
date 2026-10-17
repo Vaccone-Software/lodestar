@@ -83,6 +83,16 @@ public enum Paths {
             }
         }
         excludeFromBackup(clipboard)
+        // The raw record's folders, made 0755 by earlier builds, and what is
+        // in them: sealed now or on its way to being, and the owner's alone.
+        for sub in [KeyStore.subdirectory, PointerStore.subdirectory] {
+            let folder = data.appendingPathComponent(sub, isDirectory: true)
+            guard fm.fileExists(atPath: folder.path) else { continue }
+            try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
+            for name in (try? fm.contentsOfDirectory(atPath: folder.path)) ?? [] {
+                restrict(folder.appendingPathComponent(name))
+            }
+        }
     }
 
     /// The files of the behavioral record, by name: what a backup must
@@ -91,7 +101,7 @@ public enum Paths {
     public static func isBehavioral(_ name: String) -> Bool {
         if name == "clipboard" { return true }
         for prefix in ["events", "observations", "lodestar.log", "state.json", "rollups.json", "draft-in-flight",
-                       "feedback-outbox"]
+                       "feedback-outbox", "logbook-unreadable"]
         where name == prefix || name.hasPrefix(prefix + ".") || name.hasPrefix(prefix + "-") {
             return true
         }

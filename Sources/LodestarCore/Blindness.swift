@@ -1,4 +1,5 @@
 import Foundation
+import StoicStore
 
 /// When the instrument could not see.
 ///
@@ -25,6 +26,10 @@ public enum BlindKind: String, Codable, CaseIterable, Sendable {
     case notRunning
     /// The Mac was asleep.
     case asleep
+    /// The key that seals the health record could not be asked for (a
+    /// locked or refusing keychain): presses were dropped, nothing was
+    /// written, and the record says why it has a gap.
+    case keyUnavailable
 
     /// How the printout names it.
     public var words: String {
@@ -35,6 +40,7 @@ public enum BlindKind: String, Codable, CaseIterable, Sendable {
         case .healthOff: return "health off"
         case .notRunning: return "not running"
         case .asleep: return "asleep"
+        case .keyUnavailable: return "key unavailable"
         }
     }
 }
@@ -208,5 +214,50 @@ public enum BlindSummary {
             return "\(name) \(duration(row.seconds)) (\(row.spans))"
         }
         return "\(duration(total)) unseen · " + parts.joined(separator: " · ")
+    }
+}
+
+/// `blind.json`, the ledger's file: sealed with the health record, read in
+/// either form, and never written over what it could not read. Owned by one
+/// queue (the health monitor's).
+public struct BlindLedgerFile: Sendable {
+    public let file: SealedValueFile
+
+    public init(url: URL, ring: Vault.Ring, fileSystem: any FileSystem = OwnerOnlyFileSystem()) {
+        file = SealedValueFile(url: url, ring: ring, fileSystem: fileSystem)
+    }
+
+    public enum Loaded {
+        /// The ledger on disk, or a new one where there is none.
+        case ledger(BlindLedger)
+        /// There is a ledger and it could not be read now: the key is
+        /// unavailable. Not an empty one; nothing may be saved over it.
+        case unavailable
+    }
+
+    public func load() -> Loaded {
+        switch file.read() {
+        case .absent:
+            return .ledger(BlindLedger())
+        case .value(let data, _):
+            // A ledger that decodes badly is what it always was: a new one.
+            return .ledger((try? JSONDecoder().decode(BlindLedger.self, from: Data(data))) ?? BlindLedger())
+        case .unavailable:
+            return .unavailable
+        case .unreadable(let why):
+            // Sealed and not opening (altered, or under a key the ring no
+            // longer holds): the span bookkeeping is the one thing in the
+            // health record that can start over. The file is set aside, not
+            // deleted, and a new ledger takes its place.
+            let aside = Quarantine.setAside(file.url)
+            Log.error("health: blind.json did not open (\(why)) — set aside at \(aside.lastPathComponent), starting a new ledger")
+            return .ledger(BlindLedger())
+        }
+    }
+
+    @discardableResult
+    public func save(_ ledger: BlindLedger) -> Bool {
+        guard let data = try? JSONEncoder().encode(ledger) else { return false }
+        return file.write([UInt8](data)) == .written
     }
 }

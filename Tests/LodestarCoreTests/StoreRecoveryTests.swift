@@ -19,7 +19,7 @@ final class ObservationRecoveryTests: XCTestCase {
     override func tearDown() { try? FileManager.default.removeItem(at: directory) }
 
     private func store() -> ObservationStore {
-        ObservationStore(file: file, log: EventLog(file: directory.appendingPathComponent("events.jsonl")))
+        ObservationStore(file: file, vault: SealedFixture.vault(file.deletingLastPathComponent()), log: SealedFixture.eventLog(directory.appendingPathComponent("events.jsonl")))
     }
 
     private let start = Date(timeIntervalSince1970: 1_790_000_000)

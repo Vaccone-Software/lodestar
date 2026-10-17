@@ -19,8 +19,8 @@ final class RecordSplitTests: XCTestCase {
     }
 
     private func store() -> ObservationStore {
-        ObservationStore(file: directory.appendingPathComponent("observations.json"),
-                         log: EventLog(file: directory.appendingPathComponent("events.jsonl")))
+        ObservationStore(file: directory.appendingPathComponent("observations.json"), vault: SealedFixture.vault(directory.appendingPathComponent("observations.json").deletingLastPathComponent()),
+                         log: SealedFixture.eventLog(directory.appendingPathComponent("events.jsonl")))
     }
 
     private let start = Date(timeIntervalSince1970: 1_790_000_000)
@@ -52,7 +52,7 @@ final class RecordSplitTests: XCTestCase {
         let first = store()
         first.chainCompleted(["s"], gaps: [0.3], peeked: false, at: start)
         first.flush()
-        let ring = directory.appendingPathComponent("events.jsonl")
+        let ring = directory.appendingPathComponent("events.sj")
         let before = try Data(contentsOf: ring)
         let modified = try FileManager.default.attributesOfItem(atPath: ring.path)[.modificationDate] as? Date
 
@@ -102,7 +102,7 @@ final class RecordSplitTests: XCTestCase {
     /// Health that once lived in the ring moves to the health log, once,
     /// and the ring keeps everything else.
     func testHealthMovesOutOfTheRingOnce() {
-        let log = EventLog(file: directory.appendingPathComponent("events.jsonl"))
+        let log = SealedFixture.eventLog(directory.appendingPathComponent("events.jsonl"))
         log.append(pulse(at: start))
         var chain = ObservationEvent(t: start.addingTimeInterval(1), kind: .chain)
         chain.chain = ["s"]

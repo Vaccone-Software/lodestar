@@ -1,3 +1,4 @@
+import StoicSealed
 import XCTest
 @testable import LodestarCore
 
@@ -129,6 +130,10 @@ final class RollupTests: XCTestCase {
                        + " the fuller answer written earlier")
     }
 
+    private func ring(_ file: URL) -> Vault.Ring {
+        SealedFixture.vault(file.deletingLastPathComponent()).ring(.logbook)
+    }
+
     func testRollWritesOnceAndHoldsWhatItWrote() {
         let file = FileManager.default.temporaryDirectory
             .appendingPathComponent("rollup-test-\(UUID().uuidString).json")
@@ -137,20 +142,20 @@ final class RollupTests: XCTestCase {
         let fullRing = (0..<10).map { i in
             event(.focus, at: november.addingTimeInterval(Double(i) * 86_400)) { $0.app = "slack" }
         }
-        let first = Rollup.roll(events: fullRing, file: file, now: january)
+        let first = Rollup.roll(events: fullRing, file: file, ring: ring(file), now: january)
         XCTAssertEqual(first.added, ["2023-11"])
 
         // The ring moved on: November thinned to one event, December new.
         let thinned = [fullRing.last!, event(.focus, at: december) { $0.app = "mail" }]
-        let second = Rollup.roll(events: thinned, file: file, now: january)
+        let second = Rollup.roll(events: thinned, file: file, ring: ring(file), now: january)
         XCTAssertEqual(second.added, ["2023-12"])
 
-        let third = Rollup.roll(events: thinned, file: file, now: january)
+        let third = Rollup.roll(events: thinned, file: file, ring: ring(file), now: january)
         XCTAssertTrue(third.added.isEmpty, "idempotent once every month is archived")
 
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let archive = try? decoder.decode(Rollup.self, from: Data(contentsOf: file))
+        // Sealed on disk, and read through the same key.
+        XCTAssertTrue(Sealing.isSealed(Array((try? Data(contentsOf: file))?.prefix(4) ?? Data())), "the archive is sealed")
+        let archive = Rollup.load(file: file, ring: ring(file)).archive
         XCTAssertEqual(archive?.months["2023-11"]?.events, 10,
                        "November stands as first written, not as the ring last saw it")
         XCTAssertEqual(archive?.months["2023-12"]?.events, 1)
@@ -164,7 +169,7 @@ final class RollupTests: XCTestCase {
         try? foreign.write(to: file)
 
         let outcome = Rollup.roll(events: [event(.focus, at: november) { $0.app = "slack" }],
-                                  file: file, now: january)
+                                  file: file, ring: ring(file), now: january)
         XCTAssertTrue(outcome.held, "an old binary must never rewrite a newer archive")
         XCTAssertTrue(outcome.added.isEmpty)
         XCTAssertEqual(try? Data(contentsOf: file), foreign, "byte-identical")

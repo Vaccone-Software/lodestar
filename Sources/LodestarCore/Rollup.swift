@@ -1,4 +1,5 @@
 import Foundation
+import StoicStore
 
 /// The durable monthly archive: what survives the ring.
 ///
@@ -926,40 +927,124 @@ public struct Rollup: Codable, Equatable {
     /// how archives die.
     /// `file` has no default on purpose: a write that could silently land
     /// in the user's real archive is how a test run poisoned it once.
+    ///
+    /// The archive is sealed with the logbook (`ring`), and a file that is
+    /// there and cannot be read now (the key is unavailable, or it will not
+    /// open) is *held*, never replaced by a fresh one: a new archive written
+    /// over months nothing else holds is the failure this file exists to
+    /// prevent.
     @discardableResult
-    public static func roll(events: [ObservationEvent], file: URL,
+    public static func roll(events: [ObservationEvent], file: URL, ring: Vault.Ring,
+                            fileSystem: any FileSystem = OwnerOnlyFileSystem(),
                             now: Date = Date()) -> Outcome {
         var outcome = Outcome()
+        let stored = SealedValueFile(url: file, ring: ring, fileSystem: fileSystem)
         var archive = Rollup()
-        if let data = try? Data(contentsOf: file) {
+        switch stored.read() {
+        case .absent:
+            break
+        case .value(let data, _):
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
-            guard let probe = try? decoder.decode(VersionProbe.self, from: data),
+            guard let probe = try? decoder.decode(VersionProbe.self, from: Data(data)),
                   probe.version <= currentVersion,
-                  let decoded = try? decoder.decode(Rollup.self, from: data) else {
+                  let decoded = try? decoder.decode(Rollup.self, from: Data(data)) else {
                 Log.error("rollup: \(file.lastPathComponent) is not this schema — left untouched")
                 outcome.held = true
                 return outcome
             }
             archive = decoded
+        case .unavailable:
+            outcome.held = true
+            return outcome
+        case .unreadable(let why):
+            Log.error("rollup: \(file.lastPathComponent) did not open (\(why)) — left untouched")
+            outcome.held = true
+            return outcome
         }
         outcome.added = archive.adopt(build(events: events, now: now))
         guard !outcome.added.isEmpty else { return outcome }
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.sortedKeys, .prettyPrinted]
-        guard let data = try? encoder.encode(archive) else { return outcome }
-        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(),
-                                                 withIntermediateDirectories: true)
-        do {
-            try DurableFile.write(data, to: file, newFileMode: 0o600)
+        guard let data = encoded(archive) else { return outcome }
+        if stored.write([UInt8](data)) == .written {
             // Behavioral: which sites, which profiles, month after month.
-            Paths.restrict(file)
             Paths.excludeFromBackup(file)
-        } catch {
-            Log.error("rollup: could not write \(file.lastPathComponent) (\(error))")
+        } else {
+            Log.error("rollup: could not write \(file.lastPathComponent)")
             outcome.added = []
         }
         return outcome
+    }
+
+    private static func encoded(_ archive: Rollup) -> Data? {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys, .prettyPrinted]
+        return try? encoder.encode(archive)
+    }
+
+    /// The archive on disk, for a report: nil when there is none, or it
+    /// cannot be read now (`unavailable` says which of the two).
+    public static func load(file: URL, ring: Vault.Ring?, fileSystem: any FileSystem = PosixFileSystem())
+        -> (archive: Rollup?, unavailable: Bool) {
+        guard let ring else { return (nil, false) }
+        switch SealedValueFile(url: file, ring: ring, fileSystem: fileSystem).read() {
+        case .value(let data, _):
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            return (try? decoder.decode(Rollup.self, from: Data(data)), false)
+        case .absent:
+            return (nil, false)
+        case .unavailable, .unreadable:
+            return (nil, true)
+        }
+    }
+
+    /// Take what the health record contributed out of every stored month
+    /// (`Month.removingHealth`), in place, atomically. The monthly archive is
+    /// backup-excluded and derived, but it does hold health summaries, and
+    /// deleting the health record must not leave them behind. A file that
+    /// cannot be read now is left as it is (false), never replaced. True
+    /// when there was nothing to do, or it is done.
+    @discardableResult
+    public static func clearHealth(file: URL, ring: Vault.Ring, fileSystem: any FileSystem = OwnerOnlyFileSystem()) -> Bool {
+        let stored = SealedValueFile(url: file, ring: ring, fileSystem: fileSystem)
+        switch stored.read() {
+        case .absent:
+            return true
+        case .unavailable, .unreadable:
+            return false
+        case .value(let data, _):
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            guard var archive = try? decoder.decode(Rollup.self, from: Data(data)) else { return false }
+            archive.months = archive.months.mapValues { $0.removingHealth() }
+            guard let rewritten = encoded(archive) else { return false }
+            let written = stored.write([UInt8](rewritten)) == .written
+            if written { Paths.excludeFromBackup(file) }
+            return written
+        }
+    }
+}
+
+extension Rollup.Month {
+    /// The month with everything the health record contributed taken out:
+    /// the pulses' sums and histograms, the clicks per app, the eras' builds,
+    /// the spans of blindness, and each week's health columns. What the
+    /// logbook's own events contributed (switches, dwell, checking loops)
+    /// stays, and so do the counts of how many events there were.
+    func removingHealth() -> Rollup.Month {
+        var month = self
+        month.health = Rollup.HealthMonth()
+        month.versions = []
+        month.blindSpans = [:]
+        month.blindSeconds = [:]
+        for (key, week) in month.weeks {
+            var kept = Rollup.WeekHealth()
+            kept.switches = week.switches
+            kept.checkingLoops = week.checkingLoops
+            kept.dwell = week.dwell
+            month.weeks[key] = kept
+        }
+        return month
     }
 }

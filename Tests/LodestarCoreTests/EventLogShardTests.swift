@@ -1,3 +1,5 @@
+import StoicSealed
+import StoicStore
 import XCTest
 @testable import LodestarCore
 
@@ -21,8 +23,13 @@ final class EventLogShardTests: XCTestCase {
         super.tearDown()
     }
 
+    private var ring: Vault.Ring { SealedFixture.vault(directory).ring(.logbook) }
+
+    /// The journal a legacy log or shard name is kept in.
+    private func sealed(_ url: URL) -> URL { URL(fileURLWithPath: LineStore.journalPath(forPlaintext: url)) }
+
     private func makeLog() -> EventLog {
-        EventLog(file: directory.appendingPathComponent("events.jsonl"))
+        SealedFixture.eventLog(directory.appendingPathComponent("events.jsonl"))
     }
 
     private func event(at date: Date) -> ObservationEvent {
@@ -46,10 +53,10 @@ final class EventLogShardTests: XCTestCase {
         log.flush()
         log.compact(now: september)
 
-        XCTAssertEqual(EventLog.read(file: log.file).count, 1,
+        XCTAssertEqual(EventLog.read(file: log.file, ring: ring).count, 1,
                        "the live file keeps only the open month")
-        XCTAssertEqual(EventLog.read(file: log.shardFile(for: "2026-07")).count, 1)
-        XCTAssertEqual(EventLog.read(file: log.shardFile(for: "2026-08")).count, 1)
+        XCTAssertEqual(EventLog.read(file: log.shardFile(for: "2026-07"), ring: ring).count, 1)
+        XCTAssertEqual(EventLog.read(file: log.shardFile(for: "2026-08"), ring: ring).count, 1)
         XCTAssertEqual(log.readAll().map(\.t), [july, august, september],
                        "the whole ring reads back, oldest first")
     }
@@ -68,10 +75,14 @@ final class EventLogShardTests: XCTestCase {
         try Data(lines.utf8).write(to: log.file)
         log.compact(now: september)
 
-        let shard = try String(contentsOf: log.shardFile(for: "2026-08"), encoding: .utf8)
+        func text(_ url: URL) -> String {
+            String(decoding: LineStore.read(plaintext: url, ring: ring, fileSystem: PosixFileSystem()).bytes, as: UTF8.self)
+        }
+        let shard = text(log.shardFile(for: "2026-08"))
         XCTAssertTrue(shard.contains(unknownKind), "an unknown kind survives the month closing")
         XCTAssertTrue(shard.contains(unknownField), "an unknown field survives, byte for byte")
-        let live = try String(contentsOf: log.file, encoding: .utf8)
+        let live = text(log.file)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: log.file.path), "the plaintext was taken in and removed")
         XCTAssertTrue(live.contains(unstamped), "a line with no stamp is kept, never dropped")
     }
 
@@ -84,7 +95,7 @@ final class EventLogShardTests: XCTestCase {
         log.append(event(at: day("2026-08-20T12:00:00Z")))
         log.flush()
         log.compact(now: now)
-        XCTAssertEqual(EventLog.read(file: log.shardFile(for: "2026-08")).count, 2,
+        XCTAssertEqual(EventLog.read(file: log.shardFile(for: "2026-08"), ring: ring).count, 2,
                        "a month that closes across compactions accumulates")
     }
 
@@ -111,23 +122,26 @@ final class EventLogShardTests: XCTestCase {
         log.compact(now: now)
         let june = log.shardFile(for: "2026-06")
         let july = log.shardFile(for: "2026-07")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: june.path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: july.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sealed(june).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sealed(july).path))
         func size(_ url: URL) -> Int64 {
-            ((try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber)?.int64Value ?? 0
+            let journal = sealed(url).path
+            return [journal, journal + ".snapshot"].reduce(Int64(0)) {
+                $0 + (((try? FileManager.default.attributesOfItem(atPath: $1))?[.size] as? NSNumber)?.int64Value ?? 0)
+            }
         }
         // A bound that July and the live file fit under, but June does not.
         log.behavioralBound = size(july) + size(log.file)
         log.compact(now: now)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: june.path), "the oldest month retired")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: july.path), "and only the oldest")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sealed(june).path), "the oldest month retired")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sealed(july).path), "and only the oldest")
         XCTAssertEqual(log.readAll().count, 2)
         // June's pulse survived into the health archive; June's verb did not.
-        let archived = EventLog.healthArchive(month: "2026-06", beside: log.file)
+        let archived = EventLog.healthArchive(month: "2026-06", beside: log.file, ring: SealedFixture.vault(directory).ring(.health))
         XCTAssertEqual(archived.map(\.kind), [.pulse])
         XCTAssertEqual(archived.first?.holdN, 10)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: log.healthArchiveFile(for: "2026-06").path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: log.healthArchiveFile(for: "2026-07").path),
+        XCTAssertTrue(FileManager.default.fileExists(atPath: log.sealedHealthArchiveFile(for: "2026-06").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: log.sealedHealthArchiveFile(for: "2026-07").path),
                        "a month still in the ring has no archive yet")
     }
 
@@ -139,7 +153,7 @@ final class EventLogShardTests: XCTestCase {
         log.append(event(at: day("2026-08-10T12:00:00Z")))
         log.flush()
         log.compact(now: now)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: log.shardFile(for: "2024-06").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sealed(log.shardFile(for: "2024-06")).path))
         XCTAssertEqual(log.readAll().count, 2)
     }
 
@@ -164,8 +178,7 @@ final class EventLogShardTests: XCTestCase {
         log.compact(now: now)
         log.clear()
         XCTAssertTrue(log.readAll().isEmpty)
-        XCTAssertFalse(FileManager.default.fileExists(
-            atPath: log.shardFile(for: "2026-07").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sealed(log.shardFile(for: "2026-07")).path))
     }
 
     func testShardMonthParsing() {

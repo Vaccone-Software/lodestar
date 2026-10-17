@@ -167,7 +167,7 @@ final class HardeningTests: XCTestCase {
     func testSnapshotSeesEverythingAppendedBeforeIt() {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("hardening-\(UUID().uuidString)")
-        let log = EventLog(file: dir.appendingPathComponent("events.jsonl"))
+        let log = SealedFixture.eventLog(dir.appendingPathComponent("events.jsonl"))
         defer { log.clear() }
         log.append(ObservationEvent(t: start, kind: .verb))
         log.append(ObservationEvent(t: start, kind: .verb))

@@ -1,4 +1,5 @@
 import Foundation
+import StoicStore
 
 /// One observed event, flat on purpose: every field the analysis layer will
 /// ever ask about is a column here, and a JSONL line is the whole record.
@@ -293,30 +294,51 @@ public struct ObservationEvent: Codable, Equatable {
 /// oldest months retire at compaction, by which time their contribution
 /// lives on in the aggregates' running statistics — the raw sample is
 /// dropped only once its summary is kept — and their health kinds
-/// (`healthKinds`) leave first for `health-YYYY-MM.jsonl.z` beside the
-/// ring, which no bound of the ring's ever touches.
+/// (`healthKinds`) leave first for `health-YYYY-MM.jsonl.z.sealed` beside
+/// the ring, which no bound of the ring's ever touches.
 ///
 /// The ring is sharded by UTC month: the live file holds the open month,
-/// and compaction moves every closed month into `events-YYYY-MM.jsonl`
-/// beside it. A closed shard is never re-parsed or rewritten — retention
-/// retires it by deleting the whole file — which is what keeps years of
-/// raw material from making every boot pay for the archive. Bounded reads
-/// (`recent`) open only the shards a window actually touches.
+/// and compaction moves every closed month into `events-YYYY-MM` beside it.
+/// A closed shard is never re-parsed or rewritten — retention retires it by
+/// deleting the whole file — which is what keeps years of raw material from
+/// making every boot pay for the archive. Bounded reads (`recent`) open only
+/// the shards a window actually touches.
+///
+/// **At rest the log is sealed.** `file` is the log's *legacy* name
+/// (`events.jsonl`, what an earlier build wrote in the clear); its journal is
+/// `events.sj`, a shard `events-YYYY-MM.sj` (`LineStore` has the bytes). The
+/// ring it is sealed under is the caller's: the logbook's for `events`, the
+/// health record's for `health-events`. Reads accept both forms, writes are
+/// sealed only, `migrateLegacy` takes the plaintext files in, and with the
+/// key unavailable nothing is read, written, retired or deleted: events wait
+/// in memory (bounded) for the key.
 public final class EventLog {
     public static let defaultFile = Paths.data.appendingPathComponent("events.jsonl")
     /// The window handed to the recommendation pass: every generator's
     /// evidence joins live inside it, and a pass that decoded the whole
     /// year on every refresh would pay for history nothing reads.
     public static let advisorWindowDays = 90
+    /// Events held in memory while the key is unavailable, beyond which the
+    /// oldest are dropped (and counted): a launch that stays paused must not
+    /// grow without bound.
+    public static let heldWhilePaused = 20_000
 
+    /// The log's legacy plaintext name, which also names its sealed journal
+    /// and its shards.
     public let file: URL
+    public let ring: Vault.Ring
+    /// The ring the health archive months are sealed under: the health
+    /// record's, whichever record this log is (the ring's months retire
+    /// into the health record's archive).
+    public let archiveRing: Vault.Ring
+    private let fileSystem: any FileSystem
     /// The ring's bound, in bytes: `Retention.behavioralBytes` for the
     /// real ring, and whatever a test needs to watch a month retire.
     public var behavioralBound: Int64 = Retention.behavioralBytes
     /// The behavioral ring stays out of backups, one file at a time. The
     /// health log is the part nothing can recompute, so it goes into them.
     public var excludedFromBackup = true
-    /// Owns `pending` and every touch of the file. Appends land here
+    /// Owns `pending` and every touch of the files. Appends land here
     /// without waiting; the scheduled flush writes here without ever
     /// holding the main thread — the tap shares the main run loop, and a
     /// disk that answers slowly must stall analysis, never a keystroke.
@@ -325,6 +347,9 @@ public final class EventLog {
     private let io = DispatchQueue(label: "lodestar.events", qos: .utility)
     private var pending: [ObservationEvent] = []
     private var flushWork: DispatchWorkItem?
+    private var droppedWhilePaused = 0
+    /// The open month's journal, held between flushes. Touched on `io` only.
+    private var live: LineJournal
 
     private static func makeEncoder() -> JSONEncoder {
         let encoder = JSONEncoder()
@@ -339,8 +364,13 @@ public final class EventLog {
         return decoder
     }
 
-    public init(file: URL = EventLog.defaultFile) {
+    public init(file: URL = EventLog.defaultFile, ring: Vault.Ring, archiveRing: Vault.Ring? = nil,
+                fileSystem: any FileSystem = OwnerOnlyFileSystem()) {
         self.file = file
+        self.ring = ring
+        self.archiveRing = archiveRing ?? ring
+        self.fileSystem = fileSystem
+        self.live = LineJournal(plaintext: file, ring: ring, fileSystem: fileSystem)
     }
 
     public func append(_ event: ObservationEvent) {
@@ -369,59 +399,45 @@ public final class EventLog {
     private func flushLocked() {
         dispatchPrecondition(condition: .onQueue(io))
         guard !pending.isEmpty else { return }
-        let encoder = Self.makeEncoder()
-        var lines = Data()
-        for event in pending {
-            guard let data = try? encoder.encode(event) else { continue }
-            lines.append(data)
-            lines.append(0x0A)
-        }
+        let lines = Self.encodeLines(pending)
         guard !lines.isEmpty else { pending = []; return }
-        let fm = FileManager.default
-        try? fm.createDirectory(at: file.deletingLastPathComponent(),
-                                withIntermediateDirectories: true)
-        var appended = false
-        if let handle = try? FileHandle(forWritingTo: file) {
-            defer { try? handle.close() }
-            let start = (try? handle.seekToEnd()) ?? 0
-            do {
-                try handle.write(contentsOf: lines)
-                appended = true
-            } catch {
-                // A write can fail part-way (a full disk takes what it
-                // can). Rewinding the file to where the batch started
-                // keeps the retained batch the only copy of those events,
-                // instead of duplicating them and leaving a torn line at
-                // the seam for the reader to trip over.
-                try? handle.truncate(atOffset: start)
-                Log.error("events: append failed (\(error)) — rewound, batch kept for the next flush")
+        let existed = (try? fileSystem.exists(live.path)) == true
+        do {
+            try live.append(lines: lines)
+            // Clearing before the write meant a failed write silently dropped
+            // the batch; holding it costs a little memory and loses nothing.
+            pending = []
+            if !existed { settleNew(live.path) }
+        } catch LineJournal.Failure.paused {
+            // The key cannot be asked for: nothing is written. The events wait
+            // for it, up to a bound.
+            let over = pending.count - Self.heldWhilePaused
+            if over > 0 {
+                pending.removeFirst(over)
+                droppedWhilePaused += over
+                if droppedWhilePaused == over {
+                    Log.warning("events: the key is unavailable — holding \(Self.heldWhilePaused) events, dropping the oldest",
+                                ["file": file.lastPathComponent])
+                }
             }
-        } else if !fm.fileExists(atPath: file.path) {
-            // Only ever a first write. The open can also fail on a file
-            // that does exist — too many descriptors, a permission change
-            // — and this branch used to replace ninety days of events with
-            // the last few seconds of them.
-            do {
-                try lines.write(to: file, options: .atomic)
-                Paths.restrict(file)
-                if excludedFromBackup { Paths.excludeFromBackup(file) }
-                appended = true
-            } catch {
-                Log.error("events: could not create \(file.lastPathComponent) (\(error))")
-            }
-        } else {
-            Log.error("events: \(file.lastPathComponent) exists but could not be opened — batch kept")
+        } catch {
+            Log.error("events: append to \(SealedPath.name(of: live.path)) failed (\(error)) — batch kept for the next flush")
         }
-        // Clearing before the write meant a failed write silently dropped
-        // the batch; holding it costs a little memory and loses nothing.
-        if appended { pending = [] }
+    }
+
+    /// A file just made: keep it out of backups when the log is behavioral.
+    private func settleNew(_ path: String) {
+        guard excludedFromBackup else { return }
+        for suffix in ["", ".snapshot"] where (try? fileSystem.exists(path + suffix)) == true {
+            Paths.excludeFromBackup(URL(fileURLWithPath: path + suffix))
+        }
     }
 
     /// Every event still in the ring, oldest first, pending included.
     public func readAll() -> [ObservationEvent] {
         io.sync {
-            var events = shardFilesLocked().flatMap { Self.read(file: $0) }
-            events.append(contentsOf: Self.read(file: file))
+            var events = shardMonthsLocked().flatMap { readEvents(of: shardFile(for: $0)) }
+            events.append(contentsOf: readEvents(of: file))
             events.append(contentsOf: pending)
             return events
         }
@@ -433,13 +449,10 @@ public final class EventLog {
     public func recent(days: Int, now: Date = Date()) -> [ObservationEvent] {
         let cutoff = now.addingTimeInterval(-Double(days) * 86_400)
         return io.sync {
-            var events = shardFilesLocked()
-                .filter { shard in
-                    guard let month = Self.shardMonth(of: shard) else { return true }
-                    return Self.monthEnd(of: month) >= cutoff
-                }
-                .flatMap { Self.read(file: $0) }
-            events.append(contentsOf: Self.read(file: file))
+            var events = shardMonthsLocked()
+                .filter { Self.monthEnd(of: $0) >= cutoff }
+                .flatMap { readEvents(of: shardFile(for: $0)) }
+            events.append(contentsOf: readEvents(of: file))
             events.append(contentsOf: pending)
             return events.filter { $0.t >= cutoff }
         }
@@ -455,14 +468,30 @@ public final class EventLog {
         return recent(days: days, now: now)
     }
 
-    /// Static and path-only on purpose: safe for a process that only reads
-    /// — the CLI report, tests pointing at a scratch file.
-    public static func read(file: URL) -> [ObservationEvent] {
-        guard let data = try? Data(contentsOf: file) else { return [] }
+    private func readEvents(of url: URL) -> [ObservationEvent] {
+        Self.events(in: LineStore.read(plaintext: url, ring: ring, fileSystem: fileSystem).bytes)
+    }
+
+    private static func events(in bytes: Data) -> [ObservationEvent] {
         let decoder = makeDecoder()
-        return data.split(separator: 0x0A).compactMap {
-            try? decoder.decode(ObservationEvent.self, from: Data($0))
-        }
+        return LineStore.lines(bytes).compactMap { try? decoder.decode(ObservationEvent.self, from: $0) }
+    }
+
+    /// Static and path-only on purpose: safe for a process that only reads
+    /// — the CLI report, tests pointing at a scratch file. `ring` opens
+    /// what is sealed (it is never made by a read); nil reads plaintext
+    /// remnants only. A sealed record that does not open is counted and
+    /// logged (`SealedFailures`), never read as an empty log.
+    public static func read(file: URL, ring: Vault.Ring?, fileSystem: any FileSystem = PosixFileSystem()) -> [ObservationEvent] {
+        events(in: LineStore.read(plaintext: file, ring: ring, fileSystem: fileSystem).bytes)
+    }
+
+    /// The log's lines and how the read went, for a caller that must know
+    /// whether it saw everything (`export`, `diagnose`).
+    public static func contents(file: URL, ring: Vault.Ring?, fileSystem: any FileSystem = PosixFileSystem())
+        -> (events: [ObservationEvent], whole: Bool, unavailable: Bool) {
+        let contents = LineStore.read(plaintext: file, ring: ring, fileSystem: fileSystem)
+        return (events(in: contents.bytes), contents.whole, contents.unavailable)
     }
 
     /// Rotate closed months into shards and drop what has aged out.
@@ -485,20 +514,29 @@ public final class EventLog {
     /// kinds copied to the health archive first, then the whole file
     /// deleted — because rewriting an archive to shave days off its
     /// oldest edge is exactly the kind of churn the shards exist to end.
+    ///
+    /// Nothing here runs on a log it could not read whole: a sealed value
+    /// that does not open, or a key that cannot be asked for, ends the pass
+    /// with the files as they were. A closed month is appended to its shard
+    /// *before* the live file lets it go, and the live file is rewritten only
+    /// if every shard took its lines.
     private func compactLocked(now: Date) {
         dispatchPrecondition(condition: .onQueue(io))
+        guard ring.keyring() != nil else { return }
+        // Whatever an older build left in the clear joins the journals first,
+        // so what is rotated and retired below is the whole log.
+        _ = migrateLocked()
         let open = Self.monthKey(now)
         // Lines move as the bytes they are, never decoded and encoded
         // again: a kind or a field this build does not know (one a newer
         // build wrote, before the updater rolled it back) is carried, not
         // dropped. Only a line's month is read, from its stamp; a line
         // without a readable stamp stays in the live file.
-        guard let data = try? Data(contentsOf: file) else { retireLocked(); return }
+        guard let current = replayLive() else { return }
         let decoder = Self.makeDecoder()
         var keep: [Data] = []
         var closing: [String: [Data]] = [:]
-        for line in data.split(separator: 0x0A) {
-            let bytes = Data(line)
+        for bytes in LineStore.lines(Data(current.lines)) {
             guard let stamp = try? decoder.decode(Stamp.self, from: bytes) else {
                 keep.append(bytes)
                 continue
@@ -512,26 +550,46 @@ public final class EventLog {
         }
         if !closing.isEmpty {
             for (month, moved) in closing.sorted(by: { $0.key < $1.key }) {
-                let shard = shardFile(for: month)
-                let lines = Self.joinLines(moved)
-                if let handle = try? FileHandle(forWritingTo: shard) {
-                    defer { try? handle.close() }
-                    _ = try? handle.seekToEnd()
-                    try? handle.write(contentsOf: lines)
-                } else if !FileManager.default.fileExists(atPath: shard.path) {
-                    // First write for this month. The existence check is the
-                    // guard: an open that failed on an existing shard must not
-                    // fall through to replacing it.
-                    try? lines.write(to: shard, options: .atomic)
-                    Paths.restrict(shard)
-                    if excludedFromBackup { Paths.excludeFromBackup(shard) }
+                let shard = LineJournal(plaintext: shardFile(for: month), ring: ring, fileSystem: fileSystem)
+                let existed = (try? fileSystem.exists(shard.path)) == true
+                do {
+                    try shard.append(lines: Self.joinLines(moved))
+                    shard.close()
+                    if !existed { settleNew(shard.path) }
+                } catch {
+                    shard.close()
+                    Log.error("events: could not move \(month) to its shard (\(error)) — the live file keeps it")
+                    return
                 }
             }
-            try? Self.joinLines(keep).write(to: file, options: .atomic)
-            Paths.restrict(file)
-            if excludedFromBackup { Paths.excludeFromBackup(file) }
+            do {
+                try live.replace(with: Self.joinLines(keep), digests: current.digests)
+                settleNew(live.path)
+            } catch {
+                Log.error("events: could not rewrite \(SealedPath.name(of: live.path)) after rotating (\(error)) — months now appear twice until the next pass")
+                return
+            }
         }
         retireLocked()
+    }
+
+    /// The live journal replayed whole, or nil when it could not be: the key
+    /// is unavailable, or a value did not open. Callers on `io`.
+    private func replayLive() -> LineCodec.Decoded? {
+        guard ring.keyring() != nil else { return nil }
+        guard (try? fileSystem.exists(live.path)) == true else { return LineCodec.Decoded() }
+        do {
+            let journal = try live.open()
+            let replay = try journal.replay()
+            SealedFailures.note(replay.failures, file: SealedPath.name(of: live.path))
+            let decoded = LineCodec.decode(replay)
+            guard replay.failures.isEmpty, decoded.malformed == 0 else { return nil }
+            return decoded
+        } catch {
+            live.close()
+            Log.error("events: could not read \(SealedPath.name(of: live.path)) to rotate it (\(error))")
+            return nil
+        }
     }
 
     /// The one field compaction reads from a line: when it happened.
@@ -547,53 +605,98 @@ public final class EventLog {
     }
 
     /// The bound, oldest month first. Health leaves before the file does.
+    /// Never while plaintext remnants are waiting to be taken in (usage would
+    /// count both copies and retire a month early), and never a shard that
+    /// did not open whole, or whose health kinds did not reach the archive.
     private func retireLocked() {
         let directory = file.deletingLastPathComponent()
         let base = file.deletingPathExtension().lastPathComponent
-        var shards = shardFilesLocked()
-        while Retention.behavioralUsage(in: directory, base: base).bytes > behavioralBound,
-              !shards.isEmpty {
-            let oldest = shards.removeFirst()
-            guard let month = Self.shardMonth(of: oldest) else { continue }
-            archiveHealth(from: oldest, month: month)
-            try? FileManager.default.removeItem(at: oldest)
+        guard !hasPlaintextRemnants() else { return }
+        var months = shardMonthsLocked()
+        while Retention.behavioralUsage(in: directory, base: base).bytes > behavioralBound, !months.isEmpty {
+            let oldest = months.removeFirst()
+            let shard = shardFile(for: oldest)
+            let contents = LineStore.read(plaintext: shard, ring: ring, fileSystem: fileSystem)
+            guard contents.whole else {
+                Log.error("events: \(oldest) did not open whole — not retired", ["file": file.lastPathComponent])
+                return
+            }
+            guard archiveHealth(lines: LineStore.lines(contents.bytes), month: oldest) else { return }
+            RecordFiles.removeJournal(LineStore.journalPath(forPlaintext: shard), fileSystem: fileSystem)
+        }
+    }
+
+    private func hasPlaintextRemnants() -> Bool {
+        let directory = file.deletingLastPathComponent().path
+        let base = file.deletingPathExtension().lastPathComponent
+        return RecordFiles.names(in: directory, fileSystem: fileSystem).contains { name in
+            name == "\(base).jsonl" || (name.hasPrefix("\(base)-") && name.hasSuffix(".jsonl")
+                && Self.shardMonth(of: URL(fileURLWithPath: directory + "/" + name)) != nil)
         }
     }
 
     // MARK: - The health archive
 
-    /// `health-2026-08.jsonl.z` beside the live file: the pulses, windows
-    /// and eras of a month, kept once the ring has let the month go.
+    /// `health-2026-08.jsonl.z` beside the live file, as an earlier build
+    /// wrote it: the pulses, windows and eras of a month, kept once the ring
+    /// has let the month go. Sealed now, as `…jsonl.z.sealed`.
     public func healthArchiveFile(for month: String) -> URL {
+        Self.archiveFile(for: month, beside: file)
+    }
+
+    public func sealedHealthArchiveFile(for month: String) -> URL {
+        healthArchiveFile(for: month).appendingPathExtension("sealed")
+    }
+
+    private static func archiveFile(for month: String, beside file: URL) -> URL {
         file.deletingLastPathComponent().appendingPathComponent("health-\(month).jsonl.z")
     }
 
-    /// The health kinds of a shard, appended to the month's archive.
-    private func archiveHealth(from shard: URL, month: String) {
-        let health = Self.read(file: shard).filter { ObservationEvent.healthKinds.contains($0.kind) }
-        guard !health.isEmpty else { return }
-        let archive = healthArchiveFile(for: month)
-        var lines = Data()
-        if let packed = try? Data(contentsOf: archive),
-           let existing = try? (packed as NSData).decompressed(using: .zlib) as Data {
-            lines.append(existing)
+    /// The health kinds of a retiring shard's lines, appended to the month's
+    /// archive: read, joined, deflated and sealed, atomically. False when it
+    /// did not land (the shard is then kept).
+    private func archiveHealth(lines: [Data], month: String) -> Bool {
+        let decoder = Self.makeDecoder()
+        let health = lines.filter { line in
+            (try? decoder.decode(ObservationEvent.self, from: line)).map { ObservationEvent.healthKinds.contains($0.kind) } ?? false
         }
-        lines.append(Self.encodeLines(health))
-        guard let deflated = try? (lines as NSData).compressed(using: .zlib) as Data else { return }
-        try? deflated.write(to: archive, options: .atomic)
-        Paths.restrict(archive)
+        guard !health.isEmpty else { return true }
+        let archive = SealedValueFile(url: sealedHealthArchiveFile(for: month), ring: archiveRing, fileSystem: fileSystem)
+        var existing = Data()
+        switch archive.read() {
+        case .absent:
+            break
+        case .value(let packed, _):
+            guard let inflated = try? (Data(packed) as NSData).decompressed(using: .zlib) as Data else { return false }
+            existing = inflated
+        case .unavailable, .unreadable:
+            return false
+        }
+        let joined = existing + Self.joinLines(health)
+        guard let deflated = try? (joined as NSData).compressed(using: .zlib) as Data else { return false }
+        return archive.write([UInt8](deflated)) == .written
     }
 
     /// One month's archived health events, oldest first; empty when the
-    /// month never retired.
-    public static func healthArchive(month: String, beside file: URL) -> [ObservationEvent] {
-        let archive = file.deletingLastPathComponent().appendingPathComponent("health-\(month).jsonl.z")
-        guard let packed = try? Data(contentsOf: archive),
-              let data = try? (packed as NSData).decompressed(using: .zlib) as Data else { return [] }
-        let decoder = makeDecoder()
-        return data.split(separator: 0x0A).compactMap {
-            try? decoder.decode(ObservationEvent.self, from: Data($0))
+    /// month never retired. Sealed, then any plaintext archive an earlier
+    /// build left that migration has not taken in.
+    public static func healthArchive(month: String, beside file: URL, ring: Vault.Ring?,
+                                     fileSystem: any FileSystem = PosixFileSystem()) -> [ObservationEvent] {
+        let plain = archiveFile(for: month, beside: file)
+        var lines = Data()
+        if let ring {
+            let sealed = SealedValueFile(url: plain.appendingPathExtension("sealed"), ring: ring, fileSystem: fileSystem)
+            if case .value(let packed, _) = sealed.read(),
+               let inflated = try? (Data(packed) as NSData).decompressed(using: .zlib) as Data {
+                lines.append(inflated)
+            }
         }
+        if let packed = try? fileSystem.readAll(plain.path),
+           let inflated = try? (Data(packed) as NSData).decompressed(using: .zlib) as Data,
+           !lines.hasSuffix(of: inflated) {
+            lines.append(inflated)
+        }
+        return events(in: lines)
     }
 
     private static func encodeLines(_ events: [ObservationEvent]) -> Data {
@@ -612,35 +715,202 @@ public final class EventLog {
     /// sees: when the health record moved into a log of its own, its old
     /// kinds had to leave the ring, or clearing the ring would have taken
     /// years of baseline with it. Runs on `io`, so appends and compaction
-    /// wait their turn rather than racing the rewrite.
+    /// wait their turn rather than racing the rewrite. Every other line,
+    /// whether this build can decode it or not, stays as the bytes it is.
     public func extract(kinds: Set<ObservationEvent.Kind>) -> [ObservationEvent] {
         io.sync {
             flushLocked()
+            guard ring.keyring() != nil else { return [] }
+            _ = migrateLocked()
             var taken: [ObservationEvent] = []
-            for url in shardFilesLocked() + [file] {
-                let events = Self.read(file: url)
-                let moving = events.filter { kinds.contains($0.kind) }
-                guard !moving.isEmpty else { continue }
-                taken.append(contentsOf: moving)
-                let staying = events.filter { !kinds.contains($0.kind) }
-                try? Self.encodeLines(staying).write(to: url, options: .atomic)
-                Paths.restrict(url)
-                if excludedFromBackup { Paths.excludeFromBackup(url) }
+            let decoder = Self.makeDecoder()
+            let targets = shardMonthsLocked().map { shardFile(for: $0) } + [file]
+            for url in targets {
+                let journal = url == file ? live : LineJournal(plaintext: url, ring: ring, fileSystem: fileSystem)
+                defer { if url != file { journal.close() } }
+                guard (try? fileSystem.exists(journal.path)) == true else { continue }
+                do {
+                    let replay = try journal.open().replay()
+                    SealedFailures.note(replay.failures, file: SealedPath.name(of: journal.path))
+                    let decoded = LineCodec.decode(replay)
+                    guard replay.failures.isEmpty, decoded.malformed == 0 else { continue }
+                    var moving: [ObservationEvent] = []
+                    var staying: [Data] = []
+                    for line in LineStore.lines(Data(decoded.lines)) {
+                        if let event = try? decoder.decode(ObservationEvent.self, from: line), kinds.contains(event.kind) {
+                            moving.append(event)
+                        } else {
+                            staying.append(line)
+                        }
+                    }
+                    guard !moving.isEmpty else { continue }
+                    try journal.replace(with: Self.joinLines(staying), digests: decoded.digests)
+                    taken.append(contentsOf: moving)
+                } catch {
+                    Log.error("events: could not extract from \(SealedPath.name(of: journal.path)) (\(error))")
+                }
             }
             return taken
         }
     }
 
+    /// Take the plaintext archive months an earlier build left
+    /// (`health-YYYY-MM.jsonl.z`) into their sealed form: appended to the sealed
+    /// month if there is one (an archive is one stream of lines, and a month
+    /// whose lines the sealed one already ends with was taken in before),
+    /// read back from disk and compared, and only then removed.
+    @discardableResult
+    public func migrateArchives() -> RecordMigration {
+        io.sync { migrateArchivesLocked() }
+    }
+
+    private func migrateArchivesLocked() -> RecordMigration {
+        var outcome = RecordMigration()
+        let directory = file.deletingLastPathComponent()
+        let plain = RecordFiles.names(in: directory.path, fileSystem: fileSystem).sorted().filter { name in
+            name.hasPrefix("health-") && name.hasSuffix(".jsonl.z") && name.count == "health-2026-08.jsonl.z".count
+                && Self.shardMonth(of: directory.appendingPathComponent(String(name.dropLast(".jsonl.z".count)) + ".jsonl")) != nil
+        }
+        guard !plain.isEmpty else { return outcome }
+        guard archiveRing.keyring() != nil else {
+            outcome.paused = true
+            outcome.remaining = plain.count
+            return outcome
+        }
+        for name in plain {
+            let path = directory.appendingPathComponent(name)
+            func fail(_ why: String) {
+                outcome.remaining += 1
+                outcome.failed.append(name)
+                Log.error("events: could not take \(name) into its sealed form (\(why)) — the plaintext was kept")
+            }
+            guard let stored = try? fileSystem.readAll(path.path),
+                  let inflated = try? (Data(stored) as NSData).decompressed(using: .zlib) as Data
+            else { fail("it did not inflate"); continue }
+            let sealed = SealedValueFile(url: path.appendingPathExtension("sealed"), ring: archiveRing, fileSystem: fileSystem)
+            var existing = Data()
+            switch sealed.read() {
+            case .absent: break
+            case .value(let packed, _):
+                guard let was = try? (Data(packed) as NSData).decompressed(using: .zlib) as Data else {
+                    fail("the sealed month did not inflate")
+                    continue
+                }
+                existing = was
+            case .unavailable:
+                outcome.paused = true
+                outcome.remaining += 1
+                continue
+            case .unreadable(let why):
+                fail("the sealed month did not open: \(why)")
+                continue
+            }
+            let combined = existing.hasSuffix(of: inflated) ? existing : existing + inflated
+            if combined != existing {
+                guard let deflated = try? (combined as NSData).compressed(using: .zlib) as Data,
+                      sealed.write([UInt8](deflated)) == .written else { fail("the sealed month was not written"); continue }
+            }
+            // Read back from disk, and compared with what is to be kept.
+            guard case .value(let back, _) = sealed.read(),
+                  let readBack = try? (Data(back) as NSData).decompressed(using: .zlib) as Data,
+                  readBack == combined, readBack.hasSuffix(of: inflated)
+            else { fail("it did not read back as it was written"); continue }
+            do {
+                try fileSystem.remove(path.path)
+                try fileSystem.syncDirectory(directory.path)
+                outcome.files += 1
+                outcome.bytes += Int64(stored.count)
+            } catch {
+                fail("\(error)")
+            }
+        }
+        return outcome
+    }
+
+    /// Take the plaintext files an earlier build left (`events.jsonl`, its
+    /// shards) into the journals: appended with their digests, read back and
+    /// compared, then removed. Resumable at every step; merges what an older
+    /// build wrote after this one sealed the month. See `LineJournal.migratePlaintext`.
+    @discardableResult
+    public func migrateLegacy() -> RecordMigration {
+        io.sync { migrateLocked() }
+    }
+
+    private func migrateLocked() -> RecordMigration {
+        dispatchPrecondition(condition: .onQueue(io))
+        var outcome = RecordMigration()
+        let plain = plaintextFilesLocked()
+        guard !plain.isEmpty else { return outcome }
+        guard ring.keyring() != nil else {
+            outcome.paused = true
+            outcome.remaining = plain.count
+            return outcome
+        }
+        let decoder = Self.makeDecoder()
+        let count: (Data) -> Int = { bytes in
+            LineStore.lines(bytes).filter { (try? decoder.decode(ObservationEvent.self, from: $0)) != nil }.count
+        }
+        for url in plain {
+            let journal = url == file ? live : LineJournal(plaintext: url, ring: ring, fileSystem: fileSystem)
+            let existed = (try? fileSystem.exists(journal.path)) == true
+            do {
+                if let bytes = try journal.migratePlaintext(decodedCount: count) {
+                    outcome.files += 1
+                    outcome.bytes += Int64(bytes)
+                    if !existed { settleNew(journal.path) }
+                }
+            } catch LineJournal.Failure.paused {
+                outcome.paused = true
+                outcome.remaining += 1
+            } catch {
+                outcome.remaining += 1
+                outcome.failed.append(url.lastPathComponent)
+                Log.error("events: could not take \(url.lastPathComponent) into its journal (\(error)) — the plaintext was kept")
+            }
+            if url != file { journal.close() }
+        }
+        return outcome
+    }
+
+    /// The plaintext files of this log: the live file and its shards.
+    private func plaintextFilesLocked() -> [URL] {
+        let directory = file.deletingLastPathComponent()
+        let base = file.deletingPathExtension().lastPathComponent
+        var found: [URL] = []
+        for name in RecordFiles.names(in: directory.path, fileSystem: fileSystem).sorted() {
+            let url = directory.appendingPathComponent(name)
+            if name == "\(base).jsonl" {
+                found.append(url)
+            } else if name.hasPrefix("\(base)-"), name.hasSuffix(".jsonl"), Self.shardMonth(of: url) != nil {
+                found.append(url)
+            }
+        }
+        // Shards first, the live file last: the order the log reads in.
+        return found.filter { $0 != file } + found.filter { $0 == file }
+    }
+
+    /// Delete the log: the live file, every shard, in either form. A
+    /// person's explicit act; nothing here needs the key.
     public func clear() {
         flushWork?.cancel()
         flushWork = nil
         io.sync {
             pending = []
-            try? FileManager.default.removeItem(at: file)
-            for shard in shardFilesLocked() {
-                try? FileManager.default.removeItem(at: shard)
+            live.close()
+            RecordFiles.removeJournal(live.path, fileSystem: fileSystem)
+            try? fileSystem.remove(file.path)
+            for month in shardMonthsLocked() {
+                let shard = shardFile(for: month)
+                RecordFiles.removeJournal(LineStore.journalPath(forPlaintext: shard), fileSystem: fileSystem)
+                try? fileSystem.remove(shard.path)
             }
         }
+    }
+
+    /// Close the journal held open. Shutdown, and a test that wants the
+    /// file system to itself.
+    public func close() {
+        io.sync { live.close() }
     }
 
     // MARK: - Shards
@@ -670,6 +940,7 @@ public final class EventLog {
 
     /// `events.jsonl` → `events-2026-08.jsonl`, whatever the base name —
     /// a log pointed at a scratch file shards beside that scratch file.
+    /// The legacy plaintext name; the shard's journal is `events-2026-08.sj`.
     func shardFile(for month: String) -> URL {
         let base = file.deletingPathExtension().lastPathComponent
         return file.deletingLastPathComponent()
@@ -687,17 +958,24 @@ public final class EventLog {
         return tail
     }
 
-    /// Every shard beside the live file, oldest month first. Callers must
-    /// already be on `io`.
-    private func shardFilesLocked() -> [URL] {
+    /// Every month that has a shard beside the live file, sealed or still
+    /// plaintext, oldest first. Callers must already be on `io`.
+    private func shardMonthsLocked() -> [String] {
         let directory = file.deletingLastPathComponent()
         let base = file.deletingPathExtension().lastPathComponent
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
-        return names
-            .filter { $0.hasPrefix("\(base)-") && $0.hasSuffix(".jsonl") }
-            .sorted()
-            .map { directory.appendingPathComponent($0) }
-            .filter { Self.shardMonth(of: $0) != nil }
+        var months: Set<String> = []
+        for name in RecordFiles.names(in: directory.path, fileSystem: fileSystem) where name.hasPrefix("\(base)-") {
+            let stem: String
+            if name.hasSuffix(".jsonl") {
+                stem = String(name.dropLast(".jsonl".count))
+            } else if name.hasSuffix(RecordFiles.journalSuffix) {
+                stem = String(name.dropLast(RecordFiles.journalSuffix.count))
+            } else {
+                continue
+            }
+            if let month = Self.shardMonth(of: directory.appendingPathComponent(stem + ".jsonl")) { months.insert(month) }
+        }
+        return months.sorted()
     }
 
     private func scheduleFlush() {
@@ -705,5 +983,13 @@ public final class EventLog {
         let work = DispatchWorkItem { [weak self] in self?.flushSoon() }
         flushWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: work)
+    }
+}
+
+private extension Data {
+    /// Whether this ends with `other`, byte for byte.
+    func hasSuffix(of other: Data) -> Bool {
+        guard !other.isEmpty, count >= other.count else { return other.isEmpty }
+        return suffix(other.count) == other
     }
 }

@@ -44,9 +44,8 @@ final class PipelineTests: XCTestCase {
     }
 
     func testAMonthOfLifeSurvivesTheWholeStack() throws {
-        let store = ObservationStore(
-            file: directory.appendingPathComponent("observations.json"),
-            log: EventLog(file: directory.appendingPathComponent("events.jsonl")))
+        let store = ObservationStore(file: directory.appendingPathComponent("observations.json"), vault: SealedFixture.vault(directory.appendingPathComponent("observations.json").deletingLastPathComponent()),
+            log: SealedFixture.eventLog(directory.appendingPathComponent("events.jsonl")))
         var noise = Noise()
 
         // Four weeks. Ghostty is owned; "b d" is being learned; FaceTime
@@ -93,9 +92,8 @@ final class PipelineTests: XCTestCase {
         store.flush()
 
         // Read it all back through the files, as the CLI would.
-        let reloaded = ObservationStore(
-            file: directory.appendingPathComponent("observations.json"),
-            log: EventLog(file: directory.appendingPathComponent("events.jsonl")))
+        let reloaded = ObservationStore(file: directory.appendingPathComponent("observations.json"), vault: SealedFixture.vault(directory.appendingPathComponent("observations.json").deletingLastPathComponent()),
+            log: SealedFixture.eventLog(directory.appendingPathComponent("events.jsonl")))
         reloaded.load()
         let o = reloaded.observations
         let events = reloaded.log.readAll()

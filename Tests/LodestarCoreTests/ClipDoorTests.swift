@@ -286,8 +286,8 @@ final class StripSearchMeasureTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("lodestar-measure-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let log = EventLog(file: directory.appendingPathComponent("events.jsonl"))
-        let store = ObservationStore(file: directory.appendingPathComponent("observations.json"), log: log)
+        let log = SealedFixture.eventLog(directory.appendingPathComponent("events.jsonl"))
+        let store = ObservationStore(file: directory.appendingPathComponent("observations.json"), vault: SealedFixture.vault(directory.appendingPathComponent("observations.json").deletingLastPathComponent()), log: log)
         return (store, log, directory)
     }
 
@@ -303,7 +303,7 @@ final class StripSearchMeasureTests: XCTestCase {
         XCTAssertEqual(event.recents, 40)
         XCTAssertEqual(event.depth, 17)
         store.flush()
-        let line = try String(contentsOf: log.file, encoding: .utf8)
+        let line = SealedFixture.text(of: log.file)
         XCTAssertTrue(line.contains("\"depth\":17"))
         XCTAssertFalse(line.contains("query"), "never the query")
     }

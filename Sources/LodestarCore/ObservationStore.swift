@@ -1,4 +1,6 @@
 import Foundation
+import StoicStore
+import Synchronization
 
 /// Owns both halves of the observation system: the event log (the truth)
 /// and the aggregate view (the cache). Every semantic method builds one
@@ -9,10 +11,30 @@ import Foundation
 /// deliberately not in `~/.config`, which is what people commit to dotfiles
 /// repositories. Writes are coalesced, because this is fed from the event
 /// tap and a keystroke must never wait on a disk.
+///
+/// Everything here is sealed at rest (`Vault`): the ring, `observations.json`
+/// and `rollups.json` under the logbook's key, the health log and its archive
+/// under the health record's. With a key unavailable the store reads and
+/// writes nothing of that record, and above all **never writes a fresh view
+/// over a sealed one it could not read**: `observations` stays untrusted
+/// (and unsaved) until a load has seen the file.
 public final class ObservationStore {
     public static let defaultFile = Paths.data.appendingPathComponent("observations.json")
 
     public let file: URL
+    public let vault: Vault
+    private let fileSystem: any FileSystem
+    /// The view's file, sealed with the logbook.
+    private var viewFile: SealedValueFile {
+        SealedValueFile(url: file, ring: vault.ring(.logbook), fileSystem: fileSystem)
+    }
+    /// Set when a load found the view's file sealed and could not read it
+    /// (the key is unavailable): a save would write a fresh view over a sealed
+    /// one never read, so none is made until `resume` has read it. A store
+    /// that was never asked to load saves as it always did.
+    private let viewBlocked = Mutex(false)
+    /// Events recorded while the view was blocked, applied to it once it is read.
+    private var heldForView: [ObservationEvent] = []
     /// What the coach reads: how the hand moves between apps, windows and
     /// gestures: the logbook. `observations.logbook` gates every write to it.
     public let log: EventLog
@@ -32,21 +54,28 @@ public final class ObservationStore {
     /// must never pay.
     private let saveQueue = DispatchQueue(label: "lodestar.observations", qos: .utility)
 
-    public init(file: URL = ObservationStore.defaultFile, log: EventLog = EventLog(),
-                healthLog: EventLog? = nil) {
+    public init(file: URL = ObservationStore.defaultFile, vault: Vault, log: EventLog? = nil,
+                healthLog: EventLog? = nil, fileSystem: any FileSystem = OwnerOnlyFileSystem()) {
         self.file = file
-        self.log = log
+        self.vault = vault
+        self.fileSystem = fileSystem
         // Beside this store's own file, never at a global default, so a
-        // store in a scratch directory keeps its health log there too.
+        // store in a scratch directory keeps its logs there too.
+        self.log = log ?? EventLog(file: file.deletingLastPathComponent().appendingPathComponent("events.jsonl"),
+                                   ring: vault.ring(.logbook), archiveRing: vault.ring(.health),
+                                   fileSystem: fileSystem)
         let health = healthLog ?? EventLog(file: file.deletingLastPathComponent()
-            .appendingPathComponent(Self.healthLogName))
+            .appendingPathComponent(Self.healthLogName), ring: vault.ring(.health), fileSystem: fileSystem)
         health.excludedFromBackup = false
         // The health record is never pruned by its own instrument.
-        health.behavioralBound = .max
+        health.behavioralBound = Int64.max
         self.healthLog = health
     }
 
-    public static let healthLogName = "health-events.jsonl"
+    /// The health log's base name: `health-events.jsonl` (legacy plaintext),
+    /// `health-events.sj`, shards `health-events-YYYY-MM.sj`.
+    public static let healthLogBase = "health-events"
+    public static let healthLogName = healthLogBase + ".jsonl"
 
     /// `observations.logbook-mb`. A smaller bound takes effect now, not at
     /// the next launch: the oldest months leave once the change is made,
@@ -69,6 +98,10 @@ public final class ObservationStore {
     public func moveHealthOutOfTheRing() {
         let marker = file.deletingLastPathComponent().appendingPathComponent(".health-split")
         guard !FileManager.default.fileExists(atPath: marker.path) else { return }
+        // Both records must be readable for "copied and checked" to mean
+        // anything: with either key unavailable the split waits, and the
+        // marker is not written.
+        guard log.ring.keyring() != nil, healthLog.ring.keyring() != nil else { return }
         let seen = Set(healthLog.readAll().map { HealthKey($0) })
         let legacy = log.readAll().filter { ObservationEvent.healthKinds.contains($0.kind) }
         for event in legacy where !seen.contains(HealthKey(event)) { healthLog.append(event) }
@@ -127,30 +160,66 @@ public final class ObservationStore {
             }
             if healthEnabled { healthLog.compactSoon() }
         }
-        let data = try? Data(contentsOf: file)
-        guard let data,
-              let decoded = try? JSONDecoder().decode(Observations.self, from: data),
-              decoded.version == Observations.currentVersion else {
-            // Absent, unreadable, or a previous schema. The log is the
-            // truth, so the honest recovery is a replay, not a rescue —
-            // but a file that existed and would not decode is evidence of
-            // a bug, so it is quarantined and said out loud, never silently
-            // overwritten by whatever the ring still holds.
-            if data != nil {
-                let quarantine = Quarantine.setAside(file)
-                Log.error("observations: \(file.lastPathComponent) would not decode — quarantined at \(quarantine.lastPathComponent), replaying the ring")
-            }
-            let events = log.readAll()
-            if !events.isEmpty {
-                Log.info("observations: rebuilding view from \(events.count) events")
-                observations = Observations.rebuild(from: events)
-                saveSoon()
-            } else if data != nil {
-                Log.error("observations: the ring is empty — starting fresh; the quarantined file holds the history")
-            }
+        loadView()
+    }
+
+    /// Read the view's file, in either form. What it was not able to read is
+    /// never replaced: a key that cannot be asked for leaves the view
+    /// untrusted and unsaved (`resume` reads it again), and a file that is
+    /// there and will not decode is set aside before the ring is replayed.
+    private func loadView() {
+        let stored = viewFile.read()
+        if case .unavailable = stored {
+            viewBlocked.withLock { $0 = true }
             return
         }
-        observations = decoded
+        var data: [UInt8]?
+        var reason: String?
+        switch stored {
+        case .value(let bytes, _): data = bytes
+        case .unreadable(let why): reason = why
+        case .absent, .unavailable: break
+        }
+        if let data, let decoded = try? JSONDecoder().decode(Observations.self, from: Data(data)),
+           decoded.version == Observations.currentVersion {
+            observations = decoded
+            settleView()
+            return
+        }
+        // Absent, unreadable, or a previous schema. The log is the
+        // truth, so the honest recovery is a replay, not a rescue —
+        // but a file that existed and would not decode is evidence of
+        // a bug, so it is quarantined and said out loud, never silently
+        // overwritten by whatever the ring still holds.
+        let existed = data != nil || reason != nil
+        if existed {
+            let quarantine = Quarantine.setAside(file)
+            Log.error("observations: \(file.lastPathComponent) would not decode — quarantined at \(quarantine.lastPathComponent), replaying the ring")
+        }
+        viewBlocked.withLock { $0 = false }
+        heldForView = []
+        let events = log.readAll()
+        if !events.isEmpty {
+            Log.info("observations: rebuilding view from \(events.count) events")
+            observations = Observations.rebuild(from: events)
+            saveSoon()
+        } else if existed {
+            Log.error("observations: the ring is empty — starting fresh; the quarantined file holds the history")
+        }
+    }
+
+    /// The key came back (the keychain unlocked): read what the pause kept
+    /// unread. Main thread, like `load`.
+    public func resume() {
+        guard viewBlocked.withLock({ $0 }) else { return }
+        loadView()
+    }
+
+    /// The view is read: what was recorded while it was blocked joins it.
+    private func settleView() {
+        viewBlocked.withLock { $0 = false }
+        for event in heldForView { observations.apply(event) }
+        heldForView = []
     }
 
     // MARK: - Recording
@@ -489,6 +558,7 @@ public final class ObservationStore {
         guard enabled else { return }
         log.append(event)
         observations.apply(event)
+        if viewBlocked.withLock({ $0 }) { heldForView.append(event) }
         saveSoon()
     }
 
@@ -511,8 +581,9 @@ public final class ObservationStore {
     /// crosses month ends.
     public func rollupSoon(now: Date = Date()) {
         guard enabled else { return }
-        saveQueue.async { [rollupFile] in
-            let outcome = Rollup.roll(events: self.allEvents(), file: rollupFile, now: now)
+        saveQueue.async { [rollupFile, fileSystem, ring = vault.ring(.logbook)] in
+            let outcome = Rollup.roll(events: self.allEvents(), file: rollupFile, ring: ring,
+                                      fileSystem: fileSystem, now: now)
             if !outcome.added.isEmpty {
                 Log.info("rollup", ["archived": outcome.added.joined(separator: " ")])
             }
@@ -525,25 +596,46 @@ public final class ObservationStore {
         clearHealth()
     }
 
-    /// The health record, all of it: the health log, the archive of
-    /// months the ring once retired, the per-press and pointer day files,
-    /// the era fingerprint and the install's name.
+    /// The health record, all of it: the health log, the archive of months
+    /// the ring once retired, the per-press and pointer day journals, the era
+    /// fingerprint, the span ledger, the split marker and the install's name;
+    /// the health summaries the monthly rollup holds; any unreadable files
+    /// set aside when a key was lost; and then **the health key**, so that
+    /// whatever the disk still holds of it (an SSD keeps the blocks of a
+    /// deleted file) is noise for good.
+    ///
+    /// A person's explicit act: it needs no key, and it deletes what it
+    /// cannot read as it deletes what it can. The rollup's health columns are
+    /// cleared only if the rollup can be read; if it cannot, it is left as it
+    /// is and the log says so.
     public func clearHealth() {
         healthLog.clear()
         let directory = file.deletingLastPathComponent()
-        let fm = FileManager.default
-        let names = (try? fm.contentsOfDirectory(atPath: directory.path)) ?? []
-        for name in names where name.hasPrefix("health-") && name.hasSuffix(".jsonl.z") {
-            try? fm.removeItem(at: directory.appendingPathComponent(name))
+        let root = directory.path
+        for name in RecordFiles.names(in: root, fileSystem: fileSystem) {
+            let archive = name.hasPrefix("health-") && (name.hasSuffix(".jsonl.z")
+                || name.hasSuffix(".jsonl.z" + RecordFiles.archiveSealedSuffix))
+            let aside = name.hasPrefix("health-unreadable-")
+            if archive || aside { try? fileSystem.removeTree(root + "/" + name) }
         }
-        for name in [KeyStore.subdirectory, PointerStore.subdirectory, "era.json", Install.file] {
-            try? fm.removeItem(at: directory.appendingPathComponent(name))
+        for name in [KeyStore.subdirectory, PointerStore.subdirectory, "era.json", "blind.json", Install.file,
+                     ".health-split"] {
+            try? fileSystem.removeTree(root + "/" + name)
         }
+        for stray in ["era.json.sealing", "blind.json.sealing"] { try? fileSystem.remove(root + "/" + stray) }
+        saveQueue.sync {
+            if !Rollup.clearHealth(file: rollupFile, ring: vault.ring(.logbook), fileSystem: fileSystem) {
+                Log.error("observations: the monthly rollup could not be read, so its health summaries were left in it")
+            }
+        }
+        vault.ring(.health).destroy()
     }
 
-    /// What the coach reads: the ring, the view and the monthly archive.
+    /// What the coach reads: the ring, the view and the monthly archive,
+    /// and then the logbook's key (see `clearHealth`).
     public func clearLogbook() {
         observations = Observations()
+        heldForView = []
         pendingSave?.cancel()
         pendingSave = nil
         // Drain before deleting: a snapshot already on the save queue
@@ -551,10 +643,16 @@ public final class ObservationStore {
         // the user just asked to be rid of.
         saveQueue.sync {}
         log.clear()
-        try? FileManager.default.removeItem(at: file)
+        try? fileSystem.remove(file.path)
         // The archive is history too: cleared means cleared, months and
         // all — deletability is half the consent.
-        try? FileManager.default.removeItem(at: rollupFile)
+        try? fileSystem.remove(rollupFile.path)
+        let root = file.deletingLastPathComponent().path
+        for name in RecordFiles.names(in: root, fileSystem: fileSystem) where name.hasPrefix("logbook-unreadable-") {
+            try? fileSystem.removeTree(root + "/" + name)
+        }
+        viewBlocked.withLock { $0 = false }
+        vault.ring(.logbook).destroy()
     }
 
     private var clearRequestFile: URL {
@@ -613,15 +711,55 @@ public final class ObservationStore {
     }
 
     /// Runs on `saveQueue` only; the enabled check already happened on
-    /// main, where that flag lives.
+    /// main, where that flag lives. Nothing is written while the view is
+    /// blocked (see `viewBlocked`), or while the key is unavailable.
     private func write(_ snapshot: Observations) {
+        guard !viewBlocked.withLock({ $0 }) else { return }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         guard let data = try? encoder.encode(snapshot) else { return }
-        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        DurableFile.save(data, to: file, as: "observations", newFileMode: 0o600)
-        Paths.restrict(file)
-        Paths.excludeFromBackup(file)
+        switch viewFile.write([UInt8](data)) {
+        case .written:
+            Paths.excludeFromBackup(file)
+        case .paused:
+            break
+        case .failed(let why):
+            Log.error("observations: could not write \(file.lastPathComponent) (\(why))")
+        }
+    }
+
+    // MARK: - Migrating
+
+    /// Seal what an earlier build left in the clear: the ring and the health
+    /// log (taken into their journals), the archive months, the view and the
+    /// monthly rollup (each sealed in place, verified, then renamed over).
+    /// Runs wherever it is called from, never on main: it may wait on the
+    /// keychain. Resumable and idempotent; see the stores it calls.
+    @discardableResult
+    public func migrateLegacy() -> RecordMigration {
+        var total = log.migrateLegacy() + healthLog.migrateLegacy() + healthLog.migrateArchives()
+        let (fileSystem, vault) = (self.fileSystem, self.vault)
+        let files = saveQueue.sync { () -> RecordMigration in
+            var outcome = RecordMigration()
+            for (url, ring) in [(file, vault.ring(.logbook)), (rollupFile, vault.ring(.logbook))] {
+                let name = url.lastPathComponent
+                switch SealedValueFile(url: url, ring: ring, fileSystem: fileSystem).migrate() {
+                case .nothing: break
+                case .sealed(let bytes):
+                    outcome.files += 1
+                    outcome.bytes += Int64(bytes)
+                case .paused:
+                    outcome.paused = true
+                    outcome.remaining += 1
+                case .failed(let why):
+                    outcome.remaining += 1
+                    outcome.failed.append(name)
+                    Log.error("observations: could not seal \(name) (\(why)) — the plaintext was kept")
+                }
+            }
+            return outcome
+        }
+        total += files
+        return total
     }
 }

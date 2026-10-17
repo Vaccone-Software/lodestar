@@ -180,6 +180,11 @@ final class ClipboardStrip {
     private(set) var shownSourceRows: [String] = []
     /// The zones a timestamp is read into beside yours and UTC.
     var timeZones: [TimeZone] = []
+    /// The moment a timestamp's note is felt against, and the zone that is
+    /// "your clock": the real ones, a seam for the tests, because what a
+    /// note says depends on the hour it is read at.
+    var now: () -> Date = { Date() }
+    var localZone: TimeZone = .current
     /// The units a measurement is read into.
     var units = ClipQuantity.System.regional()
 
@@ -643,11 +648,18 @@ final class ClipboardStrip {
         } else if let time = clip.time {
             // Your clock's line whole, or without its weekday on a card
             // too narrow for it: never cut short.
-            var read = time.note(zones: timeZones)
-            if Self.lineWidth(read.local) > body.width - 6 { read = time.note(zones: timeZones, compact: true) }
+            let moment = now()
+            var read = time.note(local: localZone, zones: timeZones, now: moment)
+            if Self.lineWidth(read.local) > body.width - 6 {
+                read = time.note(local: localZone, zones: timeZones, now: moment, compact: true)
+            }
             let room = body.height - Self.previewHeight(shown(clip).string, width: body.width) - Self.noteGap
-            let lines = Self.pack([read.local] + read.zones, width: body.width,
-                                  rows: Int((room - Self.voiceHeight - 2) / Self.metaHeight))
+            let rows = max(1, Int((room - Self.voiceHeight - 2) / Self.metaHeight))
+            // UTC is there for anyone; a zone you kept is there because you
+            // asked. Short of rows, UTC gives way before a zone you kept.
+            var lines = Self.pack([read.local] + read.zones, width: body.width)
+            if lines.count > rows { lines = Self.pack([read.local] + read.kept, width: body.width) }
+            lines = Array(lines.prefix(rows))
             let note = addNote(voice: read.voice, lines: lines, swatch: nil, for: clip.id,
                                to: card, in: body)
             addPreview(clip, to: card, in: body, above: note)
@@ -903,7 +915,7 @@ final class ClipboardStrip {
     }
 
     /// The exact lines, as few as hold them.
-    private static func pack(_ parts: [String], width: CGFloat, rows: Int) -> [String] {
+    private static func pack(_ parts: [String], width: CGFloat) -> [String] {
         func fits(_ text: String) -> Bool {
             let label = NSTextField(labelWithString: text)
             label.font = BarTheme.secondaryFont
@@ -918,7 +930,7 @@ final class ClipboardStrip {
                 lines.append(part)
             }
         }
-        return Array(lines.prefix(max(1, rows)))
+        return lines
     }
 
     /// A card's text as drawn: as much as a card holds, with a secret's

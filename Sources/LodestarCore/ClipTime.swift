@@ -153,6 +153,9 @@ public struct ClipTime: Equatable {
         /// weekday when that zone's day is not yours. A zone whose clock
         /// reads the same as yours or as the value's own is left out.
         public let zones: [String]
+        /// `zones` without the UTC line: only the ones you keep, so a card
+        /// short of rows can let UTC give way to them.
+        public let kept: [String]
     }
 
     /// Within a week the voice has said which day ("6 hours ago",
@@ -171,7 +174,7 @@ public struct ClipTime: Equatable {
         if kind == .day {
             full.setLocalizedDateFormatFromTemplate(compact ? (sameYear ? "dMMMM" : "dMMMMy")
                                                     : (sameYear ? "EEEEdMMMM" : "EEEEdMMMMy"))
-            return Note(voice: voice, local: full.string(from: date), zones: [])
+            return Note(voice: voice, local: full.string(from: date), zones: [], kept: [])
         }
         var dayCalendar = Calendar(identifier: .gregorian)
         dayCalendar.timeZone = local
@@ -183,15 +186,19 @@ public struct ClipTime: Equatable {
         var shown: Set<Int> = [local.secondsFromGMT(for: date)]
         if let writtenOffset { shown.insert(writtenOffset) }
         var lines: [String] = []
-        for zone in [TimeZone(identifier: "UTC")!] + zones where shown.insert(zone.secondsFromGMT(for: date)).inserted {
+        var kept: [String] = []
+        for (index, zone) in ([TimeZone(identifier: "UTC")!] + zones).enumerated()
+        where shown.insert(zone.secondsFromGMT(for: date)).inserted {
             let short = DateFormatter()
             short.locale = locale
             short.timeZone = zone
             let sameDay = calendar.dateComponents(in: zone, from: date).day == calendar.dateComponents(in: local, from: date).day
             short.setLocalizedDateFormatFromTemplate(sameDay ? "jmm" : "EEEjmm")
-            lines.append("\(short.string(from: date)) \(Self.place(zone))")
+            let line = "\(short.string(from: date)) \(Self.place(zone))"
+            lines.append(line)
+            if index > 0 { kept.append(line) }
         }
-        return Note(voice: voice, local: full.string(from: date), zones: lines)
+        return Note(voice: voice, local: full.string(from: date), zones: lines, kept: kept)
     }
 
     /// How far off the moment is, the way a person says it: minutes and

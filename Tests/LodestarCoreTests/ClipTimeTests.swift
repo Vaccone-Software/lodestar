@@ -51,6 +51,14 @@ final class ClipTimeTests: XCTestCase {
                        "13:14 UTC is 22:14 in Tokyo, still Friday there: no weekday")
     }
 
+    func testKeptIsTheZonesWithoutUTC() throws {
+        let time = try XCTUnwrap(ClipTime.parse("1790342057"))
+        let note = time.note(local: newYork, zones: [tokyo], now: moment, locale: english)
+        XCTAssertEqual(note.zones.map(plain), ["1:14 PM UTC", "10:14 PM Tokyo"])
+        XCTAssertEqual(note.kept.map(plain), ["10:14 PM Tokyo"], "UTC is not a zone you kept")
+        XCTAssertEqual(time.note(local: newYork, now: moment, locale: english).kept, [], "none kept")
+    }
+
     func testAFarMomentKeepsItsDate() throws {
         let time = try XCTUnwrap(ClipTime.parse("1790342057"))
         let note = time.note(local: newYork, now: moment.addingTimeInterval(20 * 86_400), locale: english)

@@ -353,6 +353,15 @@ final class StripColorTests: XCTestCase {
 }
 
 final class StripTimeTests: XCTestCase {
+    private static let newYork = TimeZone(identifier: "America/New_York")!
+
+    /// 17 October 2026 at this time on a New York clock.
+    private static func moment(hour: Int, minute: Int) -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = newYork
+        return calendar.date(from: DateComponents(year: 2026, month: 10, day: 17, hour: hour, minute: minute))!
+    }
+
     /// The frame a card's text is drawn in.
     private func textFrame(_ stage: Stage, _ clip: Clipboard.Clip) -> NSRect? {
         stage.engine.strip.shownCards[clip.id]?.subviews
@@ -367,9 +376,15 @@ final class StripTimeTests: XCTestCase {
         var config = stage.engine.config
         config.clipboardTimeZones = ["Asia/Tokyo"]
         stage.engine.config = config
+        // The hour is pinned, not read: the same clip reads differently
+        // across the day, and this one is the late evening where UTC is
+        // already tomorrow and its line carries a weekday.
+        let now = Self.moment(hour: 22, minute: 46)
+        stage.engine.strip.now = { now }
+        stage.engine.strip.localZone = Self.newYork
         // Five hours, not six: under six the voice counts hours whatever the
         // day, and six hours ago after midnight is rightly "Yesterday evening".
-        let unix = stage.seedClip(String(Int(Date().timeIntervalSince1970) - 5 * 3600))
+        let unix = stage.seedClip(String(Int(now.timeIntervalSince1970) - 5 * 3600))
         let text = stage.seedClip("just some words")
         let phone = stage.seedClip("2125551234")
         let sentence = stage.seedClip("deployed at 1790342057")
@@ -391,6 +406,31 @@ final class StripTimeTests: XCTestCase {
         XCTAssertNil(notes[phone.id], "a phone number is not a time")
         XCTAssertNil(notes[sentence.id], "a time inside a sentence is text")
         stage.press("escape")
+    }
+
+    /// Whatever the hour, the zone you kept is on the card: UTC is the line
+    /// that gives way when its weekday makes the lines too long to share.
+    /// Each hour is its own strip, with the neighbours the card is drawn
+    /// among: how many cards there are decides how wide each one is.
+    func testTheKeptZoneSurvivesAtEveryHourOfTheDay() throws {
+        for (hour, minute) in [(0, 5), (3, 46), (6, 0), (9, 30), (12, 0), (15, 15), (19, 59), (20, 0), (22, 46), (23, 59)] {
+            let stage = Stage()
+            var config = stage.engine.config
+            config.clipboardTimeZones = ["Asia/Tokyo"]
+            stage.engine.config = config
+            let now = Self.moment(hour: hour, minute: minute)
+            stage.engine.strip.now = { now }
+            stage.engine.strip.localZone = Self.newYork
+            let clip = stage.seedClip(String(Int(now.timeIntervalSince1970) - 5 * 3600))
+            stage.seedClip("just some words")
+            stage.seedClip("2125551234")
+            stage.seedClip("deployed at 1790342057")
+            stage.openStrip()
+            let note = try XCTUnwrap(stage.engine.strip.shownNotes[clip.id], "\(hour):\(minute)")
+            XCTAssertEqual(note.first, "5 hours ago", "\(hour):\(minute)")
+            XCTAssertTrue(note.contains { $0.contains("Tokyo") }, "the kept zone at \(hour):\(minute): \(note)")
+            stage.press("escape")
+        }
     }
 
     /// However many zones are kept, the note stays below the clip: the

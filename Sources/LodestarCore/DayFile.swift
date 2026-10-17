@@ -209,7 +209,7 @@ public enum DayFile {
         // over a day of them.
         var wrote = false
         do {
-            try DurableFile.append(data, to: target, newFileMode: 0o644)
+            try DurableFile.append(data, to: target)
             wrote = true
         } catch {
             Log.error("\(prefix): could not append to \(target.lastPathComponent): \(error.localizedDescription)")

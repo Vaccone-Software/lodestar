@@ -31,6 +31,20 @@ final class ClipboardStoreRecoveryTests: XCTestCase {
         store.flushIO()
     }
 
+    /// What is copied is private: the index that names every clip is the
+    /// owner's alone, a new one and one an older build left readable alike.
+    func testTheIndexIsTheOwnersAlone() throws {
+        func mode() throws -> Int { (try FileManager.default.attributesOfItem(atPath: index.path)[.posixPermissions] as? Int) ?? -1 }
+        let store = ClipboardStore(root: root)
+        record(store, "secret", id: "c1")
+        saved(store)
+        XCTAssertEqual(try mode(), 0o600)
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: index.path)
+        record(store, "another", id: "c2")
+        saved(store)
+        XCTAssertEqual(try mode(), 0o600, "an index an older build left readable is tightened")
+    }
+
     func testAnIndexThatWillNotDecodeIsSetAsideAndNamed() throws {
         let first = ClipboardStore(root: root)
         record(first, "kept", id: "c1")

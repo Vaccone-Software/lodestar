@@ -118,7 +118,8 @@ final class ClipboardStore {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]
             guard let data = try? encoder.encode(snapshot) else { return }
-            DurableFile.save(data, to: indexFile, as: "clipboard")
+            DurableFile.save(data, to: indexFile, as: "clipboard", newFileMode: 0o600)
+            Paths.restrict(indexFile)
         }
     }
 

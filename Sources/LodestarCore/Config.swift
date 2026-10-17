@@ -334,8 +334,9 @@ public struct Config {
         out["version"] = .string(Lodestar.version)
         // Stoic's atomic write with the envelope off: the same bytes on
         // disk, but synced (file and directory) before this returns, and a
-        // failure thrown rather than half-done.
-        try DurableFile.write(Data(Json.emit(out).utf8), to: target)
+        // failure thrown rather than half-done. A new file is the owner's
+        // alone; one that exists keeps the mode its owner gave it.
+        try DurableFile.write(Data(Json.emit(out).utf8), to: target, newFileMode: 0o600)
     }
 
     /// Why an edit could not happen. Both cases mean the same thing to a

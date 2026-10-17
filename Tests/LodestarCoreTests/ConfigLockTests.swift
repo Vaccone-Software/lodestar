@@ -71,6 +71,15 @@ final class ConfigLockTests: XCTestCase {
         try Config.edit(in: file, lockTimeout: 0.1) { $0 }
     }
 
+    func testANewConfigIsTheOwnersAloneAndAnOldOneKeepsItsMode() throws {
+        try Config.write(tree: ["graph": .table(["s": .string("Slack")])], to: file)
+        func mode() throws -> Int { (try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int) ?? -1 }
+        XCTAssertEqual(try mode(), 0o600)
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path)
+        try Config.write(tree: ["graph": .table(["s": .string("Mail")])], to: file)
+        XCTAssertEqual(try mode(), 0o644, "a file its owner made readable stays readable")
+    }
+
     func testTheWriteIsTheSameBytesAsBeforeAndLeavesNoTemporary() throws {
         try Config.write(tree: ["graph": .table(["s": .string("Slack")])], to: file)
         let text = try String(contentsOf: file, encoding: .utf8)

@@ -95,7 +95,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// read (standing the coach's seen time) or answered, never by being
     /// drawn, the rule every coach offer keeps.
     private var lessonAwaitingBill: Curriculum.Lesson?
-    private let feedback = FeedbackController()
+    /// Notes written and not yet delivered, and the schedule that goes on
+    /// delivering them; the Send Feedback window sends through the same one.
+    private let feedbackQueue = FeedbackQueue(directory: Paths.feedbackOutbox)
+    private lazy var feedback = FeedbackController(queue: feedbackQueue)
     private let meetings = MeetingController()
     private let linkChip = LinkChip()
     private let presenting = Presenting()
@@ -760,6 +763,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         updater.lightMark = { [weak self] share in self?.hud.lightMark(share) }
         updater.requiresRouting = { [weak self] in self?.config.webHandleClicks ?? false }
         updater.start()
+        // A note left waiting by the last run is tried again once things have
+        // settled, and then on the queue's schedule while any remain. Costs
+        // nothing for a person who never wrote one.
+        Task { [feedbackQueue] in await feedbackQueue.resume() }
         // Browser-role bookkeeping belongs to the bundle that can actually
         // hold the role. A `swift build` binary is not registered with
         // LaunchServices and will never be handed a link, but it still asks

@@ -1,11 +1,22 @@
 import AppKit
 import LodestarCore
+import Stoic
+#if DEBUG
+import StoicHTTP
+#endif
 
 /// Send Feedback: a note, written in Lodestar's own glass, that reaches the
 /// person who makes it. It replaced "Report an Issue", which sent people to
 /// GitHub, where most of them have no account and the rest must write in
 /// public. The note travels to the site's endpoint and on by email; the
 /// address it lands at is never in the app (`Feedback`).
+///
+/// A note is kept before it is sent (`FeedbackQueue`): Send saves it, tries
+/// once, and then the window says which of four things happened. It
+/// arrived; or it is saved and Lodestar sends it on its own, now or at the
+/// next launch, with the same key so it can never arrive twice; or the site
+/// refused it for good and the note stays here and on the clipboard; or it
+/// could not be saved at all, and is on the clipboard.
 ///
 /// Nothing is attached unless they ask. The diagnostic report is one
 /// checkbox, off, with a way to read it first, because its log tail can
@@ -32,23 +43,26 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
         case writing
         case sending
         case sent(replying: Bool)
+        /// Saved in the queue, not yet delivered: the person's part is done.
+        case saved
     }
     private var phase: Phase = .writing
     /// The one line under the note that answers the last Send: a problem
-    /// with the note, or a failure to deliver it.
+    /// with the note, or the site's refusal of it.
     private var status: String?
+    /// The note the last Send took, for the clipboard once it is saved.
+    private var lastNote: Feedback?
+    /// The Send in flight, so a test can wait for it.
+    private var sending: Task<Void, Never>?
 
-    /// The request goes through here, so the tests can stand in for the
-    /// network. Answers the HTTP status, or nil when nothing came back.
-    var deliver: (URLRequest, @escaping (Int?) -> Void) -> Void = { request, done in
-        URLSession.shared.dataTask(with: request) { _, response, _ in
-            let code = (response as? HTTPURLResponse)?.statusCode
-            DispatchQueue.main.async { done(code) }
-        }.resume()
-    }
-    /// Where an unsent note is kept: the clipboard. A test hands it a
-    /// private pasteboard, so a suite run never writes into the clipboard
-    /// history of the Lodestar that is running on the Mac.
+    /// Where notes wait and are delivered from. The app has one for the
+    /// life of the process, so the schedule that retries and the window that
+    /// sends are never two queues over one directory.
+    private let queue: FeedbackQueue
+    /// Where a note goes when the person asks for it, and when it is
+    /// refused or could not be saved. A test hands it a private pasteboard,
+    /// so a suite run never writes into the clipboard history of the
+    /// Lodestar that is running on the Mac.
     var pasteboard: NSPasteboard = .general
     /// The report the checkbox attaches, asked for only at Send.
     var report: () -> String = { diagnoseReport() }
@@ -59,7 +73,8 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
 
     var isVisible: Bool { panel.isVisible }
 
-    override init() {
+    init(queue: FeedbackQueue) {
+        self.queue = queue
         super.init()
         panel.level = .modalPanel
         panel.isOpaque = false
@@ -114,8 +129,12 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
 
     /// From the menu. A note already written and not sent is still there.
     func show() {
-        if case .sent = phase { reset() }
-        status = nil
+        switch phase {
+        case .sent, .saved: reset()
+        default: break
+        }
+        // A refusal is about the note, and stays until they change it.
+        if status != Self.refusal { status = nil }
         render()
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(textView)
@@ -131,6 +150,8 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
 
     private func reset() {
         phase = .writing
+        status = nil
+        lastNote = nil
         textView.string = ""
         reply.stringValue = ""
         attach.state = .off
@@ -166,31 +187,59 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
         if attach.state == .on { feedback.diagnostics = report() }
         phase = .sending
         status = nil
+        lastNote = feedback
         render()
         let replying = !feedback.replyTo.trimmingCharacters(in: .whitespaces).isEmpty
-        deliver(feedback.request()) { [weak self] code in
-            guard let self else { return }
-            Log.info("feedback", ["status": code.map(String.init) ?? "none",
-                                  "report": self.attach.state == .on ? "yes" : "no"])
-            if code == 200 {
-                self.phase = .sent(replying: replying)
-                self.status = nil
-            } else {
-                // Nothing written is lost: the note goes to the clipboard,
-                // and the window keeps it too.
-                let board = self.pasteboard
-                board.clearContents()
-                board.setString(feedback.clipboardCopy, forType: .string)
-                self.phase = .writing
-                self.status = Self.failure
-            }
-            self.render()
-            if self.phase == .writing { self.panel.makeFirstResponder(self.textView) }
+        // The task inherits the ambient context (clock, instrumentation) of
+        // the run loop that made it, and finishes on the main actor.
+        sending = Task { @MainActor [weak self, queue] in
+            let submission = await queue.submit(feedback)
+            self?.finish(submission, replying: replying)
         }
     }
 
-    static let failure = "It could not be sent just now, so your note is on the clipboard. "
-        + "Try again in a moment."
+    private func finish(_ submission: FeedbackQueue.Submission, replying: Bool) {
+        switch submission {
+        case .delivered:
+            phase = .sent(replying: replying)
+            status = nil
+        case .queued:
+            // Kept on disk and sent by the queue on its own: the window has
+            // nothing more to hold, and keeping the text here would only
+            // invite sending the same note twice.
+            phase = .saved
+            status = nil
+        case .refused:
+            // The site will never take this note, and the queue has let go
+            // of it: the window keeps it, and so does the clipboard.
+            copyNote()
+            phase = .writing
+            status = Self.refusal
+        case .notSaved:
+            // Nothing was kept anywhere, so the clipboard and the window are
+            // all there is.
+            copyNote()
+            phase = .writing
+            status = Self.unsaved
+        }
+        render()
+        if phase == .writing, panel.isVisible { panel.makeFirstResponder(textView) }
+    }
+
+    private func copyNote() {
+        guard let lastNote else { return }
+        let board = pasteboard
+        board.clearContents()
+        board.setString(lastNote.clipboardCopy, forType: .string)
+    }
+
+    static let refusal = "The site would not take that note, so it is still here and on the clipboard. "
+        + "Change it a little and try again."
+    static let unsaved = "Lodestar could not save that note to send later, so it is still here and on the "
+        + "clipboard. Try again in a moment."
+
+    static let savedSentence = "Your note is saved and could not be sent just now. Lodestar will send it on "
+        + "its own as soon as it can, even after a quit."
 
     // MARK: - Keys
 
@@ -198,14 +247,17 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
     private func key(_ event: NSEvent) -> Bool {
         let command = event.modifierFlags.contains(.command)
         switch (Keys.name(for: Int64(event.keyCode)), phase) {
-        case ("escape", .sent):
+        case ("escape", .sent), ("escape", .saved):
             closePressed()
             return true
         case ("escape", _):
             close()
             return true
-        case ("return", .sent):
+        case ("return", .sent), ("return", .saved):
             closePressed()
+            return true
+        case ("c", .saved) where command:
+            copyNote()
             return true
         case ("return", .writing) where command:
             send()
@@ -216,9 +268,8 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
     }
 
     func textDidChange(_ notification: Notification) {
-        // A problem named for the last Send stops being true once they
-        // write; failure stays, it is about the network, not the note.
-        if status != nil, status != Self.failure {
+        // A problem named for the last Send stops being true once they write.
+        if status != nil {
             status = nil
             render()
         }
@@ -287,6 +338,16 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
             textView.isEditable = editable
             reply.isEditable = editable
             attach.isEnabled = editable
+        case .saved:
+            stack.addArrangedSubview(roomTitle("Saved"))
+            stack.addArrangedSubview(voice(Self.savedSentence, width: text))
+            stack.setCustomSpacing(18, after: stack.arrangedSubviews.last!)
+            // Quiet, and the way out lit: the note is safe, so copying it is
+            // only for the person who wants it somewhere else too.
+            stack.addArrangedSubview(Keycaps.line([
+                .init(["⌘", "C"], "Copy note", action: { [weak self] in self?.copyNote() }, quiet: true),
+                .init(["⏎"], "Close", action: { [weak self] in self?.closePressed() }, lit: true),
+            ]))
         case .sent(let replying):
             stack.addArrangedSubview(roomTitle("Thank you"))
             stack.addArrangedSubview(voice(replying
@@ -366,15 +427,25 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
     }
 
     func pressSend() { send() }
+    /// Waits for the Send in flight to be answered and shown.
+    func settled() async { await sending?.value }
+    func pressCopy() { copyNote() }
     var shownStatus: String? { status }
     var isSent: Bool { if case .sent = phase { return true } else { return false } }
+    var isSaved: Bool { phase == .saved }
+    var isSending: Bool { phase == .sending }
     var noteText: String { textView.string }
 
     /// `lodestar __strip-preview 45` the note being written, 46 a note
-    /// that could not be sent, 47 the thanks.
+    /// that is saved and not yet sent, 47 the thanks.
     static func preview(_ index: Int) -> FeedbackController {
-        let controller = FeedbackController()
-        controller.deliver = { _, done in done(index == 47 ? 200 : 503) }
+        let transport = ScriptedTransport()
+        transport.on(.post(Feedback.path, body: [], contentType: "application/json"),
+                     respond: [index == 47 ? .json(#"{"ok":true}"#) : .status(503)])
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lodestar-feedback-preview-\(UUID().uuidString)", isDirectory: true)
+        let controller = FeedbackController(queue: FeedbackQueue(
+            directory: directory, client: Feedback.client(transport: transport)))
         DispatchQueue.main.async {
             controller.show()
             guard index > 45 else { return }

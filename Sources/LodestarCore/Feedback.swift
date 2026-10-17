@@ -107,15 +107,6 @@ public struct Feedback: Equatable, Codable, Sendable {
               headers: [Self.originHeader.0: Self.originHeader.1])
     }
 
-    public func request(to endpoint: URL = Feedback.endpoint) -> URLRequest {
-        var request = URLRequest(url: endpoint, timeoutInterval: 20)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(Self.originHeader.1, forHTTPHeaderField: Self.originHeader.0)
-        request.httpBody = payload
-        return request
-    }
-
     /// The client a note goes through: the site, one try of twenty seconds,
     /// and nothing of its own to retry with. The outbox is the retry layer
     /// (a note outlives any one try, and any one launch), so the client's

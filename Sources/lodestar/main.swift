@@ -2931,7 +2931,9 @@ if cliArguments.contains("clipboard") {
     if cliArguments.contains("clear") {
         Log.stdoutEnabled = false
         let store = ClipboardStore()
-        store.clearAll()
+        // The removal and the index write run on the store's own queue, and
+        // this process exits the moment it is done here: wait for them.
+        store.clearAllAndWait()
         // A running instance holds the index in memory; tell it too.
         store.requestClear()
         print("✓ clipboard history cleared")

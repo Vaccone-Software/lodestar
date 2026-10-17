@@ -741,6 +741,15 @@ final class ClipboardStore {
         saveNow()
     }
 
+    /// `clearAll`, finished before it returns: the files removed, the empty
+    /// index written. For a process that exits as soon as it is done, which
+    /// `lodestar clipboard clear` is — it printed "cleared" and left with
+    /// the removal still queued.
+    func clearAllAndWait() {
+        clearAll()
+        flushIO()
+    }
+
     /// Enforce the ceilings. Pins are exempt; the loose clips absorb it.
     func trim(maxBytes: Int, maxItems: Int) {
         let doomed = Clipboard.trim(index.clips, maxBytes: maxBytes, maxItems: maxItems)

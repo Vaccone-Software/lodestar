@@ -1314,3 +1314,61 @@ final class ClipboardPreviewTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(started), 1.0)
     }
 }
+
+/// Looking for an exclude pattern in a copy of megabytes searches its bytes
+/// where that cannot give another answer, and everywhere else is what it
+/// always was.
+final class ClipboardPatternSearchTests: XCTestCase {
+    private func reference(_ text: String, _ patterns: [String]) -> String? {
+        let haystack = text.lowercased()
+        return patterns.first { haystack.contains($0.lowercased()) }
+    }
+
+    private func filler(_ bytes: Int) -> String {
+        String(repeating: "lorem ipsum dolor sit amet, consectetur adipiscing elit.\r\n", count: bytes / 58 + 1)
+    }
+
+    func testALongPlainTextIsSearchedLikeAShortOne() {
+        let floor = Clipboard.fastSearchFloor
+        let base = filler(floor + 1_000)
+        XCTAssertGreaterThanOrEqual(base.utf8.count, floor)
+        let cases: [(String, [String])] = [
+            (base, ["hunter2"]),
+            (base + "the Hunter2 password", ["nothing", "HUNTER2"]),
+            (base + "ends with Needle", ["needle"]),
+            ("Needle starts " + base, ["NEEDLE", "lorem"]),
+            (base, ["amet, consectetur"]),
+            (base, ["elit.\r"]),
+            (base, ["elit.\r\nlorem"]),
+            (base, ["elit.\n"]),
+            (base, [""]),
+            (base, ["x", ""]),
+            (base + "ÜBER", ["über"]),
+            (base + "naïve", ["naïve"]),
+            (base + "tab\there", ["tab\there"]),
+            (base + "SECRET", ["public", "secret", "other"]),
+            (base + "SECRET", ["other", "secret", "public"]),
+        ]
+        for (text, patterns) in cases {
+            XCTAssertEqual(Clipboard.firstExcludedPattern(in: text, of: patterns), reference(text, patterns),
+                           "\(patterns) in …\(text.suffix(30).debugDescription)")
+        }
+    }
+
+    func testShortTextsAndAnyOtherAnswerAreUnchanged() {
+        for (text, patterns) in [("https://www.instagram.com/reel/abc", ["instagram.com"]),
+                                 ("HTTPS://INSTAGRAM.COM", ["instagram.com"]),
+                                 ("nothing here", ["instagram.com"]),
+                                 ("Straße", ["strasse"]), ("İstanbul", ["i̇stanbul"]), ("", ["a"])] {
+            XCTAssertEqual(Clipboard.firstExcludedPattern(in: text, of: patterns), reference(text, patterns))
+        }
+    }
+
+    func testTheRefusalNamesThePatternWhicheverWayItWasFound() {
+        let text = filler(Clipboard.fastSearchFloor + 1_000) + "api.Example.com/token"
+        XCTAssertEqual(Clipboard.refusal(types: [], sourceBundleID: nil, text: text, bytes: text.utf8.count,
+                                         excludedApps: [], excludedPatterns: ["example.org", "EXAMPLE.com"],
+                                         maxItemBytes: 20_000_000),
+                       .excludedPattern("EXAMPLE.com"))
+    }
+}

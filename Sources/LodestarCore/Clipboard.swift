@@ -250,17 +250,57 @@ public enum Clipboard {
                                             excludedApps: excludedApps) {
             return early
         }
-        if let text, !excludedPatterns.isEmpty {
-            let haystack = text.lowercased()
-            if let pattern = excludedPatterns.first(where: { haystack.contains($0.lowercased()) }) {
-                return .excludedPattern(pattern)
-            }
+        if let text, !excludedPatterns.isEmpty,
+           let pattern = firstExcludedPattern(in: text, of: excludedPatterns) {
+            return .excludedPattern(pattern)
         }
         if bytes > maxItemBytes { return .tooLarge(bytes) }
         if let text, text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, bytes == 0 {
             return .empty
         }
         return nil
+    }
+
+    /// The first of `patterns` the text contains, without regard to case.
+    ///
+    /// Foundation's search is the meaning of "contains", and over a copy of
+    /// megabytes it is also most of a second of the main thread each, with
+    /// the keys held. Where the answer cannot differ — a long text of plain
+    /// ASCII and patterns of plain ASCII with no line break in them, where
+    /// a character is a byte and folding case is adding 32 to a capital —
+    /// the bytes are searched directly. Anything else, and every short
+    /// text, takes the search it always had.
+    static func firstExcludedPattern(in text: String, of patterns: [String]) -> String? {
+        if text.utf8.count >= fastSearchFloor, let bytes = foldedASCII(text) {
+            let needles = patterns.map { Array($0.lowercased().utf8) }
+            if needles.allSatisfy({ !$0.isEmpty && $0.allSatisfy { $0 < 0x80 && $0 != 0x0A && $0 != 0x0D } }) {
+                let hit = bytes.withUnsafeBytes { hay in
+                    needles.firstIndex { needle in
+                        needle.withUnsafeBytes { memmem(hay.baseAddress, hay.count, $0.baseAddress, $0.count) != nil }
+                    }
+                }
+                return hit.map { patterns[$0] }
+            }
+        }
+        let haystack = text.lowercased()
+        return patterns.first { haystack.contains($0.lowercased()) }
+    }
+
+    /// Below this a text is searched the long way: nothing is gained, and
+    /// the common copy keeps exactly the behaviour it had.
+    static let fastSearchFloor = 65_536
+
+    /// The text's bytes with capitals folded, or nil if any is not ASCII.
+    private static func foldedASCII(_ text: String) -> [UInt8]? {
+        var bytes = Array(text.utf8)
+        var ascii = true
+        bytes.withUnsafeMutableBufferPointer { buffer in
+            for i in buffer.indices {
+                let byte = buffer[i]
+                if byte &- 0x41 < 26 { buffer[i] = byte | 0x20 } else if byte >= 0x80 { ascii = false; return }
+            }
+        }
+        return ascii ? bytes : nil
     }
 
     // MARK: - A restore is not a copy

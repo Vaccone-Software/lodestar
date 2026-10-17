@@ -339,7 +339,7 @@ final class ClipboardStore {
             pinnedSlot: live.pinnedSlot, sourceHost: live.sourceHost,
             lines: counted.lines, characters: counted.characters, keptName: live.keptName)
         index.clips = Clipboard.replacing(index.clips, id: live.id, with: replacement)
-        removeFiles(of: live.id)
+        removeFiles(of: [live.id])
         saveSoon()
         return index.clips[position]
     }
@@ -663,8 +663,15 @@ final class ClipboardStore {
     }
 
     func delete(_ id: String) {
-        index.clips.removeAll { $0.id == id }
-        removeFiles(of: id)
+        delete([id])
+    }
+
+    /// Several clips at once: one pass over the index and one look at the
+    /// directory, however many go.
+    private func delete(_ ids: [String]) {
+        let gone = Set(ids)
+        index.clips.removeAll { gone.contains($0.id) }
+        removeFiles(of: ids)
         saveSoon()
     }
 
@@ -672,19 +679,38 @@ final class ClipboardStore {
     /// card seeded a moment ago is on disk before the door reads it.
     func flushIO() { io.sync {} }
 
-    /// Every file a clip left behind, off the main thread.
-    private func removeFiles(of id: String) {
-        thumbnails[id] = nil
-        thumbnailOrder.removeAll { $0 == id }
-        thumbnailless.remove(id)
+    /// Every file the clips left behind, off the main thread. The directory
+    /// is listed once for all of them: a trim of fifty used to list it
+    /// fifty times, each over every clip's files. Files are named
+    /// `<id>.<something>`, so a file is a clip's when what stands before one
+    /// of its dots is the id — and one nobody's index names any more (a
+    /// form an earlier copy of the clip had) goes with it.
+    private func removeFiles(of ids: [String]) {
+        let gone = Set(ids)
+        for id in ids {
+            thumbnails[id] = nil
+            thumbnailless.remove(id)
+        }
+        thumbnailOrder.removeAll { gone.contains($0) }
         io.async { [items, thumbs] in
             let fm = FileManager.default
-            for url in (try? fm.contentsOfDirectory(at: items, includingPropertiesForKeys: nil)) ?? []
-            where url.lastPathComponent.hasPrefix("\(id).") {
-                try? fm.removeItem(at: url)
+            for name in (try? fm.contentsOfDirectory(atPath: items.path)) ?? []
+            where Self.belongs(name, toOneOf: gone) {
+                try? fm.removeItem(at: items.appendingPathComponent(name))
             }
-            try? fm.removeItem(at: thumbs.appendingPathComponent("\(id).png"))
+            for id in gone { try? fm.removeItem(at: thumbs.appendingPathComponent("\(id).png")) }
         }
+    }
+
+    /// Is `name` one of `<id>.…` for an id in `ids`? An id is hex, but a
+    /// test names its clips as it likes, so every dot is tried.
+    static func belongs(_ name: String, toOneOf ids: Set<String>) -> Bool {
+        var from = name.startIndex
+        while let dot = name[from...].firstIndex(of: ".") {
+            if ids.contains(String(name[..<dot])) { return true }
+            from = name.index(after: dot)
+        }
+        return false
     }
 
     /// True once, if a CLI clear happened while this process was running.
@@ -719,7 +745,7 @@ final class ClipboardStore {
     func trim(maxBytes: Int, maxItems: Int) {
         let doomed = Clipboard.trim(index.clips, maxBytes: maxBytes, maxItems: maxItems)
         guard !doomed.isEmpty else { return }
-        for id in doomed { delete(id) }
+        delete(doomed)
         Log.info("clipboard: trimmed \(doomed.count) clips")
     }
 }

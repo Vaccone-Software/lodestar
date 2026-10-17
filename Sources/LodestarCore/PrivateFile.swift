@@ -17,7 +17,20 @@ public enum PrivateFile {
     /// half of them; the temporary name is `<name>.<token>`, and a name made
     /// that way is still the clip's, which is how a trim finds one a crash
     /// left behind. A symbolic link at `url` is never followed.
-    public static func write(_ data: Data, to url: URL, atomically: Bool = false) throws {
+    public static func write(_ data: Data, to url: URL, atomically: Bool = false, sync: Bool = false) throws {
+        try data.withUnsafeBytes { try write(bytes: $0, to: url, atomically: atomically, sync: sync) }
+    }
+
+    /// The same, for bytes already in an array (a sealed blob), without a
+    /// copy into a `Data` first. `sync` asks for an `fsync` before the file
+    /// is closed (and so before it is renamed into place): the drive has the
+    /// bytes, though not that its own cache is flushed. A migration that is
+    /// about to remove the plaintext syncs, and ends with one full sync.
+    public static func write(_ bytes: [UInt8], to url: URL, atomically: Bool = false, sync: Bool = false) throws {
+        try bytes.withUnsafeBytes { try write(bytes: $0, to: url, atomically: atomically, sync: sync) }
+    }
+
+    private static func write(bytes: UnsafeRawBufferPointer, to url: URL, atomically: Bool, sync: Bool) throws {
         let path = url.path
         let target = atomically ? "\(path).\(UUID().uuidString.prefix(8))" : path
         let flags = O_WRONLY | O_CREAT | O_CLOEXEC | (atomically ? O_EXCL : O_TRUNC | O_NOFOLLOW)
@@ -26,17 +39,16 @@ public enum PrivateFile {
         var failed: Error?
         do {
             guard fchmod(descriptor, 0o600) == 0 else { throw failure() }
-            try data.withUnsafeBytes { bytes in
-                var written = 0
-                while written < bytes.count {
-                    let count = Darwin.write(descriptor, bytes.baseAddress! + written, bytes.count - written)
-                    if count < 0 {
-                        if errno == EINTR { continue }
-                        throw failure()
-                    }
-                    written += count
+            var written = 0
+            while written < bytes.count {
+                let count = Darwin.write(descriptor, bytes.baseAddress! + written, bytes.count - written)
+                if count < 0 {
+                    if errno == EINTR { continue }
+                    throw failure()
                 }
+                written += count
             }
+            if sync, fsync(descriptor) != 0 { throw failure() }
         } catch {
             failed = error
         }

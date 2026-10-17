@@ -564,15 +564,25 @@ public enum Clipboard {
     /// Copying the same thing again is a new copy: it rises to the top and
     /// the source updates. Pasting never reorders — the list is your copy
     /// history, which is the only reading that stays true while you use it.
+    ///
+    /// The id is the content, so what was already read off it is still true:
+    /// the card keeps its preview — an image's caption above all, which the
+    /// arrival cannot have yet, a recognizer pass being most of a second —
+    /// and its counts. Left to the arrival, a re-copied screenshot lost the
+    /// words it was found by until the recognizer came back.
     public static func merging(_ existing: [Clip], with arrival: Clip) -> [Clip] {
         var out = existing
         if let index = out.firstIndex(where: { $0.id == arrival.id }) {
-            let slot = out[index].pinnedSlot
-            let name = out[index].keptName
+            let known = out[index]
             out.remove(at: index)
             var promoted = arrival
-            promoted.pinnedSlot = slot
-            promoted.keptName = name
+            promoted.pinnedSlot = known.pinnedSlot
+            promoted.keptName = known.keptName
+            if known.kind == arrival.kind {
+                promoted.preview = known.preview
+                promoted.lines = known.lines ?? arrival.lines
+                promoted.characters = known.characters ?? arrival.characters
+            }
             out.insert(promoted, at: 0)
             return out
         }

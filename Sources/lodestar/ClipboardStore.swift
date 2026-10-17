@@ -171,6 +171,13 @@ final class ClipboardStore {
     /// a copy lands; the bytes go to disk on the io queue, because a large
     /// screenshot is tens of megabytes and this is called from a timer on
     /// the main thread.
+    ///
+    /// A copy of something already in the history only rises to the top.
+    /// The id is the content, so the files are there: each is compared with
+    /// what arrived and written only if it differs (a source can offer the
+    /// same text with a different rich form), the thumbnail is made only
+    /// if it is missing, and the recognizer is not run again — the card
+    /// keeps the caption it has, or the one still on its way.
     func record(id: String, kind: Clipboard.Kind, items: [Item],
                 imageData: Data?, preview: String,
                 sourceBundleID: String?, sourceAppName: String?,
@@ -184,15 +191,15 @@ final class ClipboardStore {
 
         let thumbFile = thumbs.appendingPathComponent("\(id).png")
         let imageTypes = first.natives.map(\.type)
+        let known = contains(id)
         io.async { [weak self] in
             guard let self else { return }
             for (index, item) in items.enumerated() {
                 if let plain = item.plain {
-                    try? plain.write(to: self.itemFile(id, item: index, "plain"))
+                    self.put(plain, at: self.itemFile(id, item: index, "plain"))
                 }
                 for (offset, native) in item.natives.enumerated() {
-                    try? native.data.write(
-                        to: self.itemFile(id, item: index, self.typeExtension(offset)))
+                    self.put(native.data, at: self.itemFile(id, item: index, self.typeExtension(offset)))
                 }
             }
             // An image says what it shows: the recognizer reads it once,
@@ -203,8 +210,10 @@ final class ClipboardStore {
             // error. The job holds the clip's name, not its bytes: a queue
             // of screenshots must not be a queue of decoded-size buffers,
             // so it reads the blob just written when its turn comes.
-            if imageData != nil { self.ocr.async { self.caption(id, types: imageTypes) } }
-            guard let imageData, let thumbnail = Self.thumbnail(from: imageData) else { return }
+            if imageData != nil, !known { self.ocr.async { self.caption(id, types: imageTypes) } }
+            guard let imageData else { return }
+            if known, FileManager.default.fileExists(atPath: thumbFile.path) { return }
+            guard let thumbnail = Self.thumbnail(from: imageData) else { return }
             try? thumbnail.write(to: thumbFile)
             DispatchQueue.main.async {
                 if let image = NSImage(data: thumbnail) { self.cache(image, for: id) }
@@ -222,6 +231,15 @@ final class ClipboardStore {
         )
         index.clips = Clipboard.merging(index.clips, with: clip)
         saveSoon()
+    }
+
+    /// A file's bytes, unless it already holds exactly these. Size first,
+    /// from the directory entry; the bytes only when the sizes agree.
+    private func put(_ data: Data, at url: URL) {
+        if let size = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? Int,
+           size == data.count, let stored = try? Data(contentsOf: url, options: .mappedIfSafe),
+           stored == data { return }
+        try? data.write(to: url)
     }
 
     // MARK: - Editing a card

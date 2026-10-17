@@ -172,6 +172,38 @@ final class ClipboardTests: XCTestCase {
         XCTAssertEqual(merged.first?.pinnedSlot, 2, "a re-copy must not silently unpin")
     }
 
+    /// The id is the content, so what was read off it is still true: a
+    /// re-copied screenshot keeps the words it was found by, and the copy
+    /// still brings its own moment and its own source.
+    func testRecopyingAnImageKeepsItsCaption() {
+        let shot = Clipboard.Clip(id: "shot", kind: .image, created: Date(timeIntervalSince1970: 100),
+                                  sourceBundleID: "com.old", sourceAppName: "Old", preview: "image 8×8\nbuild failed",
+                                  bytes: 10)
+        let again = Clipboard.Clip(id: "shot", kind: .image, created: Date(timeIntervalSince1970: 900),
+                                   sourceBundleID: "com.new", sourceAppName: "New", preview: "image 8×8",
+                                   bytes: 10)
+        let merged = Clipboard.merging([clip("other"), shot], with: again)
+        XCTAssertEqual(merged.map(\.id), ["shot", "other"])
+        XCTAssertEqual(merged.first?.preview, "image 8×8\nbuild failed", "the caption is not lost to the arrival")
+        XCTAssertEqual(merged.first?.sourceAppName, "New", "the source is the copy's")
+        XCTAssertEqual(merged.first?.created, Date(timeIntervalSince1970: 900), "and so is the moment")
+    }
+
+    func testRecopyingTextKeepsItsCountsAndLearnsThemIfItHadNone() {
+        var counted = clip("t", preview: "text")
+        counted.lines = 3
+        counted.characters = 40
+        var arrival = clip("t", minutesAgo: -1)
+        arrival.lines = 3
+        arrival.characters = 40
+        XCTAssertEqual(Clipboard.merging([counted], with: arrival).first?.lines, 3)
+        var old = clip("t", preview: "text")
+        old.lines = nil
+        old.characters = nil
+        XCTAssertEqual(Clipboard.merging([old], with: arrival).first?.characters, 40,
+                       "a card from before the counts takes them from the copy")
+    }
+
     // MARK: - Retention
 
     func testTrimDropsOldestUntilUnderTheByteCeiling() {

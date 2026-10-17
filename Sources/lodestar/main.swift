@@ -151,11 +151,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             at: Paths.data, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let guardian = RunMarker.launchGuard(in: Paths.data, build: Lodestar.version)
         launchGuard = guardian
-        do {
-            launchMode = RunMarker.Mode(try guardian.beginLaunch())
-        } catch {
-            Log.error("launch guard: could not read or write its state — \(error)")
-        }
+        launchMode = RunMarker.Mode(guardian.beginLaunch())
         if case .safe(let unclean) = launchMode {
             Log.error("launch guard", [
                 "unclean-launches": unclean,

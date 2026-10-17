@@ -56,10 +56,10 @@ final class SpeechDeadlineTests: XCTestCase {
 
     /// At the deadline the caller is told, and the work is cancelled in
     /// case it looks; the clock is virtual, so no time passes for real.
-    func testTheDeadlineCancelsTheWorkAndSaysTimedOut() async throws {
+    func testTheDeadlineCancelsTheWorkAndSaysTimedOut() async {
         let clock = TestClock()
         let cancelled = expectation(description: "work saw its cancellation")
-        try await withTestAmbient(clock: clock) {
+        await withTestAmbient(clock: clock) {
             let waiting = Task {
                 try await SpeechStart.withDeadline(2.5) { () async throws -> Int in
                     do { try await Task.sleep(for: .seconds(60)) } catch { cancelled.fulfill(); throw error }

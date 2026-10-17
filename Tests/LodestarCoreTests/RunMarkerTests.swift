@@ -1,3 +1,5 @@
+import Stoic
+import StoicTesting
 import XCTest
 @testable import LodestarCore
 
@@ -42,48 +44,57 @@ final class LaunchGuardTests: XCTestCase {
         try? FileManager.default.removeItem(at: directory)
     }
 
-    private func launch(build: String = "0.41.0") throws -> RunMarker.Mode {
+    private func launch(build: String = "0.41.0") -> RunMarker.Mode {
         // A fresh guard each time: each launch is a new process.
-        RunMarker.Mode(try RunMarker.launchGuard(in: directory, build: build, bootSession: "boot-1").beginLaunch())
+        RunMarker.Mode(RunMarker.launchGuard(in: directory, build: build, bootSession: "boot-1").beginLaunch())
     }
 
-    func testLaunchesThatNeverFinishPutTheNextOneInSafeMode() throws {
-        XCTAssertEqual(try launch(), .normal)
-        XCTAssertEqual(try launch(), .normal, "one died")
-        XCTAssertEqual(try launch(), .normal, "two died")
-        XCTAssertEqual(try launch(), .safe(uncleanLaunches: 3), "three in a row")
+    func testLaunchesThatNeverFinishPutTheNextOneInSafeMode() {
+        XCTAssertEqual(launch(), .normal)
+        XCTAssertEqual(launch(), .normal, "one died")
+        XCTAssertEqual(launch(), .normal, "two died")
+        XCTAssertEqual(launch(), .safe(uncleanLaunches: 3), "three in a row")
     }
 
     func testAStableLaunchStartsTheCountOver() throws {
-        XCTAssertEqual(try launch(), .normal)
-        XCTAssertEqual(try launch(), .normal)
+        XCTAssertEqual(launch(), .normal)
+        XCTAssertEqual(launch(), .normal)
         try RunMarker.launchGuard(in: directory, build: "0.41.0", bootSession: "boot-1").markStable()
-        XCTAssertEqual(try launch(), .normal)
-        XCTAssertEqual(try launch(), .normal)
-        XCTAssertEqual(try launch(), .normal, "the two before the stable launch no longer count")
+        XCTAssertEqual(launch(), .normal)
+        XCTAssertEqual(launch(), .normal)
+        XCTAssertEqual(launch(), .normal, "the two before the stable launch no longer count")
     }
 
     func testAQuitIsNotACrash() throws {
         for _ in 0..<6 {
-            XCTAssertEqual(try launch(), .normal)
+            XCTAssertEqual(launch(), .normal)
             try RunMarker.launchGuard(in: directory, build: "0.41.0", bootSession: "boot-1").markCleanExit()
         }
     }
 
-    func testANewBuildIsTheWayOutOfALoop() throws {
-        for _ in 0..<4 { _ = try launch() }
-        XCTAssertEqual(try launch(), .safe(uncleanLaunches: 4))
-        XCTAssertEqual(try launch(build: "0.41.1"), .normal)
+    func testANewBuildIsTheWayOutOfALoop() {
+        for _ in 0..<4 { _ = launch() }
+        XCTAssertEqual(launch(), .safe(uncleanLaunches: 4))
+        XCTAssertEqual(launch(build: "0.41.1"), .normal)
     }
 
-    func testTheStateFileSitsBesideTheOtherState() throws {
-        _ = try launch()
+    func testTheStateFileSitsBesideTheOtherState() {
+        _ = launch()
         XCTAssertTrue(FileManager.default.fileExists(
             atPath: directory.appendingPathComponent(RunMarker.launchGuardFile).path))
     }
 
-    func testAGuardThatCannotWriteThrowsRatherThanBlockingTheLaunch() {
+    /// The guard must never be the reason the app cannot start: a state file
+    /// it cannot write is a normal launch, and Stoic reports the one thing
+    /// lost (this launch will not be counted) as `launch.record_failed`.
+    func testAGuardThatCannotWriteStillLetsTheLaunchGoOnAndSaysSo() async {
         let missing = directory.appendingPathComponent("nowhere", isDirectory: true)
-        XCTAssertThrowsError(try RunMarker.launchGuard(in: missing, build: "x", bootSession: nil).beginLaunch())
+        let events = RecordingInstrumentation()
+        let mode = await withTestAmbient(clock: TestClock(), events: events) {
+            RunMarker.Mode(RunMarker.launchGuard(in: missing, build: "x", bootSession: nil).beginLaunch())
+        }
+        XCTAssertEqual(mode, .normal)
+        XCTAssertEqual(events.names, ["launch.record_failed"])
+        XCTAssertEqual(events.events.first?.level, .error)
     }
 }

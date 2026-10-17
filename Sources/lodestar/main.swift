@@ -2804,7 +2804,14 @@ if let first = cliArguments.first, ControlClient.verbs.contains(first) {
 }
 if Array(cliArguments.prefix(2)) == ["editor", "check"] {
     Log.stdoutEnabled = false
-    exit(await EditorCheck.run())
+    let done = DispatchSemaphore(value: 0)
+    nonisolated(unsafe) var code: Int32 = 1
+    Task.detached {
+        code = await EditorCheck.run()
+        done.signal()
+    }
+    done.wait()
+    exit(code)
 }
 if cliArguments.contains("--check") || cliArguments.contains("check") {
     runConfigCheck(json: cliArguments.contains("--json"))
@@ -2874,10 +2881,6 @@ if cliArguments.contains("--help") || cliArguments.contains("help") || cliArgume
     exit(0)
 }
 #if DEBUG
-/// Foundation will not run a run loop from an async context, which this
-/// file's top level is (it awaits the ambient context the app runs in).
-func runMainRunLoop() { RunLoop.main.run() }
-
 // Visual harness for the clipboard strip; compiled out of release builds.
 if cliArguments.contains("__split-preview") {
     if #available(macOS 26.0, *) {
@@ -2914,7 +2917,7 @@ if cliArguments.contains("__bring-read") {
         }
     }
     reader.start(front: NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0)
-    runMainRunLoop()
+    RunLoop.main.run()
 }
 #endif
 
@@ -2929,12 +2932,12 @@ let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate
 app.setActivationPolicy(.accessory)
-// Stoic's warnings and errors join the log. The ambient context is a task
-// local, and everything the run loop calls on the main thread (delegate
-// methods, main-queue blocks, timers, notifications, and the tasks they
-// start) runs inside this task. Work on other threads (a global queue,
-// a URLSession completion, a dedicated thread, Task.detached) does not
-// inherit it, and its Stoic events reach the unified log only.
-await withAmbient({ $0.instrumentation = CompositeInstrumentation([$0.instrumentation, StoicLog()]) }) {
+// Stoic's warnings and errors join the log. The ambient context is bound
+// for everything the run loop calls on this thread (delegate methods,
+// main-queue blocks, timers, notifications) and for the tasks they start.
+// Work on other threads (a global queue, a URLSession completion, a
+// dedicated thread) and Task.detached do not inherit it, and their Stoic
+// events reach the unified log only.
+withAmbient({ $0.instrumentation = CompositeInstrumentation([$0.instrumentation, StoicLog()]) }) {
     app.run()
 }

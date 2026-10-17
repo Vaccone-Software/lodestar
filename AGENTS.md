@@ -35,6 +35,13 @@ deviations from defaults; a key equal to its default is noise the next
 canonical write will remove. After a direct edit, `lodestar check --json`
 then `lodestar reload`.
 
+A file that does not parse (a comment, a stray comma, a truncated save) is
+never written over: the running app keeps the last good config and flashes
+where the fault is (`lodestar.json:LINE:COL`), `config set` and `unset`
+refuse to write, and `lodestar check` names the same position. Fix it and
+save, or `lodestar reset-config`, which copies the file aside first. The app
+reloads a saved file by itself, and `lodestar reload` re-applies it on demand.
+
 `check --json` runs the complete validation stack: structural schema
 (unknown keys get edit-distance hints), referential checks (graph →
 profile registry), and ground truth (declared browser profiles vs. the

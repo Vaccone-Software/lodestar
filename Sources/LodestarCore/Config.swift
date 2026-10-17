@@ -395,10 +395,15 @@ public struct Config {
     /// value equal to its default) is rewritten only when `transform` leaves
     /// the tree different from what the file holds once it is normalized and
     /// pruned: an edit that changes nothing writes nothing.
+    ///
+    /// `source` names who is writing, for the history (`ConfigHistoryRecorder`):
+    /// "Settings", "Lodestar", "The coach"; nothing is recorded for an edit
+    /// that changes nothing, and a writer that does not say is "Lodestar".
     @discardableResult
     public static func edit(
         in target: URL = Config.file,
         lockTimeout: TimeInterval = 2,
+        source: String? = nil,
         _ transform: ([String: ConfigValue]) throws -> [String: ConfigValue]
     ) throws -> [String: ConfigValue] {
         let name = target.lastPathComponent
@@ -409,12 +414,21 @@ public struct Config {
             throw EditError.unreadable(name)
         }
         var result: [String: ConfigValue] = [:]
+        var claimed: UInt64?
         do {
             try store.blockingUpdate(waitingUpTo: .seconds(lockTimeout)) { value in
                 var ignored: [String] = []
                 let updated = try transform(ConfigStore.tree(of: value, problems: &ignored))
                 result = updated
-                value = ConfigStore.canonical(updated)
+                let next = ConfigStore.canonical(updated)
+                // Under the update's own lock, in commit order, and only for
+                // an update that changes the value: the one the stream will
+                // announce, which the history then attributes to `source`.
+                if next != value {
+                    claimed = ConfigStore.attributions.expect(source: source ?? "Lodestar", producing: next,
+                                                              at: store.path)
+                }
+                value = next
             }
         } catch let error as ConfigStore.Store.UpdateError {
             if case .durabilityUnknown(let failure) = error {
@@ -424,7 +438,12 @@ public struct Config {
                 Log.error("config: written, but not known to be durable", ["error": "\(failure)"])
                 return result
             }
+            if let claimed { ConfigStore.attributions.cancel(claimed, at: store.path) }
             throw ConfigStore.editError(error, file: name, waited: lockTimeout)
+        } catch {
+            // The transform threw: nothing was written.
+            if let claimed { ConfigStore.attributions.cancel(claimed, at: store.path) }
+            throw error
         }
         return result
     }

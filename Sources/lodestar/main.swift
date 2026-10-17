@@ -211,7 +211,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // The alert sound is Lodestar's, and Sound settings finds it here.
         AlertSound.installAtBoot()
         var (loaded, problems) = Config.load()
-        lastConfigTree = Self.readConfigTree()
         // What the browsers actually have joins what the config references,
         // so pickers and most-recent resolution see every real profile.
         loaded.registerDetected(ChromiumProfiles.detected())
@@ -1474,42 +1473,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: - History and undo
 
-    /// The config as the file holds it, for the history's before and after.
-    private static func readConfigTree() -> [String: ConfigValue]? {
-        guard let text = try? String(contentsOf: Config.file, encoding: .utf8) else { return nil }
-        return try? Json.parse(text)
-    }
-
-    /// What changed since the last reload, written down with who wrote it:
-    /// the writer named itself through `rewriteConfig`, and anything else
-    /// came from the file — a hand edit or the command line.
-    private func recordConfigHistory() {
-        guard let tree = Self.readConfigTree() else { return }
-        defer {
-            lastConfigTree = tree
-            pendingConfigSource = nil
-        }
-        guard let before = lastConfigTree else { return }
-        let changes = ConfigHistory.changes(from: before, to: tree)
-        guard !changes.isEmpty else { return }
-        let now = Date()
-        let group = Int(now.timeIntervalSince1970 * 1000)
-        let source = pendingConfigSource ?? "The file"
-        ConfigHistory.append(changes.enumerated().map {
-            ConfigHistory.Entry(group: group, index: $0.offset, at: now, path: $0.element.path,
-                                old: $0.element.old, new: $0.element.new, source: source)
-        })
-        // A new change made here ends the redo chain, as everywhere else.
-        if source == "Settings" { redoGroups = [] }
+    /// The history is written by `ConfigHistoryRecorder` from the store's
+    /// stream of changes, off the main thread: every change, whoever made it,
+    /// with the writer's own name for the ones that are ours (`Config.edit(source:)`
+    /// from `rewriteConfig`) and "The file" for what arrived from outside.
+    /// A change made here ends the redo chain, as everywhere else.
+    private func configHistoryRecorded(_ recorded: ConfigHistoryRecorder.Recorded) {
+        if recorded.source == "Settings" { redoGroups = [] }
     }
 
     /// Write a group of entries' old (or new) values back, as one write.
     private func revertConfig(_ entries: [ConfigHistory.Entry],
                               to side: KeyPath<ConfigHistory.Entry, ConfigValue?>,
                               flash: String, source: String) -> Bool {
-        let ordered = side == \ConfigHistory.Entry.old ? entries.reversed() : entries
+        let side: ConfigHistory.Side = side == \ConfigHistory.Entry.old ? .old : .new
         let problem = rewriteConfig(flash: flash, logged: "history", source: source) { tree in
-            ordered.reduce(tree) { ConfigHistory.applying($1[keyPath: side], at: $1.path, to: $0) }
+            ConfigHistory.restoring(entries, to: side, in: tree)
         }
         if let problem { hud.flash("✕ \(problem)") }
         return problem == nil
@@ -2199,11 +2178,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// and something quieter when the flash names a destination.
     private func rewriteConfig(flash: String, logged: String? = nil, source: String = "Lodestar",
                                edit: ([String: ConfigValue]) throws -> [String: ConfigValue]) -> String? {
-        // Who wrote it, for the history the reload below records.
-        pendingConfigSource = configSource ?? source
+        // Who wrote it, for the history the store's stream records.
+        let writer = configSource ?? source
         configSource = nil
         do {
-            try Config.edit(edit)
+            try Config.edit(source: writer, edit)
         } catch let error as GraphJsonEditor.EditError {
             return error.description
         } catch let error as WebJsonEditor.EditError {
@@ -2375,7 +2354,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// store keeps it) and says where the fault is; the fix and the next
     /// save apply as any arrival does.
     private func applyConfigReload(successFlash: String) {
-        recordConfigHistory()
         let result = Config.loadSnapshot(reload: false)
         var loaded = result.config
         let loadProblems = result.problems
@@ -2518,10 +2496,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: - Auto-reload watcher
 
-    /// The file as it stood at the last reload, for the history's diff.
-    private var lastConfigTree: [String: ConfigValue]?
-    /// Who is writing the config right now, named by the writer.
-    private var pendingConfigSource: String?
     /// A writer that calls through someone else's path names itself here
     /// first: the coach's accept arrives through ⌘K's graph edits.
     private var configSource: String?
@@ -2529,6 +2503,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var redoGroups: [[ConfigHistory.Entry]] = []
     /// The store's watch on the config's directory, and what it tells us.
     private var configWatcher: ConfigWatcher?
+    private var configHistory: ConfigHistoryRecorder?
 
     /// Watch the config file for edits made while the app runs: Stoic's
     /// `watch(debounce:)` reloads it off the main thread once it has been quiet
@@ -2546,6 +2521,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Log.error("config-watch: could not open the config", ["error": "\(error)"])
             return
         }
+        // Both listen from here on: a change committed after this is heard.
+        let history = ConfigHistoryRecorder(store: store) { [weak self] recorded in
+            DispatchQueue.main.async { self?.configHistoryRecorded(recorded) }
+        }
+        history.start()
+        configHistory = history
         let watcher = ConfigWatcher(store: store) { [weak self] in self?.configArrived() }
         do {
             try watcher.start()

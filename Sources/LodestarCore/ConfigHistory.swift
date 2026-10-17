@@ -1,4 +1,5 @@
 import Foundation
+import StoicJSON
 
 /// Every change to the config, whoever made it: the settings window, the
 /// coach, the editor learning a word, ⌘K, a hand edit in the file. The
@@ -39,40 +40,67 @@ public enum ConfigHistory {
 
     /// The leaves that differ between two config trees, in path order. The
     /// file's own stamps (`$schema`, `version`) are not changes.
+    ///
+    /// The difference is Stoic's (`JSONChange.between`): the deepest paths at
+    /// which the two trees differ, a key on one side only being one change
+    /// at that key with its whole value, and `1800` and `1800.0` being the
+    /// same number.
     public static func changes(from old: [String: ConfigValue], to new: [String: ConfigValue])
         -> [(path: [String], old: ConfigValue?, new: ConfigValue?)] {
-        var out: [(path: [String], old: ConfigValue?, new: ConfigValue?)] = []
-        func walk(_ a: [String: ConfigValue], _ b: [String: ConfigValue], _ at: [String]) {
-            for key in Set(a.keys).union(b.keys).sorted() {
-                if at.isEmpty, key == "$schema" || key == "version" { continue }
-                let path = at + [key]
-                switch (a[key], b[key]) {
-                case (.table(let x)?, .table(let y)?):
-                    walk(x, y, path)
-                case (let x, let y) where x != y:
-                    out.append((path, x, y))
-                default:
-                    break
-                }
+        JSONChange.between(ConfigStore.json(old), ConfigStore.json(new)).compactMap { change in
+            let path = change.path.components.compactMap { component -> String? in
+                if case .key(let key) = component { return key }
+                return nil
             }
+            // The root differing as a whole cannot happen between two trees;
+            // the stamps are the file's, not the person's.
+            guard !path.isEmpty, !(path.count == 1 && (path[0] == "$schema" || path[0] == "version")) else {
+                return nil
+            }
+            return (path, change.old.flatMap(Json.value), change.new.flatMap(Json.value))
         }
-        walk(old, new, [])
-        return out
     }
 
     /// The tree with one path set to a value, or removed for nil — tables
     /// made on the way, emptied tables left for the writer to prune.
+    ///
+    /// Stoic's `JSONValue.applying(_:overwriting: true)`: the entry's value
+    /// goes where its path says whatever is there now, which is what undoing
+    /// an edit that has since been changed again means. A value in the way
+    /// of a section (a scalar where the path needs a table) is replaced by
+    /// the table, as it always was.
     public static func applying(_ value: ConfigValue?, at path: [String],
                                 to tree: [String: ConfigValue]) -> [String: ConfigValue] {
-        guard let head = path.first else { return tree }
-        var out = tree
-        if path.count == 1 {
-            out[head] = value
-            return out
+        guard !path.isEmpty else { return tree }
+        var json = ConfigStore.json(tree)
+        let change = JSONChange(path: JSONPath(path.map { .key($0) }), old: nil,
+                                new: value.flatMap { ConfigStore.json($0) })
+        for _ in 0...path.count {
+            do {
+                json = try json.applying(change, overwriting: true)
+                break
+            } catch JSONChange.ApplyError.blocked(let step) {
+                // A scalar sits where a section must be: the section wins.
+                let blocking = JSONPath(Array(step.components.dropLast()))
+                guard let cleared = try? json.setting(.object(JSONObject()), at: blocking) else { break }
+                json = cleared
+            } catch {
+                break
+            }
         }
-        let child = out[head]?.table ?? [:]
-        out[head] = .table(applying(value, at: Array(path.dropFirst()), to: child))
-        return out
+        var ignored: [String] = []
+        return Json.tree(of: json, problems: &ignored) ?? tree
+    }
+
+    /// Which side of its entries a group is written back to.
+    public enum Side { case old, new }
+
+    /// A group of entries' old (or new) values written back to the tree, as
+    /// one edit: undoing takes them last to first, redoing first to last.
+    public static func restoring(_ entries: [Entry], to side: Side, in tree: [String: ConfigValue])
+        -> [String: ConfigValue] {
+        let ordered = side == .old ? Array(entries.reversed()) : entries
+        return ordered.reduce(tree) { applying(side == .old ? $1.old : $1.new, at: $1.path, to: $0) }
     }
 
     public static func append(_ entries: [Entry], to file: URL = defaultFile) {

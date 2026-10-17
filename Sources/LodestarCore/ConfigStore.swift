@@ -104,6 +104,62 @@ public enum ConfigStore {
         }
     }
 
+    // MARK: - Who wrote it
+
+    /// Who is about to write which value, so that the history can say, once
+    /// the store announces the change, who made it.
+    ///
+    /// A change from the stream says what changed and why (`.update`: the app
+    /// did it), not *which part of the app*: the settings window, the coach,
+    /// the editor learning a word, an undo. A writer names itself when it
+    /// writes (`Config.edit(source:)`), inside the update's own critical
+    /// section, so the entry is made only for an update that changes the value
+    /// and is in commit order; the history claims it by the value it produced.
+    final class Attributions: @unchecked Sendable {
+        struct Entry { let id: UInt64; let new: JSONValue; let source: String }
+
+        private let lock = NSLock()
+        private var next: UInt64 = 0
+        private var pending: [String: [Entry]] = [:]
+
+        /// The most that wait for their change: a change the stream dropped
+        /// (a reader that fell behind) leaves its entry here, and a bound
+        /// keeps it from growing.
+        static let bound = 64
+
+        func expect(source: String, producing new: JSONValue, at path: String) -> UInt64 {
+            lock.lock()
+            defer { lock.unlock() }
+            next += 1
+            var entries = pending[path, default: []]
+            entries.append(Entry(id: next, new: new, source: source))
+            if entries.count > Self.bound { entries.removeFirst(entries.count - Self.bound) }
+            pending[path] = entries
+            return next
+        }
+
+        /// The update did not commit after all.
+        func cancel(_ id: UInt64, at path: String) {
+            lock.lock()
+            defer { lock.unlock() }
+            pending[path]?.removeAll { $0.id == id }
+        }
+
+        /// The writer of the update that produced `new`: the oldest entry for
+        /// that value, which also settles the older entries (their changes
+        /// were never announced to a reader that is still here).
+        func claim(producing new: JSONValue, at path: String) -> String? {
+            lock.lock()
+            defer { lock.unlock() }
+            guard let index = pending[path]?.firstIndex(where: { $0.new == new }) else { return nil }
+            let source = pending[path]![index].source
+            pending[path]!.removeSubrange(...index)
+            return source
+        }
+    }
+
+    static let attributions = Attributions()
+
     // MARK: - The tree and the JSON
 
     /// The tree Lodestar's own code reads and edits, from the store's value.
@@ -135,7 +191,7 @@ public enum ConfigStore {
         return .object(object)
     }
 
-    private static func json(_ value: ConfigValue, key: String) -> JSONValue? {
+    static func json(_ value: ConfigValue, key: String = "value") -> JSONValue? {
         switch value {
         case .string(let string): return .string(string)
         case .bool(let bool): return .bool(bool)

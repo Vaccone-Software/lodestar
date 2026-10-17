@@ -107,6 +107,13 @@ public enum Json {
         return .string(text)
     }
 
+    /// One parsed value as the config holds it: nil for what it cannot hold
+    /// (a list) and for `null`.
+    static func value(_ value: JSONValue) -> ConfigValue? {
+        var ignored: [String] = []
+        return convert(value, at: [], problems: &ignored)
+    }
+
     private static func convertTable(_ object: JSONObject, at path: [String],
                                      problems: inout [String]) -> [String: ConfigValue] {
         var out: [String: ConfigValue] = [:]

@@ -27,6 +27,14 @@ final class ClipboardStore {
     /// Surfaced once at boot, the way a corrupt state file is.
     private(set) var bootWarning: String?
     private let io = DispatchQueue(label: "lodestar.clipboard.io", qos: .utility)
+    /// Every recognizer run goes through this one queue, a screenshot at a
+    /// time. Each pass is most of a second of the neural engine and a
+    /// decoded copy of the picture, so a burst of screenshots must wait in
+    /// line, not run side by side.
+    private let ocr = DispatchQueue(label: "lodestar.clipboard.ocr", qos: .utility)
+    /// What an image says. The recognizer here; a test's own, to count its
+    /// calls and watch their order.
+    var readText: (Data) -> String? = { OCRSense.readText(imageData: $0) }
     /// Decoded thumbnails, so a strip of image cards costs no decoding —
     /// bounded, because a decoded image is far larger than its file and a
     /// menu-bar app runs for weeks. The strip shows at most fourteen at
@@ -175,6 +183,7 @@ final class ClipboardStore {
         }
 
         let thumbFile = thumbs.appendingPathComponent("\(id).png")
+        let imageTypes = first.natives.map(\.type)
         io.async { [weak self] in
             guard let self else { return }
             for (index, item) in items.enumerated() {
@@ -186,22 +195,20 @@ final class ClipboardStore {
                         to: self.itemFile(id, item: index, self.typeExtension(offset)))
                 }
             }
+            // An image says what it shows: the recognizer reads it once,
+            // off the main thread and off this queue — the accurate pass
+            // on a screenshot is most of a second, and the writes must not
+            // wait behind it — and the card learns its caption a beat
+            // after it exists. A screenshot of an error is found by the
+            // error. The job holds the clip's name, not its bytes: a queue
+            // of screenshots must not be a queue of decoded-size buffers,
+            // so it reads the blob just written when its turn comes.
+            if imageData != nil { self.ocr.async { self.caption(id, types: imageTypes) } }
             guard let imageData, let thumbnail = Self.thumbnail(from: imageData) else { return }
             try? thumbnail.write(to: thumbFile)
             DispatchQueue.main.async {
                 if let image = NSImage(data: thumbnail) { self.cache(image, for: id) }
                 self.onThumbnail?()
-            }
-        }
-        // An image says what it shows: the recognizer reads it once, off
-        // the main thread and off the io queue — the accurate pass on a
-        // screenshot is most of a second, and the writes must not wait
-        // behind it — and the card learns its caption a beat after it
-        // exists. A screenshot of an error is found by the error.
-        if let imageData {
-            DispatchQueue.global(qos: .utility).async { [weak self] in
-                guard let text = OCRSense.readText(imageData: imageData) else { return }
-                DispatchQueue.main.async { self?.caption(id, with: text) }
             }
         }
 
@@ -325,22 +332,38 @@ final class ClipboardStore {
         }.prefix(limit)
         guard !pending.isEmpty else { return }
         let jobs = pending.map { (id: $0.id, types: $0.itemTypes.first ?? []) }
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            var captioned = 0
-            for job in jobs {
-                guard let self else { return }
-                let offset = job.types.firstIndex {
-                    $0 == NSPasteboard.PasteboardType.png.rawValue
-                        || $0 == NSPasteboard.PasteboardType.tiff.rawValue
-                } ?? 0
-                guard let data = try? Data(contentsOf: self.itemFile(job.id, item: 0,
-                                                                     self.typeExtension(offset))),
-                      let text = OCRSense.readText(imageData: data) else { continue }
-                captioned += 1
-                DispatchQueue.main.async { self.caption(job.id, with: text) }
+        captionBacklog(jobs[...], captioned: 0, of: jobs.count)
+    }
+
+    /// The backlog goes through the same queue as a fresh copy, one image
+    /// per turn, and each turn queues the next only when it is done: a
+    /// screenshot copied while the backlog is being read goes next, not
+    /// after the other four hundred.
+    private func captionBacklog(_ jobs: ArraySlice<(id: String, types: [String])>,
+                                captioned: Int, of total: Int) {
+        ocr.async { [weak self] in
+            guard let self else { return }
+            guard let job = jobs.first else {
+                Log.info("clipboard: captioned \(captioned) of \(total) images already in the history")
+                return
             }
-            Log.info("clipboard: captioned \(captioned) of \(jobs.count) images already in the history")
+            let read = self.caption(job.id, types: job.types)
+            self.captionBacklog(jobs.dropFirst(), captioned: captioned + (read ? 1 : 0), of: total)
         }
+    }
+
+    /// Read one stored image and, if it says anything, hand its caption to
+    /// the main thread. On the recognizer's queue.
+    @discardableResult
+    private func caption(_ id: String, types: [String]) -> Bool {
+        let offset = types.firstIndex {
+            $0 == NSPasteboard.PasteboardType.png.rawValue
+                || $0 == NSPasteboard.PasteboardType.tiff.rawValue
+        } ?? 0
+        guard let data = try? Data(contentsOf: itemFile(id, item: 0, typeExtension(offset))),
+              let text = readText(data) else { return false }
+        DispatchQueue.main.async { [weak self] in self?.caption(id, with: text) }
+        return true
     }
 
     /// An image's text arrived. The size line stays first, so the card is

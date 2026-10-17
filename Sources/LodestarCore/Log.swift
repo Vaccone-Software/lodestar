@@ -47,18 +47,28 @@ public enum Log {
     public static var fileEnabled: Bool = !TestRun.active
 
     public static func info(_ event: String, _ fields: KeyValuePairs<String, Any> = [:]) {
-        write("INFO", event, fields)
+        write("INFO", event, Array(fields))
     }
 
     public static func warning(_ event: String, _ fields: KeyValuePairs<String, Any> = [:]) {
-        write("WARN", event, fields)
+        write("WARN", event, Array(fields))
     }
 
     public static func error(_ event: String, _ fields: KeyValuePairs<String, Any> = [:]) {
+        write("ERR ", event, Array(fields))
+    }
+
+    /// `warning` and `error` for a line whose fields are not known until it
+    /// is built, which a dictionary literal cannot say.
+    public static func warning(_ event: String, fields: [(key: String, value: Any)]) {
+        write("WARN", event, fields)
+    }
+
+    public static func error(_ event: String, fields: [(key: String, value: Any)]) {
         write("ERR ", event, fields)
     }
 
-    private static func write(_ level: String, _ event: String, _ fields: KeyValuePairs<String, Any>) {
+    private static func write(_ level: String, _ event: String, _ fields: [(key: String, value: Any)]) {
         var line = "\(formatter.string(from: Date())) \(level) \(event)"
         for (key, value) in fields {
             line += " \(key)=\(format(value))"

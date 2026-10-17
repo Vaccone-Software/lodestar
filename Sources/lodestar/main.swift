@@ -1,5 +1,6 @@
 import AppKit
 import LodestarCore
+import Stoic
 import StoicStore
 import LodestarEars
 
@@ -143,7 +144,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// the app in safe mode, where a stall is logged and not aborted:
     /// the abort and relaunch is how a past crash loop kept going. The
     /// guard must never itself be the reason the app cannot start, so
-    /// any trouble with its file is logged and the launch goes on.
+    /// any trouble with its file is reported (Stoic's `launch.record_failed`,
+    /// which `StoicLog` writes to the log) and the launch goes on.
     private func beginLaunchGuard() {
         // The data directory is made properly at migration, further down;
         // on the very first launch it may not exist yet.
@@ -2802,14 +2804,7 @@ if let first = cliArguments.first, ControlClient.verbs.contains(first) {
 }
 if Array(cliArguments.prefix(2)) == ["editor", "check"] {
     Log.stdoutEnabled = false
-    let done = DispatchSemaphore(value: 0)
-    nonisolated(unsafe) var code: Int32 = 1
-    Task.detached {
-        code = await EditorCheck.run()
-        done.signal()
-    }
-    done.wait()
-    exit(code)
+    exit(await EditorCheck.run())
 }
 if cliArguments.contains("--check") || cliArguments.contains("check") {
     runConfigCheck(json: cliArguments.contains("--json"))
@@ -2879,6 +2874,10 @@ if cliArguments.contains("--help") || cliArguments.contains("help") || cliArgume
     exit(0)
 }
 #if DEBUG
+/// Foundation will not run a run loop from an async context, which this
+/// file's top level is (it awaits the ambient context the app runs in).
+func runMainRunLoop() { RunLoop.main.run() }
+
 // Visual harness for the clipboard strip; compiled out of release builds.
 if cliArguments.contains("__split-preview") {
     if #available(macOS 26.0, *) {
@@ -2915,7 +2914,7 @@ if cliArguments.contains("__bring-read") {
         }
     }
     reader.start(front: NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0)
-    RunLoop.main.run()
+    runMainRunLoop()
 }
 #endif
 
@@ -2930,4 +2929,12 @@ let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate
 app.setActivationPolicy(.accessory)
-app.run()
+// Stoic's warnings and errors join the log. The ambient context is a task
+// local, and everything the run loop calls on the main thread (delegate
+// methods, main-queue blocks, timers, notifications, and the tasks they
+// start) runs inside this task. Work on other threads (a global queue,
+// a URLSession completion, a dedicated thread, Task.detached) does not
+// inherit it, and its Stoic events reach the unified log only.
+await withAmbient({ $0.instrumentation = CompositeInstrumentation([$0.instrumentation, StoicLog()]) }) {
+    app.run()
+}

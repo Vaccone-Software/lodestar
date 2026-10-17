@@ -19,12 +19,6 @@ extension Backend {
 /// after that is left to `UpdateController`'s own timer, which asks again
 /// in a quarter of an hour and then an hour: that is a later check, not a
 /// retry of this one.
-///
-/// A URLError is wrapped (`Transport`) before it leaves the attempt. Erased
-/// to `any Error`, which is all `URLSession` hands back, it is an NSError
-/// on this platform, and Stoic's cast of a failure to `Retryable` does not
-/// see through that: a refused certificate would be asked for again like a
-/// dropped connection.
 public enum UpdateFeed {
     static let fetch = Backend.updateFeed.readOnly("fetch")
 
@@ -40,13 +34,7 @@ public enum UpdateFeed {
     static func data(for request: URLRequest,
                      load: (URLRequest) async throws -> (Data, URLResponse)) async throws -> Data {
         try await fetch.perform { _ in
-            let data: Data
-            let response: URLResponse
-            do {
-                (data, response) = try await load(request)
-            } catch let error as URLError {
-                throw Transport(error: error)
-            }
+            let (data, response) = try await load(request)
             if let response = response as? HTTPURLResponse, let failure = HTTPFailure(response) { throw failure }
             return data
         }
@@ -56,20 +44,12 @@ public enum UpdateFeed {
     /// the HTTP status (with GitHub's rate limit named), or the transport
     /// error as it was thrown.
     public static func problem(_ error: any Error) -> String {
-        if let transport = error as? Transport { return String(describing: transport.error) }
         guard let error = error as? OperationError<any Error> else { return String(describing: error) }
         switch error.stop {
         case .failed(let failure): return problem(failure)
         case .rejected(let rejection): return String(describing: rejection)
         case .cancelled: return "cancelled"
         }
-    }
-
-    /// A transport failure, classified by StoicFoundation's table for URLError.
-    struct Transport: Error, Retryable {
-        let error: URLError
-        var retryDecision: RetryDecision { error.retryDecision }
-        var neverReachedBackend: Bool { error.neverReachedBackend }
     }
 
     /// An HTTP answer that is not an answer: the status, and when to come

@@ -117,15 +117,23 @@ final class UpdateFeedTests: XCTestCase {
                           "a pressed menu item gives up sooner than the daily check")
     }
 
-    /// Erased to `any Error` a URLError is an NSError here, and a cast of
-    /// that to `Retryable` fails: the classification only reaches it
-    /// because the attempt wraps it.
+    /// Erased to `any Error`, which is all `URLSession` hands back, a
+    /// URLError is an NSError on this platform. Stoic reads it as the Swift
+    /// value it stands for, so StoicFoundation's table applies to it.
     func testARefusedCertificateIsNotAskedAgainHoweverItArrives() async throws {
         for failure in [Step.fail(.serverCertificateUntrusted), .failAsNSError(NSURLErrorServerCertificateUntrusted)] {
             let outcome = try await fetch([failure, .answer(200)], urgency: .background)
             XCTAssertNil(outcome.data)
             XCTAssertEqual(outcome.requests, 1, "\(failure)")
         }
+    }
+
+    func testATimeoutIsAskedAgainAndTheErrorIsPrintedAsThrown() async throws {
+        let again = try await fetch([.fail(.timedOut), .answer(200)], urgency: .background)
+        XCTAssertEqual(again.data, Data("feed".utf8))
+        XCTAssertEqual(again.requests, 2)
+        let refused = try await fetch([.fail(.serverCertificateUntrusted)], urgency: .background)
+        XCTAssertEqual(refused.problem, String(describing: URLError(.serverCertificateUntrusted) as any Error))
     }
 
     func testALostConnectionIsAskedAgainHoweverItArrives() async throws {

@@ -418,7 +418,7 @@ public struct Config {
                 throw EditError.unreadable(target.lastPathComponent)
             }
             do {
-                tree = try Json.parse(text)
+                tree = try Json.parse(text, file: target.lastPathComponent)
             } catch {
                 throw EditError.unparsed("\(error)")
             }
@@ -445,10 +445,10 @@ public struct Config {
         var root: [String: ConfigValue] = [:]
         if FileManager.default.fileExists(atPath: source.path) {
             do {
-                guard let text = try? String(contentsOf: source, encoding: .utf8) else {
-                    throw Json.ParseError(message: "\(source.lastPathComponent) is not valid UTF-8")
+                guard let data = try? Data(contentsOf: source) else {
+                    throw Json.ParseError(file: source.lastPathComponent, message: "could not be read")
                 }
-                root = try Json.parse(text, problems: &problems)
+                root = try Json.parse(Array(data), file: source.lastPathComponent, problems: &problems)
             } catch {
                 problems.append("config parse failed (\(error)); using defaults — "
                                 + "\(source.lastPathComponent) left untouched")

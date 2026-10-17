@@ -1,4 +1,5 @@
 import Foundation
+import StoicJSON
 
 /// The config's home format: strict JSON in, canonical JSON out, and the
 /// sparse discipline — the file holds only what differs from defaults, so
@@ -7,17 +8,54 @@ import Foundation
 /// the config verbs, a hand edit that gets rewritten) converges on the
 /// same canonical bytes.
 public enum Json {
+    /// Why the config text could not be read, and where: `lodestar.json:3:5:
+    /// …`, the shape editors and terminals link.
     public struct ParseError: Error, CustomStringConvertible {
+        /// The file's name, as the message spells it.
+        public let file: String
+        /// Where the parser stopped; nil when the problem is the whole file's.
+        public let line: Int?
+        public let column: Int?
         public let message: String
-        public var description: String { "json: \(message)" }
+
+        public init(file: String = Json.fileName, line: Int? = nil, column: Int? = nil, message: String) {
+            self.file = file
+            self.line = line
+            self.column = column
+            self.message = message
+        }
+
+        public var description: String {
+            if let line, let column { return "\(file):\(line):\(column): \(message)" }
+            return "\(file): \(message)"
+        }
     }
 
-    /// Strict JSON → the shared ConfigValue tree. The top level must be
-    /// an object. Comments are a parse error on purpose: anything a
+    /// What the config's errors call the file.
+    public static let fileName = "lodestar.json"
+
+    /// How the config is read: the dialect the hand-edited store reads
+    /// (trailing commas, a byte order mark), with comments refused on
+    /// purpose, because a canonical rewrite would drop the note. Duplicate
+    /// keys are refused too (the parser's default), where two readers would
+    /// disagree about which value counts.
+    public static let parseOptions: JSONParseOptions = {
+        var options = JSONParseOptions.jsonc
+        options.allowComments = false
+        return options
+    }()
+
+    /// Strict JSON → the shared ConfigValue tree. The top level must be an
+    /// object. Comments are a parse error on purpose: anything a
     /// canonical rewrite would destroy is refused up front.
-    public static func parse(_ text: String) throws -> [String: ConfigValue] {
+    public static func parse(_ text: String, file: String = Json.fileName) throws -> [String: ConfigValue] {
         var ignored: [String] = []
-        return try parse(text, problems: &ignored)
+        return try parse(Array(text.utf8), file: file, problems: &ignored)
+    }
+
+    public static func parse(_ text: String, file: String = Json.fileName,
+                             problems: inout [String]) throws -> [String: ConfigValue] {
+        try parse(Array(text.utf8), file: file, problems: &problems)
     }
 
     /// The same parse, reporting what it had to drop.
@@ -32,72 +70,81 @@ public enum Json {
     /// `null` is the exception, and stays silent: a section written with
     /// no keys is how the config spells "all defaults here", and the
     /// emitted JSON Schema explicitly admits it.
-    public static func parse(_ text: String, problems: inout [String]) throws -> [String: ConfigValue] {
-        let object: Any
+    public static func parse(_ bytes: [UInt8], file: String = Json.fileName,
+                             problems: inout [String]) throws -> [String: ConfigValue] {
+        let document: JSONDocument
         do {
-            object = try JSONSerialization.jsonObject(with: Data(text.utf8))
+            document = try JSONDocument(parsing: bytes, options: parseOptions)
         } catch {
-            let ns = error as NSError
-            let detail = (ns.userInfo[NSDebugDescriptionErrorKey] as? String) ?? ns.localizedDescription
-            throw ParseError(message: detail)
+            throw ParseError(file: file, line: error.location.line, column: error.location.column,
+                             message: error.message)
         }
-        guard let table = object as? [String: Any] else {
-            throw ParseError(message: "the top level must be an object")
+        guard case .object = document.value else {
+            let start = document.range.start
+            throw ParseError(file: file, line: start.line, column: start.column,
+                             message: "the top level must be an object")
         }
-        return convertTable(table, at: [], problems: &problems)
+        return tree(of: document.value, problems: &problems) ?? [:]
+    }
+
+    /// The config tree a parsed document holds, with what this config cannot
+    /// hold left out and reported (see `parse`). Nil when the value is not an
+    /// object.
+    public static func tree(of value: JSONValue, problems: inout [String]) -> [String: ConfigValue]? {
+        guard case .object(let object) = value else { return nil }
+        return convertTable(object, at: [], problems: &problems)
     }
 
     /// A single JSON value ("true", "1800", "\"pointer\"") for the config
     /// verbs; a bare word that fails JSON parsing reads as a string, so
     /// `config set lode.trigger raw-hyper` works unquoted.
     public static func parseFragment(_ text: String) -> ConfigValue {
-        let data = Data(text.utf8)
         var ignored: [String] = []
-        if let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]),
-           let value = convert(object, at: [], problems: &ignored) {
+        if let document = try? JSONDocument(parsing: text, options: .strict),
+           let value = convert(document.value, at: [], problems: &ignored) {
             return value
         }
         return .string(text)
     }
 
-    private static func convertTable(_ table: [String: Any], at path: [String],
+    private static func convertTable(_ object: JSONObject, at path: [String],
                                      problems: inout [String]) -> [String: ConfigValue] {
         var out: [String: ConfigValue] = [:]
-        for (key, value) in table {
-            if let converted = convert(value, at: path + [key], problems: &problems) {
-                out[key] = converted
+        for member in object {
+            if let converted = convert(member.value, at: path + [member.key], problems: &problems) {
+                out[member.key] = converted
             }
         }
         return out
     }
 
-    private static func convert(_ value: Any, at path: [String],
+    private static func convert(_ value: JSONValue, at path: [String],
                                 problems: inout [String]) -> ConfigValue? {
         let address = path.isEmpty ? "the value" : path.joined(separator: ".")
-        if let number = value as? NSNumber {
-            // Booleans are NSNumbers too; CFBoolean is the honest test.
-            if CFGetTypeID(number) == CFBooleanGetTypeID() { return .bool(number.boolValue) }
-            let double = number.doubleValue
-            // JSONSerialization accepts a negative overflow (-1e400) and
-            // hands back -infinity. Carrying that into the tree meant the
+        switch value {
+        case .bool(let bool):
+            return .bool(bool)
+        case .number(let number):
+            // The parser refuses what a Double cannot hold, so this guard is
+            // belt and braces: carrying -infinity into the tree once meant the
             // next canonical write emitted the bare token `-inf`, which is
             // not JSON — the file stopped parsing, and the config was gone.
-            guard double.isFinite else {
+            guard let double = number.double, double.isFinite else {
                 problems.append("\(address) is not a finite number — ignored")
                 return nil
             }
             if double.rounded() == double, abs(double) < 1e15 { return .int(Int(double)) }
             return .double(double)
-        }
-        if let string = value as? String { return .string(string) }
-        if let table = value as? [String: Any] {
-            return .table(convertTable(table, at: path, problems: &problems))
-        }
-        if value is [Any] {
+        case .string(let string):
+            return .string(string)
+        case .object(let object):
+            return .table(convertTable(object, at: path, problems: &problems))
+        case .array:
             problems.append("\(address) is a list — this config has no lists, so it was ignored")
             return nil
+        case .null:
+            return nil // null: an empty section, meaning all-defaults
         }
-        return nil // null: an empty section, meaning all-defaults
     }
 
     // MARK: - Canonical emission

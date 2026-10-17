@@ -191,16 +191,46 @@ final class JsonTests: XCTestCase {
 
     // MARK: - Values this config cannot hold
 
-    /// `-1e400` is accepted by JSONSerialization (only positive overflow
-    /// is rejected) and arrives as -infinity. Carrying it meant the next
+    /// `-1e400` was accepted by JSONSerialization (only positive overflow
+    /// was rejected) and arrived as -infinity. Carrying it meant the next
     /// write emitted the bare token `-inf`, which is not JSON: the config
-    /// stopped parsing and the file was lost on the write after that.
-    func testNonFiniteNumberIsRefusedAndReported() throws {
-        var problems: [String] = []
-        let root = try Json.parse(#"{"scroll": {"speed": -1e400}}"#, problems: &problems)
-        XCTAssertNil(root.value(at: ["scroll", "speed"]))
-        XCTAssertTrue(problems.contains { $0.contains("scroll.speed") && $0.contains("finite") },
-                      "\(problems)")
+    /// stopped parsing and the file was lost on the write after that. The
+    /// parser now refuses both overflows where they are written, with the
+    /// line and column, so the value never reaches the tree.
+    func testNonFiniteNumberIsRefusedWithItsPosition() throws {
+        for text in [#"{"scroll": {"speed": -1e400}}"#, #"{"scroll": {"speed": 1e400}}"#] {
+            XCTAssertThrowsError(try Json.parse(text), text) { error in
+                guard let error = error as? Json.ParseError else { return XCTFail("\(error)") }
+                XCTAssertEqual(error.line, 1)
+                XCTAssertEqual(error.column, 22, "the number's own column")
+                XCTAssertTrue("\(error)".hasPrefix("lodestar.json:1:22: "), "\(error)")
+            }
+        }
+    }
+
+    /// A parse error says which file, which line and which column, the shape
+    /// editors and terminals link.
+    func testAParseErrorNamesTheFileTheLineAndTheColumn() {
+        let text = "{\n  \"scroll\": {\n    \"speed\": 2200,\n    // note\n  }\n}\n"
+        XCTAssertThrowsError(try Json.parse(text, file: "work.json")) { error in
+            guard let error = error as? Json.ParseError else { return XCTFail("\(error)") }
+            XCTAssertEqual(error.line, 4)
+            XCTAssertEqual(error.column, 5, "the slash that begins the comment")
+            XCTAssertTrue("\(error)".hasPrefix("work.json:4:5: "), "\(error)")
+        }
+        XCTAssertThrowsError(try Json.parse("[1, 2]")) { error in
+            XCTAssertTrue("\(error)".hasPrefix("lodestar.json:1:1: the top level must be an object"), "\(error)")
+        }
+    }
+
+    /// What the old reader tolerated and the new one still does: a trailing
+    /// comma. What it never noticed and the new one refuses, with the
+    /// position of the second spelling: a key written twice.
+    func testATrailingCommaReadsAndADuplicateKeyIsRefused() throws {
+        XCTAssertEqual(try Json.parse(#"{"a": 1,}"#)["a"], .int(1))
+        XCTAssertThrowsError(try Json.parse("{\n  \"a\": 1,\n  \"a\": 2\n}")) { error in
+            XCTAssertTrue("\(error)".hasPrefix("lodestar.json:3:3: "), "\(error)")
+        }
     }
 
     /// Whatever `emit` writes, `parse` must read. This is the invariant the

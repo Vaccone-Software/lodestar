@@ -130,12 +130,25 @@ final class ConfigEditTests: XCTestCase {
         XCTAssertEqual(try? Json.parse(onDisk)["version"], .string(Lodestar.version))
     }
 
-    /// Values the config cannot hold are reported through `load`, not
-    /// dropped in silence — a `-1e400` used to survive as -infinity and
-    /// make the next write emit `-inf`, which is not JSON.
-    func testLoadReportsValuesItHadToDrop() {
-        write(#"{"scroll": {"speed": -1e400}}"#)
+    /// A number the config cannot hold (`-1e400` used to survive as -infinity
+    /// and make the next write emit `-inf`, which is not JSON) is a parse
+    /// problem with its line and column, and the file is left as it was.
+    func testLoadReportsAnOverflowingNumberWhereItIs() {
+        let text = #"{"scroll": {"speed": -1e400}}"#
+        write(text)
         let (_, problems) = Config.load(from: file)
-        XCTAssertTrue(problems.contains { $0.contains("finite") }, "\(problems)")
+        XCTAssertTrue(problems.contains {
+            $0.hasPrefix("config parse failed (lodestar.json:1:22: ")
+                && $0.hasSuffix("; using defaults — lodestar.json left untouched")
+        }, "\(problems)")
+        XCTAssertEqual(onDisk, text)
+    }
+
+    /// Values it can read but not hold (a list) are reported through `load`,
+    /// not dropped in silence.
+    func testLoadReportsValuesItHadToDrop() {
+        write(#"{"graph": {"s": ["Slack"]}}"#)
+        let (_, problems) = Config.load(from: file)
+        XCTAssertTrue(problems.contains { $0.contains("graph.s") && $0.contains("list") }, "\(problems)")
     }
 }

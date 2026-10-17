@@ -41,6 +41,13 @@ let package = Package(
             .product(name: "Stoic", package: "stoic"),
             .product(name: "StoicFoundation", package: "stoic"),
             .product(name: "StoicStore", package: "stoic"),
+            // The config file: parsed with line and column (StoicJSON),
+            // held as a hand-edited settings store, never overwritten when
+            // it does not parse (StoicSettings), validated by Lodestar's own
+            // ConfigSchema, with StoicSchema's Schema.json() for the tree.
+            .product(name: "StoicJSON", package: "stoic"),
+            .product(name: "StoicSchema", package: "stoic"),
+            .product(name: "StoicSettings", package: "stoic"),
             .product(name: "StoicHTTP", package: "stoic"),
             .product(name: "StoicSealed", package: "stoic"),
             .product(name: "StoicApple", package: "stoic"),
@@ -68,6 +75,8 @@ let package = Package(
             .product(name: "Tokenizers", package: "swift-transformers"),
             .product(name: "OrderedCollections", package: "swift-collections"),
             .product(name: "Stoic", package: "stoic"),
+            .product(name: "StoicJSON", package: "stoic"),
+            .product(name: "StoicSettings", package: "stoic"),
             .product(name: "StoicStore", package: "stoic"),
             .product(name: "StoicHTTP", package: "stoic"),
             .product(name: "StoicSealed", package: "stoic"),
@@ -83,6 +92,8 @@ let package = Package(
                         "LodestarCore",
                         .product(name: "StoicTesting", package: "stoic"),
                         .product(name: "StoicHTTP", package: "stoic"),
+                        .product(name: "StoicJSON", package: "stoic"),
+                        .product(name: "StoicSettings", package: "stoic"),
                         .product(name: "StoicSealed", package: "stoic"),
                         .product(name: "StoicStore", package: "stoic"),
                         .product(name: "StoicApple", package: "stoic"),
@@ -95,6 +106,8 @@ let package = Package(
         .testTarget(name: "LodestarAppTests", dependencies: [
             "lodestar", "LodestarCore",
             .product(name: "StoicTesting", package: "stoic"),
+            .product(name: "StoicJSON", package: "stoic"),
+            .product(name: "StoicSettings", package: "stoic"),
             .product(name: "StoicHTTP", package: "stoic"),
             .product(name: "StoicSealed", package: "stoic"),
             .product(name: "StoicStore", package: "stoic"),

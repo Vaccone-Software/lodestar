@@ -277,8 +277,12 @@ public enum ConfigStore {
             return "\(file):\(position ?? "1:1"): the top level must be an object"
         }
         var message = issue.message
-        if issue.code == .parseError, message.hasPrefix("invalid JSON: ") {
-            message = String(message.dropFirst("invalid JSON: ".count))
+        if issue.code == .parseError {
+            if let code = issue.parameters["parseCode"]?.string, let text = issue.parameters["message"]?.string {
+                message = Json.says(code, text)
+            } else if message.hasPrefix("invalid JSON: ") {
+                message = String(message.dropFirst("invalid JSON: ".count))
+            }
         }
         guard let position else { return "\(file): \(message)" }
         return "\(file):\(position): \(message)"
@@ -365,10 +369,10 @@ extension Config {
         let fresh = JSONValue.object(JSONObject())
         let deadline = Date().addingTimeInterval(2)
         while true {
-            do {
+            do throws(ConfigStore.Store.ReplaceError) {
                 let copy = try store.replaceUnusableFile(with: fresh, keepingCopyAt: backup.path)
                 return URL(fileURLWithPath: copy)
-            } catch let error as ConfigStore.Store.ReplaceError {
+            } catch {
                 switch error {
                 case .fileIsUsable:
                     break // the ordinary road, below
@@ -387,8 +391,6 @@ extension Config {
                 default:
                     throw ResetError.writeFailed(reason: "\(error)", backup: nil)
                 }
-            } catch {
-                throw ResetError.writeFailed(reason: "\(error)", backup: nil)
             }
             break
         }

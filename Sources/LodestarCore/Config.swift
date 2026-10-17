@@ -1,6 +1,5 @@
 import CoreGraphics
 import Foundation
-import StoicStore
 
 public struct Config {
     public enum Trigger: String {

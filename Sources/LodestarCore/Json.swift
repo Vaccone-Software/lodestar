@@ -77,7 +77,7 @@ public enum Json {
             document = try JSONDocument(parsing: bytes, options: parseOptions)
         } catch {
             throw ParseError(file: file, line: error.location.line, column: error.location.column,
-                             message: error.message)
+                             message: says(error.code.rawValue, error.message))
         }
         guard case .object = document.value else {
             let start = document.range.start
@@ -85,6 +85,15 @@ public enum Json {
                              message: "the top level must be an object")
         }
         return tree(of: document.value, problems: &problems) ?? [:]
+    }
+
+    /// The parser's sentence, in the config's own words where the parser's are
+    /// about its options: a comment is refused because a rewrite would lose
+    /// it, and the person is told that, not which flag was set.
+    static func says(_ code: String, _ message: String) -> String {
+        code == "comment_not_allowed"
+            ? "comments are not allowed in the config (a rewrite would lose them) — remove it"
+            : message
     }
 
     /// The config tree a parsed document holds, with what this config cannot

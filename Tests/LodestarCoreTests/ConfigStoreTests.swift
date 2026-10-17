@@ -221,7 +221,7 @@ final class ConfigStoreTests: XCTestCase {
         try write(withComment)
         XCTAssertThrowsError(try Config.edit(in: file) { Json.setting($0, path: ["scroll", "speed"], to: .int(1))! }) {
             guard case Config.EditError.unparsed(let detail) = $0 else { return XCTFail("\($0)") }
-            XCTAssertTrue(detail.hasPrefix("lodestar.json:2:3: "), detail)
+            XCTAssertTrue(detail.hasPrefix("lodestar.json:2:3: comments are not allowed in the config"), detail)
         }
         XCTAssertThrowsError(try Config.write(tree: ["scroll": .table(["speed": .int(1)])], to: file))
         XCTAssertEqual(onDisk, withComment)

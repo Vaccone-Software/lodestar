@@ -221,6 +221,25 @@ final class ConfigHistoryRecorderTests: XCTestCase {
         XCTAssertEqual(read.map(\.path), [["graph"], ["scroll"]])
     }
 
+    /// The app is told, on the main queue, what was recorded and for whom (a
+    /// change from Settings ends the redo chain).
+    func testTheAppIsToldOnTheMainQueueWhatWasRecorded() throws {
+        let store = try ConfigStore.store(at: file)
+        var told: [(String, Int, Bool)] = []
+        let recorder = ConfigHistoryRecorder(store: store, file: history, onRecorded: { recorded in
+            told.append((recorded.source, recorded.entries.count, Thread.isMainThread))
+        })
+        recorder.start()
+        self.recorder = recorder
+        try set(["scroll", "speed"], .int(2200), source: "Settings")
+        let deadline = Date().addingTimeInterval(5)
+        while told.isEmpty, Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01)) }
+        XCTAssertEqual(told.count, 1)
+        XCTAssertEqual(told.first?.0, "Settings")
+        XCTAssertEqual(told.first?.1, 1)
+        XCTAssertEqual(told.first?.2, true)
+    }
+
     // MARK: Undo and redo
 
     /// The group an undo takes back, written back as one edit, and the redo

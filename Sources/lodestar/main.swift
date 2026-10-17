@@ -2522,9 +2522,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         // Both listen from here on: a change committed after this is heard.
-        let history = ConfigHistoryRecorder(store: store) { [weak self] recorded in
-            DispatchQueue.main.async { self?.configHistoryRecorded(recorded) }
-        }
+        let history = ConfigHistoryRecorder(store: store, onRecorded: { [weak self] recorded in
+            self?.configHistoryRecorded(recorded)
+        })
         history.start()
         configHistory = history
         let watcher = ConfigWatcher(store: store) { [weak self] in self?.configArrived() }

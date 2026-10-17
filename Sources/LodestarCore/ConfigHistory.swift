@@ -12,7 +12,7 @@ import StoicJSON
 /// One small file beside the record, a line per entry, the newest last,
 /// trimmed to the last `keep` once it holds twice that.
 public enum ConfigHistory {
-    public struct Entry: Equatable {
+    public struct Entry: Equatable, Sendable {
         /// `<group>-<index>`: unique, and stable across reads.
         public let id: String
         /// The reload that recorded it, in milliseconds: one write, one group.

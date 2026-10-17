@@ -6,7 +6,7 @@ import StoicStore
 
 /// A value that is handed across a thread boundary and used on one thread
 /// only. The watcher's callbacks are the app's, called on the main queue.
-private struct MainQueueOnly<T>: @unchecked Sendable {
+struct MainQueueOnly<T>: @unchecked Sendable {
     let value: T
 }
 

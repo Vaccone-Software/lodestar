@@ -25,7 +25,8 @@ import StoicSettings
 ///
 /// Runs on one task of its own, off the main thread: a change is recorded a
 /// moment after the write that made it returns (the stream is told before the
-/// write returns; this reads it). `onRecorded` is called there too, in order.
+/// write returns; this reads it). `onRecorded` is called on `queue` (the main
+/// queue), in order, once the entries are written.
 public final class ConfigHistoryRecorder: @unchecked Sendable {
     /// What was recorded for one change.
     public struct Recorded: Sendable {
@@ -38,18 +39,21 @@ public final class ConfigHistoryRecorder: @unchecked Sendable {
     private let store: ConfigStore.Store
     private let file: URL
     private let now: @Sendable () -> Date
-    private let onRecorded: (@Sendable (Recorded) -> Void)?
+    private let queue: DispatchQueue
+    private let onRecorded: MainQueueOnly<((Recorded) -> Void)?>
     private let state = NSLock()
     private var task: Task<Void, Never>?
     private var lastGroup: Int?
 
     public init(store: ConfigStore.Store, file: URL = ConfigHistory.defaultFile,
                 now: @escaping @Sendable () -> Date = { Date() },
-                onRecorded: (@Sendable (Recorded) -> Void)? = nil) {
+                queue: DispatchQueue = .main,
+                onRecorded: ((Recorded) -> Void)? = nil) {
         self.store = store
         self.file = file
         self.now = now
-        self.onRecorded = onRecorded
+        self.queue = queue
+        self.onRecorded = MainQueueOnly(value: onRecorded)
     }
 
     deinit { stop() }
@@ -104,7 +108,10 @@ public final class ConfigHistoryRecorder: @unchecked Sendable {
         }
         ConfigHistory.append(entries, to: file)
         let recorded = Recorded(change: change, source: source, group: group, entries: entries)
-        onRecorded?(recorded)
+        if let handler = onRecorded.value {
+            let box = MainQueueOnly(value: handler)
+            queue.async { box.value(recorded) }
+        }
         return recorded
     }
 

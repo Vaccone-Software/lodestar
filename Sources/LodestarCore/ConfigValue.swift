@@ -2,7 +2,7 @@ import Foundation
 
 /// A parsed configuration value — the shared shape any config syntax
 /// produces.
-public enum ConfigValue: Equatable {
+public enum ConfigValue: Equatable, Sendable {
     case string(String)
     case int(Int)
     case double(Double)

@@ -35,6 +35,8 @@ final class ClipboardStore {
     /// decoded copy of the picture, so a burst of screenshots must wait in
     /// line, not run side by side.
     private let ocr = DispatchQueue(label: "lodestar.clipboard.ocr", qos: .utility)
+    /// The length of a long text is counted here, a text at a time.
+    private let counting = DispatchQueue(label: "lodestar.clipboard.counts", qos: .utility)
     /// What an image says. The recognizer here; a test's own, to count its
     /// calls and watch their order.
     var readText: (Data) -> String? = { OCRSense.readText(imageData: $0) }
@@ -404,6 +406,26 @@ final class ClipboardStore {
                 completion?()
             }
         }
+    }
+
+    /// A long text's length, worked out after its card exists: counted off
+    /// the main thread, on a queue of its own so the counting of a 19 MB
+    /// copy does not hold up the files of the next one, and written to the
+    /// card when it is done. Until then the card has no counts and says what
+    /// its preview says.
+    func count(id: String, text: String) {
+        counting.async { [weak self] in
+            let counted = Clipboard.counts(of: text)
+            DispatchQueue.main.async { self?.counted(id, counted) }
+        }
+    }
+
+    private func counted(_ id: String, _ counts: (lines: Int, characters: Int)) {
+        guard let position = index.clips.firstIndex(where: { $0.id == id }) else { return }
+        index.clips[position].lines = counts.lines
+        index.clips[position].characters = counts.characters
+        saveSoon()
+        onThumbnail?()
     }
 
     /// Images that were on the strip before it could read them: captioned

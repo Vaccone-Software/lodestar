@@ -50,6 +50,9 @@ final class ClipboardController {
     /// and a byte ceiling alone does not bound how many text clips fit.
     private let maxItems = 10_000
     private let maxItemBytes = 20_000_000
+    /// Texts up to this many bytes are counted at capture, on the main
+    /// thread, in a few milliseconds; longer ones after the card exists.
+    static let countedInlineLimit = 256_000
     /// Where the PNGs written for terminal pastes live, and which of them
     /// this run wrote, oldest first.
     var handover = HandoverFolder()
@@ -269,8 +272,13 @@ final class ClipboardController {
         let sourceHost = Clipboard.sourceHost(fromURL: boardItems[0].string(
             forType: NSPasteboard.PasteboardType(Clipboard.sourceURLType)))
         // How long the text is, said once at capture so the card can say
-        // when it holds more than it shows.
-        let counted = imageData == nil ? Clipboard.counts(of: readable) : nil
+        // when it holds more than it shows. Counting characters is a pass
+        // over every one of them — 12 ms a megabyte, 240 for the 19 the
+        // ceiling allows — so a long text is counted a moment after its
+        // card exists, off the main thread, and meanwhile the card says
+        // what its preview says.
+        let long = readable.utf8.count > Self.countedInlineLimit
+        let counted = imageData == nil && !long ? Clipboard.counts(of: readable) : nil
         store.record(id: id, kind: imageData != nil ? .image : .text,
                      items: items, imageData: imageData,
                      preview: preview,
@@ -278,6 +286,7 @@ final class ClipboardController {
                      sourceAppName: source?.localizedName,
                      sourceHost: sourceHost,
                      lines: counted?.lines, characters: counted?.characters)
+        if imageData == nil, long { store.count(id: id, text: readable) }
         store.trim(maxBytes: maxBytes, maxItems: maxItems)
         onCapture?()
         onCopied?()

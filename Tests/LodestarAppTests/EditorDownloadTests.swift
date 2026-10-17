@@ -1,5 +1,6 @@
 import CryptoKit
 import Stoic
+import StoicStore
 import XCTest
 @testable import lodestar
 @testable import LodestarCore
@@ -113,6 +114,39 @@ final class EditorDownloadTests: XCTestCase {
 
     override func tearDown() {
         try? FileManager.default.removeItem(at: root)
+    }
+
+    // MARK: - Putting the model in place
+
+    private func stagedModel() throws -> SimulatedFileSystem {
+        let disk = SimulatedFileSystem()
+        try disk.createDirectory("/models")
+        let file = AtomicFile(fileSystem: disk, options: .init(envelope: false))
+        try file.write(Array("old".utf8), to: "/models/m")
+        try file.write(Array("new".utf8), to: "/models/.m.partial")
+        disk.settle()
+        return disk
+    }
+
+    func testAModelWhoseSwapCouldNotBeSyncedIsInPlaceAndTheOldOneIsCleared() throws {
+        let disk = try stagedModel()
+        disk.inject(EIO, on: .syncDirectory)
+        try EditorDownload.putInPlace(URL(fileURLWithPath: "/models/.m.partial"),
+                                      at: URL(fileURLWithPath: "/models/m"), fileSystem: disk)
+        XCTAssertEqual(disk.contents(of: "/models/m"), Array("new".utf8))
+        XCTAssertNil(disk.contents(of: "/models/.m.partial"), "the old model is not left to be resumed into")
+    }
+
+    func testAModelThatCouldNotBeSwappedIsAFailureAndLeavesBothAsTheyWere() throws {
+        let disk = try stagedModel()
+        disk.inject(ENOSPC, on: .exchange)
+        XCTAssertThrowsError(try EditorDownload.putInPlace(URL(fileURLWithPath: "/models/.m.partial"),
+                                                           at: URL(fileURLWithPath: "/models/m"),
+                                                           fileSystem: disk)) {
+            XCTAssertEqual(($0 as? StoreError)?.kind, .diskFull)
+        }
+        XCTAssertEqual(disk.contents(of: "/models/m"), Array("old".utf8))
+        XCTAssertEqual(disk.contents(of: "/models/.m.partial"), Array("new".utf8))
     }
 
     private func download(free: Int64 = 100_000_000_000, retry: Schedule = .fixed(.milliseconds(50))) -> EditorDownload {

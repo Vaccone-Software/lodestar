@@ -140,11 +140,14 @@ public enum Updater {
     /// Stoic's `AtomicFile`, so a power cut leaves the old marker or the
     /// new one and never a torn or missing file, and a failure is thrown
     /// where the caller can say so. No checksum envelope: the watchdog
-    /// script reads some of these with `cat`.
+    /// script reads some of these with `cat`. A directory sync that fails
+    /// after the rename leaves the new marker in place and is not a failure.
     public static func writeMarker(_ text: String, to url: URL) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
-        try AtomicFile(options: .init(envelope: false)).write(Array(text.utf8), to: url.path)
+        try DurableFile.acceptingUnknownDurability(of: url.lastPathComponent) {
+            try AtomicFile(options: .init(envelope: false)).write(Array(text.utf8), to: url.path)
+        }
     }
 
     /// What is wrong with an HTTP answer, or nil when it is an answer. A

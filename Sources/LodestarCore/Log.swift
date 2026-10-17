@@ -50,6 +50,10 @@ public enum Log {
         write("INFO", event, fields)
     }
 
+    public static func warning(_ event: String, _ fields: KeyValuePairs<String, Any> = [:]) {
+        write("WARN", event, fields)
+    }
+
     public static func error(_ event: String, _ fields: KeyValuePairs<String, Any> = [:]) {
         write("ERR ", event, fields)
     }

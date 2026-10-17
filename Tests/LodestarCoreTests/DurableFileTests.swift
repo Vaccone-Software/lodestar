@@ -1,3 +1,4 @@
+import StoicStore
 import XCTest
 @testable import LodestarCore
 
@@ -73,6 +74,68 @@ final class DurableFileTests: XCTestCase {
         try FileManager.default.removeItem(at: url.deletingLastPathComponent())
         XCTAssertFalse(DurableFile.save(Data("x".utf8), to: url, as: "unit"))
         XCTAssertEqual(lines.filter { $0.contains("could not write a.json") }.count, 2)
+    }
+
+    // MARK: - durability unknown
+
+    /// A disk whose directory sync fails after the rename: the file is the
+    /// new one, only its survival of a power cut is in doubt.
+    private func unsyncedDisk() throws -> SimulatedFileSystem {
+        let disk = SimulatedFileSystem()
+        try disk.createDirectory("/d")
+        disk.settle()
+        disk.inject(EIO, on: .syncDirectory)
+        return disk
+    }
+
+    func testAWriteWhoseDirectorySyncFailedIsMadeAndWarnedAbout() throws {
+        let disk = try unsyncedDisk()
+        var lines: [String] = []
+        Log.listener = { lines.append($0) }
+        try DurableFile.write(Data("new".utf8), to: URL(fileURLWithPath: "/d/a.json"), fileSystem: disk)
+        XCTAssertEqual(disk.contents(of: "/d/a.json"), Array("new".utf8), "readers see the bytes")
+        let warned = lines.filter { $0.contains("a.json: in place, but not known to be durable") }
+        XCTAssertEqual(warned.count, 1)
+        XCTAssertTrue(warned[0].contains("WARN"))
+    }
+
+    func testASaveWhoseDirectorySyncFailedSucceeds() throws {
+        let disk = try unsyncedDisk()
+        var lines: [String] = []
+        Log.listener = { lines.append($0) }
+        let url = URL(fileURLWithPath: "/d/a.json")
+        XCTAssertTrue(DurableFile.save(Data("new".utf8), to: url, as: "unit", fileSystem: disk))
+        XCTAssertEqual(disk.contents(of: "/d/a.json"), Array("new".utf8))
+        XCTAssertFalse(lines.contains { $0.contains("ERR") }, "not a failure: \(lines)")
+    }
+
+    func testUnknownDurabilityIsWarnedOncePerNameUntilACleanCall() throws {
+        var lines: [String] = []
+        Log.listener = { lines.append($0) }
+        let unknown = StoreError(kind: .durabilityUnknown, operation: "fsync", errnoValue: EIO)
+        func attempt(_ name: String, failing: Bool) throws {
+            try DurableFile.acceptingUnknownDurability(of: name) { if failing { throw unknown } }
+        }
+        try attempt("model", failing: true)
+        try attempt("model", failing: true)
+        try attempt("other", failing: true)
+        XCTAssertEqual(lines.count, 2, "a flapping disk is one line per file, not one per save")
+        try attempt("model", failing: false)
+        try attempt("model", failing: true)
+        XCTAssertEqual(lines.count, 3, "after a clean call the next one is news again")
+    }
+
+    func testEveryOtherFailureStillThrows() {
+        for kind in [StoreError.Kind.diskFull, .readOnly, .ioFailure, .corrupt, .other] {
+            let error = StoreError(kind: kind, operation: "write")
+            XCTAssertThrowsError(try DurableFile.acceptingUnknownDurability(of: "x") { throw error }, "\(kind)") {
+                XCTAssertEqual(($0 as? StoreError)?.kind, kind)
+            }
+        }
+        struct Boom: Error {}
+        XCTAssertThrowsError(try DurableFile.acceptingUnknownDurability(of: "x") { throw Boom() }) {
+            XCTAssertTrue($0 is Boom)
+        }
     }
 
     // MARK: - append

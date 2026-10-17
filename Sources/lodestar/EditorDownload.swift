@@ -427,16 +427,35 @@ final class EditorDownload: NSObject, URLSessionDataDelegate {
         }
         let final = root.appendingPathComponent(manifest.folder, isDirectory: true)
         do {
-            // One swap, not a delete and then a move: a crash or a power
-            // cut between those two used to leave neither the old model
-            // nor the new, after a download of gigabytes. Now the folder
-            // is the old model whole or the new one whole.
-            try AtomicFile().replaceItem(at: final.path, withItemAt: folder.path)
+            try Self.putInPlace(folder, at: final)
             Log.info("editor", ["downloaded": manifest.folder, "bytes": manifest.total])
             post(.ready, generation: generation)
         } catch {
             Log.error("editor: \(manifest.folder) could not be put in place: \(error)")
             post(.failed("could not be put in place"), generation: generation)
+        }
+    }
+
+    /// One swap, not a delete and then a move: a crash or a power cut
+    /// between those two used to leave neither the old model nor the new,
+    /// after a download of gigabytes. Now the folder is the old model whole
+    /// or the new one whole.
+    ///
+    /// A directory sync that fails after the swap is not a failed install:
+    /// the new model is in place, and fetching it again would be gigabytes
+    /// spent on a model already there. What that leaves is the old model at
+    /// the staged path, which is cleared here, so a later fetch of this
+    /// folder does not resume into it.
+    static func putInPlace(_ staged: URL, at final: URL,
+                           fileSystem: any FileSystem = PosixFileSystem()) throws {
+        try DurableFile.acceptingUnknownDurability(of: final.lastPathComponent) {
+            try AtomicFile(fileSystem: fileSystem).replaceItem(at: final.path, withItemAt: staged.path)
+        }
+        do {
+            if try fileSystem.exists(staged.path) { try fileSystem.removeTree(staged.path) }
+        } catch {
+            Log.error("editor: the old \(final.lastPathComponent) could not be cleared from \(staged.lastPathComponent)",
+                      ["error": "\(error)"])
         }
     }
 

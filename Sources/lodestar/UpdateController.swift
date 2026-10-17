@@ -279,29 +279,42 @@ final class UpdateController {
         let feed = channel == .stable ? Updater.stableURL : Self.feedURL
         var request = URLRequest(url: feed, timeoutInterval: 30)
         request.setValue("lodestar/\(Lodestar.version)", forHTTPHeaderField: "User-Agent")
-        network.dataTask(with: request) { [weak self] data, response, error in
+        // Who is waiting decides how patiently the feed is asked: the
+        // periodic check is nobody's, the menu item is someone's.
+        let urgency: Urgency = force ? .interactive : .background
+        Task { [weak self] in
             guard let self else { return }
-            let problem = error.map { String(describing: $0) }
-                ?? Updater.httpProblem(status: (response as? HTTPURLResponse)?.statusCode)
-            guard problem == nil, let data, let release = Updater.parse(data, channel: channel) else {
-                self.finishCheck(force: force, note: "✕ Could not check for updates",
-                                 log: "\(channel.rawValue) feed unreadable (\(problem ?? "no release with a zip"))", failed: true)
-                return
+            var data: Data?
+            var problem: String?
+            do {
+                data = try await withUrgency(urgency) { try await UpdateFeed.data(for: request, session: self.network) }
+            } catch {
+                problem = UpdateFeed.problem(error)
             }
-            DispatchQueue.main.async { self.failedChecks = 0 }
-            let local = Updater.parseVersion(Lodestar.version) ?? []
-            guard Updater.isNewer(release.version, than: local) else {
-                self.finishCheck(force: force, voice: Voice.newest(Lodestar.version), log: nil)
-                return
-            }
-            guard Updater.shouldOffer(release, refusedTag: self.refusedTag) else {
-                self.finishCheck(force: force,
-                                 note: "✓ \(release.tag) already failed to start here\nLodestar waits for a newer release",
-                                 log: "refusing \(release.tag): it was rolled back once")
-                return
-            }
-            self.worker.async { self.download(release, force: force) }
-        }.resume()
+            self.answered(data, problem: problem, channel: channel, force: force)
+        }
+    }
+
+    /// The feed's answer, or what went wrong. Off the main thread.
+    private func answered(_ data: Data?, problem: String?, channel: Updater.Channel, force: Bool) {
+        guard problem == nil, let data, let release = Updater.parse(data, channel: channel) else {
+            finishCheck(force: force, note: "✕ Could not check for updates",
+                        log: "\(channel.rawValue) feed unreadable (\(problem ?? "no release with a zip"))", failed: true)
+            return
+        }
+        DispatchQueue.main.async { self.failedChecks = 0 }
+        let local = Updater.parseVersion(Lodestar.version) ?? []
+        guard Updater.isNewer(release.version, than: local) else {
+            finishCheck(force: force, voice: Voice.newest(Lodestar.version), log: nil)
+            return
+        }
+        guard Updater.shouldOffer(release, refusedTag: refusedTag) else {
+            finishCheck(force: force,
+                        note: "✓ \(release.tag) already failed to start here\nLodestar waits for a newer release",
+                        log: "refusing \(release.tag): it was rolled back once")
+            return
+        }
+        worker.async { self.download(release, force: force) }
     }
 
     /// Can this process move bundles at all? Cheap stats only.

@@ -26,6 +26,10 @@ public enum Paths {
 
     public static let clipboard = data.appendingPathComponent("clipboard", isDirectory: true)
 
+    /// Feedback notes written and not yet delivered (`FeedbackQueue`): the
+    /// person's own words, so behavioral, and out of Time Machine.
+    public static let feedbackOutbox = data.appendingPathComponent("feedback-outbox", isDirectory: true)
+
     /// The pid file and update staging deliberately stay in `config`.
     ///
     /// They hold no content worth protecting — an integer and a transient
@@ -86,7 +90,8 @@ public enum Paths {
     /// record or harmless, and is backed up.
     public static func isBehavioral(_ name: String) -> Bool {
         if name == "clipboard" { return true }
-        for prefix in ["events", "observations", "lodestar.log", "state.json", "rollups.json", "draft-in-flight"]
+        for prefix in ["events", "observations", "lodestar.log", "state.json", "rollups.json", "draft-in-flight",
+                       "feedback-outbox"]
         where name == prefix || name.hasPrefix(prefix + ".") || name.hasPrefix(prefix + "-") {
             return true
         }

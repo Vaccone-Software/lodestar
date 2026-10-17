@@ -297,7 +297,11 @@ final class UpdateController {
         }
     }
 
-    /// The feed's answer, or what went wrong. Off the main thread.
+    /// The feed's answer, or what went wrong. Called from `check`'s `Task`,
+    /// which is off the main thread: the class is not actor-isolated, so the
+    /// task inherits no executor and runs on the global one, where the
+    /// URLSession completion this replaces also ran. Main-thread state is
+    /// reached through `DispatchQueue.main`, as `finishCheck` does.
     private func answered(_ data: Data?, problem: String?, channel: Updater.Channel, force: Bool) {
         guard problem == nil, let data, let release = Updater.parse(data, channel: channel) else {
             finishCheck(force: force, note: "✕ Could not check for updates",

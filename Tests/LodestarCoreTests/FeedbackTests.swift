@@ -1,3 +1,5 @@
+import Stoic
+import StoicHTTP
 import XCTest
 @testable import LodestarCore
 
@@ -57,13 +59,31 @@ final class FeedbackTests: XCTestCase {
         XCTAssertFalse(sent.contains("OLDEST"))
     }
 
-    func testTheRequestGoesToTheSiteAndSaysWhereItIsFrom() {
-        let request = Feedback(message: "hi").request()
-        XCTAssertEqual(request.url?.absoluteString, "https://lodestar.vaccone.software/api/feedback")
-        XCTAssertEqual(request.httpMethod, "POST")
-        XCTAssertEqual(request.value(forHTTPHeaderField: "x-lodestar-feedback"), "1")
-        XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/json")
-        XCTAssertNotNil(request.httpBody)
+    func testTheRequestGoesToTheSiteAndSaysWhereItIsFrom() async throws {
+        let transport = ScriptedTransport()
+        transport.on(.post(Feedback.path, body: [], contentType: "application/json"), respond: [.json(#"{"ok":true}"#)])
+        let note = Feedback(message: "hi")
+        try await Feedback.client(transport: transport).send(note.httpRequest, idempotencyKey: IdempotencyKey(rawValue: "key-1"))
+        let sent = try XCTUnwrap(transport.requests.first)
+        XCTAssertEqual(sent.url?.absoluteString, "https://lodestar.vaccone.software/api/feedback")
+        XCTAssertEqual(sent.method, .post)
+        XCTAssertEqual(sent.headers["x-lodestar-feedback"], "1")
+        XCTAssertEqual(sent.headers["Content-Type"], "application/json")
+        XCTAssertEqual(sent.headers["Idempotency-Key"], "key-1", "the client's keyed send adds it, not the note")
+        XCTAssertEqual(sent.body, [UInt8](note.payload))
+        XCTAssertEqual(Feedback.endpoint.absoluteString, "https://lodestar.vaccone.software/api/feedback")
+    }
+
+    func testTheNoteItselfCarriesNoKey() {
+        XCTAssertNil(Feedback(message: "hi").httpRequest.idempotencyKey)
+        XCTAssertFalse(Feedback(message: "hi").httpRequest.headers.contains("Idempotency-Key"))
+    }
+
+    func testATryIsTwentySecondsWithNothingOfTheClientsOwnToRetryWith() {
+        let policy = Feedback.client().policy
+        XCTAssertEqual(policy.attemptTimeout, .seconds(20))
+        XCTAssertEqual(policy.schedule.maximumAttempts, 1, "the outbox is the retry layer")
+        XCTAssertNil(policy.breaker)
     }
 
     func testTheAppNamesNoAddressOfItsMaker() {

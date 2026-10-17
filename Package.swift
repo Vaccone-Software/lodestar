@@ -5,7 +5,7 @@ let package = Package(
     name: "lodestar",
     platforms: [
         // 27 for Stoic, the robustness layer (deadlines, retry, atomic
-        // files, locks); MLX alone would allow 14.
+        // files, locks, HTTP, the outbox); MLX alone would allow 14.
         .macOS("27.0")
     ],
     // The one exception to zero dependencies: Apple's MLX, which runs the
@@ -24,16 +24,19 @@ let package = Package(
         // The tokenizer and template packages that use it accept any 1.x.
         .package(url: "https://github.com/apple/swift-collections", "1.3.0"..<"1.4.0"),
         // Stoic: deadlines, bounded retry, atomic and locked files, crash-loop
-        // detection. Ours (Vaccone Software).
+        // detection, the HTTP client and the durable outbox a note waits in.
+        // Ours (Vaccone Software).
         .package(url: "https://github.com/Vaccone-Software/stoic", .upToNextMinor(from: "0.3.0")),
     ],
     targets: [
         // The AX layer every slice builds on. Its one dependency is Stoic,
-        // for the robustness its files, waits and retries need.
+        // for the robustness its files, waits, retries and the feedback
+        // note's trip to the site need.
         .target(name: "LodestarCore", dependencies: [
             .product(name: "Stoic", package: "stoic"),
             .product(name: "StoicFoundation", package: "stoic"),
             .product(name: "StoicStore", package: "stoic"),
+            .product(name: "StoicHTTP", package: "stoic"),
         ]),
         // Dictation's settling ears: second recognizers that re-hear a
         // phrase, on MLX (Qwen3-ASR) or the Neural Engine (Parakeet, Core
@@ -59,6 +62,7 @@ let package = Package(
             .product(name: "OrderedCollections", package: "swift-collections"),
             .product(name: "Stoic", package: "stoic"),
             .product(name: "StoicStore", package: "stoic"),
+            .product(name: "StoicHTTP", package: "stoic"),
         ]),
         // Slice 0: the window-identity probe. Throwaway by design.
         .executableTarget(name: "probe", dependencies: ["LodestarCore", "LodestarEars"]),
@@ -69,6 +73,7 @@ let package = Package(
         .testTarget(name: "LodestarCoreTests", dependencies: [
                         "LodestarCore",
                         .product(name: "StoicTesting", package: "stoic"),
+                        .product(name: "StoicHTTP", package: "stoic"),
                     ],
                     // The editor's accuracy fixture, read by path.
                     exclude: ["Fixtures"]),
@@ -78,6 +83,7 @@ let package = Package(
         .testTarget(name: "LodestarAppTests", dependencies: [
             "lodestar", "LodestarCore",
             .product(name: "StoicTesting", package: "stoic"),
+            .product(name: "StoicHTTP", package: "stoic"),
         ]),
     ]
 )

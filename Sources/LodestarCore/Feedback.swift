@@ -1,4 +1,6 @@
 import Foundation
+import Stoic
+import StoicHTTP
 
 /// A note from the Send Feedback window, on its way to the person who makes
 /// Lodestar. It travels to the site's own endpoint, which forwards it by
@@ -6,12 +8,20 @@ import Foundation
 /// nowhere in the app, so nothing here can leak it.
 ///
 /// Pure: what is sent, whether it may be, and the request that carries it.
-/// The window and the network live in the app.
-public struct Feedback: Equatable {
-    /// The site's door for notes. The header is not a secret, only proof of
-    /// origin: a form or a crawler posting without it is turned away.
-    public static let endpoint = URL(string: "https://lodestar.vaccone.software/api/feedback")!
+/// The window, the queue it waits in and the network live elsewhere
+/// (`FeedbackQueue`).
+public struct Feedback: Equatable, Codable, Sendable {
+    /// The site, and the path of its door for notes. The header is not a
+    /// secret, only proof of origin: a form or a crawler posting without it
+    /// is turned away.
+    public static let site = URL(string: "https://lodestar.vaccone.software")!
+    public static let path = "/api/feedback"
+    public static let endpoint = site.appendingPathComponent("api/feedback")
     public static let originHeader = ("x-lodestar-feedback", "1")
+
+    /// How long one try may take. A try that outlasts it is a failed try,
+    /// and the note is kept for the next.
+    public static let attemptTimeout = Duration.seconds(20)
 
     /// The endpoint's own limits, kept here so the window refuses what the
     /// endpoint would silently cut.
@@ -89,6 +99,14 @@ public struct Feedback: Equatable {
         return (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
     }
 
+    /// The request that carries the note: the same body and headers as ever.
+    /// The `Idempotency-Key` is not set here but by the client's keyed
+    /// `send`, which sends it unchanged on every attempt.
+    public var httpRequest: HTTPRequest {
+        .post(Self.path, body: [UInt8](payload), contentType: "application/json",
+              headers: [Self.originHeader.0: Self.originHeader.1])
+    }
+
     public func request(to endpoint: URL = Feedback.endpoint) -> URLRequest {
         var request = URLRequest(url: endpoint, timeoutInterval: 20)
         request.httpMethod = "POST"
@@ -98,8 +116,21 @@ public struct Feedback: Equatable {
         return request
     }
 
-    /// What lands on the clipboard when the note cannot be sent, so nothing
-    /// written is lost: the note itself, then where it came from.
+    /// The client a note goes through: the site, one try of twenty seconds,
+    /// and nothing of its own to retry with. The outbox is the retry layer
+    /// (a note outlives any one try, and any one launch), so the client's
+    /// own schedule would only make the window wait through a backoff, and
+    /// a breaker, which fails fast while a host looks down, would refuse
+    /// to try at the very moment a retry from the queue is the point.
+    public static func client(transport: any HTTPTransport = URLSessionTransport()) -> HTTPClient {
+        HTTPClient(
+            base: site,
+            policy: HTTPPolicy(attemptTimeout: attemptTimeout, schedule: Schedule.immediate.attempts(1), breaker: nil),
+            transport: transport, label: "feedback")
+    }
+
+    /// What lands on the clipboard when the note is refused, or when they ask
+    /// for it: the note itself, then where it came from.
     public var clipboardCopy: String {
         message.trimmingCharacters(in: .whitespacesAndNewlines)
             + "\n\n(Lodestar \(version), macOS \(macos))"

@@ -15,16 +15,38 @@ final class StoicLogTests: XCTestCase {
         Log.listener = nil
     }
 
-    func testAnEventIsNamedForStoicAndCarriesItsLabelAndFieldsInOrder() {
+    func testAnEventIsNamedForStoicAndCarriesItsLabelAndPublicFieldsInOrder() {
         let event = Event("retry.exhausted", level: .warning, label: "editor.model", fields: [
             .init("attempts", .int(3)),
-            .init("error", .error(type: "URLError", description: "timed out")),
             .init("waited", .duration(.seconds(2))),
+            .init("flag", .bool(true)),
         ])
         let line = StoicLog.format(event)
         XCTAssertEqual(line.event, "stoic.retry.exhausted")
-        XCTAssertEqual(line.fields.map(\.key), ["label", "attempts", "error", "waited"])
-        XCTAssertEqual(line.fields.map { "\($0.value)" }, ["editor.model", "3", "URLError: timed out", "2.0 seconds"])
+        XCTAssertEqual(line.fields.map(\.key), ["label", "attempts", "waited", "flag"])
+        XCTAssertEqual(line.fields.map { "\($0.value)" }, ["editor.model", "3", "2.0 seconds", "true"])
+    }
+
+    /// The log's tail goes into public bug reports: what Stoic marks
+    /// private (a string, an error's description) is not written, whatever
+    /// the field's value, and a field marked public is.
+    func testPrivateFieldsAreRedactedAsStoicRedactsThem() {
+        let event = Event("store.recovered_previous", level: .warning, fields: [
+            .init("path", .string("/Users/someone/secret plans.json")),
+            .init("error", .error(type: "StoreError", description: "corrupt at /Users/someone")),
+            .init("reason", .string("checksum"), privacy: .public),
+            .init("count", .int(2)),
+            .init("note", .int(7), privacy: .private),
+        ])
+        let line = StoicLog.format(event)
+        XCTAssertEqual(line.fields.map { "\($0.key)=\($0.value)" },
+                       ["path=<private>", "error=<private>", "reason=checksum", "count=2", "note=<private>"])
+        lines = []
+        StoicLog().record(event)
+        XCTAssertEqual(lines.count, 1)
+        XCTAssertFalse(lines[0].contains("someone"), lines[0])
+        XCTAssertFalse(lines[0].contains("secret"), lines[0])
+        XCTAssertTrue(lines[0].contains(" WARN stoic.store.recovered_previous path=<private> error=<private> reason=checksum count=2 note=<private>\n"), lines[0])
     }
 
     func testAWarningIsAWarningLineAndAnErrorIsAnErrorLine() throws {
@@ -56,6 +78,6 @@ final class StoicLogTests: XCTestCase {
         await withAmbient({ $0.instrumentation = CompositeInstrumentation([$0.instrumentation, StoicLog()]) }) {
             _ = RunMarker.launchGuard(in: missing, build: "x", bootSession: nil).beginLaunch()
         }
-        XCTAssertEqual(lines.filter { $0.contains(" ERR  stoic.launch.record_failed error=") }.count, 1, "\(lines)")
+        XCTAssertEqual(lines.filter { $0.contains(" ERR  stoic.launch.record_failed error=<private>\n") }.count, 1, "\(lines)")
     }
 }

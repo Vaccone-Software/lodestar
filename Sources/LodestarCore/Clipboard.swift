@@ -605,6 +605,17 @@ public enum Clipboard {
         clips.filter(\.isPinned).sorted { ($0.pinnedSlot ?? 0) < ($1.pinnedSlot ?? 0) }
     }
 
+    /// How many of the recents each app copied, by the name its cards wear:
+    /// what the source list counts. Keepsakes are not counted, and neither
+    /// is a clip that never said where it came from.
+    public static func sourceCounts(_ clips: [Clip]) -> [String: Int] {
+        var counts: [String: Int] = [:]
+        for clip in clips where !clip.isPinned {
+            if let name = clip.sourceAppName { counts[name, default: 0] += 1 }
+        }
+        return counts
+    }
+
     /// How well a clip answers a query, or nil when it does not.
     ///
     /// Two tiers, because they mean different things. A literal hit is what

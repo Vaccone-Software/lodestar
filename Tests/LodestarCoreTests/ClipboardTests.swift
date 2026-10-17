@@ -150,6 +150,16 @@ final class ClipboardTests: XCTestCase {
         XCTAssertEqual(Clipboard.nextFreeSlot(taken: [1, 3]), 4)
     }
 
+    func testTheSourceListCountsTheRecentsOfEachApp() {
+        func from(_ id: String, _ app: String?, pinned: Int? = nil) -> Clipboard.Clip {
+            Clipboard.Clip(id: id, kind: .text, created: Date(), sourceBundleID: nil, sourceAppName: app,
+                           preview: id, bytes: 1, pinnedSlot: pinned)
+        }
+        let counts = Clipboard.sourceCounts([from("a", "Safari"), from("b", "Safari"), from("c", "Notes"),
+                                             from("d", "Safari", pinned: 1), from("e", nil)])
+        XCTAssertEqual(counts, ["Safari": 2, "Notes": 1], "keepsakes and clips of no known source are not counted")
+    }
+
     func testPinsSortBySlotAndLeaveTheRecentsAlone() {
         let clips = [clip("loose"), clip("c", pinned: 3), clip("a", pinned: 1)]
         XCTAssertEqual(Clipboard.pins(clips).map(\.id), ["a", "c"])
@@ -897,6 +907,22 @@ final class ClipboardSearchTests: XCTestCase {
 
     /// A single-pointer byte scan cannot do this: the failed third byte has
     /// already eaten the second "a" that the match needed.
+    /// A caller with the recents in hand skips filtering the history for
+    /// them, and must get the answer the whole history would give.
+    func testSearchingTheRecentsAnswersAsSearchingTheHistoryDoes() {
+        var pinned = clip("p", "deploy notes pinned", minutesAgo: 0)
+        pinned.pinnedSlot = 2
+        let clips = [clip("a", "deploy to staging", minutesAgo: 1), pinned,
+                     clip("b", "the dep loy plan", minutesAgo: 2), clip("c", "unrelated", minutesAgo: 3),
+                     clip("d", "Deployment checklist", minutesAgo: 4)]
+        for query in ["", "  ", "deploy", "dpl", "x", "DEP", "d"] {
+            let whole = ClipboardSearchIndex().search(clips, query: query).map(\.id)
+            XCTAssertEqual(ClipboardSearchIndex().search(recents: Clipboard.recents(clips), query: query).map(\.id),
+                           whole, "query \"\(query)\"")
+            XCTAssertFalse(whole.contains("p"), "a keepsake is never a card")
+        }
+    }
+
     func testASubstringThatRepeatsIsStillFound() {
         let clips = [clip("a", "aaab", minutesAgo: 1)]
         XCTAssertEqual(Clipboard.search(clips, query: "aab").map(\.id), ["a"])

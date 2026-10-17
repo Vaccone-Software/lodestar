@@ -18,7 +18,10 @@ final class ClipboardStore {
     }
 
     private let root: URL
-    private var index = Index()
+    /// Every change to the index moves this on, so what is derived from the
+    /// clips can be kept for as long as they do not change.
+    private(set) var generation = 0
+    private var index = Index() { didSet { generation &+= 1 } }
     private var pendingSave: DispatchWorkItem?
     /// The index file exists but could not be read at all. Saving over it
     /// would trade a recoverable problem for an unrecoverable one, so
@@ -68,6 +71,38 @@ final class ClipboardStore {
     var onThumbnail: (() -> Void)?
 
     var clips: [Clipboard.Clip] { index.clips }
+
+    /// What a redraw asks of the whole history: the recents, the keepsakes
+    /// and how many clips each app copied. Each used to be a pass over
+    /// every clip, three or four of them at every redraw — a key moving
+    /// the selection among cards that had not changed. They are derived
+    /// once for each state of the index, and the answer kept until a change
+    /// moves `generation` on.
+    private struct Derived {
+        let generation: Int
+        let recents: [Clipboard.Clip]
+        let pins: [Clipboard.Clip]
+        let sources: [String: Int]
+    }
+    private var derived: Derived?
+    /// How often it was derived, for the tests.
+    private(set) var derivations = 0
+
+    private func settled() -> Derived {
+        if let derived, derived.generation == generation { return derived }
+        derivations += 1
+        let now = Derived(generation: generation, recents: Clipboard.recents(index.clips),
+                          pins: Clipboard.pins(index.clips), sources: Clipboard.sourceCounts(index.clips))
+        derived = now
+        return now
+    }
+
+    /// Newest first, keepsakes excluded: what the cards are drawn from.
+    var recents: [Clipboard.Clip] { settled().recents }
+    /// The keepsakes, in their places.
+    var pins: [Clipboard.Clip] { settled().pins }
+    /// How many recents each app copied, for the source list.
+    var sourceCounts: [String: Int] { settled().sources }
 
     func contains(_ id: String) -> Bool {
         index.clips.contains { $0.id == id }

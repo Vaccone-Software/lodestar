@@ -242,6 +242,11 @@ final class HotkeyEngine {
     let strip = ClipboardStrip()
     /// Each clip folded once for the strip's search, kept across searches.
     private let searchIndex = ClipboardSearchIndex()
+    /// The last answer `stripClips` gave, and what it was an answer to.
+    private var stripMemo: (generation: Int, source: String?, query: String?, clips: [Clipboard.Clip])?
+    /// How many times the strip's cards were worked out rather than
+    /// remembered, for the tests.
+    private(set) var stripSearches = 0
     /// The grammar's state, for the tests.
     var grammarState: EngineCore.State { core.state }
     private var pasteQuery: String?
@@ -2094,11 +2099,8 @@ extension HotkeyEngine: EngineWorld {
         // The image door covers the display; the strip is not drawn under
         // it, and comes back the moment the door closes.
         guard imageDoorClip == nil else { return }
-        let all = clipboard.history.clips
-        // The source narrows first, then the words rank what is left: an
-        // empty search with a source is that app's clips, newest first.
-        let pool = pasteSource.map { name in all.filter { $0.sourceAppName == name } } ?? all
-        let recents = pasteQuery.map { Clipboard.search(pool, query: $0, index: searchIndex) } ?? Clipboard.recents(all)
+        let history = clipboard.history
+        let recents = stripClips(history)
         pasteSelection = max(0, min(pasteSelection, max(0, min(recents.count, ClipboardStrip.labels.count) - 1)))
 
         // One band, whichever of its three jobs applies right now.
@@ -2119,7 +2121,7 @@ extension HotkeyEngine: EngineWorld {
                                       selection: sourceSelection)
         }
         let named = naming.map { ClipboardStrip.Naming(id: $0.id, text: $0.text, selected: $0.selected) }
-        strip.show(recents: recents, pins: Clipboard.pins(all),
+        strip.show(recents: recents, pins: history.pins,
                    thumbnail: { [clipboard] id in clipboard.history.thumbnail(for: id) },
                    band: band, selection: pasteSelection,
                    actingOn: panelClip?.id ?? doorClip?.id ?? saveClip?.id,
@@ -2130,7 +2132,29 @@ extension HotkeyEngine: EngineWorld {
         // until the strip closes, whichever way the band went.
         if pasteQuery != nil { stripSession?.matches = recents.count }
         stripSession?.visible = strip.shownRecents.count
-        stripSession?.recents = Clipboard.recents(all).count
+        stripSession?.recents = history.recents.count
+    }
+
+    /// What the cards are drawn from, kept while nothing it depends on has
+    /// moved: the history (its generation), the source and the words. A
+    /// key that only moves the selection redraws the same cards, and
+    /// searching the whole history again for them was most of its cost.
+    private func stripClips(_ history: ClipboardStore) -> [Clipboard.Clip] {
+        if let memo = stripMemo, memo.generation == history.generation,
+           memo.source == pasteSource, memo.query == pasteQuery { return memo.clips }
+        stripSearches += 1
+        // The source narrows first, then the words rank what is left: an
+        // empty search with a source is that app's clips, newest first.
+        let clips: [Clipboard.Clip]
+        if let query = pasteQuery {
+            let pool = pasteSource.map { name in history.recents.filter { $0.sourceAppName == name } }
+                ?? history.recents
+            clips = searchIndex.search(recents: pool, query: query)
+        } else {
+            clips = history.recents
+        }
+        stripMemo = (history.generation, pasteSource, pasteQuery, clips)
+        return clips
     }
 
     static let allApps = "All apps"
@@ -2289,10 +2313,7 @@ extension HotkeyEngine: EngineWorld {
     /// alphabetically, with how many clips each holds; narrowed by what
     /// was typed into the list, by the start of any word in the name.
     private func sourceRows() -> [(name: String, count: Int)] {
-        var counts: [String: Int] = [:]
-        for clip in clipboard.history.clips where !clip.isPinned {
-            if let name = clip.sourceAppName { counts[name, default: 0] += 1 }
-        }
+        let counts = clipboard.history.sourceCounts
         let total = counts.values.reduce(0, +)
         var rows = [(name: Self.allApps, count: total)]
         rows += counts.keys.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
@@ -2566,8 +2587,7 @@ extension HotkeyEngine: EngineWorld {
             // A paste from the search says how deep the card was: the
             // measure of what the nine visible recents could not show.
             if source == "search" {
-                stripSession?.depth = Clipboard.recents(clipboard.history.clips)
-                    .firstIndex { $0.id == clip.id }
+                stripSession?.depth = clipboard.history.recents.firstIndex { $0.id == clip.id }
             }
             strip.hide()
             clipboard.paste(clip, action: action)

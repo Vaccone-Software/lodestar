@@ -53,10 +53,16 @@ public final class ClipboardSearchIndex {
     }
 
     public func search(_ clips: [Clipboard.Clip], query: String) -> [Clipboard.Clip] {
+        search(recents: Clipboard.recents(clips), query: query)
+    }
+
+    /// The same search over clips already known to hold no keepsake, for
+    /// a caller that has the recents in hand and would otherwise have them
+    /// filtered out of the history again at every keystroke.
+    public func search(recents: [Clipboard.Clip], query: String) -> [Clipboard.Clip] {
         let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
-        let recents = Clipboard.recents(clips)
         guard !needle.isEmpty else { return recents }
-        defer { if keys.count > clips.count * 2 + 64 { prune(keeping: clips) } }
+        defer { if keys.count > recents.count * 2 + 64 { prune(keeping: recents) } }
         let bytes = Array(needle.utf8)
         let ascii = bytes.allSatisfy { $0 < 128 }
         return recents

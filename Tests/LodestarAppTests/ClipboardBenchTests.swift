@@ -256,8 +256,17 @@ final class ClipboardBenchTests: XCTestCase {
                    _ = Clipboard.search(pool, query: "deploy", index: index)
                } })
 
-        // What a redraw does besides searching.
-        report("render: the passes over all clips, untyped", (0..<reps).map { _ in milliseconds { Self.renderPasses(store) } })
+        // What a redraw does besides searching: the recents, the keepsakes
+        // and the recents' count, from the history. Once as the first redraw
+        // after a change to the index, and again as every redraw after it.
+        var afterChange: [Double] = [], unchanged: [Double] = []
+        for _ in 0..<reps {
+            store.name(textIDs[5], nil)
+            afterChange.append(milliseconds { Self.renderPasses(store) })
+            unchanged.append(milliseconds { Self.renderPasses(store) })
+        }
+        report("render: the passes over all clips, after a change", afterChange)
+        report("render: the passes over all clips, nothing changed", unchanged)
 
         // Thumbnails of twelve image cards, none decoded yet.
         let twelve = Array(imageIDs.prefix(12))
@@ -293,14 +302,13 @@ final class ClipboardBenchTests: XCTestCase {
         }
     }
 
-    /// What `renderStrip` computes from the history on every redraw with
-    /// nothing typed: the recents, the keepsakes, the recents again for the
+    /// What `renderStrip` asks of the history on every redraw with nothing
+    /// typed: the recents, the keepsakes, the recents again for the
     /// session's statistics.
     private static func renderPasses(_ store: ClipboardStore) {
-        let all = store.clips
-        _ = Clipboard.recents(all)
-        _ = Clipboard.pins(all)
-        _ = Clipboard.recents(all).count
+        _ = store.recents
+        _ = store.pins
+        _ = store.recents.count
     }
 
     // MARK: - A copy, from the pasteboard to the index

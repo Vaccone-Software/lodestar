@@ -10,6 +10,7 @@
 # Live tests: run on demand against a real model, microphone, app or dataset.
 any EditorAccuracyLiveTests.testTheModelAgainstTheFixture
 any EditorConformanceTests.*
+any ClipboardBenchTests.*
 any EditorCostTests.*
 any EditorDownloadLiveTests.*
 any EditorRegionLiveTests.*

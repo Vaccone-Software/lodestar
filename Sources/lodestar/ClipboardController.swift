@@ -122,7 +122,9 @@ final class ClipboardController {
 
     // MARK: - Capture
 
-    private func capture() {
+    /// The poll's body, internal so a test or the benchmark can take a
+    /// copy without waiting for the timer.
+    func capture() {
         // The clear-request flag is a file stat; at the poll's 0.35s
         // cadence that was three stats a second forever. Every eighth
         // tick keeps a CLI clear landing within ~3 seconds.

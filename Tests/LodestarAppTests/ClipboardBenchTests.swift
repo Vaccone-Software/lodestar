@@ -23,7 +23,11 @@ import XCTest
 /// median and 95th percentile over the repetitions
 /// (`LODESTAR_CLIPBOARD_BENCH_REPS`, 15). A figure is the main thread's
 /// portion unless it says "end to end", which waits for the io queue too.
-/// `LODESTAR_CLIPBOARD_BENCH_OUT` names a file the table is also written to.
+/// `LODESTAR_CLIPBOARD_BENCH_OUT` names a file the table is also written to,
+/// and `LODESTAR_CLIPBOARD_BENCH_ONLY` a comma-separated list of what to run
+/// (`history`, `capture`, `paste`, `delete`; everything by default). A figure
+/// is also given as the CPU time the thread spent, which a machine busy with
+/// other things leaves much as it was while the wall time swells.
 final class ClipboardBenchTests: XCTestCase {
     private var root: URL!
     private var lines: [String] = []
@@ -36,19 +40,48 @@ final class ClipboardBenchTests: XCTestCase {
 
     private static func now() -> Double { Double(DispatchTime.now().uptimeNanoseconds) / 1e6 }
 
-    /// Milliseconds the block took.
-    private func milliseconds(_ block: () -> Void) -> Double {
-        let started = Self.now()
-        block()
-        return Self.now() - started
+    /// The calling thread's own CPU time, in milliseconds. On a machine
+    /// that is busy with other things the wall time of a figure is the
+    /// scheduler's as much as the code's; this is what the thread spent.
+    private static func cpu() -> Double {
+        var spec = timespec()
+        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &spec)
+        return Double(spec.tv_sec) * 1e3 + Double(spec.tv_nsec) / 1e6
     }
 
-    private func report(_ name: String, _ samples: [Double], note: String = "") {
+    /// The thread CPU time of each `milliseconds` call since the last
+    /// report, for the report that follows to print beside its wall times.
+    private var cpuSamples: [Double] = []
+
+    /// What the block took, on the clock and on this thread.
+    private func timed(_ block: () -> Void) -> (wall: Double, cpu: Double) {
+        let (wall, cpu) = (Self.now(), Self.cpu())
+        block()
+        return (Self.now() - wall, Self.cpu() - cpu)
+    }
+
+    /// Milliseconds the block took.
+    private func milliseconds(_ block: () -> Void) -> Double {
+        let took = timed(block)
+        cpuSamples.append(took.cpu)
+        return took.wall
+    }
+
+    private static func median(_ samples: [Double]) -> Double { samples.sorted()[samples.count / 2] }
+
+    /// A line of the table. `cpu` is what the thread spent, where the
+    /// samples were taken with `milliseconds` or the caller says.
+    private func report(_ name: String, _ samples: [Double], cpu explicit: [Double]? = nil, note: String = "") {
         let sorted = samples.sorted()
         let median = sorted[sorted.count / 2]
         let p95 = sorted[min(sorted.count - 1, Int((Double(sorted.count) * 0.95).rounded(.up)) - 1)]
+        var cpu = explicit ?? (cpuSamples.count == samples.count ? cpuSamples : nil)
+        if cpu?.isEmpty == true { cpu = nil }
+        cpuSamples.removeAll()
         let line = "BENCH " + name.padding(toLength: 52, withPad: " ", startingAt: 0)
-            + String(format: "median %9.3f ms   p95 %9.3f ms   n=%d", median, p95, samples.count)
+            + String(format: "median %9.3f ms   p95 %9.3f ms", median, p95)
+            + (cpu.map { String(format: "   cpu median %9.3f ms", Self.median($0)) } ?? String(repeating: " ", count: 26))
+            + String(format: "   n=%d", samples.count)
             + (note.isEmpty ? "" : "   " + note)
         lines.append(line)
         print(line)
@@ -207,12 +240,18 @@ final class ClipboardBenchTests: XCTestCase {
             throw XCTSkip("LODESTAR_CLIPBOARD_BENCH=1 measures the clipboard on a synthetic history")
         }
         let reps = environment["LODESTAR_CLIPBOARD_BENCH_REPS"].flatMap(Int.init) ?? 15
+        let only = environment["LODESTAR_CLIPBOARD_BENCH_ONLY"].map { Set($0.split(separator: ",").map(String.init)) }
+        func wanted(_ section: String) -> Bool { only?.contains(section) ?? true }
+        var load = [Double](repeating: 0, count: 3)
+        getloadavg(&load, 3)
+        note("machine load average at the start: \(load.map { String(format: "%.1f", $0) }.joined(separator: " "))")
         let kilobytes = environment["LODESTAR_CLIPBOARD_BENCH_IMAGE_KB"].flatMap(Int.init) ?? 512
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("lodestar-clipboard-bench-\(UUID().uuidString)", isDirectory: true)
 
         let store = ClipboardStore(root: root)
         let seeding = milliseconds { seed(store, imageKilobytes: kilobytes) }
+        cpuSamples.removeAll()
         let indexFile = root.appendingPathComponent("index.json")
         let indexBytes = (try? Data(contentsOf: indexFile).count) ?? 0
         let items = (try? FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("items").path))?.count ?? 0
@@ -221,81 +260,85 @@ final class ClipboardBenchTests: XCTestCase {
              + "\(directoryBytes(root.appendingPathComponent("thumbs")) / 1_000_000) MB of thumbnails; "
              + "seeded in \(Int(seeding)) ms; reps \(reps)")
 
-        // The index, read and decoded the way boot does it.
-        report("index: read the file", (0..<reps).map { _ in milliseconds { _ = try? Data(contentsOf: indexFile) } })
-        report("index: load (read + decode + settle), store init",
-               (0..<reps).map { _ in milliseconds { _ = ClipboardStore(root: root) } })
+        if wanted("history") {
+            // The index, read and decoded the way boot does it.
+            report("index: read the file", (0..<reps).map { _ in milliseconds { _ = try? Data(contentsOf: indexFile) } })
+            report("index: load (read + decode + settle), store init",
+                   (0..<reps).map { _ in milliseconds { _ = ClipboardStore(root: root) } })
 
-        // The index, encoded and written durably: the main thread only
-        // hands over, the io queue does the rest.
-        report("index: save, main thread hands over", (0..<reps).map { _ in milliseconds { store.saveNow() } })
-        store.flushIO()
-        report("index: save, end to end (encode + durable write)",
-               (0..<reps).map { _ in milliseconds { store.saveNow(); store.flushIO() } })
+            // The index, encoded and written durably: the main thread only
+            // hands over, the io queue does the rest.
+            report("index: save, main thread hands over", (0..<reps).map { _ in milliseconds { store.saveNow() } })
+            store.flushIO()
+            report("index: save, end to end (encode + durable write)",
+                   (0..<reps).map { _ in milliseconds { store.saveNow(); store.flushIO() } })
 
-        // Search.
-        let all = store.clips
-        var folding: [Double] = []
-        for _ in 0..<min(reps, 7) {
+            // Search.
+            let all = store.clips
+            var folding: [Double] = []
+            for _ in 0..<min(reps, 7) {
+                let index = ClipboardSearchIndex()
+                folding.append(milliseconds { _ = Clipboard.search(all, query: "de", index: index) })
+            }
+            report("search: first fold of every clip", folding)
             let index = ClipboardSearchIndex()
-            folding.append(milliseconds { _ = Clipboard.search(all, query: "de", index: index) })
-        }
-        report("search: first fold of every clip", folding)
-        let index = ClipboardSearchIndex()
-        _ = Clipboard.search(all, query: "de", index: index)
-        var keystrokes: [Double] = []
-        for _ in 0..<reps {
-            for typed in ["d", "de", "dep", "depl", "deplo", "deploy"] {
-                keystrokes.append(milliseconds { _ = Clipboard.search(all, query: typed, index: index) })
+            _ = Clipboard.search(all, query: "de", index: index)
+            var keystrokes: [Double] = []
+            for _ in 0..<reps {
+                for typed in ["d", "de", "dep", "depl", "deplo", "deploy"] {
+                    keystrokes.append(milliseconds { _ = Clipboard.search(all, query: typed, index: index) })
+                }
             }
-        }
-        report("search: one keystroke, warm index (d … deploy)", keystrokes)
-        report("search: keystroke \"deploy\" with a source filter",
-               (0..<reps).map { _ in milliseconds {
-                   let pool = all.filter { $0.sourceAppName == "Safari" }
-                   _ = Clipboard.search(pool, query: "deploy", index: index)
-               } })
+            report("search: one keystroke, warm index (d … deploy)", keystrokes)
+            report("search: keystroke \"deploy\" with a source filter",
+                   (0..<reps).map { _ in milliseconds {
+                       let pool = all.filter { $0.sourceAppName == "Safari" }
+                       _ = Clipboard.search(pool, query: "deploy", index: index)
+                   } })
 
-        // What a redraw does besides searching: the recents, the keepsakes
-        // and the recents' count, from the history. Once as the first redraw
-        // after a change to the index, and again as every redraw after it.
-        var afterChange: [Double] = [], unchanged: [Double] = []
-        for _ in 0..<reps {
-            store.name(textIDs[5], nil)
-            afterChange.append(milliseconds { Self.renderPasses(store) })
-            unchanged.append(milliseconds { Self.renderPasses(store) })
-        }
-        report("render: the passes over all clips, after a change", afterChange)
-        report("render: the passes over all clips, nothing changed", unchanged)
-
-        // Thumbnails of twelve image cards, none decoded yet.
-        let twelve = Array(imageIDs.prefix(12))
-        note("thumbnail files: \(directoryBytes(root.appendingPathComponent("thumbs")) / max(1, imageIDs.count) / 1024) KB each on average")
-        var lookups: [Double] = [], fills: [Double] = [], drawings: [Double] = []
-        for _ in 0..<reps {
-            let fresh = ClipboardStore(root: root)
-            var images: [NSImage?] = []
-            lookups.append(milliseconds { images = twelve.map { fresh.thumbnail(for: $0) } })
-            let started = Self.now()
-            while twelve.contains(where: { fresh.thumbnail(for: $0) == nil }), Self.now() - started < 5_000 {
-                RunLoop.main.run(until: Date().addingTimeInterval(0.001))
+            // What a redraw does besides searching: the recents, the keepsakes
+            // and the recents' count, from the history. Once as the first redraw
+            // after a change to the index, and again as every redraw after it.
+            var afterChange: [Double] = [], afterChangeCPU: [Double] = []
+            var unchanged: [Double] = [], unchangedCPU: [Double] = []
+            for _ in 0..<reps {
+                store.name(textIDs[5], nil)
+                let first = timed { Self.renderPasses(store) }
+                let again = timed { Self.renderPasses(store) }
+                afterChange.append(first.wall); afterChangeCPU.append(first.cpu)
+                unchanged.append(again.wall); unchangedCPU.append(again.cpu)
             }
-            fills.append(Self.now() - started)
-            // What drawing the cards asks of the main thread: a decode,
-            // unless it already happened elsewhere.
-            let shown = twelve.compactMap { fresh.thumbnail(for: $0) }
-            drawings.append(milliseconds {
-                for image in shown { _ = image.cgImage(forProposedRect: nil, context: nil, hints: nil) }
-            })
-            _ = images
-        }
-        report("thumbnails: ask for 12 cold ones, main thread", lookups)
-        report("thumbnails: until all 12 are there", fills)
-        report("thumbnails: first draw of 12 (decode if not yet)", drawings)
+            report("render: the passes over all clips, after a change", afterChange, cpu: afterChangeCPU)
+            report("render: the passes over all clips, nothing changed", unchanged, cpu: unchangedCPU)
 
-        try capture(store: store, reps: reps)
-        try paste(store: store, reps: reps)
-        try deleting(store: store, reps: reps)
+            // Thumbnails of twelve image cards, none decoded yet.
+            let twelve = Array(imageIDs.prefix(12))
+            note("thumbnail files: \(directoryBytes(root.appendingPathComponent("thumbs")) / max(1, imageIDs.count) / 1024) KB each on average")
+            var lookups: [Double] = [], lookupsCPU: [Double] = [], fills: [Double] = []
+            var drawings: [Double] = [], drawingsCPU: [Double] = []
+            for _ in 0..<reps {
+                let fresh = ClipboardStore(root: root)
+                let asked = timed { _ = twelve.map { fresh.thumbnail(for: $0) } }
+                lookups.append(asked.wall); lookupsCPU.append(asked.cpu)
+                let started = Self.now()
+                while twelve.contains(where: { fresh.thumbnail(for: $0) == nil }), Self.now() - started < 5_000 {
+                    RunLoop.main.run(until: Date().addingTimeInterval(0.001))
+                }
+                fills.append(Self.now() - started)
+                // What drawing the cards asks of the main thread: a decode,
+                // unless it already happened elsewhere.
+                let shown = twelve.compactMap { fresh.thumbnail(for: $0) }
+                let drawn = timed { for image in shown { _ = image.cgImage(forProposedRect: nil, context: nil, hints: nil) } }
+                drawings.append(drawn.wall); drawingsCPU.append(drawn.cpu)
+            }
+            report("thumbnails: ask for 12 cold ones, main thread", lookups, cpu: lookupsCPU)
+            report("thumbnails: until all 12 are there", fills)
+            report("thumbnails: first draw of 12 (decode if not yet)", drawings, cpu: drawingsCPU)
+        }
+
+        if wanted("capture") { try capture(store: store, reps: reps) }
+        if wanted("paste") { try paste(store: store, reps: reps) }
+        if wanted("delete") { try deleting(store: store, reps: reps) }
 
         if let out = environment["LODESTAR_CLIPBOARD_BENCH_OUT"] {
             try lines.joined(separator: "\n").appending("\n").write(toFile: out, atomically: true, encoding: .utf8)
@@ -323,7 +366,7 @@ final class ClipboardBenchTests: XCTestCase {
         func copy(_ label: String, repetitions: Int, patterns: [String] = [],
                   _ make: (Int) -> [(NSPasteboard.PasteboardType, Data)]) {
             controller.excludedPatterns = patterns
-            var main: [Double] = [], endToEnd: [Double] = []
+            var main: [Double] = [], mainCPU: [Double] = [], endToEnd: [Double] = []
             for _ in 0..<repetitions {
                 serial += 1
                 board.clearContents()
@@ -333,15 +376,16 @@ final class ClipboardBenchTests: XCTestCase {
                 }
                 let before = store.clips.count
                 let started = Self.now()
-                controller.capture()
-                main.append(Self.now() - started)
+                let took = timed { controller.capture() }
+                main.append(took.wall)
+                mainCPU.append(took.cpu)
                 store.flushIO()
                 endToEnd.append(Self.now() - started)
                 if store.clips.count != before + 1 { note("  (a copy of \(label) did not become a card)") }
                 // Let a thumbnail or a caption land before the next one.
                 RunLoop.main.run(until: Date().addingTimeInterval(label.hasPrefix("image") ? 2.5 : 0.01))
             }
-            report("capture: \(label), main thread", main)
+            report("capture: \(label), main thread", main, cpu: mainCPU)
             report("capture: \(label), end to end", endToEnd)
             controller.excludedPatterns = []
         }
@@ -399,21 +443,24 @@ final class ClipboardBenchTests: XCTestCase {
         } })
 
         // The record itself and the trim after it, for a copy that is small.
-        var recordSamples: [Double] = [], trimSamples: [Double] = []
+        var recordSamples: [Double] = [], recordCPU: [Double] = []
+        var trimSamples: [Double] = [], trimCPU: [Double] = []
         for n in 0..<reps * 2 {
             let body = "recorded \(n) " + Self.text(length: 200, &rng, lines: false)
             let data = Data(body.utf8)
             let id = ClipboardStore.identity(for: data)
-            recordSamples.append(milliseconds {
+            let recorded = timed {
                 store.record(id: id, kind: .text, items: [.init(plain: data, natives: [])],
                              imageData: nil, preview: body, sourceBundleID: "com.apple.Safari",
                              sourceAppName: "Safari", lines: 1, characters: body.count)
-            })
-            trimSamples.append(milliseconds { store.trim(maxBytes: 500_000_000, maxItems: 10_000) })
+            }
+            let trimmed = timed { store.trim(maxBytes: 500_000_000, maxItems: 10_000) }
+            recordSamples.append(recorded.wall); recordCPU.append(recorded.cpu)
+            trimSamples.append(trimmed.wall); trimCPU.append(trimmed.cpu)
             store.flushIO()
         }
-        report("record: a small text, main thread", recordSamples)
-        report("trim: the check after a capture that trims nothing", trimSamples)
+        report("record: a small text, main thread", recordSamples, cpu: recordCPU)
+        report("trim: the check after a capture that trims nothing", trimSamples, cpu: trimCPU)
     }
 
     // MARK: - A paste
@@ -447,19 +494,20 @@ final class ClipboardBenchTests: XCTestCase {
 
     private func deleting(store: ClipboardStore, reps: Int) throws {
         let victims = store.clips.filter { !$0.isPinned && $0.kind == .text }.dropFirst(500).prefix(reps).map(\.id)
-        var main: [Double] = [], endToEnd: [Double] = []
+        var main: [Double] = [], mainCPU: [Double] = [], endToEnd: [Double] = []
         for id in victims {
             store.flushIO()
             let started = Self.now()
-            store.delete(id)
-            main.append(Self.now() - started)
+            let took = timed { store.delete(id) }
+            main.append(took.wall)
+            mainCPU.append(took.cpu)
             store.flushIO()
             endToEnd.append(Self.now() - started)
         }
-        report("delete: one clip, main thread", main)
+        report("delete: one clip, main thread", main, cpu: mainCPU)
         report("delete: one clip, end to end (files removed)", endToEnd)
 
-        var trimMain: [Double] = [], trimEnd: [Double] = []
+        var trimMain: [Double] = [], trimMainCPU: [Double] = [], trimEnd: [Double] = []
         for round in 0..<min(reps, 10) {
             for n in 0..<50 {
                 let body = "to be trimmed \(round) \(n)"
@@ -471,12 +519,13 @@ final class ClipboardBenchTests: XCTestCase {
             store.flushIO()
             let ceiling = store.clips.filter { !$0.isPinned }.count - 50
             let started = Self.now()
-            store.trim(maxBytes: Int.max, maxItems: ceiling)
-            trimMain.append(Self.now() - started)
+            let took = timed { store.trim(maxBytes: Int.max, maxItems: ceiling) }
+            trimMain.append(took.wall)
+            trimMainCPU.append(took.cpu)
             store.flushIO()
             trimEnd.append(Self.now() - started)
         }
-        report("trim: 50 clips, main thread", trimMain)
+        report("trim: 50 clips, main thread", trimMain, cpu: trimMainCPU)
         report("trim: 50 clips, end to end (files removed)", trimEnd)
     }
 }

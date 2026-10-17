@@ -763,7 +763,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         installSignalHandler()
 
         ConfigDoctor.emitSchema()
-        updateConfigWatcher()
+        startConfigWatch()
         reconcileLoginItem()
 
         // The updater runs regardless of trust — an install stuck at the
@@ -2057,6 +2057,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         Log.info("clipboard", ["excluded-app": bundleID])
+        // This used to ride on the file watcher's reload of our own write; the
+        // watcher no longer re-applies what we wrote, so it applies it here.
+        applyConfigReload(successFlash: "✓ config reloaded")
     }
 
     /// Bind whatever a config line would write. A browser-profile reference
@@ -2348,13 +2351,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    /// The menu's "Reload Config" and SIGUSR2 (`lodestar reload`, and what
+    /// `config set` sends): re-read the file, then apply what the store holds.
+    /// Always applies and always says so, whether or not the file changed (a
+    /// reload is also the moment the doctor's ground truth is asked again);
+    /// the watcher's own arrivals are the ones that are applied only when the
+    /// store holds something new.
+    ///
+    /// Main in, main out; the file is read on a utility queue, so the main
+    /// thread never waits on the store's lock or on the file for this.
     @objc private func reloadConfig() {
-        applyConfigReload(successFlash: "✓ config reloaded")
+        ConfigWatcher.reloadThenApply(try? ConfigStore.store()) { [weak self] in
+            self?.applyConfigReload(successFlash: "✓ config reloaded")
+        }
     }
 
+    /// Apply the config the store holds: the settings, the doctor's checks,
+    /// every controller that follows the config. The store is current when
+    /// this is called (the app wrote it, the watcher reloaded it, or
+    /// `reloadConfig` re-read it first), so nothing here reads the file.
+    ///
+    /// A file that does not parse leaves the last good config in force (the
+    /// store keeps it) and says where the fault is; the fix and the next
+    /// save apply as any arrival does.
     private func applyConfigReload(successFlash: String) {
         recordConfigHistory()
-        var (loaded, loadProblems) = Config.load()
+        let result = Config.loadSnapshot(reload: false)
+        var loaded = result.config
+        let loadProblems = result.problems
+        let snapshot = result.snapshot
         // Re-read Local State rather than re-serve the boot snapshot: a
         // reload is the one moment the world is being asked again, and the
         // doctor's ground truth below must not grade against stale caches.
@@ -2363,7 +2388,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             + ConfigDoctor.groundTruthProblems(loaded)
             + ConfigDoctor.semanticWarnings(loaded, appIndex: appIndex)
         loaded.registerDetected(ChromiumProfiles.detected())
-        recordGraphEpochs(old: config, new: loaded, problems: loadProblems)
+        recordGraphEpochs(old: config, new: loaded, problems: loadProblems,
+                          fileProblem: snapshot?.problem != nil)
         config = loaded
         Keys.apply(overrides: loaded.keyOverrides)
         ActivePolicy.mode = loaded.activeDisplayMode
@@ -2410,7 +2436,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         #endif
         rebuildGraphAddresses()
         ConfigDoctor.emitSchema()
-        updateConfigWatcher()
         reconcileLoginItem()
         if config.showMenuBar {
             menuBarHideTimer?.invalidate()
@@ -2420,13 +2445,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             removeStatusItem()
         }
         for problem in problems { Log.error("config", ["problem": problem]) }
-        if problems.isEmpty {
+        if let broken = snapshot?.problem {
+            // The file as it stands does not read: whether the save was half
+            // done or a mistake, the running config is the last good one. Say
+            // so, and where.
+            let name = Config.file.lastPathComponent
+            switch broken {
+            case .unparsable:
+                let at = ConfigStore.location(of: broken).map { " (\(name):\($0.line):\($0.column))" } ?? ""
+                hud.flash("⚠ The config file does not parse\(at)\nFix it and save again")
+            case .unreadable:
+                hud.flash("⚠ The config file cannot be read\nFix it and save again")
+            }
+        } else if problems.isEmpty {
             // A write the person did not make by hand (the walk opening a
             // door) reloads without a word.
             if !successFlash.isEmpty { hud.flash(successFlash) }
         } else {
             hud.flash("⚠ \(problems[0])" + (problems.count > 1 ? "\n\(problems.count - 1) more, listed by lodestar check" : ""))
         }
+        if let snapshot { configWatcher?.didApply(snapshot) }
         Log.info("config-reload", [
             "graph": graphAddressByApp.count, "links": loaded.webLinks.count,
             "routes": loaded.webRoutes.count, "profiles": loaded.browserProfiles.count,
@@ -2451,7 +2489,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// stamped three false removals the night an old binary met a new
     /// config format — and every false epoch restarts real learning
     /// curves, so a problem parse holds the baseline and says so.
-    private func recordGraphEpochs(old: Config, new: Config, problems: [String]) {
+    private func recordGraphEpochs(old: Config, new: Config, problems: [String], fileProblem: Bool) {
         guard let store = observationStore else { return }
         func leafMap(_ config: Config) -> [String: String] {
             Dictionary(config.graph.leaves().map {
@@ -2462,9 +2500,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // A whole-file parse failure is the deepest wound of all: the "new"
         // graph is the empty default, and diffing against it would stamp
         // every binding removed the moment a typo lands.
-        guard !problems.contains(where: {
-            $0.hasPrefix("graph") || $0.hasPrefix("config parse failed")
-        }) else {
+        guard !fileProblem, !problems.contains(where: { $0.hasPrefix("graph") }) else {
             epochGraphBaseline = oldLeaves
             Log.info("config-epochs", ["held": "graph parse had problems"])
             return
@@ -2491,43 +2527,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var configSource: String?
     private var undoneGroups: Set<Int> = []
     private var redoGroups: [[ConfigHistory.Entry]] = []
-    private var configWatcher: DispatchSourceFileSystemObject?
-    private var reloadDebounce: DispatchWorkItem?
+    /// The store's watch on the config's directory, and what it tells us.
+    private var configWatcher: ConfigWatcher?
 
-    private func updateConfigWatcher() {
-        configWatcher?.cancel()
-        configWatcher = nil
-        let fd = open(Config.file.path, O_EVTONLY)
-        guard fd >= 0 else { return }
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd, eventMask: [.write, .rename, .delete], queue: .main
-        )
-        source.setEventHandler { [weak self] in self?.scheduleAutoReload() }
-        source.setCancelHandler { close(fd) }
-        source.resume()
-        configWatcher = source
+    /// Watch the config file for edits made while the app runs: Stoic's
+    /// `watch(debounce:)` reloads it off the main thread once it has been quiet
+    /// for 0.3 s (an editor's several writes, a save by rename, a file that
+    /// is created later are one reload each), and `ConfigWatcher` tells us on
+    /// the main queue when what arrived is something we have not applied: a
+    /// `.reload` change of the value, or a file that stopped (or started)
+    /// parsing. Our own writes are `.update` changes, which are never told:
+    /// whoever wrote applied it.
+    private func startConfigWatch() {
+        let store: ConfigStore.Store
+        do {
+            store = try ConfigStore.store()
+        } catch {
+            Log.error("config-watch: could not open the config", ["error": "\(error)"])
+            return
+        }
+        let watcher = ConfigWatcher(store: store) { [weak self] in self?.configArrived() }
+        do {
+            try watcher.start()
+        } catch {
+            Log.error("config-watch: could not watch the config", ["error": "\(error)"])
+            return
+        }
+        configWatcher = watcher
     }
 
-    private func scheduleAutoReload() {
-        reloadDebounce?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            // Watching is simply how the config works now — but a file
-            // that does not parse is a save in progress or a mistake, and
-            // either way the running config is the last good one. Say so
-            // once and keep it.
-            if let contents = try? String(contentsOf: Config.file, encoding: .utf8),
-               (try? Json.parse(contents)) == nil {
-                Log.error("config-autoreload: the file does not parse — keeping the last good config")
-                self.hud.flash("⚠ The config file does not parse\nFix it and save again")
-                self.updateConfigWatcher() // re-arm; the fix deserves a reload too
-                return
-            }
-            Log.info("config-autoreload", ["trigger": "file-saved"])
-            self.reloadConfig() // re-arms the watcher (editors save atomically via rename)
-        }
-        reloadDebounce = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
+    /// Main. A config edit arrived from outside, or the file's problem
+    /// changed. Applies it with the "config reloaded" flash — or, if the file
+    /// does not parse, the warning that says where and keeps the last good
+    /// config (see `applyConfigReload`).
+    private func configArrived() {
+        Log.info("config-autoreload", ["trigger": "file-saved"])
+        applyConfigReload(successFlash: "✓ config reloaded")
     }
 
     // MARK: - Login item reconciliation (installed app only)

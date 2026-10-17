@@ -453,6 +453,20 @@ public struct Config {
     /// which finds nothing to do when it is as the store last saw it), and
     /// creates it on a first run.
     public static func load(from source: URL = Config.file) -> (Config, [String]) {
+        let loaded = loadSnapshot(from: source)
+        return (loaded.config, loaded.problems)
+    }
+
+    /// `load`, with the store's value and problem the config was built from,
+    /// taken together so that the caller knows exactly what it applied (the
+    /// app's reload remembers it: see `ConfigApplyLedger`).
+    ///
+    /// - Parameter reload: Whether to re-read the file first. The app's own
+    ///   reload passes false when it knows the store is current (the app wrote
+    ///   it, the watcher reloaded it, or `reload()` ran just before on another
+    ///   thread): then nothing on the calling thread touches the file.
+    public static func loadSnapshot(from source: URL = Config.file, reload: Bool = true)
+        -> (config: Config, problems: [String], snapshot: ConfigStore.Snapshot?) {
         var problems: [String] = []
         let name = source.lastPathComponent
         let store: ConfigStore.Store
@@ -460,22 +474,28 @@ public struct Config {
             store = try ConfigStore.store(at: source)
         } catch {
             problems.append("config could not be opened (\(error)); using defaults — \(name) left untouched")
-            return (build(from: [:], problems: &problems), problems)
+            return (build(from: [:], problems: &problems), problems, nil)
         }
-        if !FileManager.default.fileExists(atPath: source.path) {
+        if reload, !FileManager.default.fileExists(atPath: source.path) {
             do {
                 if try ConfigStore.materialize(at: source) { Log.info("config: wrote default \(source.path)") }
             } catch {
                 Log.error("config: could not write the default file", ["error": "\(error)"])
             }
         }
-        try? store.reload()
-        if let problem = store.fileProblem {
+        if reload { try? store.reload() }
+        // The problem first, then the value: whatever lands between the two
+        // reads makes the pair older than the store, never newer, so the app
+        // can only apply once too often, never miss an arrival.
+        let problem = store.fileProblem
+        let value = store.value
+        if let problem {
             problems.append(ConfigStore.sentence(for: problem, file: name,
                                                  keepingLastGood: store.source == .file))
         }
-        let root = ConfigStore.tree(of: store.value, problems: &problems)
-        return (build(from: root, problems: &problems), problems)
+        let root = ConfigStore.tree(of: value, problems: &problems)
+        return (build(from: root, problems: &problems), problems,
+                ConfigStore.Snapshot(value: value, problem: problem))
     }
 
     /// Build a Config from a parsed tree: the user's deviations are

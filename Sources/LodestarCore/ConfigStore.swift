@@ -63,6 +63,13 @@ public enum ConfigStore {
         id: "object", description: "an object: the config is a table of sections",
         check: { if case .object = $0 { true } else { false } }))
 
+    /// What the store held at one moment: the value the config was built from
+    /// and the problem the file had.
+    public struct Snapshot: Equatable {
+        public var value: JSONValue
+        public var problem: SettingsFileProblem?
+    }
+
     // MARK: - One store per path
 
     private final class Registry: @unchecked Sendable {

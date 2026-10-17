@@ -115,6 +115,15 @@ final class ClipboardStore {
         try? FileManager.default.createDirectory(at: thumbs, withIntermediateDirectories: true,
                                                  attributes: [.posixPermissions: 0o700])
         load()
+        // What an older build wrote is readable by everyone under the
+        // default mode: made the owner's alone, once, off the main thread.
+        io.async { [items, thumbs] in
+            for directory in [items, thumbs] {
+                for name in (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? [] {
+                    PrivateFile.restrict(existing: directory.appendingPathComponent(name).path)
+                }
+            }
+        }
     }
 
     private var indexFile: URL { root.appendingPathComponent("index.json") }
@@ -270,7 +279,7 @@ final class ClipboardStore {
             guard let imageData else { return }
             if known, FileManager.default.fileExists(atPath: thumbFile.path) { return }
             guard let thumbnail = Self.thumbnail(from: imageData) else { return }
-            try? thumbnail.write(to: thumbFile)
+            try? PrivateFile.write(thumbnail, to: thumbFile)
             // Decoded here, so the first draw has nothing left to decode.
             let image = Self.decodedImage(from: thumbnail)
             DispatchQueue.main.async {
@@ -297,7 +306,7 @@ final class ClipboardStore {
         if let size = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? Int,
            size == data.count, let stored = try? Data(contentsOf: url, options: .mappedIfSafe),
            stored == data { return }
-        try? data.write(to: url)
+        try? PrivateFile.write(data, to: url)
     }
 
     // MARK: - Editing a card
@@ -326,7 +335,7 @@ final class ClipboardStore {
         let newID = Self.identity(for: data)
         guard newID != live.id else { return live }
         do {
-            try data.write(to: itemFile(newID, item: 0, "plain"), options: .atomic)
+            try PrivateFile.write(data, to: itemFile(newID, item: 0, "plain"), atomically: true)
         } catch {
             Log.error("clipboard: could not write the edited card (\(error))")
             return nil
@@ -353,7 +362,7 @@ final class ClipboardStore {
         guard !data.isEmpty else { return nil }
         let newID = Self.identity(for: data)
         do {
-            try data.write(to: itemFile(newID, item: 0, "plain"), options: .atomic)
+            try PrivateFile.write(data, to: itemFile(newID, item: 0, "plain"), atomically: true)
         } catch {
             Log.error("clipboard: could not write the kept edit (\(error))")
             return nil

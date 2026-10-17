@@ -25,13 +25,14 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-collections", "1.3.0"..<"1.4.0"),
         // Stoic: deadlines, bounded retry, atomic and locked files, crash-loop
         // detection. Ours (Vaccone Software).
-        .package(url: "https://github.com/Vaccone-Software/stoic", .upToNextMinor(from: "0.2.0")),
+        .package(url: "https://github.com/Vaccone-Software/stoic", .upToNextMinor(from: "0.3.0")),
     ],
     targets: [
         // The AX layer every slice builds on. Its one dependency is Stoic,
         // for the robustness its files, waits and retries need.
         .target(name: "LodestarCore", dependencies: [
             .product(name: "Stoic", package: "stoic"),
+            .product(name: "StoicFoundation", package: "stoic"),
             .product(name: "StoicStore", package: "stoic"),
         ]),
         // Dictation's settling ears: second recognizers that re-hear a

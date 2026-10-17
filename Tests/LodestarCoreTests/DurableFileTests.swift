@@ -1,3 +1,4 @@
+import StoicSealed
 import StoicStore
 import XCTest
 @testable import LodestarCore
@@ -207,17 +208,31 @@ final class DurableFileTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: url), before)
     }
 
-    func testADayFileSegmentIsContinuedAndNotReplacedWhenItCannotBeOpened() throws {
+    /// A day's journal that exists but cannot be opened for writing is never
+    /// replaced by the rows being appended (the old fallback wrote headerless
+    /// records over the day): the append fails, the file is as it was, and the
+    /// rows land once it opens again.
+    func testADayJournalIsContinuedAndNotReplacedWhenItCannotBeOpened() throws {
         let header = DayFile.Header(magic: Array("LDT1".utf8), version: 1, recordSize: 4, tzOffset: 0,
                                     dayStart: 0, install: "inst", appVersion: "1.0", roster: [], bodyOffset: 64)
-        let records = Data([1, 2, 3, 4])
-        let segment = DayFile.append(records, prefix: "unit", day: "2026-10-14", header: header, in: directory)
-        DayFile.append(records, prefix: "unit", day: "2026-10-14", header: header, in: directory)
-        let url = DayFile.url(prefix: "unit", day: "2026-10-14", segment: segment, in: directory)
+        let vault = SealedFixture.vault(directory)
+        let writer = DayWriter(prefix: "unit", purpose: DayStore.purpose, directory: directory,
+                               ring: vault.ring(.health), fileSystem: OwnerOnlyFileSystem())
+        let run = DayWriter.Run(header: header, rows: [1, 2, 3, 4])
+        XCTAssertEqual(writer.append(day: "2026-10-14", runs: [run]), .written)
+        XCTAssertEqual(writer.append(day: "2026-10-14", runs: [run]), .written)
+        let url = directory.appendingPathComponent(DayStore.journalName(prefix: "unit", day: "2026-10-14"))
+        writer.closeAll()
         let whole = try Data(contentsOf: url)
-        XCTAssertEqual(whole.count, 64 + 8, "one header, two records")
         try FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: url.path)
-        DayFile.append(records, prefix: "unit", day: "2026-10-14", header: header, in: directory)
-        XCTAssertEqual(try Data(contentsOf: url), whole, "the old fallback wrote headerless records over the day")
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path) }
+        XCTAssertEqual(writer.append(day: "2026-10-14", runs: [run]), .failed)
+        XCTAssertEqual(try Data(contentsOf: url), whole, "the existing day is untouched")
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        XCTAssertEqual(writer.append(day: "2026-10-14", runs: [run]), .written)
+        let contents = DayStore.read(prefix: "unit", purpose: DayStore.purpose, day: "2026-10-14", in: directory,
+                                     ring: vault.ring(.health), fileSystem: PosixFileSystem())
+        XCTAssertEqual(contents.segments.count, 1, "the rows joined the one segment")
+        XCTAssertEqual(contents.segments[0].count, 64 + 12, "one header, three records")
     }
 }

@@ -1,11 +1,19 @@
 import Foundation
+import StoicStore
 
-/// What the raw stores share: one file per local day, the day beginning
+/// What the raw stores share: one record per local day, the day beginning
 /// at four in the morning; a header that names the format, the install,
 /// the build that wrote it and the devices that were attached; a fresh
 /// *segment* whenever any of that would change mid-day, so a header
-/// never lies about half its file; and older days deflated once a later
+/// never lies about half its record; and older days deflated once a later
 /// day opens.
+///
+/// A day is stored sealed (`DayStore`: one `SealedJournal` per day whose
+/// records are these segments' bytes). The plaintext files an earlier
+/// build wrote, `prefix-DAY.bin`, `prefix-DAY.N.bin` and `.bin.z`, are
+/// what this type still names, lists and reads: they are read until
+/// migration has sealed them, merged when an older build writes new ones,
+/// and written back by `lodestar health export`.
 ///
 /// The header is 64 bytes, then the roster as UTF-8 ids joined by commas
 /// and padded to a sixteen-byte boundary, then the records. Bytes 28–29
@@ -119,8 +127,9 @@ public enum DayFile {
     }
 
     /// Every segment in the directory, by day then index.
-    public static func segments(prefix: String, in directory: URL) -> [Segment] {
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+    public static func segments(prefix: String, in directory: URL,
+                                fileSystem: any FileSystem = PosixFileSystem()) -> [Segment] {
+        let names = (try? fileSystem.list(directory: directory.path)) ?? []
         var out: [Segment] = []
         for name in names {
             guard name.hasPrefix("\(prefix)-") else { continue }
@@ -143,111 +152,14 @@ public enum DayFile {
     }
 
     /// The days with a file, oldest first.
-    public static func days(prefix: String, in directory: URL, compressed: Bool? = nil) -> [String] {
+    public static func days(prefix: String, in directory: URL, compressed: Bool? = nil,
+                            fileSystem: any FileSystem = PosixFileSystem()) -> [String] {
         var days: Set<String> = []
-        for segment in segments(prefix: prefix, in: directory) {
+        for segment in segments(prefix: prefix, in: directory, fileSystem: fileSystem) {
             if let compressed, segment.compressed != compressed { continue }
             days.insert(segment.day)
         }
         return days.sorted()
-    }
-
-    /// Every open segment of a day older than `current` closes: read
-    /// whole, deflated, written beside, and only then removed.
-    public static func compress(prefix: String, before current: String, in directory: URL) {
-        for segment in segments(prefix: prefix, in: directory)
-        where !segment.compressed && segment.day < current {
-            let packed = url(prefix: prefix, day: segment.day, segment: segment.index,
-                             in: directory, compressed: true)
-            guard let data = try? Data(contentsOf: segment.url),
-                  let deflated = try? (data as NSData).compressed(using: .zlib) as Data,
-                  (try? deflated.write(to: packed, options: .atomic)) != nil else { continue }
-            try? FileManager.default.removeItem(at: segment.url)
-        }
-    }
-
-    /// Append records to the day's open segment, or open a new one when
-    /// the header the store would write differs from the one on disk, or
-    /// the segment ends mid-record. `wholeLength` is how many bytes of a
-    /// body make whole records: the store's to say, since only it knows
-    /// its records' lengths. The default is fixed-size records; a store
-    /// whose records vary (a pointer reach carries its samples) must pass
-    /// its own, or every append after one opens a new segment. Returns the
-    /// segment written to.
-    @discardableResult
-    static func append(_ records: Data, prefix: String, day: String, header: Header,
-                       in directory: URL, wholeLength: (([UInt8]) -> Int)? = nil) -> Int {
-        let fm = FileManager.default
-        try? fm.createDirectory(at: directory, withIntermediateDirectories: true)
-        let open = segments(prefix: prefix, in: directory)
-            .filter { $0.day == day }
-        let last = open.last
-        var index = 0
-        var needsHeader = true
-        if let last {
-            // A segment that ends mid-record — the process died inside a
-            // write, or the disk filled — is closed as it stands: appended
-            // to, every record after the torn one would be read shifted.
-            if !last.compressed, continues(last.url, header: header, wholeLength: wholeLength) {
-                index = last.index
-                needsHeader = false
-            } else {
-                index = last.index + 1
-            }
-        }
-        let target = url(prefix: prefix, day: day, segment: index, in: directory)
-        var data = Data()
-        if needsHeader { data.append(encode(header)) }
-        data.append(records)
-        // `write(contentsOf:)` throws where `write(_:)` raised an Objective-C
-        // exception Swift cannot catch: a full disk took the process down,
-        // and the flush that failed ran again at the next launch.
-        // One O_APPEND open serves both: a fresh segment is created by it,
-        // and an existing one is added to and never replaced. The old
-        // fallback wrote `data` as a whole new file when the open failed,
-        // which for a segment being continued meant records with no header
-        // over a day of them.
-        var wrote = false
-        do {
-            try DurableFile.append(data, to: target)
-            wrote = true
-        } catch {
-            Log.error("\(prefix): could not append to \(target.lastPathComponent): \(error.localizedDescription)")
-        }
-        // A write that failed may have left part of itself: the segment is
-        // read and checked at the next append, not taken on trust.
-        let size = wrote ? (try? fm.attributesOfItem(atPath: target.path))?[.size] as? Int : nil
-        leftLock.withLock {
-            left[target.path] = size.map { Left(size: $0, fingerprint: header.fingerprint) }
-        }
-        return index
-    }
-
-    /// Each segment as this process last left it. A segment still that
-    /// size was left whole by us and is appended to without being read:
-    /// reading and walking the whole day at every flush made each flush
-    /// cost the day so far, tens of megabytes an hour under load. Only a
-    /// segment someone else wrote, or one from before a launch or a
-    /// crash, is read and checked.
-    private struct Left { var size: Int; var fingerprint: String }
-    nonisolated(unsafe) private static var left: [String: Left] = [:]
-    private static let leftLock = NSLock()
-
-    /// Whether the day's open segment takes more records: the header it
-    /// would get, and whole records to its end.
-    static func continues(_ segment: URL, header: Header, wholeLength: (([UInt8]) -> Int)?) -> Bool {
-        let size = (try? FileManager.default.attributesOfItem(atPath: segment.path))?[.size] as? Int
-        if let size, let known = leftLock.withLock({ left[segment.path] }), known.size == size {
-            return known.fingerprint == header.fingerprint
-        }
-        guard let existing = try? Data(contentsOf: segment),
-              let onDisk = readHeader(existing), onDisk.fingerprint == header.fingerprint,
-              onDisk.recordSize > 0, existing.count >= onDisk.bodyOffset else { return false }
-        let bodyLength = existing.count - onDisk.bodyOffset
-        if let wholeLength {
-            return wholeLength([UInt8](existing.dropFirst(onDisk.bodyOffset))) == bodyLength
-        }
-        return bodyLength % Int(onDisk.recordSize) == 0
     }
 
     // MARK: - Days

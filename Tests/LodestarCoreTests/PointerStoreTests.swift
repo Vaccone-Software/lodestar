@@ -1,3 +1,5 @@
+import StoicSealed
+import StoicStore
 import XCTest
 @testable import LodestarCore
 
@@ -6,12 +8,15 @@ import XCTest
 /// and the header names the pointing devices.
 final class PointerStoreTests: XCTestCase {
     private var directory: URL!
+    private var vault: Vault!
+    private var ring: Vault.Ring { vault.ring(.health) }
     private let utc = TimeZone(identifier: "UTC")!
     private let base = Date(timeIntervalSince1970: 1_700_000_000)
 
     override func setUp() {
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("pointerstore-\(UUID().uuidString)", isDirectory: true)
+        vault = SealedFixture.vault(directory)
     }
 
     override func tearDown() {
@@ -19,13 +24,33 @@ final class PointerStoreTests: XCTestCase {
     }
 
     private func store() -> PointerStore {
-        PointerStore(directory: directory, installID: "test-install", timeZone: utc, appVersion: "1.2.3")
+        PointerStore(directory: directory, installID: "test-install", timeZone: utc, appVersion: "1.2.3", ring: ring)
     }
 
     private var day: String {
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = utc
         return DayFile.day(of: base, calendar: cal)
+    }
+
+    /// The plaintext day file an earlier build wrote, with its tail cut by
+    /// `tear` bytes: what a crash in the middle of a reach left behind.
+    private func legacyFile(_ records: [PointerStore.Record], tear: Int = 0) throws -> URL {
+        let header = store().header(for: day, roster: [])
+        var data = DayFile.encode(header)
+        for record in records { data.append(contentsOf: PointerStore.encode(record)) }
+        data.removeLast(tear)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = DayFile.url(prefix: "pointer", day: day, in: directory)
+        try data.write(to: url)
+        return url
+    }
+
+    private var tornPair: [PointerStore.Record] {
+        [.click(at: base, button: 0, source: .human, device: .mouse, index: 1, stage: 0, pressure: 0),
+         .reach(start: base.addingTimeInterval(1), screen: 0,
+                samples: (0..<50).map { _ in PointerStore.Sample(dt: 0.008, dx: 1, dy: 1) },
+                end: base.addingTimeInterval(1.4))]
     }
 
     func testEveryRecordKindRoundTrips() throws {
@@ -44,7 +69,7 @@ final class PointerStoreTests: XCTestCase {
                                                device: .unknown, index: 0, stage: 0, pressure: 0)
         for record in [reach, click, release, scroll, posted] { store.append(record, roster: ["pad", "mouse"]) }
         store.flushSync()
-        let back = PointerStore.records(day: day, in: directory)
+        let back = PointerStore.records(day: day, in: directory, ring: ring)
         XCTAssertEqual(back.count, 5)
         guard case .reach(let start, let screen, let got, let end) = back[0] else { return XCTFail("reach") }
         XCTAssertEqual(start.timeIntervalSince1970, base.timeIntervalSince1970, accuracy: 1e-6)
@@ -75,26 +100,31 @@ final class PointerStoreTests: XCTestCase {
         XCTAssertEqual(which, 2)
         guard case .click(_, _, let who, _, _, _, _) = back[4] else { return XCTFail("posted") }
         XCTAssertEqual(who, .lodestar)
-        let (header, _) = try PointerStore.read(url: DayFile.url(prefix: "pointer", day: day, in: directory))
+        let header = try XCTUnwrap(PointerStore.read(day: day, in: directory, ring: ring).segments.first).header
         XCTAssertEqual(header.magic, Array("LDP1".utf8))
         XCTAssertEqual(header.roster, ["pad", "mouse"])
         XCTAssertEqual(header.appVersion, "1.2.3")
     }
 
+    /// A plaintext file an earlier build left, torn mid-reach, reads as it
+    /// always did (the reach is lost, the click is not), and sealing it
+    /// carries every byte, torn tail included, so nothing is cut that was there.
     func testATornReachLosesOnlyItself() throws {
+        let url = try legacyFile(tornPair, tear: 40)
+        let plain = try PointerStore.read(url: url).records
+        XCTAssertEqual(plain.count, 1)
+        guard case .click = plain[0] else { return XCTFail("the whole click survives") }
         let store = store()
-        store.append(.click(at: base, button: 0, source: .human, device: .mouse, index: 1, stage: 0, pressure: 0))
-        store.append(.reach(start: base.addingTimeInterval(1), screen: 0,
-                            samples: (0..<50).map { _ in PointerStore.Sample(dt: 0.008, dx: 1, dy: 1) },
-                            end: base.addingTimeInterval(1.4)))
-        store.flushSync()
-        let url = DayFile.url(prefix: "pointer", day: day, in: directory)
-        var data = try Data(contentsOf: url)
-        data.removeLast(40) // mid-samples
-        try data.write(to: url)
-        let back = PointerStore.records(day: day, in: directory)
+        XCTAssertEqual(store.migrateLegacy().files, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+        let back = PointerStore.records(day: day, in: directory, ring: ring)
         XCTAssertEqual(back.count, 1)
-        guard case .click = back[0] else { return XCTFail("the whole click survives") }
+        guard case .click = back[0] else { return XCTFail("the whole click survives sealed") }
+        let bytes = DayStore.read(prefix: "pointer", purpose: DayStore.purpose, day: day, in: directory, ring: ring,
+                                  fileSystem: PosixFileSystem()).segments[0]
+        XCTAssertEqual(bytes.count, DayFile.encode(store.header(for: day, roster: [])).count
+                       + PointerStore.recordSize + (PointerStore.recordSize + 50 * PointerStore.sampleSize + PointerStore.recordSize) - 40,
+                       "the torn bytes are kept, byte for byte")
     }
 
     /// A reach is as long as its samples, so a healthy day's body is
@@ -113,27 +143,22 @@ final class PointerStoreTests: XCTestCase {
                                 index: 1, stage: 0, pressure: 0))
             store.flushSync()
         }
-        XCTAssertEqual(DayFile.segments(prefix: "pointer", in: directory).count, 1)
-        XCTAssertEqual(PointerStore.records(day: day, in: directory).count, 10)
+        XCTAssertEqual(PointerStore.read(day: day, in: directory, ring: ring).segments.count, 1)
+        XCTAssertEqual(PointerStore.records(day: day, in: directory, ring: ring).count, 10)
     }
 
     /// And a reach cut inside its samples does close its segment: what
     /// comes after is written to a new one and reads whole.
     func testAClickAfterATornReachOpensANewSegment() throws {
+        let url = try legacyFile(Array(tornPair.suffix(1)), tear: 40)
         let store = store()
-        store.append(.reach(start: base, screen: 0,
-                            samples: (0..<50).map { _ in PointerStore.Sample(dt: 0.008, dx: 1, dy: 1) },
-                            end: base.addingTimeInterval(0.4)))
-        store.flushSync()
-        let url = DayFile.url(prefix: "pointer", day: day, in: directory)
-        var data = try Data(contentsOf: url)
-        data.removeLast(40) // mid-samples
-        try data.write(to: url)
+        XCTAssertEqual(store.migrateLegacy().files, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
         store.append(.click(at: base.addingTimeInterval(1), button: 2, source: .human, device: .mouse,
                             index: 1, stage: 0, pressure: 0))
         store.flushSync()
-        XCTAssertEqual(DayFile.segments(prefix: "pointer", in: directory).count, 2)
-        let back = PointerStore.records(day: day, in: directory)
+        XCTAssertEqual(PointerStore.read(day: day, in: directory, ring: ring).segments.count, 2)
+        let back = PointerStore.records(day: day, in: directory, ring: ring)
         guard case .click(_, let button, _, _, _, _, _)? = back.last else { return XCTFail("the click reads whole") }
         XCTAssertEqual(button, 2)
     }
@@ -152,7 +177,7 @@ final class PointerStoreTests: XCTestCase {
         XCTAssertEqual(PointerStore.wholeLength(Array(reach.prefix(20))), 0, "a reach torn in its samples")
     }
 
-    func testARosterChangeOpensANewSegmentAndOlderDaysDeflate() {
+    func testARosterChangeOpensANewSegmentAndOlderDaysDeflate() throws {
         let store = store()
         store.append(.click(at: base, button: 0, source: .human, device: .trackpad, index: 1, stage: 0, pressure: 0),
                      roster: ["pad"])
@@ -160,14 +185,17 @@ final class PointerStoreTests: XCTestCase {
         store.append(.click(at: base.addingTimeInterval(1), button: 0, source: .human, device: .mouse, index: 2,
                             stage: 0, pressure: 0), roster: ["pad", "mouse"])
         store.flushSync()
-        XCTAssertEqual(DayFile.segments(prefix: "pointer", in: directory).map(\.index), [0, 1])
+        XCTAssertEqual(PointerStore.read(day: day, in: directory, ring: ring).segments.map(\.header.roster),
+                       [["pad"], ["pad", "mouse"]])
         store.append(.click(at: base.addingTimeInterval(86_400), button: 0, source: .human, device: .mouse,
                             index: 2, stage: 0, pressure: 0), roster: ["pad", "mouse"])
         store.flushSync()
         XCTAssertEqual(PointerStore.days(in: directory).count, 2)
-        XCTAssertEqual(PointerStore.records(day: day, in: directory).count, 2, "both deflated segments read")
-        XCTAssertEqual(DayFile.segments(prefix: "pointer", in: directory).filter { $0.day == day }.map(\.compressed),
-                       [true, true])
+        XCTAssertEqual(PointerStore.records(day: day, in: directory, ring: ring).count, 2, "both deflated segments read")
+        let journal = directory.appendingPathComponent(DayStore.journalName(prefix: "pointer", day: day))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: journal.path + ".snapshot"))
+        XCTAssertEqual(DayStore.read(prefix: "pointer", purpose: DayStore.purpose, day: day, in: directory, ring: ring,
+                                     fileSystem: PosixFileSystem()).closed.count, 2)
     }
 
     func testAReachMotionYieldsItsSamples() {

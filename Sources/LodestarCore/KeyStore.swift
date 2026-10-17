@@ -1,4 +1,5 @@
 import Foundation
+import StoicStore
 
 /// The raw record: one fixed-width row per press, one file per local day,
 /// kept for as long as the disk allows.
@@ -19,14 +20,20 @@ import Foundation
 /// seen), then hand, kind, flags and keyboard type as single bytes, the
 /// finger, the modifiers, how many keys a modifier's own press covered,
 /// which roster keyboard sent it, and whether the lid was closed. A
-/// day's file is appended to as the day goes; when the build or the
-/// roster changes mid-day a new segment opens beside it, so a header
-/// never describes rows it did not see; and every segment is compressed
-/// once a later day opens — the Compression framework's zlib, which is
-/// raw DEFLATE (Python reads it with `zlib.decompress(data, -15)`). A
-/// torn tail is ignored by length, so a crash mid-write costs at most
-/// one record. Version-1 files (16-byte rows, 32-byte header) still
-/// read, with the new columns at their defaults.
+/// day is appended to as the day goes; when the build or the roster
+/// changes mid-day a new segment opens, so a header never describes rows
+/// it did not see; and every segment is compressed once a later day opens
+/// — the Compression framework's zlib, which is raw DEFLATE (Python reads
+/// it with `zlib.decompress(data, -15)`). Version-1 segments (16-byte
+/// rows, 32-byte header) still read, with the new columns at their
+/// defaults.
+///
+/// **At rest a day is sealed**: one `SealedJournal` per day
+/// (`keys-YYYY-MM-DD.sj`, see `DayStore` for the bytes), whose records
+/// are those segments, so what the disk holds is ciphertext and a flush
+/// is one authenticated, durable append. The plaintext layout above is
+/// what `lodestar health export` writes, and what older builds left
+/// behind, which migration seals and removes.
 ///
 /// The day begins at four in the morning, as it does everywhere else in
 /// the instrument, so an evening that runs past midnight stays one day.
@@ -45,7 +52,22 @@ public final class KeyStore {
     static let prefix = "keys"
 
     public let directory: URL
-    /// The install's name, asked for the first time a day file is opened:
+    /// The health ring the days are sealed under.
+    public let ring: Vault.Ring
+    private let fileSystem: any FileSystem
+    private let writer: DayWriter
+    private var droppedPresses = 0
+    /// Presses dropped because the health key was unavailable (the record
+    /// is paused for the launch; see `Vault`).
+    public var dropped: Int {
+        lock.lock(); defer { lock.unlock() }
+        return droppedPresses
+    }
+
+    private func drop(_ count: Int) {
+        lock.lock(); droppedPresses += count; lock.unlock()
+    }
+    /// The install's name, asked for the first time a day journal is opened:
     /// an instrument that is off must not write even the file that names
     /// it.
     public var installID: String {
@@ -64,8 +86,13 @@ public final class KeyStore {
     private let lock = NSLock()
 
     public init(directory: URL, installID: @autoclosure @escaping () -> String,
-                timeZone: TimeZone = .current, appVersion: String = Lodestar.version) {
+                timeZone: TimeZone = .current, appVersion: String = Lodestar.version,
+                ring: Vault.Ring, fileSystem: any FileSystem = OwnerOnlyFileSystem()) {
         self.directory = directory
+        self.ring = ring
+        self.fileSystem = fileSystem
+        self.writer = DayWriter(prefix: Self.prefix, purpose: DayStore.purpose, directory: directory,
+                                ring: ring, fileSystem: fileSystem)
         self.resolveInstall = installID
         self.appVersion = appVersion
         var calendar = Calendar(identifier: .gregorian)
@@ -114,6 +141,12 @@ public final class KeyStore {
     }
 
     private func write(_ pending: [(press: KeyPress, roster: [String])]) {
+        // The key first: with the record paused nothing is written, not even
+        // the file that names the install.
+        guard ring.keyring() != nil else {
+            drop(pending.count)
+            return
+        }
         // Runs of one day and one roster, in arrival order: each run goes
         // to the segment whose header matches, or opens the next.
         var runs: [(day: String, roster: [String], rows: [KeyPress])] = []
@@ -125,15 +158,21 @@ public final class KeyStore {
                 runs.append((day, entry.roster, [entry.press]))
             }
         }
-        var newest = ""
+        var byDay: [String: [DayWriter.Run]] = [:]
         for run in runs {
-            var records = Data()
+            var records = [UInt8]()
             for row in run.rows { records.append(contentsOf: Self.encode(row)) }
-            DayFile.append(records, prefix: Self.prefix, day: run.day,
-                           header: header(for: run.day, roster: run.roster), in: directory)
-            newest = max(newest, run.day)
+            byDay[run.day, default: []].append(.init(header: header(for: run.day, roster: run.roster), rows: records))
         }
-        if !newest.isEmpty { DayFile.compress(prefix: Self.prefix, before: newest, in: directory) }
+        var newest = ""
+        for day in byDay.keys.sorted() {
+            switch writer.append(day: day, runs: byDay[day] ?? []) {
+            case .written: newest = max(newest, day)
+            case .paused: drop(runs.filter { $0.day == day }.reduce(0) { $0 + $1.rows.count })
+            case .failed: break
+            }
+        }
+        if !newest.isEmpty { writer.closeDays(before: newest) }
     }
 
     func header(for day: String, roster: [String]) -> DayFile.Header {
@@ -148,41 +187,89 @@ public final class KeyStore {
 
     // MARK: - Reading
 
-    /// The days with a file, oldest first.
-    public static func days(in directory: URL, compressed: Bool? = nil) -> [String] {
-        DayFile.days(prefix: prefix, in: directory, compressed: compressed)
+    /// What a read of a day found besides rows: whether the key could not be
+    /// asked, and how many sealed values or files would not open.
+    public struct DayStatus: Equatable {
+        public var unavailable = false
+        public var failures = 0
+        public var clean: Bool { !unavailable && failures == 0 }
     }
 
-    /// One day's presses, in press order, across every segment that
-    /// holds part of it.
-    public static func presses(day: String, in directory: URL) -> [KeyPress] {
-        segments(day: day, in: directory).flatMap { $0.presses }.sorted { $0.down < $1.down }
+    /// The days with a journal or a plaintext file, oldest first.
+    public static func days(in directory: URL, fileSystem: any FileSystem = PosixFileSystem()) -> [String] {
+        DayStore.days(prefix: prefix, in: directory, fileSystem: fileSystem)
+    }
+
+    /// One day's presses, in press order, across every segment that holds
+    /// part of it. `ring` is the key to open a sealed day with; nil reads
+    /// the plaintext remnants only.
+    public static func presses(day: String, in directory: URL, ring: Vault.Ring?,
+                               fileSystem: any FileSystem = PosixFileSystem()) -> [KeyPress] {
+        read(day: day, in: directory, ring: ring, fileSystem: fileSystem).segments
+            .flatMap { $0.presses }.sorted { $0.down < $1.down }
     }
 
     /// One day's segments with their headers — the roster a `keyboard`
     /// index refers to is the header of the segment the row sits in.
-    public static func segments(day: String, in directory: URL)
+    public static func segments(day: String, in directory: URL, ring: Vault.Ring?,
+                                fileSystem: any FileSystem = PosixFileSystem())
         -> [(header: DayFile.Header, presses: [KeyPress])] {
-        DayFile.segments(prefix: prefix, in: directory)
-            .filter { $0.day == day }
-            .compactMap { segment in
-                guard let (header, presses) = try? read(url: segment.url) else { return nil }
-                return (header, presses)
-            }
+        read(day: day, in: directory, ring: ring, fileSystem: fileSystem).segments
     }
 
+    /// The segments and how the read went: a sealed day that did not open
+    /// says so here, and is never an empty one.
+    public static func read(day: String, in directory: URL, ring: Vault.Ring?,
+                            fileSystem: any FileSystem = PosixFileSystem())
+        -> (segments: [(header: DayFile.Header, presses: [KeyPress])], status: DayStatus) {
+        let contents = DayStore.read(prefix: prefix, purpose: DayStore.purpose, day: day, in: directory,
+                                     ring: ring, fileSystem: fileSystem)
+        let segments = contents.segments.compactMap { decode(segment: $0) }
+        return (segments, DayStatus(unavailable: contents.unavailable, failures: contents.failures))
+    }
+
+    /// One plaintext segment file, as an older build wrote it.
     public static func read(url: URL) throws -> (header: DayFile.Header, presses: [KeyPress]) {
         let (header, body) = try DayFile.read(url: url)
-        guard header.magic == magic else { return (header, []) }
+        return (header, rows(header: header, body: body))
+    }
+
+    /// A segment's bytes (header, then rows) as presses.
+    public static func decode(segment bytes: [UInt8]) -> (header: DayFile.Header, presses: [KeyPress])? {
+        guard let header = DayFile.readHeader(Data(bytes)), bytes.count >= header.bodyOffset else { return nil }
+        return (header, rows(header: header, body: Array(bytes.dropFirst(header.bodyOffset))))
+    }
+
+    private static func rows(header: DayFile.Header, body: [UInt8]) -> [KeyPress] {
+        guard header.magic == magic else { return [] }
         let size = Int(header.recordSize)
-        guard size >= legacyRecordSize else { return (header, []) }
+        guard size >= legacyRecordSize else { return [] }
         let count = body.count / size
         var out: [KeyPress] = []
         out.reserveCapacity(count)
         for i in 0..<count {
             out.append(decode(Array(body[(i * size)..<((i + 1) * size)])))
         }
-        return (header, out.sorted { $0.down < $1.down })
+        return out.sorted { $0.down < $1.down }
+    }
+
+    // MARK: - Migrating
+
+    /// Seal and remove the plaintext day files an earlier build left, on the
+    /// store's own queue (no flush interleaves). Resumable; see
+    /// `DayWriter.migrate`.
+    public func migrateLegacy() -> RecordMigration {
+        queue.sync {
+            let outcome = writer.migrate(decodedCount: { Self.decode(segment: $0)?.presses.count ?? -1 })
+            writer.closeDays(before: Self.day(of: Date(), calendar: calendar))
+            return outcome
+        }
+    }
+
+    /// Close the journals this store holds open: shutdown, and a test that
+    /// wants the file system to itself.
+    public func close() {
+        queue.sync { writer.closeAll() }
     }
 
     // MARK: - Encoding
@@ -249,6 +336,7 @@ public final class KeyStore {
         DayFile.dayStart(of: day, calendar: calendar)
     }
 
+    /// The plaintext file an earlier build kept the day in (segment 0).
     public static func url(for day: String, in directory: URL, compressed: Bool = false) -> URL {
         DayFile.url(prefix: prefix, day: day, in: directory, compressed: compressed)
     }

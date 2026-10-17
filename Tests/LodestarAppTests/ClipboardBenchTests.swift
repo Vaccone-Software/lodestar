@@ -366,16 +366,37 @@ final class ClipboardBenchTests: XCTestCase {
             [(.png, screenshot + Data("\(n)".utf8))]
         }
 
-        // Folding what the poll does into numbers it can be compared by.
+        // What the poll does between the pasteboard and the index, a step at
+        // a time, on a 19 MB text: where the main thread's second goes.
         let data19 = Data("copy ".utf8) + huge
-        report("capture parts: SHA-256 of 19 MB", (0..<5).map { _ in milliseconds { _ = ClipboardStore.identity(for: data19) } })
         let text19 = String(decoding: data19, as: UTF8.self)
-        report("capture parts: preview + counts of a 19 MB text", (0..<5).map { _ in milliseconds {
-            _ = Clipboard.preview(of: text19)
-            _ = Clipboard.counts(of: text19)
-        } })
+        func parts(_ what: String, _ text: String, _ data: Data, repetitions: Int) {
+            report("capture parts: SHA-256 of \(what)", (0..<repetitions).map { _ in milliseconds { _ = ClipboardStore.identity(for: data) } })
+            report("capture parts: Data(text.utf8) of \(what)", (0..<repetitions).map { _ in milliseconds { _ = Data(text.utf8) } })
+            report("capture parts: isOwnHandoverPath of \(what)", (0..<repetitions).map { _ in milliseconds {
+                _ = Clipboard.isOwnHandoverPath(text, temporaryDirectory: NSTemporaryDirectory())
+            } })
+            for patterns in [[], ["hunter2"]] {
+                report("capture parts: refusal, \(patterns.count) pattern(s), \(what)", (0..<repetitions).map { _ in milliseconds {
+                    _ = Clipboard.refusal(types: ["public.utf8-plain-text"], sourceBundleID: nil, text: text,
+                                          bytes: data.count, excludedApps: [], excludedPatterns: patterns,
+                                          maxItemBytes: 20_000_000)
+                } })
+            }
+            report("capture parts: preview of \(what)", (0..<repetitions).map { _ in milliseconds { _ = Clipboard.preview(of: text) } })
+            report("capture parts: counts of \(what)", (0..<repetitions).map { _ in milliseconds { _ = Clipboard.counts(of: text) } })
+        }
+        parts("19 MB ASCII", text19, data19, repetitions: 5)
+        let accented = String(repeating: "café ünïcode 日本語 text, with some more words and a line\r\nof its own. ", count: 19_000_000 / 80)
+        parts("19 MB with accents and CRLF", accented, Data(accented.utf8), repetitions: 3)
         let data1 = Data("copy ".utf8) + big
         report("capture parts: SHA-256 of 1 MB", (0..<reps).map { _ in milliseconds { _ = ClipboardStore.identity(for: data1) } })
+        board.clearContents()
+        board.setString(text19, forType: .string)
+        report("capture parts: pasteboard string read, 19 MB", (0..<5).map { _ in milliseconds { _ = board.string(forType: .string) } })
+        report("capture parts: pasteboardItems + string read, 19 MB", (0..<5).map { _ in milliseconds {
+            _ = board.pasteboardItems?.first?.string(forType: .string)
+        } })
 
         // The record itself and the trim after it, for a copy that is small.
         var recordSamples: [Double] = [], trimSamples: [Double] = []

@@ -45,7 +45,7 @@ final class ClipboardStoreModesTests: XCTestCase {
         store.flushIO()
         XCTAssertEqual(Set(modes(items).keys), ["image.type0", "text.plain", "text.type0", "text.i1.plain"])
         XCTAssertEqual(Set(modes(thumbs).keys), ["image.png"])
-        XCTAssertTrue((modes(items).values + modes(thumbs).values).allSatisfy { $0 == 0o600 },
+        XCTAssertTrue((Array(modes(items).values) + Array(modes(thumbs).values)).allSatisfy { $0 == 0o600 },
                       "\(modes(items)) \(modes(thumbs))")
     }
 

@@ -149,12 +149,12 @@ public enum Json {
 
     // MARK: - Canonical emission
 
-    /// Top-level section order; everything unknown trails alphabetically,
-    /// where validation's complaints and the reader's eye both land last.
-    private static let sectionOrder = [
-        "$schema", "version", "lode", "app", "gestures", "web", "scroll",
-        "select", "meetings", "clipboard", "editor", "observations", "coach", "keys", "graph",
-    ]
+    /// Top-level section order: the header, then the sections as the file
+    /// has them (`ConfigStore.sectionOrder`); everything unknown trails
+    /// alphabetically, where validation's complaints and the reader's eye
+    /// both land last. `config` prints with this; the file is written by the
+    /// store with the same order.
+    private static let sectionOrder = ["$schema", "version"] + ConfigStore.sectionOrder
 
     public static func emit(_ root: [String: ConfigValue]) -> String {
         var lines: [String] = ["{"]

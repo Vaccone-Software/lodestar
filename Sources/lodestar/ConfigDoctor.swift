@@ -223,21 +223,19 @@ func diagnoseReport() -> String {
 /// The backup makes it reversible — reset must never cost the user their
 /// registry, graph, or links.
 func runResetConfig() -> Never {
-    let fm = FileManager.default
-    try? fm.createDirectory(at: Config.directory, withIntermediateDirectories: true)
     let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-    for source in [Config.file] where fm.fileExists(atPath: source.path) {
-        let backup = Config.directory.appendingPathComponent("\(source.lastPathComponent).backup-\(stamp)")
-        do {
-            try fm.copyItem(at: source, to: backup)
-            print("backed up \(source.lastPathComponent) → \(backup.lastPathComponent)")
-        } catch {
-            print("✕ could not back up \(source.lastPathComponent) (\(error.localizedDescription)) — aborting, nothing changed")
-            exit(1)
-        }
-    }
+    let backup = Config.directory.appendingPathComponent("\(Config.file.lastPathComponent).backup-\(stamp)")
     do {
-        try Config.write(tree: [:])
+        let kept = try Config.reset(backingUpTo: backup)
+        if let kept {
+            print("backed up \(Config.file.lastPathComponent) → \(kept.lastPathComponent)")
+        }
+    } catch let error as Config.ResetError {
+        if case .writeFailed(_, let kept?) = error {
+            print("backed up \(Config.file.lastPathComponent) → \(kept.lastPathComponent)")
+        }
+        print("✕ \(error)")
+        exit(1)
     } catch {
         print("✕ could not write the default config: \(error.localizedDescription)")
         exit(1)
@@ -286,9 +284,7 @@ func runConfigVerb(_ arguments: [String]) -> Never {
     /// replaces the user's whole config with the single key it is setting.
     /// Only a genuinely absent file yields an empty tree.
     func userTree() -> [String: ConfigValue]? {
-        guard FileManager.default.fileExists(atPath: Config.file.path) else { return [:] }
-        guard let text = try? String(contentsOf: Config.file, encoding: .utf8) else { return nil }
-        return try? Json.parse(text)
+        Config.userTree()
     }
     /// Reads serve the tree as `build` would see it: the parse-time
     /// migrations applied, so `config get` never hands back a value the

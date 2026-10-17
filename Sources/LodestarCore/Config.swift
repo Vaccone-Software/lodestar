@@ -320,26 +320,27 @@ public struct Config {
         "graph": .graph(description: "lode + letter chains → apps. Values: app name or <browser>:<profile name>."),
     ], description: "lodestar configuration")
 
-    /// Every config write funnels here: the tree is pruned sparse against
-    /// the defaults, stamped with the schema pointer and the writing
-    /// release, and emitted canonically — every writer, the same bytes.
+    /// Every config write funnels here: the tree is normalized and pruned
+    /// sparse against the defaults (`ConfigStore.canonical`), and the store
+    /// stamps the schema pointer and the writing release and lays it out
+    /// canonically — every writer, the same bytes.
     /// `to:` exists so tests can exercise the write path without touching
     /// the config of whoever is running them; every caller uses the default.
+    ///
+    /// A file that exists and does not parse is never written over here: it
+    /// throws `EditError.unparsed`, as `edit` does. (The one way to replace
+    /// such a file is `reset`, which keeps the person's bytes first.)
+    ///
+    /// Runs on the calling thread and waits up to 2 s for another process's
+    /// lock; see `edit`.
     public static func write(tree: [String: ConfigValue], to target: URL = Config.file) throws {
-        var clean = ConfigDefaults.normalized(tree)
-        clean.removeValue(forKey: "$schema")
-        clean.removeValue(forKey: "version")
-        var out = Json.pruned(clean, defaults: ConfigDefaults.tree)
-        out["$schema"] = .string("lodestar-schema.json")
-        out["version"] = .string(Lodestar.version)
-        // Stoic's atomic write with the envelope off: the same bytes on
-        // disk, but synced (file and directory) before this returns, and a
-        // failure thrown rather than half-done. A new file is the owner's
-        // alone; one that exists keeps the mode its owner gave it.
-        try DurableFile.write(Data(Json.emit(out).utf8), to: target, newFileMode: 0o600)
+        try edit(in: target) { _ in tree }
+        // An update that changes nothing writes nothing, and a first launch
+        // with all defaults is exactly that: the file is still owed.
+        try ConfigStore.materialize(at: target)
     }
 
-    /// Why an edit could not happen. Both cases mean the same thing to a
+    /// Why an edit could not happen. Every case means the same thing to a
     /// caller: the file on disk is the user's and must not be replaced.
     public enum EditError: Error, CustomStringConvertible {
         case unreadable(String)
@@ -347,12 +348,16 @@ public struct Config {
         /// Another process (the app, the CLI) held the config's lock for
         /// the whole wait.
         case busy(String)
+        /// The file was fine and the write failed (disk full, read-only
+        /// volume): nothing changed.
+        case storage(String)
 
         public var description: String {
             switch self {
             case .unreadable(let name): return "could not read \(name)"
             case .unparsed(let detail): return "the config does not parse — \(detail)"
             case .busy(let detail): return "the config is being written by another process — \(detail)"
+            case .storage(let detail): return "could not write the config — \(detail)"
             }
         }
     }
@@ -367,96 +372,109 @@ public struct Config {
     /// simple enough to have exactly one implementation: a file that
     /// exists and does not parse is never written over.
     ///
-    /// An absent file is not a failure — that is a genuine first write,
-    /// and it starts from an empty tree.
+    /// It is now Stoic's: `blockingUpdate` on the process's one store for the
+    /// file. An absent file is not a failure — that is a genuine first
+    /// write, and it starts from an empty tree.
     ///
     /// The read and the write are one step under a lock on a sidecar file
-    /// (`config.json.lock`) that the CLI and the app both take. Without it
-    /// `lodestar config set` and a settings toggle could each read the old
-    /// tree, each change one key, and the second to write silently undid
-    /// the first. The wait is bounded: a holder that never lets go is
-    /// reported, not waited on forever, and the lock dies with its process.
+    /// (`lodestar.json.lock`) that the CLI and the app both take, and that
+    /// every earlier build took the same way, so old and new builds keep each
+    /// other out. Without it `lodestar config set` and a settings toggle
+    /// could each read the old tree, each change one key, and the second to
+    /// write silently undid the first. The wait is bounded (`lockTimeout`,
+    /// 2 s): a holder that never lets go is reported, not waited on forever,
+    /// and the lock dies with its process.
+    ///
+    /// **It blocks the calling thread while it waits**, for as long as the
+    /// other writer holds the lock (one small write) and never longer than
+    /// `lockTimeout`; that is what the main thread's callers have always
+    /// done. Nothing on a path that can run for long should call it there.
+    ///
+    /// `transform` runs under the lock, on the calling thread, on the tree
+    /// the file holds *now*. What the file changed (a comment, `hyper`, a
+    /// value equal to its default) is rewritten only when `transform` leaves
+    /// the tree different from what the file holds once it is normalized and
+    /// pruned: an edit that changes nothing writes nothing.
     @discardableResult
     public static func edit(
         in target: URL = Config.file,
         lockTimeout: TimeInterval = 2,
         _ transform: ([String: ConfigValue]) throws -> [String: ConfigValue]
     ) throws -> [String: ConfigValue] {
-        try? FileManager.default.createDirectory(at: target.deletingLastPathComponent(),
-                                                 withIntermediateDirectories: true)
-        let lock = FileLock(path: target.path + ".lock")
-        try acquire(lock, timeout: lockTimeout, name: target.lastPathComponent)
-        defer { try? lock.release() }
-        return try editLocked(in: target, transform)
+        let name = target.lastPathComponent
+        let store: ConfigStore.Store
+        do {
+            store = try ConfigStore.store(at: target)
+        } catch {
+            throw EditError.unreadable(name)
+        }
+        var result: [String: ConfigValue] = [:]
+        do {
+            try store.blockingUpdate(waitingUpTo: .seconds(lockTimeout)) { value in
+                var ignored: [String] = []
+                let updated = try transform(ConfigStore.tree(of: value, problems: &ignored))
+                result = updated
+                value = ConfigStore.canonical(updated)
+            }
+        } catch let error as ConfigStore.Store.UpdateError {
+            if case .durabilityUnknown(let failure) = error {
+                // The new value is in the file and published; only a power
+                // loss could bring the old one back. Said, not thrown, as it
+                // was when the write was Stoic's `DurableFile`.
+                Log.error("config: written, but not known to be durable", ["error": "\(failure)"])
+                return result
+            }
+            throw ConfigStore.editError(error, file: name, waited: lockTimeout)
+        }
+        return result
     }
 
-    /// Takes the lock, polling without a thread-blocking wait longer than a
-    /// poll: the callers include the main thread, which must not be held
-    /// past the timeout.
-    private static func acquire(_ lock: FileLock, timeout: TimeInterval, name: String) throws {
-        let deadline = Date().addingTimeInterval(timeout)
-        while true {
-            do {
-                if try lock.tryAcquire() { return }
-            } catch {
-                throw EditError.busy("could not open the lock for \(name): \(error)")
-            }
-            guard Date() < deadline else {
-                throw EditError.busy("waited \(Int(timeout)) s for the lock on \(name)")
-            }
-            Thread.sleep(forTimeInterval: 0.02)
-        }
-    }
-
-    private static func editLocked(
-        in target: URL,
-        _ transform: ([String: ConfigValue]) throws -> [String: ConfigValue]
-    ) throws -> [String: ConfigValue] {
-        var tree: [String: ConfigValue] = [:]
-        if FileManager.default.fileExists(atPath: target.path) {
-            guard let text = try? String(contentsOf: target, encoding: .utf8) else {
-                throw EditError.unreadable(target.lastPathComponent)
-            }
-            do {
-                tree = try Json.parse(text, file: target.lastPathComponent)
-            } catch {
-                throw EditError.unparsed("\(error)")
-            }
-        }
-        let updated = try transform(tree)
-        try write(tree: updated, to: target)
-        return updated
+    /// The tree the file holds now, read through the store: nil when the
+    /// file exists and cannot be used, and an empty tree when there is none.
+    /// What `config get/set/unset` start from; they refuse to write on nil.
+    public static func userTree(from source: URL = Config.file) -> [String: ConfigValue]? {
+        guard let store = try? ConfigStore.store(at: source) else { return nil }
+        try? store.reload()
+        guard store.fileProblem == nil else { return nil }
+        var ignored: [String] = []
+        return ConfigStore.tree(of: store.value, problems: &ignored)
     }
 
     /// Load the config, or a fresh minimal file on a genuine first run.
     ///
-    /// The branch is on the file *existing*, never on it reading cleanly.
-    /// `String(contentsOf:encoding:)` returns nil both for "no such file"
-    /// and for "exists but is not valid UTF-8", and treating those alike
-    /// once meant an undecodable byte cost the user their whole config:
-    /// the default write landed on top of it, and `check` and `diagnose`
-    /// reached the same path, so the diagnostic destroyed the evidence.
-    /// A file that exists is never written over here — it becomes a
-    /// problem the human can see, and defaults are used in memory only.
+    /// The branch is on the file *existing*, never on it reading cleanly: a
+    /// file that exists is never written over here — it becomes a problem the
+    /// human can see, and defaults are used in memory only (or, in a running
+    /// app, the last good config, which is what the store keeps and the
+    /// problem says). `check` and `diagnose` reach this path, so getting it
+    /// wrong once meant the diagnostic destroyed the evidence.
+    ///
+    /// Reads the file on the calling thread (a re-read of a few kilobytes,
+    /// which finds nothing to do when it is as the store last saw it), and
+    /// creates it on a first run.
     public static func load(from source: URL = Config.file) -> (Config, [String]) {
         var problems: [String] = []
-        try? FileManager.default.createDirectory(at: source.deletingLastPathComponent(),
-                                                 withIntermediateDirectories: true)
-        var root: [String: ConfigValue] = [:]
-        if FileManager.default.fileExists(atPath: source.path) {
-            do {
-                guard let data = try? Data(contentsOf: source) else {
-                    throw Json.ParseError(file: source.lastPathComponent, message: "could not be read")
-                }
-                root = try Json.parse(Array(data), file: source.lastPathComponent, problems: &problems)
-            } catch {
-                problems.append("config parse failed (\(error)); using defaults — "
-                                + "\(source.lastPathComponent) left untouched")
-            }
-        } else {
-            try? write(tree: [:], to: source)
-            Log.info("config: wrote default \(source.path)")
+        let name = source.lastPathComponent
+        let store: ConfigStore.Store
+        do {
+            store = try ConfigStore.store(at: source)
+        } catch {
+            problems.append("config could not be opened (\(error)); using defaults — \(name) left untouched")
+            return (build(from: [:], problems: &problems), problems)
         }
+        if !FileManager.default.fileExists(atPath: source.path) {
+            do {
+                if try ConfigStore.materialize(at: source) { Log.info("config: wrote default \(source.path)") }
+            } catch {
+                Log.error("config: could not write the default file", ["error": "\(error)"])
+            }
+        }
+        try? store.reload()
+        if let problem = store.fileProblem {
+            problems.append(ConfigStore.sentence(for: problem, file: name,
+                                                 keepingLastGood: store.source == .file))
+        }
+        let root = ConfigStore.tree(of: store.value, problems: &problems)
         return (build(from: root, problems: &problems), problems)
     }
 

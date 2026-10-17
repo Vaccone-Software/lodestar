@@ -50,7 +50,9 @@ final class ClipboardController {
     /// and a byte ceiling alone does not bound how many text clips fit.
     private let maxItems = 10_000
     private let maxItemBytes = 20_000_000
-    /// Temp PNGs written for terminal pastes, oldest first.
+    /// Where the PNGs written for terminal pastes live, and which of them
+    /// this run wrote, oldest first.
+    var handover = HandoverFolder()
     private var handedOverFiles: [URL] = []
     private static let handedOverLimit = 8
 
@@ -108,6 +110,15 @@ final class ClipboardController {
     func flushForQuit() {
         store.saveNow()
         store.flushIO()
+        handover.sweep()
+        handedOverFiles.removeAll()
+    }
+
+    /// At launch: whatever a run that did not quit cleanly left in the
+    /// handover folder, and the files earlier builds left loose in the
+    /// temporary directory, are gone before anything is pasted.
+    func sweepHandover() {
+        handover.sweep()
     }
 
     func stop() {
@@ -391,19 +402,19 @@ final class ClipboardController {
 
     /// The clip as a real PNG on disk — what a terminal can paste and what
     /// the tool on the far side reads back. Named by content id, so pasting
-    /// the same clip twice writes the file once, and living in the temp
-    /// directory, so nothing accumulates in the user's data.
-    private func imageFileForPasting(_ clip: Clipboard.Clip,
-                                     natives: [(type: String, data: Data)]) -> URL? {
+    /// the same clip twice writes the file once, and living in a private
+    /// folder of the temporary directory (0700, files 0600), so nothing
+    /// accumulates in the user's data and nobody else can read it.
+    func imageFileForPasting(_ clip: Clipboard.Clip,
+                             natives: [(type: String, data: Data)]) -> URL? {
         // The same pick capture makes for the thumbnail: natives arrive in
         // pasteboard type order, and a browser copy can lead with HTML.
         guard let first = natives.first(where: {
             $0.type == NSPasteboard.PasteboardType.png.rawValue
                 || $0.type == NSPasteboard.PasteboardType.tiff.rawValue
-        }) ?? natives.first else { return nil }
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "\(Clipboard.handoverPrefix)\(clip.id).\(Clipboard.pasteableImageExtension)")
+        }) ?? natives.first, let folder = handover.prepared() else { return nil }
+        let url = folder.appendingPathComponent(
+            "\(Clipboard.handoverPrefix)\(clip.id).\(Clipboard.pasteableImageExtension)")
         if FileManager.default.fileExists(atPath: url.path) {
             handedOverFiles.removeAll { $0 == url }
             handedOverFiles.append(url)
@@ -420,13 +431,13 @@ final class ClipboardController {
         }
         guard let png else { return nil }
         do {
-            try png.write(to: url, options: .atomic)
+            try PrivateFile.write(png, to: url, atomically: true)
         } catch {
             Log.error("clipboard: could not write \(url.lastPathComponent) (\(error))")
             return nil
         }
         // Full-size copies of images, so they are bounded rather than left
-        // to accumulate for whenever the system next clears its temp.
+        // to accumulate until the next launch or quit sweeps them.
         handedOverFiles.append(url)
         while handedOverFiles.count > Self.handedOverLimit {
             try? FileManager.default.removeItem(at: handedOverFiles.removeFirst())

@@ -343,6 +343,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return self.removeChainFromGraph(letters)
         }
         clipboardController = ClipboardController()
+        clipboardController.sweepHandover()
         clipboardController.flash = { [weak self] text in self?.hud.flash(text) }
         clipboardController.excludedApps = config.clipboardExcludedApps
         clipboardController.excludedPatterns = config.clipboardExcludePatterns

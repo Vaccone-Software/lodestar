@@ -1,4 +1,4 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.1
 import PackageDescription
 
 let package = Package(
@@ -26,7 +26,12 @@ let package = Package(
         // Stoic: deadlines, bounded retry, atomic and locked files, crash-loop
         // detection, the HTTP client and the durable outbox a note waits in.
         // Ours (Vaccone Software).
-        .package(url: "https://github.com/Vaccone-Software/stoic", .upToNextMinor(from: "0.3.0")),
+        // The sealed health record and logbook (StoicSealed) need the Crypto
+        // trait, which a path dependency takes at 6.1 tools.
+        // TODO(0.4.0): the pinned local checkout until Stoic 0.4.0 is tagged;
+        // then `.package(url: "https://github.com/Vaccone-Software/stoic",
+        // .upToNextMinor(from: "0.4.0"), traits: ["Crypto"])`.
+        .package(name: "stoic", path: "/Users/vac/Developer/stoic-for-lodestar", traits: ["Crypto"]),
     ],
     targets: [
         // The AX layer every slice builds on. Its one dependency is Stoic,
@@ -37,6 +42,8 @@ let package = Package(
             .product(name: "StoicFoundation", package: "stoic"),
             .product(name: "StoicStore", package: "stoic"),
             .product(name: "StoicHTTP", package: "stoic"),
+            .product(name: "StoicSealed", package: "stoic"),
+            .product(name: "StoicApple", package: "stoic"),
         ]),
         // Dictation's settling ears: second recognizers that re-hear a
         // phrase, on MLX (Qwen3-ASR) or the Neural Engine (Parakeet, Core
@@ -63,6 +70,8 @@ let package = Package(
             .product(name: "Stoic", package: "stoic"),
             .product(name: "StoicStore", package: "stoic"),
             .product(name: "StoicHTTP", package: "stoic"),
+            .product(name: "StoicSealed", package: "stoic"),
+            .product(name: "StoicApple", package: "stoic"),
         ]),
         // Slice 0: the window-identity probe. Throwaway by design.
         .executableTarget(name: "probe", dependencies: ["LodestarCore", "LodestarEars"]),
@@ -74,6 +83,9 @@ let package = Package(
                         "LodestarCore",
                         .product(name: "StoicTesting", package: "stoic"),
                         .product(name: "StoicHTTP", package: "stoic"),
+                        .product(name: "StoicSealed", package: "stoic"),
+                        .product(name: "StoicStore", package: "stoic"),
+                        .product(name: "StoicApple", package: "stoic"),
                     ],
                     // The editor's accuracy fixture, read by path.
                     exclude: ["Fixtures"]),
@@ -84,6 +96,11 @@ let package = Package(
             "lodestar", "LodestarCore",
             .product(name: "StoicTesting", package: "stoic"),
             .product(name: "StoicHTTP", package: "stoic"),
+            .product(name: "StoicSealed", package: "stoic"),
+            .product(name: "StoicStore", package: "stoic"),
         ]),
-    ]
+    ],
+    // Tools 6.1 for the Crypto trait; the code stays in Swift 5 mode, as it
+    // was under tools 5.9.
+    swiftLanguageModes: [.v5]
 )

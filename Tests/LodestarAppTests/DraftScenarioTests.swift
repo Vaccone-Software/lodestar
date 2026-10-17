@@ -431,7 +431,7 @@ final class DraftScenarioTests: XCTestCase {
         XCTAssertEqual(event?.seconds ?? 0, 3, accuracy: 0.01)
         XCTAssertNotNil(event?.firstWord)
         XCTAssertNotNil(event?.openToFirstKey)
-        let line = try! String(contentsOf: stage.eventsFile, encoding: .utf8)
+        let line = SealedFixture.text(of: stage.eventsFile)
         XCTAssertFalse(line.contains("hello"), "the text is never written down")
     }
 

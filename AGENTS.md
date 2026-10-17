@@ -45,8 +45,17 @@ browser's real profile list, app names vs. installed apps).
 ```sh
 lodestar diagnose           # one paste-able report: version, instance,
                             # accessibility trust, displays, config
-                            # validation, state summary, log tail
+                            # validation, state summary, whether the health
+                            # record and the logbook are sealed and open,
+                            # log tail
+lodestar health export <dir>             # the sealed health record as plaintext
+lodestar health export <dir> --logbook   # the logbook, likewise
 ```
+
+The health record and the logbook are encrypted at rest under keys in the
+login keychain; a record whose key cannot be had is paused, never emptied.
+`export` writes the old plaintext formats (GUIDE.md, "Sealed at rest") into
+a new or empty folder, files `0600`.
 
 ## Driving the running instance
 

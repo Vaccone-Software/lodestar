@@ -942,7 +942,10 @@ private func editorResidency(_ args: inout [String]) {
     let prose: Set<String> = ["slack", "messages", "microsoft outlook", "proton mail", "telegram", "claude",
                               "brave browser", "asana", "notes", "mail", "textedit", "signal", "discord"]
     let writing: Set<Keys.Kind> = [.letter, .digit, .space, .punctuation, .backspace]
-    let focus = EventLog().readAll().filter { $0.kind == .focus && $0.app != nil }.sorted { $0.t < $1.t }
+    // The record is sealed: the probe is the same signed binary, so it asks
+    // the same keychain for the rings, read-only (it never makes a key).
+    guard let vault = try? Vault.system() else { fail("the keychain is not available to this process") }
+    let focus = EventLog(ring: vault.ring(.logbook)).readAll().filter { $0.kind == .focus && $0.app != nil }.sorted { $0.t < $1.t }
     guard !focus.isEmpty else { fail("no focus events") }
     let times = focus.map(\.t.timeIntervalSince1970)
     func app(at t: Double) -> String? {
@@ -956,7 +959,7 @@ private func editorResidency(_ args: inout [String]) {
     var totalSpan = 0.0, totalDays = 0
     print("day          presses  prose   span h   " + idles.map { String(format: "%4.0f min: loaded h (%%) loads", $0) }.joined(separator: "   "))
     for day in KeyStore.days(in: directory) {
-        let presses = KeyStore.presses(day: day, in: directory)
+        let presses = KeyStore.presses(day: day, in: directory, ring: vault.ring(.health))
         guard let first = presses.first?.down, let last = presses.last?.down, presses.count > 500 else { continue }
         let span = last.timeIntervalSince(first) / 3600
         let proseTimes = presses.filter { writing.contains($0.kind) && !$0.chord }

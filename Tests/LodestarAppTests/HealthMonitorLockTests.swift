@@ -51,7 +51,7 @@ final class HealthMonitorLockTests: XCTestCase {
     }
 
     func testAClickNeverBlocksTheTapThread() {
-        let monitor = HealthMonitor(directory: directory)
+        let monitor = HealthMonitor(directory: directory, vault: SealedFixture.vault(directory))
         let event = click()
         assertReturns("click") { monitor.sawMouse(type: .leftMouseDown, event: event) }
         // And a second one, now that the lid and the rosters are cached.
@@ -60,13 +60,13 @@ final class HealthMonitorLockTests: XCTestCase {
     }
 
     func testAScrollNeverBlocksTheTapThread() {
-        let monitor = HealthMonitor(directory: directory)
+        let monitor = HealthMonitor(directory: directory, vault: SealedFixture.vault(directory))
         let event = scroll()
         assertReturns("scroll") { monitor.sawMouse(type: .scrollWheel, event: event) }
     }
 
     func testAClickThenAKeyOnAnotherThreadBothReturn() {
-        let monitor = HealthMonitor(directory: directory)
+        let monitor = HealthMonitor(directory: directory, vault: SealedFixture.vault(directory))
         let event = click()
         assertReturns("click") { monitor.sawMouse(type: .leftMouseDown, event: event) }
         // The main-thread half: the key that once queued forever behind
@@ -82,7 +82,7 @@ final class HealthMonitorLockTests: XCTestCase {
     /// The install's name is written with the first day file, never by
     /// a monitor that has recorded nothing: health off writes no file.
     func testTheInstallNameWaitsForTheFirstDayFile() {
-        _ = HealthMonitor(directory: directory)
+        _ = HealthMonitor(directory: directory, vault: SealedFixture.vault(directory))
         XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("install-id").path))
     }
 }

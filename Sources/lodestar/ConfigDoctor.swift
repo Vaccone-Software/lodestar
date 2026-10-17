@@ -196,6 +196,16 @@ func diagnoseReport() -> String {
     let logbook = Retention.behavioralUsage(in: Paths.data)
     lines.append(String(format: "logbook: %.0f MB of %.0f MB", Double(logbook.bytes) / 1_048_576,
                         Double(bounds.logbookBytes) / 1_048_576))
+    // What is sealed, under which key, and whether it all opens. Read-only:
+    // a report never makes a key or moves a file.
+    if let vault = try? Vault.system() {
+        lines.append(contentsOf: RecordStatus.healthLines(RecordStatus.health(vault: vault, directory: Paths.data)))
+        lines.append(contentsOf: RecordStatus.logbookLines(RecordStatus.logbook(vault: vault, directory: Paths.data)))
+        let failed = SealedFailures.tally
+        if failed.total > 0 {
+            lines.append("  ⚠ this run could not open \(failed.total) sealed values or files (\(failed.tampered) altered, \(failed.unknownKey) under an unknown key)")
+        }
+    }
     lines.append("")
 
     lines.append("log tail (\(Log.file.path)):")
@@ -444,7 +454,13 @@ func runReload() -> Never {
 func runObservations(clear: Bool, logbookOnly: Bool = false, healthOnly: Bool = false,
                      engine: Bool) -> Never {
     Log.stdoutEnabled = false
-    let store = ObservationStore()
+    // The records are sealed: this is the same signed binary, so it asks the
+    // same keychain, and a reader never makes a key.
+    guard let vault = try? Vault.system() else {
+        print("✕ the keychain is not available to this process")
+        exit(69)
+    }
+    let store = ObservationStore(vault: vault)
     if clear {
         // Both records unless a flag names one: clearing is the person's
         // call, and the plain verb means all of it.
@@ -471,6 +487,10 @@ func runObservations(clear: Bool, logbookOnly: Bool = false, healthOnly: Bool = 
     let events = store.allEvents()
     let (config, _) = Config.load()
 
+    if case .paused(let why) = vault.ring(.logbook).availability {
+        print("the logbook is sealed and its key is unavailable (\(why.words)) — nothing was read. Try again when the keychain is unlocked.")
+        exit(69)
+    }
     guard o.updated != .distantPast else {
         print("no observations yet · \(ObservationStore.defaultFile.path)")
         print("set observations.logbook to false to keep it that way.")
@@ -514,16 +534,17 @@ func runObservations(clear: Bool, logbookOnly: Bool = false, healthOnly: Bool = 
     print("observations · \(days) day\(days == 1 ? "" : "s") · \(events.count) events"
         + " · nothing here leaves this machine")
     // The archive is part of what is kept, so it is part of what is shown.
-    if let data = try? Data(contentsOf: store.rollupFile) {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        if let archive = try? decoder.decode(Rollup.self, from: data),
+    do {
+        if let archive = Rollup.load(file: store.rollupFile, ring: vault.ring(.logbook)).archive,
            !archive.months.isEmpty {
             let keys = archive.months.keys.sorted()
             print("archive · \(keys.count) month\(keys.count == 1 ? "" : "s")"
                 + " (\(keys.first!) … \(keys.last!)) · \(store.rollupFile.lastPathComponent)"
                 + " · cleared by observations clear")
         }
+    }
+    if SealedFailures.tally.total > 0 {
+        print("⚠ \(SealedFailures.tally.total) sealed values or files did not open and were left as they are — see `lodestar diagnose`")
     }
     print("")
 
@@ -1304,4 +1325,39 @@ func runObservationsEngine(_ context: Advisor.Context) -> Never {
     }
     print("")
     exit(0)
+}
+
+
+/// `lodestar health export <dir> [--logbook]`: the sealed record, decrypted
+/// to the plaintext formats it was kept in (`RecordExport`), into a new or
+/// empty folder, files 0600, and what was written said plainly. The same
+/// signed binary asks the same keychain; nothing is written into the data
+/// directory, and a record that does not open is reported, not exported as
+/// empty. Exit 0 when everything was written, 1 when something could not be
+/// read, 64 for usage, 69 when the keychain is not available.
+func runHealthVerb(_ arguments: [String]) -> Never {
+    Log.stdoutEnabled = false
+    let rest = Array(arguments.dropFirst())
+    guard rest.first == "export", rest.count >= 2, !rest[1].hasPrefix("--") else {
+        print("usage: lodestar health export <dir> [--logbook]")
+        print("  decrypts the health record (or, with --logbook, the logbook) to plaintext files in <dir>")
+        exit(64)
+    }
+    guard let vault = try? Vault.system() else {
+        print("✕ the keychain is not available to this process")
+        exit(69)
+    }
+    let destination = URL(fileURLWithPath: (rest[1] as NSString).expandingTildeInPath)
+    let logbook = rest.contains("--logbook")
+    do {
+        let report = try RecordExport.export(logbook: logbook, from: Paths.data, to: destination, vault: vault)
+        for file in report.written { print("wrote \(file.path) (\(file.bytes) bytes)") }
+        let total = report.written.reduce(0) { $0 + $1.bytes }
+        print("\(report.written.count) files, \(total) bytes, in \(destination.path) — plaintext: keep it where you keep the record's trust, and delete it when you are done")
+        for problem in report.problems { print("✕ \(problem)") }
+        exit(report.ok ? 0 : 1)
+    } catch {
+        print("✕ \(error)")
+        exit(1)
+    }
 }

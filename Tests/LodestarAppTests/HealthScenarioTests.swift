@@ -55,7 +55,7 @@ final class HealthScenarioTests: XCTestCase {
         stage.health.drainForTesting()
         stage.health.flush()
         let keys = stage.directory.appendingPathComponent(KeyStore.subdirectory)
-        let presses = KeyStore.days(in: keys).flatMap { KeyStore.presses(day: $0, in: keys) }
+        let presses = KeyStore.days(in: keys).flatMap { KeyStore.presses(day: $0, in: keys, ring: SealedFixture.vault(stage.directory).ring(.health)) }
         XCTAssertEqual(presses.count, 2)
         XCTAssertEqual(presses[0].kind, .enter)
         XCTAssertEqual(presses[0].finger, .thumb, "declared")
@@ -74,7 +74,7 @@ final class HealthScenarioTests: XCTestCase {
         stage.health.drainForTesting()
         stage.health.flush()
         let keys = stage.directory.appendingPathComponent(KeyStore.subdirectory)
-        let presses = KeyStore.days(in: keys).flatMap { KeyStore.presses(day: $0, in: keys) }
+        let presses = KeyStore.days(in: keys).flatMap { KeyStore.presses(day: $0, in: keys, ring: SealedFixture.vault(stage.directory).ring(.health)) }
         XCTAssertEqual(presses.count, 2)
         XCTAssertEqual(presses.map(\.finger), [.pinky, .index])
         XCTAssertEqual(presses.map(\.hand), [.left, .right])

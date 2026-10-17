@@ -1,4 +1,5 @@
 import AppKit
+import StoicSealed
 import XCTest
 @testable import lodestar
 @testable import LodestarCore
@@ -18,14 +19,14 @@ final class HealthBlindnessTests: XCTestCase {
     override func tearDown() { try? FileManager.default.removeItem(at: directory) }
 
     private func store() -> ObservationStore {
-        let store = ObservationStore(file: directory.appendingPathComponent("observations.json"),
-                                     log: EventLog(file: directory.appendingPathComponent("events.jsonl")))
+        let store = ObservationStore(file: directory.appendingPathComponent("observations.json"), vault: SealedFixture.vault(directory.appendingPathComponent("observations.json").deletingLastPathComponent()),
+                                     log: SealedFixture.eventLog(directory.appendingPathComponent("events.jsonl")))
         store.setHealthEnabled(true)
         return store
     }
 
     private func monitor(_ store: ObservationStore) -> HealthMonitor {
-        let health = HealthMonitor(directory: directory)
+        let health = HealthMonitor(directory: directory, vault: SealedFixture.vault(directory))
         health.observations = store
         health.listensToTheMouse = false
         return health
@@ -123,5 +124,43 @@ final class HealthBlindnessTests: XCTestCase {
         XCTAssertEqual(outages.count, 1)
         XCTAssertEqual(outages.first?.0, seen)
         XCTAssertEqual(outages.first?.1, stage.clock.now)
+    }
+
+    /// The keychain is locked at launch: the key cannot be asked for, so the
+    /// presses are dropped, nothing is written and nothing sealed is read or
+    /// replaced. When the key comes back the record says why it has a gap.
+    func testAPausedKeyDropsPressesAndTheGapSaysWhy() throws {
+        let custody = InMemoryKeyCustody()
+        _ = SealedFixture.vault(directory, custody: custody)
+        let first = monitor(store())
+        first.setEnabled(true)
+        first.quitting() // a clean stop, in a ledger sealed under the real key
+        let blindFile = directory.appendingPathComponent("blind.json")
+        let sealedLedger = try Data(contentsOf: blindFile)
+        XCTAssertTrue(Sealing.isSealed(Array(sealedLedger.prefix(4))))
+
+        let keychain = LockedCustody(copying: custody)
+        let vault = SealedFixture.vault(directory, custody: keychain)
+        let store = store()
+        let second = monitor(store)
+        second.setEnabled(true)
+        second.notePress(KeyPress(down: Date(), hold: 0.09, hand: .left, kind: .letter, finger: .index))
+        second.flush()
+        XCTAssertEqual(try Data(contentsOf: blindFile), sealedLedger, "the sealed ledger was neither read nor replaced")
+        XCTAssertTrue(((try? FileManager.default.contentsOfDirectory(atPath: directory.appendingPathComponent("keys").path)) ?? []).isEmpty,
+                      "no press reached a file")
+        XCTAssertEqual(vault.ring(.health).availability, .paused(.custody(.unavailable(.locked))))
+
+        keychain.unlock()
+        XCTAssertTrue(vault.ring(.health).retry())
+        second.resume()
+        let found = spans(second, store)
+        let kinds = found.compactMap { $0.blind?.blindKind }
+        XCTAssertTrue(kinds.contains(.keyUnavailable), "the record says why: \(kinds)")
+        XCTAssertTrue(kinds.contains(.notRunning), "and the earlier run's stop is closed, as it always was")
+        let why = try XCTUnwrap(found.first { $0.blind?.blindKind == .keyUnavailable })
+        XCTAssertGreaterThan(why.blind?.end ?? .distantPast, why.t)
+        XCTAssertNotEqual(try Data(contentsOf: blindFile), sealedLedger, "the ledger is written again, under the key")
+        second.setEnabled(false)
     }
 }

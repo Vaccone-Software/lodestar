@@ -51,6 +51,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// helping someone starts from, and nothing else.
     static var menuHeader: String { "Lodestar \(Lodestar.version)" }
 
+    /// The keys of the sealed records, in the login keychain. One for the
+    /// process; every store that seals asks it.
+    private static let sealedVault: Vault = {
+        do { return try Vault.system() } catch { fatalError("\(error)") }
+    }()
+    private let vault = AppDelegate.sealedVault
+
     private var config = Config()
     private var model: WindowModel!
     private var parking: ParkingLot!
@@ -105,7 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let stand = StandCueController()
     private let control = ControlSocket()
     private let settings = SettingsController()
-    private let health = HealthMonitor()
+    private let health = HealthMonitor(vault: AppDelegate.sealedVault)
     /// Which road each focus change took — stamped by the summon path,
     /// the main tap (⌘⇥), and the mouse tap (clicks); read by the focus
     /// observer. See `FocusRoads`.
@@ -239,7 +246,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         layout = LayoutController(model: model, parking: parking, moveQueue: moves)
         appIndex = AppIndex()
         store = StateStore()
-        observationStore = ObservationStore()
+        observationStore = ObservationStore(vault: vault)
         // The switches before the load: loading tends the files (rotation,
         // the monthly archive), and a record that is off must not be
         // touched even once at launch.
@@ -247,12 +254,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         observationStore.setHealthEnabled(loaded.observationsHealth)
         observationStore.log.behavioralBound = loaded.logbookBytes
         let clears = observationStore.consumeClearRequest()
-        if clears.logbook { observationStore.clearLogbook() }
-        if clears.health { observationStore.clearHealth() }
-        if !clears.logbook { observationStore.load() }
-        DispatchQueue.global(qos: .utility).async { [observationStore] in
-            observationStore?.moveHealthOutOfTheRing()
+        // The health buffers go first: a clear must not be followed by rows
+        // that belonged to the record it deleted.
+        if clears.health {
+            health.forgetBuffered()
+            observationStore.clearHealth()
         }
+        if clears.logbook { observationStore.clearLogbook() }
+        // The keys are asked for off the main thread (the keychain may
+        // prompt, and the watchdog ends an app whose main thread waits), and
+        // the view is read, and the plaintext an earlier build left sealed,
+        // once their state is settled. See `Vault`.
+        let loadsView = !clears.logbook
+        DispatchQueue.global(qos: .utility).async { [weak self, vault, observationStore, health] in
+            vault.settle()
+            DispatchQueue.main.async {
+                if loadsView { observationStore?.load() }
+                self?.reportSealedRecord()
+            }
+            observationStore?.moveHealthOutOfTheRing()
+            let migrated = (observationStore?.migrateLegacy() ?? RecordMigration()) + health.migrateLegacy()
+            if migrated.files > 0 || migrated.remaining > 0 {
+                Log.info("sealed: migration pass", ["sealed": migrated.files, "bytes": migrated.bytes,
+                                                    "remaining": migrated.remaining, "paused": migrated.paused])
+            }
+        }
+        DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("com.apple.screenIsUnlocked"), object: nil, queue: .main
+        ) { [weak self] _ in self?.keychainMayHaveUnlocked() }
         layout.onMoves = { [weak self] seconds, members in
             // Only batches big enough to mean anything: a single window's
             // move is noise, and the latency line is for regressions.
@@ -1285,6 +1314,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             state.history = SettingsModel.historyItems(Array(ConfigHistory.read().suffix(26)))
             state.healthWarning = Retention.healthWarning(in: Paths.data,
                                                           bound: self?.config.healthBytes ?? Retention.healthBytes)
+            switch self?.vault.ring(.health).availability {
+            case .paused(let why):
+                state.healthKeyProblem = "Paused for this launch: \(why.words). Nothing is read, written or deleted; Lodestar tries again at the next launch"
+            case .keyLost:
+                state.healthKeyProblem = "The key that opens the health record is gone. Nothing is being recorded, and nothing has been deleted"
+                state.healthKeyLost = true
+            default:
+                break
+            }
             // All three, always: one this Mac cannot run is listed with
             // what it needs, and greyed.
             let engines = EditorEngine.allCases
@@ -1498,6 +1536,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return true
     }
 
+    /// Main. The state of each key, once settled: said in the log once, and
+    /// the record that was waiting is read.
+    private func reportSealedRecord() {
+        for name in [Vault.RingName.health, .logbook] {
+            let ring = vault.ring(name)
+            Log.info("sealed: \(name.rawValue) key", ["state": "\(ring.availability)"])
+        }
+    }
+
+    /// Main. The screen unlocked: a keychain that was only locked can be
+    /// asked again (a refusal cannot). Asked off the main thread.
+    private func keychainMayHaveUnlocked() {
+        let rings = [Vault.RingName.health, .logbook].map { vault.ring($0) }
+        guard rings.contains(where: { $0.retry() }) else { return }
+        DispatchQueue.global(qos: .utility).async { [weak self, vault, observationStore, health] in
+            vault.settle()
+            DispatchQueue.main.async {
+                observationStore?.resume()
+                health.resume()
+            }
+            let migrated = (observationStore?.migrateLegacy() ?? RecordMigration()) + health.migrateLegacy()
+            if migrated.files > 0 { Log.info("sealed: migration pass", ["sealed": migrated.files, "bytes": migrated.bytes]) }
+            _ = self
+        }
+    }
+
     /// The verbs Settings rows carry that are not config writes.
     private func performSettingsAction(_ action: String) {
         let privacy = "x-apple.systempreferences:com.apple.preference.security?"
@@ -1517,9 +1581,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let id = String(undo.dropFirst(5))
             guard let entry = ConfigHistory.read().first(where: { $0.id == id }) else { return }
             _ = revertConfig([entry], to: \.old, flash: "↺ \(SettingsModel.historyTitle(entry.path)) undone", source: "Undo")
-        case "delete-health":
-            observationStore?.clearHealth()
+        case "start-new-health":
+            // The person's explicit choice after the key was lost: the sealed
+            // files that nothing can open are moved (never deleted) into a
+            // dated folder, and the next press makes a new key.
             health.forgetBuffered()
+            if let folder = vault.ring(.health).startNewRecord() {
+                hud.flash("✓ New health record · the old files are in \(folder)")
+            } else {
+                hud.flash("✕ Could not start a new health record — nothing changed")
+            }
+            settings.config = config
+        case "delete-health":
+            health.forgetBuffered()
+            observationStore?.clearHealth()
             hud.flash("✓ Health record deleted")
         default:
             Log.error("settings", ["unknown action": action])
@@ -2317,8 +2392,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let clears = observationStore?.consumeClearRequest(), clears.logbook || clears.health {
             if clears.logbook { observationStore?.clearLogbook() }
             if clears.health {
-                observationStore?.clearHealth()
                 health.forgetBuffered()
+                observationStore?.clearHealth()
             }
             hud.flash(clears.logbook && clears.health ? "⌂ logbook and health cleared"
                       : clears.logbook ? "⌂ logbook cleared" : "⌂ health cleared")
@@ -2819,6 +2894,9 @@ if Array(cliArguments.prefix(2)) == ["editor", "check"] {
     }
     done.wait()
     exit(code)
+}
+if cliArguments.first == "health" {
+    runHealthVerb(Array(cliArguments))
 }
 if cliArguments.contains("--check") || cliArguments.contains("check") {
     runConfigCheck(json: cliArguments.contains("--json"))

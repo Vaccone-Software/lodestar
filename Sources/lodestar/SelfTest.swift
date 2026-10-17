@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import LodestarCore
+import StoicSealed
 
 /// `lodestar --self-test`: the built binary proves, on real threads, that
 /// the part which once froze cannot. A release script runs it on the
@@ -17,7 +18,9 @@ enum SelfTest {
             .appendingPathComponent("lodestar-self-test-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let monitor = HealthMonitor(directory: directory)
+        // A scratch directory gets a scratch key: never the person's keychain.
+        let monitor = HealthMonitor(directory: directory,
+                                    vault: Vault(custody: InMemoryKeyCustody(), directory: directory))
         monitor.listensToTheMouse = false
         monitor.setEnabled(true)
 

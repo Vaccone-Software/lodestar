@@ -70,7 +70,16 @@ final class HealthMonitor {
     /// stop or heartbeat, kept in `blind.json` so a span left open by a
     /// quit or a crash is closed at the next start (`BlindLedger`).
     private var ledger = BlindLedger()
-    private let ledgerFile: URL
+    private let ledgerFile: BlindLedgerFile
+    /// Queue. The stored ledger has been read (or there was none). Until it
+    /// is, nothing is saved: a fresh in-memory ledger must not replace a
+    /// sealed one the key could not open.
+    private var ledgerRead = false
+    /// Queue. Since when the health key has been unavailable, while it is.
+    private var pausedSince: Date?
+    /// The health record's key ring. Everything the monitor keeps is sealed
+    /// under it, and with it unavailable nothing is read or written.
+    let ring: Vault.Ring
     /// Exact attribution (`KeyReportMatcher`): the keyboards' own reports,
     /// waiting for the presses they produced, and each reporting device's
     /// roster id and whether it is virtual, resolved once per device.
@@ -97,19 +106,50 @@ final class HealthMonitor {
     private var forcedKeyboard: String?
     private let ownPID = Int64(ProcessInfo.processInfo.processIdentifier)
 
-    init(directory: URL = Paths.data) {
-        // Resolved only when a day file opens: with health off the
+    init(directory: URL = Paths.data, vault: Vault) {
+        ring = vault.ring(.health)
+        // Resolved only when a day journal opens: with health off the
         // install-id file is never written.
         keys = KeyStore(directory: directory.appendingPathComponent(KeyStore.subdirectory, isDirectory: true),
-                        installID: Install.id(in: directory))
+                        installID: Install.id(in: directory), ring: ring)
         pointerStore = PointerStore(directory: directory.appendingPathComponent(PointerStore.subdirectory, isDirectory: true),
-                                    installID: Install.id(in: directory))
-        eras = EraTracker(file: directory.appendingPathComponent("era.json"))
-        ledgerFile = directory.appendingPathComponent("blind.json")
-        if let data = try? Data(contentsOf: ledgerFile),
-           let stored = try? JSONDecoder().decode(BlindLedger.self, from: data) {
-            ledger = stored
+                                    installID: Install.id(in: directory), ring: ring)
+        eras = EraTracker(file: directory.appendingPathComponent("era.json"), ring: ring)
+        ledgerFile = BlindLedgerFile(url: directory.appendingPathComponent("blind.json"), ring: ring)
+    }
+
+    /// Seal what an earlier build left in the clear beneath the raw record:
+    /// the day files, the era fingerprint and the span ledger. Off the main
+    /// thread; resumable. The files are sealed whatever the health switch
+    /// says, because sealing adds nothing to the record and only protects it.
+    @discardableResult
+    func migrateLegacy() -> RecordMigration {
+        var total = keys.migrateLegacy() + pointerStore.migrateLegacy()
+        total += eras.migrateLegacy()
+        total += queue.sync { () -> RecordMigration in
+            var outcome = RecordMigration()
+            switch ledgerFile.file.migrate() {
+            case .nothing: break
+            case .sealed(let bytes):
+                outcome.files += 1
+                outcome.bytes += Int64(bytes)
+            case .paused:
+                outcome.paused = true
+                outcome.remaining += 1
+            case .failed(let why):
+                outcome.remaining += 1
+                outcome.failed.append("blind.json")
+                Log.error("health: could not seal blind.json (\(why)) — the plaintext was kept")
+            }
+            return outcome
         }
+        return total
+    }
+
+    /// The key came back (the keychain unlocked): settle what the pause held.
+    /// Main thread.
+    func resume() {
+        queue.async { [self] in resumeLedgerLocked(now: Date()) }
     }
 
     // Main-thread state.
@@ -252,6 +292,9 @@ final class HealthMonitor {
     func forgetBuffered() {
         keys.discardBuffered()
         pointerStore.discardBuffered()
+        // The journals held open belong to the record that is gone.
+        keys.close()
+        pointerStore.close()
     }
 
     /// Config's `health.keyboards`, at boot and on every reload. Main
@@ -378,10 +421,7 @@ final class HealthMonitor {
     /// and sleep is listened for.
     private func startSeeing() {
         let now = Date()
-        queue.async { [self] in
-            for event in ledger.start(at: now) { recordBlindLocked(event) }
-            saveLedgerLocked()
-        }
+        queue.async { [self] in beginSeeingLocked(at: now) }
         secureOn = false
         secureSeenOffAt = nil
         sampleSecureInput()
@@ -400,6 +440,49 @@ final class HealthMonitor {
                 self?.noteBlindEnded(.asleep)
             },
         ]
+    }
+
+    /// Queue. The stored ledger is read and whatever it left open is
+    /// closed. With the key unavailable it cannot be read: a span of
+    /// `keyUnavailable` begins in memory (to be written when the key comes
+    /// back, by `resumeLedgerLocked`), and nothing is saved.
+    private func beginSeeingLocked(at now: Date) {
+        switch ledgerFile.load() {
+        case .ledger(var stored):
+            ledgerRead = true
+            pausedSince = nil
+            let events = stored.start(at: now)
+            ledger = stored
+            for event in events { recordBlindLocked(event) }
+            saveLedgerLocked()
+        case .unavailable:
+            ledgerRead = false
+            pausedSince = now
+            ledger = BlindLedger()
+            _ = ledger.begin(.keyUnavailable, at: now)
+            pulse.blindBegan()
+        }
+    }
+
+    /// Queue. If the key can now be asked for: the stored ledger is read, the
+    /// run it belonged to is closed at the moment this one began, spans that
+    /// began meanwhile are carried over, and the span the pause made is
+    /// written, so the record says why it has a gap.
+    private func resumeLedgerLocked(now: Date) {
+        guard !ledgerRead, let since = pausedSince else { return }
+        guard case .ledger(var stored) = ledgerFile.load() else { return }
+        let waiting = ledger
+        var events = stored.start(at: since)
+        for (raw, span) in waiting.open.sorted(by: { $0.key < $1.key }) {
+            guard let kind = BlindKind(rawValue: raw), kind != .keyUnavailable else { continue }
+            stored.begin(kind, at: span.start, startBound: span.startBound, resolution: span.resolution)
+        }
+        if let span = ledger.end(.keyUnavailable, at: now) { events.append(span) }
+        ledger = stored
+        ledgerRead = true
+        pausedSince = nil
+        for event in events { recordBlindLocked(event) }
+        saveLedgerLocked()
     }
 
     /// Main. Seeing stops, for a quit or the switch: the moment is noted
@@ -474,9 +557,8 @@ final class HealthMonitor {
 
     /// Queue.
     private func saveLedgerLocked() {
-        guard let data = try? JSONEncoder().encode(ledger) else { return }
-        DurableFile.save(data, to: ledgerFile, as: "health", newFileMode: 0o600)
-        Paths.restrict(ledgerFile)
+        guard ledgerRead else { return }
+        ledgerFile.save(ledger)
     }
 
     /// Tests: the ledger as the queue holds it.
@@ -938,6 +1020,7 @@ final class HealthMonitor {
             if let closed = window.closeIfStale(now: now) { emitWindow(closed) }
             keys.flush()
             pointerStore.flush()
+            resumeLedgerLocked(now: now)
             ledger.heartbeat(at: now)
             saveLedgerLocked()
             minutes += 1

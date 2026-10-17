@@ -74,9 +74,12 @@ enum Environment {
 /// once per change, not once per boot.
 final class EraTracker {
     let file: URL
+    /// `era.json`, sealed with the health record and read in either form.
+    private let stored: SealedValueFile
 
-    init(file: URL = Paths.data.appendingPathComponent("era.json")) {
+    init(file: URL = Paths.data.appendingPathComponent("era.json"), ring: Vault.Ring) {
         self.file = file
+        self.stored = SealedValueFile(url: file, ring: ring)
     }
 
     private struct Stored: Codable {
@@ -87,22 +90,56 @@ final class EraTracker {
         var intervals: [String: ReportInterval]?
     }
 
+    /// Seal an era file an earlier build left in the clear. Off main.
+    func migrateLegacy() -> RecordMigration {
+        var outcome = RecordMigration()
+        switch stored.migrate() {
+        case .nothing: break
+        case .sealed(let bytes):
+            outcome.files = 1
+            outcome.bytes = Int64(bytes)
+        case .paused:
+            outcome.paused = true
+            outcome.remaining = 1
+        case .failed(let why):
+            outcome.remaining = 1
+            outcome.failed = ["era.json"]
+            Log.error("era: could not seal era.json (\(why)) — the plaintext was kept")
+        }
+        return outcome
+    }
+
     /// The event to record, or nil when nothing changed. A keyboard whose
     /// interval has not been written down (attached for the first time, or
     /// reporting differently) is a change too; one going away is not, for
     /// the reason devices are not in the fingerprint.
+    ///
+    /// A fingerprint that is there and cannot be read (the key is unavailable,
+    /// or it will not open) is not "none yet": no era is recorded and nothing
+    /// is written over it.
     func check(_ info: EraInfo, now: Date = Date()) -> ObservationEvent? {
-        let stored = (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode(Stored.self, from: $0) }
-        let known = stored?.intervals ?? [:]
+        let previous: Stored?
+        switch stored.read() {
+        case .absent:
+            previous = nil
+        case .value(let data, _):
+            previous = try? JSONDecoder().decode(Stored.self, from: Data(data))
+        case .unavailable, .unreadable:
+            return nil
+        }
+        let known = previous?.intervals ?? [:]
         let unseen = (info.reportIntervals ?? [:]).filter { known[$0.key] != $0.value }
-        let changed = stored?.fingerprint != info.fingerprint
+        let changed = previous?.fingerprint != info.fingerprint
         guard changed || !unseen.isEmpty else { return nil }
         var info = info
-        info.reason = stored == nil ? "boot" : changed ? "changed" : "keyboard"
+        info.reason = previous == nil ? "boot" : changed ? "changed" : "keyboard"
         let intervals = known.merging(info.reportIntervals ?? [:]) { _, new in new }
-        if let data = try? JSONEncoder().encode(Stored(fingerprint: info.fingerprint, at: now, intervals: intervals)) {
-            DurableFile.save(data, to: file, as: "era", newFileMode: 0o600)
-            Paths.restrict(file)
+        guard let data = try? JSONEncoder().encode(Stored(fingerprint: info.fingerprint, at: now, intervals: intervals)),
+              stored.write([UInt8](data)) == .written
+        else {
+            // Not written: the event would fire again at the next check, and
+            // the record would say "changed" twice for one change.
+            return nil
         }
         var event = ObservationEvent(t: now, kind: .era)
         event.era = info

@@ -20,7 +20,7 @@ final class EraTrackerTests: XCTestCase {
     }
 
     func testTheFirstEraWritesEveryIntervalDown() {
-        let tracker = EraTracker(file: file)
+        let tracker = EraTracker(file: file, ring: SealedFixture.vault(file.deletingLastPathComponent()).ring(.health))
         let event = tracker.check(info(["builtin": .microseconds(8000), "bt": .unknown]))
         XCTAssertEqual(event?.era?.reason, "boot")
         XCTAssertEqual(event?.era?.reportIntervals?["builtin"], .microseconds(8000))
@@ -29,7 +29,7 @@ final class EraTrackerTests: XCTestCase {
     }
 
     func testAKeyboardAttachedLaterIsWrittenDownOnce() {
-        let tracker = EraTracker(file: file)
+        let tracker = EraTracker(file: file, ring: SealedFixture.vault(file.deletingLastPathComponent()).ring(.health))
         _ = tracker.check(info(["builtin": .microseconds(8000)]))
         let attached = tracker.check(info(["builtin": .microseconds(8000), "kinesis": .microseconds(11250)]))
         XCTAssertEqual(attached?.era?.reason, "keyboard")
@@ -40,13 +40,13 @@ final class EraTrackerTests: XCTestCase {
     }
 
     func testAKeyboardReportingDifferentlyIsWrittenDownAgain() {
-        let tracker = EraTracker(file: file)
+        let tracker = EraTracker(file: file, ring: SealedFixture.vault(file.deletingLastPathComponent()).ring(.health))
         _ = tracker.check(info(["kinesis": .unknown]))
         XCTAssertEqual(tracker.check(info(["kinesis": .microseconds(7500)]))?.era?.reason, "keyboard")
     }
 
     func testABuildChangeIsStillAChange() {
-        let tracker = EraTracker(file: file)
+        let tracker = EraTracker(file: file, ring: SealedFixture.vault(file.deletingLastPathComponent()).ring(.health))
         _ = tracker.check(info(["builtin": .microseconds(8000)]))
         XCTAssertEqual(tracker.check(info(["builtin": .microseconds(8000)], version: "0.46.1"))?.era?.reason, "changed")
     }
@@ -54,10 +54,13 @@ final class EraTrackerTests: XCTestCase {
     /// An era file from before intervals were read: the instrument is the
     /// same, so the only news is the intervals, written down once.
     func testAnEraFileFromBeforeIntervalsLearnsThemOnce() throws {
-        let tracker = EraTracker(file: file)
+        let tracker = EraTracker(file: file, ring: SealedFixture.vault(file.deletingLastPathComponent()).ring(.health))
         _ = tracker.check(info(nil))
-        var stored = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! [String: Any]
+        let ring = SealedFixture.vault(file.deletingLastPathComponent()).ring(.health)
+        let bytes = try XCTUnwrap(SealedValueFile(url: file, ring: ring).read().bytes)
+        var stored = try JSONSerialization.jsonObject(with: Data(bytes)) as! [String: Any]
         stored.removeValue(forKey: "intervals")
+        // Written back in the clear, as an older build left it: still read.
         try JSONSerialization.data(withJSONObject: stored).write(to: file)
         XCTAssertEqual(tracker.check(info(["builtin": .microseconds(8000)]))?.era?.reason, "keyboard")
         XCTAssertNil(tracker.check(info(["builtin": .microseconds(8000)])))

@@ -40,7 +40,7 @@ final class HealthMonitorStressTests: XCTestCase {
     }
 
     func testBothTapsAtOnceNeverBlockAndTheStoresFill() throws {
-        let monitor = HealthMonitor(directory: directory)
+        let monitor = HealthMonitor(directory: directory, vault: SealedFixture.vault(directory))
         monitor.listensToTheMouse = false
         monitor.setEnabled(true)
         let iterations = 2000
@@ -80,10 +80,10 @@ final class HealthMonitorStressTests: XCTestCase {
         let keyDir = directory.appendingPathComponent(KeyStore.subdirectory)
         let keyDays = KeyStore.days(in: keyDir)
         XCTAssertFalse(keyDays.isEmpty)
-        let presses = keyDays.flatMap { KeyStore.presses(day: $0, in: keyDir) }
+        let presses = keyDays.flatMap { KeyStore.presses(day: $0, in: keyDir, ring: SealedFixture.vault(directory).ring(.health)) }
         XCTAssertEqual(presses.count, iterations)
         let pointerDir = directory.appendingPathComponent(PointerStore.subdirectory)
-        let records = PointerStore.days(in: pointerDir).flatMap { PointerStore.records(day: $0, in: pointerDir) }
+        let records = PointerStore.days(in: pointerDir).flatMap { PointerStore.records(day: $0, in: pointerDir, ring: SealedFixture.vault(directory).ring(.health)) }
         let clicks = records.filter { if case .click = $0 { return true } else { return false } }
         XCTAssertEqual(clicks.count, iterations / 5)
     }

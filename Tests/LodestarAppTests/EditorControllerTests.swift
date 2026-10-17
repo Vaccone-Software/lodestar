@@ -154,8 +154,8 @@ final class EditorRig {
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("editor-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        observations = ObservationStore(file: directory.appendingPathComponent("observations.json"),
-                                        log: EventLog(file: directory.appendingPathComponent("events.jsonl")))
+        observations = ObservationStore(file: directory.appendingPathComponent("observations.json"), vault: SealedFixture.vault(directory.appendingPathComponent("observations.json").deletingLastPathComponent()),
+                                        log: SealedFixture.eventLog(directory.appendingPathComponent("events.jsonl")))
         controller = EditorController(source: source, queue: queue, proofreader: reader, drawing: drawing,
                                       hover: hover ? EditorHover(clock: clock.clock) : nil,
                                       clock: clock.clock, polls: false, modelReady: { $0.usesModel })
@@ -580,7 +580,7 @@ final class EditorPrivacyTests: XCTestCase {
         rig.drain()
 
         rig.observations.flush()
-        let events = (try? String(contentsOf: rig.directory.appendingPathComponent("events.jsonl"), encoding: .utf8)) ?? ""
+        let events = SealedFixture.text(of: rig.directory.appendingPathComponent("events.jsonl"))
         XCTAssertFalse(events.isEmpty, "the flow was recorded")
         let logged = lock.withLock { lines.joined() }
         XCTAssertTrue(logged.contains("editor"), "the flow was logged")

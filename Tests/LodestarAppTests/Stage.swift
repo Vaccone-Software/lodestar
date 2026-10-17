@@ -288,10 +288,9 @@ final class Stage {
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("lodestar-stage-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        observations = ObservationStore(
-            file: directory.appendingPathComponent("observations.json"),
-            log: EventLog(file: directory.appendingPathComponent("events.jsonl")))
-        health = HealthMonitor(directory: directory)
+        observations = ObservationStore(file: directory.appendingPathComponent("observations.json"), vault: SealedFixture.vault(directory.appendingPathComponent("observations.json").deletingLastPathComponent()),
+            log: SealedFixture.eventLog(directory.appendingPathComponent("events.jsonl")))
+        health = HealthMonitor(directory: directory, vault: SealedFixture.vault(directory))
 
         var config = Config()
         config.graph = Self.graph()

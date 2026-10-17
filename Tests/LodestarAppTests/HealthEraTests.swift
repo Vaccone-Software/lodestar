@@ -23,10 +23,10 @@ final class HealthEraTests: XCTestCase {
     }
 
     func testAHungSettingsReadNeverHoldsTheMainThread() {
-        let observations = ObservationStore(file: directory.appendingPathComponent("observations.json"),
-                                            log: EventLog(file: directory.appendingPathComponent("events.jsonl")))
+        let observations = ObservationStore(file: directory.appendingPathComponent("observations.json"), vault: SealedFixture.vault(directory.appendingPathComponent("observations.json").deletingLastPathComponent()),
+                                            log: SealedFixture.eventLog(directory.appendingPathComponent("events.jsonl")))
         observations.setHealthEnabled(true)
-        let health = HealthMonitor(directory: directory)
+        let health = HealthMonitor(directory: directory, vault: SealedFixture.vault(directory))
         health.observations = observations
         health.listensToTheMouse = false
         let hung = DispatchSemaphore(value: 0)

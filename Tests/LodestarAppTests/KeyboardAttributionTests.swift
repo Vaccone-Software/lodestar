@@ -145,7 +145,7 @@ final class ExactKeyboardAttributionTests: XCTestCase {
     func testOffOrWithoutThePermissionNothingListens() {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("exact-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
-        let health = HealthMonitor(directory: directory)
+        let health = HealthMonitor(directory: directory, vault: SealedFixture.vault(directory))
         health.listensToTheMouse = false
         var asked = 0
         health.canListen = { false }

@@ -179,28 +179,33 @@ final class ClipboardBenchTests: XCTestCase {
     private var imageIDs: [String] = []
     private var textIDs: [String] = []
 
-    private func seed(_ store: ClipboardStore, imageKilobytes: Int) {
+    /// The synthetic history, written the way every build before the sealed one
+    /// wrote one (`ClipboardV1`): the first launch of the sealed build over it
+    /// is the migration the benchmark times.
+    private func seedV1(imageKilobytes: Int) throws {
         var rng = SplitMix(state: 20_261_017)
         // Two dozen different thumbnails, shared out among the images: the
         // system keeps what it has decoded, and identical bytes would make
         // every decode after the first look free.
         let thumbnails = (0..<24).map { ClipboardStore.thumbnail(from: Self.png(width: 1440, height: 900, seed: UInt64($0 + 7)))! }
         let blob = Data((0..<imageKilobytes * 1024).map { _ in UInt8(truncatingIfNeeded: rng.next()) })
-        let thumbs = root.appendingPathComponent("thumbs")
         let imageEvery = 4200 / 400
+        let now = Date()
+        var clips: [Clipboard.Clip] = []
         for n in 0..<4200 {
             let app = Self.apps[Int(rng.next() % UInt64(Self.apps.count))]
             let host = rng.unit() < 0.25 ? ["github.com", "stackoverflow.com", "docs.swift.org", "linear.app"]
                 .randomElement(using: &rng) : nil
+            let created = now.addingTimeInterval(-Double(n))
             if n % imageEvery == imageEvery - 1 {
                 let id = ClipboardStore.identity(for: Data("image \(n)".utf8))
                 let ocr = Self.text(length: 200 + Int(rng.unit() * 1300), &rng, lines: true)
-                store.record(id: id, kind: .image,
-                             items: [.init(plain: nil, natives: [("public.png", blob)])],
-                             imageData: nil,
-                             preview: Clipboard.imagePreview(width: 1440, height: 900, text: ocr),
-                             sourceBundleID: app.0, sourceAppName: app.1, sourceHost: host)
-                try? thumbnails[imageIDs.count % thumbnails.count].write(to: thumbs.appendingPathComponent("\(id).png"))
+                let clip = Clipboard.Clip(id: id, kind: .image, created: created, sourceBundleID: app.0, sourceAppName: app.1,
+                                          preview: Clipboard.imagePreview(width: 1440, height: 900, text: ocr), bytes: blob.count,
+                                          nativeTypes: ["public.png"], sourceHost: host)
+                try ClipboardV1.write(clip, items: [.init(plain: nil, natives: [("public.png", blob)])],
+                                      thumbnail: thumbnails[imageIDs.count % thumbnails.count], to: root)
+                clips.append(clip)
                 imageIDs.append(id)
             } else {
                 // Median 80 characters, a long tail, cut at the preview's cap.
@@ -214,17 +219,17 @@ final class ClipboardBenchTests: XCTestCase {
                        ("public.rtf", Data(("{\\rtf1\\ansi " + body.prefix(1_000) + "}").utf8))]
                     : []
                 let counted = Clipboard.counts(of: body)
-                store.record(id: id, kind: .text,
-                             items: [.init(plain: Data(body.utf8), natives: rich)],
-                             imageData: nil, preview: Clipboard.preview(of: body),
-                             sourceBundleID: app.0, sourceAppName: app.1, sourceHost: host,
-                             lines: counted.lines, characters: counted.characters)
+                var clip = Clipboard.Clip(id: id, kind: .text, created: created, sourceBundleID: app.0, sourceAppName: app.1,
+                                          preview: Clipboard.preview(of: body), bytes: body.utf8.count + rich.reduce(0) { $0 + $1.data.count },
+                                          nativeTypes: rich.map(\.type), sourceHost: host,
+                                          lines: counted.lines, characters: counted.characters)
+                if textIDs.count > 0, [100, 200, 300].contains(textIDs.count) { clip.pinnedSlot = textIDs.count / 100 }
+                try ClipboardV1.write(clip, items: [.init(plain: Data(body.utf8), natives: rich)], to: root)
+                clips.append(clip)
                 textIDs.append(id)
             }
         }
-        for slot in 1...3 { _ = store.pin(textIDs[slot * 100]) }
-        store.saveNow()
-        store.flushIO()
+        try ClipboardV1.writeIndex(clips, to: root)
     }
 
     private func directoryBytes(_ url: URL) -> Int {
@@ -249,29 +254,58 @@ final class ClipboardBenchTests: XCTestCase {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("lodestar-clipboard-bench-\(UUID().uuidString)", isDirectory: true)
 
-        let store = ClipboardStore(root: root)
-        let seeding = milliseconds { seed(store, imageKilobytes: kilobytes) }
-        cpuSamples.removeAll()
-        let indexFile = root.appendingPathComponent("index.json")
-        let indexBytes = (try? Data(contentsOf: indexFile).count) ?? 0
-        let items = (try? FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("items").path))?.count ?? 0
-        note("history: \(store.clips.count) clips, index \(String(format: "%.2f", Double(indexBytes) / 1e6)) MB, "
-             + "\(items) files in items/ (\(directoryBytes(root.appendingPathComponent("items")) / 1_000_000) MB), "
-             + "\(directoryBytes(root.appendingPathComponent("thumbs")) / 1_000_000) MB of thumbnails; "
+        let seeding = try timed { try? seedV1(imageKilobytes: kilobytes) }.wall
+        let v1Index = (try? Data(contentsOf: ClipboardV1.indexFile(root)).count) ?? 0
+        let v1Files = (try? FileManager.default.contentsOfDirectory(atPath: ClipboardV1.items(root).path))?.count ?? 0
+        let v1Bytes = directoryBytes(ClipboardV1.items(root)), v1Thumbs = directoryBytes(ClipboardV1.thumbs(root))
+        note("v1 history: \(imageIDs.count + textIDs.count) clips, index \(String(format: "%.2f", Double(v1Index) / 1e6)) MB, "
+             + "\(v1Files) files in items/ (\(v1Bytes / 1_000_000) MB), \(v1Thumbs / 1_000_000) MB of thumbnails; "
              + "seeded in \(Int(seeding)) ms; reps \(reps)")
 
-        if wanted("history") {
-            // The index, read and decoded the way boot does it.
-            report("index: read the file", (0..<reps).map { _ in milliseconds { _ = try? Data(contentsOf: indexFile) } })
-            report("index: load (read + decode + settle), store init",
-                   (0..<reps).map { _ in milliseconds { _ = ClipboardStore(root: root) } })
+        // The first launch of the sealed build over it: the migration, off the main thread.
+        let vault = SealedFixture.vault(root)
+        var store: ClipboardStore!
+        let initTook = timed { store = ClipboardStore(root: root, vault: vault) }
+        let migration = milliseconds { store.waitUntilOpen(timeout: 600) }
+        cpuSamples.removeAll()
+        XCTAssertEqual(store.clips.count, 4200)
+        XCTAssertEqual(ClipboardV1.plaintextFiles(root), [], "the plaintext is gone")
+        let sealedItems = directoryBytes(SealedFixture.v2(root).appendingPathComponent("items"))
+        let sealedThumbs = directoryBytes(SealedFixture.v2(root).appendingPathComponent("thumbs"))
+        note(String(format: "migration v1 -> v2: store init on the main thread %.3f ms; sealed, verified and v1 removed in %.2f s "
+                    + "(%d MB of blobs, %d MB of thumbnails sealed)", initTook.wall, migration / 1000, sealedItems / 1_000_000, sealedThumbs / 1_000_000))
+        let journalSize = (try? FileManager.default.attributesOfItem(atPath: SealedFixture.v2(root).appendingPathComponent("index.sj.snapshot").path)[.size] as? Int) ?? 0
+        note("v2 history: \(store.clips.count) clips, snapshot \(String(format: "%.2f", Double(journalSize) / 1e6)) MB, "
+             + "\(sealedItems / 1_000_000) MB in items/")
+        let logBefore = (try? FileManager.default.attributesOfItem(atPath: SealedFixture.v2(root).appendingPathComponent("index.sj").path)[.size] as? Int) ?? 0
+        _ = logBefore
+        store.readText = { _ in nil }
 
-            // The index, encoded and written durably: the main thread only
-            // hands over, the io queue does the rest.
-            report("index: save, main thread hands over", (0..<reps).map { _ in milliseconds { store.saveNow() } })
+        if wanted("history") {
+            // The index, opened the way boot does it: the main thread only starts
+            // it; the journal is read, decrypted and decoded behind it.
+            var mainStart: [Double] = [], mainCPU: [Double] = [], published: [Double] = []
+            for _ in 0..<reps {
+                store.flushIO()
+                var fresh: ClipboardStore!
+                let started = Self.now()
+                let took = timed { fresh = ClipboardStore(root: root, vault: vault) }
+                mainStart.append(took.wall); mainCPU.append(took.cpu)
+                fresh.waitUntilOpen()
+                published.append(Self.now() - started)
+                XCTAssertEqual(fresh.clips.count, store.clips.count)
+                fresh.close()
+            }
+            report("history: open, store init on the main thread", mainStart, cpu: mainCPU)
+            report("history: open, until published (read + decrypt + decode, off main)", published)
+
+            // One record: what a copy, a pin, a caption costs the disk, durably.
+            report("index: one record, main thread hands over", (0..<reps).map { _ in milliseconds { store.name(textIDs[5], "x"); store.saveNow() } })
             store.flushIO()
-            report("index: save, end to end (encode + durable write)",
-                   (0..<reps).map { _ in milliseconds { store.saveNow(); store.flushIO() } })
+            report("index: one record, end to end (seal + append + full sync)",
+                   (0..<reps).map { _ in milliseconds { store.name(textIDs[5], nil); store.saveNow(); store.flushIO() } })
+            report("index: fold the log (replay, snapshot, rotate the key)",
+                   (0..<min(reps, 5)).map { _ in milliseconds { XCTAssertTrue(store.compactAndWait()) } })
 
             // Search.
             let all = store.clips
@@ -317,7 +351,7 @@ final class ClipboardBenchTests: XCTestCase {
             var lookups: [Double] = [], lookupsCPU: [Double] = [], fills: [Double] = []
             var drawings: [Double] = [], drawingsCPU: [Double] = []
             for _ in 0..<reps {
-                let fresh = ClipboardStore(root: root)
+                let fresh = SealedFixture.clipboardStore(root)
                 let asked = timed { _ = twelve.map { fresh.thumbnail(for: $0) } }
                 lookups.append(asked.wall); lookupsCPU.append(asked.cpu)
                 let started = Self.now()
@@ -330,6 +364,7 @@ final class ClipboardBenchTests: XCTestCase {
                 let shown = twelve.compactMap { fresh.thumbnail(for: $0) }
                 let drawn = timed { for image in shown { _ = image.cgImage(forProposedRect: nil, context: nil, hints: nil) } }
                 drawings.append(drawn.wall); drawingsCPU.append(drawn.cpu)
+                fresh.close()
             }
             report("thumbnails: ask for 12 cold ones, main thread", lookups, cpu: lookupsCPU)
             report("thumbnails: until all 12 are there", fills)
@@ -506,6 +541,15 @@ final class ClipboardBenchTests: XCTestCase {
         }
         report("delete: one clip, main thread", main, cpu: mainCPU)
         report("delete: one clip, end to end (files removed)", endToEnd)
+        // And what makes it real: the log folded and the ring's key rotated.
+        var folds: [Double] = []
+        for id in store.clips.filter({ !$0.isPinned && $0.kind == .text }).dropFirst(500).prefix(min(reps, 5)).map(\.id) {
+            store.delete(id)
+            store.saveNow()
+            store.flushIO()
+            folds.append(milliseconds { XCTAssertTrue(store.compactAndWait()) })
+        }
+        report("delete: made real (fold + key rotation), off the main thread", folds)
 
         var trimMain: [Double] = [], trimMainCPU: [Double] = [], trimEnd: [Double] = []
         for round in 0..<min(reps, 10) {

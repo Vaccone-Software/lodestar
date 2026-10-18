@@ -51,6 +51,9 @@ public final class SealedClipboard: @unchecked Sendable {
         /// Whether asking again could change the answer without the person
         /// doing something (a keychain that was merely locked).
         public var retryable: Bool
+        /// The keychain is why: what the person is told is "the keychain
+        /// didn't open", and not a disk's trouble.
+        public var keychain = false
     }
 
     public struct Opened {
@@ -153,9 +156,9 @@ public final class SealedClipboard: @unchecked Sendable {
             if let existing = ring.existing() { return .success(existing) }
             switch ring.availability {
             case .paused(let why):
-                return .failure(Unavailable(words: why.words, retryable: why.retryable))
+                return .failure(Unavailable(words: why.words, retryable: why.retryable, keychain: true))
             case .keyLost:
-                return .failure(Unavailable(words: "the clipboard key is not available", retryable: false))
+                return .failure(Unavailable(words: "the clipboard key is not available", retryable: false, keychain: true))
             case .ready, .unopened:
                 // The custody answered "nothing there", and sealed files need it.
                 guard let folder = moveAside(reason: "the clipboard key is gone") else {
@@ -166,8 +169,8 @@ public final class SealedClipboard: @unchecked Sendable {
         }
         if let made = ring.keyring() { return .success(made) }
         switch ring.availability {
-        case .paused(let why): return .failure(Unavailable(words: why.words, retryable: why.retryable))
-        default: return .failure(Unavailable(words: "the clipboard key could not be made", retryable: false))
+        case .paused(let why): return .failure(Unavailable(words: why.words, retryable: why.retryable, keychain: true))
+        default: return .failure(Unavailable(words: "the clipboard key could not be made", retryable: false, keychain: true))
         }
     }
 
@@ -227,7 +230,7 @@ public final class SealedClipboard: @unchecked Sendable {
                     continue
                 }
                 if case .keyring(.custody(let reason)) = error {
-                    return .failure(Unavailable(words: "the keychain failed (\(reason))", retryable: false))
+                    return .failure(Unavailable(words: "the keychain failed (\(reason))", retryable: false, keychain: true))
                 }
                 return .failure(Unavailable(words: "the history could not be opened (\(error))", retryable: false))
             }

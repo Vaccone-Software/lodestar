@@ -1,6 +1,7 @@
 import Foundation
 import StoicSealed
 import StoicStore
+@testable import lodestar
 import Synchronization
 @testable import LodestarCore
 
@@ -67,4 +68,19 @@ final class LockedCustody: KeyCustody {
     func load(name: String) throws(CustodyError) -> [UInt8]? { try check(); return try base.load(name: name) }
     func store(_ bytes: [UInt8], name: String) throws(CustodyError) { try check(); try base.store(bytes, name: name) }
     func delete(name: String) throws(CustodyError) { try check(); try base.delete(name: name) }
+}
+
+extension SealedFixture {
+    /// A clipboard store over `root`, opened: the main run loop turns until
+    /// the history has been read off the main thread. One vault per folder,
+    /// so a second store over the same folder finds the first one's keys the
+    /// way a second launch finds the keychain's.
+    static func clipboardStore(_ root: URL, vault custom: Vault? = nil) -> ClipboardStore {
+        let store = ClipboardStore(root: root, vault: custom ?? vault(root))
+        store.waitUntilOpen()
+        return store
+    }
+
+    /// The files under `root`'s v2 folder, by relative name.
+    static func v2(_ root: URL) -> URL { root.appendingPathComponent("v2", isDirectory: true) }
 }

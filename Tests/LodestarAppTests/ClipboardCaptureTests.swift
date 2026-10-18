@@ -13,13 +13,12 @@ final class ClipboardCaptureTests: XCTestCase {
     override func setUp() {
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("lodestar-capture-\(UUID().uuidString)", isDirectory: true)
-        store = ClipboardStore(root: directory)
+        store = SealedFixture.clipboardStore(directory)
         controller = ClipboardController(store: store)
     }
 
     override func tearDown() {
-        store.saveNow()
-        store.flushIO()
+        store.close()
         try? FileManager.default.removeItem(at: directory)
     }
 

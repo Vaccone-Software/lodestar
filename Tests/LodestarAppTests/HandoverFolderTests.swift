@@ -31,7 +31,7 @@ final class HandoverFolderTests: XCTestCase {
 
     private func controller() -> ClipboardController {
         let controller = ClipboardController(
-            store: ClipboardStore(root: parent.appendingPathComponent("clipboard")))
+            store: SealedFixture.clipboardStore(parent.appendingPathComponent("clipboard")))
         controller.handover = folder
         return controller
     }

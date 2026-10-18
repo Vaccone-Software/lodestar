@@ -59,9 +59,14 @@ final class ClipboardController {
     private var handedOverFiles: [URL] = []
     private static let handedOverLimit = 8
 
-    init(store: ClipboardStore = ClipboardStore()) {
+    init(store: ClipboardStore) {
         self.store = store
         store.onThumbnail = { [weak self] in self?.onCapture?() }
+        // Said once, a few seconds after the launch's own flash: a history that
+        // had to be moved aside is not a thing to learn from a log.
+        store.onNotice = { [weak self] text in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self?.flash("⚠ \(text)") }
+        }
     }
 
     var history: ClipboardStore { store }
@@ -72,7 +77,10 @@ final class ClipboardController {
     /// and given another.
     /// Settings' Clear history: the same clear the CLI asks for, done here.
     func clearHistory() {
-        store.clearAll()
+        guard store.clearAll() else {
+            flash("✕ Nothing was cleared — the keychain didn't open\nit is not asked again until you unlock, or at the next launch")
+            return
+        }
         onCapture?()
         flash("⌂ Keep cleared")
     }
@@ -111,8 +119,7 @@ final class ClipboardController {
     /// ends. The index was written half a second after a copy, on a
     /// background queue, and quit never waited for either.
     func flushForQuit() {
-        store.saveNow()
-        store.flushIO()
+        store.finishForQuit()
         handover.sweep()
         handedOverFiles.removeAll()
     }
@@ -122,6 +129,11 @@ final class ClipboardController {
     /// temporary directory, are gone before anything is pasted.
     func sweepHandover() {
         handover.sweep()
+    }
+
+    /// The screen unlocked: a history paused for a locked keychain asks again.
+    func keychainMayHaveUnlocked() {
+        store.retryAfterUnlock()
     }
 
     func stop() {
@@ -146,9 +158,7 @@ final class ClipboardController {
         if clearPollTick >= 8 {
             clearPollTick = 0
             if store.consumeClearRequest() {
-                store.clearAll()
-                onCapture?()
-                flash("⌂ Keep cleared")
+                clearHistory()
             }
         }
         let board = SystemEvents.pasteboard
@@ -156,6 +166,9 @@ final class ClipboardController {
         guard count != lastChangeCount else { return }
         lastChangeCount = count
         guard count != selfWrittenChangeCount else { return }
+        // The history is paused (its key cannot be asked for): nothing is
+        // read from the board, let alone kept.
+        guard !store.isPaused else { return }
         // Every read below is on main, and it has to be: AppKit's
         // pasteboard is main-thread only. A type an app provides lazily —
         // a promise, a Universal Clipboard copy from another device — makes

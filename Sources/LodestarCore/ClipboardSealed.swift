@@ -26,8 +26,6 @@ public enum ClipboardSealed {
     public static let indexPurpose = "lodestar.clipboard.index"
     public static let blobPurpose = "lodestar.clipboard.blob"
     public static let thumbPurpose = "lodestar.clipboard.thumb"
-    /// The draft being dictated, sealed under the clipboard ring too.
-    public static let draftPurpose = "lodestar.clipboard.draft"
 
     public static var indexContext: SealContext { SealContext(indexPurpose) }
     public static func blobContext(_ storage: String) -> SealContext { SealContext(blobPurpose, storage) }
@@ -244,7 +242,7 @@ public enum ClipboardOp: Codable, Equatable {
     }
 
     /// The storage names this operation points at.
-    var storages: [String] {
+    public var storages: [String] {
         switch self {
         case .front(let entry), .tail(let entry), .ordered(let entry), .set(let entry), .replace(_, let entry): [entry.storage]
         case .delete, .imported: []

@@ -132,6 +132,7 @@ enum ClipboardMigration {
             return abandon("the new index could not be made (\(error))")
         }
 
+        Log.info("clipboard: sealing the older history", ["clips": snapshot.clips.count])
         var state = ClipboardIndexState()
         var batch: [ClipboardOp] = []
         func flush() throws {
@@ -148,6 +149,9 @@ enum ClipboardMigration {
                 batch.append(op)
                 if batch.count >= 64 { try flush() }
                 report.clips += 1
+                if report.clips % 1000 == 0 {
+                    Log.info("clipboard: sealing the older history", ["done": report.clips, "of": snapshot.clips.count])
+                }
             }
             let imported = ClipboardOp.imported(digest: snapshot.digest)
             state.apply(imported)

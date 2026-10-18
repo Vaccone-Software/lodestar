@@ -259,6 +259,9 @@ public protocol EngineWorld: AnyObject {
     func enterEditor() -> Bool
     /// Open the clipboard strip; false when nothing has been copied yet.
     func enterPaste() -> Bool
+    /// Why the strip has nothing to show when the history is not simply empty
+    /// (it is still opening, or its key is unavailable); nil otherwise.
+    var historyNotice: String? { get }
     /// Does a card answer to this address at this moment? Letters address
     /// the recents on show, digits the filled pin slots. Asked before ⌘ is
     /// treated as addressing the strip rather than the app underneath.
@@ -322,6 +325,7 @@ public extension EngineWorld {
     func bringCardExists(_ label: String) -> Bool { true }
     func pasteQueryIsEmpty() -> Bool { true }
     func pasteReadingExists(address: String?) -> Bool { true }
+    var historyNotice: String? { nil }
 }
 
 public struct EngineCore {
@@ -416,7 +420,7 @@ public struct EngineCore {
             state = .idle
             return [.exitBring]
         }
-        guard world.enterPaste() else { return [.flash("⌂ nothing copied yet")] }
+        guard world.enterPaste() else { return [.flash(world.historyNotice ?? "⌂ nothing copied yet")] }
         state = .paste(searching: false)
         return [.hideBars, .enterPaste]
     }

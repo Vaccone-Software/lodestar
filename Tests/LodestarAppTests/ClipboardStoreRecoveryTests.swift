@@ -2,14 +2,12 @@ import XCTest
 @testable import lodestar
 @testable import LodestarCore
 
-/// Keep's index is the only thing that points at the clips under items/.
-/// One that will not decode (a schema change to Clip is the realistic
-/// cause) is set aside and said out loud; one that cannot be read at all
-/// leaves the store read-only, because writing an empty index over it
-/// would orphan every clip.
+/// What an older build's index does to the history that replaces it: one that
+/// will not decode is set aside and said out loud, one that cannot be read at
+/// all is never written over, and a good one is taken in whole.
 final class ClipboardStoreRecoveryTests: XCTestCase {
     private var root: URL!
-    private var index: URL { root.appendingPathComponent("index.json") }
+    private var index: URL { ClipboardV1.indexFile(root) }
 
     override func setUp() {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("keep-recovery-\(UUID().uuidString)")
@@ -26,67 +24,66 @@ final class ClipboardStoreRecoveryTests: XCTestCase {
                      imageData: nil, preview: text, sourceBundleID: nil, sourceAppName: nil)
     }
 
-    private func saved(_ store: ClipboardStore) {
-        store.saveNow()
-        store.flushIO()
+    private func olderHistory(_ words: [String]) throws -> [Clipboard.Clip] {
+        var clips: [Clipboard.Clip] = []
+        for (n, word) in words.enumerated() {
+            let clip = Clipboard.Clip(id: "old\(n)", kind: .text, created: Date(timeIntervalSince1970: 1_700_000_000 - Double(n)),
+                                      sourceBundleID: nil, sourceAppName: nil, preview: word, bytes: word.utf8.count)
+            try ClipboardV1.write(clip, items: [.init(plain: Data(word.utf8), natives: [])], to: root)
+            clips.append(clip)
+        }
+        try ClipboardV1.writeIndex(clips, to: root)
+        return clips
     }
 
-    /// What is copied is private: the index that names every clip is the
-    /// owner's alone, a new one and one an older build left readable alike.
-    func testTheIndexIsTheOwnersAlone() throws {
-        func mode() throws -> Int { (try FileManager.default.attributesOfItem(atPath: index.path)[.posixPermissions] as? Int) ?? -1 }
-        let store = ClipboardStore(root: root)
+    /// What is copied is private: everything under the clipboard folder is the owner's alone.
+    func testEverythingTheHistoryKeepsIsTheOwnersAlone() throws {
+        let store = SealedFixture.clipboardStore(root)
         record(store, "secret", id: "c1")
-        saved(store)
-        XCTAssertEqual(try mode(), 0o600)
-        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: index.path)
-        record(store, "another", id: "c2")
-        saved(store)
-        XCTAssertEqual(try mode(), 0o600, "an index an older build left readable is tightened")
+        store.close()
+        let tree = ClipboardSynth.modes(under: root)
+        XCTAssertFalse(tree.isEmpty)
+        for (name, mode) in tree {
+            let directory = (try? URL(fileURLWithPath: root.appendingPathComponent(name).path).resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+            XCTAssertEqual(mode, directory ? 0o700 : 0o600, name)
+        }
     }
 
     func testAnIndexThatWillNotDecodeIsSetAsideAndNamed() throws {
-        let first = ClipboardStore(root: root)
-        record(first, "kept", id: "c1")
-        saved(first)
-        let blob = try FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("items").path)
-        XCTAssertFalse(blob.isEmpty, "the clip's bytes are on disk")
-
+        _ = try olderHistory(["kept"])
+        let blobs = try FileManager.default.contentsOfDirectory(atPath: ClipboardV1.items(root).path)
         let garbage = Data("{\"clips\": [{\"id\": 1".utf8)
         try garbage.write(to: index)
-        let second = ClipboardStore(root: root)
+        let second = SealedFixture.clipboardStore(root)
         XCTAssertEqual(second.clips.count, 0)
         XCTAssertNotNil(second.bootWarning, "said out loud, once, at boot")
         let aside = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
             .filter { $0.lastPathComponent.hasPrefix("index.json.corrupt-") }
         XCTAssertEqual(aside.count, 1)
         XCTAssertEqual(try Data(contentsOf: aside[0]), garbage, "kept byte for byte")
-        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("items").path),
-                       blob, "no clip's bytes are deleted")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: ClipboardV1.items(root).path), blobs,
+                       "no clip's bytes are deleted")
+        second.close()
     }
 
-    func testAnIndexThatCannotBeReadIsNeverWrittenOver() throws {
-        let first = ClipboardStore(root: root)
-        record(first, "kept", id: "c1")
-        saved(first)
+    func testAnIndexThatCannotBeReadIsNeverWrittenOverOrRemoved() throws {
+        _ = try olderHistory(["kept"])
         let before = try Data(contentsOf: index)
         try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: index.path)
-
-        let second = ClipboardStore(root: root)
+        let second = SealedFixture.clipboardStore(root)
         record(second, "new", id: "c2")
-        saved(second)
+        second.close()
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: index.path)
-        XCTAssertEqual(try Data(contentsOf: index), before, "read-only until it can be read")
+        XCTAssertEqual(try Data(contentsOf: index), before, "left until it can be read")
     }
 
-    func testAGoodIndexComesBackWhole() {
-        let first = ClipboardStore(root: root)
-        record(first, "one", id: "c1")
-        record(first, "two", id: "c2")
-        saved(first)
-        let second = ClipboardStore(root: root)
-        XCTAssertEqual(Set(second.clips.map(\.id)), ["c1", "c2"])
+    func testAGoodOlderHistoryComesBackWholeAndIsSealed() throws {
+        let clips = try olderHistory(["one", "two"])
+        let second = SealedFixture.clipboardStore(root)
+        XCTAssertEqual(second.clips, clips)
         XCTAssertNil(second.bootWarning)
-        XCTAssertEqual(second.plainText("c1"), "one")
+        XCTAssertEqual(second.plainText("old0"), "one")
+        XCTAssertEqual(ClipboardV1.plaintextFiles(root), [])
+        second.close()
     }
 }

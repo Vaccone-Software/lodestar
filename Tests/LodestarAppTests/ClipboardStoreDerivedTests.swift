@@ -12,13 +12,12 @@ final class ClipboardStoreDerivedTests: XCTestCase {
     override func setUp() {
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("lodestar-derived-\(UUID().uuidString)", isDirectory: true)
-        store = ClipboardStore(root: directory)
+        store = SealedFixture.clipboardStore(directory)
         store.readText = { _ in nil }
     }
 
     override func tearDown() {
-        store.saveNow()
-        store.flushIO()
+        store.close()
         try? FileManager.default.removeItem(at: directory)
     }
 
@@ -109,9 +108,8 @@ final class ClipboardStoreDerivedTests: XCTestCase {
     func testALoadedHistoryIsDerivedFromWhatWasLoaded() {
         copy("one")
         copy("two")
-        store.saveNow()
-        store.flushIO()
-        let reloaded = ClipboardStore(root: directory)
+        store.close()
+        let reloaded = SealedFixture.clipboardStore(directory)
         XCTAssertEqual(reloaded.recents.map(\.id), store.recents.map(\.id))
     }
 }

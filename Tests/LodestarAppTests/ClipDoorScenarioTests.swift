@@ -539,10 +539,11 @@ final class ClipboardStoreEditTests: XCTestCase {
     override func setUp() {
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("lodestar-store-\(UUID().uuidString)", isDirectory: true)
-        store = ClipboardStore(root: directory)
+        store = SealedFixture.clipboardStore(directory)
     }
 
     override func tearDown() {
+        store.close()
         try? FileManager.default.removeItem(at: directory)
     }
 
@@ -655,15 +656,15 @@ final class ClipboardStoreEditTests: XCTestCase {
                      sourceBundleID: nil, sourceAppName: nil, sourceHost: nil,
                      lines: nil, characters: nil)
         controller.flushForQuit()
-        XCTAssertTrue(ClipboardStore(root: directory).clips.contains { $0.id == id },
+        store.close()
+        XCTAssertTrue(SealedFixture.clipboardStore(directory).clips.contains { $0.id == id },
                       "on disk without the main queue ever running the coalesced save")
     }
 
     func testTheCountsSurviveAReload() {
         let clip = seed("one\ntwo")
-        store.saveNow()
-        store.flushIO()
-        let reloaded = ClipboardStore(root: directory)
+        store.close()
+        let reloaded = SealedFixture.clipboardStore(directory)
         XCTAssertEqual(reloaded.clips.first { $0.id == clip.id }?.lines, 2)
         XCTAssertEqual(reloaded.clips.first { $0.id == clip.id }?.characters, 7)
     }

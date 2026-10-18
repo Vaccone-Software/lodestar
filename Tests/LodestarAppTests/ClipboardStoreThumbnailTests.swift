@@ -12,13 +12,12 @@ final class ClipboardStoreThumbnailTests: XCTestCase {
     override func setUp() {
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("lodestar-thumbs-\(UUID().uuidString)", isDirectory: true)
-        seeding = ClipboardStore(root: directory)
+        seeding = SealedFixture.clipboardStore(directory)
         seeding.readText = { _ in nil }
     }
 
     override func tearDown() {
-        seeding.saveNow()
-        seeding.flushIO()
+        seeding.close()
         try? FileManager.default.removeItem(at: directory)
     }
 
@@ -37,9 +36,8 @@ final class ClipboardStoreThumbnailTests: XCTestCase {
 
     /// A store that has decoded nothing, over what the seeding store wrote.
     private func reopened() -> ClipboardStore {
-        seeding.saveNow()
-        seeding.flushIO()
-        return ClipboardStore(root: directory)
+        seeding.close()
+        return SealedFixture.clipboardStore(directory)
     }
 
     private func wait(_ what: String, timeout: TimeInterval = 10, until condition: () -> Bool) {
@@ -82,7 +80,7 @@ final class ClipboardStoreThumbnailTests: XCTestCase {
     func testACardThatWasAskedForBeforeItsThumbnailExistedStillGetsIt() {
         let png = Stage.pngData(width: 30, height: 20)
         let id = ClipboardStore.identity(for: png)
-        let store = ClipboardStore(root: directory)
+        let store = SealedFixture.clipboardStore(directory)
         store.readText = { _ in nil }
         store.record(id: id, kind: .image,
                      items: [.init(plain: nil, natives: [(NSPasteboard.PasteboardType.png.rawValue, png)])],

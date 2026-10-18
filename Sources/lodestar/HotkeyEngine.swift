@@ -2607,6 +2607,10 @@ extension HotkeyEngine: EngineWorld {
         }
     }
 
+    /// Said instead of "nothing copied yet" while the history is still opening,
+    /// or is paused because its key cannot be asked for.
+    var historyNotice: String? { clipboard.history.statusLine }
+
     func enterPaste() -> Bool {
         guard !clipboard.history.clips.isEmpty else { return false }
         pasteQuery = nil

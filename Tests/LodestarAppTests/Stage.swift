@@ -302,7 +302,7 @@ final class Stage {
         // one finds no app in front: the model knows only what a test told it.
         model.frontmostApp = { nil }
         let clipboard = ClipboardController(
-            store: ClipboardStore(root: directory.appendingPathComponent("clipboard")))
+            store: SealedFixture.clipboardStore(directory.appendingPathComponent("clipboard")))
         // A private board and a counted keystroke: a test that pasted into
         // the general pasteboard and posted ⌘V would type into whatever
         // the machine had focused.

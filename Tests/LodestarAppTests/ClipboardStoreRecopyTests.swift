@@ -14,18 +14,15 @@ final class ClipboardStoreRecopyTests: XCTestCase {
     override func setUp() {
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("lodestar-recopy-\(UUID().uuidString)", isDirectory: true)
-        store = ClipboardStore(root: directory)
+        store = SealedFixture.clipboardStore(directory)
     }
 
     override func tearDown() {
-        store.saveNow()
-        store.flushIO()
+        store.close()
         try? FileManager.default.removeItem(at: directory)
     }
 
-    private func blob(_ id: String, _ ext: String) -> URL {
-        directory.appendingPathComponent("items/\(id).\(ext)")
-    }
+    private func blob(_ id: String) -> URL { store.blobURL(for: id)! }
 
     private func modified(_ url: URL) -> Date? {
         (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
@@ -55,14 +52,12 @@ final class ClipboardStoreRecopyTests: XCTestCase {
     func testARecopiedTextRisesWithoutItsFilesBeingWrittenAgain() throws {
         let id = copyText("same words", html: "<b>same words</b>")
         _ = copyText("something else")
-        try age(blob(id, "plain"))
-        try age(blob(id, "type0"))
+        try age(blob(id))
         _ = copyText("same words", html: "<b>same words</b>", app: "Notes")
         XCTAssertEqual(store.clips.map(\.id).first, id, "it rises to the front")
         XCTAssertEqual(store.clips.count, 2, "and does not duplicate")
         XCTAssertEqual(store.clips.first?.sourceAppName, "Notes", "the source is the copy's")
-        XCTAssertEqual(modified(blob(id, "plain")), long, "the plain file was not written again")
-        XCTAssertEqual(modified(blob(id, "type0")), long, "nor the rich one")
+        XCTAssertEqual(modified(blob(id)), long, "the sealed blob was not written again")
         XCTAssertEqual(store.plainText(id), "same words")
     }
 
@@ -70,16 +65,18 @@ final class ClipboardStoreRecopyTests: XCTestCase {
     /// id. The index says what the copy brought, so the file has to say it.
     func testARecopyWithADifferentRichFormStillWritesIt() throws {
         let id = copyText("same words", html: "<b>one</b>")
-        try age(blob(id, "plain"))
-        try age(blob(id, "type0"))
+        try age(blob(id))
+        let before = blob(id)
         _ = copyText("same words", html: "<i>two</i>")
-        XCTAssertEqual(try String(contentsOf: blob(id, "type0"), encoding: .utf8), "<i>two</i>")
-        XCTAssertEqual(modified(blob(id, "plain")), long, "the plain file, unchanged, was left")
+        XCTAssertEqual(blob(id), before, "the same file, under the same key")
+        XCTAssertNotEqual(modified(blob(id)), long, "sealed again")
+        XCTAssertEqual(String(decoding: store.nativeData(store.clips[0])[0].data, as: UTF8.self), "<i>two</i>")
+        XCTAssertEqual(store.plainText(id), "same words")
     }
 
     func testARecopyWhoseFileWentMissingWritesItAgain() throws {
         let id = copyText("same words")
-        try FileManager.default.removeItem(at: blob(id, "plain"))
+        try FileManager.default.removeItem(at: blob(id))
         _ = copyText("same words")
         XCTAssertEqual(store.plainText(id), "same words", "a card is never left pointing at nothing")
     }
@@ -103,10 +100,10 @@ final class ClipboardStoreRecopyTests: XCTestCase {
         let shot = Stage.pngData(width: 40, height: 30)
         let id = copyImage(shot, app: "Safari")
         wait("the caption arrives") { store.clips.first?.preview.contains("build failed") == true }
-        let thumb = directory.appendingPathComponent("thumbs/\(id).png")
-        XCTAssertNotNil(modified(thumb), "the thumbnail was made")
+        wait("the thumbnail is made") { store.thumbURL(for: id).flatMap { modified($0) } != nil }
+        let thumb = store.thumbURL(for: id)!
         try age(thumb)
-        try age(blob(id, "type0"))
+        try age(blob(id))
 
         // Another picture goes in between, so the re-copy has somewhere to rise from.
         let other = copyImage(Stage.pngData(width: 41, height: 30), app: "Preview")
@@ -119,7 +116,7 @@ final class ClipboardStoreRecopyTests: XCTestCase {
                        "with the caption it already had, not the arrival's bare size line")
         XCTAssertEqual(store.clips.first?.sourceAppName, "Notes")
         XCTAssertEqual(modified(thumb), long, "the thumbnail was not made again")
-        XCTAssertEqual(modified(blob(id, "type0")), long, "the picture was not written again")
+        XCTAssertEqual(modified(blob(id)), long, "the picture was not written again")
 
         // Whatever the re-copy had queued would have run before this does.
         let sentinel = copyImage(Stage.pngData(width: 42, height: 30), app: "Preview")
@@ -139,7 +136,7 @@ final class ClipboardStoreRecopyTests: XCTestCase {
         }
         store.readText = { _ in nil }
         copy()
-        let thumb = directory.appendingPathComponent("thumbs/\(id).png")
+        let thumb = store.thumbURL(for: id)!
         XCTAssertTrue(FileManager.default.fileExists(atPath: thumb.path))
         try FileManager.default.removeItem(at: thumb)
         copy()

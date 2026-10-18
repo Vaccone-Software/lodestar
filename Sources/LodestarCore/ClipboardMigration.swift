@@ -359,12 +359,12 @@ enum ClipboardMigration {
 
         let storage = ClipboardSealed.newStorage()
         let key = SealingKey.generate()
-        try files.writeBlob(storage: storage, key: key, items: items, sync: true)
+        try files.writeBlob(storage: storage, key: key, items: items)
         guard case .items(let back) = files.readBlob(storage: storage, key: key), ClipboardContent.sameBytes(back, items) else {
             throw MigrationFailure(words: "a sealed clip did not read back as it was")
         }
         if let thumbnail {
-            try files.writeThumb(storage: storage, key: key, png: thumbnail, sync: true)
+            try files.writeThumb(storage: storage, key: key, png: thumbnail)
             guard files.readThumb(storage: storage, key: key) == thumbnail else {
                 throw MigrationFailure(words: "a sealed thumbnail did not read back as it was")
             }

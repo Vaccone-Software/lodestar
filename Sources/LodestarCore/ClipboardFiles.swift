@@ -7,16 +7,15 @@ import StoicStore
 /// the clip's own key** and never under the ring, so that rotating the ring
 /// rewrites none of it and a clip stops existing when its key does.
 ///
-/// A blob is `Sealing.seal` output written with `PrivateFile` (0600, atomic,
-/// no `F_FULLFSYNC`).
-///
-/// **STOIC GAP (marked workaround).** `SealedFile` is the primitive a whole
-/// file wants, and this is the one place it is not used: it takes a `Keyring` (a clip's key is
-/// in no ring, it is inside a sealed record) and pays a full sync and a
-/// directory sync for each file, which is what a blob written beside every
-/// copy must not pay. What it keeps: the file is a sealed value, opened with
-/// its context and nothing else; it is replaced atomically; and the index
-/// record that names it is appended **after** it is complete.
+/// A blob is a `SealedObjectFile` (StoicSealed): the sealed value alone, written
+/// to `0600` atomically, with `.standard` durability (a plain `fsync` and a
+/// rename, no `F_FULLFSYNC` and no directory sync), which is what a blob written
+/// beside every copy can afford, and what the history can lose the end of
+/// without anyone being worse off. A power cut may bring the old file, or none,
+/// back, and never a torn one. What it keeps: the file is a sealed value, opened
+/// with its context and the clip's own key and nothing else; it is replaced
+/// atomically; and the index record that names it is appended **after** it is
+/// complete.
 ///
 /// Thread-safe: no state but the paths.
 public struct ClipboardFiles: Sendable {
@@ -24,9 +23,14 @@ public struct ClipboardFiles: Sendable {
     /// `v2`, or `v2.migrating` while a migration is building one.
     public let folder: String
 
+    /// What every blob and thumbnail is written and read through: private files
+    /// (`OwnerOnly.fileSystem`), written with plain `fsync`.
+    private let sealedFile: SealedObjectFile
+
     public init(root: URL, folder: String = "v2") {
         self.root = root
         self.folder = folder
+        sealedFile = SealedObjectFile(fileSystem: OwnerOnly.fileSystem, options: .init(durability: .standard))
     }
 
     public var base: URL { root.appendingPathComponent(folder, isDirectory: true) }
@@ -48,10 +52,8 @@ public struct ClipboardFiles: Sendable {
 
     // MARK: Blobs
 
-    public func writeBlob(storage: String, key: SealingKey, items content: [ClipboardContent.Item],
-                          sync: Bool = false) throws {
-        let sealed = try seal(ClipboardContent.encode(content), ClipboardSealed.blobContext(storage), key)
-        try write(sealed, to: itemURL(storage), sync: sync)
+    public func writeBlob(storage: String, key: SealingKey, items content: [ClipboardContent.Item]) throws {
+        try write(ClipboardContent.encode(content), to: itemURL(storage), ClipboardSealed.blobContext(storage), key)
     }
 
     public enum BlobRead {
@@ -73,9 +75,8 @@ public struct ClipboardFiles: Sendable {
 
     // MARK: Thumbnails
 
-    public func writeThumb(storage: String, key: SealingKey, png: Data, sync: Bool = false) throws {
-        let sealed = try seal([UInt8](png), ClipboardSealed.thumbContext(storage), key)
-        try write(sealed, to: thumbURL(storage), sync: sync)
+    public func writeThumb(storage: String, key: SealingKey, png: Data) throws {
+        try write([UInt8](png), to: thumbURL(storage), ClipboardSealed.thumbContext(storage), key)
     }
 
     /// The thumbnail's PNG bytes, or nil when there is none or it does not open.
@@ -127,10 +128,6 @@ public struct ClipboardFiles: Sendable {
 
     // MARK: Sealing, opening, writing
 
-    private func seal(_ plain: [UInt8], _ context: SealContext, _ key: SealingKey) throws -> [UInt8] {
-        do { return try Sealing.seal(plain, context: context, key: key) } catch { throw Failure(description: "\(error)") }
-    }
-
     private enum Opened {
         case bytes([UInt8])
         case missing
@@ -138,22 +135,17 @@ public struct ClipboardFiles: Sendable {
     }
 
     private func open(_ url: URL, _ context: SealContext, _ key: SealingKey) -> Opened {
-        let data: Data
         do {
-            data = try Data(contentsOf: url)
-        } catch {
-            return access(url.path, F_OK) != 0 ? .missing : .unreadable("\(error)")
-        }
-        do {
-            return .bytes(try Sealing.open([UInt8](data), context: context, key: key))
+            guard let plain = try sealedFile.read(url.path, context: context, key: key) else { return .missing }
+            return .bytes(plain)
         } catch {
             return .unreadable("\(error)")
         }
     }
 
-    private func write(_ sealed: [UInt8], to url: URL, sync: Bool) throws {
+    private func write(_ plain: [UInt8], to url: URL, _ context: SealContext, _ key: SealingKey) throws {
         do {
-            try PrivateFile.write(sealed, to: url, atomically: true, sync: sync)
+            try sealedFile.write(plain, to: url.path, context: context, key: key)
         } catch {
             throw Failure(description: "\(error)")
         }

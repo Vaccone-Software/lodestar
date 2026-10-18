@@ -72,6 +72,22 @@ struct MigrationFailure: Error {
     var words: String
 }
 
+/// What sealing one clip's files counted, merged into the report by the caller
+/// (clips are sealed on several threads at once).
+struct ImportStats {
+    var bytes: Int64 = 0
+    var missing = 0
+    var unreadable = 0
+    var leave: Set<String> = []
+
+    mutating func add(_ other: ImportStats) {
+        bytes += other.bytes
+        missing += other.missing
+        unreadable += other.unreadable
+        leave.formUnion(other.leave)
+    }
+}
+
 /// v1 → v2. See `SealedClipboard` for the key states and the layout.
 ///
 /// **The rule: plaintext is removed only after everything it held is sealed,
@@ -115,6 +131,7 @@ enum ClipboardMigration {
         let staging = ClipboardFiles(root: root, folder: "v2.migrating")
         var report = MigrationReport(kind: .migrated)
         var leave: Set<String> = []
+        var phases: [(String, Double)] = []
 
         // A staging folder from a run that died is discarded: v1 is intact, so it is redone.
         try? fileSystem.removeTree(staging.base.path)
@@ -133,30 +150,19 @@ enum ClipboardMigration {
         }
 
         Log.info("clipboard: sealing the older history", ["clips": snapshot.clips.count])
+        // The staging journal needs no records: everything is folded straight
+        // into its snapshot (one full sync, not one per batch of records).
         var state = ClipboardIndexState()
-        var batch: [ClipboardOp] = []
-        func flush() throws {
-            let encoded = batch.compactMap { ClipboardIndexState.encode($0) }
-            guard encoded.count == batch.count else { throw MigrationFailure(words: "an entry could not be encoded") }
-            try journal.append(batch: encoded)
-            batch.removeAll(keepingCapacity: true)
-        }
         do {
-            for clip in snapshot.clips {
-                let entry = try importClip(clip, from: root, into: staging, report: &report, leave: &leave)
-                let op = ClipboardOp.tail(entry)
-                state.apply(op)
-                batch.append(op)
-                if batch.count >= 64 { try flush() }
-                report.clips += 1
-                if report.clips % 1000 == 0 {
-                    Log.info("clipboard: sealing the older history", ["done": report.clips, "of": snapshot.clips.count])
-                }
-            }
-            let imported = ClipboardOp.imported(digest: snapshot.digest)
-            state.apply(imported)
-            batch.append(imported)
-            try flush()
+            // Sealed, fsynced and read back on several threads at once (each
+            // file's sync waits on the drive, and they overlap).
+            let entries = try importAll(snapshot.clips, from: root, into: staging, report: &report, leave: &leave)
+            phases.append(("sealed and verified", Date().timeIntervalSince(started)))
+            // In the old order; a clip the old index listed twice is one clip (the later place wins).
+            var seen = Set<String>()
+            state.entries = entries.reversed().filter { seen.insert($0.clip.id).inserted }.reversed()
+            report.clips = entries.count
+            state.apply(.imported(digest: snapshot.digest))
             guard let folded = state.snapshot() else { throw MigrationFailure(words: "the index could not be encoded") }
             try journal.compact(snapshot: folded, rotatingKey: false)
             try journal.close()
@@ -168,8 +174,10 @@ enum ClipboardMigration {
             if clipboard.files.base.path != staging.base.path, !clipboard.hasSealedData() {
                 try? fileSystem.removeTree(clipboard.files.base.path)
             }
+            phases.append(("folded and synced", Date().timeIntervalSince(started)))
             try fileSystem.rename(from: staging.base.path, to: clipboard.files.base.path)
             try fileSystem.syncDirectory(root.path)
+            phases.append(("published", Date().timeIntervalSince(started)))
         } catch {
             try? journal.close()
             return abandon("\(error)")
@@ -178,7 +186,9 @@ enum ClipboardMigration {
         // Only now: what the sealed copy replaces.
         finish(clipboard, leave: leave, report: &report)
         report.seconds = Date().timeIntervalSince(started)
-        Log.info("clipboard: migrated the history — \(report.words)")
+        phases.append(("old files removed", report.seconds))
+        Log.info("clipboard: migrated the history — \(report.words)",
+                 ["phases": phases.map { "\($0.0) \(String(format: "%.1f", $0.1)) s" }.joined(separator: ", ")])
         return .success(report)
     }
 
@@ -210,7 +220,12 @@ enum ClipboardMigration {
                     report.superseded += 1
                     continue
                 }
-                var entry = try importClip(clip, from: clipboard.root, into: clipboard.files, report: &report, leave: &leave)
+                var local = ImportStats()
+                var entry = try importClip(clip, from: clipboard.root, into: clipboard.files, stats: &local)
+                report.bytes += local.bytes
+                report.missingFiles += local.missing
+                report.unreadableFiles += local.unreadable
+                leave.formUnion(local.leave)
                 if let existing {
                     // The card a newer copy replaces keeps what the hand did to it.
                     entry.clip.pinnedSlot = existing.clip.pinnedSlot
@@ -255,22 +270,71 @@ enum ClipboardMigration {
 
     /// Seal one clip's v1 files, and read them back. Throws when the sealed
     /// copy is not byte for byte what the old files held.
+    /// Every clip, in parallel, in the order given. The first failure stops the rest.
+    private static func importAll(_ clips: [Clipboard.Clip], from root: URL, into files: ClipboardFiles,
+                                  report: inout MigrationReport, leave: inout Set<String>) throws -> [ClipEntry] {
+        let lock = NSLock()
+        var entries = [ClipEntry?](repeating: nil, count: clips.count)
+        var failure: Error?
+        var stats = ImportStats()
+        var done = 0
+        let chunk = 16
+        let chunks = (clips.count + chunk - 1) / chunk
+        var next = 0
+        // Four at a time: a clip can be 20 MB, and each worker holds a few copies of it.
+        DispatchQueue.concurrentPerform(iterations: min(4, max(1, chunks))) { _ in
+            while true {
+                let index: Int? = lock.withLock {
+                    guard failure == nil, next < chunks else { return nil }
+                    defer { next += 1 }
+                    return next
+                }
+                guard let index else { return }
+                var local = ImportStats()
+                for position in (index * chunk)..<min(clips.count, (index + 1) * chunk) {
+                    do {
+                        let entry = try importClip(clips[position], from: root, into: files, stats: &local)
+                        lock.withLock { entries[position] = entry }
+                    } catch {
+                        lock.withLock { failure = failure ?? error }
+                        return
+                    }
+                }
+                lock.withLock {
+                    stats.add(local)
+                    done += min(clips.count, (index + 1) * chunk) - index * chunk
+                    if done / 1000 != (done - chunk) / 1000 {
+                        Log.info("clipboard: sealing the older history", ["done": done, "of": clips.count])
+                    }
+                }
+            }
+        }
+        if let failure { throw failure }
+        report.bytes += stats.bytes
+        report.missingFiles += stats.missing
+        report.unreadableFiles += stats.unreadable
+        leave.formUnion(stats.leave)
+        return entries.compactMap { $0 }
+    }
+
+    /// Seal one clip's v1 files, and read them back. Throws when the sealed
+    /// copy is not byte for byte what the old files held.
     private static func importClip(_ clip: Clipboard.Clip, from root: URL, into files: ClipboardFiles,
-                                   report: inout MigrationReport, leave: inout Set<String>) throws -> ClipEntry {
+                                   stats: inout ImportStats) throws -> ClipEntry {
         var items: [ClipboardContent.Item] = []
         // `expected`: the index says this file exists (an image has no plain
         // form, and its absence is not a loss).
         func read(_ url: URL, expected: Bool = true) -> Data? {
             switch ClipboardV1.read(url) {
             case .bytes(let data):
-                report.bytes += Int64(data.count)
+                stats.bytes += Int64(data.count)
                 return data
             case .missing:
-                if expected { report.missingFiles += 1 }
+                if expected { stats.missing += 1 }
                 return nil
             case .unreadable:
-                report.unreadableFiles += 1
-                leave.insert(url.path)
+                stats.unreadable += 1
+                stats.leave.insert(url.path)
                 return nil
             }
         }
@@ -289,8 +353,8 @@ enum ClipboardMigration {
         case .bytes(let data): thumbnail = data
         case .missing: break
         case .unreadable:
-            report.unreadableFiles += 1
-            leave.insert(ClipboardV1.thumbFile(root, id: clip.id).path)
+            stats.unreadable += 1
+            stats.leave.insert(ClipboardV1.thumbFile(root, id: clip.id).path)
         }
 
         let storage = ClipboardSealed.newStorage()

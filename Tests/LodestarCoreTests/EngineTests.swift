@@ -77,6 +77,7 @@ final class WorldStub: EngineWorld {
         return scrollAimEnterSucceeds
     }
 
+    var historyNotice: String?
     var pasteAvailable = true
     func enterPaste() -> Bool {
         calls.append("enterPaste")

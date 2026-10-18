@@ -40,7 +40,9 @@ final class ClipboardStore {
     }
 
     /// How long after the last delete the log is folded and the key rotated.
-    static let deletionDelay: TimeInterval = 2
+    nonisolated(unsafe) static var deletionDelay: TimeInterval = 2
+    /// How long after the last write the log is folded once it has grown (at idle).
+    nonisolated(unsafe) static var foldDelay: TimeInterval = 5
     /// The most a queue of copies, waiting for the index to open, may hold.
     static let queuedByteLimit = 512_000_000
 
@@ -64,6 +66,8 @@ final class ClipboardStore {
     private var compactionWork: DispatchWorkItem?
     /// A delete whose key has not been rotated away yet.
     private var deletionOwed = false
+    /// Folds that have finished (rotating the key), for the tests.
+    private(set) var compactions = 0
     /// Bumped by a clear, so an opening that was already under way when it
     /// happened is not taken for what the history now is.
     private var epoch = 0
@@ -270,7 +274,7 @@ final class ClipboardStore {
             queuedBytes = 0
             for pending in waiting { apply(pending) }
             if !waiting.isEmpty { Log.info("clipboard: applied \(waiting.count) copies made while it opened") }
-            if disk.needsCompaction { scheduleCompaction(after: 5) }
+            if disk.needsCompaction { scheduleCompaction(after: Self.foldDelay) }
             onThumbnail?()
         }
     }
@@ -358,7 +362,7 @@ final class ClipboardStore {
             let todo = failed.isEmpty ? ops : ops.filter { $0.storages.allSatisfy { !failed.contains($0) } }
             switch self.disk.append(todo) {
             case .appended:
-                if self.disk.needsCompaction { DispatchQueue.main.async { self.scheduleCompaction(after: 5) } }
+                if self.disk.needsCompaction { DispatchQueue.main.async { self.scheduleCompaction(after: Self.foldDelay) } }
             case .closed:
                 Log.error("clipboard: \(todo.count) changes were not written — the history is not open")
             case .failed(let why):
@@ -400,6 +404,7 @@ final class ClipboardStore {
                          ["ms": Int(Date().timeIntervalSince(started) * 1000)])
                 DispatchQueue.main.async {
                     self.deletionOwed = false
+                    self.compactions += 1
                     self.onCompacted?()
                 }
             case .notShredded(let why):

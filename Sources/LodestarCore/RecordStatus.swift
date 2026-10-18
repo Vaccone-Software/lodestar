@@ -156,3 +156,79 @@ public enum RecordStatus {
         return lines
     }
 }
+
+// MARK: - The clipboard history
+
+extension RecordStatus {
+    public struct ClipboardReport: Equatable {
+        public var key: Report.Key
+        /// Clips the sealed index holds (nil when it could not be read).
+        public var clips: Int?
+        /// Sealed values (and records) that did not open when checked.
+        public var unreadable: Int
+        /// Files an older build wrote in the clear that are still there.
+        public var plaintextFiles: Int
+        /// A migration was cut short: its folder is still there.
+        public var migrationInterrupted: Bool
+        /// `clipboard-unreadable-*` folders: history moved aside because its key was gone or it was damaged.
+        public var movedAside: [String]
+        /// An index an older build could not decode, set aside, with the files beside it.
+        public var quarantined: [String]
+        public var blobs: Int
+    }
+
+    /// The clipboard history's report. Read-only: a report never makes a key,
+    /// moves a file or opens a journal for writing.
+    public static func clipboard(vault: Vault, root: URL, fileSystem: any FileSystem = PosixFileSystem()) -> ClipboardReport {
+        let ring = vault.ring(.clipboard)
+        let files = ClipboardFiles(root: root)
+        let top = RecordFiles.names(in: root.path, fileSystem: fileSystem)
+        let hasSealed = (try? fileSystem.exists(files.indexPath)) == true
+            || !RecordFiles.names(in: files.items.path, fileSystem: fileSystem).isEmpty
+        let key = keyState(ring, sealedCount: hasSealed ? 1 : 0)
+        var clips: Int?
+        var unreadable = 0
+        if hasSealed, case .ready = key {
+            switch SealedRead.replay(at: files.indexPath, context: ClipboardSealed.indexContext, ring: ring,
+                                     fileSystem: fileSystem, options: ClipboardSealed.journalOptions) {
+            case .opened(let replay):
+                let folded = ClipboardIndexState.fold(replay)
+                clips = folded.state.entries.count
+                unreadable = replay.failures.count + folded.malformed
+            case .failed: unreadable = 1
+            case .absent, .unavailable: break
+            }
+        }
+        return ClipboardReport(
+            key: key, clips: clips, unreadable: unreadable,
+            plaintextFiles: ClipboardV1.plaintextFiles(root).count,
+            migrationInterrupted: top.contains("v2.migrating"),
+            movedAside: top.filter { $0.hasPrefix("clipboard-unreadable-") }.sorted(),
+            quarantined: top.filter { $0.hasPrefix("index.json.corrupt-") }.sorted(),
+            blobs: RecordFiles.names(in: files.items.path, fileSystem: fileSystem).count)
+    }
+
+    public static func clipboardLines(_ report: ClipboardReport) -> [String] {
+        var lines: [String] = []
+        switch report.key {
+        case .ready:
+            lines.append("clipboard history: sealed, \(report.clips.map { "\($0) clips" } ?? "not read"), \(report.blobs) sealed files")
+        case .none:
+            lines.append("clipboard history: " + (report.plaintextFiles > 0
+                ? "not sealed yet — the older history is sealed when Lodestar next runs" : "nothing kept yet"))
+        case .paused(let why):
+            lines.append("clipboard history: PAUSED for this launch — \(why). Nothing is captured, read, written or deleted; it is tried again when the keychain unlocks or at the next launch")
+        case .lost:
+            lines.append("clipboard history: the key is gone — Lodestar moves the unreadable history aside and starts a new one when it next runs")
+        }
+        if report.unreadable > 0 { lines.append("  ⚠ \(report.unreadable) sealed values did not open (altered, or sealed under another key); they are kept, and the history is not folded until they do") }
+        if report.plaintextFiles > 0 && report.key != .none {
+            lines.append("  \(report.plaintextFiles) files an older build wrote in the clear are still there (index.json, items/, thumbs/): "
+                + "they are sealed and removed once the history opens, and left where they are while it cannot")
+        }
+        if report.migrationInterrupted { lines.append("  a migration was cut short; it starts again at the next launch (the older files were not touched)") }
+        for folder in report.movedAside { lines.append("  ⚠ the history's key was gone or it was damaged: the unreadable files are in \(folder), and a new history was started") }
+        for name in report.quarantined { lines.append("  an index an older build could not read is kept as \(name), with the files beside it") }
+        return lines
+    }
+}

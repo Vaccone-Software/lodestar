@@ -35,7 +35,11 @@ import Synchronization
 ///   record, which moves the unreadable files into a dated folder (never
 ///   deletes them) and makes a new ring. For the *logbook*, which is derived
 ///   behavioral data, the unreadable files are moved aside the same way and
-///   a new ring is made, with one log line and a note in `diagnose`.
+///   a new ring is made, with one log line and a note in `diagnose`. For the
+///   *clipboard history* the store applies the same policy itself, before it
+///   asks for a key to write with (`SealedClipboard`): `v2/` moves into
+///   `clipboard-unreadable-YYYY-MM-DD/` (inside the clipboard folder), a new
+///   ring is made, and the person is told once.
 ///
 /// Tests and a test run's scratch home use `InMemoryKeyCustody`; the real
 /// keychain is refused under `TestRun` (`Vault.system`).
@@ -45,7 +49,9 @@ public final class Vault: Sendable {
     public enum RingName: String, CaseIterable, Sendable {
         case health
         case logbook
-        /// Reserved for the clipboard; nothing seals under it yet.
+        /// The clipboard history's index journal, and the draft in flight. The
+        /// blobs and thumbnails are sealed under keys of their own, which live
+        /// inside the sealed index records (`SealedClipboard`).
         case clipboard
 
         /// The custody item this ring is kept in.

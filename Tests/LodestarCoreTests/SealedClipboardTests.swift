@@ -776,4 +776,33 @@ final class SealedClipboardTests: XCTestCase {
             next.close()
         }
     }
+
+    // MARK: What `diagnose` says
+
+    func testDiagnoseSaysWhatIsSealedWhatIsLeftAndWhatWasMovedAside() throws {
+        let made = ClipboardSynth.make(count: 9)
+        try ClipboardSynth.write(made, to: root)
+        // Paused: the older files are still there, and the report says why.
+        let locked = Vault(custody: LockedCustody(copying: custody), directory: directory)
+        let paused = RecordStatus.clipboard(vault: locked, root: root)
+        XCTAssertEqual(paused.key, .paused("the login keychain is locked"))
+        XCTAssertGreaterThan(paused.plaintextFiles, 9)
+        XCTAssertTrue(RecordStatus.clipboardLines(paused).joined().contains("PAUSED"))
+
+        let store = clipboard()
+        ready(store)
+        store.close()
+        let sealed = RecordStatus.clipboard(vault: vault, root: root)
+        XCTAssertEqual(sealed.key, .ready)
+        XCTAssertEqual(sealed.clips, 9)
+        XCTAssertEqual(sealed.plaintextFiles, 0)
+        XCTAssertEqual(sealed.unreadable, 0)
+        XCTAssertEqual(RecordStatus.clipboardLines(sealed), ["clipboard history: sealed, 9 clips, 9 sealed files"])
+
+        let lost = Vault(custody: InMemoryKeyCustody(), directory: directory)
+        ready(clipboard(lost))
+        let after = RecordStatus.clipboard(vault: lost, root: root)
+        XCTAssertEqual(after.movedAside.count, 1)
+        XCTAssertTrue(RecordStatus.clipboardLines(after).joined().contains("clipboard-unreadable-"))
+    }
 }

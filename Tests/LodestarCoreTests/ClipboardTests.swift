@@ -296,6 +296,15 @@ final class PasteModeTests: XCTestCase {
         XCTAssertEqual(core.state, .idle)
     }
 
+    /// A history that is still opening, or paused for its key, says so
+    /// instead of "nothing copied yet", which would be untrue.
+    func testAHistoryThatIsNotOpenSaysWhyInsteadOfNothingCopied() {
+        world.pasteAvailable = false
+        world.historyNotice = "⌂ clipboard history is opening — a moment"
+        XCTAssertEqual(core.openPaste(world: world), [.flash("⌂ clipboard history is opening — a moment")])
+        XCTAssertEqual(core.state, .idle)
+    }
+
     /// The label names the card; the modifier names the verb.
     func testLabelPastesPlainAndShiftPastesAsCopied() {
         open()

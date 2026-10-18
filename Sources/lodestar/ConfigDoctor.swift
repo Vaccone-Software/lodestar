@@ -201,6 +201,7 @@ func diagnoseReport() -> String {
     if let vault = try? Vault.system() {
         lines.append(contentsOf: RecordStatus.healthLines(RecordStatus.health(vault: vault, directory: Paths.data)))
         lines.append(contentsOf: RecordStatus.logbookLines(RecordStatus.logbook(vault: vault, directory: Paths.data)))
+        lines.append(contentsOf: RecordStatus.clipboardLines(RecordStatus.clipboard(vault: vault, root: Paths.clipboard)))
         let failed = SealedFailures.tally
         if failed.total > 0 {
             lines.append("  ⚠ this run could not open \(failed.total) sealed values or files (\(failed.tampered) altered, \(failed.unknownKey) under an unknown key)")

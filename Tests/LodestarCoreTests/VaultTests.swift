@@ -215,6 +215,63 @@ final class VaultTests: XCTestCase {
         let next = try XCTUnwrap(ring.keyring())
         XCTAssertNotEqual(next.keyIDs, key, "a new key, not the old one")
     }
+
+    // MARK: Erasing every key (uninstall --purge)
+
+    func testErasingEveryKeyRemovesEachRingsItemAndNothingElse() throws {
+        let custody = InMemoryKeyCustody()
+        let vault = Vault(custody: custody, directory: directory)
+        for name in Vault.RingName.allCases { XCTAssertNotNil(vault.ring(name).keyring(), "\(name)") }
+        custody.put([9], name: "someone-elses-item")
+        XCTAssertEqual(custody.names.filter { $0.hasPrefix("lodestar.ring.") }.count, Vault.RingName.allCases.count)
+
+        let result = vault.eraseAllKeys()
+
+        XCTAssertEqual(result.map(\.ring), Vault.RingName.allCases)
+        XCTAssertTrue(result.allSatisfy(\.erased), "\(result)")
+        XCTAssertEqual(custody.names, ["someone-elses-item"], "every ring is gone and only the rings")
+        for name in Vault.RingName.allCases {
+            XCTAssertEqual(vault.ring(name).availability, .unopened, "\(name)")
+            XCTAssertNil(vault.ring(name).held, "\(name): the key is not held on after it is deleted")
+        }
+    }
+
+    func testTheItemsAreNamedByTheRingsSoNoRingCanBeLeftOut() {
+        XCTAssertEqual(Set(Vault.RingName.allCases.map(\.custodyName)),
+                       ["lodestar.ring.health", "lodestar.ring.logbook", "lodestar.ring.clipboard"],
+                       "a ring added here is a keychain item the purge must know")
+    }
+
+    func testErasingWhereNothingWasMadeSucceeds() {
+        let custody = InMemoryKeyCustody()
+        let result = Vault(custody: custody, directory: directory).eraseAllKeys()
+        XCTAssertTrue(result.allSatisfy(\.erased))
+        XCTAssertEqual(custody.calls.filter { $0.operation == .delete }.count, Vault.RingName.allCases.count)
+    }
+
+    func testADamagedRingItemIsErasedWithoutBeingOpened() {
+        let custody = InMemoryKeyCustody(["lodestar.ring.logbook": [1, 2, 3]])
+        let result = Vault(custody: custody, directory: directory).eraseAllKeys()
+        XCTAssertTrue(result.allSatisfy(\.erased))
+        XCTAssertTrue(custody.names.isEmpty)
+        XCTAssertTrue(custody.calls.allSatisfy { $0.operation == .delete }, "nothing was loaded: a ring that will not open is still removed")
+    }
+
+    func testAKeyTheKeychainWillNotDeleteIsReportedAndTheOthersAreStillErased() throws {
+        let custody = InMemoryKeyCustody()
+        let vault = Vault(custody: custody, directory: directory)
+        for name in Vault.RingName.allCases { XCTAssertNotNil(vault.ring(name).keyring()) }
+        // The first delete is refused, as a keychain the person said no to would.
+        custody.failNext(with: .unavailable(.accessDenied), on: .delete)
+
+        let result = vault.eraseAllKeys()
+
+        let failed = result.filter { !$0.erased }
+        XCTAssertEqual(failed.map(\.ring), [Vault.RingName.allCases[0]], "\(result)")
+        XCTAssertTrue(try XCTUnwrap(failed.first?.failure).contains("refused access"), "the reason is in the person's words")
+        XCTAssertEqual(custody.names, [Vault.RingName.allCases[0].custodyName], "the others did not wait on it")
+        XCTAssertNotNil(vault.ring(Vault.RingName.allCases[0]).held, "a key that is still in the keychain is still held")
+    }
 }
 
 private final class Locked<Value: Sendable>: @unchecked Sendable {

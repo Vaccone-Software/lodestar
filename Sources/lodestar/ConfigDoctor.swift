@@ -253,23 +253,33 @@ func runResetConfig() -> Never {
 }
 
 /// `lodestar uninstall`: the plan in `UninstallPlan`, described or run.
-/// User data (config, breaths, clipboard) stays unless --purge; --dry-run
-/// prints the plan and touches nothing.
+/// User data (config, breaths, clipboard) and the keychain keys that open
+/// the sealed part of it stay unless --purge; --dry-run prints the plan and
+/// touches nothing. A step that could not finish is printed and the verb
+/// exits 1 once every step has run.
 func runUninstall(dryRun: Bool, purge: Bool) -> Never {
     let plan = UninstallPlan.live(purge: purge)
     let keptNote = plan.kept.isEmpty ? nil
-        : "keeping \(plan.kept.map(\.path).joined(separator: " and ")): your config, breaths and clipboard survive a reinstall (lodestar uninstall --purge removes them)"
+        : "keeping \(plan.kept.map(\.path).joined(separator: " and ")) and their keys in your login keychain: your config, breaths and clipboard survive a reinstall (lodestar uninstall --purge removes them)"
     if dryRun {
         print("uninstall would:")
         for step in plan.steps { print("  • \(step.name)") }
         if let keptNote { print("  (\(keptNote))") }
         exit(0)
     }
+    var problems: [String] = []
     for step in plan.steps {
         print("• \(step.name)")
-        step.run()
+        for problem in step.run() {
+            print("  ✕ \(problem)")
+            problems.append(problem)
+        }
     }
     if let keptNote { print(keptNote) }
+    if !problems.isEmpty {
+        print("✕ Lodestar uninstalled, but \(problems.count == 1 ? "one step" : "\(problems.count) steps") did not finish (above). \(UninstallPlan.closing)")
+        exit(1)
+    }
     print("✓ Lodestar uninstalled. \(UninstallPlan.closing)")
     exit(0)
 }

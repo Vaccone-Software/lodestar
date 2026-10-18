@@ -1,4 +1,5 @@
 import XCTest
+@testable import LodestarCore
 @testable import lodestar
 
 /// One plan for the CLI verb, the menu item and the sheet: every step
@@ -7,7 +8,10 @@ import XCTest
 final class UninstallPlanTests: XCTestCase {
     private let home = URL(fileURLWithPath: "/Users/someone")
 
-    private func world(present: Set<String>, selected: Bool = false, browser: String? = nil) -> UninstallPlan.World {
+    private let keychainItems = "com.vaccone.lodestar: health, logbook, clipboard"
+
+    private func world(present: Set<String>, selected: Bool = false, browser: String? = nil,
+                       keychainItems: String? = nil) -> UninstallPlan.World {
         UninstallPlan.World(
             agentPlist: home.appendingPathComponent("Library/LaunchAgents/com.vaccone.lodestar.plist"),
             bundles: [home.appendingPathComponent("Applications/lodestar.app"),
@@ -17,6 +21,7 @@ final class UninstallPlanTests: XCTestCase {
             alertSelected: selected,
             dataRoots: [home.appendingPathComponent(".config/lodestar"),
                         home.appendingPathComponent(".local/share/lodestar")],
+            keychainItems: keychainItems ?? self.keychainItems,
             pidFile: home.appendingPathComponent(".config/lodestar/lodestar.pid"),
             bundleID: "com.vaccone.lodestar",
             browserToRestore: browser,
@@ -32,6 +37,7 @@ final class UninstallPlanTests: XCTestCase {
         actions.resetAlertSelection = { log.append("alert default") }
         actions.stopAgent = { log.append("bootout") }
         actions.stopInstance = { _ in log.append("stop") }
+        actions.deleteKeys = { log.append("keys"); return [] }
         return (actions, { log })
     }
 
@@ -76,6 +82,95 @@ final class UninstallPlanTests: XCTestCase {
         XCTAssertTrue(plan.steps.map(\.name).contains("remove /Users/someone/.config/lodestar"))
         XCTAssertTrue(plan.steps.map(\.name).contains("remove /Users/someone/.local/share/lodestar"))
         XCTAssertTrue(plan.kept.isEmpty)
+    }
+
+    // MARK: The keys in the login keychain
+
+    private static let keyStepName = "remove Lodestar's keys from your login keychain (com.vaccone.lodestar: health, logbook, clipboard)"
+
+    /// The sealed data stays on a plain uninstall, and without its keys it
+    /// would be unreadable for ever: so the keys stay too, and the plan does
+    /// not so much as name a keychain step.
+    func testAPlainUninstallKeepsTheKeysAndNeverAsksTheKeychain() {
+        let (actions, log) = quiet()
+        let plan = UninstallPlan.make(world: world(present: ["lodestar", ".config", "lodestar.app"]), purge: false,
+                                      actions: actions)
+        plan.steps.forEach { $0.run() }
+        XCTAssertFalse(plan.steps.map(\.name).contains { $0.contains("keychain") }, "\(plan.steps.map(\.name))")
+        XCTAssertFalse(log().contains("keys"), "nothing touched the keychain")
+        XCTAssertFalse(plan.kept.isEmpty, "the data it keeps is named")
+    }
+
+    func testPurgeDeletesTheKeysAfterTheDataAndBeforeTheAgentAndTheStop() {
+        let (actions, log) = quiet()
+        let plan = UninstallPlan.make(world: world(present: ["lodestar", ".config", "com.vaccone.lodestar.plist"]),
+                                      purge: true, actions: actions)
+        XCTAssertEqual(plan.steps.map(\.name), [
+            "ask macOS to forget Lodestar's permissions",
+            "remove /opt/homebrew/bin/lodestar",  // `present` matches by file name
+            "remove /Users/someone/.config/lodestar",
+            "remove /Users/someone/.local/share/lodestar",
+            Self.keyStepName,
+            "remove /Users/someone/Library/LaunchAgents/com.vaccone.lodestar.plist",
+            "stop Lodestar",
+        ])
+        plan.steps.forEach { $0.run() }
+        XCTAssertEqual(log(), ["tcc com.vaccone.lodestar", "rm lodestar", "rm lodestar", "rm lodestar", "keys",
+                               "rm com.vaccone.lodestar.plist", "bootout", "stop"])
+    }
+
+    /// The items are in the keychain, which the plan does not look into: a
+    /// machine whose data directory is already gone still has its keys.
+    func testPurgeDeletesTheKeysWhenThereIsNoDataLeft() {
+        let (actions, log) = quiet()
+        let plan = UninstallPlan.make(world: world(present: []), purge: true, actions: actions)
+        XCTAssertEqual(plan.steps.map(\.name), ["ask macOS to forget Lodestar's permissions", Self.keyStepName, "stop Lodestar"])
+        plan.steps.forEach { $0.run() }
+        XCTAssertEqual(log(), ["tcc com.vaccone.lodestar", "keys", "bootout", "stop"])
+    }
+
+    /// `--dry-run` prints `steps` and never runs them.
+    func testDescribingThePlanDeletesNothing() {
+        let (actions, log) = quiet()
+        let plan = UninstallPlan.make(world: world(present: ["lodestar"]), purge: true, actions: actions)
+        XCTAssertTrue(plan.steps.map(\.name).contains(Self.keyStepName))
+        XCTAssertEqual(log(), [], "the plan is made without a single side effect")
+    }
+
+    /// A key the keychain would not give up is the person's to know: the step
+    /// answers it, and every step after it still runs, the stop last.
+    func testAKeyThatCannotBeDeletedIsReportedAndTheRestStillRuns() {
+        var log: [String] = []
+        var (actions, _) = quiet()
+        actions.remove = { log.append("rm \($0.lastPathComponent)") }
+        actions.deleteKeys = { log.append("keys"); return ["the logbook key is still in your login keychain (the login keychain refused access)"] }
+        actions.stopAgent = { log.append("bootout") }
+        actions.stopInstance = { _ in log.append("stop") }
+        actions.forgetPermissions = { _ in }
+        let plan = UninstallPlan.make(world: world(present: ["lodestar", "com.vaccone.lodestar.plist"]),
+                                      purge: true, actions: actions)
+        let problems = plan.steps.flatMap { $0.run() }
+        XCTAssertEqual(problems, ["the logbook key is still in your login keychain (the login keychain refused access)"])
+        XCTAssertEqual(log, ["rm lodestar", "rm lodestar", "rm lodestar", "keys", "rm com.vaccone.lodestar.plist",
+                             "bootout", "stop"])
+        XCTAssertTrue(plan.steps.filter { !$0.name.contains("keychain") }.flatMap { $0.run() }.isEmpty,
+                      "the other steps report nothing")
+    }
+
+    /// The real action reaches the keychain through `Vault.system`, which a
+    /// test run refuses: it answers a problem instead of touching anything.
+    func testTheRealDeleteRefusesUnderATestRunAndSaysSo() {
+        let problems = UninstallPlan.deleteKeys()
+        XCTAssertEqual(problems.count, 1)
+        XCTAssertTrue(problems[0].contains("Keychain Access"), "\(problems)")
+    }
+
+    /// The live world names every ring, whatever rings there are.
+    func testTheLivePlanNamesEveryRing() {
+        for ring in Vault.RingName.allCases {
+            XCTAssertTrue(UninstallPlan.keychainItemsNote.contains(ring.rawValue), "\(ring)")
+        }
+        XCTAssertTrue(UninstallPlan.keychainItemsNote.hasPrefix(Vault.keychainService))
     }
 
     func testTheSheetShowsThePlanWholeAndWhatStays() {

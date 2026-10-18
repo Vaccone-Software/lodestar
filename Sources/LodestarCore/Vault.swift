@@ -56,7 +56,7 @@ public final class Vault: Sendable {
         case clipboard
 
         /// The custody item this ring is kept in.
-        var custodyName: String { "lodestar.ring.\(rawValue)" }
+        public var custodyName: String { "lodestar.ring.\(rawValue)" }
     }
 
     /// The service the login keychain files the rings under.
@@ -86,6 +86,30 @@ public final class Vault: Sendable {
     }
 
     public func ring(_ name: RingName) -> Ring { rings[name]! }
+
+    /// What `eraseAllKeys` did to one ring's item.
+    public struct Erasure: Sendable, Equatable {
+        public let ring: RingName
+        /// Nil when the item is gone (or there was none); otherwise why it
+        /// is still in the keychain.
+        public let failure: String?
+
+        public var erased: Bool { failure == nil }
+    }
+
+    /// Delete every key Lodestar keeps in the custody, one item per ring,
+    /// for `lodestar uninstall --purge`: the data a key opens is being
+    /// removed, so the key has no use left, and a Mac that has had Lodestar
+    /// removed should not keep a secret of its own in the keychain. Goes
+    /// straight to the custody and opens no ring, so a damaged or newer ring
+    /// is removed too. **Not for the main thread** (the keychain may wait).
+    ///
+    /// Every ring is tried whatever the others did; a ring the custody would
+    /// not delete is named in the result, never skipped silently. Deleting an
+    /// item that is not there is a success.
+    public func eraseAllKeys() -> [Erasure] {
+        RingName.allCases.map { Erasure(ring: $0, failure: ring($0).erase()) }
+    }
 
     /// Decide every ring's state, off the main thread (`Ring.settle`).
     public func settle() {
@@ -337,6 +361,25 @@ public final class Vault: Sendable {
                                 ["ring": name.rawValue])
                     return false
                 }
+            }
+        }
+
+        /// The ring's item is deleted from the custody without opening it,
+        /// whatever state it is in (`Vault.eraseAllKeys`). Nil when it is
+        /// gone or was never there; otherwise the reason it is not. The ring
+        /// is forgotten in this process either way it succeeds: a failed
+        /// delete leaves the held key and the state as they were.
+        func erase() -> String? {
+            opening.withLock { _ -> String? in
+                do throws(CustodyError) {
+                    try custody.delete(name: name.custodyName)
+                } catch {
+                    Log.warning("vault: the \(name.rawValue) key could not be deleted (\(error)) — left in the keychain",
+                                ["ring": name.rawValue])
+                    return "\(Pause.custody(error).words)"
+                }
+                state.withLock { $0 = State(availability: .unopened, keyring: nil, movedAside: nil, loggedPause: false) }
+                return nil
             }
         }
 

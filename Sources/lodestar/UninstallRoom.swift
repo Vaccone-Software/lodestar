@@ -122,8 +122,8 @@ final class UninstallRoom: NSObject {
         stack.addArrangedSubview(choice)
         stack.addArrangedSubview(wrapped(
             removesEverything
-                ? "Settings, breaths, the clipboard, observations, the health record and downloaded models go too"
-                : "Settings, breaths, the clipboard, observations, the health record and downloaded models stay, so a reinstall finds them",
+                ? "Settings, breaths, the clipboard, observations, the health record, downloaded models and the keys that open them go too"
+                : "Settings, breaths, the clipboard, observations, the health record and downloaded models stay, with their keys, so a reinstall finds them",
             color: BarTheme.secondaryColor, width: text, size: BarTheme.Scale.meta))
         stack.setCustomSpacing(16, after: stack.arrangedSubviews.last!)
         stack.addArrangedSubview(wrapped(UninstallPlan.closing.trimmingCharacters(in: CharacterSet(charactersIn: ".")),

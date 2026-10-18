@@ -9,7 +9,11 @@ import LodestarCore
 /// alert returns to the Mac's default when it named ours, the links and
 /// the agent go, and the running instance is the last thing to stop, so
 /// every step before it runs to the end. Config, breaths and the
-/// clipboard stay unless asked, because they survive a reinstall.
+/// clipboard stay unless asked, because they survive a reinstall, and so
+/// do the keys in the login keychain that open the sealed ones: a plain
+/// uninstall keeps data nothing could read without them. `--purge` removes
+/// both, the data first and then the keys, and a key the keychain would
+/// not give up is reported rather than passed over.
 ///
 /// The Trash is the other door. Finder refuses to trash a running app, so
 /// the app cannot watch itself go; instead the login agent runs through
@@ -18,7 +22,29 @@ import LodestarCore
 struct UninstallPlan {
     struct Step {
         let name: String
-        let run: () -> Void
+        /// Does the work; answers what could not be done (nil when all of it
+        /// was). A step that fails never stops the ones after it: the person
+        /// is told at the end, with everything else done.
+        let work: () -> [String]
+
+        /// A step that cannot fail in a way worth telling.
+        init(name: String, run: @escaping () -> Void) {
+            self.name = name
+            work = { run(); return [] }
+        }
+
+        /// A step that answers what it could not do.
+        static func reporting(_ name: String, work: @escaping () -> [String]) -> Step {
+            Step(name: name, work: work)
+        }
+
+        private init(name: String, work: @escaping () -> [String]) {
+            self.name = name
+            self.work = work
+        }
+
+        @discardableResult
+        func run() -> [String] { work() }
     }
 
     let steps: [Step]
@@ -35,6 +61,10 @@ struct UninstallPlan {
         var alertSound: URL
         var alertSelected: Bool
         var dataRoots: [URL]
+        /// The keychain items Lodestar's sealed records are keyed by, named
+        /// for the plan ("com.vaccone.lodestar: health, logbook, …"). Empty
+        /// when there is nothing to name, and then no step is made.
+        var keychainItems: String
         var pidFile: URL
         var bundleID: String
         var browserToRestore: String?
@@ -49,6 +79,9 @@ struct UninstallPlan {
         var resetAlertSelection: () -> Void = AlertSound.resetSelection
         var stopAgent: () -> Void = UninstallPlan.stopAgent
         var stopInstance: (URL) -> Void = UninstallPlan.stopInstance
+        /// Delete every key Lodestar keeps in the login keychain; answers one
+        /// line for each it could not delete.
+        var deleteKeys: () -> [String] = UninstallPlan.deleteKeys
     }
 
     static func make(world: World, purge: Bool, actions: Actions = Actions()) -> UninstallPlan {
@@ -79,6 +112,14 @@ struct UninstallPlan {
             for root in world.dataRoots where world.exists(root) {
                 steps.append(Step(name: "remove \(root.path)") { actions.remove(root) })
             }
+            // After the data, never before: a key deleted first would leave
+            // sealed files nothing can open if the next step were cut short.
+            // Always a step, whatever the data directory held: the keys are
+            // in the keychain, which the plan does not look into.
+            if !world.keychainItems.isEmpty {
+                steps.append(.reporting("remove Lodestar's keys from your login keychain (\(world.keychainItems))",
+                                        work: actions.deleteKeys))
+            }
         }
         if world.exists(world.agentPlist) {
             steps.append(Step(name: "remove \(world.agentPlist.path)") { actions.remove(world.agentPlist) })
@@ -96,7 +137,6 @@ struct UninstallPlan {
     static let agentLabel = "com.vaccone.lodestar"
 
     static func world() -> World {
-        let fm = FileManager.default
         let home = Paths.userHome
         var bundles: [URL] = []
         let running = Bundle.main.bundleURL
@@ -127,6 +167,7 @@ struct UninstallPlan {
                 + (Bundle.main.bundleIdentifier.map {
                     [home.appendingPathComponent("Library/Caches/\($0)", isDirectory: true)]
                 } ?? []),
+            keychainItems: keychainItemsNote,
             pidFile: Paths.pidFile,
             bundleID: Bundle.main.bundleIdentifier ?? agentLabel,
             browserToRestore: browser)
@@ -162,6 +203,26 @@ struct UninstallPlan {
     /// may not is left in Privacy & Security, and the closing line says so.
     private static func forgetPermissions(_ bundleID: String) {
         run("/usr/bin/tccutil", ["reset", "All", bundleID])
+    }
+
+    /// The keychain items the plan names: the service, then each ring.
+    static var keychainItemsNote: String {
+        "\(Vault.keychainService): " + Vault.RingName.allCases.map(\.rawValue).joined(separator: ", ")
+    }
+
+    /// Every ring's item, deleted from the login keychain through the vault
+    /// the app itself keeps them with. Answers one line per ring left behind.
+    static func deleteKeys() -> [String] {
+        let vault: Vault
+        do {
+            vault = try Vault.system()
+        } catch {
+            return ["could not reach the login keychain (\(error)); delete the \(Vault.keychainService) items in Keychain Access"]
+        }
+        return vault.eraseAllKeys().compactMap { erasure in
+            erasure.failure.map { "the \(erasure.ring.rawValue) key is still in your login keychain (\($0)); delete "
+                + "\(erasure.ring.custodyName) under \(Vault.keychainService) in Keychain Access" }
+        }
     }
 
     private static func stopAgent() {

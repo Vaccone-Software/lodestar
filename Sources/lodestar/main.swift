@@ -913,11 +913,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // starts reading while we are still in the middle of it must find
         // a state file that is already complete. The second save records
         // the emptied parking map when the restore does finish.
-        store?.save()
-        health.quitting()
-        health.flush()
-        observationStore?.flush()
-        clipboardController?.flushForQuit()
+        if !Self.purged {
+            store?.save()
+            health.quitting()
+            health.flush()
+            observationStore?.flush()
+            clipboardController?.flushForQuit()
+        }
         // The watchdog guards a running app, not one on its way out: past
         // eight seconds of restoring it would abort half-way, leave the
         // rest of the parked windows off screen, and launchd would start
@@ -927,7 +929,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let restoreStarted = Date()
         actions?.restoreAllParked()
         Log.info("terminating: restored", ["ms": Int(Date().timeIntervalSince(restoreStarted) * 1000)])
-        store?.save() // flush any coalesced write before the process dies
+        if !Self.purged { store?.save() } // flush any coalesced write before the process dies
         // Only clear the pid file while it is still ours — in a takeover
         // (manual reinstall or self-update) the successor has already
         // written its own pid, and deleting it would blind the update
@@ -1075,9 +1077,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         room.onUninstall = { purge in
             Log.info("uninstall", ["from": "menu", "purge": purge])
             let plan = UninstallPlan.live(purge: purge)
+            // A purge removes the data and the keys that open it: a quit
+            // that then saved would put sealed files back, under a key that
+            // is gone.
+            if purge { Self.purged = true }
+            var problems: [String] = []
             for step in plan.steps {
                 Log.info("uninstall", ["step": step.name])
-                step.run()
+                for problem in step.run() {
+                    Log.error("uninstall", ["step": step.name, "problem": problem])
+                    problems.append(problem)
+                }
+            }
+            if !problems.isEmpty {
+                // The last step stops the agent and this process with it, so
+                // what could not be done is said before, not after.
+                let alert = NSAlert()
+                alert.messageText = "Lodestar could not finish removing itself"
+                alert.informativeText = problems.joined(separator: "\n\n")
+                alert.addButton(withTitle: "OK")
+                alert.runModal()
             }
             // The last step stops the agent, which is usually this process.
             NSApp.terminate(nil)
@@ -1093,7 +1112,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let lines = plan.steps.map { "• \($0.name)" }
         let kept = plan.kept.isEmpty ? []
             : ["", "Everything Lodestar has kept stays, so a reinstall finds it: settings, "
-               + "breaths, clipboard, observations, the health record and downloaded models."]
+               + "breaths, clipboard, observations, the health record and downloaded models, "
+               + "with the keys in your login keychain that open the sealed ones."]
         return (lines + kept + ["", UninstallPlan.closing]).joined(separator: "\n")
     }
 
@@ -2764,6 +2784,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: - Process management
 
     private static let pidFile = Paths.pidFile
+    /// Set by an uninstall that removes the data and its keys: from then on
+    /// nothing is persisted, so a quit does not recreate what was removed.
+    /// Main thread only.
+    nonisolated(unsafe) private static var purged = false
     /// Present while a run is alive, removed by a graceful shutdown: the
     /// difference between "quit" and "died", readable at the next boot.
     private static let runMarker = Paths.data.appendingPathComponent("last-run")

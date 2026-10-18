@@ -88,6 +88,15 @@ struct EditorManifest: Equatable {
 
     /// The pinned file as a download is told to check it: its size, and
     /// the SHA-256 or git blob hash it was recorded with.
+    ///
+    /// It also adopts what an earlier build left: the staging folder is that
+    /// build's, with each file part-way at its own name and no record of where
+    /// it came from. The downloader resumes a file only with a record, and
+    /// would remove those, so the gigabytes would be fetched again from
+    /// nothing. The manifest pins the URL, the size and the digest, which is
+    /// all the assurance there is: the bytes are believed, and the digest,
+    /// checked as the rest arrives, says whether the splice was right (a file
+    /// that fails it is fetched again from the start).
     func download(of file: File, in manifest: EditorManifest) throws(ContentDigest.Invalid) -> DownloadBundle.File {
         let digest: ContentDigest
         if let sha256 = file.sha256 {
@@ -96,6 +105,7 @@ struct EditorManifest: Equatable {
             digest = try .gitBlobSHA1(file.gitSHA1 ?? "")
         }
         return DownloadBundle.File(file.path, manifest.url(for: file), expectedSize: Int(file.size), digest: digest)
+            .adoptingUnrecordedPartial()
     }
 
     /// The whole model as one bundle, staged in `.<folder>.partial` beside
@@ -357,7 +367,6 @@ final class EditorDownload {
         }
         let staging = self.staging(manifest)
         EditorModels.excludeFromBackup(root)
-        Self.adoptEarlierPartials(of: manifest, in: staging, fileSystem: fileSystem)
         // Room for what is left, and two gigabytes besides: a full disk
         // breaks more than the editor.
         let have = manifest.files.reduce(Int64(0)) { sum, file in
@@ -374,15 +383,6 @@ final class EditorDownload {
             }, operation: {
                 try await downloader.download(bundle) { phase.set($0.phase); progress.report($0) }
             })
-            // A swap whose last sync failed is a model in place, and leaves
-            // the old one at the staged path: cleared here, so it is not
-            // resumed into, nor kept as gigabytes nobody asked for.
-            do {
-                if try fileSystem.exists(staging.path) { try fileSystem.removeTree(staging.path) }
-            } catch {
-                Log.error("editor: the old \(manifest.folder) could not be cleared from \(staging.lastPathComponent)",
-                          ["error": "\(error)"])
-            }
             Log.info("editor", ["downloaded": manifest.folder, "bytes": manifest.total, "durable": result.isDurable])
             post(.ready, generation: generation)
         } catch is CancellationError {
@@ -416,52 +416,6 @@ final class EditorDownload {
 
     private static func size(of url: URL) -> Int64 {
         ((try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber)?.int64Value ?? 0
-    }
-
-    // MARK: - What an earlier build left
-
-    /// The staging folder is the one an earlier build used, with each file
-    /// part-way at its own name, and no record of where it came from. The
-    /// downloader resumes a file only at `<name>.partial` with a record, and
-    /// removes anything at a file's own name that is not whole, so that
-    /// build's half-fetched files would be fetched again from nothing:
-    /// gigabytes. Each is moved to the name the downloader resumes from, with
-    /// the record it would have written: it came from this URL, at this
-    /// size and digest (the manifest pins both), and all of it is believed
-    /// (`synced`): the digest, checked as the rest arrives, is what says
-    /// whether the splice was right, and a file that fails it is fetched
-    /// again.
-    ///
-    /// STOIC-GAP: StoicDownloads has no way to adopt a partial file it did not
-    /// write, so this reproduces its resume record (`ResumeRecord`, and the
-    /// identity `FileTransfer` derives from the request's target, the size
-    /// and the digest). If Stoic changes that format the record is read as
-    /// another download's, the file is restarted, and
-    /// `testAPartialLeftByTheEarlierBuildIsResumed` fails: loudly, and
-    /// at the cost of a refetch, never a wrong file. Delete this when Stoic
-    /// has a public adoption (and this build's partials are long gone).
-    static func adoptEarlierPartials(of manifest: EditorManifest, in staging: URL, fileSystem: any FileSystem) {
-        let records = AtomicFile(fileSystem: fileSystem,
-                                 options: .init(envelope: true, keepPrevious: false, checksFreeSpace: false, newFileMode: 0o600))
-        for file in manifest.files {
-            let whole = staging.appendingPathComponent(file.path).path
-            let partial = whole + ".partial"
-            do {
-                guard let held = try fileSystem.exists(whole) ? Int(size(of: URL(fileURLWithPath: whole))) : nil,
-                      held > 0, held < Int(file.size), try !fileSystem.exists(partial) else { continue }
-                let pinned = try manifest.download(of: file, in: manifest)
-                let identity = ContentDigest(
-                    algorithm: .sha256,
-                    of: Array("\(pinned.request.target)|\(file.size)|\(pinned.digest?.description ?? "-")".utf8)).hex
-                let record = ["stoic-download 1", "identity \(identity)", "synced \(held)", "total \(file.size)", "validator none"]
-                try fileSystem.rename(from: whole, to: partial)
-                try records.write(Array(record.joined(separator: "\n").utf8), to: partial + ".resume")
-                Log.info("editor", ["adopted": file.path, "bytes": held])
-            } catch {
-                // Nothing adopted: the file is fetched again, as it would be.
-                Log.error("editor: could not adopt an earlier partial of \(file.path)", ["error": "\(error)"])
-            }
-        }
     }
 }
 

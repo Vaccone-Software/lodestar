@@ -22,7 +22,7 @@ public struct SealedValueFile: Sendable {
     public let ring: Vault.Ring
     public let fileSystem: any FileSystem
 
-    public init(url: URL, name: String? = nil, ring: Vault.Ring, fileSystem: any FileSystem = OwnerOnlyFileSystem()) {
+    public init(url: URL, name: String? = nil, ring: Vault.Ring, fileSystem: any FileSystem = OwnerOnly.fileSystem) {
         self.url = url
         self.name = name ?? url.lastPathComponent
         self.ring = ring

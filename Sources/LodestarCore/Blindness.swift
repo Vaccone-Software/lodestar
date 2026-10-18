@@ -223,7 +223,7 @@ public enum BlindSummary {
 public struct BlindLedgerFile: Sendable {
     public let file: SealedValueFile
 
-    public init(url: URL, ring: Vault.Ring, fileSystem: any FileSystem = OwnerOnlyFileSystem()) {
+    public init(url: URL, ring: Vault.Ring, fileSystem: any FileSystem = OwnerOnly.fileSystem) {
         file = SealedValueFile(url: url, ring: ring, fileSystem: fileSystem)
     }
 

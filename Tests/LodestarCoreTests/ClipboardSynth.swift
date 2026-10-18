@@ -122,7 +122,7 @@ final class DyingFileSystem: FileSystem, @unchecked Sendable {
     private let base: any FileSystem
     private let state = Mutex((count: 0, limit: Int.max))
 
-    init(_ base: any FileSystem = OwnerOnlyFileSystem(), dyingAfter limit: Int = .max) {
+    init(_ base: any FileSystem = OwnerOnly.fileSystem, dyingAfter limit: Int = .max) {
         self.base = base
         state.withLock { $0.limit = limit }
     }

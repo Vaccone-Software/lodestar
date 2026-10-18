@@ -40,10 +40,8 @@ public final class SealedClipboard: @unchecked Sendable {
     /// readable is never folded away, and nothing is garbage collected.
     private var degraded = false
 
-    /// `OwnerOnlyFileSystem` (0600 files, as the rest of the sealed records):
-    /// **STOIC GAP**, the pinned checkout's `PosixFileSystem` has no
-    /// `newFileMode:` / `newDirectoryMode:` to ask for instead.
-    public init(root: URL, ring: Vault.Ring, fileSystem: any FileSystem = OwnerOnlyFileSystem()) {
+    /// `OwnerOnly.fileSystem` (0600 files, 0700 folders, as the rest of the sealed records).
+    public init(root: URL, ring: Vault.Ring, fileSystem: any FileSystem = OwnerOnly.fileSystem) {
         self.root = root
         self.files = ClipboardFiles(root: root)
         self.ring = ring
@@ -382,7 +380,7 @@ public final class SealedClipboard: @unchecked Sendable {
     }
 
     /// Counts of what is on disk, by name: never a byte of a clip.
-    public static func inventory(root: URL, fileSystem: any FileSystem = OwnerOnlyFileSystem()) -> Inventory {
+    public static func inventory(root: URL, fileSystem: any FileSystem = OwnerOnly.fileSystem) -> Inventory {
         let files = ClipboardFiles(root: root)
         let top = RecordFiles.names(in: root.path, fileSystem: fileSystem)
         return Inventory(

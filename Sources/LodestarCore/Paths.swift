@@ -83,6 +83,10 @@ public enum Paths {
             }
         }
         excludeFromBackup(clipboard)
+        // What an earlier build made open to the group, wherever it is under
+        // the data directory: new files are private from their first byte
+        // (`OwnerOnly.fileSystem`), and these are the ones that were not.
+        OwnerOnly.tighten(data)
         // The raw record's folders, made 0755 by earlier builds, and what is
         // in them: sealed now or on its way to being, and the owner's alone.
         for sub in [KeyStore.subdirectory, PointerStore.subdirectory] {

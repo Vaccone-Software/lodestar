@@ -365,7 +365,7 @@ public final class EventLog {
     }
 
     public init(file: URL = EventLog.defaultFile, ring: Vault.Ring, archiveRing: Vault.Ring? = nil,
-                fileSystem: any FileSystem = OwnerOnlyFileSystem()) {
+                fileSystem: any FileSystem = OwnerOnly.fileSystem) {
         self.file = file
         self.ring = ring
         self.archiveRing = archiveRing ?? ring

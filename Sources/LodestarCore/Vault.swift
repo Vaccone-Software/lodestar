@@ -65,7 +65,7 @@ public final class Vault: Sendable {
     public let fileSystem: any FileSystem
     private let rings: [RingName: Ring]
 
-    public init(custody: any KeyCustody, directory: URL, fileSystem: any FileSystem = OwnerOnlyFileSystem()) {
+    public init(custody: any KeyCustody, directory: URL, fileSystem: any FileSystem = OwnerOnly.fileSystem) {
         self.directory = directory
         self.fileSystem = fileSystem
         var made: [RingName: Ring] = [:]

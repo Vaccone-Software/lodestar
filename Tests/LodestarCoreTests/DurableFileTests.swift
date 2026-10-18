@@ -217,7 +217,7 @@ final class DurableFileTests: XCTestCase {
                                     dayStart: 0, install: "inst", appVersion: "1.0", roster: [], bodyOffset: 64)
         let vault = SealedFixture.vault(directory)
         let writer = DayWriter(prefix: "unit", purpose: DayStore.purpose, directory: directory,
-                               ring: vault.ring(.health), fileSystem: OwnerOnlyFileSystem())
+                               ring: vault.ring(.health), fileSystem: OwnerOnly.fileSystem)
         let run = DayWriter.Run(header: header, rows: [1, 2, 3, 4])
         XCTAssertEqual(writer.append(day: "2026-10-14", runs: [run]), .written)
         XCTAssertEqual(writer.append(day: "2026-10-14", runs: [run]), .written)

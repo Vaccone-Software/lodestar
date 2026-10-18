@@ -55,7 +55,7 @@ public final class ObservationStore {
     private let saveQueue = DispatchQueue(label: "lodestar.observations", qos: .utility)
 
     public init(file: URL = ObservationStore.defaultFile, vault: Vault, log: EventLog? = nil,
-                healthLog: EventLog? = nil, fileSystem: any FileSystem = OwnerOnlyFileSystem()) {
+                healthLog: EventLog? = nil, fileSystem: any FileSystem = OwnerOnly.fileSystem) {
         self.file = file
         self.vault = vault
         self.fileSystem = fileSystem

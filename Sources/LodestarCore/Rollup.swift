@@ -935,7 +935,7 @@ public struct Rollup: Codable, Equatable {
     /// prevent.
     @discardableResult
     public static func roll(events: [ObservationEvent], file: URL, ring: Vault.Ring,
-                            fileSystem: any FileSystem = OwnerOnlyFileSystem(),
+                            fileSystem: any FileSystem = OwnerOnly.fileSystem,
                             now: Date = Date()) -> Outcome {
         var outcome = Outcome()
         let stored = SealedValueFile(url: file, ring: ring, fileSystem: fileSystem)
@@ -1006,7 +1006,7 @@ public struct Rollup: Codable, Equatable {
     /// cannot be read now is left as it is (false), never replaced. True
     /// when there was nothing to do, or it is done.
     @discardableResult
-    public static func clearHealth(file: URL, ring: Vault.Ring, fileSystem: any FileSystem = OwnerOnlyFileSystem()) -> Bool {
+    public static func clearHealth(file: URL, ring: Vault.Ring, fileSystem: any FileSystem = OwnerOnly.fileSystem) -> Bool {
         let stored = SealedValueFile(url: file, ring: ring, fileSystem: fileSystem)
         switch stored.read() {
         case .absent:

@@ -32,7 +32,7 @@ public final class DraftStash: @unchecked Sendable {
     private let allowed: @Sendable () -> Bool
     private var last: String?
 
-    public init(directory: URL, ring: Vault.Ring, fileSystem: any FileSystem = OwnerOnlyFileSystem(),
+    public init(directory: URL, ring: Vault.Ring, fileSystem: any FileSystem = OwnerOnly.fileSystem,
                 allowed: @escaping @Sendable () -> Bool) {
         file = SealedValueFile(url: directory.appendingPathComponent(Self.name), name: Self.name, ring: ring, fileSystem: fileSystem)
         self.allowed = allowed

@@ -87,7 +87,7 @@ public final class KeyStore {
 
     public init(directory: URL, installID: @autoclosure @escaping () -> String,
                 timeZone: TimeZone = .current, appVersion: String = Lodestar.version,
-                ring: Vault.Ring, fileSystem: any FileSystem = OwnerOnlyFileSystem()) {
+                ring: Vault.Ring, fileSystem: any FileSystem = OwnerOnly.fileSystem) {
         self.directory = directory
         self.ring = ring
         self.fileSystem = fileSystem

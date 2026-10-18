@@ -32,7 +32,7 @@ final class SealedClipboardTests: XCTestCase {
     private func lock(_ url: URL) { chflags(url.path, UInt32(UF_IMMUTABLE)) }
     private func unlock(_ url: URL) { chflags(url.path, 0) }
 
-    private func clipboard(_ vault: Vault? = nil, fileSystem: any FileSystem = OwnerOnlyFileSystem()) -> SealedClipboard {
+    private func clipboard(_ vault: Vault? = nil, fileSystem: any FileSystem = OwnerOnly.fileSystem) -> SealedClipboard {
         SealedClipboard(root: root, ring: (vault ?? self.vault).ring(.clipboard), fileSystem: fileSystem)
     }
 
@@ -439,7 +439,7 @@ final class SealedClipboardTests: XCTestCase {
 
     // MARK: Migration
 
-    private func migrate(_ made: ClipboardSynth.Made, fileSystem: any FileSystem = OwnerOnlyFileSystem()) throws -> (SealedClipboard, SealedClipboard.Opened) {
+    private func migrate(_ made: ClipboardSynth.Made, fileSystem: any FileSystem = OwnerOnly.fileSystem) throws -> (SealedClipboard, SealedClipboard.Opened) {
         try ClipboardSynth.write(made, to: root)
         let store = clipboard(fileSystem: fileSystem)
         return (store, ready(store))

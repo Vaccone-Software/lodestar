@@ -53,8 +53,8 @@ browser's real profile list, app names vs. installed apps).
 lodestar diagnose           # one paste-able report: version, instance,
                             # accessibility trust, displays, config
                             # validation, state summary, whether the health
-                            # record, the logbook and the clipboard history
-                            # are sealed and open,
+                            # record, the logbook, the clipboard history and
+                            # the state file are sealed and open,
                             # log tail
 lodestar health export <dir>             # the sealed health record as plaintext
 lodestar health export <dir> --logbook   # the logbook, likewise
@@ -106,7 +106,7 @@ rather than finished.
 - A `lodestar.yaml` may still sit beside the JSON on machines that
   migrated from 0.9.9 or earlier. Nothing reads it any more — the JSON is
   the config, and the stale file is safe to delete.
-- State (`state.json`) is machine-owned — never edit it.
+- State (`state.sealed`, formerly `state.json`) is machine-owned and encrypted at rest — never edit it. `lodestar state` shows the running instance's world; `lodestar diagnose` says whether the file is sealed and open.
 
 ## The draft, by verb
 

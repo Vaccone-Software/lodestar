@@ -1,0 +1,5 @@
+Your saved addresses and settings are now encrypted on disk too, and uninstalling with --purge removes the keys as well as the data.
+
+Lodestar's state file (your breaths with their window titles and URLs, the windows it has parked, how often you use each app, and how far the walk has got) is now sealed at rest under a key in your login keychain, like the clipboard history and the health record. What is already on disk is encrypted at the first launch, checked, and only then is the plain copy removed. If the keychain cannot be opened, Lodestar runs without your saved addresses for that launch, never writes them in the clear, and loads them when the keychain answers, keeping what you changed in the meantime. If the key is gone, the unreadable file is moved aside, never deleted, and you are told. `lodestar diagnose` now says whether the state is sealed and opens.
+
+`lodestar uninstall --purge` now also deletes Lodestar's keys from your login keychain, after the data they opened. `--dry-run` lists the step, a plain uninstall keeps the keys because the data it keeps cannot be read without them, and a key the keychain would not delete is named instead of passed over.

@@ -102,6 +102,11 @@ public actor FeedbackQueue {
     /// first before they let the first finish.
     var deliveriesInProgress: Int { deliveries.count }
 
+    /// How many of the schedule's and the launch's runs have ended: for the
+    /// tests, which must know a tick's try is over before they look at what
+    /// the schedule waits on next (the try's own timeout is a sleeper too).
+    private(set) var runsEnded = 0
+
     public init(directory: URL, client: HTTPClient = Feedback.client(), schedule: Schedule = FeedbackQueue.retrySchedule,
                 fileSystem: any FileSystem = FeedbackQueue.privateFileSystem()) {
         self.directory = directory
@@ -263,6 +268,7 @@ public actor FeedbackQueue {
     private func drain(why: String) async {
         guard let outbox = openOutbox() else { return }
         await delivery { await self.deliver(outbox, why: why) }
+        runsEnded += 1
     }
 
     private func deliver(_ outbox: Outbox<FeedbackEntry>, why: String) async {

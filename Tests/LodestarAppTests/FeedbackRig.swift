@@ -58,6 +58,29 @@ final class FeedbackRig {
 
     var messages: [String] { (0..<transport.requestCount).map { body($0)["message"] ?? "" } }
 
+    /// Moves time to `deadline`, which wakes the schedule, and waits for the
+    /// run it starts to end and the schedule to sleep again.
+    ///
+    /// Not `waitForSleepers(newerThan:)`: a run's own try sleeps too (its
+    /// timeout), and that sleep, which starts before the request is made and
+    /// ends when it fails, satisfies the wait, so what the test went on to
+    /// read (the requests so far, the schedule's next deadline) depended on
+    /// whether the run or the test got the processor first. The run's end is
+    /// the queue's own word that it is over.
+    func tick(to deadline: TestClock.Instant, on clock: TestClock,
+              file: StaticString = #filePath, line: UInt = #line) async {
+        let before = await queue.runsEnded
+        await clock.advance(to: deadline)
+        let limit = ContinuousClock.now.advanced(by: .seconds(5))
+        while await queue.runsEnded == before {
+            guard ContinuousClock.now < limit else {
+                return XCTFail("the run the tick started did not end", file: file, line: line)
+            }
+            await Task.yield()
+        }
+        await clock.waitForSleepers(filePath: "\(file)", line: Int(line))
+    }
+
     func shutdown() async {
         await queue.shutdown()
         controller.close()

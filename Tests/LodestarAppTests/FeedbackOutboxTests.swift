@@ -237,19 +237,15 @@ final class FeedbackOutboxTests: XCTestCase {
             await clock.waitForSleepers()
             // The schedule runs on to its hourly step...
             for wait in [60, 300, 1800] {
-                let mark = clock.totalSleeps
-                await clock.advance(by: .seconds(wait))
-                await clock.waitForSleepers(newerThan: mark)
+                await rig.tick(to: clock.now.advanced(by: .seconds(wait)), on: clock)
             }
             let before = rig.transport.requestCount
             rig.controller.show()
             await rig.send("New")
             // ...and a new note that cannot go starts it over.
-            let mark = clock.totalSleeps
             XCTAssertEqual(rig.transport.requestCount, before + 1)
             await clock.waitForSleepers()
-            await clock.advance(by: .seconds(60))
-            await clock.waitForSleepers(newerThan: mark)
+            await rig.tick(to: clock.now.advanced(by: .seconds(60)), on: clock)
             XCTAssertEqual(rig.transport.requestCount, before + 2)
         }
     }
@@ -263,12 +259,11 @@ final class FeedbackOutboxTests: XCTestCase {
             XCTAssertEqual(tries, 1)
             for wait in [60, 300, 1800, 3600, 3600, 3600] {
                 let next = try XCTUnwrap(clock.pendingDeadlines.first)
+                XCTAssertEqual(clock.pendingDeadlines.count, 1, "the schedule's wait is all that sleeps")
                 let nap = clock.now.duration(to: next)
                 XCTAssertGreaterThanOrEqual(nap, .seconds(wait) / 2, "jittered, never under half")
                 XCTAssertLessThanOrEqual(nap, .seconds(wait), "and never over the step")
-                let mark = clock.totalSleeps
-                await clock.advance(to: next)
-                await clock.waitForSleepers(newerThan: mark)
+                await rig.tick(to: next, on: clock)
                 tries += 1
                 XCTAssertEqual(rig.transport.requestCount, tries)
             }

@@ -274,7 +274,13 @@ final class ClipboardStore {
             queuedBytes = 0
             for pending in waiting { apply(pending) }
             if !waiting.isEmpty { Log.info("clipboard: applied \(waiting.count) copies made while it opened") }
-            if disk.needsCompaction { scheduleCompaction(after: Self.foldDelay) }
+            if disk.removalsOwed {
+                // A delete that a crash cut short: its key is still in a record that opens.
+                deletionOwed = true
+                scheduleCompaction(after: Self.deletionDelay)
+            } else if disk.needsCompaction {
+                scheduleCompaction(after: Self.foldDelay)
+            }
             onThumbnail?()
         }
     }

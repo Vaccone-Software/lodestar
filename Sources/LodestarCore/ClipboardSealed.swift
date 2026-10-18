@@ -316,6 +316,9 @@ public struct ClipboardIndexState: Equatable {
         /// Records applied after the snapshot.
         public var records: Int
         public var snapshotBytes: Int
+        /// Deletes and replacements among those records: clips whose keys are
+        /// still in a record that opens, until the next fold rotates the key.
+        public var removals: Int
     }
 
     public static func fold(_ replay: SealedJournal.Replay) -> Folded {
@@ -327,14 +330,20 @@ public struct ClipboardIndexState: Equatable {
             if let decoded = decoding(snapshot: snapshot.bytes) { state = decoded } else { malformed += 1 }
         }
         let decoder = JSONDecoder()
+        var removals = 0
         for record in replay.records {
             guard let op = try? decoder.decode(ClipboardOp.self, from: Data(record.bytes)) else {
                 malformed += 1
                 continue
             }
+            switch op {
+            case .delete, .replace: removals += 1
+            default: break
+            }
             state.apply(op)
         }
-        return Folded(state: state, malformed: malformed, records: replay.records.count, snapshotBytes: snapshotBytes)
+        return Folded(state: state, malformed: malformed, records: replay.records.count, snapshotBytes: snapshotBytes,
+                      removals: removals)
     }
 
     public static func encode(_ op: ClipboardOp) -> [UInt8]? {

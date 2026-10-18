@@ -267,6 +267,35 @@ final class ClipboardStoreSealedTests: XCTestCase {
         store.close()
     }
 
+    /// A crash between a delete and its fold must not leave the key readable
+    /// for ever: the next launch knows a deletion is owed and does it.
+    func testADeleteCutShortByACrashIsFinishedAtTheNextLaunch() throws {
+        ClipboardStore.deletionDelay = 600
+        let store = SealedFixture.clipboardStore(root)
+        let doomed = copy(store, "doomed words")
+        copy(store, "kept words")
+        store.flushIO()
+        let journal = SealedFixture.v2(root).appendingPathComponent("index.sj")
+        let before = try Data(contentsOf: journal)
+        store.delete(doomed)
+        store.saveNow()
+        store.flushIO()          // the record is on disk, the fold has not run: the process "dies" here
+        XCTAssertEqual(store.compactions, 0)
+
+        ClipboardStore.deletionDelay = 0.05
+        let next = SealedFixture.clipboardStore(root)
+        XCTAssertEqual(next.clips.count, 1)
+        wait("the fold owed by the delete runs") { next.compactions >= 1 }
+        let scratch = directory.appendingPathComponent("old")
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        try before.write(to: scratch.appendingPathComponent("index.sj"))
+        let replay = try SealedJournal.readOnlyReplay(at: scratch.appendingPathComponent("index.sj").path,
+                                                      context: ClipboardSealed.indexContext,
+                                                      keyring: try XCTUnwrap(vault.ring(.clipboard).held), options: ClipboardSealed.journalOptions)
+        XCTAssertEqual(replay.records.count, 0, "the doomed clip's key is gone")
+        next.close()
+    }
+
     // MARK: Plaintext
 
     func testNothingUnderTheClipboardFolderHoldsAWordOfAClipAfterACopyAnImageAndAMigration() throws {

@@ -33,6 +33,9 @@ public final class SealedClipboard: @unchecked Sendable {
     /// What the log holds past the snapshot, for deciding when to fold it.
     private var snapshotBytes = 0
     private var recordsSinceSnapshot = 0
+    /// Deletes and replacements since the snapshot: their keys are still in
+    /// records that open, until a fold rotates the ring's key.
+    private var removalsSinceSnapshot = 0
     /// Some of what the journal holds did not open or decode: what is not
     /// readable is never folded away, and nothing is garbage collected.
     private var degraded = false
@@ -220,6 +223,7 @@ public final class SealedClipboard: @unchecked Sendable {
                 journal = opened
                 snapshotBytes = folded.snapshotBytes
                 recordsSinceSnapshot = folded.records
+                removalsSinceSnapshot = folded.removals
                 return .success((folded.state, unreadable))
             } catch {
                 if attempt == 0, case .store(let store) = error, store.kind == .corrupt {
@@ -259,11 +263,22 @@ public final class SealedClipboard: @unchecked Sendable {
         do {
             try journal.append(batch: encoded)
             recordsSinceSnapshot += encoded.count
+            for op in ops {
+                switch op {
+                case .delete, .replace: removalsSinceSnapshot += 1
+                default: break
+                }
+            }
             return .appended
         } catch {
             return .failed("\(error)")
         }
     }
+
+    /// A delete or an edit has been recorded and not yet folded away: the
+    /// clip's key can still be opened by the ring. Known again at the next
+    /// launch, so a delete that was cut short by a crash is finished.
+    public var removalsOwed: Bool { journal != nil && removalsSinceSnapshot > 0 }
 
     /// Time to fold the log into a snapshot: past about 500 records, or past
     /// twice the snapshot's size (with a floor, so a small history is not
@@ -311,6 +326,7 @@ public final class SealedClipboard: @unchecked Sendable {
             }
             snapshotBytes = snapshot.count
             recordsSinceSnapshot = 0
+            removalsSinceSnapshot = 0
             return .compacted(records: folded.records, bytes: snapshot.count)
         } catch {
             return .failed("\(error)")
@@ -337,6 +353,7 @@ public final class SealedClipboard: @unchecked Sendable {
         Self.removeEverything(in: root, fileSystem: fileSystem)
         snapshotBytes = 0
         recordsSinceSnapshot = 0
+        removalsSinceSnapshot = 0
         degraded = false
         return ring.destroy()
     }

@@ -49,6 +49,9 @@ let package = Package(
             .product(name: "StoicSchema", package: "stoic"),
             .product(name: "StoicSettings", package: "stoic"),
             .product(name: "StoicHTTP", package: "stoic"),
+            // The models and the update's zip: resumable, verified while they
+            // stream, placed whole or not at all.
+            .product(name: "StoicDownloads", package: "stoic"),
             .product(name: "StoicSealed", package: "stoic"),
             .product(name: "StoicApple", package: "stoic"),
         ]),
@@ -77,6 +80,7 @@ let package = Package(
             .product(name: "Stoic", package: "stoic"),
             .product(name: "StoicStore", package: "stoic"),
             .product(name: "StoicHTTP", package: "stoic"),
+            .product(name: "StoicDownloads", package: "stoic"),
             .product(name: "StoicSealed", package: "stoic"),
             .product(name: "StoicApple", package: "stoic"),
         ]),
@@ -90,6 +94,7 @@ let package = Package(
                         "LodestarCore",
                         .product(name: "StoicTesting", package: "stoic"),
                         .product(name: "StoicHTTP", package: "stoic"),
+                        .product(name: "StoicDownloads", package: "stoic"),
                         .product(name: "StoicJSON", package: "stoic"),
                         .product(name: "StoicSettings", package: "stoic"),
                         .product(name: "StoicSealed", package: "stoic"),
@@ -105,6 +110,7 @@ let package = Package(
             "lodestar", "LodestarCore",
             .product(name: "StoicTesting", package: "stoic"),
             .product(name: "StoicHTTP", package: "stoic"),
+            .product(name: "StoicDownloads", package: "stoic"),
             .product(name: "StoicSealed", package: "stoic"),
             .product(name: "StoicStore", package: "stoic"),
         ]),

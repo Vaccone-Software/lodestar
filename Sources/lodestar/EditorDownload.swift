@@ -1,8 +1,9 @@
-import CryptoKit
 import Foundation
 import LodestarCore
 import LodestarEars
 import Stoic
+import StoicDownloads
+import StoicHTTP
 import StoicStore
 
 /// A model's files, pinned: the revision the accuracy fixture was recorded
@@ -85,39 +86,29 @@ struct EditorManifest: Equatable {
             .init(path: "vocab.json", size: 6_722_759, gitSHA1: "0aa0ce0658d60ac4a5d609f4eadb0e8e43514176"),
         ])
 
-    /// Does this file on disk hold exactly the pinned bytes? Streamed, so
-    /// a five-gigabyte shard costs memory for one chunk at a time.
-    static func verify(_ url: URL, against file: File) -> Bool {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
-        defer { try? handle.close() }
-        guard (try? handle.seekToEnd()) == UInt64(file.size) else { return false }
-        try? handle.seek(toOffset: 0)
-        let chunk = 8 << 20
-        if let expected = file.sha256 {
-            var hash = SHA256()
-            while let data = try? handle.read(upToCount: chunk), !data.isEmpty { hash.update(data: data) }
-            return hash.finalize().map { String(format: "%02x", $0) }.joined() == expected
+    /// The pinned file as a download is told to check it: its size, and
+    /// the SHA-256 or git blob hash it was recorded with.
+    func download(of file: File, in manifest: EditorManifest) throws(ContentDigest.Invalid) -> DownloadBundle.File {
+        let digest: ContentDigest
+        if let sha256 = file.sha256 {
+            digest = try .sha256(sha256)
+        } else {
+            digest = try .gitBlobSHA1(file.gitSHA1 ?? "")
         }
-        if let expected = file.gitSHA1 {
-            var hash = Insecure.SHA1()
-            hash.update(data: Data("blob \(file.size)\u{0}".utf8))
-            while let data = try? handle.read(upToCount: chunk), !data.isEmpty { hash.update(data: data) }
-            return hash.finalize().map { String(format: "%02x", $0) }.joined() == expected
-        }
-        return false
+        return DownloadBundle.File(file.path, manifest.url(for: file), expectedSize: Int(file.size), digest: digest)
+    }
+
+    /// The whole model as one bundle, staged in `.<folder>.partial` beside
+    /// where it goes: model files are readable by every user, 0o644.
+    func bundle(in root: URL, requiredFreeBytes: UInt64? = nil) throws(ContentDigest.Invalid) -> DownloadBundle {
+        var parts: [DownloadBundle.File] = []
+        for file in files { parts.append(try download(of: file, in: self)) }
+        return DownloadBundle(parts, to: root.appendingPathComponent(folder, isDirectory: true).path,
+                              stagingPath: root.appendingPathComponent(".\(folder).partial", isDirectory: true).path,
+                              fileMode: 0o644, requiredFreeBytes: requiredFreeBytes)
     }
 }
 
-/// Fetches a model's pinned files into Lodestar's models folder, in the
-/// background, after the editor is turned on and agreed to.
-///
-/// Resumable by byte range: a download cut off by sleep, a network change
-/// or a quit continues where it stopped, next launch included. Never over
-/// a metered connection or in Low Data Mode — twenty gigabytes on a phone's
-/// hotspot is not the hand's intent. Each file is checked against its
-/// pinned hash before the folder is renamed into place, so a model folder
-/// that exists is a whole model. One model at a time; asking for another
-/// cancels the first and deletes its partial files.
 /// What a download fetches: one of the editor's models or one of the
 /// draft's settling ears. One downloader serves both kinds, each with its
 /// own instance and folder.
@@ -152,7 +143,19 @@ extension EditorManifest {
     }
 }
 
-final class EditorDownload: NSObject, URLSessionDataDelegate {
+/// Fetches a model's pinned files into Lodestar's models folder, in the
+/// background, after the editor is turned on and agreed to: Stoic's
+/// `Downloader`, with this file's words for what it is doing.
+///
+/// Resumable by byte range: a download cut off by sleep, a network change
+/// or a quit continues where it stopped, next launch included. Never over
+/// a metered connection or in Low Data Mode — twenty gigabytes on a phone's
+/// hotspot is not the hand's intent. Each file is checked against its
+/// pinned hash as it arrives, and the folder is swapped into place only
+/// when every one is whole, so a model folder that exists is a whole model.
+/// One model at a time; asking for another cancels the first and deletes
+/// its partial files.
+final class EditorDownload {
     enum State: Equatable {
         case idle
         case waiting                         // for a connection that is not metered
@@ -175,35 +178,14 @@ final class EditorDownload: NSObject, URLSessionDataDelegate {
 
     let root: URL
     private let manifests: (ModelID) -> EditorManifest?
-    private let freeSpace: (URL) -> Int64
-    private let retrySchedule: Schedule
-    private let random: RandomSource
-    private var session: URLSession!
-    private let delegateQueue: OperationQueue = {
-        let queue = OperationQueue()
-        queue.maxConcurrentOperationCount = 1
-        queue.name = "com.vaccone.lodestar.editor.download"
-        return queue
-    }()
+    private let fileSystem: any FileSystem
+    private let downloader: Downloader
+    private let spaceMargin: UInt64
+    private let waitingGrace: Duration
 
-    // Delegate-queue state.
-    private var manifest: EditorManifest?
-    private var index = 0
-    private var handle: FileHandle?
-    private var fileDone: Int64 = 0
-    private var before: Int64 = 0          // bytes of the files already whole
-    private var task: URLSessionDataTask?
-    private var lastReport = Date.distantPast
-    /// Where the retry's wait has got to after the network failures in a
-    /// row; started afresh by bytes arriving.
-    private var backoff: Schedule.Stepper
-    /// Files that arrived and did not match their hash, this fetch: never
-    /// reset by bytes arriving, or a server sending the wrong ones would
-    /// be fetched from forever.
-    private var mismatches = 0
     /// Which fetch is current: bumped by fetch and cancel on the main
-    /// thread, read by the delegate queue, so a late callback from a
-    /// cancelled fetch changes nothing.
+    /// thread, read by the download, so a late report from a cancelled
+    /// fetch changes nothing.
     private let lock = NSLock()
     private var _generation = 0
     private var generation: Int {
@@ -211,18 +193,54 @@ final class EditorDownload: NSObject, URLSessionDataDelegate {
         set { lock.withLock { _generation = newValue } }
     }
 
-    init(root: URL = EditorModels.root, protocolClasses: [AnyClass]? = nil,
+    /// Main thread: the download going now, and the end of the line of
+    /// everything started (a fetch, or the clearing a cancel asks for), so
+    /// that one never begins before the one it replaced has let go of the
+    /// files.
+    private var running: Task<Void, Never>?
+    private var line: Task<Void, Never>?
+
+    /// - Parameters:
+    ///   - transport: The network; the app's own session by default
+    ///     (`sessionConfiguration`), a script in tests.
+    ///   - fileSystem: Where the files go. Model files are 0o644.
+    ///   - policy: Retries, verification and progress. `retryPolicy`'s by default.
+    ///   - spaceMargin: Room to leave on the volume beyond what is left to fetch.
+    ///   - waitingGrace: How long a request may wait for its answer before
+    ///     Settings says it is waiting for a connection: a request is always
+    ///     "waiting" for the first moments, and that is not worth saying.
+    init(root: URL = EditorModels.root,
+         transport: (any HTTPTransport)? = nil,
+         fileSystem: any FileSystem = PosixFileSystem(newFileMode: 0o644, newDirectoryMode: 0o755),
          manifests: @escaping (ModelID) -> EditorManifest? = ModelID.manifest,
-         freeSpace: @escaping (URL) -> Int64 = EditorDownload.availableSpace,
-         retrySchedule: Schedule = EditorDownload.defaultRetrySchedule,
-         random: RandomSource = .system) {
+         policy: DownloadPolicy = EditorDownload.retryPolicy,
+         spaceMargin: UInt64 = 2_000_000_000,
+         waitingGrace: Duration = .seconds(3)) {
         self.root = root
         self.manifests = manifests
-        self.freeSpace = freeSpace
-        self.retrySchedule = retrySchedule
-        self.random = random
-        self.backoff = retrySchedule.makeStepper(random: random.generator())
-        super.init()
+        self.fileSystem = fileSystem
+        self.spaceMargin = spaceMargin
+        self.waitingGrace = waitingGrace
+        // One try for each request: the downloader is the retry layer. The
+        // wait for an answer is the minute the session always allowed.
+        var clientPolicy = HTTPPolicy.singleAttempt
+        clientPolicy.attemptTimeout = .seconds(60)
+        let client = HTTPClient(base: URL(string: "https://huggingface.co")!, policy: clientPolicy,
+                                transport: transport ?? URLSessionTransport(configuration: Self.sessionConfiguration()),
+                                label: "model-download")
+        // No operation: a download declared as a `.long` operation without a
+        // deadline gets design/22's safety net (90 s at user-initiated), and
+        // this one is a person's agreed twenty gigabytes. Without one it
+        // runs under the caller's deadline alone, and the caller sets none:
+        // what ends it is the fetch finishing, a failure that cannot improve,
+        // or the person turning the editor off.
+        downloader = Downloader(client: client, fileSystem: fileSystem, policy: policy, label: "model-download")
+    }
+
+    /// Never over a metered connection or in Low Data Mode, never cached,
+    /// waiting for the network rather than failing without one, and a
+    /// minute of silence is a cut.
+    static func sessionConfiguration() -> URLSessionConfiguration {
         let configuration = URLSessionConfiguration.default
         configuration.waitsForConnectivity = true
         configuration.allowsExpensiveNetworkAccess = false
@@ -230,47 +248,28 @@ final class EditorDownload: NSObject, URLSessionDataDelegate {
         configuration.timeoutIntervalForRequest = 60
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.urlCache = nil
-        if let protocolClasses { configuration.protocolClasses = protocolClasses }
-        session = URLSession(configuration: configuration, delegate: self, delegateQueue: delegateQueue)
+        return configuration
     }
 
     /// How long a failed fetch waits before it resumes: ten seconds, then
-    /// six times that, then the five-minute ceiling it used to reach by a
-    /// table of [10, 60, 300]. Equal jitter (half to all of each wait), so
-    /// a fleet of Macs cut off together by the same outage does not come
-    /// back to Hugging Face in the same second, and no wait is ever
-    /// shorter than half of its step or longer than the old one.
-    ///
-    /// Unbounded on purpose, which is why it is stepped here and not run
-    /// by Stoic's `retry` (that takes only a bounded schedule): the
-    /// person turned the editor on and agreed to the download, the fetch
-    /// resumes by byte range, and a Mac that is offline for a day should
-    /// still finish it when the network returns while the app runs. What
-    /// cannot get better by waiting stops instead, see `isRetryable`.
+    /// sixty, then the five-minute ceiling. Equal jitter (half to all of
+    /// each wait), so a fleet of Macs cut off together by the same outage
+    /// does not come back to Hugging Face in the same second. Unbounded on
+    /// purpose, and started over whenever bytes arrive: the person turned
+    /// the editor on and agreed to the download, the fetch resumes by byte
+    /// range, and a Mac that is offline for a day should still finish it
+    /// when the network returns while the app runs. What cannot get better
+    /// by waiting stops instead: the downloader does not retry a client
+    /// error but 408 and 429.
     static let defaultRetrySchedule = Schedule
         .exponential(base: .seconds(10), factor: 6)
         .capped(at: .seconds(300))
         .jittered(.equal)
 
-    /// Whether another try could change the answer. A client error is the
-    /// server saying the request is wrong (a model that moved, a revision
-    /// that is gone, a gated repository): asking again every five minutes
-    /// for ever only fills the log. Timeout (408) and rate limit (429) are
-    /// the two that say "later". Everything else, a status of nothing
-    /// included, is a connection that failed.
-    static func isRetryable(status: Int) -> Bool {
-        guard (400..<500).contains(status) else { return true }
-        return status == 408 || status == 429
-    }
-
-    static func availableSpace(_ url: URL) -> Int64 {
-        var probe = url
-        while !FileManager.default.fileExists(atPath: probe.path), probe.pathComponents.count > 1 {
-            probe = probe.deletingLastPathComponent()
-        }
-        let values = try? probe.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
-        return values?.volumeAvailableCapacityForImportantUsage ?? 0
-    }
+    /// The downloader's numbers: its own, but for the schedule above. One
+    /// fetch again after a digest that does not match, progress every half
+    /// second.
+    static var retryPolicy: DownloadPolicy { DownloadPolicy(schedule: defaultRetrySchedule) }
 
     /// What Settings says while a model is on its way, or nil when there
     /// is nothing to say.
@@ -287,7 +286,7 @@ final class EditorDownload: NSObject, URLSessionDataDelegate {
         }
     }
 
-    private func partial(_ manifest: EditorManifest) -> URL {
+    private func staging(_ manifest: EditorManifest) -> URL {
         root.appendingPathComponent(".\(manifest.folder).partial", isDirectory: true)
     }
 
@@ -303,11 +302,14 @@ final class EditorDownload: NSObject, URLSessionDataDelegate {
         generation += 1
         let generation = self.generation
         state = .downloading(done: 0, total: manifest.total)
-        delegateQueue.addOperation { [weak self] in
-            guard let self else { return }
-            self.task?.cancel()
-            self.begin(manifest, generation: generation)
+        running?.cancel()
+        let before = line
+        let task = Task { [weak self] in
+            await before?.value
+            await self?.fetch(manifest, generation: generation)
         }
+        running = task
+        line = task
     }
 
     private var isFailed: Bool { if case .failed = state { return true } else { return false } }
@@ -319,20 +321,17 @@ final class EditorDownload: NSObject, URLSessionDataDelegate {
         let fetching = model
         model = nil
         state = .idle
-        delegateQueue.addOperation { [weak self] in
-            guard let self else { return }
-            self.task?.cancel()
-            self.task = nil
-            try? self.handle?.close()
-            self.handle = nil
-            if !keepingPartial, let fetching, let manifest = self.manifests(fetching) {
-                try? FileManager.default.removeItem(at: self.partial(manifest))
-            }
-            self.manifest = nil
+        running?.cancel()
+        running = nil
+        let before = line
+        line = Task { [weak self] in
+            await before?.value
+            guard let self, !keepingPartial, let fetching, let manifest = self.manifests(fetching) else { return }
+            try? FileManager.default.removeItem(at: self.staging(manifest))
         }
     }
 
-    // MARK: - The work, on the delegate queue
+    // MARK: - The work
 
     private func post(_ state: State, generation: Int) {
         DispatchQueue.main.async { [weak self] in
@@ -348,193 +347,235 @@ final class EditorDownload: NSObject, URLSessionDataDelegate {
         }
     }
 
-    private func begin(_ manifest: EditorManifest, generation: Int) {
+    private func fetch(_ manifest: EditorManifest, generation: Int) async {
         guard generation == self.generation else { return }
-        self.manifest = manifest
         // Already whole: nothing to fetch.
         let final = root.appendingPathComponent(manifest.folder, isDirectory: true)
         if manifest.files.allSatisfy({ Self.size(of: final.appendingPathComponent($0.path)) == $0.size }) {
             post(.ready, generation: generation)
             return
         }
-        index = 0
-        backoff = retrySchedule.makeStepper(random: random.generator())
-        mismatches = 0
-        let folder = partial(manifest)
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let staging = self.staging(manifest)
         EditorModels.excludeFromBackup(root)
+        Self.adoptEarlierPartials(of: manifest, in: staging, fileSystem: fileSystem)
         // Room for what is left, and two gigabytes besides: a full disk
         // breaks more than the editor.
         let have = manifest.files.reduce(Int64(0)) { sum, file in
-            sum + min(file.size, Self.size(of: folder.appendingPathComponent(file.path)))
+            let path = staging.appendingPathComponent(file.path)
+            return sum + min(file.size, max(Self.size(of: path), Self.size(of: path.appendingPathExtension("partial"))))
         }
-        let needed = manifest.total - have + 2_000_000_000
-        guard freeSpace(root) >= needed else {
-            post(.failed("needs \(Int((Double(needed) / 1e9).rounded(.up))) GB free"), generation: generation)
-            return
+        let needed = UInt64(max(0, manifest.total - have)) + spaceMargin
+        let progress = Progress(model: self, manifest: manifest, generation: generation)
+        let phase = Phase()
+        do {
+            let bundle = try manifest.bundle(in: root, requiredFreeBytes: needed)
+            let result = try await withAmbient({ ambient in
+                ambient.instrumentation = Tee(ambient.instrumentation) { progress.observe($0) }
+            }, operation: {
+                try await downloader.download(bundle) { phase.set($0.phase); progress.report($0) }
+            })
+            // A swap whose last sync failed is a model in place, and leaves
+            // the old one at the staged path: cleared here, so it is not
+            // resumed into, nor kept as gigabytes nobody asked for.
+            do {
+                if try fileSystem.exists(staging.path) { try fileSystem.removeTree(staging.path) }
+            } catch {
+                Log.error("editor: the old \(manifest.folder) could not be cleared from \(staging.lastPathComponent)",
+                          ["error": "\(error)"])
+            }
+            Log.info("editor", ["downloaded": manifest.folder, "bytes": manifest.total, "durable": result.isDurable])
+            post(.ready, generation: generation)
+        } catch is CancellationError {
+            // Stopped by a newer fetch or a cancel, which say what is next.
+        } catch {
+            let placing = phase.value == .placing
+            Log.error("editor: download of \(manifest.folder) failed: \(error)")
+            post(.failed(Self.words(for: error, placing: placing)), generation: generation)
         }
-        next(generation: generation)
+    }
+
+    /// What Settings says when a fetch ends without a model.
+    static func words(for error: any Error, placing: Bool) -> String {
+        if placing { return "could not be put in place" }
+        guard let error = error as? DownloadError else { return "could not be downloaded" }
+        switch error {
+        case .insufficientSpace(let required, _):
+            return "needs \(Int((Double(required) / 1e9).rounded(.up))) GB free"
+        case .digestMismatch, .sizeMismatch, .byteLimitExceeded:
+            return "the download did not match, try again later"
+        case .http(.status(let code, _, _, _, _)):
+            return "could not be downloaded (\(code))"
+        case .store(let store) where store.kind == .diskFull:
+            return "ran out of disk space"
+        case .store:
+            return "could not be saved"
+        case .http, .retriesExhausted, .badResponse, .deadlineExceeded, .rejected:
+            return "could not be downloaded"
+        }
     }
 
     private static func size(of url: URL) -> Int64 {
         ((try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber)?.int64Value ?? 0
     }
 
-    private func next(generation: Int) {
-        guard let manifest, generation == self.generation else { return }
-        let folder = partial(manifest)
-        while index < manifest.files.count {
-            let file = manifest.files[index]
-            let url = folder.appendingPathComponent(file.path)
-            let have = Self.size(of: url)
-            if have == file.size { index += 1; continue }
-            if have > file.size { try? FileManager.default.removeItem(at: url) }
-            // Resume where the file stops.
-            before = manifest.files[..<index].reduce(0) { $0 + $1.size }
-            fileDone = Self.size(of: url)
-            if !FileManager.default.fileExists(atPath: url.path) {
-                FileManager.default.createFile(atPath: url.path, contents: nil)
-            }
-            handle = try? FileHandle(forWritingTo: url)
-            _ = try? handle?.seekToEnd()
-            var request = URLRequest(url: manifest.url(for: file))
-            if fileDone > 0 { request.setValue("bytes=\(fileDone)-", forHTTPHeaderField: "Range") }
-            let task = session.dataTask(with: request)
-            task.taskDescription = String(generation)
-            self.task = task
-            post(.downloading(done: before + fileDone, total: manifest.total), generation: generation)
-            task.resume()
-            return
-        }
-        verify(manifest, generation: generation)
-    }
+    // MARK: - What an earlier build left
 
-    private func verify(_ manifest: EditorManifest, generation: Int) {
-        post(.verifying, generation: generation)
-        let folder = partial(manifest)
-        let bad = manifest.files.filter { !EditorManifest.verify(folder.appendingPathComponent($0.path), against: $0) }
-        guard bad.isEmpty else {
-            // A corrupt file is fetched again, once; twice is a problem to say.
-            for file in bad { try? FileManager.default.removeItem(at: folder.appendingPathComponent(file.path)) }
-            mismatches += 1
-            if mismatches > 1 {
-                post(.failed("the download did not match, try again later"), generation: generation)
-                return
-            }
-            index = 0
-            next(generation: generation)
-            return
-        }
-        let final = root.appendingPathComponent(manifest.folder, isDirectory: true)
-        do {
-            try Self.putInPlace(folder, at: final)
-            Log.info("editor", ["downloaded": manifest.folder, "bytes": manifest.total])
-            post(.ready, generation: generation)
-        } catch {
-            Log.error("editor: \(manifest.folder) could not be put in place: \(error)")
-            post(.failed("could not be put in place"), generation: generation)
-        }
-    }
-
-    /// One swap, not a delete and then a move: a crash or a power cut
-    /// between those two used to leave neither the old model nor the new,
-    /// after a download of gigabytes. Now the folder is the old model whole
-    /// or the new one whole.
+    /// The staging folder is the one an earlier build used, with each file
+    /// part-way at its own name, and no record of where it came from. The
+    /// downloader resumes a file only at `<name>.partial` with a record, and
+    /// removes anything at a file's own name that is not whole, so that
+    /// build's half-fetched files would be fetched again from nothing:
+    /// gigabytes. Each is moved to the name the downloader resumes from, with
+    /// the record it would have written: it came from this URL, at this
+    /// size and digest (the manifest pins both), and all of it is believed
+    /// (`synced`): the digest, checked as the rest arrives, is what says
+    /// whether the splice was right, and a file that fails it is fetched
+    /// again.
     ///
-    /// A directory sync that fails after the swap is not a failed install:
-    /// the new model is in place, and fetching it again would be gigabytes
-    /// spent on a model already there. What that leaves is the old model at
-    /// the staged path, which is cleared here, so a later fetch of this
-    /// folder does not resume into it.
-    static func putInPlace(_ staged: URL, at final: URL,
-                           fileSystem: any FileSystem = PosixFileSystem()) throws {
-        try DurableFile.acceptingUnknownDurability(of: final.lastPathComponent) {
-            try AtomicFile(fileSystem: fileSystem).replaceItem(at: final.path, withItemAt: staged.path)
-        }
-        do {
-            if try fileSystem.exists(staged.path) { try fileSystem.removeTree(staged.path) }
-        } catch {
-            Log.error("editor: the old \(final.lastPathComponent) could not be cleared from \(staged.lastPathComponent)",
-                      ["error": "\(error)"])
-        }
-    }
-
-    // MARK: - URLSession
-
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
-                    completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        if status == 200, fileDone > 0 {
-            // The server sent the whole file, not the rest: start it over.
-            try? handle?.truncate(atOffset: 0)
-            fileDone = 0
-        } else if status != 200, status != 206 {
-            completionHandler(.cancel)
-            return
-        }
-        completionHandler(.allow)
-    }
-
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        guard let manifest, dataTask.taskDescription == String(generation) else { return }
-        do {
-            try handle?.write(contentsOf: data)
-        } catch {
-            dataTask.cancel()
-            return
-        }
-        fileDone += Int64(data.count)
-        backoff = retrySchedule.makeStepper(random: random.generator())
-        if Date().timeIntervalSince(lastReport) > 0.5 {
-            lastReport = Date()
-            post(.downloading(done: before + fileDone, total: manifest.total),
-                 generation: Int(dataTask.taskDescription ?? "") ?? -1)
-        }
-    }
-
-    func urlSession(_ session: URLSession, taskIsWaitingForConnectivity task: URLSessionTask) {
-        post(.waiting, generation: Int(task.taskDescription ?? "") ?? -1)
-    }
-
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        let generation = Int(task.taskDescription ?? "") ?? -1
-        try? handle?.close()
-        handle = nil
-        self.task = nil
-        guard generation == self.generation, let manifest else { return }
-        let status = (task.response as? HTTPURLResponse)?.statusCode ?? 0
-        // Done means the file is its full size: a transfer that ended
-        // short without saying so is resumed like one that failed.
-        let file = manifest.files[index]
-        let have = Self.size(of: partial(manifest).appendingPathComponent(file.path))
-        if error == nil, status == 200 || status == 206, have == file.size {
-            index += 1
-            next(generation: generation)
-            return
-        }
-        if (error as? URLError)?.code == .cancelled, status == 0 { return }
-        // A request the server refuses for good says so and stops; the
-        // person can ask again from Settings, which resumes from the
-        // partial file. Anything else waits and resumes where it stopped,
-        // the waits growing, jittered, up to five minutes.
-        guard Self.isRetryable(status: status) else {
-            Log.error("editor: download of \(manifest.folder) refused (http \(status)) — not retrying")
-            post(.failed("could not be downloaded (\(status))"), generation: generation)
-            return
-        }
-        let delay = backoff.next(elapsed: .zero).map(\.seconds) ?? 300
-        let why = status >= 400 ? "could not be downloaded (\(status))" : "download paused, retrying"
-        Log.info("editor", ["download": manifest.folder, "error": error.map { "\($0)" } ?? "http \(status)",
-                            "retry": Int(delay)])
-        post(.failed(why), generation: generation)
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay) { [weak self] in
-            self?.delegateQueue.addOperation { self?.next(generation: generation) }
+    /// STOIC-GAP: StoicDownloads has no way to adopt a partial file it did not
+    /// write, so this reproduces its resume record (`ResumeRecord`, and the
+    /// identity `FileTransfer` derives from the request's target, the size
+    /// and the digest). If Stoic changes that format the record is read as
+    /// another download's, the file is restarted, and
+    /// `testAPartialLeftByTheEarlierBuildIsResumed` fails: loudly, and
+    /// at the cost of a refetch, never a wrong file. Delete this when Stoic
+    /// has a public adoption (and this build's partials are long gone).
+    static func adoptEarlierPartials(of manifest: EditorManifest, in staging: URL, fileSystem: any FileSystem) {
+        let records = AtomicFile(fileSystem: fileSystem,
+                                 options: .init(envelope: true, keepPrevious: false, checksFreeSpace: false, newFileMode: 0o600))
+        for file in manifest.files {
+            let whole = staging.appendingPathComponent(file.path).path
+            let partial = whole + ".partial"
+            do {
+                guard let held = try fileSystem.exists(whole) ? Int(size(of: URL(fileURLWithPath: whole))) : nil,
+                      held > 0, held < Int(file.size), try !fileSystem.exists(partial) else { continue }
+                let pinned = try manifest.download(of: file, in: manifest)
+                let identity = ContentDigest(
+                    algorithm: .sha256,
+                    of: Array("\(pinned.request.target)|\(file.size)|\(pinned.digest?.description ?? "-")".utf8)).hex
+                let record = ["stoic-download 1", "identity \(identity)", "synced \(held)", "total \(file.size)", "validator none"]
+                try fileSystem.rename(from: whole, to: partial)
+                try records.write(Array(record.joined(separator: "\n").utf8), to: partial + ".resume")
+                Log.info("editor", ["adopted": file.path, "bytes": held])
+            } catch {
+                // Nothing adopted: the file is fetched again, as it would be.
+                Log.error("editor: could not adopt an earlier partial of \(file.path)", ["error": "\(error)"])
+            }
         }
     }
 }
 
-private extension Duration {
-    var seconds: TimeInterval {
-        TimeInterval(components.seconds) + TimeInterval(components.attoseconds) / 1e18
+// MARK: - Reports
+
+/// The download's phase as the last report said it, for the failure that
+/// ends it: a swap that failed is not a failed download.
+private final class Phase: @unchecked Sendable {
+    private let lock = NSLock()
+    private var phase = DownloadProgress.Phase.waiting
+    func set(_ new: DownloadProgress.Phase) { lock.withLock { phase = new } }
+    var value: DownloadProgress.Phase { lock.withLock { phase } }
+}
+
+/// What the downloader's reports and events become in the editor's state,
+/// on the downloading task, handed to the main thread by `post`.
+private final class Progress: @unchecked Sendable {
+    private weak var model: EditorDownload?
+    private let manifest: EditorManifest
+    let generation: Int
+    private let lock = NSLock()
+    /// The retry the downloader is waiting out, if any: said instead of
+    /// "waiting" until bytes arrive.
+    private var retrying: String?
+    /// Counts reports, so a wait that has been answered since is not said.
+    private var sequence = 0
+
+    init(model: EditorDownload, manifest: EditorManifest, generation: Int) {
+        self.model = model
+        self.manifest = manifest
+        self.generation = generation
     }
+
+    func report(_ progress: DownloadProgress) {
+        let (retry, number): (String?, Int) = lock.withLock {
+            sequence += 1
+            if progress.phase == .downloading { retrying = nil }
+            return (retrying, sequence)
+        }
+        let total = Int64(progress.totalBytes ?? Int(manifest.total))
+        switch progress.phase {
+        case .downloading:
+            model?.say(.downloading(done: Int64(progress.bytesDone), total: total), generation: generation)
+        case .verifying, .placing:
+            model?.say(.verifying, generation: generation)
+        case .waiting:
+            if let retry {
+                model?.say(.failed(retry), generation: generation)
+            } else {
+                sayWaiting(after: number)
+            }
+        }
+    }
+
+    /// The downloader is about to wait out a failure: what Settings has
+    /// always said of it. Events are the downloader's own account of it, the
+    /// status or error that ended the request.
+    func observe(_ event: Event) {
+        guard event.name == "download.retry", case .string(let reason)? = event["reason"] else { return }
+        let words: String
+        if reason.hasPrefix("status_"), let code = Int(reason.dropFirst("status_".count)), code >= 400 {
+            words = "could not be downloaded (\(code))"
+        } else {
+            words = "download paused, retrying"
+        }
+        lock.withLock { retrying = words }
+        model?.say(.failed(words), generation: generation)
+    }
+
+    private func sayWaiting(after number: Int) {
+        let grace = model?.grace ?? .seconds(3)
+        Task { [self] in
+            do { try await Ambient.sleep(for: grace) } catch { return }
+            model?.applyWaiting(number: number, from: self)
+        }
+    }
+
+    func isCurrent(_ number: Int) -> Bool { lock.withLock { sequence == number && retrying == nil } }
+}
+
+extension EditorDownload {
+    fileprivate func say(_ state: State, generation: Int) { post(state, generation: generation) }
+
+    fileprivate var grace: Duration { waitingGrace }
+
+    /// "Waiting for a connection", once a request has waited past the grace
+    /// with nothing newer said. Judged on the main thread, where the state is
+    /// changed, so that a report or a retry that came while the grace ran
+    /// cannot be written over; and for the fetch the report is from, not the
+    /// one now current, so a report that comes late from a cancelled fetch
+    /// does not pass for a new one.
+    fileprivate func applyWaiting(number: Int, from progress: Progress) {
+        let generation = progress.generation
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.generation == generation, progress.isCurrent(number) else { return }
+            self.state = .waiting
+        }
+    }
+}
+
+/// Events pass through, and the editor reads the ones it words.
+private struct Tee: Instrumentation {
+    let base: any Instrumentation
+    let observe: @Sendable (Event) -> Void
+
+    init(_ base: any Instrumentation, observe: @escaping @Sendable (Event) -> Void) {
+        self.base = base
+        self.observe = observe
+    }
+
+    func record(_ event: Event) {
+        base.record(event)
+        observe(event)
+    }
+
+    func isEnabled(_ level: Event.Level) -> Bool { base.isEnabled(level) }
 }

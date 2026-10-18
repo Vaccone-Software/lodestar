@@ -86,12 +86,10 @@ public enum UpdateDownload {
         return try await withDeadline(.after(deadline)) {
             try await downloader.download(download) { report in
                 guard report.phase == .downloading, let progress else { return }
-                // STOIC-GAP: `fraction` of a single download is known only when the
-                // caller gave an expected size, though the response's Content-Length
-                // reaches `fileTotalBytes` (design/23 says `totalBytes` is that, for a
-                // single download). The feed does not carry a size, so it is read here.
-                guard let total = report.fileTotalBytes ?? report.totalBytes, total > 0 else { return }
-                progress(min(1, Double(report.fileBytes) / Double(total)))
+                // The feed carries no size, so the share is known once the response's
+                // Content-Length is: the downloader's `fraction`.
+                guard let fraction = report.fraction else { return }
+                progress(fraction)
             }
         }
     }

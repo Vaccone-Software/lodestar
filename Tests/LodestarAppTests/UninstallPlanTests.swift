@@ -38,6 +38,7 @@ final class UninstallPlanTests: XCTestCase {
         actions.stopAgent = { log.append("bootout") }
         actions.stopInstance = { _ in log.append("stop") }
         actions.deleteKeys = { log.append("keys"); return [] }
+        actions.awaitInstanceExit = { _ in log.append("await"); return true }
         return (actions, { log })
     }
 
@@ -117,6 +118,50 @@ final class UninstallPlanTests: XCTestCase {
         plan.steps.forEach { $0.run() }
         XCTAssertEqual(log(), ["tcc com.vaccone.lodestar", "rm lodestar", "rm lodestar", "rm lodestar", "keys",
                                "rm com.vaccone.lodestar.plist", "bootout", "stop"])
+    }
+
+    /// A running instance saves on its way out: it is stopped, and waited for,
+    /// before the data and the keys go, or it would put sealed files back under
+    /// keys that no longer exist. A plain uninstall has no such step.
+    func testPurgeStopsTheRunningInstanceFirstAndWaitsForItToLeave() throws {
+        let (actions, log) = quiet()
+        let plan = UninstallPlan.make(world: world(present: ["lodestar.pid", "lodestar"]), purge: true, actions: actions)
+        let names = plan.steps.map(\.name)
+        let stop = "stop the running Lodestar, so it cannot save over what is removed"
+        XCTAssertLessThan(try XCTUnwrap(names.firstIndex(of: stop)),
+                          try XCTUnwrap(names.firstIndex(of: "remove /Users/someone/.config/lodestar")),
+                          "before the data: \(names)")
+        plan.steps.forEach { $0.run() }
+        let order = [log().firstIndex(of: "stop"), log().firstIndex(of: "await"), log().lastIndex(of: "rm lodestar"),
+                     log().firstIndex(of: "keys")].compactMap { $0 }
+        XCTAssertEqual(order.count, 4, "\(log())")
+        XCTAssertEqual(order, order.sorted(), "the instance leaves, then the data goes, then the keys: \(log())")
+
+        let (plainActions, _) = quiet()
+        let plain = UninstallPlan.make(world: world(present: ["lodestar.pid"]), purge: false, actions: plainActions)
+        XCTAssertFalse(plain.steps.map(\.name).contains { $0.contains("cannot save over") })
+    }
+
+    func testAnInstanceThatWillNotLeaveIsReportedAndTheRestStillRuns() {
+        var (actions, _) = quiet()
+        var ran: [String] = []
+        actions.awaitInstanceExit = { _ in false }
+        actions.remove = { ran.append("rm \($0.lastPathComponent)") }
+        actions.deleteKeys = { ran.append("keys"); return [] }
+        let plan = UninstallPlan.make(world: world(present: ["lodestar.pid", ".config"]), purge: true, actions: actions)
+        let problems = plan.steps.flatMap { $0.run() }
+        XCTAssertEqual(problems.count, 1)
+        XCTAssertTrue(problems[0].contains("still running"))
+        XCTAssertTrue(ran.contains("keys"), "and the keys are still deleted")
+    }
+
+    /// The pid file is read for a process that is not this one.
+    func testWaitingForNoInstanceReturnsAtOnce() throws {
+        let pidFile = FileManager.default.temporaryDirectory.appendingPathComponent("lodestar-\(UUID().uuidString).pid")
+        defer { try? FileManager.default.removeItem(at: pidFile) }
+        XCTAssertTrue(UninstallPlan.awaitInstanceExit(pidFile), "no pid file: nothing to wait for")
+        try "\(ProcessInfo.processInfo.processIdentifier)".write(to: pidFile, atomically: true, encoding: .utf8)
+        XCTAssertTrue(UninstallPlan.awaitInstanceExit(pidFile), "this process is not waited for: it is the one running the plan")
     }
 
     /// The items are in the keychain, which the plan does not look into: a

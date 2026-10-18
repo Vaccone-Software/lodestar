@@ -1084,8 +1084,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// room. Config, breaths and the clipboard stay unless the switch is on.
     private lazy var uninstallRoom: UninstallRoom = {
         let room = UninstallRoom()
-        room.onUninstall = { purge in
+        room.onUninstall = { [weak self] purge in
             Log.info("uninstall", ["from": "menu", "purge": purge])
+            // The plan is slow main-thread work (a keychain that asks, the
+            // permissions tool) and ends the process itself: the watchdog,
+            // which aborts an app that does not answer, must not end it half-way.
+            self?.watchdog.stop()
             let plan = UninstallPlan.live(purge: purge)
             // A purge removes the data and the keys that open it: a quit
             // that then saved would put sealed files back, under a key that

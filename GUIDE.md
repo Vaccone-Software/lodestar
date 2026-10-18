@@ -223,7 +223,7 @@ What you copy is the most sensitive thing Lodestar keeps, so the history is encr
 
 The state is saved as often as before (every summon touches the frecency, every park the parking record), on the same thread and with the same single atomic write: sealing adds microseconds of encryption to a write that costs milliseconds of disk, and the file is smaller (it is no longer pretty-printed).
 
-`lodestar uninstall` keeps all four keys, because the sealed data it keeps is unreadable without them; `lodestar uninstall --purge` removes the data first and then deletes the keys (service `com.vaccone.lodestar`, accounts `lodestar.ring.health`, `.logbook`, `.clipboard` and `.state`) from the login keychain. A key the keychain would not delete is named, the rest of the uninstall still runs, and the command exits 1.
+`lodestar uninstall` keeps all four keys, because the sealed data it keeps is unreadable without them; `lodestar uninstall --purge` stops a running Lodestar first (it saves on its way out, and would put sealed files back), removes the data, and then deletes the keys (service `com.vaccone.lodestar`, accounts `lodestar.ring.health`, `.logbook`, `.clipboard` and `.state`) from the login keychain. A key the keychain would not delete is named, the rest of the uninstall still runs, and the command exits 1.
 
 ## The coach
 

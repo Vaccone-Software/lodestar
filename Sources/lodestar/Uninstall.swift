@@ -79,6 +79,9 @@ struct UninstallPlan {
         var resetAlertSelection: () -> Void = AlertSound.resetSelection
         var stopAgent: () -> Void = UninstallPlan.stopAgent
         var stopInstance: (URL) -> Void = UninstallPlan.stopInstance
+        /// Wait for the instance the pid file names to be gone; false if it is
+        /// still there after a while.
+        var awaitInstanceExit: (URL) -> Bool = UninstallPlan.awaitInstanceExit
         /// Delete every key Lodestar keeps in the login keychain; answers one
         /// line for each it could not delete.
         var deleteKeys: () -> [String] = UninstallPlan.deleteKeys
@@ -109,6 +112,17 @@ struct UninstallPlan {
             steps.append(Step(name: "remove \(bundle.path)") { actions.remove(bundle) })
         }
         if purge {
+            // Before the data goes, not after: an instance that is still running
+            // saves on its way out, and would put the state and its sealed files
+            // back, under keys that are gone a moment later. (The plan run by the
+            // app itself skips its own pid and relies on `AppDelegate.purged`.)
+            if world.exists(world.pidFile) {
+                steps.append(.reporting("stop the running Lodestar, so it cannot save over what is removed") {
+                    actions.stopInstance(world.pidFile)
+                    return actions.awaitInstanceExit(world.pidFile)
+                        ? [] : ["Lodestar is still running and may write files again when it quits; quit it, then run lodestar uninstall --purge again"]
+                })
+            }
             for root in world.dataRoots where world.exists(root) {
                 steps.append(Step(name: "remove \(root.path)") { actions.remove(root) })
             }
@@ -236,6 +250,19 @@ struct UninstallPlan {
               pid != ProcessInfo.processInfo.processIdentifier, kill(pid, 0) == 0
         else { return }
         kill(pid, SIGTERM)
+    }
+
+    /// Whether the instance the pid file names is gone (or is this process),
+    /// waiting up to ten seconds: a quitting instance restores parked windows,
+    /// which is unbounded work in other apps.
+    static func awaitInstanceExit(_ pidFile: URL) -> Bool {
+        guard let text = try? String(contentsOf: pidFile, encoding: .utf8),
+              let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)),
+              pid != ProcessInfo.processInfo.processIdentifier
+        else { return true }
+        let deadline = Date().addingTimeInterval(10)
+        while kill(pid, 0) == 0, Date() < deadline { usleep(50_000) }
+        return kill(pid, 0) != 0
     }
 
     private static func run(_ executable: String, _ arguments: [String]) {

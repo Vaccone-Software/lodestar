@@ -2,11 +2,14 @@ import XCTest
 @testable import LodestarCore
 
 /// The state store's last-known-good copy is replaced, never removed and
-/// remade, so there is no instant at which a crash finds no backup.
+/// remade, so there is no instant at which a crash finds no backup. Both are
+/// sealed: the backup opens to the same bytes as the state, though the
+/// ciphertexts differ (a fresh nonce each).
 final class StateBackupTests: XCTestCase {
     private var directory: URL!
     private var file: URL { directory.appendingPathComponent("state.json") }
-    private var backup: URL { directory.appendingPathComponent("state.json.bak") }
+    private var sealed: URL { SealedFixture.sealedState(file) }
+    private var backup: URL { sealed.appendingPathExtension("bak") }
 
     override func setUpWithError() throws {
         directory = FileManager.default.temporaryDirectory
@@ -16,30 +19,32 @@ final class StateBackupTests: XCTestCase {
 
     override func tearDown() { try? FileManager.default.removeItem(at: directory) }
 
-    func testALoadLeavesABackupIdenticalToTheStateAndNothingElse() throws {
-        let first = StateStore(file: file)
+    func testALoadLeavesABackupThatOpensToTheStateAndNothingElse() throws {
+        let first = SealedFixture.stateStore(file)
         first.save()
-        let second = StateStore(file: file)
+        let second = SealedFixture.stateStore(file)
         second.load()
-        XCTAssertEqual(try Data(contentsOf: backup), try Data(contentsOf: file))
+        XCTAssertEqual(try XCTUnwrap(SealedFixture.openedState(backup)), try XCTUnwrap(SealedFixture.openedState(sealed)))
         XCTAssertEqual(Set(try FileManager.default.contentsOfDirectory(atPath: directory.path)),
-                       ["state.json", "state.json.bak"], "no temporary left behind")
+                       ["state.sealed", "state.sealed.bak"], "no temporary left behind, and no plaintext")
     }
 
     func testTheBackupFollowsTheStateAtTheNextBoot() throws {
-        let store = StateStore(file: file)
+        let store = SealedFixture.stateStore(file)
         store.save()
         store.load()
-        let stale = try Data(contentsOf: backup)
+        let stale = try XCTUnwrap(SealedFixture.openedState(backup))
         // Still a valid state, but not the same bytes.
-        try (try Data(contentsOf: file) + Data("\n\n".utf8)).write(to: file)
-        StateStore(file: file).load()
-        XCTAssertNotEqual(try Data(contentsOf: backup), stale)
-        XCTAssertEqual(try Data(contentsOf: backup), try Data(contentsOf: file))
+        let grown = try XCTUnwrap(SealedFixture.openedState(sealed)) + [0x0A, 0x0A]
+        XCTAssertEqual(StateFiles(plain: file, ring: SealedFixture.vault(directory).ring(.state),
+                                  fileSystem: OwnerOnly.fileSystem).write(grown), .written)
+        _ = SealedFixture.stateStore(file)
+        XCTAssertNotEqual(try XCTUnwrap(SealedFixture.openedState(backup)), stale)
+        XCTAssertEqual(try XCTUnwrap(SealedFixture.openedState(backup)), try XCTUnwrap(SealedFixture.openedState(sealed)))
     }
 
     func testThereIsNeverAMomentWithoutABackupWhileItIsRefreshed() throws {
-        let seed = StateStore(file: file)
+        let seed = SealedFixture.stateStore(file)
         seed.save()
         seed.load()
         var missing = 0
@@ -55,7 +60,7 @@ final class StateBackupTests: XCTestCase {
             }
             finished.fulfill()
         }
-        for _ in 0..<60 { StateStore(file: file).load() }
+        for _ in 0..<60 { _ = SealedFixture.stateStore(file) }
         stop.lock(); done = true; stop.unlock()
         wait(for: [finished], timeout: 5)
         XCTAssertEqual(missing, 0, "removeItem-then-copyItem left a window with no backup")

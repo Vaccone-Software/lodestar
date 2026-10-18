@@ -182,10 +182,25 @@ func diagnoseReport() -> String {
     lines.append(problems.isEmpty ? "  ✓ valid" : problems.map { "  • \($0)" }.joined(separator: "\n"))
     lines.append("")
 
-    let store = StateStore()
-    store.load()
-    lines.append("state: \(store.state.breaths.count) breaths, \(store.state.parked.count) parked, version \(store.state.version.map(String.init) ?? "unversioned")")
-    if let warning = store.bootWarning { lines.append("  ⚠ \(warning)") }
+    // The state is sealed: read-only, so a report never makes a key, moves a
+    // file, or takes a backup beside the running instance.
+    let sealedVault = try? Vault.system()
+    if let sealedVault {
+        switch StateStore.read(vault: sealedVault) {
+        case .state(let state, let sealed):
+            lines.append("state: \(state.breaths.count) breaths, \(state.parked.count) parked, version \(state.version.map(String.init) ?? "unversioned")"
+                + (sealed ? "" : " (not sealed yet: it is sealed when Lodestar next runs)"))
+        case .absent:
+            lines.append("state: none saved yet")
+        case .unavailable:
+            lines.append("state: sealed, and its key is unavailable — nothing was read")
+        case .unreadable:
+            lines.append("state: ⚠ would not open (altered, or sealed under another key); it is kept as it is")
+        }
+        lines.append(contentsOf: RecordStatus.stateLines(RecordStatus.state(vault: sealedVault, directory: Paths.data)))
+    } else {
+        lines.append("state: sealed, and the keychain is not available to this process — nothing was read")
+    }
     let bounds = Config.load().0
     let usage = Retention.healthUsage(in: Paths.data)
     lines.append(String(format: "health record: %.0f MB of %.0f MB", Double(usage.bytes) / 1_048_576,
@@ -198,7 +213,7 @@ func diagnoseReport() -> String {
                         Double(bounds.logbookBytes) / 1_048_576))
     // What is sealed, under which key, and whether it all opens. Read-only:
     // a report never makes a key or moves a file.
-    if let vault = try? Vault.system() {
+    if let vault = sealedVault {
         lines.append(contentsOf: RecordStatus.healthLines(RecordStatus.health(vault: vault, directory: Paths.data)))
         lines.append(contentsOf: RecordStatus.logbookLines(RecordStatus.logbook(vault: vault, directory: Paths.data)))
         lines.append(contentsOf: RecordStatus.clipboardLines(RecordStatus.clipboard(vault: vault, root: Paths.clipboard)))
@@ -507,13 +522,9 @@ func runObservations(clear: Bool, logbookOnly: Bool = false, healthOnly: Bool = 
     let bound = config.graph.leaves()
     // The saved breath paths, read without a StateStore: its load() takes
     // a backup on the way through, and a reporting process must never
-    // write beside the running instance.
-    let savedBreaths: [BreathRecord] = {
-        guard let data = try? Data(contentsOf: StateStore.defaultFile),
-              let state = try? JSONDecoder().decode(PersistedState.self, from: data)
-        else { return [] }
-        return state.breaths
-    }()
+    // write beside the running instance. The state is sealed, so this asks
+    // the keychain the way the logbook above did, read-only.
+    let savedBreaths: [BreathRecord] = StateStore.read(vault: vault).state?.breaths ?? []
     let breathPaths = savedBreaths.map(\.path)
     let breaths = savedBreaths.map {
         Advisor.Breath(path: $0.path, apps: $0.members.map(\.appName))

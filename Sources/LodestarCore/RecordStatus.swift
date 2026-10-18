@@ -81,6 +81,17 @@ public enum RecordStatus {
                       movedAside: movedAside("logbook-unreadable-", in: directory, fileSystem: fileSystem), days: nil)
     }
 
+    /// The state file's report (breaths, parked windows, frecency). Which of
+    /// those it holds is `StateStore.read`'s to say; this is the key and the files.
+    public static func state(vault: Vault, directory: URL, fileSystem: any FileSystem = PosixFileSystem()) -> Report {
+        let ring = vault.ring(.state)
+        let sealed = RecordFiles.sealed(of: .state, in: directory.path, fileSystem: fileSystem)
+        let plain = RecordFiles.plaintext(of: .state, in: directory.path, fileSystem: fileSystem)
+        return Report(key: keyState(ring, sealedCount: sealed.count), sealedFiles: sealed.count, plaintextFiles: plain.count,
+                      unreadable: -1, movedAside: movedAside("state-unreadable-", in: directory, fileSystem: fileSystem),
+                      days: nil)
+    }
+
     private static func keyState(_ ring: Vault.Ring, sealedCount: Int) -> Report.Key {
         if ring.held != nil { return .ready }
         switch ring.availability {
@@ -136,6 +147,26 @@ public enum RecordStatus {
         }
         if report.unreadable > 0 { lines.append("  ⚠ \(report.unreadable) sealed values did not open (altered, or sealed under another key)") }
         for folder in report.movedAside { lines.append("  unreadable files from an earlier record are kept in \(folder)") }
+        return lines
+    }
+
+    /// The lines `diagnose` prints under the state's own line.
+    public static func stateLines(_ report: Report) -> [String] {
+        var lines: [String] = []
+        switch report.key {
+        case .ready:
+            lines.append("  sealed under its own key" + (report.plaintextFiles > 0
+                ? "; \(report.plaintextFiles) files an earlier build wrote in the clear wait to be taken in" : ""))
+        case .none:
+            lines.append("  " + (report.plaintextFiles > 0 ? "not sealed yet — it is sealed when Lodestar next runs" : "nothing saved yet"))
+        case .paused(let why):
+            lines.append("  PAUSED for this launch — \(why). Nothing is read, written or deleted; breaths and settings changed meanwhile are kept in memory and merged when the key answers")
+        case .lost:
+            lines.append("  the key is gone — the unreadable files are moved aside and a new state starts when Lodestar next runs")
+        }
+        for folder in report.movedAside {
+            lines.append("  ⚠ the state's key was gone: its unreadable files are in \(folder); a new state was started")
+        }
         return lines
     }
 

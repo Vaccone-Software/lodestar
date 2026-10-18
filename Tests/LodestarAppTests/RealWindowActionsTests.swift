@@ -231,7 +231,7 @@ final class RealWindowWorld {
         layout = LayoutController(model: model, parking: parking, mover: AXMover(), displays: displays)
         hud = HUD()
         actions = Actions(model: model, parking: parking, layout: layout, appIndex: AppIndex(),
-                          store: StateStore(file: directory.appendingPathComponent("state.json")), hud: hud)
+                          store: SealedFixture.stateStore(directory.appendingPathComponent("state.json")), hud: hud)
         actions.attach()
         try launch(frames: frames, visible: visible)
     }

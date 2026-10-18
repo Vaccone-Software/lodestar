@@ -244,7 +244,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         parking = ParkingLot(moveQueue: moves)
         layout = LayoutController(model: model, parking: parking, moveQueue: moves)
         appIndex = AppIndex()
-        store = StateStore()
+        store = StateStore(vault: vault)
+        // Read off the main thread from the first moment (the keychain may
+        // be asked); the boot below waits a moment for it, not for ever.
+        store.openInBackground()
         observationStore = ObservationStore(vault: vault)
         // The switches before the load: loading tends the files (rotation,
         // the monthly archive), and a record that is off must not be
@@ -296,7 +299,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         hud = HUD()
 
-        store.load()
+        // The state is sealed: its key comes from the keychain, which answers in
+        // milliseconds or is waiting on the person. What reads the state next
+        // (the parked windows, the walk, the editor's consent) wants the real
+        // one, so it gets a moment; a keychain that is slower than that is
+        // not waited for, and `stateSettled` runs when it answers.
+        store.waitForOpen(upTo: 1.5)
+        store.onSettled = { [weak self] in self?.stateSettled() }
         appIndex.refresh()
         appIndex.usageBoost = { [store] bundleID in store!.usageBoost(bundleID) }
 
@@ -867,6 +876,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else {
             hud.flash("⚠ Lodestar cannot hear the keyboard\nAllow it in Privacy & Security, under Accessibility")
         }
+        stateWarningFlashed = store.bootWarning
         for warning in [store.bootWarning, clipboardController?.bootWarning].compactMap({ $0 }) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [hud] in
                 hud?.flash("⚠ \(warning)")
@@ -1211,7 +1221,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         walk.lessonPassed = { [weak self] lesson in self?.billLesson(lesson) }
         coach.lessonDue = { [weak self] in
-            guard let self else { return nil }
+            // Whether a lesson was met is in the state: unknown, none is due.
+            guard let self, self.store.isKnown else { return nil }
             let record = self.observationStore.observations
             // A door already walked through is not taught again: the
             // launcher to whoever chose Switch, the editor to anyone who
@@ -1247,7 +1258,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // an update, which arrives while you are idle: a launch that opens
         // a tutorial over whatever you were doing, because a version number
         // changed rather than because anybody asked, is the wrong surprise.
-        guard store.walkCompletedVersion == nil, !updater.justUpdated else { return }
+        // Not while the state is unknown: an empty one has never seen the walk.
+        guard store.isKnown, store.walkCompletedVersion == nil, !updater.justUpdated else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
             self?.showWalk()
         }
@@ -1551,10 +1563,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return true
     }
 
+    /// The last state warning the person was shown, so a late one is flashed once.
+    private var stateWarningFlashed: String?
+
+    /// Main. The state file was read after the boot stopped waiting for it, or
+    /// was read again after a pause: what waited for it acts now. The parked
+    /// windows of a session that ended badly are taken back (adopting is
+    /// additive), the editor's consent is looked at again, and a warning that
+    /// was not there at boot is said.
+    private func stateSettled() {
+        if store.isKnown {
+            parking.adopt(store.parkedSpots)
+            applyEditor(config)
+        }
+        if let warning = store.bootWarning, warning != stateWarningFlashed {
+            stateWarningFlashed = warning
+            hud.flash("⚠ \(warning)")
+        }
+    }
+
     /// Main. The state of each key, once settled: said in the log once, and
     /// the record that was waiting is read.
     private func reportSealedRecord() {
-        for name in [Vault.RingName.health, .logbook] {
+        for name in [Vault.RingName.health, .logbook, .state] {
             let ring = vault.ring(name)
             Log.info("sealed: \(name.rawValue) key", ["state": "\(ring.availability)"])
         }
@@ -1565,6 +1596,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func keychainMayHaveUnlocked() {
         // The clipboard's own ring: a history paused for a locked keychain asks again.
         clipboardController?.keychainMayHaveUnlocked()
+        // The state file's own ring: a state paused for a locked keychain asks again.
+        store?.retryIfPaused()
         let rings = [Vault.RingName.health, .logbook].map { vault.ring($0) }
         guard rings.contains(where: { $0.retry() }) else { return }
         DispatchQueue.global(qos: .utility).async { [weak self, vault, observationStore, health] in
@@ -2245,7 +2278,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Nothing is read until the hand accepts, once per Mac. At launch
         // the card waits for the glass to settle.
         let consented = store.editorConsented
-        if config.editorEnabled, !consented {
+        if !store.isKnown {
+            // Whether it was asked is in the state, which is not known: the
+            // card is neither asked nor withdrawn, and nothing is read until
+            // `stateSettled` applies the editor again.
+        } else if config.editorEnabled, !consented {
             if !editorConsent.isShowing() {
                 if editorAnnounced {
                     editorConsent.ask(detail: editorDetail(engine))
@@ -2326,7 +2363,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// switch left on never means an editor silently off.
     private func askEditorConsentWhenClear(after seconds: TimeInterval) {
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
-            guard let self, self.config.editorEnabled, !self.store.editorConsented,
+            guard let self, self.store.isKnown, self.config.editorEnabled, !self.store.editorConsented,
                   !self.editorConsent.isShowing() else { return }
             guard self.hud.owner == .none else {
                 self.askEditorConsentWhenClear(after: 30)

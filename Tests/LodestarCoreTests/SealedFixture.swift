@@ -30,6 +30,14 @@ enum SealedFixture {
         return made
     }
 
+    /// A state store over `file` (the plaintext name; the sealed file is beside it),
+    /// keyed by the vault of the directory it sits in, and read (`load`) unless `load` is false.
+    static func stateStore(_ file: URL, vault custom: Vault? = nil, load: Bool = true) -> StateStore {
+        let store = StateStore(file: file, vault: custom ?? vault(file.deletingLastPathComponent()))
+        if load { store.load() }
+        return store
+    }
+
     /// A log in the logbook (or the health record, `.health`) of the directory it sits in.
     static func eventLog(_ file: URL, ring: Vault.RingName = .logbook) -> EventLog {
         let vault = vault(file.deletingLastPathComponent())
@@ -44,6 +52,18 @@ enum SealedFixture {
     }
 }
 
+
+extension SealedFixture {
+    /// Where the state's sealed file is, beside its plaintext name.
+    static func sealedState(_ file: URL) -> URL { file.deletingPathExtension().appendingPathExtension("sealed") }
+
+    /// What a sealed state file (or its backup) holds, opened with the
+    /// directory's state ring; nil when it is absent or will not open.
+    static func openedState(_ url: URL, ring: Vault.Ring? = nil) -> [UInt8]? {
+        let ring = ring ?? vault(url.deletingLastPathComponent()).ring(.state)
+        return SealedValueFile(url: url, name: StateFiles.name, ring: ring).read().bytes
+    }
+}
 
 /// A keychain that is locked for every ring until `unlock()`: what a locked
 /// login keychain says to everyone who asks, however many rings ask first.

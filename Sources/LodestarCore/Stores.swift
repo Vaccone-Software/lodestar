@@ -1,7 +1,9 @@
 import CoreGraphics
 import Foundation
+import StoicStore
+import Synchronization
 
-public struct BreathMember: Codable {
+public struct BreathMember: Codable, Sendable {
     public var windowID: UInt32
     public var bundleID: String?
     public var appName: String
@@ -18,7 +20,7 @@ public struct BreathMember: Codable {
     }
 }
 
-public struct BreathRecord: Codable {
+public struct BreathRecord: Codable, Sendable {
     public var path: String
     public var orientation: String
     public var members: [BreathMember]
@@ -30,14 +32,14 @@ public struct BreathRecord: Codable {
     }
 }
 
-public struct UsageRecord: Codable {
+public struct UsageRecord: Codable, Sendable {
     public var count: Int
     public var last: Date
 }
 
 /// A retired `marks` key from a pre-0.9.14 file decodes away silently:
 /// unknown keys are ignored, and the next save writes the file without it.
-public struct PersistedState: Codable {
+public struct PersistedState: Codable, Sendable {
     public var version: Int?
     public var breaths: [BreathRecord] = []
     public var latestBreath: String?
@@ -106,86 +108,203 @@ public enum Quarantine {
 
 /// Breaths and parking bookkeeping — saved on every change so a crash or
 /// restart can still find and restore everything best-effort.
+///
+/// The file is **sealed at rest** (`StateFiles`): `state.sealed` and its
+/// backup `state.sealed.bak`, AES-256-GCM under the `state` ring of the
+/// `Vault`. It holds the addresses (window titles and URLs among them), so it
+/// is kept like the logbook. What each state of the key means for it is the
+/// vault's one rule, and here it reads:
+///
+/// - **ready**: the file is read, written and backed up as before.
+/// - **paused** (the keychain is locked, refused, or the ring is damaged):
+///   nothing on disk is read, written, removed or migrated. The app runs on an
+///   empty state held in memory; what changes meanwhile is kept there, never
+///   written in the clear and never over the sealed file, and is merged into
+///   what is on disk when the keychain answers (`resume`), or at the next
+///   launch if it never does (that part is lost, said in `bootWarning`).
+/// - **key lost** (no ring, sealed state exists): the sealed files are moved
+///   aside (`state-unreadable-…`, never deleted), a new ring is made, the
+///   state starts fresh and `bootWarning` says so.
+///
+/// The disk half runs off the main thread (`openInBackground`): the first ask
+/// of the keychain may wait on a prompt.
 public final class StateStore {
+    /// Where an earlier build kept the state, in the clear. Read once, taken
+    /// into the sealed file and removed; written again only by a build older
+    /// than the sealing, whose file the next launch merges in.
     public static let defaultFile = Paths.data.appendingPathComponent("state.json")
 
+    /// The plaintext name (`StateStore.defaultFile`'s); the sealed file is beside it.
     public let file: URL
-    private var backupFile: URL { file.appendingPathExtension("bak") }
+    private let files: StateFiles
+    public var sealedFile: URL { files.sealedURL }
 
     public private(set) var state = PersistedState()
     private var pendingSave: DispatchWorkItem?
     private var reportedSaveFailure = false
+
+    /// Where the store is with the disk.
+    public enum Condition: Equatable {
+        /// Not read yet (the key may be asked for).
+        case loading
+        /// Read, and writes reach the sealed file.
+        case ready
+        /// The key cannot be had: for the reason, in words.
+        case paused(String)
+    }
+
+    public private(set) var condition = Condition.loading
+
+    /// Whether `state` is what the disk holds (plus what changed since):
+    /// first-run questions (the walk, the editor's consent) are only asked
+    /// of a state that is known, because an empty one would ask them again.
+    public var isKnown: Bool { condition == .ready }
+
+    /// Something was saved while the disk could not take it, so the memory
+    /// state has to be merged into what is read.
+    private var unsaved = false
+    /// Breaths deleted while the disk could not be read: they must not come
+    /// back with the merge.
+    private var deletedWhileUnknown: Set<String> = []
 
     /// Set when load had to recover — the app surfaces it once the HUD
     /// exists. Breaths are the user's accumulated addresses; losing them
     /// silently is not acceptable.
     public private(set) var bootWarning: String?
 
-    public init(file: URL = StateStore.defaultFile) {
+    /// Main. The disk answered after `load` or `openInBackground`: the state
+    /// is read, or paused with a reason. What waited for it (parked windows,
+    /// a warning to say) acts here.
+    public var onSettled: (() -> Void)?
+
+    public init(file: URL = StateStore.defaultFile, vault: Vault, fileSystem: any FileSystem = OwnerOnly.fileSystem) {
         self.file = file
+        self.files = StateFiles(plain: file, ring: vault.ring(.state), fileSystem: fileSystem)
     }
 
+    /// Read the state now, on this thread (which may wait on the keychain):
+    /// tests, and a process that has nothing else to do. The app uses
+    /// `openInBackground`.
     public func load() {
-        guard FileManager.default.fileExists(atPath: file.path) else { return }
-        if let state = decode(at: file) {
-            self.state = state
-            // The last-known-good generation: one backup per boot, so a
-            // future corruption always has somewhere to fall back to.
-            refreshBackup()
+        adopt(files.open())
+    }
+
+    // MARK: Opening off the main thread
+
+    private let opened = Mutex<StateFiles.Opened?>(nil)
+    private let openingGroup = DispatchGroup()
+    private var opening = false
+
+    /// Main. Read the state on a utility queue; it is adopted on the main
+    /// thread when it is done (`waitForOpen` may adopt it sooner).
+    public func openInBackground() {
+        guard !opening else { return }
+        opening = true
+        openingGroup.enter()
+        let files = files
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = files.open()
+            self?.opened.withLock { $0 = result }
+            self?.openingGroup.leave()
+            DispatchQueue.main.async { self?.adoptOpened() }
+        }
+    }
+
+    /// Main. Wait up to `seconds` for the background read, and adopt it if it
+    /// finished: the normal launch, where the keychain answers in a few
+    /// milliseconds, so that what reads the state next finds it. A keychain
+    /// that is waiting on a prompt is not waited for beyond that: the app goes
+    /// on with the state unknown, and `onSettled` fires when it answers.
+    /// Returns whether the state is settled.
+    @discardableResult
+    public func waitForOpen(upTo seconds: TimeInterval) -> Bool {
+        if opening, openingGroup.wait(timeout: .now() + seconds) == .success { adoptOpened() }
+        return condition != .loading
+    }
+
+    private func adoptOpened() {
+        guard let result = opened.withLock({ taken -> StateFiles.Opened? in defer { taken = nil }; return taken }) else { return }
+        opening = false
+        adopt(result)
+    }
+
+    /// Main. A keychain that was only locked can be asked again: the screen
+    /// unlocked. Does nothing unless the store is paused for a reason that can lift.
+    public func retryIfPaused() {
+        guard case .paused = condition, !opening, files.ring.retry() else { return }
+        openInBackground()
+    }
+
+    private func adopt(_ result: StateFiles.Opened) {
+        switch result.outcome {
+        case .paused(let why):
+            condition = .paused(why)
+            bootWarning = "your saved breaths and settings are unavailable this launch: \(why). Lodestar loads them when the keychain allows it, or at the next launch"
+            Log.error("state: paused — \(why); nothing is read or written", [:])
+        case .ready(let loaded):
+            var merged = loaded
+            if unsaved {
+                merged = loaded.merging(newer: state)
+                merged.breaths.removeAll { deletedWhileUnknown.contains($0.path) }
+                if let latest = merged.latestBreath, !merged.breaths.contains(where: { $0.path == latest }) {
+                    merged.latestBreath = nil
+                }
+                Log.info("state: merged what changed while it was unavailable")
+            }
+            deletedWhileUnknown = []
+            state = merged
+            // A warning stands for the launch (a second read does not unsay it),
+            // except the one about the pause, which the end of the pause answers.
+            if case .paused = condition { bootWarning = nil }
+            condition = .ready
+            bootWarning = result.warning ?? bootWarning
             Log.info("state: loaded \(state.breaths.count) breaths, \(state.parked.count) parked")
-            return
+            if unsaved {
+                unsaved = false
+                save()
+            }
         }
-        // Corruption. Quarantine the evidence, fall back to the backup,
-        // and say so loudly — silence here costs the user their addresses.
-        let quarantine = Quarantine.setAside(file, keepOriginal: true)
-        Log.error("state: corrupt, quarantined", ["at": quarantine.lastPathComponent])
-        if let recovered = decode(at: backupFile) {
-            state = recovered
-            bootWarning = "state was corrupted — restored from backup (\(recovered.breaths.count) breaths)"
-            Log.error("state: restored from backup", ["breaths": recovered.breaths.count])
-            save()
-        } else {
-            bootWarning = "state was corrupted and no backup existed — starting fresh (kept \(quarantine.lastPathComponent))"
-            Log.error("state: no usable backup — starting fresh")
-        }
+        onSettled?()
     }
 
-    /// The backup is replaced, never removed and then recreated: the old
-    /// way left a window between the two with no last-known-good file at
-    /// all, and a crash in it cost exactly the safety net the backup is
-    /// for. The new bytes are written beside it, synced, and renamed over
-    /// it, so at every instant `state.json.bak` is the old generation or the
-    /// new one whole. The name and the bytes are what a copy made.
-    private func refreshBackup() {
-        guard let raw = try? Data(contentsOf: file) else { return }
-        guard DurableFile.save(raw, to: backupFile, as: "state", newFileMode: 0o600) else { return }
-        Paths.excludeFromBackup(backupFile)
+    // MARK: Writing
+
+    private func encode(_ state: PersistedState) -> [UInt8]? {
+        StateFiles.encode(state)
     }
 
-    private func decode(at url: URL) -> PersistedState? {
-        guard let raw = try? Data(contentsOf: url) else { return nil }
-        return try? JSONDecoder().decode(PersistedState.self, from: StateMigrations.lift(raw))
-    }
-
-    /// Immediate write — explicit user data (breaths) and shutdown.
+    /// Immediate write — explicit user data (breaths) and shutdown. While
+    /// the disk cannot take it (loading, paused) the change is kept in memory
+    /// for `adopt` to merge.
     public func save() {
         pendingSave?.cancel()
         pendingSave = nil
         state.version = Lodestar.stateVersion
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? encoder.encode(state) else { return }
-        do {
-            try DurableFile.write(data, to: file, newFileMode: 0o600)
-            Paths.restrict(file)
+        guard condition == .ready else {
+            unsaved = true
+            return
+        }
+        guard let data = encode(state) else {
+            Log.error("state: SAVE FAILING — the state could not be encoded")
+            return
+        }
+        switch files.write(data) {
+        case .written:
             // An atomic write is a new inode, and a new inode is backed up
             // until something says otherwise.
-            Paths.excludeFromBackup(file)
+            Paths.excludeFromBackup(files.sealedURL)
             reportedSaveFailure = false
-        } catch {
+        case .paused:
+            unsaved = true
             if !reportedSaveFailure {
                 reportedSaveFailure = true
-                Log.error("state: SAVE FAILING — breaths are not persisting", ["error": error.localizedDescription])
+                Log.error("state: the key cannot be asked for — breaths are held in memory until it can")
+            }
+        case .failed(let why):
+            unsaved = true
+            if !reportedSaveFailure {
+                reportedSaveFailure = true
+                Log.error("state: SAVE FAILING — breaths are not persisting", ["error": why])
             }
         }
     }
@@ -219,6 +338,7 @@ public final class StateStore {
     }
 
     public func setBreath(_ record: BreathRecord) {
+        deletedWhileUnknown.remove(record.path)
         state.breaths.removeAll { $0.path == record.path }
         state.breaths.append(record)
         state.latestBreath = record.path
@@ -228,6 +348,7 @@ public final class StateStore {
     public func deleteBreath(at path: String) -> Bool {
         let before = state.breaths.count
         state.breaths.removeAll { $0.path == path }
+        if condition != .ready { deletedWhileUnknown.insert(path) }
         if state.latestBreath == path { state.latestBreath = nil }
         save()
         return state.breaths.count != before

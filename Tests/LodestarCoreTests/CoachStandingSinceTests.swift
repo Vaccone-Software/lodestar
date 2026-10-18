@@ -30,7 +30,7 @@ final class CoachStandingSinceTests: XCTestCase {
     }
 
     func testTheStampIsTakenOnceAndNeverMoves() {
-        let store = StateStore(file: file)
+        let store = SealedFixture.stateStore(file)
         let first = Date(timeIntervalSince1970: 1_700_000_000)
         let stamped = store.coachStandingSince("shorten:b x", now: first)
         XCTAssertEqual(stamped, first)
@@ -45,11 +45,11 @@ final class CoachStandingSinceTests: XCTestCase {
     /// the suggestion a fresh stamp, so four days never elapsed.
     func testTheStampSurvivesARestart() {
         let first = Date(timeIntervalSince1970: 1_700_000_000)
-        let store = StateStore(file: file)
+        let store = SealedFixture.stateStore(file)
         _ = store.coachStandingSince("shorten:b x", now: first)
         store.save()
 
-        let restarted = StateStore(file: file)
+        let restarted = SealedFixture.stateStore(file)
         restarted.load()
         let afterRelaunch = first.addingTimeInterval(2 * 86_400)
         let recovered = restarted.coachStandingSince("shorten:b x", now: afterRelaunch)
@@ -59,7 +59,7 @@ final class CoachStandingSinceTests: XCTestCase {
     }
 
     func testEachSuggestionKeepsItsOwnStamp() {
-        let store = StateStore(file: file)
+        let store = SealedFixture.stateStore(file)
         let first = Date(timeIntervalSince1970: 1_700_000_000)
         let second = first.addingTimeInterval(86_400)
         XCTAssertEqual(store.coachStandingSince("shorten:b x", now: first), first)
@@ -71,7 +71,7 @@ final class CoachStandingSinceTests: XCTestCase {
     /// rotate — but it must still be bounded, and eviction must take the
     /// oldest rather than whatever the dictionary happens to yield.
     func testTheMapStaysBounded() {
-        let store = StateStore(file: file)
+        let store = SealedFixture.stateStore(file)
         let start = Date(timeIntervalSince1970: 1_700_000_000)
         let total = StateStore.coachStandingCap + 20
         for i in 0..<total {

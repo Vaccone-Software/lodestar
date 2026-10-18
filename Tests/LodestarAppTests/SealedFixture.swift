@@ -31,6 +31,14 @@ enum SealedFixture {
         return made
     }
 
+    /// A state store over `file` (the plaintext name; the sealed file is beside it),
+    /// keyed by the vault of the directory it sits in, and read (`load`) unless `load` is false.
+    static func stateStore(_ file: URL, vault custom: Vault? = nil, load: Bool = true) -> StateStore {
+        let store = StateStore(file: file, vault: custom ?? vault(file.deletingLastPathComponent()))
+        if load { store.load() }
+        return store
+    }
+
     /// A log in the logbook (or the health record, `.health`) of the directory it sits in.
     static func eventLog(_ file: URL, ring: Vault.RingName = .logbook) -> EventLog {
         let vault = vault(file.deletingLastPathComponent())

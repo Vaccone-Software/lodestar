@@ -1219,10 +1219,10 @@ final class EditorConsentTests: XCTestCase {
     func testConsentIsRememberedOnThisMac() {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("state-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: file) }
-        let store = StateStore(file: file)
+        let store = SealedFixture.stateStore(file)
         XCTAssertFalse(store.editorConsented)
         store.setEditorConsent(Date())
-        let again = StateStore(file: file)
+        let again = SealedFixture.stateStore(file)
         again.load()
         XCTAssertTrue(again.editorConsented)
     }

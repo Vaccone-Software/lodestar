@@ -21,7 +21,7 @@ public enum Curriculum {
         case launcher, editor, inside, web, clipboard, sheet, draft, select, commands, scroll
     }
 
-    public struct Record: Codable, Equatable {
+    public struct Record: Codable, Equatable, Sendable {
         public var offers: Int
         public var lastOfferedAt: Date?
         public var completedAt: Date?

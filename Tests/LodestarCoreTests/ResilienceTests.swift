@@ -51,18 +51,18 @@ final class StateStoreTests: XCTestCase {
     /// half a second later: an abort in that half second left the window
     /// in its corner sliver with nothing that knew where it came from.
     func testAParkedSpotIsOnDiskAtOnce() {
-        let store = StateStore(file: file)
+        let store = SealedFixture.stateStore(file)
         store.setParked([42: CGRect(x: 10, y: 20, width: 300, height: 400)])
-        let reloaded = StateStore(file: file)
+        let reloaded = SealedFixture.stateStore(file)
         reloaded.load()
         XCTAssertEqual(reloaded.parkedSpots[42], CGRect(x: 10, y: 20, width: 300, height: 400))
     }
 
     func testRoundTripStampsVersion() {
-        let store = StateStore(file: file)
+        let store = SealedFixture.stateStore(file)
         store.setBreath(makeBreath("q"))
 
-        let reloaded = StateStore(file: file)
+        let reloaded = SealedFixture.stateStore(file)
         reloaded.load()
         XCTAssertEqual(reloaded.state.breaths.map(\.path), ["q"])
         XCTAssertEqual(reloaded.state.version, Lodestar.stateVersion)
@@ -153,11 +153,11 @@ final class StateStoreTests: XCTestCase {
         // dictionary keys encode as flat arrays in JSON — parked is [].)
         let v0 = #"{"marks":[],"breaths":[],"parked":[]}"#
         try! v0.data(using: .utf8)!.write(to: file)
-        let store = StateStore(file: file)
+        let store = SealedFixture.stateStore(file)
         store.load()
         XCTAssertNil(store.bootWarning)
         store.save()
-        let raw = try! JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! [String: Any]
+        let raw = try! JSONSerialization.jsonObject(with: Data(SealedFixture.openedState(SealedFixture.sealedState(file))!)) as! [String: Any]
         XCTAssertEqual(raw["version"] as? Int, Lodestar.stateVersion)
     }
 
@@ -166,21 +166,21 @@ final class StateStoreTests: XCTestCase {
     func testRetiredMarksKeyDecodesAwayQuietly() {
         let legacy = #"{"version":1,"marks":[{"path":"q","windowID":1,"appName":"App","title":"T","frame":{"origin":{"x":0,"y":0},"size":{"width":1,"height":1}}}],"breaths":[],"parked":[]}"#
         try! legacy.data(using: .utf8)!.write(to: file)
-        let store = StateStore(file: file)
+        let store = SealedFixture.stateStore(file)
         store.load()
         XCTAssertNil(store.bootWarning, "a legacy marks key is not corruption")
         store.save()
-        let raw = try! JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! [String: Any]
+        let raw = try! JSONSerialization.jsonObject(with: Data(SealedFixture.openedState(SealedFixture.sealedState(file))!)) as! [String: Any]
         XCTAssertNil(raw["marks"], "the retired key does not survive a save")
     }
 
     func testCorruptionRestoresFromBackup() {
-        let store = StateStore(file: file)
+        let store = SealedFixture.stateStore(file)
         store.setBreath(makeBreath("q"))
         store.load() // a good load writes the .bak generation
 
-        try! "{ definitely not json".data(using: .utf8)!.write(to: file)
-        let recovered = StateStore(file: file)
+        try! "{ definitely not json".data(using: .utf8)!.write(to: SealedFixture.sealedState(file))
+        let recovered = SealedFixture.stateStore(file)
         recovered.load()
 
         XCTAssertEqual(recovered.state.breaths.map(\.path), ["q"], "backup carried the breaths")
@@ -191,15 +191,15 @@ final class StateStoreTests: XCTestCase {
     }
 
     func testCorruptionWithoutBackupStartsFreshLoudly() {
-        try! "nope".data(using: .utf8)!.write(to: file)
-        let store = StateStore(file: file)
+        try! "nope".data(using: .utf8)!.write(to: SealedFixture.sealedState(file))
+        let store = SealedFixture.stateStore(file)
         store.load()
         XCTAssertTrue(store.state.breaths.isEmpty)
         XCTAssertNotNil(store.bootWarning)
     }
 
     func testBreathCRUDAndLatest() {
-        let store = StateStore(file: file)
+        let store = SealedFixture.stateStore(file)
         store.setBreath(BreathRecord(path: "w", orientation: "horizontal", members: []))
         XCTAssertEqual(store.state.latestBreath, "w")
         XCTAssertTrue(store.deleteBreath(at: "w"))

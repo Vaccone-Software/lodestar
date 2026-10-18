@@ -8,7 +8,7 @@ import XCTest
 final class UninstallPlanTests: XCTestCase {
     private let home = URL(fileURLWithPath: "/Users/someone")
 
-    private let keychainItems = "com.vaccone.lodestar: health, logbook, clipboard"
+    private let keychainItems = "com.vaccone.lodestar: health, logbook, clipboard, state"
 
     private func world(present: Set<String>, selected: Bool = false, browser: String? = nil,
                        keychainItems: String? = nil) -> UninstallPlan.World {
@@ -86,7 +86,7 @@ final class UninstallPlanTests: XCTestCase {
 
     // MARK: The keys in the login keychain
 
-    private static let keyStepName = "remove Lodestar's keys from your login keychain (com.vaccone.lodestar: health, logbook, clipboard)"
+    private static let keyStepName = "remove Lodestar's keys from your login keychain (com.vaccone.lodestar: health, logbook, clipboard, state)"
 
     /// The sealed data stays on a plain uninstall, and without its keys it
     /// would be unreadable for ever: so the keys stay too, and the plan does

@@ -238,7 +238,7 @@ final class VaultTests: XCTestCase {
 
     func testTheItemsAreNamedByTheRingsSoNoRingCanBeLeftOut() {
         XCTAssertEqual(Set(Vault.RingName.allCases.map(\.custodyName)),
-                       ["lodestar.ring.health", "lodestar.ring.logbook", "lodestar.ring.clipboard"],
+                       ["lodestar.ring.health", "lodestar.ring.logbook", "lodestar.ring.clipboard", "lodestar.ring.state"],
                        "a ring added here is a keychain item the purge must know")
     }
 

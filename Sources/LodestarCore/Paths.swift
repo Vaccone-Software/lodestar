@@ -104,8 +104,8 @@ public enum Paths {
     /// record or harmless, and is backed up.
     public static func isBehavioral(_ name: String) -> Bool {
         if name == "clipboard" { return true }
-        for prefix in ["events", "observations", "lodestar.log", "state.json", "rollups.json", "draft-in-flight",
-                       "feedback-outbox", "logbook-unreadable"]
+        for prefix in ["events", "observations", "lodestar.log", "state.json", "state.sealed", "rollups.json",
+                       "draft-in-flight", "feedback-outbox", "logbook-unreadable", "state-unreadable"]
         where name == prefix || name.hasPrefix(prefix + ".") || name.hasPrefix(prefix + "-") {
             return true
         }
@@ -141,6 +141,11 @@ public enum Paths {
             let old = config.appendingPathComponent(name)
             let new = data.appendingPathComponent(name)
             guard fm.fileExists(atPath: old.path), !fm.fileExists(atPath: new.path) else { continue }
+            // The state has a sealed home now: a leftover from before the split
+            // is older than whatever it holds, and would be merged in over it.
+            if name.hasPrefix("state.json"), fm.fileExists(atPath: data.appendingPathComponent(RecordFiles.stateSealedName).path) {
+                continue
+            }
             do {
                 try fm.moveItem(at: old, to: new)
             } catch {

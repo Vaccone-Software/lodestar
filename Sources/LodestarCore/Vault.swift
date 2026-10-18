@@ -9,7 +9,8 @@ import Synchronization
 /// Where the keys of the sealed records live, and what each state of them
 /// means for the data.
 ///
-/// The health record and the logbook are sealed at rest (`StoicSealed`,
+/// The health record, the logbook, the clipboard history and the state file
+/// are sealed at rest (`StoicSealed`,
 /// design/24 of Stoic): AES-256-GCM under a key ring each, the rings kept in
 /// the **login keychain** (Lodestar is Developer ID signed with no
 /// application identifier, so the data-protection keychain refuses it with
@@ -40,7 +41,13 @@ import Synchronization
 ///   *clipboard history* the store applies the same policy itself, before it
 ///   asks for a key to write with (`SealedClipboard`): `v2/` moves into
 ///   `clipboard-unreadable-YYYY-MM-DD/` (inside the clipboard folder), a new
-///   ring is made, and the person is told once.
+///   ring is made, and the person is told once. For the *state file*
+///   (breaths, parked windows, frecency: `StateStore`) the unreadable files
+///   are moved aside the same way (`state-unreadable-YYYY-MM-DD/`), a new
+///   ring is made, and the store says so once (`bootWarning`); breaths are
+///   the person's own, so nothing is deleted, but a store that refused until
+///   asked would leave the walk, the editor's consent and every address
+///   asking again.
 ///
 /// Tests and a test run's scratch home use `InMemoryKeyCustody`; the real
 /// keychain is refused under `TestRun` (`Vault.system`).
@@ -54,6 +61,12 @@ public final class Vault: Sendable {
         /// blobs and thumbnails are sealed under keys of their own, which live
         /// inside the sealed index records (`SealedClipboard`).
         case clipboard
+        /// `state.sealed` and its backup: breaths, parked windows, frecency,
+        /// the walk and the meetings' record. A ring of its own, not the
+        /// logbook's: the ring is the unit of destruction, and *deleting the
+        /// logbook destroys its key*, which would make the breaths unreadable
+        /// with it.
+        case state
 
         /// The custody item this ring is kept in.
         public var custodyName: String { "lodestar.ring.\(rawValue)" }
@@ -167,8 +180,8 @@ public final class Vault: Sendable {
         private struct State {
             var availability = Availability.unopened
             var keyring: Keyring?
-            /// Where unreadable logbook files were moved when the key was
-            /// missing, for `diagnose`.
+            /// Where unreadable logbook (or state) files were moved when the
+            /// key was missing, for `diagnose`.
             var movedAside: String?
             var loggedPause = false
         }
@@ -188,7 +201,7 @@ public final class Vault: Sendable {
 
         public var availability: Availability { state.withLock { $0.availability } }
 
-        /// Where the unreadable logbook went when its key was missing.
+        /// Where the unreadable logbook (or state) went when its key was missing.
         public var movedAside: String? { state.withLock { $0.movedAside } }
 
         // MARK: Asking
@@ -265,10 +278,11 @@ public final class Vault: Sendable {
                 Log.error("vault: the \(name.rawValue) key is gone and \(sealed.count) sealed files need it — paused, nothing deleted",
                           ["ring": name.rawValue, "files": sealed.count])
                 return nil
-            case .logbook:
-                let moved = RecordFiles.moveAside(sealed, in: directory, folder: "logbook-unreadable", fileSystem: fileSystem)
+            case .logbook, .state:
+                let folder = "\(name.rawValue)-unreadable"
+                let moved = RecordFiles.moveAside(sealed, in: directory, folder: folder, fileSystem: fileSystem)
                 state.withLock { $0.movedAside = moved }
-                Log.error("vault: the logbook key is gone — \(sealed.count) sealed files moved aside, starting a new logbook",
+                Log.error("vault: the \(name.rawValue) key is gone — \(sealed.count) sealed files moved aside, starting a new \(name == .state ? "state" : "logbook")",
                           ["ring": name.rawValue, "files": sealed.count, "folder": moved ?? "(could not move)"])
                 guard moved != nil else {
                     // Nothing was moved: do not make a ring over files

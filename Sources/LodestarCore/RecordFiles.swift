@@ -17,6 +17,11 @@ import StoicStore
 /// - a sealed whole file keeps its name when it was JSON before
 ///   (`era.json`, `blind.json`, `observations.json`, `rollups.json`) and is
 ///   told from a plaintext one by its first four bytes;
+/// - the state file is `state.sealed` (and `state.sealed.bak`, and a
+///   `state.sealed.corrupt-<stamp>` copy set aside), never `state.json`: an
+///   older build that runs against the folder finds no state of its own to
+///   misread, starts with nothing, and writes a plaintext `state.json` that the
+///   next launch of this one merges in and removes (`StateStore`);
 /// - a health archive month, which was `health-2026-08.jsonl.z`, is
 ///   `health-2026-08.jsonl.z.sealed`.
 public enum RecordFiles {
@@ -52,6 +57,15 @@ public enum RecordFiles {
     private static let healthDirectories = [KeyStore.subdirectory, PointerStore.subdirectory]
     private static let healthWholeFiles = ["era.json", "blind.json"]
     private static let logbookWholeFiles = ["observations.json", "rollups.json"]
+
+    /// The state file's two forms.
+    public static let stateSealedName = "state.sealed"
+    public static let statePlaintextNames = ["state.json", "state.json.bak"]
+
+    /// `state.sealed`, its backup, and the copies set aside, by name.
+    private static func isStateSealedName(_ name: String) -> Bool {
+        name == stateSealedName || name.hasPrefix(stateSealedName + ".")
+    }
 
     private static func isHealthLogName(_ name: String) -> Bool {
         name.hasPrefix(ObservationStore.healthLogBase + ".") || name.hasPrefix(ObservationStore.healthLogBase + "-")
@@ -90,6 +104,10 @@ public enum RecordFiles {
             for name in logbookWholeFiles where top.contains(name) {
                 if isSealedFile(directory + "/" + name, fileSystem: fileSystem) { found.append(name) }
             }
+        case .state:
+            for name in top where isStateSealedName(name) {
+                if isSealedFile(directory + "/" + name, fileSystem: fileSystem) { found.append(name) }
+            }
         case .clipboard:
             break
         }
@@ -124,6 +142,8 @@ public enum RecordFiles {
             for name in logbookWholeFiles where top.contains(name) {
                 if !isSealedFile(directory + "/" + name, fileSystem: fileSystem) { found.append(name) }
             }
+        case .state:
+            for name in statePlaintextNames where top.contains(name) { found.append(name) }
         case .clipboard:
             break
         }

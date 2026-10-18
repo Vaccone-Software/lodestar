@@ -144,6 +144,13 @@ public struct ClipboardFiles: Sendable {
     }
 
     private func write(_ plain: [UInt8], to url: URL, _ context: SealContext, _ key: SealingKey) throws {
+        // AtomicFile keeps the mode of a file it replaces, so one left wider
+        // (an older build's, or a hand chmod) is narrowed first: the new
+        // bytes are never written readable by anyone else.
+        if let mode = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.posixPermissions] as? Int,
+           mode & 0o077 != 0 {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        }
         do {
             try sealedFile.write(plain, to: url.path, context: context, key: key)
         } catch {

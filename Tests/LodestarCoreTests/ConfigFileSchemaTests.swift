@@ -394,4 +394,17 @@ final class ConfigFileSchemaTests: XCTestCase {
         XCTAssertEqual(ConfigFile.problems(in: ["Scroll": .table([:])]),
                        ["Scroll: unknown key `Scroll` (did you mean 'scroll'?)"])
     }
+
+    /// A choice spelt nearly right is offered the nearest, as an enumeration
+    /// is, and a repaired section does not describe its default.
+    func testAChoiceIsOfferedTheNearestAndARepairedSectionSaysNothingOfItsDefault() {
+        XCTAssertEqual(ConfigFile.problems(in: ["editor": .table(["model": .string("ful")])]), [
+            "editor.model: \"ful\" is not allowed, expected one of \"\", \"spelling\", \"minimal\", \"standard\", \"full\"; used the default \"\" (did you mean 'full'?)",
+        ])
+        XCTAssertEqual(ConfigFile.problems(in: ["health": .table(["hand": .string("lefft")])]), [
+            "health.hand: \"lefft\" is not allowed, expected one of \"left\", \"right\", \"either\"; used the default (did you mean 'left'?)",
+        ])
+        XCTAssertEqual(ConfigFile.problems(in: ["web": .string("x")]),
+                       ["web: expected an object, found string \"x\"; used the default"])
+    }
 }

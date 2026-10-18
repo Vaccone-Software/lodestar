@@ -52,6 +52,8 @@ enum ConfigSchemaWalk {
             // value that is documented: the same node, said another way.
             if case .dictionary = unwrapped(node) {
                 walk(unwrapped(node), at: path, doc: doc, into: &out)
+            } else if case .json = unwrapped(node) {
+                walk(unwrapped(node), at: path, doc: doc, into: &out)
             } else {
                 out.append(Leaf(address: path.joined(separator: "."), doc: doc, node: node))
             }

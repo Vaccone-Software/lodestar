@@ -205,7 +205,7 @@ extension ConfigFile {
         Field("keys", \.keys,
               .lossyDictionary(of: .string(), valueDoc: "The key name this keycode produces."),
               doc: "Keycode → key-name overrides for non-ANSI layouts.")
-        Field("graph", \.graph, .json(),
+        Field("graph", \.graph, .json(jsonSchema: graphShape),
               doc: "lode + letter chains → apps. Values: app name or <browser>:<profile name>.")
         Field("appearance", \.appearance, appearanceSection, doc: "How Lodestar looks. Never what it asks of you.")
         Field("draft", \.draft, draftSection, doc: "The draft: lode . speaks, lode ⇧. revises.")
@@ -485,26 +485,28 @@ extension ConfigFile {
     /// admitted at the top, so the file the app writes is not itself flagged.
     ///
     /// The graph is the one value the schema holds as JSON (`GraphNode` checks
-    /// it, with the problems that go with it), so its shape is added here: an
-    /// app name, or a block of them, to any depth.
+    /// it, with the problems that go with it), so the editor is told its shape:
+    /// a block of letters, each an app name or a block of its own, to any
+    /// depth. The reference is written the Draft-07 way (`#/definitions/`),
+    /// and the definition it names is added to the document below.
+    private static let graphShape: JSONObject = [
+        "type": ["object", "null"],
+        "additionalProperties": ["$ref": "#/definitions/graphNode"],
+    ]
+
+    private static let graphNode: JSONValue = [
+        "oneOf": [
+            ["type": "string", "description": "An app name, or a profile as browser:name (brave:Work)"],
+            ["type": "object", "additionalProperties": ["$ref": "#/definitions/graphNode"]],
+        ],
+    ]
+
     public static func jsonSchema() -> JSONValue {
-        var document = schema.jsonSchema(options: JSONSchemaOptions(
+        let document = schema.jsonSchema(options: JSONSchemaOptions(
             draft: .draft07, closesObjects: true, extraRootProperties: ConfigStore.header.jsonSchemaProperties))
-        let node: JSONValue = [
-            "oneOf": [
-                ["type": "string", "description": "An app name, or a profile as browser:name (brave:Work)"],
-                ["type": "object", "additionalProperties": ["$ref": "#/definitions/graphNode"]],
-            ],
-        ]
-        let graph = JSONPath([.key("properties"), .key("graph"), .key("additionalProperties")])
-        let reference: JSONValue = ["$ref": "#/definitions/graphNode"]
-        if let edited = try? document.setting("lodestar configuration", at: JSONPath([.key("title")]))
-            .setting(reference, at: graph)
-            .setting(["object", "null"], at: JSONPath([.key("properties"), .key("graph"), .key("type")]))
-            .setting(node, at: JSONPath([.key("definitions"), .key("graphNode")])) {
-            document = edited
-        }
-        return document
+        let titled = try? document.setting("lodestar configuration", at: JSONPath([.key("title")]))
+            .setting(graphNode, at: JSONPath([.key("definitions"), .key("graphNode")]))
+        return titled ?? document
     }
 
     /// `jsonSchema()` as the text written to disk and printed.

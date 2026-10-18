@@ -232,19 +232,14 @@ final class ConfigFileTests: XCTestCase {
     }
 
     /// The entry it dropped is the person's, and a write that does not touch
-    /// the table should put it back, as it does a value it repaired. Stoic's
-    /// `lossyDictionary` does not carry what it dropped back into the file yet,
-    /// so for now the entry goes with the next write; when Stoic carries it,
-    /// this expectation fails and goes.
+    /// the table should put it back, as it does a value it repaired.
     func testAnEntryTheTableDroppedIsKeptThroughAnUnrelatedWrite() throws {
         try write(#"{"clipboard": {"exclude-apps": {"com.a": true, "com.b": "yes"}}}"#)
         _ = Config.load(from: file)
         try Config.edit(in: file) { Json.setting($0, path: ["coach", "stand"], to: .bool(false))! }
         let tree = try Json.parse(onDisk)
         XCTAssertEqual(tree.value(at: ["clipboard", "exclude-apps", "com.a"]), .bool(true), "the good entry stays")
-        XCTExpectFailure("Stoic does not carry the entries a lossyDictionary dropped") {
-            XCTAssertEqual(tree.value(at: ["clipboard", "exclude-apps", "com.b"]), .string("yes"))
-        }
+        XCTAssertEqual(tree.value(at: ["clipboard", "exclude-apps", "com.b"]), .string("yes"), "the dropped one is the person's")
     }
 
     /// A number out of range is the bound it is nearest, in the running app

@@ -1,5 +1,6 @@
 import StoicApple
 import StoicSealed
+import StoicSealedKeychain
 import StoicStore
 import XCTest
 @testable import LodestarCore
@@ -53,7 +54,7 @@ final class VaultTests: XCTestCase {
     }
 
     func testTheKeychainAdapterRefusesAnyCallUnderATestRun() {
-        let custody = KeychainCustody(secrets: InMemorySecretStore())
+        let custody = SecretStoreCustody(TestGuardedSecrets(InMemorySecretStore()))
         XCTAssertThrowsError(try custody.load(name: "x"))
         XCTAssertThrowsError(try custody.store([1], name: "x"))
         XCTAssertThrowsError(try custody.delete(name: "x"))

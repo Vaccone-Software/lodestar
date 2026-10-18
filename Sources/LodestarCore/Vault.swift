@@ -2,6 +2,7 @@ import Foundation
 import Stoic
 import StoicApple
 import StoicSealed
+import StoicSealedKeychain
 import StoicStore
 import Synchronization
 
@@ -81,7 +82,7 @@ public final class Vault: Sendable {
     public static func system(directory: URL = Paths.data) throws -> Vault {
         guard !TestRun.active else { throw VaultError.realKeychainUnderTest }
         let secrets = KeychainSecretStore(loginKeychainService: keychainService)
-        return Vault(custody: KeychainCustody(secrets: secrets), directory: directory)
+        return Vault(custody: SecretStoreCustody(TestGuardedSecrets(secrets)), directory: directory)
     }
 
     public func ring(_ name: RingName) -> Ring { rings[name]! }
@@ -375,44 +376,31 @@ public enum VaultError: Error, Sendable, CustomStringConvertible {
     }
 }
 
-/// `KeyCustody` over a Keychain `SecretStore` (design/24: the adapter is the
-/// app's, because `StoicApple` and `StoicSealed` may not know each other).
-struct KeychainCustody: KeyCustody {
+/// A secret store that refuses every call under a test run: the second lock
+/// on the same door. `Vault.system` already refuses to be built, and whatever
+/// else builds a custody over the keychain still never reaches it from a test
+/// (`SecretStoreCustody` reads this as the keychain refusing access).
+struct TestGuardedSecrets: SecretStore {
     let secrets: any SecretStore
 
-    func load(name: String) throws(CustodyError) -> [UInt8]? {
-        try guardedAgainstTests()
-        do throws(SecretStoreError) { return try secrets.get(name).map { [UInt8]($0) } } catch { throw CustodyError(error) }
+    init(_ secrets: any SecretStore) { self.secrets = secrets }
+
+    func get(_ key: String) throws(SecretStoreError) -> Data? {
+        try refuseUnderTests()
+        return try secrets.get(key)
     }
 
-    func store(_ bytes: [UInt8], name: String) throws(CustodyError) {
-        try guardedAgainstTests()
-        do throws(SecretStoreError) { try secrets.set(Data(bytes), for: name) } catch { throw CustodyError(error) }
+    func set(_ value: Data, for key: String) throws(SecretStoreError) {
+        try refuseUnderTests()
+        try secrets.set(value, for: key)
     }
 
-    func delete(name: String) throws(CustodyError) {
-        try guardedAgainstTests()
-        do throws(SecretStoreError) { try secrets.delete(name) } catch { throw CustodyError(error) }
+    func delete(_ key: String) throws(SecretStoreError) {
+        try refuseUnderTests()
+        try secrets.delete(key)
     }
 
-    /// The second lock on the same door: whatever built this adapter, a test
-    /// run never reaches the keychain through it.
-    private func guardedAgainstTests() throws(CustodyError) {
-        if TestRun.active { throw .unavailable(.accessDenied) }
-    }
-}
-
-extension CustodyError {
-    /// Nothing a Keychain refuses is "absent": every case but an invalid key
-    /// means the item may exist.
-    init(_ error: SecretStoreError) {
-        switch error {
-        case .locked: self = .unavailable(.locked)
-        case .authenticationFailed, .missingEntitlement: self = .unavailable(.accessDenied)
-        case .unavailable: self = .unavailable(.serviceUnavailable)
-        case .invalidKey, .invalidValue: self = .invalidName
-        case .corrupted: self = .other(code: -1)
-        case .other(let status): self = .other(code: Int(status))
-        }
+    private func refuseUnderTests() throws(SecretStoreError) {
+        if TestRun.active { throw .authenticationFailed }
     }
 }

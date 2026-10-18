@@ -53,6 +53,7 @@ let package = Package(
             // stream, placed whole or not at all.
             .product(name: "StoicDownloads", package: "stoic"),
             .product(name: "StoicSealed", package: "stoic"),
+            .product(name: "StoicSealedKeychain", package: "stoic"),
             .product(name: "StoicApple", package: "stoic"),
         ]),
         // Dictation's settling ears: second recognizers that re-hear a
@@ -98,6 +99,7 @@ let package = Package(
                         .product(name: "StoicJSON", package: "stoic"),
                         .product(name: "StoicSettings", package: "stoic"),
                         .product(name: "StoicSealed", package: "stoic"),
+                        .product(name: "StoicSealedKeychain", package: "stoic"),
                         .product(name: "StoicStore", package: "stoic"),
                         .product(name: "StoicApple", package: "stoic"),
                     ],

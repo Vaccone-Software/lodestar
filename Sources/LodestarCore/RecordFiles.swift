@@ -167,14 +167,15 @@ public enum RecordFiles {
 
     /// Remove a sealed journal and everything that belongs to it: its
     /// snapshot, a snapshot being written, the tombstone, the lock, and the
-    /// copies a compaction over damage keeps.
+    /// copies a compaction over damage keeps (`SealedJournal.remove`, which
+    /// knows the list). A journal that is still open, or that another process
+    /// holds, is refused and left whole, and said.
     static func removeJournal(_ path: String, fileSystem: any FileSystem) {
-        let directory = SealedPath.directory(of: path)
-        let name = SealedPath.name(of: path)
-        for member in names(in: directory, fileSystem: fileSystem) where member == name || member.hasPrefix(name + ".") {
-            try? fileSystem.remove(directory + "/" + member)
+        do {
+            try SealedJournal.remove(at: path, fileSystem: fileSystem)
+        } catch {
+            Log.error("records: could not remove a journal (\(error))", ["file": SealedPath.name(of: path)])
         }
-        try? fileSystem.syncDirectory(directory)
     }
 
     static func dateStamp(_ date: Date) -> String {

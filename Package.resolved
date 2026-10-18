@@ -1,5 +1,5 @@
 {
-  "originHash" : "27593ef3e19f8f3ad8b115ed64d73a6513e90f5be2ff5d1a2da06e7dd080aef2",
+  "originHash" : "332f1928bd19221b2a160015cf63a8f2238ee39a4a6a097e39fa57379ce0aaf9",
   "pins" : [
     {
       "identity" : "eventsource",
@@ -33,8 +33,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Vaccone-Software/stoic",
       "state" : {
-        "revision" : "2dcdcb00b431920b2573fde2a56a38db895aed09",
-        "version" : "0.4.0"
+        "revision" : "f08fa35a42b18f1d1c07c627a0507283975dd474",
+        "version" : "0.4.1"
       }
     },
     {

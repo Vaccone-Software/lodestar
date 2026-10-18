@@ -7,17 +7,22 @@ import StoicStore
 /// swaps — is UpdateController in the app target; everything here is
 /// deterministic and tested.
 public enum Updater {
-    public struct Release: Equatable {
+    public struct Release: Equatable, Sendable {
         public let tag: String
         public let version: [Int]
         public let zipName: String
         public let zipURL: String
+        /// What GitHub says the zip hashes to, `sha256:<hex>`, when the feed
+        /// carries it. The zip is checked against it as it downloads; the
+        /// codesign checks stay the gate that matters.
+        public let zipDigest: String?
 
-        public init(tag: String, version: [Int], zipName: String, zipURL: String) {
+        public init(tag: String, version: [Int], zipName: String, zipURL: String, zipDigest: String? = nil) {
             self.tag = tag
             self.version = version
             self.zipName = zipName
             self.zipURL = zipURL
+            self.zipDigest = zipDigest
         }
     }
 
@@ -34,7 +39,8 @@ public enum Updater {
     /// The site's answer for stable. It only names a build: the zip still
     /// comes from GitHub, and the staged bundle must still carry this
     /// team's Developer ID and the tag's version, so the most a wrong
-    /// answer from here can do is hold an update back.
+    /// answer from here can do is hold an update back (a wrong digest
+    /// included: the zip would fail it, and the update with it).
     public static let stableURL = URL(string: "https://lodestar.vaccone.software/api/stable")!
 
     /// Where every release's files live. The site's zip URL must be exactly
@@ -60,6 +66,7 @@ public enum Updater {
         struct Zip: Decodable {
             let name: String
             let url: String
+            let digest: String?
         }
         struct Answer: Decodable {
             let tag: String
@@ -72,7 +79,8 @@ public enum Updater {
               answer.zip.name == "lodestar-\(answer.version).zip",
               answer.zip.url == downloads + answer.tag + "/" + answer.zip.name
         else { return nil }
-        return Release(tag: answer.tag, version: version, zipName: answer.zip.name, zipURL: answer.zip.url)
+        return Release(tag: answer.tag, version: version, zipName: answer.zip.name, zipURL: answer.zip.url,
+                       zipDigest: answer.zip.digest)
     }
 
     /// The newest release carrying a lodestar zip: the preview channel,
@@ -91,6 +99,8 @@ public enum Updater {
         struct Asset: Decodable {
             let name: String
             let browser_download_url: String
+            /// `sha256:<hex>`; null for an asset from before GitHub kept one.
+            let digest: String?
         }
         struct Entry: Decodable {
             let tag_name: String
@@ -104,7 +114,7 @@ public enum Updater {
                       $0.name.hasPrefix("lodestar-") && $0.name.hasSuffix(".zip")
                   }) else { return nil }
             return Release(tag: entry.tag_name, version: version,
-                           zipName: zip.name, zipURL: zip.browser_download_url)
+                           zipName: zip.name, zipURL: zip.browser_download_url, zipDigest: zip.digest)
         }
     }
 

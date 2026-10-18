@@ -120,14 +120,17 @@ final class UpdateController {
     private var firstCheck: Timer?
     private var dailyCheck: Timer?
     private var applyPoll: Timer?
-    /// A bounded session: URLSession.shared would let a trickling download
-    /// hold the run in `.checking` for days, refusing every later check.
+    /// The feed's session, bounded: URLSession.shared would let a trickling
+    /// answer hold the run in `.checking` for days, refusing every later
+    /// check. (The zip is fetched by `UpdateDownload`, bounded by a deadline
+    /// of its own: a transfer that is moving is not cut at three minutes.)
     private let network: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 30
         configuration.timeoutIntervalForResource = 180
         return URLSession(configuration: configuration)
     }()
+    private let downloads = UpdateDownload.client()
     private let worker = DispatchQueue(label: "lodestar.update", qos: .utility)
 
     init() {
@@ -357,49 +360,68 @@ final class UpdateController {
         }
     }
 
+    /// The zip is where `download.zip` has always been, so staging, the
+    /// watchdog and `clearStaging` find it there. Its partial and the record
+    /// beside it are `download.zip.partial` and `.resume`: kept from one try
+    /// to the next, so a transfer cut off resumes, and replaced by the next
+    /// release's, which they are not the same download as.
+    static let zipPath = directory.appendingPathComponent("download.zip")
+
     private func download(_ release: Updater.Release, force: Bool) {
-        guard let url = URL(string: release.zipURL) else {
+        guard URL(string: release.zipURL) != nil else {
             finishCheck(force: force, note: "✕ Could not check for updates", log: "bad asset url")
             return
         }
-        Log.info("update", ["phase": "downloading", "asset": release.zipName])
+        Log.info("update", ["phase": "downloading", "asset": release.zipName,
+                            "digest": UpdateDownload.digest(of: release) == nil ? "none" : "sha256"])
         if force {
             let (sentence, detail) = Voice.found(release.tag)
             DispatchQueue.main.async { self.voice(sentence, detail, 0, true) }
         }
-        let semaphore = DispatchSemaphore(value: 0)
-        var fetched: URL?
-        var problem: String?
-        let task = network.downloadTask(with: url) { location, response, error in
-            problem = error.map { String(describing: $0) }
-                ?? Updater.httpProblem(status: (response as? HTTPURLResponse)?.statusCode)
-            if problem == nil, let location {
-                let kept = Self.directory.appendingPathComponent("download.zip")
-                try? FileManager.default.removeItem(at: kept)
-                if (try? FileManager.default.moveItem(at: location, to: kept)) != nil {
-                    fetched = kept
-                }
-            }
-            semaphore.signal()
-        }
         // Only a check someone asked for has a note on screen to light.
-        var shown = -1
-        let watching = force ? task.progress.observe(\.fractionCompleted) { [weak self] progress, _ in
-            let share = progress.fractionCompleted
-            let faces = LitMark.litCount(share)
-            guard faces != shown else { return }
-            shown = faces
-            DispatchQueue.main.async { self?.lightMark(share) }
-        } : nil
-        task.resume()
-        semaphore.wait()
-        watching?.invalidate()
-        guard let zip = fetched else {
-            finishCheck(force: force, note: "✕ The update did not download",
-                        log: "download failed (\(problem ?? "no file"))", failed: true)
-            return
+        let progress = force ? lightingProgress() : nil
+        let client = downloads
+        Task { [weak self] in
+            do {
+                try await UpdateDownload.fetch(release, to: Self.zipPath, client: client, progress: progress)
+            } catch {
+                self?.downloadFailed(release, error, force: force)
+                return
+            }
+            self?.stage(onWorker: release, force: force)
         }
-        stage(zip: zip, release: release, force: force)
+    }
+
+    private func lightingProgress() -> @Sendable (Double) -> Void {
+        let light = MarkLight(self)
+        return { share in light.report(share) }
+    }
+
+    private func downloadFailed(_ release: Updater.Release, _ error: any Error, force: Bool) {
+        finishCheck(force: force, note: "✕ The update did not download",
+                    log: "download failed (\(UpdateDownload.problem(error, release: release)))", failed: true)
+    }
+
+    private func stage(onWorker release: Updater.Release, force: Bool) {
+        worker.async { self.stage(zip: Self.zipPath, release: release, force: force) }
+    }
+
+    /// Lights the mark as far as the download has come, from the downloading
+    /// task to the main thread, once for each face that changes.
+    private final class MarkLight: @unchecked Sendable {
+        private weak var controller: UpdateController?
+        private let lock = NSLock()
+        private var shown = -1
+
+        init(_ controller: UpdateController) { self.controller = controller }
+
+        func report(_ share: Double) {
+            DispatchQueue.main.async { [self] in
+                let faces = LitMark.litCount(share)
+                guard lock.withLock({ defer { shown = faces }; return faces != shown }) else { return }
+                controller?.lightMark(share)
+            }
+        }
     }
 
     private func stage(zip: URL, release: Updater.Release, force: Bool) {

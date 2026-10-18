@@ -114,10 +114,9 @@ public struct Feedback: Equatable, Codable, Sendable {
     /// a breaker, which fails fast while a host looks down, would refuse
     /// to try at the very moment a retry from the queue is the point.
     public static func client(transport: any HTTPTransport = URLSessionTransport()) -> HTTPClient {
-        HTTPClient(
-            base: site,
-            policy: HTTPPolicy(attemptTimeout: attemptTimeout, schedule: Schedule.immediate.attempts(1), breaker: nil),
-            transport: transport, label: "feedback")
+        var policy = HTTPPolicy.singleAttempt
+        policy.attemptTimeout = attemptTimeout
+        return HTTPClient(base: site, policy: policy, transport: transport, label: "feedback")
     }
 
     /// What lands on the clipboard when the note is refused, or when they ask

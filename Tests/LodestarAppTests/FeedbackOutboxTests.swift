@@ -189,7 +189,7 @@ final class FeedbackOutboxTests: XCTestCase {
         }
     }
 
-    func testTwoQueuedNotesAreDeliveredInOrder() async throws {
+    func testQueuedNotesAreDeliveredOldestFirstByTheSchedule() async throws {
         try await FeedbackRig.run { rig, clock in
             rig.script([FeedbackRig.offline])
             await rig.send("First")
@@ -197,19 +197,36 @@ final class FeedbackOutboxTests: XCTestCase {
             rig.controller.show()
             await rig.send("Second")
             XCTAssertTrue(rig.controller.isSaved)
-            XCTAssertEqual(rig.messages, ["First", "First"],
-                           "the second was not tried: the first, ahead of it, had not gone")
+            XCTAssertEqual(rig.messages, ["First", "Second"], "each is tried when it is sent")
             let queued = await rig.queue.pendingCount
             XCTAssertEqual(queued, 2)
             rig.script([FeedbackRig.thanks])
             await clock.waitForSleepers()
             await clock.advance(by: .seconds(60))
             await rig.queue.loopFinished()
-            XCTAssertEqual(rig.messages, ["First", "First", "First", "Second"], "oldest first")
-            XCTAssertEqual(Set([rig.key(0), rig.key(3)]).count, 2, "each note has a key of its own")
+            XCTAssertEqual(rig.messages, ["First", "Second", "First", "Second"], "oldest first")
+            XCTAssertEqual(Set([rig.key(0), rig.key(1)]).count, 2, "each note has a key of its own")
             XCTAssertEqual(rig.key(2), rig.key(0))
+            XCTAssertEqual(rig.key(3), rig.key(1))
             let remaining = await rig.queue.pendingCount
             XCTAssertEqual(remaining, 0)
+        }
+    }
+
+    /// A note that cannot go does not hold a new one: the new note is
+    /// tried at once and, if the site takes it, is delivered; the older one
+    /// is tried once more in the same go, and stays queued if it still fails.
+    func testANewNoteIsNotHeldBehindOneThatIsFailing() async throws {
+        try await FeedbackRig.run { rig, _ in
+            rig.script([FeedbackRig.offline, FeedbackRig.thanks, FeedbackRig.offline])
+            await rig.send("Stuck")
+            XCTAssertTrue(rig.controller.isSaved)
+            rig.controller.show()
+            await rig.send("Fine")
+            XCTAssertTrue(rig.controller.isSent, "the new note went")
+            XCTAssertEqual(rig.messages, ["Stuck", "Fine", "Stuck"])
+            let queued = await rig.queue.pendingCount
+            XCTAssertEqual(queued, 1, "the stuck one is still queued, and the schedule has it")
         }
     }
 
@@ -268,7 +285,7 @@ final class FeedbackOutboxTests: XCTestCase {
             await clock.waitForSleepers(count: 2)
             // A second note arrives while the first is out.
             let second = Task { await rig.queue.submit(Feedback(message: "B")) }
-            while await rig.queue.waiting == 0 { await Task.yield() }
+            while await rig.queue.deliveriesInProgress < 2 { await Task.yield() }
             XCTAssertEqual(rig.transport.requestCount, 1, "B waits for A's run, and does not start its own")
             let mark = clock.totalSleeps
             await clock.advance(by: .seconds(5))
@@ -296,21 +313,26 @@ final class FeedbackOutboxTests: XCTestCase {
             rig.controller.pressSend()
             // (the loop's own wait, the answer's delay, the try's timeout)
             await clock.waitForSleepers(count: 3)
-            XCTAssertEqual(rig.transport.requestCount, 2, "the older note is tried first")
-            // ...and the tick comes due while it is out.
+            XCTAssertEqual(rig.messages, ["Old", "New"], "the new note is tried at once, not held behind the old")
+            // ...and the tick comes due while it is out: it finds the queue
+            // busy and goes back to sleep, having started nothing.
+            var mark = clock.totalSleeps
             await clock.advance(to: due)
-            while await rig.queue.waiting == 0 { await Task.yield() }
-            XCTAssertEqual(rig.transport.requestCount, 2, "the tick waits for the run, and starts none of its own")
-            let mark = clock.totalSleeps
+            await clock.waitForSleepers(newerThan: mark)
+            XCTAssertEqual(rig.transport.requestCount, 2, "the tick starts no try of its own")
+            // The new note is answered; the old one is tried in the same go.
+            mark = clock.totalSleeps
             await clock.advance(by: .seconds(15))
-            // The older note is out; the newer one is tried in the same run.
             await clock.waitForSleepers(newerThan: mark, count: 2)
+            XCTAssertEqual(rig.messages, ["Old", "New", "Old"], "each note went once more, and no more")
             await clock.advance(by: .seconds(15))
             await rig.controller.settled()
-            await rig.queue.loopFinished()
             XCTAssertTrue(rig.controller.isSent)
+            // Nothing is queued: the schedule's next look ends it.
+            await clock.advance(by: .seconds(7200))
+            await rig.queue.loopFinished()
             XCTAssertEqual(rig.transport.maxInFlightCount, 1)
-            XCTAssertEqual(rig.messages, ["Old", "Old", "New"], "each note went once more, in order, and no more")
+            XCTAssertEqual(rig.messages, ["Old", "New", "Old"])
         }
     }
 
@@ -322,7 +344,7 @@ final class FeedbackOutboxTests: XCTestCase {
         // cannot read, or damage the journal's own checks let through.
         try PosixFileSystem().createDirectory(directory.path)
         let outbox = try Outbox<[UInt8]>.open(
-            at: directory.appendingPathComponent("outbox").path, codec: .bytes, fileSystem: OwnerOnlyFileSystem())
+            at: directory.appendingPathComponent("outbox").path, codec: .bytes, fileSystem: FeedbackQueue.privateFileSystem())
         try await outbox.enqueue(Array("not a note".utf8))
         try await outbox.close()
         try await FeedbackRig.run(directory: directory) { rig, _ in

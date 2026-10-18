@@ -14,11 +14,14 @@ import StoicStore
 /// the mail service, so a note delivered twice (the answer was lost, or the
 /// app quit between the answer and the acknowledgement) is one email.
 ///
-/// **One delivery at a time.** A run delivers what is queued, oldest first,
-/// and stops at the first note that did not go, since the ones behind it
-/// would fail the same way. A run is never started while another is going:
-/// whoever asks waits for the one running, then runs, so the window's Send
-/// and the schedule's tick cannot send one note twice at once.
+/// **One delivery at a time**, which is the outbox's own rule (design/15):
+/// the window's Send attends to the note it just saved (`deliver(_:using:)`),
+/// the schedule's tick delivers what is queued, oldest first, and stops at
+/// the first note that did not go (`deliverPending`). Neither is ever started
+/// while the other is going: a Send that meets a run waits for it, and a tick
+/// that meets a Send finds the queue busy and leaves the note to it, so one
+/// note is never sent twice at once. A new note is not held behind an older
+/// one that is failing; the older one stays queued, and the schedule has it.
 ///
 /// **What the person is told** is `Submission`; the log carries counts and
 /// outcomes only, never a word of a note or a reply address.
@@ -52,14 +55,26 @@ public actor FeedbackQueue {
     /// above is the retrying, and a window that waited out an in-run
     /// backoff would hold the person for half a minute. The note that
     /// failed stops the run (order matters less than not sending the rest
-    /// into the same failure).
+    /// into the same failure). A note that no longer reads (a format this
+    /// build cannot decode, damage the journal's own checks let through)
+    /// is dropped, and the run goes on: left in front, it would hold every
+    /// later one. This build reads every later format of its own note, so
+    /// what does not read is not a note.
     static let policy = DeliveryPolicy(
-        schedule: Schedule.immediate.attempts(1), classify: .standard, budget: RetryBudget(), onFailure: .stopAtFirst)
+        schedule: Schedule.immediate.attempts(1), classify: .standard, budget: RetryBudget(), onFailure: .stopAtFirst,
+        onUndecodable: .discard)
 
     /// Why a note stays in the queue, thrown out of a try so the outbox
     /// leaves it pending.
     private struct Unsent: Error {
         let reason: FeedbackOutcome.Reason
+    }
+
+    /// The files a note waits in are the person's own words, and a reply
+    /// address, and maybe a log: closed to everyone else, created so (not
+    /// narrowed after), in a directory only the owner can enter.
+    public static func privateFileSystem() -> PosixFileSystem {
+        PosixFileSystem(newFileMode: 0o600, newDirectoryMode: 0o700)
     }
 
     private let directory: URL
@@ -68,20 +83,27 @@ public actor FeedbackQueue {
     private let schedule: Schedule
 
     private var outbox: Outbox<FeedbackEntry>?
-    /// The run going now, if any: the single flight.
-    private var running: Task<Void, Never>?
-    /// The notes a `submit` is waiting on, and what the last try of each came
-    /// to. A note the schedule delivers has no one waiting, and no entry.
-    private var watching: Set<IdempotencyKey> = []
-    private var outcomes: [IdempotencyKey: FeedbackOutcome] = [:]
+    /// The deliveries going now (a Send's, a tick's), so that a shutdown can
+    /// stop them before it lets go of the files. The outbox keeps them one
+    /// at a time; this only keeps count of them.
+    private var deliveries: [Int: Going] = [:]
+    private var deliveryCount = 0
+
+    /// A delivery in progress: how to stop it, and when it has.
+    private struct Going {
+        let cancel: @Sendable () -> Void
+        let finished: Task<Void, Never>
+    }
     private var loop: (id: Int, task: Task<Void, Never>)?
     private var loops = 0
-    /// Callers waiting for the run going now: for the tests, which must know
-    /// a second caller has met the first before they let the first finish.
-    private(set) var waiting = 0
+
+    /// How many deliveries are in progress or waiting their turn at the
+    /// outbox: for the tests, which must know a second caller has met the
+    /// first before they let the first finish.
+    var deliveriesInProgress: Int { deliveries.count }
 
     public init(directory: URL, client: HTTPClient = Feedback.client(), schedule: Schedule = FeedbackQueue.retrySchedule,
-                fileSystem: any FileSystem = PosixFileSystem()) {
+                fileSystem: any FileSystem = FeedbackQueue.privateFileSystem()) {
         self.directory = directory
         self.client = client
         self.schedule = schedule
@@ -95,31 +117,49 @@ public actor FeedbackQueue {
     /// of older notes is going, which is waited for).
     public func submit(_ feedback: Feedback) async -> Submission {
         guard let outbox = openOutbox() else { return .notSaved }
-        // The key is made, and watched, before the note is written: a run
-        // already going may find the note the moment it is, and its outcome
-        // must not be missed.
         let key = IdempotencyKey.random()
-        watching.insert(key)
         do {
             try await outbox.enqueue(FeedbackEntry(feedback), key: key)
         } catch {
-            watching.remove(key)
             Log.error("feedback: could not save a note", ["error": "\(error.kind)"])
             return .notSaved
         }
-        await drain(why: "submit")
-        watching.remove(key)
-        let outcome = outcomes.removeValue(forKey: key)
+        let outcome = await delivery { () async -> DeliveryOutcome? in
+            do {
+                return try await outbox.deliver(key) { entry in try await self.attempt(entry) }
+            } catch is CancellationError {
+                // Shut down mid-try: the note in flight is still queued.
+                return nil
+            } catch {
+                // The acknowledgement could not be written: the note may be
+                // delivered and will be again, under its key, which the site
+                // dedupes. What the window says is that it is saved.
+                Log.error("feedback: could not record a delivery", ["error": "\(error)"])
+                return nil
+            }
+        }
         switch outcome {
-        case .delivered: return .delivered
-        case .refused: return .refused
-        // Unsent, or not tried at all because an older note stopped the run.
-        case .unsent?, nil:
+        case .delivered?:
+            await sendTheRest()
+            return .delivered
+        case .discarded?:
+            await sendTheRest()
+            return .refused
+        // Not sent, or not told: the note stays, and the schedule has it.
+        case .failed?, .kept?, .notPending?, nil:
             // A note that did not go starts the schedule over, so a new note
             // is tried again in a minute and not at the end of an hour.
             startLoop(delayFirst: nil)
             return .queued
         }
+    }
+
+    /// The site just answered, so it is there: older notes that were waiting
+    /// for the schedule need not. The window waited as long before, when a
+    /// Send ran the older notes first.
+    private func sendTheRest() async {
+        guard await hasPending() else { return }
+        await drain(why: "after a send")
     }
 
     /// How many notes are waiting.
@@ -150,8 +190,9 @@ public actor FeedbackQueue {
         let finishing = loop?.task
         loop = nil
         await finishing?.value
-        running?.cancel()
-        await running?.value
+        let going = Array(deliveries.values)
+        for delivery in going { delivery.cancel() }
+        for delivery in going { await delivery.finished.value }
         if let outbox {
             do {
                 try await outbox.close()
@@ -207,48 +248,38 @@ public actor FeedbackQueue {
 
     // MARK: - Delivering
 
-    /// One run, alone. Whoever comes while another is going waits for it to
-    /// end and then runs: a note saved while the run went was not in it.
-    private func drain(why: String) async {
-        while let current = running {
-            waiting += 1
-            await current.value
-            waiting -= 1
-        }
-        guard let outbox = openOutbox() else { return }
-        let run = Task { [weak self] in
-            await self?.deliver(outbox, why: why)
-            await self?.runEnded()
-        }
-        running = run
-        await run.value
+    /// Runs `work` as a delivery the queue knows of, in a task of its own
+    /// that cancelling the caller (or a shutdown) cancels.
+    private func delivery<Result: Sendable>(_ work: @escaping @Sendable () async -> Result) async -> Result {
+        deliveryCount += 1
+        let id = deliveryCount
+        let task = Task { await work() }
+        deliveries[id] = Going(cancel: { task.cancel() }, finished: Task { _ = await task.value })
+        defer { deliveries[id] = nil }
+        return await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
     }
 
-    private func runEnded() { running = nil }
+    /// One run: what is queued, oldest first, until a note does not go.
+    private func drain(why: String) async {
+        guard let outbox = openOutbox() else { return }
+        await delivery { await self.deliver(outbox, why: why) }
+    }
 
     private func deliver(_ outbox: Outbox<FeedbackEntry>, why: String) async {
         do {
-            // Once more after dropping an unreadable note: it stopped the run
-            // it was in, and the notes behind it are not to wait a minute.
-            var dropped = true
-            while dropped {
-                dropped = false
-                let report = try await outbox.deliverPending { entry in try await self.attempt(entry) }
-                for failure in report.failed {
-                    // A note that no longer reads is not a note any try can send,
-                    // and left in front it would hold every later one.
-                    guard let error = failure.error as? StoreError, error.kind == .corrupt, failure.attempts == 0 else { continue }
-                    do {
-                        try await outbox.discard(failure.key)
-                        dropped = true
-                        Log.error("feedback: dropped a queued note that no longer reads")
-                    } catch {
-                        Log.error("feedback: could not drop an unreadable queued note", ["error": "\(error.kind)"])
-                    }
-                }
-                Log.info("feedback", ["run": why, "delivered": report.delivered.count,
-                                      "failed": report.failed.count, "pending": report.remaining])
+            let report = try await outbox.deliverPending { entry in try await self.attempt(entry) }
+            if report.wasAlreadyRunning {
+                // A Send is attending to its note, and will see to the rest.
+                Log.info("feedback", ["run": why, "skipped": "busy", "pending": report.remaining])
+                return
             }
+            for dropped in report.discarded where dropped.reason == .undecodable {
+                // A note that no longer reads is not a note any try can send.
+                Log.error("feedback: dropped a queued note that no longer reads")
+            }
+            Log.info("feedback", ["run": why, "delivered": report.delivered.count,
+                                  "refused": report.discarded.count, "failed": report.failed.count,
+                                  "pending": report.remaining])
         } catch is CancellationError {
             // Shut down mid-try: the note in flight is still queued.
         } catch {
@@ -258,10 +289,12 @@ public actor FeedbackQueue {
         }
     }
 
-    /// One try at one note. A refusal returns, as a delivery does, so the
-    /// outbox acknowledges it and the note leaves; only a note that may
-    /// still be sent throws, and is left pending.
-    private func attempt(_ entry: Outbox<FeedbackEntry>.Entry) async throws {
+    /// One try at one note, and what became of it: the site took it
+    /// (`.delivered`), read it and will never take it (`.discard`: a 400,
+    /// which is what it answers an empty or unreadable note, and the app
+    /// sends neither), or nothing is known to have happened (thrown, so the
+    /// outbox leaves it pending and the schedule tries again).
+    private nonisolated func attempt(_ entry: Outbox<FeedbackEntry>.Entry) async throws -> DeliveryResult {
         let outcome: FeedbackOutcome
         do {
             let response = try await client.send(entry.item.feedback.httpRequest, idempotencyKey: entry.key)
@@ -271,9 +304,12 @@ public actor FeedbackQueue {
         } catch {
             outcome = .classify(error)
         }
-        if watching.contains(entry.key) { outcomes[entry.key] = outcome }
         Log.info("feedback", ["outcome": outcome.word, "report": entry.item.feedback.diagnostics == nil ? "no" : "yes"])
-        if case .unsent(let reason) = outcome { throw Unsent(reason: reason) }
+        switch outcome {
+        case .delivered: return .delivered
+        case .refused: return .discard(reason: "refused")
+        case .unsent(let reason): throw Unsent(reason: reason)
+        }
     }
 
     // MARK: - The outbox
@@ -284,18 +320,16 @@ public actor FeedbackQueue {
     private func openOutbox() -> Outbox<FeedbackEntry>? {
         if let outbox { return outbox }
         do {
-            // Created by Stoic, which syncs the parent, then closed to everyone
-            // else: the files in it are 0o600 (OwnerOnlyFileSystem), and the
-            // data directory above is 0o700.
+            // Created by Stoic, which syncs the parent, closed to everyone
+            // else (`privateFileSystem`: files 0o600, directories 0o700).
             try fileSystem.createDirectory(directory.path)
-            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
             Paths.excludeFromBackup(directory)
             // The journal's own damage report is a count; a lost snapshot is
             // accepted (the notes it held are gone either way, and a queue
             // that refused to open would lose every note after them too).
             let opened = try Outbox<FeedbackEntry>.open(
                 at: directory.appendingPathComponent("outbox").path, codec: FeedbackEntry.codec,
-                fileSystem: OwnerOnlyFileSystem(fileSystem), policy: Self.policy,
+                fileSystem: fileSystem, policy: Self.policy,
                 journalOptions: .init(crossProcessLock: true, lostSnapshot: .acceptLoss))
             let report = opened.openReport
             if report.lostSnapshot || !report.corruption.isEmpty {

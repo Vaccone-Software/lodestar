@@ -31,7 +31,7 @@ let package = Package(
         // TODO(0.4.0): the pinned local checkout until Stoic 0.4.0 is tagged;
         // then `.package(url: "https://github.com/Vaccone-Software/stoic",
         // .upToNextMinor(from: "0.4.0"), traits: ["Crypto"])`.
-        .package(name: "stoic", path: "/Users/vac/Developer/stoic-for-lodestar", traits: ["Crypto"]),
+        .package(name: "stoic", path: "/Users/vac/Developer/stoic-next", traits: ["Crypto"]),
     ],
     targets: [
         // The AX layer every slice builds on. Its one dependency is Stoic,

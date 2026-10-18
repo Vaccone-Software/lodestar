@@ -4,7 +4,7 @@ import AppKit
 /// place there, panels present there. Pointer by default; keyboard focus
 /// as the configurable alternative (app.active-display).
 public enum ActivePolicy {
-    public enum Mode: String {
+    public enum Mode: String, CaseIterable, Sendable {
         case pointer
         case focus
     }

@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 
 public struct Config {
-    public enum Trigger: String {
+    public enum Trigger: String, CaseIterable, Sendable {
         case rightCommand = "right-command"
         case leftCommand = "left-command"
     }
@@ -51,7 +51,7 @@ public struct Config {
     /// international orange. An appearance setting may change how
     /// Lodestar looks to you, never what it asks of you; this is the
     /// only one that has passed that sentence.
-    public enum Accent: String, Equatable, Sendable { case system, orange }
+    public enum Accent: String, CaseIterable, Equatable, Sendable { case system, orange }
     public var accent = Accent.system
     /// Pixels per j/k/h/l press in scroll mode when smooth is off.
     public var scrollStep: CGFloat = 60

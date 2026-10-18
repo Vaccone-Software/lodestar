@@ -169,7 +169,7 @@ public final class ConfigApplyLedger: @unchecked Sendable {
     /// write that sets what it holds in memory): it has applied it. A writer
     /// that did reload has applied something newer already, and this finds
     /// the ledger past `change.old` and leaves it.
-    public func ownUpdate(_ change: SettingsChange<JSONValue>) {
+    public func ownUpdate(_ change: SettingsChange<ConfigFile>) {
         lock.lock()
         defer { lock.unlock() }
         guard var current = applied, current.value == change.old else { return }

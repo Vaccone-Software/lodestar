@@ -183,21 +183,12 @@ final class HardeningTests: XCTestCase {
     // MARK: - The settings window and the schema
 
     func testSettingsNumericBoundsAgreeWithTheSchema() {
-        func schemaBounds(at path: [String]) -> (min: Double, max: Double)? {
-            var node = Config.schema
-            for key in path {
-                guard case .table(let table, _) = node, let next = table[key] else { return nil }
-                node = next
-            }
-            guard case .number(let min, let max, _) = node else { return nil }
-            return (min, max)
-        }
         let rows = SettingsModel.catalog(config: Config(), machine: .init())
             .flatMap(\.rows)
         for (path, unitScale) in [("scroll.speed", 1.0), ("clipboard.max-size-mb", 1.0)] {
             guard let row = rows.first(where: { $0.path == path }),
                   case .number(_, let min, let max, _) = row.control,
-                  let schema = schemaBounds(at: path.split(separator: ".").map(String.init))
+                  let schema = ConfigSchemaWalk.bounds(at: path.split(separator: ".").map(String.init))
             else { return XCTFail("row or schema missing for \(path)") }
             XCTAssertEqual(Double(min) * unitScale, schema.min, "\(path) min drifted")
             XCTAssertEqual(Double(max) * unitScale, schema.max, "\(path) max drifted")

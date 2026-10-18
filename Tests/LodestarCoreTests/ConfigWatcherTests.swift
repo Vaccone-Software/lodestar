@@ -62,8 +62,7 @@ final class ConfigWatcherTests: XCTestCase {
     private func save(_ text: String) throws { try text.write(to: file, atomically: true, encoding: .utf8) } // a rename
     private func json(_ speed: Int) -> String { "{\n  \"scroll\": {\n    \"speed\": \(speed)\n  }\n}\n" }
     private func speed(_ store: ConfigStore.Store) -> Int? {
-        var ignored: [String] = []
-        return ConfigStore.tree(of: store.value, problems: &ignored).value(at: ["scroll", "speed"])?.int
+        Int(store.value.scroll.speed)
     }
 
     // MARK: - An edit made outside
@@ -95,7 +94,7 @@ final class ConfigWatcherTests: XCTestCase {
     /// A file that is not there yet is picked up when it is created.
     func testAFileCreatedLaterIsPickedUp() throws {
         let store = try start()
-        XCTAssertNil(speed(store))
+        XCTAssertEqual(speed(store), 1800, "the defaults, until there is a file")
         try save(json(2400))
         wait("the create") { arrivals == 1 }
         XCTAssertEqual(speed(store), 2400)
@@ -178,8 +177,7 @@ final class ConfigWatcherTests: XCTestCase {
         wait("the file's change") { arrivals == 1 }
         settle(0.2)
         XCTAssertEqual(arrivals, 1)
-        var ignored: [String] = []
-        let tree = ConfigStore.tree(of: store.value, problems: &ignored)
+        let tree = ConfigStore.tree(of: store.value)
         XCTAssertEqual(tree.value(at: ["graph", "s"]), .string("Slack"))
         XCTAssertEqual(tree.value(at: ["scroll", "speed"]), .int(2500))
     }
@@ -204,8 +202,12 @@ final class ConfigWatcherTests: XCTestCase {
 
     func testTheLedgerKnowsWhatWasApplied() {
         let ledger = ConfigApplyLedger()
-        let a = ConfigStore.Snapshot(value: ["scroll": ["speed": 1]], problem: nil)
-        let b = ConfigStore.Snapshot(value: ["scroll": ["speed": 2]], problem: nil)
+        func at(_ speed: Double) -> ConfigStore.Snapshot {
+            var file = ConfigFile()
+            file.scroll.speed = speed
+            return ConfigStore.Snapshot(value: file, problem: nil)
+        }
+        let a = at(1000), b = at(2000)
         XCTAssertTrue(ledger.needsApply(a), "nothing applied yet")
         ledger.didApply(a)
         XCTAssertFalse(ledger.needsApply(a))
@@ -214,7 +216,7 @@ final class ConfigWatcherTests: XCTestCase {
         ledger.ownUpdate(SettingsChange(old: a.value, new: b.value, cause: .update))
         XCTAssertFalse(ledger.needsApply(b))
         // A writer that reloaded has applied something newer: left alone.
-        let c = ConfigStore.Snapshot(value: ["scroll": ["speed": 3]], problem: nil)
+        let c = at(3000)
         ledger.didApply(c)
         ledger.ownUpdate(SettingsChange(old: a.value, new: b.value, cause: .update))
         XCTAssertFalse(ledger.needsApply(c))

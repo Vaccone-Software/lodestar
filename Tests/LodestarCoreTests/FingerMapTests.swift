@@ -219,6 +219,6 @@ final class FingerMapTests: XCTestCase {
 
     func testTheSchemaKnowsTheSectionAndValidatesItClean() throws {
         let root = try Json.parse(#"{"health": {"keyboards": {"kb": {"enter": "right thumb"}}}}"#)
-        XCTAssertEqual(ConfigSchema.validate(root, against: Config.schema), [])
+        XCTAssertEqual(ConfigFile.problems(in: root), [])
     }
 }

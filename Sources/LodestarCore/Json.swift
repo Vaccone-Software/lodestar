@@ -246,40 +246,7 @@ public enum Json {
         return out + "\""
     }
 
-    // MARK: - Sparse discipline
-
-    /// True when two values mean the same setting — numeric kinds compare
-    /// by value, so a hand-typed 1800.0 still prunes against 1800.
-    public static func equivalent(_ a: ConfigValue, _ b: ConfigValue) -> Bool {
-        if a == b { return true }
-        if let da = a.double, let db = b.double,
-           a.string == nil, b.string == nil, a.table == nil, b.table == nil,
-           a.bool == nil, b.bool == nil {
-            return da == db
-        }
-        return false
-    }
-
-    /// Drop every subtree that equals its default; empty tables vanish
-    /// (an empty section and an absent one are the same statement).
-    /// Unknown keys survive so validation can keep pointing at them.
-    public static func pruned(_ root: [String: ConfigValue],
-                              defaults: [String: ConfigValue]) -> [String: ConfigValue] {
-        var out: [String: ConfigValue] = [:]
-        for (key, value) in root {
-            guard let fallback = defaults[key] else {
-                if value.table?.isEmpty != true { out[key] = value }
-                continue
-            }
-            if case .table(let table) = value, case .table(let defaultTable) = fallback {
-                let kept = pruned(table, defaults: defaultTable)
-                if !kept.isEmpty { out[key] = .table(kept) }
-                continue
-            }
-            if !equivalent(value, fallback) { out[key] = value }
-        }
-        return out
-    }
+    // MARK: - The effective view
 
     /// The effective view: defaults with the file's deviations laid over
     /// them. Tables merge deep; scalars replace; unknown keys ride along.

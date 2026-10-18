@@ -377,7 +377,7 @@ public enum SettingsModel {
 
     public static func catalog(config: Config, machine: MachineState,
                                problems: [String] = []) -> [Section] {
-        let defaults = ConfigDefaults.tree
+        let defaults = ConfigFile.defaultTree
 
         /// The doctor's line for a config path, matched on its prefix —
         /// "web.routes.x: …" lands under the routes row.

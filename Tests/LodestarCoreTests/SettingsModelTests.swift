@@ -260,8 +260,7 @@ final class SettingsCoverageTests: XCTestCase {
     /// Leaves settings deliberately does not carry, each with its reason.
     /// The graph is edited where addressing happens — ⌘K and the file —
     /// and a third editor would be a product pretending to be a pane.
-    private static let exceptions: Set<String> = ["graph"]
-    private static let metadata: Set<String> = ["$schema", "version"]
+    private static let exceptions: Set<String> = ["graph.<key>"]
 
     func testEverySchemaLeafHasARow() {
         let sections = SettingsModel.catalog(config: Config(), machine: .init())
@@ -271,37 +270,13 @@ final class SettingsCoverageTests: XCTestCase {
                 covered.insert(row.path)
             }
         }
-        let declared = SchemaWalk.leafAddresses()
-            .subtracting(Self.metadata)
+        let declared = ConfigSchemaWalk.leafAddresses()
             .subtracting(Self.exceptions)
         let uncovered = declared.filter { leaf in
             !covered.contains(where: { leaf == $0 || leaf.hasPrefix($0 + ".") })
         }
         XCTAssertEqual(uncovered.sorted(), [],
                        "config leaves with no settings row — give them one or retire them")
-    }
-}
-
-/// Schema leaves as dotted addresses, free-table keys shown as `<key>`.
-enum SchemaWalk {
-    static func leafAddresses() -> Set<String> {
-        var out = Set<String>()
-        walk(Config.schema, at: [], into: &out)
-        return out
-    }
-
-    private static func walk(_ node: SchemaNode, at path: [String],
-                             into out: inout Set<String>) {
-        switch node {
-        case .table(let children, _):
-            for (name, child) in children {
-                walk(child, at: path + [name], into: &out)
-            }
-        case .freeTable:
-            out.insert((path + ["<key>"]).joined(separator: "."))
-        default:
-            out.insert(path.joined(separator: "."))
-        }
     }
 
     func testTheAccentIsTheOneAppearanceSettingAndLivesUnderGeneral() {

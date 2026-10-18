@@ -719,7 +719,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         }
         // A fact only the person can give (Born, Dominant hand) has no
         // default: resetting it is the line's absence.
-        guard let value = ConfigDefaults.tree.value(at: path) else {
+        guard let value = ConfigFile.defaultTree.value(at: path) else {
             writeEntries(remove: [path])
             return
         }
@@ -758,7 +758,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         }
         // Not set, for a key with no default, removes the line rather
         // than writing an empty string the schema refuses.
-        if chosen.isEmpty, ConfigDefaults.tree.value(at: row.path.split(separator: ".").map(String.init)) == nil {
+        if chosen.isEmpty, ConfigFile.defaultTree.value(at: row.path.split(separator: ".").map(String.init)) == nil {
             writeEntries(remove: [row.path.split(separator: ".").map(String.init)])
             return
         }

@@ -1,4 +1,5 @@
 import CoreGraphics
+import StoicJSON
 import XCTest
 @testable import LodestarCore
 
@@ -15,8 +16,8 @@ final class ConfigBuildTests: XCTestCase {
 
     // MARK: - Defaults
 
-    /// The invariant ConfigDefaults claims: an empty file yields exactly the
-    /// declared defaults. If the tree and the struct ever disagree, the tree
+    /// The invariant the schema's defaults claim: an empty file yields exactly the
+    /// declared defaults. If the schema and the struct ever disagree, the tree
     /// wins silently in production — so pin them together here.
     func testEmptyConfigMatchesTheDeclaredDefaults() throws {
         let (config, problems) = try build("{}")
@@ -244,16 +245,12 @@ final class ConfigBuildTests: XCTestCase {
     /// was told to write.
     func testRetiredInteractionSwitchesAreStrippedQuietly() throws {
         let root = try Json.parse(#"{"select": {"commit-on-unique": false, "copy-on-complete": true}, "guide": {"fade": false}}"#)
-        let normalized = ConfigDefaults.normalized(root)
-        XCTAssertNil(normalized["guide"], "the guide table is gone with its only key")
-        if case .table(let select)? = normalized["select"] {
-            XCTAssertNil(select["commit-on-unique"])
-            XCTAssertEqual(select["copy-on-complete"], .bool(true), "its neighbour survives")
-        } else {
-            XCTFail("the select table survives")
-        }
+        let normalized = ConfigFile.schema.normalized(ConfigStore.json(root))
+        XCTAssertNil(normalized.value(at: jsonPath("guide")), "the guide table is gone with its only key")
+        XCTAssertNil(normalized.value(at: jsonPath("select", "commit-on-unique")))
+        XCTAssertEqual(normalized.value(at: jsonPath("select", "copy-on-complete"))?.bool, true, "its neighbour survives")
         var problems: [String] = []
-        let config = Config.build(from: normalized, problems: &problems)
+        let config = Config.build(from: root, problems: &problems)
         XCTAssertTrue(problems.isEmpty, "\(problems)")
         XCTAssertTrue(config.selectCommitOnUnique, "the doctrine holds whatever the file said")
         XCTAssertTrue(config.guideFade)

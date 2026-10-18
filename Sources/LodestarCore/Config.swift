@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import StoicJSON
 
 public struct Config {
     public enum Trigger: String, CaseIterable, Sendable {
@@ -181,8 +182,8 @@ public struct Config {
     public var graph: GraphNode = GraphNode()
 
     /// All-defaults, and inert: `build` overwrites every field from the
-    /// merge, so this exists to make the type constructible, not to decide
-    /// anything. `ConfigDefaults.tree` is where a default is chosen.
+    /// `ConfigFile`, so this exists to make the type constructible, not to
+    /// decide anything. `ConfigFile` is where a default is chosen.
     public init() {}
 
     /// Merge in the profiles the machine actually has, so pickers and
@@ -206,122 +207,9 @@ public struct Config {
     /// copy here — which is exactly what happened twice.
     public static let reservedTopLevel: Set<String> = Gestures.reservedLetters
 
-    /// The schema: one table driving reload validation and the JSON Schema
-    /// editors read. Keep in lockstep with `parse` below.
-    public static let schema: SchemaNode = .table([
-        "$schema": .string(allowed: nil, description: "Editor affordance — points at the emitted lodestar-schema.json so LSP-aware editors validate and complete."),
-        "version": .string(allowed: nil, description: "The Lodestar release this config was written for."),
-        "lode": .table([
-            "trigger": .string(allowed: ["right-command", "left-command"],
-                               description: "The physical trigger for every gesture."),
-            "tap": .boolean(description: "A tap of lode arms the next key as a gesture, for one second, as if lode were held. Holding still works and is how the map appears."),
-        ], description: "The lode key."),
-        "app": .table([
-            "auto-update": .boolean(description: "Keep Lodestar current: check daily, verify the download, apply quietly when idle (installed app only)."),
-            "channel": .string(allowed: ["stable", "preview"],
-                               description: "Which releases updates follow. Stable takes a build once it has run on preview Macs for a few days. Preview takes every build as it ships."),
-            "sounds": .boolean(description: "Lodestar's own sounds, together: today the draft's note when the microphone is live and when the words land. The alert sound is the Mac's own setting."),
-            "start-at-login": .boolean(description: "Keep the login LaunchAgent installed (installed app only)."),
-            "show-menu-bar": .boolean(description: "Show the status item permanently; false hides it until lodestar is picked in the launcher."),
-            "active-display": .string(allowed: ["pointer", "focus"], description: "How the active display is chosen."),
-            "units": .string(allowed: ["", "metric", "imperial"],
-                             description: "The units a copied measurement is read into on its card. Empty follows your region."),
-        ], description: "App behavior."),
-        "appearance": .table([
-            "accent": .string(allowed: ["system", "orange"],
-                              description: "The colour of the cursor, lit letters, and the echoed query: the Mac's accent, or Lodestar's International Orange, set deeper in light mode so it stays readable."),
-        ], description: "How Lodestar looks. Never what it asks of you."),
-        "gestures": .table(
-            Dictionary(uniqueKeysWithValues: Gestures.roster.map {
-                ($0.name, SchemaNode.boolean(description: $0.about))
-            }),
-            description: "Every gesture, one switch each; false frees its keys to the app."),
-        "web": .table([
-            "fallback": .string(allowed: nil, description: "most-recent, or a profile as browser:name (brave:Work)."),
-            "search-url": .string(allowed: nil, description: "Search template; %s becomes the encoded query."),
-            "links": .freeTable(value: .table([
-                "url": .string(allowed: nil, description: "The site."),
-                "profile": .string(allowed: nil, description: "A profile as browser:name (omit to route)."),
-            ], description: "A named link."), description: "Named links."),
-            "routes": .freeTable(value: .string(allowed: nil, description: "A profile as browser:name (brave:Work)."),
-                                 description: "Substring pattern → profile; longest match wins."),
-            "clicks": .table([
-                "enabled": .boolean(description: "Route links clicked in other apps. Set by the menu-bar flow."),
-                "browser": .string(allowed: nil, description: "Bundle id links go to when no route matches (your previous default browser)."),
-            ], description: "Links clicked in other apps."),
-        ], description: "The web bar."),
-        "scroll": .table([
-            "smooth": .boolean(description: "Constant velocity while held; instant stop on release."),
-            "speed": .number(min: 200, max: 4000, description: "Smooth velocity, pixels per second."),
-            "step": .number(min: 10, max: 400, description: "Pixels per press when smooth is off."),
-        ], description: "Scroll mode."),
-        "select": .table([
-            "copy-on-complete": .boolean(description: "Copy a completed span to the clipboard the moment its second anchor lands."),
-        ], description: "Select mode."),
-        "meetings": .table([
-            "enabled": .boolean(description: "Offer the calendar's next meeting as a chip."),
-            "lead-minutes": .number(min: 0, max: 120,
-                                    description: "Minutes before the start the chip appears."),
-            "calendars": .freeTable(value: .string(allowed: nil,
-                                                   description: "The browser:name profile this calendar's meetings join in."),
-                                    description: "Calendar or account name → profile. Outranks web.routes for meetings."),
-        ], description: "Meetings at the door."),
-        "draft": .table([
-            "input": .string(allowed: nil, description: "The microphone the draft listens to, by its name in Sound settings. Empty follows the system default input."),
-            "words": .freeTable(value: .boolean(description: "true to keep this word in the draft's vocabulary."),
-                                description: "Word → true. Names and terms speech gets wrong; a settled result that sounds like one is written as it, case and all."),
-            "model": .string(allowed: ["", "apple", "standard", "full", "max"],
-                             description: "The models that hear what you said again and take out the words you take back: apple (Apple's recognizer only), standard (Parakeet and Gemma 4 E2B, 16 GB Macs and up), full (Qwen3-ASR and Gemma 4 E2B, 24 GB and up), max (Qwen3-ASR and Qwen3.6 35B, 64 GB and up). Empty picks the one this Mac suits and fetches it the first time you dictate."),
-        ], description: "The draft: lode . speaks, lode ⇧. revises."),
-        "editor": .table([
-            "enabled": .boolean(description: "Mark mistakes as you write; lode ⇥ letters the marks."),
-            "model": .string(allowed: ["", "spelling", "minimal", "standard", "full"],
-                             description: "How the editor reads: spelling (no model, any Mac), minimal (Apple's own model), standard (16 GB Macs and up) or full (64 GB and up). Empty picks the one this Mac suits; one this Mac cannot run falls back the same way."),
-            "language": .string(allowed: ["", "en_US", "en_GB", "en_CA", "en_AU", "en_NZ", "en_IN", "en_ZA", "en_SG"],
-                                description: "The spelling the editor holds you to. Empty follows the Mac's language and region."),
-            "skip-apps": .freeTable(value: .boolean(description: "true to never read fields in this app."),
-                                    description: "App name → true. Fields in these apps are never read."),
-        ], description: "The editor: marks under mistakes, lode ⇥ to fix."),
-        "clipboard": .table([
-            "enabled": .boolean(description: "⇧⌘V opens the clipboard strip. The one Lodestar binding outside the lode key, so it is also the one that can collide with an app; false gives ⇧⌘V back."),
-            "max-size-mb": .number(min: 10, max: 20_000, description: "Disk the clipboard history may claim; the oldest clips are dropped to stay under it. Pins are never dropped."),
-            "exclude-apps": .freeTable(value: .boolean(description: "true to never record clips copied from this app."),
-                                       description: "Bundle id → true. Nothing copied in these apps is ever written to disk."),
-            "save-to": .string(allowed: nil, description: "The folder an image saved from the clipboard strip lands in. A name typed with a slash in it, or starting with / or ~, chooses another place for that save."),
-            "exclude": .freeTable(value: .boolean(description: "true to never record clips containing this text."),
-                                  description: "Substring → true, matched case-insensitively against the clip. The same shape web.routes uses."),
-            "time-zones": .freeTable(value: .boolean(description: "true to read timestamps into this zone too."),
-                                     description: "Zone identifier (Asia/Tokyo) → true. A clip that is only a timestamp is read into your zone, UTC, and these."),
-        ], description: "Clipboard history."),
-        "observations": .table([
-            "logbook": .boolean(description: "Keep the logbook: how you move between apps, windows and gestures, on this machine only. Sites by name, never their pages, titles or what you type. The coach reads it."),
-            "logbook-mb": .number(min: Double(Retention.logbookMinimumMB), max: 4096, description: "Disk the logbook may claim. Once it is full the oldest months leave first; their monthly summaries stay."),
-            "health": .boolean(description: "Keep the health record: when each key goes down and how long it is held, by hand, finger and kind of key, and how the pointer moves. No key is stored, but the pattern can partly show what you typed, so it stays on this machine and is included in backups. Independent of the logbook."),
-            "health-mb": .number(min: Double(Retention.healthMinimumMB), max: 16_384, description: "The size Lodestar tells you the health record is nearing. Health is never deleted on its own."),
-        ], description: "What Lodestar observes, in two records with their own switches. Nothing leaves the machine."),
-        "coach": .table([
-            "enabled": .boolean(description: "Let Lodestar offer one improvement at a time, in quiet moments, priced in seconds."),
-            "stand": .boolean(description: "After a stretch of work with no break, a cue to walk for two minutes, at the next natural stopping point. Twice at most in a stretch."),
-            "stand-after": .number(min: 15, max: 120, description: "Minutes of unbroken work before the walk is due. The research supports thirty: two minutes of walking every twenty to thirty minutes."),
-        ], description: "The coach: rare, evidence-backed suggestions drawn from the observations."),
-        "health": .table([
-            "born": .string(allowed: nil, description: "The year you were born, four digits. Age is the first thing a reading of the hands is adjusted for. Optional."),
-            "hand": .string(allowed: ["left", "right", "either"], description: "The hand you write with. Fine motor signs are often one sided and the record keeps each hand apart. Optional."),
-            "keyboards": .freeTable(
-                value: .freeTable(
-                    value: .string(allowed: nil, description: "Where the key sits on this keyboard, as a side and a finger: right thumb, either thumb, left pinky."),
-                    description: "One keyboard's keys that sit somewhere other than standard, by name: left-shift, right-shift, left-control, right-control, left-option, right-option, left-command, right-command, fn, space, enter, backspace, tab, escape."),
-                description: "Keyboard id (vendor:product:hash, as the Keyboards page shows it) → the keys a split or custom board moves. Letters keep their columns everywhere and are never here."),
-            "exact-keyboards": .boolean(description: "Charge each press to the keyboard that sent it, by matching it to that keyboard's own report. Needs Input Monitoring. Off by default; without it a press two keyboards could have sent is charged to neither."),
-        ], description: "About you, for the health record. Local, optional, never sent."),
-        "keys": .freeTable(value: .string(allowed: nil, description: "The key name this keycode produces."),
-                           description: "Keycode → key-name overrides for non-ANSI layouts."),
-        "graph": .graph(description: "lode + letter chains → apps. Values: app name or <browser>:<profile name>."),
-    ], description: "lodestar configuration")
-
-    /// Every config write funnels here: the tree is normalized and pruned
-    /// sparse against the defaults (`ConfigStore.canonical`), and the store
-    /// stamps the schema pointer and the writing release and lays it out
+    /// Every config write funnels here: the tree is read as a `ConfigFile`
+    /// (strictly), and the store writes it sparse against the defaults, stamps
+    /// the schema pointer and the writing release and lays it out
     /// canonically — every writer, the same bytes.
     /// `to:` exists so tests can exercise the write path without touching
     /// the config of whoever is running them; every caller uses the default.
@@ -344,6 +232,9 @@ public struct Config {
     public enum EditError: Error, CustomStringConvertible {
         case unreadable(String)
         case unparsed(String)
+        /// The edit would make the file say what the schema refuses; nothing
+        /// was written. The detail is the problems, as `check` words them.
+        case invalid(String)
         /// Another process (the app, the CLI) held the config's lock for
         /// the whole wait.
         case busy(String)
@@ -355,6 +246,7 @@ public struct Config {
             switch self {
             case .unreadable(let name): return "could not read \(name)"
             case .unparsed(let detail): return "the config does not parse — \(detail)"
+            case .invalid(let detail): return "that would make the config invalid — \(detail)"
             case .busy(let detail): return "the config is being written by another process — \(detail)"
             case .storage(let detail): return "could not write the config — \(detail)"
             }
@@ -390,10 +282,12 @@ public struct Config {
     /// done. Nothing on a path that can run for long should call it there.
     ///
     /// `transform` runs under the lock, on the calling thread, on the tree
-    /// the file holds *now*. What the file changed (a comment, `hyper`, a
-    /// value equal to its default) is rewritten only when `transform` leaves
-    /// the tree different from what the file holds once it is normalized and
-    /// pruned: an edit that changes nothing writes nothing.
+    /// the file holds *now*: sparse, as the schema reads it (`hyper` is `lode`,
+    /// a value equal to its default is not there). What it returns is read
+    /// strictly, and refused (`EditError.invalid`, nothing written) if the
+    /// schema would not accept it. What the file holds that the schema does not
+    /// declare, and what it could not read, is not in the tree and is not lost:
+    /// the store puts it back. An edit that changes nothing writes nothing.
     ///
     /// `source` names who is writing, for the history (`ConfigHistoryRecorder`):
     /// "Settings", "Lodestar", "The coach"; nothing is recorded for an edit
@@ -418,10 +312,9 @@ public struct Config {
             // an update that changes the value), which is how the history
             // knows who wrote it.
             try store.blockingUpdate(waitingUpTo: .seconds(lockTimeout), source: source ?? "Lodestar") { value in
-                var ignored: [String] = []
-                let updated = try transform(ConfigStore.tree(of: value, problems: &ignored))
+                let updated = try transform(ConfigStore.tree(of: value))
+                value = try ConfigStore.file(from: updated)
                 result = updated
-                value = ConfigStore.canonical(updated)
             }
         } catch let error as ConfigStore.Store.UpdateError {
             if case .durabilityUnknown(let failure) = error {
@@ -446,8 +339,7 @@ public struct Config {
         guard let store = try? ConfigStore.store(at: source) else { return nil }
         try? store.reload()
         guard store.fileProblem == nil else { return nil }
-        var ignored: [String] = []
-        return ConfigStore.tree(of: store.value, problems: &ignored)
+        return ConfigStore.tree(of: store.value)
     }
 
     /// Load the config, or a fresh minimal file on a genuine first run.
@@ -499,126 +391,67 @@ public struct Config {
         // can only apply once too often, never miss an arrival.
         let problem = store.fileProblem
         let value = store.value
+        let issues = store.issues
         if let problem {
             problems.append(ConfigStore.sentence(for: problem, file: name,
                                                  keepingLastGood: store.source == .file))
         }
-        problems.append(contentsOf: ConfigStore.repeatedKeys(in: store.issues, file: name))
-        let root = ConfigStore.tree(of: value, problems: &problems)
-        return (build(from: root, problems: &problems), problems,
+        problems.append(contentsOf: ConfigStore.repeatedKeys(in: issues, file: name))
+        problems.append(contentsOf: ConfigFile.sentences(issues))
+        return (build(from: value, problems: &problems), problems,
                 ConfigStore.Snapshot(value: value, problem: problem))
     }
 
-    /// Build a Config from a parsed tree: the user's deviations are
-    /// validated as written, then read merged over ConfigDefaults.tree —
-    /// the single home of every default value.
+    /// Build a Config from a parsed tree, read as the schema reads a file:
+    /// leniently, its problems (what the store would have reported) added to
+    /// `problems`. The way a file's text that is not the config's own (a
+    /// preview's, a test's) becomes a `Config`.
     public static func build(from root: [String: ConfigValue], problems: inout [String]) -> Config {
-        var config = Config()
-        let root = ConfigDefaults.normalized(root)
-        problems.append(contentsOf: ConfigSchema.validate(root, against: schema))
-        let effective = Json.merged(defaults: ConfigDefaults.tree, overlay: root)
+        var root = root
+        root.removeValue(forKey: "$schema")
+        root.removeValue(forKey: "version")
+        let decoded = ConfigStore.schema.decode(ConfigStore.json(root), options: .lenient)
+        problems.append(contentsOf: ConfigFile.sentences(decoded.issues))
+        return build(from: decoded.value ?? ConfigFile(), problems: &problems)
+    }
 
-        if let sounds = effective.value(at: ["app", "sounds"])?.bool {
-            config.sounds = sounds
-        }
-        if let autoUpdate = effective.value(at: ["app", "auto-update"])?.bool {
-            config.autoUpdate = autoUpdate
-        }
-        if let channel = effective.value(at: ["app", "channel"])?.string {
-            if let parsed = Updater.Channel(rawValue: channel) {
-                config.channel = parsed
-            } else {
-                problems.append("unknown app.channel '\(channel)' — using stable")
-            }
-        }
-        if let startAtLogin = effective.value(at: ["app", "start-at-login"])?.bool {
-            config.startAtLogin = startAtLogin
-        }
-        if let showMenuBar = effective.value(at: ["app", "show-menu-bar"])?.bool {
-            config.showMenuBar = showMenuBar
-        }
-        if let units = effective.value(at: ["app", "units"])?.string {
-            config.units = ClipQuantity.System(rawValue: units) != nil ? units : ""
-        }
-        if let active = effective.value(at: ["app", "active-display"])?.string {
-            if let mode = ActivePolicy.Mode(rawValue: active) {
-                config.activeDisplayMode = mode
-            } else {
-                problems.append("unknown app.active-display '\(active)' — using pointer")
-            }
-        }
-        if let raw = effective.value(at: ["lode", "trigger"])?.string {
-            if let trigger = Trigger(rawValue: raw) {
-                config.trigger = trigger
-            } else {
-                problems.append("unknown lode.trigger '\(raw)' — using right-command")
-            }
-        }
-        if let tap = effective.value(at: ["lode", "tap"])?.bool {
-            config.lodeTap = tap
-        }
-        if let step = effective.value(at: ["scroll", "step"])?.double {
-            config.scrollStep = CGFloat(max(10, min(400, step)))
-        }
-        if let smooth = effective.value(at: ["scroll", "smooth"])?.bool {
-            config.scrollSmooth = smooth
-        }
-        if let speed = effective.value(at: ["scroll", "speed"])?.double {
-            config.scrollSpeed = CGFloat(max(200, min(4000, speed)))
-        }
-        if let copy = effective.value(at: ["select", "copy-on-complete"])?.bool {
-            config.selectCopyOnComplete = copy
-        }
-        if let enabled = effective.value(at: ["clipboard", "enabled"])?.bool {
-            config.clipboardEnabled = enabled
-        }
-        if let megabytes = effective.value(at: ["clipboard", "max-size-mb"])?.double {
-            config.clipboardMaxBytes = Int(max(10, min(20_000, megabytes)) * 1_000_000)
-        }
-        if let apps = effective.value(at: ["clipboard", "exclude-apps"])?.table {
-            config.clipboardExcludedApps = Set(apps.filter { $0.value.bool == true }.keys.map { $0.lowercased() })
-        }
-        if let folder = effective.value(at: ["clipboard", "save-to"])?.string {
-            let trimmed = folder.trimmingCharacters(in: .whitespaces)
-            if !trimmed.isEmpty { config.clipboardSaveFolder = trimmed }
-        }
-        if let patterns = effective.value(at: ["clipboard", "exclude"])?.table {
-            config.clipboardExcludePatterns = patterns.filter { $0.value.bool == true }.keys.sorted()
-        }
-        if let zones = effective.value(at: ["clipboard", "time-zones"])?.table {
-            config.clipboardTimeZones = zones.filter { $0.value.bool == true && TimeZone(identifier: $0.key) != nil }
-                .keys.sorted()
-        }
-        if let words = effective.value(at: ["draft", "words"])?.table {
-            config.draftWords = words.filter { $0.value.bool == true }.keys.sorted()
-        }
-        if let input = effective.value(at: ["draft", "input"])?.string {
-            config.draftInput = input.trimmingCharacters(in: .whitespaces)
-        }
-        if let model = effective.value(at: ["draft", "model"])?.string {
-            config.draftModel = model.trimmingCharacters(in: .whitespaces)
-        }
-        if let enabled = effective.value(at: ["editor", "enabled"])?.bool {
-            config.editorEnabled = enabled
-        }
-        if let model = effective.value(at: ["editor", "model"])?.string {
-            config.editorModel = model.trimmingCharacters(in: .whitespaces).lowercased()
-        }
-        if let language = effective.value(at: ["editor", "language"])?.string {
-            config.editorLanguage = EditorRegion.choices.contains { $0.code == language } ? language : ""
-        }
-        if let apps = effective.value(at: ["editor", "skip-apps"])?.table {
-            config.editorSkipApps = Set(apps.filter { $0.value.bool == true }.keys.map { $0.lowercased() })
-        }
-        if let gestures = effective.value(at: ["gestures"])?.table {
-            // Unknown names and non-boolean values are the schema walk's
-            // to report; here false just frees the verb's keys.
-            var toggles: [String: Bool] = [:]
-            for (name, value) in gestures {
-                if let enabled = value.bool { toggles[name] = enabled }
-            }
-            config.disabledGestures = Gestures.disabledKeys(from: toggles)
-        }
+    /// Build a Config from the file's value: the one place every option in the
+    /// file becomes behavior. What the schema decides (what is allowed, the
+    /// ranges, the defaults) is already decided; what is left is what only the
+    /// running app can say (a profile reference that must be one, a link that
+    /// needs its url, a browser that must not be us) and the shapes `Config`
+    /// holds (lowercased sets, canonical references, the graph).
+    public static func build(from file: ConfigFile, problems: inout [String]) -> Config {
+        var config = Config()
+        config.sounds = file.app.sounds
+        config.autoUpdate = file.app.autoUpdate
+        config.channel = file.app.channel
+        config.startAtLogin = file.app.startAtLogin
+        config.showMenuBar = file.app.showMenuBar
+        config.units = file.app.units
+        config.activeDisplayMode = file.app.activeDisplay
+        config.trigger = file.lode.trigger
+        config.lodeTap = file.lode.tap
+        config.scrollStep = CGFloat(file.scroll.step)
+        config.scrollSmooth = file.scroll.smooth
+        config.scrollSpeed = CGFloat(file.scroll.speed)
+        config.selectCopyOnComplete = file.select.copyOnComplete
+        config.clipboardEnabled = file.clipboard.enabled
+        config.clipboardMaxBytes = file.clipboard.maxSizeMB * 1_000_000
+        config.clipboardExcludedApps = Set(file.clipboard.excludeApps.filter(\.value).keys.map { $0.lowercased() })
+        let folder = file.clipboard.saveTo.trimmingCharacters(in: .whitespaces)
+        if !folder.isEmpty { config.clipboardSaveFolder = folder }
+        config.clipboardExcludePatterns = file.clipboard.exclude.filter(\.value).keys.sorted()
+        config.clipboardTimeZones = file.clipboard.timeZones
+            .filter { $0.value && TimeZone(identifier: $0.key) != nil }.keys.sorted()
+        config.draftWords = file.draft.words.filter(\.value).keys.sorted()
+        config.draftInput = file.draft.input.trimmingCharacters(in: .whitespaces)
+        config.draftModel = file.draft.model
+        config.editorEnabled = file.editor.enabled
+        config.editorModel = file.editor.model
+        config.editorLanguage = file.editor.language
+        config.editorSkipApps = Set(file.editor.skipApps.filter(\.value).keys.map { $0.lowercased() })
+        config.disabledGestures = file.gestures.disabledKeys
 
         /// A reference as written (`brave:Xonar`) becomes its canonical
         /// key, and the profile it names joins `browserProfiles` — the
@@ -637,131 +470,75 @@ public struct Config {
             return key
         }
 
-        if let fallback = effective.value(at: ["web", "fallback"])?.string {
-            if fallback.lowercased() == "most-recent" {
-                config.webFallback = "most-recent"
-            } else if let key = profileReference(fallback, at: "web.fallback") {
-                config.webFallback = key
+        if file.web.fallback.lowercased() == "most-recent" {
+            config.webFallback = "most-recent"
+        } else if let key = profileReference(file.web.fallback, at: "web.fallback") {
+            config.webFallback = key
+        }
+        config.webSearchURL = file.web.searchURL
+        for (name, link) in file.web.links.sorted(by: { $0.key < $1.key }) {
+            guard !link.url.isEmpty else {
+                problems.append("web.links.\(name) needs a url")
+                continue
+            }
+            let profileKey = link.profile.flatMap { profileReference($0, at: "web.links.\(name).profile") }
+            config.webLinks.append(WebLink(name: name.lowercased(), url: link.url, profileKey: profileKey))
+        }
+        for (code, name) in file.keys {
+            guard let keycode = Int64(code) else {
+                problems.append("keys.\(code): keycodes are numbers")
+                continue
+            }
+            guard Keys.isValidName(name) else {
+                problems.append("keys.\(code): unknown key name '\(name)'")
+                continue
+            }
+            config.keyOverrides[keycode] = name
+        }
+        config.meetingsEnabled = file.meetings.enabled
+        config.meetingsLeadMinutes = file.meetings.leadMinutes
+        for (name, profile) in file.meetings.calendars {
+            if let key = profileReference(profile, at: "meetings.calendars.\(name)") {
+                config.meetingsCalendars[name] = key
             }
         }
-        if let searchURL = effective.value(at: ["web", "search-url"])?.string {
-            config.webSearchURL = searchURL
-        }
-        if let links = effective.value(at: ["web", "links"])?.table {
-            for (name, value) in links.sorted(by: { $0.key < $1.key }) {
-                guard let table = value.table, let url = table["url"]?.string, !url.isEmpty else {
-                    problems.append("web.links.\(name) needs a url")
-                    continue
-                }
-                var profileKey: String?
-                if let profile = table["profile"]?.string {
-                    profileKey = profileReference(profile, at: "web.links.\(name).profile")
-                }
-                config.webLinks.append(WebLink(name: name.lowercased(), url: url, profileKey: profileKey))
+        for (pattern, profile) in file.web.routes {
+            if let key = profileReference(profile, at: "web.routes.\(pattern)") {
+                config.webRoutes[pattern.lowercased()] = key
             }
         }
-        if let keys = effective.value(at: ["keys"])?.table {
-            for (code, value) in keys {
-                guard let keycode = Int64(code) else {
-                    problems.append("keys.\(code): keycodes are numbers")
-                    continue
-                }
-                guard let name = value.string, Keys.isValidName(name) else {
-                    problems.append("keys.\(code): unknown key name '\(value.string ?? "?")'")
-                    continue
-                }
-                config.keyOverrides[keycode] = name
-            }
-        }
-        if let enabled = effective.value(at: ["meetings", "enabled"])?.bool {
-            config.meetingsEnabled = enabled
-        }
-        if let lead = effective.value(at: ["meetings", "lead-minutes"])?.double {
-            config.meetingsLeadMinutes = Int(max(0, min(120, lead)))
-        }
-        if let calendars = effective.value(at: ["meetings", "calendars"])?.table {
-            for (name, value) in calendars {
-                guard let profile = value.string else { continue }
-                if let key = profileReference(profile, at: "meetings.calendars.\(name)") {
-                    config.meetingsCalendars[name] = key
-                }
-            }
-        }
-        if let routes = effective.value(at: ["web", "routes"])?.table {
-            for (pattern, value) in routes {
-                guard let profile = value.string else { continue }
-                if let key = profileReference(profile, at: "web.routes.\(pattern)") {
-                    config.webRoutes[pattern.lowercased()] = key
-                }
-            }
-        }
-        if let megabytes = effective.value(at: ["observations", "logbook-mb"])?.double {
-            config.logbookBytes = Int64(max(Double(Retention.logbookMinimumMB), min(4096, megabytes))) << 20
-        }
-        if let megabytes = effective.value(at: ["observations", "health-mb"])?.double {
-            config.healthBytes = Int64(max(Double(Retention.healthMinimumMB), min(16_384, megabytes))) << 20
-        }
-        if let enabled = effective.value(at: ["observations", "logbook"])?.bool {
-            config.logbookEnabled = enabled
-        }
-        if let enabled = effective.value(at: ["observations", "health"])?.bool {
-            config.observationsHealth = enabled
-        }
-        if let enabled = effective.value(at: ["health", "exact-keyboards"])?.bool {
-            config.healthExactKeyboards = enabled
-        }
-        if let enabled = effective.value(at: ["coach", "enabled"])?.bool {
-            config.coachEnabled = enabled
-        }
-        if let enabled = effective.value(at: ["coach", "stand"])?.bool {
-            config.standEnabled = enabled
-        }
-        if let minutes = effective.value(at: ["coach", "stand-after"])?.double {
-            config.standAfterMinutes = Int(min(120, max(15, minutes.rounded())))
-        }
-        if let born = effective.value(at: ["health", "born"])?.string {
+        config.logbookBytes = Int64(file.observations.logbookMB) << 20
+        config.healthBytes = Int64(file.observations.healthMB) << 20
+        config.logbookEnabled = file.observations.logbook
+        config.observationsHealth = file.observations.health
+        config.healthExactKeyboards = file.health.exactKeyboards
+        config.coachEnabled = file.coach.enabled
+        config.standEnabled = file.coach.stand
+        config.standAfterMinutes = file.coach.standAfter
+        if let born = file.health.born {
             let digits = born.trimmingCharacters(in: .whitespaces)
             if digits.count == 4, let year = Int(digits), (1900...2100).contains(year) {
                 config.healthBorn = year
             }
         }
-        if let hand = effective.value(at: ["health", "hand"])?.string,
-           ["left", "right", "either"].contains(hand) {
-            config.healthHand = hand
-        }
-        if let keyboards = effective.value(at: ["health", "keyboards"])?.table {
-            for (id, value) in keyboards {
-                guard let keys = value.table else {
-                    problems.append("health.keyboards.\(id): a keyboard is a section of keys")
+        config.healthHand = file.health.hand ?? ""
+        for (id, keys) in file.health.keyboards {
+            for (name, placed) in keys {
+                guard let key = Keys.SpecialKey(rawValue: name) else {
+                    let known = Keys.SpecialKey.allCases.map(\.rawValue).joined(separator: ", ")
+                    problems.append("health.keyboards.\(id).\(name): unknown key — one of \(known)")
                     continue
                 }
-                for (name, placed) in keys {
-                    guard let key = Keys.SpecialKey(rawValue: name) else {
-                        let known = Keys.SpecialKey.allCases.map(\.rawValue).joined(separator: ", ")
-                        problems.append("health.keyboards.\(id).\(name): unknown key — one of \(known)")
-                        continue
-                    }
-                    guard let text = placed.string, let placement = FingerMap.Placement(parsing: text) else {
-                        problems.append("health.keyboards.\(id).\(name): a side and a finger, like 'right thumb'")
-                        continue
-                    }
-                    config.fingerMap.keyboards[id, default: [:]][key] = placement
+                guard let placement = FingerMap.Placement(parsing: placed) else {
+                    problems.append("health.keyboards.\(id).\(name): a side and a finger, like 'right thumb'")
+                    continue
                 }
+                config.fingerMap.keyboards[id, default: [:]][key] = placement
             }
         }
-        if let accent = effective.value(at: ["appearance", "accent"])?.string {
-            if let chosen = Config.Accent(rawValue: accent) {
-                config.accent = chosen
-            } else {
-                problems.append("unknown appearance.accent '\(accent)' — using system")
-            }
-        }
-        if let enabled = effective.value(at: ["web", "clicks", "enabled"])?.bool {
-            config.webHandleClicks = enabled
-        }
-        if let browser = effective.value(at: ["web", "clicks", "browser"])?.string {
-            config.webClickBrowser = browser
-        }
+        config.accent = file.appearance.accent
+        config.webHandleClicks = file.web.clicks.enabled
+        config.webClickBrowser = file.web.clicks.browser
         // Naming ourselves is the one answer that cannot be obeyed: macOS
         // hands us the link because we hold the http role, so handing it back
         // to ourselves is a closed circuit that re-activates Lodestar every
@@ -780,7 +557,12 @@ public struct Config {
             problems.append("web.clicks.enabled is on but web.clicks.browser is empty — unrouted links have nowhere to go")
         }
 
-        if let graphTable = effective.value(at: ["graph"])?.table {
+        // The graph is the file's own JSON, checked here: its problems are the
+        // graph's (a list, a value that is neither an app nor a block).
+        let graph = JSONValue.object(JSONObject([JSONObject.Member(key: "graph", value: file.graph)]))
+        if file.graph.object == nil {
+            problems.append("graph should be a block of letters, each an app name or a block of its own")
+        } else if let graphTable = Json.tree(of: graph, problems: &problems)?["graph"]?.table {
             config.graph = GraphNode.build(from: graphTable, path: "", problems: &problems)
             for key in config.graph.children.keys where reservedTopLevel.contains(key) {
                 problems.append("graph uses reserved first letter '\(key)' — ignored")

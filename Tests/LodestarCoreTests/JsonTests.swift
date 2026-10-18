@@ -77,36 +77,10 @@ final class JsonTests: XCTestCase {
         XCTAssertEqual(once, twice)
     }
 
-    // MARK: - Sparse pruning
-
-    func testPrunesDefaultsAndEmptyTables() {
-        let pruned = Json.pruned([
-            "lode": .table(["trigger": .string("right-command")]),
-            "scroll": .table(["speed": .int(2200), "smooth": .bool(true)]),
-            "gestures": .table(["scroll": .bool(false), "hints": .bool(true)]),
-            "web": .table(["links": .table([:])]),
-            "graph": .table(["g": .string("Ghostty")]),
-        ], defaults: ConfigDefaults.tree)
-        XCTAssertNil(pruned["lode"])
-        XCTAssertEqual(pruned["scroll"], .table(["speed": .int(2200)]))
-        XCTAssertEqual(pruned["gestures"], .table(["scroll": .bool(false)]))
-        XCTAssertNil(pruned["web"]) // an empty table says nothing
-        XCTAssertEqual(pruned["graph"], .table(["g": .string("Ghostty")]))
-    }
-
-    func testPruningComparesNumbersByValueAndKeepsUnknownKeys() {
-        let pruned = Json.pruned([
-            "scroll": .table(["speed": .double(1800.0)]),
-            "mystery": .string("kept for validation to flag"),
-        ], defaults: ConfigDefaults.tree)
-        XCTAssertNil(pruned["scroll"])
-        XCTAssertEqual(pruned["mystery"], .string("kept for validation to flag"))
-    }
-
     // MARK: - Merge
 
     func testMergeOverlaysDeepAndCarriesUnknowns() {
-        let merged = Json.merged(defaults: ConfigDefaults.tree, overlay: [
+        let merged = Json.merged(defaults: ConfigFile.defaultTree, overlay: [
             "scroll": .table(["speed": .int(2200)]),
             "graph": .table(["g": .string("Ghostty")]),
             "mystery": .bool(true),
@@ -116,14 +90,6 @@ final class JsonTests: XCTestCase {
         XCTAssertEqual(merged["graph"]?.table?["g"], .string("Ghostty"))
         XCTAssertEqual(merged["mystery"], .bool(true))
         XCTAssertEqual(merged["clipboard"]?.table?["max-size-mb"], .int(500))
-    }
-
-    /// The drift guard: defaults emitted, parsed, and pruned against
-    /// themselves must vanish entirely — if ConfigDefaults.tree ever
-    /// disagrees with itself through the round trip, this breaks.
-    func testDefaultsRoundTripPrunesToNothing() throws {
-        let reparsed = try Json.parse(Json.emit(ConfigDefaults.tree))
-        XCTAssertTrue(Json.pruned(reparsed, defaults: ConfigDefaults.tree).isEmpty)
     }
 
     // MARK: - Dotted-path edits
@@ -152,41 +118,6 @@ final class JsonTests: XCTestCase {
                        .blocked("web.fallback"))
         XCTAssertEqual(Json.removing(tree, path: ["web", "missing"]), .absent)
         XCTAssertEqual(Json.removing(tree, path: ["nope", "at", "all"]), .absent)
-    }
-
-    // MARK: - The sparse shape
-
-    /// A config of the real shape prunes to exactly the user's intent —
-    /// defaults gone, customizations intact. This is what every write
-    /// funnels through, so the shape it lands in is the file's contract.
-    func testFullConfigPrunesToSparseIntent() throws {
-        let text = """
-        {
-          "$schema": "lodestar-schema.json",
-          "version": "0.9.7",
-          "hyper": {"trigger": "right-command"},
-          "gestures": {"searcher": true, "scroll": true},
-          "app": {"auto-reload": false, "auto-update": true},
-          "profiles": {"brave": {"default": "Default", "work": "Work"}},
-          "graph": {"b": {"x": "brave:work"}, "g": "Ghostty"},
-          "web": {
-            "fallback": "most-recent",
-            "search-url": "https://search.brave.com/search?q=%s",
-            "links": null,
-            "routes": null
-          },
-          "scroll": {"smooth": true, "speed": 2200, "step": 60}
-        }
-        """
-        var root = try Json.parse(text)
-        root.removeValue(forKey: "version")
-        root.removeValue(forKey: "$schema")
-        let sparse = Json.pruned(ConfigDefaults.normalized(root), defaults: ConfigDefaults.tree)
-        XCTAssertEqual(Set(sparse.keys), ["graph", "scroll"])
-        XCTAssertEqual(sparse["scroll"], .table(["speed": .int(2200)]))
-        XCTAssertEqual(sparse["graph"]?.table?["g"], .string("Ghostty"))
-        // The retired registry translated its reference on the way out.
-        XCTAssertEqual(sparse["graph"]?.table?["b"]?.table?["x"], .string("brave:Work"))
     }
 
     // MARK: - Values this config cannot hold
@@ -270,31 +201,6 @@ final class JsonTests: XCTestCase {
         let root = try Json.parse(#"{"web": {"links": null}}"#, problems: &problems)
         XCTAssertNil(root.value(at: ["web", "links"]))
         XCTAssertEqual(problems, [])
-    }
-
-    /// Pre-0.9.11 files named the lode key "hyper" — the old section reads
-    /// as the new. The raw-hyper value itself retired in 0.22 and folds
-    /// into the default, so after pruning nothing remains of either.
-    func testLegacyHyperSectionReadsAsLode() {
-        let normalized = ConfigDefaults.normalized(["hyper": .table(["trigger": .string("raw-hyper")])])
-        XCTAssertNil(normalized["hyper"])
-        XCTAssertEqual(normalized["lode"]?.table?["trigger"], .string("right-command"))
-        let sparse = Json.pruned(normalized, defaults: ConfigDefaults.tree)
-        XCTAssertNil(sparse["lode"]?.table?["trigger"])
-        // A lode section already present wins; the stray legacy one is dropped.
-        let both = ConfigDefaults.normalized([
-            "hyper": .table(["trigger": .string("raw-hyper")]),
-            "lode": .table(["trigger": .string("right-command")]),
-        ])
-        XCTAssertEqual(both["lode"]?.table?["trigger"], .string("right-command"))
-    }
-
-    /// The register renamed; the switch survives under the new word.
-    func testLegacyMenuSearchToggleReadsAsCommands() {
-        let normalized = ConfigDefaults.normalized(
-            ["gestures": .table(["menu-search": .bool(false)])])
-        XCTAssertEqual(normalized["gestures"]?.table?["commands"], .bool(false))
-        XCTAssertNil(normalized["gestures"]?.table?["menu-search"])
     }
 
     // MARK: - Entry edits

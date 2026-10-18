@@ -82,11 +82,9 @@ enum ConfigDoctor {
     }
 
     /// Write the editor-facing JSON Schema next to the config, generated
-    /// from the same table that validates reloads — they cannot drift.
+    /// from the same schema that validates reloads — they cannot drift.
     static func emitSchema() {
-        let json = ConfigSchema.jsonSchema(for: Config.schema, title: "lodestar configuration")
-        guard let data = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]) else { return }
-        try? data.write(to: Config.directory.appendingPathComponent("lodestar-schema.json"))
+        try? Data(ConfigFile.jsonSchemaText().utf8).write(to: Config.directory.appendingPathComponent("lodestar-schema.json"))
     }
 
     // MARK: - Walks
@@ -312,15 +310,6 @@ func runConfigVerb(_ arguments: [String]) -> Never {
     func userTree() -> [String: ConfigValue]? {
         Config.userTree()
     }
-    /// Reads serve the tree as `build` would see it: the parse-time
-    /// migrations applied, so `config get` never hands back a value the
-    /// current release would refuse to be given.
-    func options(_ tree: [String: ConfigValue]) -> [String: ConfigValue] {
-        var out = ConfigDefaults.normalized(tree)
-        out.removeValue(forKey: "$schema")
-        out.removeValue(forKey: "version")
-        return out
-    }
     func signalRunningInstance() {
         let pidPath = Paths.pidFile
         if let raw = try? String(contentsOf: pidPath, encoding: .utf8),
@@ -338,7 +327,7 @@ func runConfigVerb(_ arguments: [String]) -> Never {
 
     switch arguments.first {
     case nil:
-        print(Json.emit(Json.merged(defaults: ConfigDefaults.tree, overlay: options(tree))), terminator: "")
+        print(Json.emit(Json.merged(defaults: ConfigFile.defaultTree, overlay: tree)), terminator: "")
         exit(0)
 
     case "get":
@@ -346,9 +335,8 @@ func runConfigVerb(_ arguments: [String]) -> Never {
             print("usage: lodestar config get <dotted.path>")
             exit(64)
         }
-        let path = ConfigSchema.path(for: arguments[1], in: Config.schema)
-        let effective = Json.merged(defaults: ConfigDefaults.tree, overlay: options(tree))
-        guard let value = effective.value(at: path) else {
+        let effective = Json.merged(defaults: ConfigFile.defaultTree, overlay: tree)
+        guard let path = ConfigFile.path(forAddress: arguments[1]), let value = effective.value(at: path) else {
             print("✕ nothing at \(arguments[1])")
             exit(1)
         }
@@ -371,7 +359,10 @@ func runConfigVerb(_ arguments: [String]) -> Never {
                 print("usage: lodestar config set <dotted.path> <value>")
                 exit(64)
             }
-            let path = ConfigSchema.path(for: arguments[1], in: Config.schema)
+            guard let path = ConfigFile.path(forAddress: arguments[1]) else {
+                print("✕ \(arguments[1]) is not an address")
+                exit(64)
+            }
             guard let next = Json.setting(current, path: path, to: Json.parseFragment(arguments[2])) else {
                 print("✕ a value already sits on that path — unset it first")
                 exit(1)
@@ -385,7 +376,10 @@ func runConfigVerb(_ arguments: [String]) -> Never {
                 print("usage: lodestar config unset <dotted.path>")
                 exit(64)
             }
-            let path = ConfigSchema.path(for: arguments[1], in: Config.schema)
+            guard let path = ConfigFile.path(forAddress: arguments[1]) else {
+                print("✕ \(arguments[1]) is not an address")
+                exit(64)
+            }
             switch Json.removing(current, path: path) {
             case .removed(let next):
                 updated = next
@@ -406,8 +400,8 @@ func runConfigVerb(_ arguments: [String]) -> Never {
         }
         // Refuse any write that introduces a problem the file didn't
         // already have; pre-existing complaints stay the user's business.
-        let before = ConfigSchema.validate(options(current), against: Config.schema)
-        let after = ConfigSchema.validate(options(updated), against: Config.schema)
+        let before = ConfigFile.problems(in: current)
+        let after = ConfigFile.problems(in: updated)
         let introduced = after.filter { !before.contains($0) }
         guard introduced.isEmpty else {
             for problem in introduced { print("✕ \(problem)") }

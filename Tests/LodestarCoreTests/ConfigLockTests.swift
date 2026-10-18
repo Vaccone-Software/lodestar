@@ -27,9 +27,7 @@ final class ConfigLockTests: XCTestCase {
                 for n in 0..<3 {
                     do {
                         try Config.edit(in: self.file, lockTimeout: 30) { tree in
-                            var tree = tree
-                            tree["k\(writer)-\(n)"] = .string("v")
-                            return tree
+                            Json.setting(tree, path: ["graph", "k\(writer)\(n)"], to: .string("v"))!
                         }
                     } catch {
                         failures.lock(); errors.append(error); failures.unlock()
@@ -41,12 +39,12 @@ final class ConfigLockTests: XCTestCase {
         XCTAssertTrue(errors.isEmpty, "\(errors)")
         let tree = try Json.parse(String(contentsOf: file, encoding: .utf8))
         for writer in 0..<4 { for n in 0..<3 {
-            XCTAssertNotNil(tree["k\(writer)-\(n)"], "k\(writer)-\(n) was lost to another writer")
+            XCTAssertNotNil(tree.value(at: ["graph", "k\(writer)\(n)"]), "k\(writer)\(n) was lost to another writer")
         } }
     }
 
     func testAHeldLockIsReportedAfterTheBoundedWaitAndTheFileIsUntouched() throws {
-        try Config.edit(in: file) { _ in ["a": .string("1")] }
+        try Config.edit(in: file) { _ in ["graph": .table(["a": .string("1")])] }
         let before = try Data(contentsOf: file)
         // Another process holding the lock: flock on the same sidecar.
         let held = open(file.path + ".lock", O_RDWR | O_CREAT, 0o600)
@@ -67,7 +65,7 @@ final class ConfigLockTests: XCTestCase {
     func testTheLockIsReleasedAfterAnEditAndAfterAThrowingOne() throws {
         struct Nope: Error {}
         XCTAssertThrowsError(try Config.edit(in: file) { _ in throw Nope() })
-        try Config.edit(in: file, lockTimeout: 0.1) { _ in ["a": .string("1")] }
+        try Config.edit(in: file, lockTimeout: 0.1) { _ in ["graph": .table(["a": .string("1")])] }
         try Config.edit(in: file, lockTimeout: 0.1) { $0 }
     }
 

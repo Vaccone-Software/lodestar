@@ -30,7 +30,7 @@ import StoicSettings
 public final class ConfigHistoryRecorder: @unchecked Sendable {
     /// What was recorded for one change.
     public struct Recorded: Sendable {
-        public let change: SettingsChange<JSONValue>
+        public let change: SettingsChange<ConfigFile>
         public let source: String
         public let group: Int
         public let entries: [ConfigHistory.Entry]
@@ -82,7 +82,7 @@ public final class ConfigHistoryRecorder: @unchecked Sendable {
     }
 
     /// Who made `change`.
-    func source(of change: SettingsChange<JSONValue>) -> String {
+    func source(of change: SettingsChange<ConfigFile>) -> String {
         switch change.cause {
         case .update:
             return change.source ?? "Lodestar"
@@ -96,11 +96,10 @@ public final class ConfigHistoryRecorder: @unchecked Sendable {
     /// Writes the entries for one change, if it changed anything this config
     /// can hold (a list or a null the tree drops is not a change of it).
     @discardableResult
-    func record(_ change: SettingsChange<JSONValue>) -> Recorded? {
+    func record(_ change: SettingsChange<ConfigFile>) -> Recorded? {
         let source = source(of: change)
-        var ignored: [String] = []
-        let leaves = ConfigHistory.changes(from: ConfigStore.tree(of: change.old, problems: &ignored),
-                                           to: ConfigStore.tree(of: change.new, problems: &ignored))
+        let leaves = ConfigHistory.changes(from: ConfigStore.tree(of: change.old),
+                                           to: ConfigStore.tree(of: change.new))
         guard !leaves.isEmpty else { return nil }
         let at = now()
         let group = nextGroup(at: at)

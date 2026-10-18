@@ -47,7 +47,7 @@ final class ConfigStoreTests: XCTestCase {
                 ]),
                 "routes": .table(["github.com": .string("brave:Work"), "news.ycombinator.com": .string("brave:Home")]),
             ]),
-            "scroll": .table(["speed": .int(2200), "step": .double(0.4)]),
+            "scroll": .table(["speed": .int(2200), "step": .double(45.5)]),
             "select": .table(["hold": .double(0.35)]),
             "meetings": .table(["enabled": .bool(true), "calendars": .table(["Work": .string("brave:Work")])]),
             "clipboard": .table(["max-size-mb": .int(900), "exclude-apps": .table(["com.1password.1password": .bool(true)])]),
@@ -79,7 +79,7 @@ final class ConfigStoreTests: XCTestCase {
         }
         XCTAssertNotEqual(onDisk, original)
         var changed = realistic
-        changed["scroll"] = .table(["speed": .int(2400), "step": .double(0.4)])
+        changed["scroll"] = .table(["speed": .int(2400), "step": .double(45.5)])
         XCTAssertEqual(onDisk, stamped(changed), "one change, the bytes the old emitter wrote for it")
         try Config.edit(in: file) { tree in
             Json.setting(tree, path: ["scroll", "speed"], to: .int(2200))!
@@ -92,13 +92,17 @@ final class ConfigStoreTests: XCTestCase {
     /// order a person reads them, then what nothing declares; every nested
     /// table alphabetical; a two-space indent; a final newline.
     func testTheBytesAreThePinnedCanonicalFile() throws {
-        try Config.write(tree: [
-            "graph": .table(["g": .string("Ghostty"), "b": .table(["x": .string("brave:Work")])]),
-            "scroll": .table(["speed": .int(2200)]),
-            "zebra": .bool(true),
-            "lode": .table(["trigger": .string("left-command")]),
-            "web": .table(["routes": .table(["b.com": .string("brave:B"), "a.com": .string("brave:A")])]),
-        ], to: file)
+        // Out of order, with a key nothing declares: the write has the order
+        // the file is read in, and the key nothing declares last.
+        try write("""
+        {
+          "zebra": true,
+          "web": {"routes": {"b.com": "brave:B", "a.com": "brave:A"}},
+          "lode": {"trigger": "left-command"},
+          "graph": {"g": "Ghostty", "b": {"x": "brave:Work"}}
+        }
+        """)
+        try Config.edit(in: file) { Json.setting($0, path: ["scroll", "speed"], to: .int(2200))! }
         XCTAssertEqual(onDisk, """
         {
           "$schema": "lodestar-schema.json",
@@ -198,10 +202,8 @@ final class ConfigStoreTests: XCTestCase {
         for n in 0..<3 {
             try Config.edit(in: file) { Json.setting($0, path: ["graph", "a\(n)"], to: .string("A"))! }
             try other.blockingUpdate(waitingUpTo: .seconds(2)) { value in
-                var ignored: [String] = []
-                var tree = ConfigStore.tree(of: value, problems: &ignored)
-                tree = Json.setting(tree, path: ["graph", "b\(n)"], to: .string("B"))!
-                value = ConfigStore.canonical(tree)
+                let tree = Json.setting(ConfigStore.tree(of: value), path: ["graph", "b\(n)"], to: .string("B"))!
+                value = try ConfigStore.file(from: tree)
             }
         }
         let tree = try Json.parse(onDisk)
@@ -371,26 +373,12 @@ final class ConfigStoreTests: XCTestCase {
 }
 
 extension ConfigStoreTests {
-    /// Numbers a config can hold are spelt as before; only the exponent forms
-    /// of numbers no option can take (the widest range is 16384) differ:
-    /// Stoic writes RFC 8785's shortest form where Swift's description used an
-    /// exponent.
+    /// Numbers a config can hold are spelt as before.
     func testNumbersAreSpeltAsBefore() throws {
-        for value in [0.4, 0.35, 0.7, 2.5, 1800.0, 16384.0, 0.05, 1.0 / 3.0, 100.5] {
+        for value in [10.5, 45.25, 60.1, 100.5, 399.9, 123.456, 200.0 / 3.0] {
             try Config.edit(in: file) { Json.setting($0, path: ["scroll", "step"], to: .double(value))! }
-            let now = onDisk
             let old = stamped(["scroll": .table(["step": .double(value)])])
-            XCTAssertEqual(now, old, "\(value)")
+            XCTAssertEqual(onDisk, old, "\(value)")
         }
-        // The two forms that differ, and that no option takes: 1e-05 and
-        // 1.5e+20 before, 0.00001 and 150000000000000000000 now. Both read
-        // back as the same number.
-        try Config.edit(in: file) { Json.setting($0, path: ["scroll", "step"], to: .double(0.00001))! }
-        XCTAssertTrue(onDisk.contains("\"step\": 0.00001\n"), onDisk)
-        XCTAssertEqual(Json.emitFragment(.double(0.00001)), "1e-05")
-        XCTAssertEqual(try Json.parse(onDisk).value(at: ["scroll", "step"])?.double, 0.00001)
-        try Config.edit(in: file) { Json.setting($0, path: ["scroll", "step"], to: .double(1.5e20))! }
-        XCTAssertTrue(onDisk.contains("\"step\": 150000000000000000000\n"), onDisk)
-        XCTAssertEqual(try Json.parse(onDisk).value(at: ["scroll", "step"])?.double, 1.5e20)
     }
 }

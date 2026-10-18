@@ -69,7 +69,7 @@ final class WebJsonEditorTests: XCTestCase {
         let out = try WebJsonEditor.addingRoute(pattern: "X.com", profileKey: "personal",
                                                 in: base)
         XCTAssertEqual(out["web"]?.table?["routes"]?.table?["x.com"], .string("personal"))
-        XCTAssertEqual(ConfigSchema.validate(out, against: Config.schema), [])
+        XCTAssertEqual(ConfigFile.problems(in: out), [])
         XCTAssertThrowsError(try WebJsonEditor.addingRoute(pattern: "x.com",
                                                            profileKey: "work", in: out)) {
             XCTAssertEqual($0 as? WebJsonEditor.EditError,
@@ -142,7 +142,7 @@ final class WebJsonEditorTests: XCTestCase {
         // to survive the validation every reload runs.
         let out = try WebJsonEditor.addingLink(name: "acme", url: "app.acme.dev",
                                                profileKey: "work", in: base)
-        XCTAssertEqual(ConfigSchema.validate(out, against: Config.schema), [])
+        XCTAssertEqual(ConfigFile.problems(in: out), [])
     }
 
     func testNormalizesNamesToTheGrammarTheyAreTypedIn() {

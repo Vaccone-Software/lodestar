@@ -1,3 +1,4 @@
+import StoicJSON
 import XCTest
 @testable import LodestarCore
 
@@ -19,18 +20,14 @@ final class ConfigCoverageTests: XCTestCase {
     /// Some leaves only validate against others — a web route names a
     /// profile that has to exist — so a probe may carry the context its
     /// leaf needs to be legal.
-    private struct Probe {
+    struct Probe {
         let path: [String]
         let value: ConfigValue
         var context: [String: ConfigValue] = [:]
         let landed: (Config) -> Bool
     }
 
-    /// Metadata `build` is right to ignore: both are stamped by `write`
-    /// and carry nothing the running app reads.
-    private static let metadata: Set<String> = ["$schema", "version"]
-
-    private static let probes: [Probe] = [
+    static let probes: [Probe] = [
         Probe(path: ["lode", "trigger"], value: .string("left-command")) { $0.trigger == .leftCommand },
         Probe(path: ["lode", "tap"], value: .bool(false)) { !$0.lodeTap },
         Probe(path: ["app", "active-display"], value: .string("focus")) { $0.activeDisplayMode == .focus },
@@ -144,9 +141,8 @@ final class ConfigCoverageTests: XCTestCase {
     /// Every addressable leaf in the schema has a probe. A new config
     /// option that nobody wired into `build` fails here.
     func testEverySchemaLeafIsCovered() {
-        let declared = Self.leafPaths(of: Config.schema, at: [])
-            .subtracting(Self.metadata)
-        let probed = Set(Self.probes.map { Self.address($0.path) })
+        let declared = ConfigSchemaWalk.leafAddresses()
+        let probed = Set(Self.probes.map { ConfigSchemaWalk.address(of: $0.path) })
         XCTAssertEqual(declared.subtracting(probed), [],
                        "schema leaves with no probe — wire them into Config.build, then add a case here")
         XCTAssertEqual(probed.subtracting(declared), [],
@@ -162,34 +158,55 @@ final class ConfigCoverageTests: XCTestCase {
                                    overlay: Self.tree(probe.path, probe.value))
             let config = Config.build(from: root, problems: &problems)
             XCTAssertTrue(problems.isEmpty,
-                          "\(Self.address(probe.path)) reported problems: \(problems)")
+                          "\(ConfigSchemaWalk.address(of: probe.path)) reported problems: \(problems)")
             XCTAssertTrue(probe.landed(config),
-                          "\(Self.address(probe.path)) is declared in the schema but never reaches Config")
+                          "\(ConfigSchemaWalk.address(of: probe.path)) is declared in the schema but never reaches Config")
         }
     }
 
-    /// A retired section is dropped silently by the migration rather
+    /// Every leaf says what it is: the one description the editor's hover,
+    /// `lodestar schema` and the settings window's help all read.
+    func testEverySchemaLeafIsDocumented() {
+        for leaf in ConfigSchemaWalk.leaves() {
+            XCTAssertFalse((leaf.doc ?? "").isEmpty, "\(leaf.address) has no description in the schema")
+        }
+    }
+
+    /// The schema's reading of a document, before it is decoded.
+    private func normalized(_ tree: [String: ConfigValue]) -> JSONValue {
+        ConfigFile.schema.normalized(ConfigStore.json(tree))
+    }
+
+    /// A retired section is dropped silently by the normalization rather
     /// than reported as unknown: a file written before the retirement
     /// keeps parsing clean.
     func testRetiredSectionsAreDroppedSilently() {
         for retired in [["you", "name"], ["double-tap", "cmd"], ["hints", "letters"],
-                        ["hints", "rescan-delay"], ["app", "auto-reload"], ["gestures", "tabs"]] {
-            let root = ConfigDefaults.normalized(Self.tree(retired, .string("x")))
-            XCTAssertNil(root.value(at: [retired[0]])?.table?[retired[1]],
+                        ["hints", "rescan-delay"], ["app", "auto-reload"], ["gestures", "tabs"],
+                        ["gestures", "back-forward"], ["gestures", "cheat-sheet"],
+                        ["appearance", "background"], ["web", "clicks", "trace"],
+                        ["select", "commit-on-unique"], ["guide", "fade"]] {
+            var problems: [String] = []
+            _ = Config.build(from: Self.tree(retired, .string("x")), problems: &problems)
+            XCTAssertEqual(problems, [], "\(retired.joined(separator: ".")) was reported after its retirement")
+            XCTAssertNil(normalized(Self.tree(retired, .string("x"))).value(at: JSONPath(retired.map { .key($0) })),
                          "\(retired.joined(separator: ".")) survived its retirement")
         }
-        let hyper = ConfigDefaults.normalized(
-            Self.tree(["lode", "trigger"], .string("raw-hyper")))
-        XCTAssertEqual(hyper.value(at: ["lode", "trigger"])?.string, "right-command",
+        let hyper = normalized(Self.tree(["lode", "trigger"], .string("raw-hyper")))
+        XCTAssertEqual(hyper.value(at: jsonPath("lode", "trigger"))?.string, "right-command",
                        "the old hyper trigger folds into the default")
     }
 
     /// 0.41 named the two records: a file that switched observations off
     /// keeps the logbook off, and stays valid.
     func testTheOldObservationsSwitchBecomesTheLogbook() {
-        let migrated = ConfigDefaults.normalized(Self.tree(["observations", "enabled"], .bool(false)))
-        XCTAssertNil(migrated.value(at: ["observations", "enabled"]))
-        XCTAssertEqual(migrated.value(at: ["observations", "logbook"])?.bool, false)
+        let migrated = normalized(Self.tree(["observations", "enabled"], .bool(false)))
+        XCTAssertNil(migrated.value(at: jsonPath("observations", "enabled")))
+        XCTAssertEqual(migrated.value(at: jsonPath("observations", "logbook"))?.bool, false)
+        var problems: [String] = []
+        let config = Config.build(from: Self.tree(["observations", "enabled"], .bool(false)), problems: &problems)
+        XCTAssertEqual(problems, [])
+        XCTAssertFalse(config.logbookEnabled)
     }
 
     /// The 0.22 registry retirement: every reference written through the
@@ -207,76 +224,32 @@ final class ConfigCoverageTests: XCTestCase {
             "meetings": .table(["calendars": .table(["Work": .string("work")])]),
             "graph": .table(["b": .table(["x": .string("brave:work")])]),
         ]
-        let migrated = ConfigDefaults.normalized(root)
-        XCTAssertNil(migrated["profiles"], "the registry is gone")
-        XCTAssertEqual(migrated.value(at: ["web", "fallback"])?.string, "brave:Xonar")
-        XCTAssertEqual(migrated.value(at: ["web", "routes", "x.com"])?.string, "brave:Xonar")
-        XCTAssertEqual(migrated.value(at: ["web", "links", "gh", "profile"])?.string, "brave:Xonar")
-        XCTAssertEqual(migrated.value(at: ["meetings", "calendars", "Work"])?.string, "brave:Xonar")
-        XCTAssertEqual(migrated.value(at: ["graph", "b", "x"])?.string, "brave:Xonar")
+        let migrated = normalized(root)
+        XCTAssertNil(migrated.value(at: jsonPath("profiles")), "the registry is gone")
+        XCTAssertEqual(migrated.value(at: jsonPath("web", "fallback"))?.string, "brave:Xonar")
+        XCTAssertEqual(migrated.value(at: jsonPath("web", "routes", "x.com"))?.string, "brave:Xonar")
+        XCTAssertEqual(migrated.value(at: jsonPath("web", "links", "gh", "profile"))?.string, "brave:Xonar")
+        XCTAssertEqual(migrated.value(at: jsonPath("meetings", "calendars", "Work"))?.string, "brave:Xonar")
+        XCTAssertEqual(migrated.value(at: jsonPath("graph", "b", "x"))?.string, "brave:Xonar")
+        var problems: [String] = []
+        let config = Config.build(from: root, problems: &problems)
+        XCTAssertEqual(problems, [])
+        XCTAssertEqual(config.webFallback, "brave:xonar")
     }
 
     /// A config already speaking the new form passes through untouched:
-    /// the migration is idempotent, and most-recent is never a name.
+    /// the normalization is idempotent, and most-recent is never a name.
     func testMigrationLeavesModernReferencesAlone() {
         let root: [String: ConfigValue] = [
             "web": .table(["fallback": .string("most-recent"),
                            "routes": .table(["x.com": .string("brave:Xonar")])]),
         ]
-        let migrated = ConfigDefaults.normalized(root)
-        XCTAssertEqual(migrated.value(at: ["web", "fallback"])?.string, "most-recent")
-        XCTAssertEqual(migrated.value(at: ["web", "routes", "x.com"])?.string, "brave:Xonar")
+        let migrated = normalized(root)
+        XCTAssertEqual(migrated.value(at: jsonPath("web", "fallback"))?.string, "most-recent")
+        XCTAssertEqual(migrated.value(at: jsonPath("web", "routes", "x.com"))?.string, "brave:Xonar")
     }
 
     // MARK: - Helpers
-
-    /// A probe's path as the schema addresses it. Free-table and graph
-    /// keys are user-chosen, so the schema declares the slot rather than
-    /// the key: a probe for `web.routes.example.com` covers the declared
-    /// leaf `web.routes.<key>`.
-    private static func address(_ path: [String]) -> String {
-        var node = Config.schema
-        var out: [String] = []
-        for segment in path {
-            switch node {
-            case .table(let children, _):
-                out.append(segment)
-                guard let next = children[segment] else { return out.joined(separator: ".") }
-                node = next
-            case .freeTable(let value, _):
-                out.append("<key>")
-                node = value
-            case .graph:
-                // Nested graph letters are all user-chosen, all the way down.
-                out.append("<key>")
-            case .string, .boolean, .number:
-                out.append(segment)
-            }
-        }
-        return out.joined(separator: ".")
-    }
-
-    /// Every addressable leaf, with user-chosen keys written `<key>`.
-    ///
-    /// This must descend THROUGH a free table into its value, or the
-    /// guard has a hole exactly where the schema is richest: stopping at
-    /// `web.links.<key>` would let `web.links.<key>.profile` be added,
-    /// or silently stop being parsed, with nothing failing here.
-    private static func leafPaths(of node: SchemaNode, at path: [String]) -> Set<String> {
-        switch node {
-        case .table(let children, _):
-            return children.reduce(into: Set<String>()) { out, entry in
-                out.formUnion(leafPaths(of: entry.value, at: path + [entry.key]))
-            }
-        case .freeTable(let value, _):
-            return leafPaths(of: value, at: path + ["<key>"])
-        case .graph:
-            // Letters all the way down; one slot stands for the whole trie.
-            return [(path + ["<key>"]).joined(separator: ".")]
-        case .string, .boolean, .number:
-            return [path.joined(separator: ".")]
-        }
-    }
 
     private static func tree(_ path: [String], _ value: ConfigValue) -> [String: ConfigValue] {
         var node = value

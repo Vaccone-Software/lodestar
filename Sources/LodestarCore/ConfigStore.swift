@@ -5,7 +5,7 @@ import StoicSettings
 import StoicStore
 
 /// The config file as a hand-edited Stoic settings store: one per path per
-/// process, holding the file's tree as a `JSONValue`.
+/// process, holding the file as a `ConfigFile`.
 ///
 /// What the store gives the config, all of it promises the file made before
 /// it was a store: a file that does not parse is never written over (not by
@@ -15,25 +15,25 @@ import StoicStore
 /// the same value write the same bytes; an edit made while the app runs
 /// arrives through `reload()` and the watch.
 ///
-/// What it does not do, and the config keeps doing itself: `ConfigSchema` is
-/// still the validator (the tree is read through `Config.build`, and a value
-/// out of range is a problem the person is told of, not a refusal to load),
-/// and `ConfigDefaults` still normalizes and prunes, inside the update.
+/// What it does not do is say what the file may hold: that is `ConfigFile.schema`,
+/// whose problems (`sentence(for:)`) are what the person is told, whose
+/// defaults are what a write leaves out, and which reads the old spellings.
 public enum ConfigStore {
-    public typealias Store = SettingsStore<JSONValue>
+    public typealias Store = SettingsStore<ConfigFile>
 
     /// The top-level sections in the order a person reads the file: what they
-    /// edit most first. `$schema` and `version` come before them, as the
-    /// file's header. Everything else trails alphabetically, where
-    /// validation's complaints and the reader's eye both land last; so does
-    /// the content of every section.
+    /// edit most first, then the rest alphabetically (`appearance`, `draft`,
+    /// `health`). `$schema` and `version` come before them, as the file's
+    /// header. `ConfigFile.schema` declares them in this order, and the layout
+    /// is the schema's; this is the order `Json.emit` writes a tree in, which
+    /// `lodestar config` prints, held to the schema's by a test.
     public static let sectionOrder = [
         "lode", "app", "gestures", "web", "scroll",
         "select", "meetings", "clipboard", "editor", "observations", "coach", "keys", "graph",
     ]
 
     /// The config's file header: written first by every update, ignored on
-    /// read, never part of the tree.
+    /// read, never part of the value.
     public static var header: SettingsFileHeader {
         ["$schema": "lodestar-schema.json", "version": .string(Lodestar.version)]
     }
@@ -41,6 +41,9 @@ public enum ConfigStore {
     /// How the file is read and written, as one value, so that the store and
     /// the text parser (`Json.parseOptions`) mean the same by it.
     ///
+    /// - The layout is the canonical one: the schema's declared order, which
+    ///   is Lodestar's (sections as a person reads them, every section's keys
+    ///   alphabetical), then keys it does not declare.
     /// - `comments: .refused`: the config's parser has always refused them, so
     ///   a canonical rewrite never drops a note it was not told of.
     /// - `duplicateKeys: .lastWins`: a key said twice is the person's later
@@ -50,7 +53,6 @@ public enum ConfigStore {
     /// - `lockTimeout: 2 s`: the wait `Config.edit` has always made.
     public static let handEdited = HandEditedOptions(
         fileHeader: header,
-        layout: .canonical(order: KeyOrder(root: sectionOrder)),
         comments: .refused,
         duplicateKeys: .lastWins,
         lockTimeout: .seconds(2))
@@ -60,14 +62,12 @@ public enum ConfigStore {
         Store.Options(handEdited: handEdited)
     }
 
-    /// Any JSON object. A file whose top level is anything else is as
-    /// unreadable as one that is not JSON.
-    static let schema: Schema<JSONValue> = .jsonObject()
+    static let schema: Schema<ConfigFile> = ConfigFile.schema
 
     /// What the store held at one moment: the value the config was built from
     /// and the problem the file had.
     public struct Snapshot: Equatable {
-        public var value: JSONValue
+        public var value: ConfigFile
         public var problem: SettingsFileProblem?
     }
 
@@ -107,21 +107,25 @@ public enum ConfigStore {
 
     // MARK: - The tree and the JSON
 
-    /// The tree Lodestar's own code reads and edits, from the store's value.
-    /// What the config cannot hold (a list, a number that is not finite) is
-    /// left out and reported in `problems`; `null` is silent.
-    public static func tree(of value: JSONValue, problems: inout [String]) -> [String: ConfigValue] {
-        Json.tree(of: value, problems: &problems) ?? [:]
+    /// The tree Lodestar's editors (the graph's, the web bar's, the settings
+    /// window's) read and change: the file as it differs from the defaults,
+    /// sparse. What the config cannot hold in a tree (a list in the graph, a
+    /// number that is not finite) is left out.
+    public static func tree(of file: ConfigFile) -> [String: ConfigValue] {
+        var ignored: [String] = []
+        return Json.tree(of: schema.encode(file, style: .sparse), problems: &ignored) ?? [:]
     }
 
-    /// The tree as the file would hold it: normalized to today's names, the
-    /// header's keys left to the header, pruned sparse against the defaults.
-    /// The one place every write's content is made, whoever writes.
-    public static func canonical(_ tree: [String: ConfigValue]) -> JSONValue {
-        var clean = ConfigDefaults.normalized(tree)
-        clean.removeValue(forKey: "$schema")
-        clean.removeValue(forKey: "version")
-        return json(Json.pruned(clean, defaults: ConfigDefaults.tree))
+    /// The file a tree says, read strictly: an edit that makes the file say
+    /// something the schema refuses is refused with what is wrong with it.
+    /// (Keys the schema does not declare are not an error here, and are not
+    /// in the value: what the store carries is the file's, not an edit's.)
+    static func file(from tree: [String: ConfigValue]) throws -> ConfigFile {
+        let decoded = schema.decode(json(tree), options: .strict)
+        guard let file = decoded.value else {
+            throw Config.EditError.invalid(decoded.errors.map(ConfigFile.sentence(for:)).joined(separator: "; "))
+        }
+        return file
     }
 
     /// A tree as JSON. A number that is not finite cannot be written, so its
@@ -201,7 +205,7 @@ public enum ConfigStore {
         case .durabilityUnknown(let failure):
             return .storage("\(failure)")
         case .invalid(let issues):
-            return .unparsed(issues.map { describe($0, file: file) }.joined(separator: "; "))
+            return .invalid(issues.map(ConfigFile.sentence(for:)).joined(separator: "; "))
         case .newerFormat:
             return .unparsed("\(file) was written by a newer Lodestar")
         }
@@ -310,7 +314,7 @@ extension Config {
             return nil
         }
         // The fresh file is the defaults, which the header makes a file.
-        let fresh = JSONValue.object(JSONObject())
+        let fresh = ConfigFile()
         do {
             let copy = try store.blockingReplaceUnusableFile(
                 with: fresh, keepingCopyAt: backup.path, waitingUpTo: .seconds(2), source: "lodestar reset-config")

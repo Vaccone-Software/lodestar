@@ -224,13 +224,11 @@ final class JsonTests: XCTestCase {
     }
 
     /// What the old reader tolerated and the new one still does: a trailing
-    /// comma. What it never noticed and the new one refuses, with the
-    /// position of the second spelling: a key written twice.
-    func testATrailingCommaReadsAndADuplicateKeyIsRefused() throws {
+    /// comma, and a key written twice (the last one counts, as it does in
+    /// the store the same options are the store's).
+    func testATrailingCommaAndARepeatedKeyAreReadAndTheLastOneCounts() throws {
         XCTAssertEqual(try Json.parse(#"{"a": 1,}"#)["a"], .int(1))
-        XCTAssertThrowsError(try Json.parse("{\n  \"a\": 1,\n  \"a\": 2\n}")) { error in
-            XCTAssertTrue("\(error)".hasPrefix("lodestar.json:3:3: "), "\(error)")
-        }
+        XCTAssertEqual(try Json.parse("{\n  \"a\": 1,\n  \"a\": 2\n}")["a"], .int(2))
     }
 
     /// Whatever `emit` writes, `parse` must read. This is the invariant the

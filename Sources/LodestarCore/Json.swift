@@ -34,16 +34,11 @@ public enum Json {
     /// What the config's errors call the file.
     public static let fileName = "lodestar.json"
 
-    /// How the config is read: the dialect the hand-edited store reads
-    /// (trailing commas, a byte order mark), with comments refused on
-    /// purpose, because a canonical rewrite would drop the note. Duplicate
-    /// keys are refused too (the parser's default), where two readers would
-    /// disagree about which value counts.
-    public static let parseOptions: JSONParseOptions = {
-        var options = JSONParseOptions.jsonc
-        options.allowComments = false
-        return options
-    }()
+    /// How the config is read: exactly as the hand-edited store reads it
+    /// (`ConfigStore.handEdited`): trailing commas and a byte order mark
+    /// accepted, comments refused on purpose because a canonical rewrite would
+    /// drop the note, and a repeated key resolved to the last one.
+    public static var parseOptions: JSONParseOptions { ConfigStore.handEdited.parseOptions }
 
     /// Strict JSON → the shared ConfigValue tree. The top level must be an
     /// object. Comments are a parse error on purpose: anything a
@@ -77,7 +72,7 @@ public enum Json {
             document = try JSONDocument(parsing: bytes, options: parseOptions)
         } catch {
             throw ParseError(file: file, line: error.location.line, column: error.location.column,
-                             message: says(error.code.rawValue, error.message))
+                             message: error.message)
         }
         guard case .object = document.value else {
             let start = document.range.start
@@ -85,15 +80,6 @@ public enum Json {
                              message: "the top level must be an object")
         }
         return tree(of: document.value, problems: &problems) ?? [:]
-    }
-
-    /// The parser's sentence, in the config's own words where the parser's are
-    /// about its options: a comment is refused because a rewrite would lose
-    /// it, and the person is told that, not which flag was set.
-    static func says(_ code: String, _ message: String) -> String {
-        code == "comment_not_allowed"
-            ? "comments are not allowed in the config (a rewrite would lose them) — remove it"
-            : message
     }
 
     /// The config tree a parsed document holds, with what this config cannot

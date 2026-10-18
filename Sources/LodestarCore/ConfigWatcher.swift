@@ -1,5 +1,4 @@
 import Foundation
-import Observation
 import StoicJSON
 import StoicSettings
 import StoicStore
@@ -19,7 +18,7 @@ struct MainQueueOnly<T>: @unchecked Sendable {
 ///
 /// - **A `.reload` change of the value**: the file changed under the app (a
 ///   hand edit, `lodestar config set` from a terminal, another instance).
-/// - **A change of the file's problem** (`fileProblem`): a save that does not
+/// - **A change of the file's problem** (`problems()`): a save that does not
 ///   parse leaves the last good value, so the value did not change and no
 ///   change is announced; the person still has to be told (and told again,
 ///   plainly, when the fix lands and the problem clears).
@@ -32,7 +31,7 @@ struct MainQueueOnly<T>: @unchecked Sendable {
 /// (`ConfigApplyLedger`): a store state the app has already applied is not
 /// told again.
 ///
-/// Runs: the reload and the observation on Stoic's and Swift's own tasks, off
+/// Runs: the reload and the streams on Stoic's own tasks, off
 /// the main thread; `arrived` on `queue` (the main queue).
 public final class ConfigWatcher: @unchecked Sendable {
     private let store: ConfigStore.Store
@@ -60,8 +59,7 @@ public final class ConfigWatcher: @unchecked Sendable {
         stop()
         let started = try store.watch(debounce: debounce)
         let changes = store.changes(buffering: 256)
-        let first = store.fileProblem
-        let problems = Observation.Observations { [store] in store.fileProblem }
+        let problems = store.problems(buffering: 64)
         let changesTask = Task { [weak self] in
             for await change in changes {
                 guard let self else { return }
@@ -73,11 +71,10 @@ public final class ConfigWatcher: @unchecked Sendable {
             }
         }
         let problemTask = Task { [weak self] in
-            var seen = first
-            for await problem in problems {
+            // Once for each change of the problem (it stopped parsing, parses
+            // again, or is wrong in another way): the store says so itself.
+            for await _ in problems {
                 guard let self else { return }
-                guard problem != seen else { continue }
-                seen = problem
                 self.notify()
             }
         }

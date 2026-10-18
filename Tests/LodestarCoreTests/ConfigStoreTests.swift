@@ -221,7 +221,7 @@ final class ConfigStoreTests: XCTestCase {
         try write(withComment)
         XCTAssertThrowsError(try Config.edit(in: file) { Json.setting($0, path: ["scroll", "speed"], to: .int(1))! }) {
             guard case Config.EditError.unparsed(let detail) = $0 else { return XCTFail("\($0)") }
-            XCTAssertTrue(detail.hasPrefix("lodestar.json:2:3: comments are not allowed in the config"), detail)
+            XCTAssertTrue(detail.hasPrefix("lodestar.json:2:3: comments are not allowed in this file; remove it"), detail)
         }
         XCTAssertThrowsError(try Config.write(tree: ["scroll": .table(["speed": .int(1)])], to: file))
         XCTAssertEqual(onDisk, withComment)
@@ -252,12 +252,27 @@ final class ConfigStoreTests: XCTestCase {
         XCTAssertEqual(onDisk, before)
     }
 
+    /// A key said twice is the person's later line: the file loads with the
+    /// last one, a warning says where the repeat is, and the file is left
+    /// as it is. Never the defaults.
+    func testARepeatedKeyIsAWarningAndTheLastOneIsUsed() throws {
+        try write("{\n  \"scroll\": {\n    \"speed\": 2200,\n    \"speed\": 2400\n  }\n}")
+        let before = onDisk
+        let (config, problems) = Config.load(from: file)
+        XCTAssertEqual(config.scrollSpeed, 2400, "the last one counts, not the defaults")
+        XCTAssertEqual(problems.count, 1, "\(problems)")
+        XCTAssertTrue(problems[0].hasPrefix("config warning: lodestar.json:4:5: "), problems[0])
+        XCTAssertFalse(problems[0].contains("using defaults"), problems[0])
+        XCTAssertEqual(onDisk, before, "loading never writes")
+        XCTAssertEqual(Config.userTree(from: file)?.value(at: ["scroll", "speed"]), .int(2400), "an edit starts from the last one")
+    }
+
     /// A file with a top level that is not an object is as unreadable as text
     /// that is not JSON.
     func testATopLevelThatIsNotAnObjectIsAProblemAndIsKept() throws {
         try write("[1, 2]")
         let (_, problems) = Config.load(from: file)
-        XCTAssertTrue(problems[0].hasPrefix("config parse failed (lodestar.json:1:1: the top level must be an object)"), problems[0])
+        XCTAssertTrue(problems[0].hasPrefix("config parse failed (lodestar.json:1:1: expected an object, found array)"), problems[0])
         XCTAssertThrowsError(try Config.edit(in: file) { $0 })
         XCTAssertEqual(onDisk, "[1, 2]")
     }

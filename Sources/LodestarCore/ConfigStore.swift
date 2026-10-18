@@ -38,30 +38,31 @@ public enum ConfigStore {
         ["$schema": "lodestar-schema.json", "version": .string(Lodestar.version)]
     }
 
-    /// How the store reads and writes the file.
+    /// How the file is read and written, as one value, so that the store and
+    /// the text parser (`Json.parseOptions`) mean the same by it.
     ///
     /// - `comments: .refused`: the config's parser has always refused them, so
     ///   a canonical rewrite never drops a note it was not told of.
+    /// - `duplicateKeys: .lastWins`: a key said twice is the person's later
+    ///   line, which every reader before this one took; the file still loads,
+    ///   and the repeat is a warning (`ConfigStore.repeatedKeys`, in `check`
+    ///   and the reload's flash), never a fall back to the defaults.
     /// - `lockTimeout: 2 s`: the wait `Config.edit` has always made.
+    public static let handEdited = HandEditedOptions(
+        fileHeader: header,
+        layout: .canonical(order: KeyOrder(root: sectionOrder)),
+        comments: .refused,
+        duplicateKeys: .lastWins,
+        lockTimeout: .seconds(2))
+
+    /// How the store reads and writes the file.
     public static func options() -> Store.Options {
-        Store.Options(handEdited: HandEditedOptions(
-            fileHeader: header,
-            layout: .canonical(order: KeyOrder(root: sectionOrder)),
-            comments: .refused,
-            lockTimeout: .seconds(2)))
+        Store.Options(handEdited: handEdited)
     }
 
     /// Any JSON object. A file whose top level is anything else is as
     /// unreadable as one that is not JSON.
-    ///
-    /// WORKAROUND (Stoic): `Schema.json()` takes any value, so a file that is
-    /// `[1, 2]` or `5` would load as a good value and the app would then fail
-    /// on the first lookup. A custom constraint says "an object"; the
-    /// exporter and generators cannot see inside it. A built-in
-    /// `Constraint.isObject` (or a `Schema.jsonObject()`) would remove it.
-    static let schema: Schema<JSONValue> = .json(.custom(
-        id: "object", description: "an object: the config is a table of sections",
-        check: { if case .object = $0 { true } else { false } }))
+    static let schema: Schema<JSONValue> = .jsonObject()
 
     /// What the store held at one moment: the value the config was built from
     /// and the problem the file had.
@@ -103,62 +104,6 @@ public enum ConfigStore {
             return try Store.open(at: path, schema: schema, format: .handEdited, options: options())
         }
     }
-
-    // MARK: - Who wrote it
-
-    /// Who is about to write which value, so that the history can say, once
-    /// the store announces the change, who made it.
-    ///
-    /// A change from the stream says what changed and why (`.update`: the app
-    /// did it), not *which part of the app*: the settings window, the coach,
-    /// the editor learning a word, an undo. A writer names itself when it
-    /// writes (`Config.edit(source:)`), inside the update's own critical
-    /// section, so the entry is made only for an update that changes the value
-    /// and is in commit order; the history claims it by the value it produced.
-    final class Attributions: @unchecked Sendable {
-        struct Entry { let id: UInt64; let new: JSONValue; let source: String }
-
-        private let lock = NSLock()
-        private var next: UInt64 = 0
-        private var pending: [String: [Entry]] = [:]
-
-        /// The most that wait for their change: a change the stream dropped
-        /// (a reader that fell behind) leaves its entry here, and a bound
-        /// keeps it from growing.
-        static let bound = 64
-
-        func expect(source: String, producing new: JSONValue, at path: String) -> UInt64 {
-            lock.lock()
-            defer { lock.unlock() }
-            next += 1
-            var entries = pending[path, default: []]
-            entries.append(Entry(id: next, new: new, source: source))
-            if entries.count > Self.bound { entries.removeFirst(entries.count - Self.bound) }
-            pending[path] = entries
-            return next
-        }
-
-        /// The update did not commit after all.
-        func cancel(_ id: UInt64, at path: String) {
-            lock.lock()
-            defer { lock.unlock() }
-            pending[path]?.removeAll { $0.id == id }
-        }
-
-        /// The writer of the update that produced `new`: the oldest entry for
-        /// that value, which also settles the older entries (their changes
-        /// were never announced to a reader that is still here).
-        func claim(producing new: JSONValue, at path: String) -> String? {
-            lock.lock()
-            defer { lock.unlock() }
-            guard let index = pending[path]?.firstIndex(where: { $0.new == new }) else { return nil }
-            let source = pending[path]![index].source
-            pending[path]!.removeSubrange(...index)
-            return source
-        }
-    }
-
-    static let attributions = Attributions()
 
     // MARK: - The tree and the JSON
 
@@ -227,14 +172,16 @@ public enum ConfigStore {
             throw Config.EditError.unreadable(name)
         }
         do {
-            return try store.materialize()
-        } catch {
+            return try store.blockingMaterialize(waitingUpTo: .seconds(2))
+        } catch let error as Store.UpdateError {
             if case .durabilityUnknown(let failure) = error {
                 Log.error("config: written, but not known to be durable", ["error": "\(failure)"])
                 return true
             }
+            // Another process holding the lock for two seconds is writing the
+            // file, and is the one that creates it.
             if case .busy = error { return false }
-            throw editError(error, file: name, waited: 0)
+            throw editError(error, file: name, waited: 2)
         }
     }
 
@@ -246,7 +193,7 @@ public enum ConfigStore {
         case .busy:
             return .busy("waited \(Int(waited)) s for the lock on \(file)")
         case .fileUnusable(let problem):
-            if isNotUTF8(problem) { return .unreadable(file) }
+            if problem.isNotUTF8 { return .unreadable(file) }
             if case .unreadable = problem { return .unreadable(file) }
             return .unparsed(describe(problem, file: file))
         case .storage(let failure):
@@ -273,19 +220,23 @@ public enum ConfigStore {
     /// `lodestar.json:3:5: invalid JSON: …`, the shape editors link.
     static func describe(_ issue: Issue, file: String) -> String {
         let position = issue.source.map { "\($0.start.line):\($0.start.column)" }
-        if issue.code == .custom, issue.parameters["id"]?.string == "object" {
-            return "\(file):\(position ?? "1:1"): the top level must be an object"
-        }
         var message = issue.message
-        if issue.code == .parseError {
-            if let code = issue.parameters["parseCode"]?.string, let text = issue.parameters["message"]?.string {
-                message = Json.says(code, text)
-            } else if message.hasPrefix("invalid JSON: ") {
-                message = String(message.dropFirst("invalid JSON: ".count))
-            }
+        if issue.code == .parseError, message.hasPrefix("invalid JSON: ") {
+            message = String(message.dropFirst("invalid JSON: ".count))
         }
         guard let position else { return "\(file): \(message)" }
         return "\(file):\(position): \(message)"
+    }
+
+    /// What a key said twice in one object is, for the person who wrote it: a
+    /// warning, one for each repeat, with the line and column of the repeat
+    /// and what the store did (the last one is used, and the next write keeps
+    /// only that). The file loads: this is never a reason to fall back to the
+    /// defaults. In the same words as a problem, for `check` and the flash.
+    static func repeatedKeys(in issues: [Issue], file: String) -> [String] {
+        issues.filter { $0.code == .repeatedKey }.map {
+            "config warning: " + describe($0, file: file) + ($0.parameters["note"]?.string.map { " — \($0)" } ?? "")
+        }
     }
 
     /// The first thing wrong with the file, in the words `lodestar check`
@@ -303,13 +254,6 @@ public enum ConfigStore {
     /// The line and column the problem is at, when it is in the text.
     public static func location(of problem: SettingsFileProblem) -> (line: Int, column: Int)? {
         problem.location.map { ($0.line, $0.column) }
-    }
-
-    /// Whether the file's trouble is that it is not UTF-8: the one problem
-    /// `Config.EditError` has always told apart (`unreadable`, not `unparsed`).
-    static func isNotUTF8(_ problem: SettingsFileProblem) -> Bool {
-        guard case .unparsable(let issues) = problem else { return false }
-        return issues.contains { $0.parameters["parseCode"]?.string == "invalid_utf8" }
     }
 }
 
@@ -367,32 +311,28 @@ extension Config {
         }
         // The fresh file is the defaults, which the header makes a file.
         let fresh = JSONValue.object(JSONObject())
-        let deadline = Date().addingTimeInterval(2)
-        while true {
-            do throws(ConfigStore.Store.ReplaceError) {
-                let copy = try store.replaceUnusableFile(with: fresh, keepingCopyAt: backup.path)
+        do {
+            let copy = try store.blockingReplaceUnusableFile(
+                with: fresh, keepingCopyAt: backup.path, waitingUpTo: .seconds(2), source: "lodestar reset-config")
+            return URL(fileURLWithPath: copy)
+        } catch let error as ConfigStore.Store.ReplaceError {
+            switch error {
+            case .fileIsUsable:
+                break // the ordinary road, below
+            case .copyFailed(let failure):
+                throw ResetError.backupFailed(file: name, reason: "\(failure)")
+            case .backupExists(let path):
+                throw ResetError.backupFailed(file: name, reason: "\(path) already exists")
+            case .storage(let failure, let copy):
+                throw ResetError.writeFailed(reason: "\(failure)", backup: URL(fileURLWithPath: copy))
+            case .durabilityUnknown(_, let copy):
+                Log.error("config: reset, but not known to be durable")
                 return URL(fileURLWithPath: copy)
-            } catch {
-                switch error {
-                case .fileIsUsable:
-                    break // the ordinary road, below
-                case .busy where Date() < deadline:
-                    Thread.sleep(forTimeInterval: 0.025)
-                    continue
-                case .copyFailed(let failure):
-                    throw ResetError.backupFailed(file: name, reason: "\(failure)")
-                case .backupExists(let path):
-                    throw ResetError.backupFailed(file: name, reason: "\(path) already exists")
-                case .storage(let failure, let copy):
-                    throw ResetError.writeFailed(reason: "\(failure)", backup: URL(fileURLWithPath: copy))
-                case .durabilityUnknown(_, let copy):
-                    Log.error("config: reset, but not known to be durable")
-                    return URL(fileURLWithPath: copy)
-                default:
-                    throw ResetError.writeFailed(reason: "\(error)", backup: nil)
-                }
+            default:
+                throw ResetError.writeFailed(reason: "\(error)", backup: nil)
             }
-            break
+        } catch {
+            throw ResetError.writeFailed(reason: "\(error)", backup: nil)
         }
         do {
             try fm.copyItem(at: target, to: backup)
@@ -400,7 +340,7 @@ extension Config {
             throw ResetError.backupFailed(file: name, reason: error.localizedDescription)
         }
         do {
-            try store.blockingUpdate(waitingUpTo: .seconds(2)) { $0 = fresh }
+            try store.blockingUpdate(waitingUpTo: .seconds(2), source: "lodestar reset-config") { $0 = fresh }
         } catch let error as ConfigStore.Store.UpdateError {
             if case .durabilityUnknown = error { return backup }
             throw ResetError.writeFailed(reason: "\(ConfigStore.editError(error, file: name, waited: 2))", backup: backup)

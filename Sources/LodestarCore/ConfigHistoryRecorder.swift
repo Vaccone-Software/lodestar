@@ -85,8 +85,10 @@ public final class ConfigHistoryRecorder: @unchecked Sendable {
     func source(of change: SettingsChange<JSONValue>) -> String {
         switch change.cause {
         case .update:
-            return ConfigStore.attributions.claim(producing: change.new, at: store.path) ?? "Lodestar"
-        case .reload, .reset:
+            return change.source ?? "Lodestar"
+        case .reset:
+            return change.source ?? "The file"
+        case .reload:
             return "The file"
         }
     }

@@ -8,8 +8,10 @@ import StoicStore
 /// rewrites none of it and a clip stops existing when its key does.
 ///
 /// A blob is `Sealing.seal` output written with `PrivateFile` (0600, atomic,
-/// no `F_FULLFSYNC`). `SealedFile` is the primitive a whole file wants, and
-/// this is the one place it is not used: it takes a `Keyring` (a clip's key is
+/// no `F_FULLFSYNC`).
+///
+/// **STOIC GAP (marked workaround).** `SealedFile` is the primitive a whole
+/// file wants, and this is the one place it is not used: it takes a `Keyring` (a clip's key is
 /// in no ring, it is inside a sealed record) and pays a full sync and a
 /// directory sync for each file, which is what a blob written beside every
 /// copy must not pay. What it keeps: the file is a sealed value, opened with

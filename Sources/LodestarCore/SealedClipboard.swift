@@ -40,6 +40,9 @@ public final class SealedClipboard: @unchecked Sendable {
     /// readable is never folded away, and nothing is garbage collected.
     private var degraded = false
 
+    /// `OwnerOnlyFileSystem` (0600 files, as the rest of the sealed records):
+    /// **STOIC GAP**, the pinned checkout's `PosixFileSystem` has no
+    /// `newFileMode:` / `newDirectoryMode:` to ask for instead.
     public init(root: URL, ring: Vault.Ring, fileSystem: any FileSystem = OwnerOnlyFileSystem()) {
         self.root = root
         self.files = ClipboardFiles(root: root)

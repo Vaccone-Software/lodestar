@@ -2111,7 +2111,7 @@ extension HotkeyEngine: EngineWorld {
         // One band, whichever of its three jobs applies right now.
         let band: ClipboardStrip.Band
         if let clip = panelClip {
-            band = .actions(Self.panelActions(for: clip))
+            band = .actions(Self.panelActions(for: clip, finderInFront: Self.finderInFront))
         } else if let clip = saveClip {
             band = .save(name: saveName, offered: clipboard.offeredImageName(for: clip),
                          folder: clipboard.saveFolder)
@@ -2386,7 +2386,7 @@ extension HotkeyEngine: EngineWorld {
     /// Benign first, destructive after — the strip draws the rule between
     /// them, so the order here is what puts an action on the right side of
     /// it.
-    static func panelActions(for clip: Clipboard.Clip) -> [ClipboardStrip.Action] {
+    static func panelActions(for clip: Clipboard.Clip, finderInFront: Bool = false) -> [ClipboardStrip.Action] {
         var actions = [ClipboardStrip.Action(
             key: "K",
             label: clip.isPinned ? "Let go" : "Keep",
@@ -2406,6 +2406,16 @@ extension HotkeyEngine: EngineWorld {
                                  symbol: "arrow.up.left.and.arrow.down.right"))
             actions.append(.init(key: "S", label: "Save as",
                                  symbol: "square.and.arrow.down"))
+        }
+        // Files: where they are, what they open in, and, with the Finder in
+        // front, a move into the folder it shows, which is the Finder's own
+        // Move Item Here, undone with ⌘Z there.
+        if clip.pastesAsFiles {
+            actions.append(.init(key: "F", label: "Show in Finder", symbol: "folder"))
+            actions.append(.init(key: "O", label: "Open", symbol: "arrow.up.forward.app"))
+            if finderInFront {
+                actions.append(.init(key: "M", label: "Move here", symbol: "arrow.right.doc.on.clipboard"))
+            }
         }
         actions.append(.init(key: "D", label: "Delete", symbol: "trash",
                              isDestructive: true))
@@ -2435,6 +2445,9 @@ extension HotkeyEngine: EngineWorld {
         case .delete: verb = "delete"
         case .excludeApp: verb = "exclude"
         case .edit: verb = "edit"
+        case .reveal: verb = "reveal"
+        case .open: verb = "open"
+        case .moveHere: verb = "move"
         }
         let named = stripSession?.outcome
         stripSession?.outcome = ("acted", named?.source, verb, named?.rank)
@@ -2454,6 +2467,9 @@ extension HotkeyEngine: EngineWorld {
             }
         case .edit:
             openClipDoor(clip)
+        case .reveal: clipboard.reveal(clip)
+        case .open: clipboard.open(clip)
+        case .moveHere: clipboard.paste(clip, action: .plain, moving: true)
         }
         panelClip = nil
     }
@@ -2648,6 +2664,13 @@ extension HotkeyEngine: EngineWorld {
 
     func pastePanelIsImage() -> Bool { panelClip?.kind == .image }
     func pastePanelIsKept() -> Bool { panelClip?.isPinned == true }
+    func pastePanelIsFiles() -> Bool { panelClip?.pastesAsFiles == true }
+    func pastePanelMovesHere() -> Bool { pastePanelIsFiles() && Self.finderInFront }
+
+    /// Whether the Finder is the app in front: the one place files move to.
+    static var finderInFront: Bool {
+        NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.finder"
+    }
 
     func pasteQueryIsEmpty() -> Bool { (pasteQuery ?? "").isEmpty }
 

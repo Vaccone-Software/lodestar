@@ -37,6 +37,7 @@ final class ClipboardController {
     /// whatever window the machine has focused.
     var pasteboard: NSPasteboard = .general
     lazy var postPaste: () -> Void = { [weak self] in self?.synthesizePaste() }
+    lazy var postMove: () -> Void = { [weak self] in self?.synthesizePaste(flags: [.maskCommand, .maskAlternate]) }
     var excludedApps: Set<String> = []
     var excludedPatterns: [String] = []
     var maxBytes = 500_000_000
@@ -345,7 +346,11 @@ final class ClipboardController {
     /// there. A seam for the tests.
     nonisolated(unsafe) static var presenceDeadline: TimeInterval = 0.3
 
-    func paste(_ clip: Clipboard.Clip, action: PasteAction) {
+    /// `moving`: the card's files go on the board as for a paste, and the
+    /// keystroke is the Finder's Move Item Here (⌥⌘V) instead of ⌘V, so the
+    /// Finder moves them, asks about any name already there, and undoes it
+    /// with ⌘Z. Offered only with the Finder in front.
+    func paste(_ clip: Clipboard.Clip, action: PasteAction, moving: Bool = false) {
         // One disk read for every representation this method wants: the
         // native loop, the image fallback, and the file handover all drew
         // from `nativeData`, each paying the read again — for an image
@@ -359,30 +364,16 @@ final class ClipboardController {
         let files = clip.pastesAsFiles
         var places: [Clipboard.FilePlace]?
         if files {
-            let bookmarks = clip.fileBookmarks ?? []
-            places = FileSense.withDeadline(Self.presenceDeadline) {
-                stored.enumerated().map { item, content in
-                    Clipboard.place(bookmark: bookmarks.indices.contains(item) ? bookmarks[item] : nil,
-                                    address: Clipboard.fileAddress(in: content)).place
-                }
-            }
+            places = self.places(of: clip, items: stored)
             func count(_ kind: (Clipboard.FilePlace) -> Bool) -> Int { places.map { $0.filter(kind).count } ?? -1 }
             // Counts only: what a file is called is nobody's business here.
-            Log.info("clipboard", ["paste": "files", "files": stored.count,
-                                   "bookmarked": bookmarks.compactMap { $0 }.count,
+            Log.info("clipboard", ["paste": moving ? "move" : "files", "files": stored.count,
+                                   "bookmarked": (clip.fileBookmarks ?? []).compactMap { $0 }.count,
                                    "here": count { if case .here = $0 { return true }; return false },
                                    "trashed": count { if case .trashed = $0 { return true }; return false },
                                    "gone": count { $0 == .gone }, "away": count { $0 == .away }])
             if let places, !places.isEmpty, places.allSatisfy({ $0.url == nil }) {
-                let one = clip.itemCount == 1
-                if places.allSatisfy({ $0 == .away }) {
-                    flash(one ? "✕ That file is on a disk that is not connected"
-                              : "✕ Those files are on a disk that is not connected")
-                } else if places.allSatisfy({ if case .trashed = $0 { return true }; return false }) {
-                    flash(one ? "✕ That file is in the Trash" : "✕ Those files are in the Trash")
-                } else {
-                    flash(one ? "✕ That file is no longer there" : "✕ Those files are no longer there")
-                }
+                flash(Self.unreachable(places, count: clip.itemCount))
                 return
             }
         }
@@ -478,7 +469,8 @@ final class ClipboardController {
         // field would swallow the paste in silence. The clip is on the
         // pasteboard either way — hand off rather than fail.
         if secureInput() {
-            flash("⌂ This field only takes a paste you press\n[⌘][V] pastes it")
+            flash(moving ? "⌂ This window only takes a move you press\n[⌥][⌘][V] moves it"
+                         : "⌂ This field only takes a paste you press\n[⌘][V] pastes it")
             return
         }
         // Only when the file could not be written does the last keystroke go
@@ -491,7 +483,65 @@ final class ClipboardController {
             flash("⌂ That image could not be saved as a file\n[⌃][V] pastes it as an image")
             return
         }
-        postPaste()
+        if moving { postMove() } else { postPaste() }
+    }
+
+    // MARK: - Where a card's files are
+
+    /// Where each file of a card is now, asked of the disk with the paste's
+    /// deadline. Nil when the disk did not answer in time.
+    func places(of clip: Clipboard.Clip, items stored: [ClipboardContent.Item]? = nil) -> [Clipboard.FilePlace]? {
+        let items = stored ?? store.itemData(clip)
+        let bookmarks = clip.fileBookmarks ?? []
+        return FileSense.withDeadline(Self.presenceDeadline) {
+            items.enumerated().map { item, content in
+                Clipboard.place(bookmark: bookmarks.indices.contains(item) ? bookmarks[item] : nil,
+                                address: Clipboard.fileAddress(in: content)).place
+            }
+        }
+    }
+
+    /// What the pill says when none of a card's files can be had, by where
+    /// they went.
+    static func unreachable(_ places: [Clipboard.FilePlace], count: Int) -> String {
+        let one = count == 1
+        if places.allSatisfy({ $0 == .away }) {
+            return one ? "✕ That file is on a disk that is not connected"
+                       : "✕ Those files are on a disk that is not connected"
+        }
+        if places.allSatisfy({ if case .trashed = $0 { return true }; return false }) {
+            return one ? "✕ That file is in the Trash" : "✕ Those files are in the Trash"
+        }
+        return one ? "✕ That file is no longer there" : "✕ Those files are no longer there"
+    }
+
+    /// The Finder, the files selected in it, wherever they are now. A file
+    /// in the Trash is shown there, which is where it went.
+    var revealFiles: ([URL]) -> Void = { SystemEvents.reveal($0) }
+
+    func reveal(_ clip: Clipboard.Clip) {
+        guard let places = places(of: clip) else { return flash("✕ That disk did not answer in time") }
+        let shown = places.compactMap { place -> URL? in
+            switch place {
+            case .here(let url), .trashed(let url): return url
+            case .gone, .away: return nil
+            }
+        }
+        guard !shown.isEmpty else { return flash(Self.unreachable(places, count: clip.itemCount)) }
+        revealFiles(shown)
+    }
+
+    /// Each file opened in the app the system opens it in. At most a dozen:
+    /// a card of two hundred files opened at once is never what was meant.
+    var openFile: (URL) -> Void = { SystemEvents.open($0) }
+    static let openLimit = 12
+
+    func open(_ clip: Clipboard.Clip) {
+        guard let places = places(of: clip) else { return flash("✕ That disk did not answer in time") }
+        let urls = places.compactMap(\.url)
+        guard !urls.isEmpty else { return flash(Self.unreachable(places, count: clip.itemCount)) }
+        urls.prefix(Self.openLimit).forEach(openFile)
+        if urls.count > Self.openLimit { flash("⌂ Opened the first \(Self.openLimit) of \(urls.count) files") }
     }
 
     /// A reading pasted: plain text Lodestar wrote, not a clip, so it goes
@@ -560,13 +610,13 @@ final class ClipboardController {
     /// ⌘V, built clean. The user very likely still has shift down from
     /// pressing ⇧label; inheriting it would post ⇧⌘V and re-open the strip
     /// we just closed.
-    private func synthesizePaste() {
+    private func synthesizePaste(flags: CGEventFlags = .maskCommand) {
         guard let source = CGEventSource(stateID: .combinedSessionState),
               let vCode = Keys.codes["v"] else { return }
         let down = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(vCode), keyDown: true)
         let up = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(vCode), keyDown: false)
-        down?.flags = .maskCommand
-        up?.flags = .maskCommand
+        down?.flags = flags
+        up?.flags = flags
         // A beat for the pasteboard to settle: some apps read it lazily, and
         // a paste that lands first inserts the previous clip.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {

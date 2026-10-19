@@ -292,7 +292,10 @@ final class ClipDoorScenarioTests: XCTestCase {
         XCTAssertEqual(HotkeyEngine.panelActions(for: card(.image, natives: ["public.png"])).map(\.key),
                        ["K", "E", "S", "D"], "an image views and saves where a text card edits")
         XCTAssertEqual(HotkeyEngine.panelActions(for: card(.text, natives: [Clipboard.fileURLType])).map(\.key),
-                       ["K", "D"])
+                       ["K", "F", "O", "D"], "files show and open, and edit nothing")
+        XCTAssertEqual(HotkeyEngine.panelActions(for: card(.file, natives: [Clipboard.fileURLType]),
+                                                 finderInFront: true).map(\.key),
+                       ["K", "F", "O", "M", "D"], "and move only where the Finder is in front")
         var kept = card(.text)
         kept.pinnedSlot = 4
         XCTAssertEqual(HotkeyEngine.panelActions(for: kept).map(\.label), ["Let go", "Rename", "Edit", "Delete"],

@@ -368,6 +368,29 @@ final class PasteModeTests: XCTestCase {
         XCTAssertEqual(core.state, .paste(searching: false), "back to the strip, not out")
     }
 
+    /// A copy of files: F shows them, O opens them, M moves them where the
+    /// Finder is, and each ends the strip, because the next thing happens in
+    /// another app. On any other card the keys do nothing.
+    func testAFileCardShowsOpensAndMovesItsFilesAndLeavesTheStrip() {
+        for (key, verb) in [("f", PanelAction.reveal), ("o", .open)] {
+            open()
+            world.panelIsFiles = false
+            _ = press("a", command: true)
+            XCTAssertEqual(press(key), [], "\(key) means nothing on a card that is not files")
+            XCTAssertEqual(core.state, .pastePanel(searching: false))
+            world.panelIsFiles = true
+            XCTAssertEqual(press(key), [.pastePanelAct(verb), .pastePanelDismiss, .exitPaste])
+            XCTAssertEqual(core.state, .idle)
+        }
+        open()
+        _ = press("a", command: true)
+        world.panelMovesHere = false
+        XCTAssertEqual(press("m"), [], "no move with the Finder not in front")
+        world.panelMovesHere = true
+        XCTAssertEqual(press("m"), [.pastePanelAct(.moveHere), .pastePanelDismiss, .exitPaste])
+        XCTAssertEqual(core.state, .idle)
+    }
+
     // MARK: - The letter picks the card, the modifier picks the form
 
     /// `⌃` pastes the reading, in Keep and while searching alike, because

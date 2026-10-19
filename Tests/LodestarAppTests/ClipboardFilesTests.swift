@@ -504,6 +504,69 @@ final class ClipboardFilesTests: XCTestCase {
         wait("the card learns its file is gone") { self.store.filesPresent(clip.id) == [false] }
     }
 
+    // MARK: Show in Finder, Open, Move here
+
+    func testShowInFinderSelectsTheFilesWhereTheyAreNow() throws {
+        let url = try make("report.pdf")
+        let clip = try finderReferenceCopy([url])
+        let elsewhere = directory.appendingPathComponent("Elsewhere", isDirectory: true)
+        try FileManager.default.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+        let moved = elsewhere.appendingPathComponent("report.pdf")
+        try FileManager.default.moveItem(at: url, to: moved)
+        var shown: [String] = []
+        controller.revealFiles = { shown = $0.map { $0.resolvingSymlinksInPath().path } }
+
+        controller.reveal(clip)
+
+        XCTAssertEqual(shown, [moved.resolvingSymlinksInPath().path])
+    }
+
+    func testShowInFinderShowsATrashedFileInTheTrash() throws {
+        let url = try make("photo.jpeg")
+        let clip = try finderReferenceCopy([url])
+        let trash = directory.appendingPathComponent(".Trash", isDirectory: true)
+        try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
+        let trashed = trash.appendingPathComponent("photo.jpeg")
+        try FileManager.default.moveItem(at: url, to: trashed)
+        var shown: [String] = []
+        controller.revealFiles = { shown = $0.map { $0.resolvingSymlinksInPath().path } }
+
+        controller.reveal(clip)
+
+        XCTAssertEqual(shown, [trashed.resolvingSymlinksInPath().path], "where it went is where it is shown")
+    }
+
+    func testOpenOpensAtMostADozenAndSaysSo() throws {
+        let urls = try (1...14).map { try make("page \($0).txt") }
+        copy(urls)
+        let clip = try XCTUnwrap(store.clips.first)
+        var opened = 0
+        var said: [String] = []
+        controller.openFile = { _ in opened += 1 }
+        controller.flash = { said.append($0) }
+
+        controller.open(clip)
+
+        XCTAssertEqual(opened, ClipboardController.openLimit)
+        XCTAssertEqual(said, ["⌂ Opened the first 12 of 14 files"])
+    }
+
+    func testMoveHerePutsTheFilesOnTheBoardAndPressesMoveItemHere() throws {
+        let url = try make("report.pdf")
+        let clip = try finderReferenceCopy([url])
+        var pastes = 0, moves = 0
+        controller.postPaste = { pastes += 1 }
+        controller.postMove = { moves += 1 }
+        board.clearContents()
+        board.setString("something else", forType: .string)
+
+        controller.paste(clip, action: .plain, moving: true)
+
+        XCTAssertEqual(pastedPaths, [url.resolvingSymlinksInPath().path], "the files, as for a paste")
+        XCTAssertEqual(moves, 1, "and the Finder's ⌥⌘V, which moves them")
+        XCTAssertEqual(pastes, 0)
+    }
+
     // MARK: Cards whose files are gone
 
     /// One look over the cards of files, waited for.

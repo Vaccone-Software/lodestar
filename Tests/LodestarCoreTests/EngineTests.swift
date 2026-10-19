@@ -119,6 +119,13 @@ final class WorldStub: EngineWorld {
         return bringSucceeds
     }
 
+    /// Whether the card whose actions stand is a copy of files, and whether
+    /// the Finder is in front for it to move into.
+    var panelIsFiles = false
+    var panelMovesHere = false
+    func pastePanelIsFiles() -> Bool { panelIsFiles }
+    func pastePanelMovesHere() -> Bool { panelMovesHere }
+
     /// Whether the card whose actions stand is a keepsake.
     var panelIsKept = false
     func pastePanelIsKept() -> Bool {

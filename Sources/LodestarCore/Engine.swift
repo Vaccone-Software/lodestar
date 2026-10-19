@@ -226,6 +226,10 @@ public enum SearchDeletion: Equatable {
 /// The rare half of a card's life, kept off the hot path deliberately.
 public enum PanelAction: Equatable {
     case pin, delete, excludeApp
+    /// A copy of files: show them in the Finder, open them, or move them
+    /// into the folder the Finder shows. Each ends the strip, because what
+    /// comes next happens in another app.
+    case reveal, open, moveHere
     /// Open the card's text in the draft, silent: read it large, edit it,
     /// `⏎` saves it to the card and `esc` steps back to the strip.
     case edit
@@ -273,6 +277,12 @@ public protocol EngineWorld: AnyObject {
     /// Is the card whose actions stand a keepsake? `K` keeps a clip and
     /// lets a keepsake go; `R` renames only a keepsake.
     func pastePanelIsKept() -> Bool
+    /// Is the card whose actions stand a copy of files? `F` shows them in
+    /// the Finder and `O` opens them only then.
+    func pastePanelIsFiles() -> Bool
+    /// Could the card's files be moved here? A copy of files with the
+    /// Finder in front: `M` moves them into the folder it shows.
+    func pastePanelMovesHere() -> Bool
     /// A plain letter while hints are up — the overlay narrows or fires.
     /// Shift fires a pick; control, held with it, right-clicks instead —
     /// the system's own word for a secondary click. Which button is a
@@ -318,6 +328,8 @@ public extension EngineWorld {
     var editorActive: Bool { false }
     func enterEditor() -> Bool { false }
     func pastePanelIsKept() -> Bool { false }
+    func pastePanelIsFiles() -> Bool { false }
+    func pastePanelMovesHere() -> Bool { false }
     func hintType(_ letter: String, shift: Bool, control: Bool, option: Bool) -> HintStep {
         hintType(letter, shift: shift, control: control)
     }
@@ -1378,6 +1390,14 @@ public struct EngineCore {
             return [.pasteNameBegin(fresh: false), .pastePanelDismiss]
         case "d": action = .delete
         case "x": action = .excludeApp
+        // A copy of files: what follows happens in the Finder or the app a
+        // file opens in, so the strip goes with the verb.
+        case "f" where world.pastePanelIsFiles(),
+             "o" where world.pastePanelIsFiles(),
+             "m" where world.pastePanelMovesHere():
+            state = .idle
+            let verb: PanelAction = key == "f" ? .reveal : key == "o" ? .open : .moveHere
+            return [.pastePanelAct(verb), .pastePanelDismiss, .exitPaste]
         case "s":
             // The band becomes the file's name. The panel's card is read
             // by the shell before the panel goes, so the order here is

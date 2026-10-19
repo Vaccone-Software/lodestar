@@ -308,6 +308,8 @@ final class ClipboardController {
                      lines: counted?.lines, characters: counted?.characters)
         if long { store.count(id: id, text: readable) }
         store.trim(maxBytes: maxBytes, maxItems: maxItems)
+        // A copy is a moment the files of older cards may have been deleted.
+        store.pruneGoneFilesSoon()
         onCapture?()
         onCopied?()
     }

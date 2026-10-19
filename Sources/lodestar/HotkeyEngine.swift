@@ -361,6 +361,9 @@ final class HotkeyEngine {
         self.select = select
         self.clipboard = clipboard
         clipboard.onCapture = { [weak self] in self?.refreshStripIfOpen() }
+        // No card leaves the history while the strip or a door of it is up:
+        // the letters under the hand would shift to other cards.
+        clipboard.history.removalsHeld = { [weak self] in self?.stripIsUp ?? false }
         draft.onActivity = { [weak self] in
             guard let self else { return }
             self.lastActivityAt = self.clock.now()
@@ -1119,6 +1122,8 @@ final class HotkeyEngine {
                     stopWatchingClicks()
                     strip.hide()
                 }
+                // With the strip down, cards whose files are gone can leave.
+                clipboard.history.pruneGoneFilesSoon()
             case .bringType(let text):
                 bringQuery += text
                 renderBring()
@@ -2612,6 +2617,15 @@ extension HotkeyEngine: EngineWorld {
     /// Said instead of "nothing copied yet" while the history is still opening,
     /// or is paused because its key cannot be asked for.
     var historyNotice: String? { clipboard.history.statusLine }
+
+    /// Whether the strip, or anything standing on it, is showing cards by
+    /// letter.
+    private var stripIsUp: Bool {
+        switch core.state {
+        case .paste, .pastePanel, .pasteDoor, .pasteImage, .pasteSave, .pasteSource, .pasteName, .bring: return true
+        default: return false
+        }
+    }
 
     func enterPaste() -> Bool {
         guard !clipboard.history.clips.isEmpty else { return false }

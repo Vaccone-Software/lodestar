@@ -281,6 +281,7 @@ final class ClipboardStore {
             }
             Log.info("clipboard: loaded \(index.count) clips", ["seconds": String(format: "%.2f", opened.seconds),
                                                                 "unreadable": opened.unreadable])
+            pruneGoneFilesSoon(after: Self.prunePeriod / 10)
             let waiting = queued
             queued.removeAll()
             queuedBytes = 0
@@ -750,6 +751,98 @@ final class ClipboardStore {
         guard bookmarks != index[position].fileBookmarks else { return }
         index[position].fileBookmarks = bookmarks
         commitChange(at: position)
+    }
+
+    // MARK: - Cards whose files are gone
+
+    /// Whether removing cards must wait: the strip, or a door of it, is
+    /// open. A card leaving then would move every card after it, and the
+    /// letter under the hand would name another card. The engine says.
+    var removalsHeld: () -> Bool = { false }
+    /// Off in the tests that are about something else, where a card whose
+    /// file a test has just deleted must stay to be pasted.
+    var prunesGoneFiles = true
+    /// How often the cards of files are looked over when nothing else asks.
+    nonisolated(unsafe) static var prunePeriod: TimeInterval = 300
+    private var pruneScheduled = false
+    private var pruning = false
+    private var pruneDue: Date?
+
+    /// Look the cards of files over soon: after a copy, when the strip
+    /// closes, and every `prunePeriod` in between.
+    func pruneGoneFilesSoon(after delay: TimeInterval = 1) {
+        let due = Date().addingTimeInterval(delay)
+        guard prunesGoneFiles, !pruneScheduled || due < (pruneDue ?? .distantFuture) else { return }
+        pruneScheduled = true
+        pruneDue = due
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self, let planned = self.pruneDue, planned <= Date().addingTimeInterval(0.05) else { return }
+            self.pruneScheduled = false
+            self.pruneDue = nil
+            self.pruneGoneFiles()
+        }
+    }
+
+    /// A card of files leaves the history once every one of its files is in
+    /// a Trash or gone for good: it can paste nothing, and the hand that
+    /// deleted the files has no use for it. A keepsake stays, dimmed, until
+    /// the hand removes it, because it was kept on purpose. A file on a disk
+    /// that is not connected decides nothing, and neither does an old
+    /// reference that no longer resolves. Main; the files are asked about
+    /// off it, and nothing leaves while the strip is open.
+    func pruneGoneFiles(completion: (() -> Void)? = nil) {
+        guard prunesGoneFiles, phase == .ready, !pruning else { completion?(); return }
+        defer { pruneGoneFilesSoon(after: Self.prunePeriod) }
+        guard !removalsHeld() else { completion?(); return }
+        let candidates: [(id: String, ref: Ref, bookmarks: [Data?])] = index
+            .filter { $0.pastesAsFiles && !$0.isPinned }
+            .compactMap { clip in refs[clip.id].map { (clip.id, $0, clip.fileBookmarks ?? []) } }
+        guard !candidates.isEmpty else { completion?(); return }
+        pruning = true
+        let files = disk.files
+        checking.async { [weak self] in
+            var dead: [(id: String, storage: String)] = []
+            var refreshed: [String: [Int: Data]] = [:]
+            for candidate in candidates {
+                guard let key = candidate.ref.key,
+                      case .items(let items) = files.readBlob(storage: candidate.ref.storage, key: key),
+                      !items.isEmpty else { continue }
+                let found = FileSense.withDeadline(FileSense.deadline) {
+                    items.enumerated().map { item, content in
+                        Clipboard.place(bookmark: candidate.bookmarks.indices.contains(item) ? candidate.bookmarks[item] : nil,
+                                        address: Clipboard.fileAddress(in: content))
+                    }
+                }
+                guard let found else { continue }
+                for (item, answer) in found.enumerated() {
+                    if let fresh = answer.bookmark, item < Clipboard.fileBookmarksKept { refreshed[candidate.id, default: [:]][item] = fresh }
+                }
+                let goneForGood = found.allSatisfy { answer in
+                    if case .trashed = answer.place { return true }
+                    return answer.place == .gone
+                }
+                if goneForGood { dead.append((candidate.id, candidate.ref.storage)) }
+            }
+            DispatchQueue.main.async { self?.pruned(dead, refreshed: refreshed, completion: completion) }
+        }
+    }
+
+    private func pruned(_ dead: [(id: String, storage: String)], refreshed: [String: [Int: Data]],
+                        completion: (() -> Void)?) {
+        pruning = false
+        for (id, fresh) in refreshed { if let ref = refs[id] { keepBookmarks(id, fresh, storage: ref.storage) } }
+        defer { completion?() }
+        // The strip opened while the files were being asked about: nothing
+        // moves now, and the next look decides.
+        guard !removalsHeld() else { return }
+        // Still the same card, and still not kept, now that it is decided.
+        let ids = dead.filter { entry in
+            refs[entry.id]?.storage == entry.storage && index.first(where: { $0.id == entry.id })?.isPinned == false
+        }.map(\.id)
+        guard !ids.isEmpty else { return }
+        delete(ids)
+        // Counts only.
+        Log.info("clipboard", ["removed cards of gone files": ids.count])
     }
 
     /// The strip is opening: what was known about the files is asked again.

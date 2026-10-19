@@ -25,6 +25,9 @@ final class ClipboardFilesTests: XCTestCase {
         // Secure input is the machine's, not the test's: a locked screen
         // holds it, and the paste would stop to ask for a ⌘V by hand.
         controller.secureInput = { false }
+        // These tests delete files to paste their cards; the cards stay
+        // unless a test is about their leaving.
+        store.prunesGoneFiles = false
         // Real QuickLook is another process's to answer in its own time; the
         // tests stand in for it, and the icon fallback is the real one.
         FileSense.thumbnailer = { _ in Self.swatch() }
@@ -499,6 +502,98 @@ final class ClipboardFilesTests: XCTestCase {
         XCTAssertEqual(pasted.said, ["✕ That file is no longer there"])
         store.forgetFilePresence()
         wait("the card learns its file is gone") { self.store.filesPresent(clip.id) == [false] }
+    }
+
+    // MARK: Cards whose files are gone
+
+    /// One look over the cards of files, waited for.
+    private func prune() {
+        store.prunesGoneFiles = true
+        store.flushIO()
+        var done = false
+        store.pruneGoneFiles { done = true }
+        wait("the cards have been looked over") { done }
+    }
+
+    private func ids() -> Set<String> { Set(store.clips.map(\.id)) }
+
+    func testACardWhoseFilesAreGoneLeavesAndOneWhoseFilesAreThereStays() throws {
+        let gone = try make("gone.txt"), kept = try make("kept.txt")
+        copy([gone])
+        let goneID = try XCTUnwrap(store.clips.first?.id)
+        copy([kept])
+        let keptID = try XCTUnwrap(store.clips.first?.id)
+        try FileManager.default.removeItem(at: gone)
+
+        prune()
+
+        XCTAssertFalse(ids().contains(goneID), "a card that can paste nothing leaves")
+        XCTAssertTrue(ids().contains(keptID))
+    }
+
+    func testACardWhoseFileIsInTheTrashLeaves() throws {
+        let url = try make("photo.jpeg")
+        let clip = try finderReferenceCopy([url])
+        let trash = directory.appendingPathComponent(".Trash", isDirectory: true)
+        try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
+        try FileManager.default.moveItem(at: url, to: trash.appendingPathComponent("photo.jpeg"))
+
+        prune()
+
+        XCTAssertFalse(ids().contains(clip.id))
+    }
+
+    func testACardWithSomeOfItsFilesLeftStays() throws {
+        let one = try make("one.txt"), two = try make("two.txt")
+        copy([one, two])
+        let id = try XCTUnwrap(store.clips.first?.id)
+        try FileManager.default.removeItem(at: one)
+
+        prune()
+
+        XCTAssertTrue(ids().contains(id), "it still pastes the file that is left")
+    }
+
+    func testAKeepsakeStaysWhenItsFilesAreGone() throws {
+        let url = try make("kept on purpose.pdf")
+        copy([url])
+        let id = try XCTUnwrap(store.clips.first?.id)
+        XCTAssertTrue(store.pin(id))
+        try FileManager.default.removeItem(at: url)
+
+        prune()
+
+        XCTAssertTrue(ids().contains(id), "kept on purpose, it leaves only by hand")
+    }
+
+    func testAFileOnADiskThatIsNotConnectedKeepsItsCard() throws {
+        board.clearContents()
+        let item = NSPasteboardItem()
+        item.setString("file:///Volumes/No%20Such%20Disk/report.pdf", forType: .fileURL)
+        item.setString("report.pdf", forType: .string)
+        board.writeObjects([item])
+        controller.capture()
+        let id = try XCTUnwrap(store.clips.first?.id)
+
+        prune()
+
+        XCTAssertTrue(ids().contains(id), "an unplugged disk decides nothing")
+    }
+
+    func testNoCardLeavesWhileTheStripIsUp() throws {
+        let url = try make("gone.txt")
+        copy([url])
+        let id = try XCTUnwrap(store.clips.first?.id)
+        try FileManager.default.removeItem(at: url)
+        var stripUp = true
+        store.removalsHeld = { stripUp }
+
+        prune()
+        XCTAssertTrue(ids().contains(id), "the letters under the hand must not shift")
+
+        stripUp = false
+        prune()
+        XCTAssertFalse(ids().contains(id), "and once the strip is down, it leaves")
     }
 
     // MARK: Whether the files are still there

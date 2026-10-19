@@ -224,6 +224,16 @@ final class ClipboardFileTests: XCTestCase {
         XCTAssertNil(Clipboard.durationDetail(.infinity), "a stream with no end has no length to say")
     }
 
+    func testACardHasNamesBeforeItsFilesAreReadAndTheFactsOnceTheyAre() {
+        var clip = files([fact("Report.pdf"), fact("Beach.jpg")])
+        XCTAssertEqual(Clipboard.namesOnCard(of: clip), ["Report.pdf", "Beach.jpg"])
+        clip.fileFacts = nil
+        clip.preview = "/Users/x/Documents/Report.pdf\nBeach.jpg\n"
+        XCTAssertEqual(Clipboard.namesOnCard(of: clip), ["Report.pdf", "Beach.jpg"], "the last part of each path, or a bare name")
+        clip.preview = ""
+        XCTAssertEqual(Clipboard.namesOnCard(of: clip), [])
+    }
+
     func testVoiceOverIsToldTheFiles() {
         let many = files([fact("Report.pdf"), fact("Beach.jpg"), fact("Demo.mov"), fact("Notes.txt")], count: 7)
         XCTAssertEqual(Clipboard.fileSpeech(of: many), "7 files: Report.pdf, Beach.jpg, and 5 more")
@@ -233,6 +243,8 @@ final class ClipboardFileTests: XCTestCase {
         XCTAssertTrue(Clipboard.fileSpeech(of: many, missing: true).hasSuffix(", missing"))
         var unread = files([fact("A.pdf")])
         unread.fileFacts = nil
+        XCTAssertEqual(Clipboard.fileSpeech(of: unread), "File A.pdf", "named from the path until the facts arrive")
+        unread.preview = ""
         XCTAssertEqual(Clipboard.fileSpeech(of: unread), "File copied")
     }
 

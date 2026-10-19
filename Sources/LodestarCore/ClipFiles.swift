@@ -96,6 +96,14 @@ extension Clipboard {
 
     // MARK: - What the card says
 
+    /// The names a card has to show: the files' own once they have been read,
+    /// and until then the last part of each path its preview holds, so a
+    /// card made a moment ago already says what it is.
+    public static func namesOnCard(of clip: Clip) -> [String] {
+        if let facts = clip.fileFacts, !facts.isEmpty { return facts.map(\.name) }
+        return clip.preview.split(separator: "\n").map { ($0 as NSString).lastPathComponent }.filter { !$0.isEmpty }
+    }
+
     /// "and 5 more", the grey line under the names a card has room for.
     public static func moreLine(_ count: Int) -> String { "and \(count) more" }
 
@@ -163,11 +171,11 @@ extension Clipboard {
     /// What VoiceOver says a file card holds.
     public static func fileSpeech(of clip: Clip, missing: Bool = false) -> String {
         let count = clip.itemCount
-        let names = clip.fileFacts?.map(\.name) ?? []
+        let names = namesOnCard(of: clip)
         var said: String
         if count == 1 {
             let fact = clip.fileFacts?.first
-            said = Caption.line(["File " + (fact?.name ?? "copied"), fact.map { "in " + $0.folder }, fact?.kind,
+            said = Caption.line(["File " + (names.first ?? "copied"), fact.map { "in " + $0.folder }, fact?.kind,
                                  fact?.detail])
         } else {
             let lines = nameLines(names: names, total: count)

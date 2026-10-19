@@ -2123,6 +2123,8 @@ extension HotkeyEngine: EngineWorld {
         let named = naming.map { ClipboardStrip.Naming(id: $0.id, text: $0.text, selected: $0.selected) }
         strip.show(recents: recents, pins: history.pins,
                    thumbnail: { [clipboard] id in clipboard.history.thumbnail(for: id) },
+                   fileThumbnail: { [clipboard] id, index in clipboard.history.thumbnail(for: id, index: index) },
+                   filesPresent: { [clipboard] id in clipboard.history.filesPresent(id) },
                    band: band, selection: pasteSelection,
                    actingOn: panelClip?.id ?? doorClip?.id ?? saveClip?.id,
                    pinsHidden: doorClip != nil, held: heldOverStrip,
@@ -2616,6 +2618,9 @@ extension HotkeyEngine: EngineWorld {
         pasteQuery = nil
         pasteSelection = 0
         panelClip = nil
+        // Whether a file card's files are still there is asked afresh each
+        // time the strip opens, and kept until it closes.
+        clipboard.history.forgetFilePresence()
         watchClicks()
         renderStrip()
         return true

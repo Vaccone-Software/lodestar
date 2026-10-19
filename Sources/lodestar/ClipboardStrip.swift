@@ -1,5 +1,6 @@
 import AppKit
 import LodestarCore
+import UniformTypeIdentifiers
 
 /// Keep: the clips as the hands hold them.
 ///
@@ -163,6 +164,13 @@ final class ClipboardStrip {
     /// The reading each card shows while `⌃` is held, by clip id.
     private(set) var shownReadings: [String: String] = [:]
     private(set) var shownMasked: [String: String] = [:]
+    /// What a card of files lists, as drawn: its names (and the grey line
+    /// of how many more), by clip id.
+    private(set) var shownFiles: [String: [String]] = [:]
+    /// How many sheets each card of files stands, and which cards are
+    /// drawn dimmed because every file of them is gone.
+    private(set) var shownSheets: [String: Int] = [:]
+    private(set) var shownDimmed: Set<String> = []
     private(set) var shownWeights: [Glass.Weight] = []
     private(set) var shownCards: [String: NSView] = [:]
     /// The key each card wears, by clip id; absent when it wears none.
@@ -217,6 +225,8 @@ final class ClipboardStrip {
     /// and thumbnails are already decoded.
     func show(recents: [Clipboard.Clip], pins: [Clipboard.Clip],
               thumbnail: (String) -> NSImage?,
+              fileThumbnail: (String, Int) -> NSImage? = { _, _ in nil },
+              filesPresent: (String) -> [Bool]? = { _ in nil },
               band: Band, selection: Int, actingOn: String? = nil,
               pinsHidden: Bool = false, held: Held = .none,
               source: String? = nil, matches: Int? = nil,
@@ -237,6 +247,9 @@ final class ClipboardStrip {
         shownNotes = [:]
         shownReadings = [:]
         shownMasked = [:]
+        shownFiles = [:]
+        shownSheets = [:]
+        shownDimmed = []
         shownWeights = []
         shownCards = [:]
         shownKeys = [:]
@@ -274,14 +287,15 @@ final class ClipboardStrip {
             let key = keyText(label: label, rank: rank, searching: query != nil,
                               held: held, hasReading: reading != nil, selection: selection)
             let lit = key != nil && (query != nil ? rank == selection : rank == 0)
+            let files = fileArt(for: clip, picture: fileThumbnail, present: filesPresent)
             let card = makeCard(clip: clip, key: key, lit: lit, size: place.size,
                                 face: rank == 0 && layout.wideJ ? BarTheme.titleFont : BarTheme.bodyFont,
                                 lift: rank < 4 ? .float : .rest,
                                 reading: reading,
                                 thumbnail: clip.kind == .image ? thumbnail(clip.id) : nil,
-                                raised: clip.id == actingOn)
+                                files: files, raised: clip.id == actingOn)
             card.frame = local(place)
-            card.setAccessibilityLabel(spoken(clip, rank: rank, label: label))
+            card.setAccessibilityLabel(spoken(clip, rank: rank, label: label, files: files))
             root.addSubview(card)
             ranked.append(card)
         }
@@ -296,7 +310,8 @@ final class ClipboardStrip {
                                       hasReading: reading != nil)
                     card = makeKeepsake(clip: clip, slot: slot, key: key, size: place.size,
                                         reading: reading,
-                                        thumbnail: clip.kind == .image ? thumbnail(clip.id) : nil,
+                                        thumbnail: clip.kind == .image ? thumbnail(clip.id)
+                                            : clip.kind == .file ? fileThumbnail(clip.id, 0) : nil,
                                         naming: naming?.id == clip.id ? naming : nil,
                                         raised: clip.id == actingOn)
                     card.setAccessibilityLabel("Keepsake \(slot), \(Clipboard.name(of: clip))")
@@ -561,8 +576,15 @@ final class ClipboardStrip {
 
     /// What VoiceOver says for a card: its key, its rank, what it holds,
     /// where it came from and when — the rank order, not the screen's.
-    private func spoken(_ clip: Clipboard.Clip, rank: Int, label: String) -> String {
-        let what = clip.kind == .image ? "Image" : (masked(clip)?.text ?? clip.preview)
+    private func spoken(_ clip: Clipboard.Clip, rank: Int, label: String, files: FileArt?) -> String {
+        let what: String
+        if clip.kind == .image {
+            what = "Image"
+        } else if clip.kind == .file {
+            what = Clipboard.fileSpeech(of: clip, missing: Clipboard.allMissing(files?.present))
+        } else {
+            what = masked(clip)?.text ?? clip.preview
+        }
         return Caption.line(["\(label.uppercased()), clip \(rank + 1)",
                              String(what.prefix(120)),
                              clip.sourceHost ?? clip.sourceAppName,
@@ -597,10 +619,10 @@ final class ClipboardStrip {
         return cap
     }
 
-    private func makeCard(clip: Clipboard.Clip, key: String?, lit: Bool, size: NSSize,
+    func makeCard(clip: Clipboard.Clip, key: String?, lit: Bool, size: NSSize,
                           face: NSFont = BarTheme.bodyFont,
                           lift: ObjectSurface.Lift, reading: String?,
-                          thumbnail: NSImage?, raised: Bool) -> NSView {
+                          thumbnail: NSImage?, files: FileArt? = nil, raised: Bool) -> NSView {
         let card = surface(size: size, lift: lift, weight: raised ? .highlighted : .normal)
         shownCards[clip.id] = card
         let width = size.width, height = size.height
@@ -670,6 +692,8 @@ final class ClipboardStrip {
         } else if let sum = clip.sum {
             let note = addNote(voice: sum.voice(), lines: [], swatch: nil, for: clip.id, to: card, in: body)
             addPreview(clip, to: card, in: body, above: note)
+        } else if let files, clip.kind == .file {
+            addFiles(clip, art: files, to: card, in: body)
         } else if let thumbnail {
             let view = NSImageView(image: thumbnail)
             view.imageScaling = .scaleProportionallyUpOrDown
@@ -684,7 +708,22 @@ final class ClipboardStrip {
         // address the hand remembers, "the one from GitHub".
         let badge = Clipboard.lengthBadge(for: clip)
         if let badge { shownBadges[clip.id] = badge }
-        let caption = Caption.line([badge, Clipboard.age(of: clip)])
+        var caption = Caption.line([badge, Clipboard.age(of: clip)])
+        var showsSource = true
+        if let files, clip.kind == .file {
+            // Files say what they weigh, and a single one what it is; when
+            // that does not fit beside the source, the kind goes first, and
+            // after it the source itself, which is nearly always the
+            // Finder and not worth an ellipsis where the size is a word.
+            let age = Clipboard.age(of: clip)
+            let missing = Clipboard.allMissing(files.present)
+            let beside = width - Self.pad * 2 - 8 - Self.minimumSource
+            caption = Clipboard.fileCaption(of: clip, age: age, missing: missing)
+            if Self.lineWidth(caption) > beside {
+                caption = Clipboard.fileCaption(of: clip, age: age, withKind: false, missing: missing)
+                showsSource = Self.lineWidth(caption) <= beside
+            }
+        }
         shownCaptions[clip.id] = caption
         let age = NSTextField(labelWithString: caption)
         age.font = BarTheme.secondaryFont
@@ -692,7 +731,7 @@ final class ClipboardStrip {
         age.sizeToFit()
         age.frame.origin = NSPoint(x: width - age.frame.width - Self.pad, y: 8)
         card.addSubview(age)
-        if let origin = clip.sourceHost ?? clip.sourceAppName {
+        if showsSource, let origin = clip.sourceHost ?? clip.sourceAppName {
             let source = NSTextField(labelWithString: origin)
             source.font = BarTheme.secondaryFont
             source.textColor = BarTheme.secondaryColor
@@ -706,6 +745,188 @@ final class ClipboardStrip {
         }
         return card
     }
+
+    // MARK: - Files
+
+    /// What a card of files is drawn from beyond the clip: a picture per
+    /// sheet (nil while it is still being decoded) and whether each file is
+    /// still where it was (nil until that has been asked, off the main thread).
+    struct FileArt {
+        var pictures: [NSImage?]
+        var present: [Bool]?
+    }
+
+    private func fileArt(for clip: Clipboard.Clip, picture: (String, Int) -> NSImage?,
+                         present: (String) -> [Bool]?) -> FileArt? {
+        guard clip.kind == .file else { return nil }
+        let sheets = min(Clipboard.thumbnailedFiles, clip.itemCount)
+        return FileArt(pictures: (0..<sheets).map { picture(clip.id, $0) }, present: present(clip.id))
+    }
+
+    /// A sheet of the stack: 50 by 64. The one file of a card stands larger.
+    static let sheet = NSSize(width: 50, height: 64)
+    static let soloSheet = NSSize(width: 64, height: 84)
+    /// Each sheet behind the first stands this far right and up.
+    static let cascadeStep = NSSize(width: 14, height: 7)
+
+    /// Where the sheets of a stack stand in a card's body, the first at the
+    /// lower left in front, each of the others a step up and to the right
+    /// and behind it. Whole points.
+    static func cascadeSheets(count: Int, in body: NSRect) -> [NSRect] {
+        (0..<max(0, count)).map { index in
+            NSRect(x: body.minX + 4 + cascadeStep.width * CGFloat(index),
+                   y: body.minY + 2 + cascadeStep.height * CGFloat(index),
+                   width: sheet.width, height: sheet.height)
+        }
+    }
+
+    /// Where the one file's sheet stands: at the left of the body, centred
+    /// in its height.
+    static func soloSheetFrame(in body: NSRect) -> NSRect {
+        NSRect(x: body.minX, y: body.minY + max(0, floor((body.height - soloSheet.height) / 2)),
+               width: soloSheet.width, height: soloSheet.height)
+    }
+
+    /// The icons of types, asked of the system once each: what a sheet shows
+    /// until its own picture is decoded.
+    private static var typeIcons: [String: NSImage] = [:]
+
+    private static func icon(type identifier: String?, name: String?) -> NSImage {
+        let type = identifier.flatMap { UTType($0) }
+            ?? name.flatMap { UTType(filenameExtension: ($0 as NSString).pathExtension) } ?? .data
+        if let known = typeIcons[type.identifier] { return known }
+        let icon = NSWorkspace.shared.icon(for: type)
+        typeIcons[type.identifier] = icon
+        return icon
+    }
+
+    /// One sheet: the file's own picture filling it, or its icon standing
+    /// in it, with the drawn soft shadow of an object resting on the card.
+    private func makeSheet(frame: NSRect, picture: NSImage?, fact: Clipboard.FileFact?, name: String?,
+                           in card: NSView) -> NSView {
+        let sheet = SoftShadow.object(radius: BarTheme.markRadius, lift: .rest)
+        sheet.frame = frame
+        let face = NSView(frame: sheet.bounds)
+        face.wantsLayer = true
+        face.layer?.cornerRadius = BarTheme.markRadius
+        face.layer?.masksToBounds = true
+        face.layer?.backgroundColor = Glass.resolved(BarTheme.raised, in: card)
+        // The file's own face is cropped to the sheet, as a print is; an
+        // icon is whole, with room around it.
+        let ownFace = fact?.pictured == true && picture != nil
+        let image = picture ?? Self.icon(type: fact?.type, name: name)
+        if let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+            let art = CALayer()
+            art.frame = ownFace ? face.bounds : face.bounds.insetBy(dx: 7, dy: 7)
+            art.contents = cg
+            art.contentsGravity = ownFace ? .resizeAspectFill : .resizeAspect
+            art.masksToBounds = true
+            face.layer?.addSublayer(art)
+        }
+        sheet.addSubview(face)
+        return sheet
+    }
+
+    /// A card of files, from the left of its body: the stack of sheets and
+    /// the names beside it for several, one larger sheet and everything the
+    /// card knows of the file for one. A card whose files are all gone
+    /// keeps its look and loses its brightness.
+    private func addFiles(_ clip: Clipboard.Clip, art: FileArt, to card: NSView, in body: NSRect) {
+        let facts = clip.fileFacts ?? []
+        let names = Clipboard.namesOnCard(of: clip)
+        let count = clip.itemCount
+        let missing = Clipboard.allMissing(art.present)
+        var drawn: [NSView] = []
+        let sheets: [NSRect]
+
+        if count > 1 {
+            sheets = Self.cascadeSheets(count: min(Clipboard.thumbnailedFiles, count), in: body)
+            // Behind first, so the first file stands in front.
+            for index in sheets.indices.reversed() {
+                drawn.append(makeSheet(frame: sheets[index], picture: art.pictures.indices.contains(index) ? art.pictures[index] : nil,
+                                       fact: facts.indices.contains(index) ? facts[index] : nil,
+                                       name: names.indices.contains(index) ? names[index] : nil, in: card))
+            }
+            let left = (sheets.last?.maxX ?? body.minX) + 10
+            let room = body.maxX - left
+            var lines: [String] = []
+            // A card too narrow for the names keeps the stack alone: the
+            // count beside the key and VoiceOver still say them.
+            if room >= Self.minimumNames {
+                var top = body.maxY - 14
+                for line in Clipboard.nameLines(names: names, total: count) {
+                    let label = NSTextField(labelWithString: line.text)
+                    label.font = BarTheme.secondaryFont
+                    label.textColor = line.grey ? BarTheme.secondaryColor : .labelColor
+                    label.lineBreakMode = .byTruncatingTail
+                    label.sizeToFit()
+                    top -= 16
+                    label.frame = NSRect(x: left, y: top, width: min(label.frame.width, room), height: 16)
+                    top -= 3
+                    drawn.append(label)
+                    lines.append(line.text)
+                }
+            }
+            shownFiles[clip.id] = lines
+            shownSheets[clip.id] = sheets.count
+        } else {
+            let frame = Self.soloSheetFrame(in: body)
+            drawn.append(makeSheet(frame: frame, picture: art.pictures.first.flatMap { $0 }, fact: facts.first,
+                                   name: names.first, in: card))
+            let left = frame.maxX + 10
+            let room = body.maxX - left
+            var lines: [String] = []
+            if room >= Self.minimumNames {
+                var top = frame.maxY
+                let title = NSTextField(wrappingLabelWithString: facts.first?.name ?? names.first ?? "")
+                title.font = BarTheme.fileNameFont
+                title.textColor = .labelColor
+                title.lineBreakMode = .byWordWrapping
+                title.maximumNumberOfLines = 2
+                title.cell?.truncatesLastVisibleLine = true
+                let height = ceil(title.sizeThatFits(NSSize(width: room, height: .greatestFiniteMagnitude)).height)
+                let titleHeight = min(height, 2 * 16)
+                top -= titleHeight
+                title.frame = NSRect(x: left, y: top, width: room, height: titleHeight)
+                drawn.append(title)
+                lines.append(title.stringValue)
+                // The folder it is in, then the pages, pixels or minutes: each
+                // a grey line, and a line it has no word for is not drawn.
+                for text in [facts.first?.folder, facts.first?.detail] {
+                    guard let text, !text.isEmpty else { continue }
+                    let label = NSTextField(labelWithString: text)
+                    label.font = BarTheme.secondaryFont
+                    label.textColor = BarTheme.secondaryColor
+                    label.lineBreakMode = .byTruncatingTail
+                    top -= 16 + 2
+                    label.frame = NSRect(x: left, y: top + 2, width: room, height: 16)
+                    drawn.append(label)
+                    lines.append(text)
+                }
+            }
+            shownFiles[clip.id] = lines
+            shownSheets[clip.id] = 1
+        }
+
+        // One view for what the card shows of its files, so that a card
+        // whose files are gone is dimmed as one picture: sheets dimmed one
+        // at a time show through each other.
+        let content = NSView(frame: body)
+        for view in drawn {
+            view.frame = view.frame.offsetBy(dx: -body.minX, dy: -body.minY)
+            content.addSubview(view)
+        }
+        if missing {
+            content.alphaValue = 0.45
+            shownDimmed.insert(clip.id)
+        }
+        card.addSubview(content)
+    }
+
+    /// The least room beside the sheets worth a name.
+    private static let minimumNames: CGFloat = 40
+    /// The least room a card's source is worth in the foot of a card of files.
+    private static let minimumSource: CGFloat = 40
 
     /// A keepsake: its number, its name, and the start of what it holds.
     /// It rests where a passing clip floats.

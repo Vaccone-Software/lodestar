@@ -654,6 +654,10 @@ enum BarTheme {
     /// size, regular weight, the secondary label colour. Weight is not a
     /// second style; a caption that needs emphasis is a caption too long.
     static let secondaryFont = NSFont.systemFont(ofSize: Scale.meta, weight: .regular)
+    /// The one file a card shows is named in the caption's size, set firm:
+    /// it is the card's subject, where the lines beside a stack of files
+    /// are only a list.
+    static let fileNameFont = NSFont.systemFont(ofSize: Scale.meta, weight: .medium)
     /// The one colour for secondary text — and the label colour itself
     /// when a person has asked the system for more contrast. On the
     /// paper side the system's secondary grey measured 3.9 to 1 against

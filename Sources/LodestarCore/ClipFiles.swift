@@ -95,6 +95,8 @@ extension Clipboard {
         /// Where it is, under the name it has now.
         case here(URL)
         /// In a Trash: deleted, and still there until the Trash is emptied.
+        /// It does not paste: the Finder refuses a file in the Trash and
+        /// pastes the next thing on the board instead, its icon as a file.
         case trashed(URL)
         /// Its disk is here and the file is not.
         case gone
@@ -105,8 +107,8 @@ extension Clipboard {
         /// Where it pastes from, when it can be pasted at all.
         public var url: URL? {
             switch self {
-            case .here(let url), .trashed(let url): return url
-            case .gone, .away: return nil
+            case .here(let url): return url
+            case .trashed, .gone, .away: return nil
             }
         }
     }

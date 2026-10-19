@@ -376,6 +376,8 @@ final class ClipboardController {
                 if places.allSatisfy({ $0 == .away }) {
                     flash(one ? "✕ That file is on a disk that is not connected"
                               : "✕ Those files are on a disk that is not connected")
+                } else if places.allSatisfy({ if case .trashed = $0 { return true }; return false }) {
+                    flash(one ? "✕ That file is in the Trash" : "✕ Those files are in the Trash")
                 } else {
                     flash(one ? "✕ That file is no longer there" : "✕ Those files are no longer there")
                 }

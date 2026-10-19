@@ -468,22 +468,23 @@ final class ClipboardFilesTests: XCTestCase {
     }
 
     /// Delete in the Finder moves the file to the Trash, where the bookmark
-    /// still finds it. It pastes from there, so copy, delete and paste is a
-    /// move for as long as the Trash holds it.
-    func testAFileDeletedToTheTrashPastesFromTheTrash() throws {
+    /// still finds it. The Finder will not paste it from there (it pastes
+    /// the file's icon as a file instead, measured 2026-10-19), so it is not
+    /// offered, and the pill says where it went.
+    func testAFileDeletedToTheTrashPastesAsNothingAndSaysWhereItWent() throws {
         let url = try make("photo.jpeg")
         let clip = try finderReferenceCopy([url])
         let trash = directory.appendingPathComponent(".Trash", isDirectory: true)
         try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
-        let trashed = trash.appendingPathComponent("photo.jpeg")
-        try FileManager.default.moveItem(at: url, to: trashed)
+        try FileManager.default.moveItem(at: url, to: trash.appendingPathComponent("photo.jpeg"))
 
         let pasted = pasteOverSomethingElse(clip)
 
-        XCTAssertEqual(pasted.posted, 1)
-        XCTAssertEqual(pastedPaths, [trashed.resolvingSymlinksInPath().path], "by its path in the Trash")
+        XCTAssertEqual(board.string(forType: .string), "kept", "the board is left as it was")
+        XCTAssertEqual(pasted.posted, 0, "nothing is pasted, so the Finder makes no icon file")
+        XCTAssertEqual(pasted.said, ["✕ That file is in the Trash"])
         store.forgetFilePresence()
-        wait("its card stays bright") { self.store.filesPresent(clip.id) == [true] }
+        wait("its card learns it is gone") { self.store.filesPresent(clip.id) == [false] }
     }
 
     func testAFileDeletedForGoodPastesAsNothingAndItsCardSaysSo() throws {

@@ -400,6 +400,43 @@ final class SelectEngineTests: XCTestCase {
         XCTAssertEqual(core.state, .idle)
     }
 
+    func testEscapeAfterTheFirstAnchorCopiesItWhenCopyOnCompleteIsOn() {
+        world.selectEscapeCopiesNow = true
+        _ = press("/", held: true)
+        XCTAssertEqual(press("escape"), [.exitSelect], "the mode ends the same way")
+        XCTAssertEqual(core.state, .idle)
+        XCTAssertEqual(world.calls.filter { $0 == "selectEscapeCopy" }.count, 1,
+                       "the anchored word is asked for exactly once")
+        XCTAssertFalse(world.calls.contains("selectCopy"), "⌘C's own path is not borrowed")
+    }
+
+    func testEscapeLeavesWithoutCopyingWhenTheWorldSaysItDoesNotCopy() {
+        // Copy-on-complete off, or no anchor yet: the world answers false.
+        world.selectEscapeCopiesNow = false
+        _ = press("/", held: true)
+        XCTAssertEqual(press("escape"), [.exitSelect])
+        XCTAssertEqual(core.state, .idle)
+        XCTAssertFalse(world.calls.contains("selectEscapeCopy"))
+        XCTAssertFalse(world.calls.contains("selectCopy"))
+    }
+
+    func testTheLodeEscapeInsideSelectNeverCopies() {
+        world.selectEscapeCopiesNow = true
+        _ = press("/", held: true)
+        XCTAssertEqual(press("escape", held: true), [.exitSelect],
+                       "lode held is the other branch: it only leaves")
+        XCTAssertEqual(core.state, .idle)
+        XCTAssertFalse(world.calls.contains("selectEscapeCopy"))
+    }
+
+    func testOnlyEscapeCopiesOnLeaving() {
+        world.selectEscapeCopiesNow = true
+        _ = press("/", held: true)
+        _ = press("g", held: true)
+        XCTAssertFalse(world.calls.contains("selectEscapeCopy"),
+                       "another lode verb exits and executes without taking the word")
+    }
+
     func testCommandCTakesTheAnchoredWordAndEndsTheMode() {
         _ = press("/", held: true)
         let effects = core.keyDown(key: "c", held: false, shift: false, command: true,

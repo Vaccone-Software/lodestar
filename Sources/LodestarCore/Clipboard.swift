@@ -11,6 +11,19 @@ public enum Clipboard {
     public enum Kind: String, Codable, Equatable {
         case text
         case image
+        /// A copy of files: every item is a file's address, and the card
+        /// shows the files themselves (see `FileFact`), not a path as text.
+        case file
+
+        /// A kind this build does not know decodes as text. The index is
+        /// one journal, and a clip that will not decode takes the whole
+        /// history down with it: an older build meeting a kind a newer one
+        /// wrote, or the reverse, must lose a card's look and never the
+        /// cards. The raw strings are the file format and never change.
+        public init(from decoder: Decoder) throws {
+            let raw = try decoder.singleValueContainer().decode(String.self)
+            self = Kind(rawValue: raw) ?? .text
+        }
     }
 
     public struct Clip: Codable, Equatable {
@@ -56,13 +69,19 @@ public enum Clipboard {
         /// counted once, later, off the main thread.
         public var lines: Int?
         public var characters: Int?
+        /// What each file of a file copy is, in copy order, so the card
+        /// can show it without reading the file again: gathered a beat
+        /// after the card exists, off the main thread, and absent for every
+        /// clip written before files were a kind of their own.
+        public var fileFacts: [FileFact]?
 
         public init(id: String, kind: Kind, created: Date,
                     sourceBundleID: String?, sourceAppName: String?,
                     preview: String, bytes: Int,
                     nativeTypes: [String] = [], otherItemTypes: [[String]] = [],
                     pinnedSlot: Int? = nil, sourceHost: String? = nil,
-                    lines: Int? = nil, characters: Int? = nil, keptName: String? = nil) {
+                    lines: Int? = nil, characters: Int? = nil, keptName: String? = nil,
+                    fileFacts: [FileFact]? = nil) {
             self.id = id
             self.kind = kind
             self.created = created
@@ -81,6 +100,7 @@ public enum Clipboard {
             self.otherItemTypes = otherItemTypes.isEmpty ? nil : otherItemTypes
             self.pinnedSlot = pinnedSlot
             self.keptName = keptName
+            self.fileFacts = fileFacts
         }
 
         public var isPinned: Bool { pinnedSlot != nil }
@@ -98,7 +118,9 @@ public enum Clipboard {
         /// A card whose text can be opened in the draft and edited: one
         /// text item that is the text itself. A copy of files carries its
         /// paths as its plain form, and editing a path is not editing the
-        /// copy; an image has no text to edit.
+        /// copy (a file clip is never text, and a text clip recorded before
+        /// files had a kind is told by its file-url type); an image has no
+        /// text to edit.
         public var isEditable: Bool {
             kind == .text && itemCount == 1 && !nativeTypes.contains(Clipboard.fileURLType)
         }
@@ -133,6 +155,9 @@ public enum Clipboard {
     /// the preview when it does not — a preview cut at the cap means the
     /// text is at least that long, and the badge says so.
     public static func lengthBadge(for clip: Clip) -> String? {
+        // A card of files says how many files, beside its key; it holds no
+        // text that could run past five lines.
+        guard clip.kind != .file else { return nil }
         if let lines = clip.lines, let characters = clip.characters {
             return lengthBadge(lines: lines, characters: characters)
         }
@@ -560,6 +585,12 @@ public enum Clipboard {
     /// many as fit a short name, never cut inside a word. An image is
     /// named by what was read off it, or simply "Image".
     public static func offeredName(for clip: Clip, limit: Int = 24) -> String {
+        if clip.kind == .file {
+            // The first file's name, not the start of its path.
+            let first = clip.fileFacts?.first?.name
+                ?? clip.preview.split(separator: "\n").first.map { ($0 as NSString).lastPathComponent }
+            return first.map { offeredName(fromText: $0, limit: limit) } ?? "Files"
+        }
         if clip.kind == .image {
             // Under the size line, whatever the recognizer read.
             let lines = clip.preview.split(separator: "\n", maxSplits: 1)
@@ -646,6 +677,9 @@ public enum Clipboard {
                 promoted.preview = known.preview
                 promoted.lines = known.lines ?? arrival.lines
                 promoted.characters = known.characters ?? arrival.characters
+                // The files are read again after every copy, and until that
+                // lands the card is the card it was.
+                promoted.fileFacts = arrival.fileFacts ?? known.fileFacts
             }
             out.insert(promoted, at: 0)
             return out

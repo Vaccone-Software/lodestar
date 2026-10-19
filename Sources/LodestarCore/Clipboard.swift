@@ -824,8 +824,15 @@ public enum Clipboard {
         if !needle.isEmpty, let name = clip.color?.name.lowercased(), name.contains(needle) {
             score = max(score ?? 0, nameRelevance)
         }
+        if !needle.isEmpty, let terms = searchTerms(of: clip), terms.contains(needle) {
+            score = max(score ?? 0, fileRelevance)
+        }
         return score
     }
+
+    /// A card of files found by its folder, kind, site or title stands
+    /// with a page's host: under a hit in the names its text holds.
+    static let fileRelevance = hostRelevance
 
     /// Newest-first among equals, so an untyped strip and a searched one
     /// order the same way and the labels stay where the eye expects them.

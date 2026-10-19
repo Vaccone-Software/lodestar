@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 
 /// A copy of files, as the history knows it: what makes a copy a file clip,
 /// what the card says about each file, and how it says it. Pure; the reading
@@ -38,9 +39,15 @@ extension Clipboard {
         /// Whether the picture kept for it is the file's own (a first page,
         /// a poster frame) rather than its icon, which is drawn another way.
         public var pictured: Bool?
+        /// The site a downloaded file came from, by its host alone, as the
+        /// Mac recorded the download: a search for "github" finds it.
+        public var site: String?
+        /// A PDF's own title, when its maker gave it one.
+        public var title: String?
 
         public init(name: String, folder: String, kind: String, type: String? = nil,
-                    bytes: Int? = nil, items: Int? = nil, detail: String? = nil, pictured: Bool? = nil) {
+                    bytes: Int? = nil, items: Int? = nil, detail: String? = nil, pictured: Bool? = nil,
+                    site: String? = nil, title: String? = nil) {
             self.name = name
             self.folder = folder
             self.kind = kind
@@ -49,7 +56,53 @@ extension Clipboard {
             self.items = items
             self.detail = detail
             self.pictured = pictured
+            self.site = site
+            self.title = title
         }
+    }
+
+    // MARK: - What a card of files is found by
+
+    /// The words a card of files is searched by beyond what its text says:
+    /// each file's name and extension, its folder, what kind of file it is
+    /// in the words a hand types ("pdf", "photo", "video", "folder"), the
+    /// site it was downloaded from, and a PDF's title. Lowercased, from the
+    /// facts kept at the copy, so a search never reads a disk; never what
+    /// is inside a file. Nil for any other card.
+    static func searchTerms(of clip: Clip) -> String? {
+        guard clip.pastesAsFiles, let facts = clip.fileFacts, !facts.isEmpty else { return nil }
+        return facts.map { fact -> String in
+            var words = [fact.name, (fact.name as NSString).pathExtension, fact.folder, fact.kind]
+            words += kindWords(type: fact.type, folder: fact.items != nil)
+            if let site = fact.site { words.append(site) }
+            if let title = fact.title { words.append(title) }
+            return words.filter { !$0.isEmpty }.joined(separator: " ")
+        }.joined(separator: "\n").lowercased()
+    }
+
+    /// The site a download came from, out of the addresses the Mac kept for
+    /// it (the file's own address first, then the page it was on): the
+    /// first web host, without its `www.`. A host only, never a path or a
+    /// query, which can carry a private token.
+    public static func siteName(_ addresses: [String]) -> String? {
+        addresses.lazy.compactMap { URL(string: $0) }
+            .filter { ["http", "https"].contains($0.scheme?.lowercased() ?? "") }
+            .compactMap(\.host).first
+            .map { $0.lowercased().hasPrefix("www.") ? String($0.dropFirst(4)) : $0.lowercased() }
+    }
+
+    /// What a hand calls a kind of file, by the type it is.
+    static func kindWords(type identifier: String?, folder: Bool) -> [String] {
+        if folder { return ["folder"] }
+        guard let type = identifier.flatMap(UTType.init) else { return [] }
+        let kinds: [(UTType, [String])] = [
+            (.pdf, ["pdf", "document"]), (.image, ["image", "photo", "picture"]),
+            (.movie, ["video", "movie"]), (.audio, ["audio", "sound", "music"]),
+            (.archive, ["archive", "zip"]), (.sourceCode, ["code"]), (.text, ["text", "document"]),
+            (.presentation, ["presentation", "slides"]), (.spreadsheet, ["spreadsheet"]),
+            (.application, ["app"]),
+        ]
+        return kinds.filter { type.conforms(to: $0.0) }.flatMap(\.1)
     }
 
     // MARK: - What a copy is

@@ -567,6 +567,21 @@ final class ClipboardFilesTests: XCTestCase {
         XCTAssertEqual(pastes, 0)
     }
 
+    // MARK: What a file is found by
+
+    func testADownloadedFileKnowsItsSiteFromTheMacsOwnNote() throws {
+        let url = try make("archive.zip")
+        let froms = try PropertyListSerialization.data(
+            fromPropertyList: ["https://www.github.com/x/y/archive.zip?token=SECRET", "https://github.com/x/y"],
+            format: .binary, options: 0)
+        let written = froms.withUnsafeBytes {
+            setxattr(url.path, "com.apple.metadata:kMDItemWhereFroms", $0.baseAddress, froms.count, 0, 0)
+        }
+        XCTAssertEqual(written, 0)
+        XCTAssertEqual(FileSense.site(of: url), "github.com", "the host alone, never the token")
+        XCTAssertNil(FileSense.site(of: try make("plain.txt")), "a file made here came from nowhere")
+    }
+
     // MARK: The reading: paths
 
     func testControlPastesThePathsWhereTheFilesAreNowAsText() throws {

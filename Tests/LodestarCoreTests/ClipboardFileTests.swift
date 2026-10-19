@@ -22,6 +22,54 @@ final class ClipboardFileTests: XCTestCase {
                        fileFacts: facts)
     }
 
+    // MARK: - What a card of files is found by
+
+    private func card(_ facts: [Clipboard.FileFact], id: String, preview: String) -> Clipboard.Clip {
+        Clipboard.Clip(id: id, kind: .file, created: Date(timeIntervalSince1970: 1_000_000),
+                       sourceBundleID: "com.apple.finder", sourceAppName: "Finder", preview: preview, bytes: 1,
+                       nativeTypes: file, otherItemTypes: Array(repeating: file, count: facts.count - 1),
+                       fileFacts: facts)
+    }
+
+    func testAFileCardIsFoundByItsFolderKindSiteAndTitle() {
+        let report = card([Clipboard.FileFact(name: "Q3.pdf", folder: "Downloads", kind: "PDF document",
+                                              type: "com.adobe.pdf", site: "github.com", title: "Quarterly Numbers")],
+                          id: "r", preview: "Q3.pdf")
+        let photo = card([Clipboard.FileFact(name: "IMG_2041.jpeg", folder: "Pictures", kind: "JPEG image",
+                                             type: "public.jpeg")], id: "p", preview: "IMG_2041.jpeg")
+        let clips = [report, photo]
+        for (query, found) in [("downloads", "r"), ("pdf", "r"), ("github", "r"), ("quarterly", "r"),
+                               ("photo", "p"), ("jpeg", "p"), ("pictures", "p")] {
+            XCTAssertEqual(Clipboard.search(clips, query: query).map(\.id), [found], query)
+        }
+        XCTAssertEqual(Clipboard.search(clips, query: "secret").map(\.id), [], "never what is inside a file")
+    }
+
+    func testANameHitStandsAboveAFolderHit() {
+        let inName = card([Clipboard.FileFact(name: "Invoice.pdf", folder: "Desktop", kind: "PDF document")],
+                          id: "name", preview: "Invoice.pdf")
+        let inFolder = card([Clipboard.FileFact(name: "a.pdf", folder: "Invoice", kind: "PDF document")],
+                            id: "folder", preview: "a.pdf")
+        XCTAssertEqual(Clipboard.search([inFolder, inName], query: "invoice").map(\.id), ["name", "folder"])
+    }
+
+    func testTheSearchLearnsAFilesFactsWhenTheyArrive() {
+        let index = ClipboardSearchIndex()
+        var clip = card([Clipboard.FileFact(name: "a.pdf", folder: "Desktop", kind: "PDF document")],
+                        id: "a", preview: "a.pdf")
+        XCTAssertEqual(index.search([clip], query: "receipts").map(\.id), [])
+        clip.fileFacts = [Clipboard.FileFact(name: "a.pdf", folder: "Receipts", kind: "PDF document")]
+        XCTAssertEqual(index.search([clip], query: "receipts").map(\.id), ["a"], "the key is made again")
+    }
+
+    func testADownloadsSiteIsItsHostAlone() {
+        XCTAssertEqual(Clipboard.siteName(["https://www.github.com/x/y/archive.zip?token=SECRET",
+                                           "https://github.com/x/y"]), "github.com")
+        XCTAssertEqual(Clipboard.siteName(["file:///Users/x/a.pdf", "https://Docs.Example.org/p"]), "docs.example.org",
+                       "a web address, not a file's own")
+        XCTAssertNil(Clipboard.siteName([]))
+    }
+
     // MARK: - The reading: where the files are
 
     func testPathsAreQuotedWholeForAShell() {

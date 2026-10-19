@@ -48,12 +48,34 @@ enum FileSense {
             return Clipboard.FileFact(name: names.name, folder: names.folder, kind: "Document")
         }
         var fact = read.fact
+        // Where a download came from is the Mac's own note on the file, not
+        // anything in it, and is read even for a file not on this Mac yet.
+        fact.site = withDeadline(deadline) { site(of: url) }
         // A file that is not on this Mac yet is described by what is known;
         // opening it to count its pages would download it.
-        if !read.dataless, let type = read.type, !read.isFolder {
-            fact.detail = withDeadline(deadline) { detail(of: url, type: type) }
+        if !read.dataless, let type = read.type, !read.isFolder,
+           let described = withDeadline(deadline, { detail(of: url, type: type) }) {
+            fact.detail = described.detail
+            fact.title = described.title
         }
         return fact
+    }
+
+    /// The host of the page or address a downloaded file came from, as the
+    /// Mac recorded it at the download: `kMDItemWhereFroms`, kept on the
+    /// file as an extended attribute (read here directly, so the answer
+    /// does not wait on Spotlight having seen the folder), the address
+    /// first. The host alone: a download's address can carry a private
+    /// token, and the card has no use for one.
+    static func site(of url: URL) -> String? {
+        let name = "com.apple.metadata:kMDItemWhereFroms"
+        let size = getxattr(url.path, name, nil, 0, 0, 0)
+        guard size > 0, size < 64 << 10 else { return nil }
+        var bytes = [UInt8](repeating: 0, count: size)
+        guard getxattr(url.path, name, &bytes, size, 0, 0) == size,
+              let froms = try? PropertyListSerialization.propertyList(from: Data(bytes), format: nil) as? [String]
+        else { return nil }
+        return Clipboard.siteName(froms)
     }
 
     private struct Basics {
@@ -99,11 +121,15 @@ enum FileSense {
         return info.st_flags & 0x4000_0000 != 0  // SF_DATALESS
     }
 
-    /// Pages for a PDF, pixels for an image, minutes and seconds for sound
-    /// and film. Header reads, every one: no content comes with them.
-    private static func detail(of url: URL, type: UTType) -> String? {
+    /// Pages for a PDF (and its title, when its maker gave it one), pixels
+    /// for an image, minutes and seconds for sound and film. Header reads,
+    /// every one: no content comes with them.
+    private static func detail(of url: URL, type: UTType) -> (detail: String?, title: String?)? {
         if type.conforms(to: .pdf) {
-            return PDFDocument(url: url).flatMap { Clipboard.pagesDetail($0.pageCount) }
+            guard let document = PDFDocument(url: url) else { return nil }
+            let title = (document.documentAttributes?[PDFDocumentAttribute.titleAttribute] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return (Clipboard.pagesDetail(document.pageCount), title?.isEmpty == false ? title : nil)
         }
         if type.conforms(to: .image) {
             guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
@@ -113,10 +139,10 @@ enum FileSense {
             // Orientations 5 to 8 are turned on their side: the picture is
             // the way up it is shown, not the way it is stored.
             if let turn = properties[kCGImagePropertyOrientation] as? Int, (5...8).contains(turn) { swap(&width, &height) }
-            return Clipboard.dimensionsDetail(width: width, height: height)
+            return (Clipboard.dimensionsDetail(width: width, height: height), nil)
         }
         if type.conforms(to: .audiovisualContent) {
-            return duration(of: url).flatMap(Clipboard.durationDetail)
+            return (duration(of: url).flatMap(Clipboard.durationDetail), nil)
         }
         return nil
     }

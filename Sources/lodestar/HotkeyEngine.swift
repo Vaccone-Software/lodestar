@@ -2130,6 +2130,7 @@ extension HotkeyEngine: EngineWorld {
                    thumbnail: { [clipboard] id in clipboard.history.thumbnail(for: id) },
                    fileThumbnail: { [clipboard] id, index in clipboard.history.thumbnail(for: id, index: index) },
                    filesPresent: { [clipboard] id in clipboard.history.filesPresent(id) },
+                   filePaths: { [clipboard] id in clipboard.history.filePaths(id) },
                    band: band, selection: pasteSelection,
                    actingOn: panelClip?.id ?? doorClip?.id ?? saveClip?.id,
                    pinsHidden: doorClip != nil, held: heldOverStrip,
@@ -2618,6 +2619,13 @@ extension HotkeyEngine: EngineWorld {
             clipboard.paste(clip, action: action)
         case .reading:
             strip.hide()
+            // A copy of files reads as its paths, found where they are now
+            // at the moment of the paste.
+            if clip.pastesAsFiles {
+                stripSession?.outcome = ("pasted", source, "reading", rank)
+                clipboard.pastePaths(of: clip)
+                return
+            }
             guard let reading = Clipboard.reading(of: clip, units: strip.units, zones: strip.timeZones) else {
                 stripSession?.outcome = ("abandoned", source, nil, rank)
                 hud.flash("✕ That card has no reading")
@@ -2690,7 +2698,9 @@ extension HotkeyEngine: EngineWorld {
             let index = address.flatMap { ClipboardStrip.labels.firstIndex(of: $0) } ?? pasteSelection
             clip = strip.shownRecents.indices.contains(index) ? strip.shownRecents[index] : nil
         }
-        return clip.map { Clipboard.reading(of: $0, units: strip.units, zones: strip.timeZones) != nil } ?? false
+        // A card of files always reads as its paths; where they are is
+        // asked when it pastes.
+        return clip.map { $0.pastesAsFiles || Clipboard.reading(of: $0, units: strip.units, zones: strip.timeZones) != nil } ?? false
     }
 
     /// A click means the user is looking at something else now, and the

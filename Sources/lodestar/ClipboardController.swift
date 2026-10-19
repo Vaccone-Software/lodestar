@@ -531,6 +531,16 @@ final class ClipboardController {
         revealFiles(shown)
     }
 
+    /// `⌃` on a card of files: their paths as text, each in single quotes,
+    /// found where the files are now. What cannot be pasted is left out,
+    /// and a card none of whose files can be says why.
+    func pastePaths(of clip: Clipboard.Clip) {
+        guard let places = places(of: clip) else { return flash("✕ That disk did not answer in time") }
+        let urls = places.compactMap(\.url)
+        guard !urls.isEmpty else { return flash(Self.unreachable(places, count: clip.itemCount)) }
+        pasteText(Clipboard.quotedPaths(urls))
+    }
+
     /// The one file of a card, opened in the app the system opens it in. A
     /// group does not open: a dozen windows at once is never what was meant.
     var openFile: (URL) -> Void = { SystemEvents.open($0) }

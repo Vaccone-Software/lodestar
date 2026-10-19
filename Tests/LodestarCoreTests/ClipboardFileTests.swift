@@ -22,6 +22,23 @@ final class ClipboardFileTests: XCTestCase {
                        fileFacts: facts)
     }
 
+    // MARK: - The reading: where the files are
+
+    func testPathsAreQuotedWholeForAShell() {
+        let urls = [URL(fileURLWithPath: "/Users/x/Q3 report (final).pdf"), URL(fileURLWithPath: "/Users/x/Rocco's notes.txt")]
+        XCTAssertEqual(Clipboard.quotedPaths(urls),
+                       #"'/Users/x/Q3 report (final).pdf' '/Users/x/Rocco'\''s notes.txt'"#,
+                       "a space or a bracket is only a name, and a quote closes, escapes and reopens")
+    }
+
+    func testAFileCardReadsAsItsPathsAndNothingUntilTheyAreFound() {
+        let card = files([fact("a.pdf")])
+        XCTAssertNil(Clipboard.reading(of: card, units: .metric), "not until where the files are is known")
+        XCTAssertNil(Clipboard.reading(of: card, units: .metric, paths: []), "nor when none can be pasted")
+        XCTAssertEqual(Clipboard.reading(of: card, units: .metric, paths: [URL(fileURLWithPath: "/tmp/a.pdf")]),
+                       "'/tmp/a.pdf'")
+    }
+
     // MARK: - Whether a file is still there
 
     func testATrashIsKnownByItsFolderOnEveryDisk() {

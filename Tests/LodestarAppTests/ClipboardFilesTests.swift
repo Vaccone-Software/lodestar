@@ -567,6 +567,39 @@ final class ClipboardFilesTests: XCTestCase {
         XCTAssertEqual(pastes, 0)
     }
 
+    // MARK: The reading: paths
+
+    func testControlPastesThePathsWhereTheFilesAreNowAsText() throws {
+        let a = try make("a b.txt"), b = try make("c.txt")
+        let clip = try finderReferenceCopy([a, b])
+        let elsewhere = directory.appendingPathComponent("Elsewhere", isDirectory: true)
+        try FileManager.default.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+        let moved = elsewhere.appendingPathComponent("c.txt")
+        try FileManager.default.moveItem(at: b, to: moved)
+        var posted = 0
+        controller.postPaste = { posted += 1 }
+        board.clearContents()
+
+        controller.pastePaths(of: clip)
+
+        let text = try XCTUnwrap(board.string(forType: .string))
+        let quoted = try XCTUnwrap(Clipboard.reading(of: clip, units: .metric, paths: [a, moved]))
+        XCTAssertEqual(text.replacingOccurrences(of: "/private/var/", with: "/var/"),
+                       quoted.replacingOccurrences(of: "/private/var/", with: "/var/"),
+                       "each in quotes, the moved one where it is now")
+        XCTAssertNil(board.string(forType: .fileURL), "text only: this is the form for what takes text")
+        XCTAssertEqual(posted, 1)
+    }
+
+    func testTheStripLearnsWhereTheFilesAreForTheReadingItShows() throws {
+        let url = try make("report.pdf")
+        let clip = try finderReferenceCopy([url])
+        _ = store.filePaths(clip.id)
+        wait("the paths are found off the main thread") { self.store.filePaths(clip.id) != nil }
+        XCTAssertEqual(store.filePaths(clip.id)?.map { $0.resolvingSymlinksInPath().path },
+                       [url.resolvingSymlinksInPath().path])
+    }
+
     // MARK: Cards whose files are gone
 
     /// One look over the cards of files, waited for.

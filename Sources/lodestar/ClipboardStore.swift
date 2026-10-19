@@ -703,16 +703,16 @@ final class ClipboardStore {
         let epoch = presenceEpoch
         let bookmarks = index.first { $0.id == id }?.fileBookmarks ?? []
         checking.async { [weak self] in
-            var answer: [Bool]?
+            var answer: [URL?]?
             var refreshed: [Int: Data] = [:]
             if let key = ref.key, case .items(let items) = files.readBlob(storage: ref.storage, key: key) {
-                // Each item where it is now: a file that can be pasted, from
-                // where it stands or from a Trash, keeps its card bright.
+                // Each item where it is now: a file that can be pasted keeps
+                // its card bright, and is where the card's paths lead.
                 answer = items.enumerated().map { item, content in
                     let found = Clipboard.place(bookmark: bookmarks.indices.contains(item) ? bookmarks[item] : nil,
                                                 address: Clipboard.fileAddress(in: content))
                     if let fresh = found.bookmark, item < Clipboard.fileBookmarksKept { refreshed[item] = fresh }
-                    return found.place.url != nil
+                    return found.place.url
                 }
             }
             DispatchQueue.main.async { self?.presenceKnown(id, answer, refreshed: refreshed, epoch: epoch) }
@@ -720,14 +720,24 @@ final class ClipboardStore {
         return nil
     }
 
-    private func presenceKnown(_ id: String, _ answer: [Bool]?, refreshed: [Int: Data], epoch: Int) {
+    /// For a file card: where its files that can be pasted are now, in copy
+    /// order, for the reading `⌃` shows. Asked with `filesPresent`, and nil
+    /// until that answer is in.
+    func filePaths(_ id: String) -> [URL]? {
+        guard filesPresent(id) != nil else { return nil }
+        return paths[id]
+    }
+    private var paths: [String: [URL]] = [:]
+
+    private func presenceKnown(_ id: String, _ answer: [URL?]?, refreshed: [Int: Data], epoch: Int) {
         // A bookmark made afresh is kept whatever showing asked for it.
         if !refreshed.isEmpty, let ref = refs[id] { keepBookmarks(id, refreshed, storage: ref.storage) }
         guard epoch == presenceEpoch else { return }
         // A blob that would not read (its write is still on its way) is
         // asked about again at the next draw, not remembered as an answer.
         guard let answer else { presenceAsked.remove(id); return }
-        presence[id] = answer
+        presence[id] = answer.map { $0 != nil }
+        paths[id] = answer.compactMap { $0 }
         refreshSoon()
     }
 
@@ -874,6 +884,7 @@ final class ClipboardStore {
     /// The strip is opening: what was known about the files is asked again.
     func forgetFilePresence() {
         presence.removeAll()
+        paths.removeAll()
         presenceAsked.removeAll()
         presenceEpoch &+= 1
     }
@@ -1412,6 +1423,7 @@ final class ClipboardStore {
         }
         for id in ids {
             presence[id] = nil
+            paths[id] = nil
             presenceAsked.remove(id)
         }
         thumbnailOrder.removeAll { keys.contains($0) }

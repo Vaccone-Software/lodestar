@@ -931,11 +931,23 @@ public extension Clipboard {
     /// line), a column its sum. The card shows this same text while `⌃`
     /// is held, so what is seen is what pastes.
     static func reading(of clip: Clip, units: ClipQuantity.System,
-                        zones: [TimeZone] = [], now: Date = Date()) -> String? {
+                        zones: [TimeZone] = [], now: Date = Date(), paths: [URL]? = nil) -> String? {
+        // A copy of files reads as where its files are now, for whatever
+        // takes only text: a shell first of all.
+        if clip.pastesAsFiles { return paths.flatMap { $0.isEmpty ? nil : quotedPaths($0) } }
         if let color = clip.color { return color.name }
         if let time = clip.time { return time.note(zones: zones, now: now).local }
         if let read = clip.quantity?.note(into: units) { return read.exact ?? read.voice }
         if let sum = clip.sum { return sum.voice() }
         return nil
+    }
+
+    /// Files' paths as a shell takes them: each whole, in single quotes, so
+    /// a space or a bracket in a name is only a name, and separated by a
+    /// space. A quote inside a name closes the quoting, is escaped, and
+    /// opens it again. Always the whole path: `~` does not grow inside
+    /// quotes.
+    static func quotedPaths(_ urls: [URL]) -> String {
+        urls.map { "'" + $0.path.replacingOccurrences(of: "'", with: #"'\''"#) + "'" }.joined(separator: " ")
     }
 }

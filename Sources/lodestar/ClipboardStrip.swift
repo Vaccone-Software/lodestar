@@ -227,6 +227,7 @@ final class ClipboardStrip {
               thumbnail: (String) -> NSImage?,
               fileThumbnail: (String, Int) -> NSImage? = { _, _ in nil },
               filesPresent: (String) -> [Bool]? = { _ in nil },
+              filePaths: @escaping (String) -> [URL]? = { _ in nil },
               band: Band, selection: Int, actingOn: String? = nil,
               pinsHidden: Bool = false, held: Held = .none,
               source: String? = nil, matches: Int? = nil,
@@ -248,6 +249,7 @@ final class ClipboardStrip {
         shownReadings = [:]
         shownMasked = [:]
         shownFiles = [:]
+        pathsOf = filePaths
         shownSheets = [:]
         shownDimmed = []
         shownWeights = []
@@ -571,8 +573,12 @@ final class ClipboardStrip {
 
     /// What the card would paste as a reading, or nil.
     private func readingText(_ clip: Clipboard.Clip) -> String? {
-        Clipboard.reading(of: clip, units: units, zones: timeZones)
+        Clipboard.reading(of: clip, units: units, zones: timeZones,
+                          paths: clip.pastesAsFiles ? pathsOf(clip.id) : nil)
     }
+    /// Where a card's files are now, as the history last found them: the
+    /// reading of a card of files is their paths.
+    private var pathsOf: (String) -> [URL]? = { _ in nil }
 
     /// What VoiceOver says for a card: its key, its rank, what it holds,
     /// where it came from and when — the rank order, not the screen's.

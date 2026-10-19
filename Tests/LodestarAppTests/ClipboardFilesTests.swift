@@ -22,6 +22,9 @@ final class ClipboardFilesTests: XCTestCase {
         controller = ClipboardController(store: store)
         // A paste goes to the sealed test board, never to the one in use.
         controller.pasteboard = board
+        // Secure input is the machine's, not the test's: a locked screen
+        // holds it, and the paste would stop to ask for a ⌘V by hand.
+        controller.secureInput = { false }
         // Real QuickLook is another process's to answer in its own time; the
         // tests stand in for it, and the icon fallback is the real one.
         FileSense.thumbnailer = { _ in Self.swatch() }

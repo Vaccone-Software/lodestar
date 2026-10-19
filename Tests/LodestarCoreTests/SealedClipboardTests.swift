@@ -245,6 +245,90 @@ final class SealedClipboardTests: XCTestCase {
         XCTAssertFalse(ClipboardSynth.plaintextHits(under: root, extra: ["PNGBYTES"]).contains { $0.contains("thumbs") })
     }
 
+    /// A copy of files keeps a picture per file. The first is where a
+    /// clip's one thumbnail always was, under the same name and context, so
+    /// no image already on a disk is read differently.
+    func testAFileCopyKeepsAPicturePerFileAndTheFirstIsWhereTheOneAlwaysWas() throws {
+        let store = clipboard()
+        ready(store)
+        let e = try entry(store, clip("files"))
+        let key = try XCTUnwrap(e.key)
+        XCTAssertEqual(store.files.thumbURL(e.storage).lastPathComponent, e.storage, "the name an image's thumbnail has always had")
+        XCTAssertEqual(store.files.thumbURL(e.storage, index: 2).lastPathComponent, e.storage + "-2")
+        for index in 0..<Clipboard.thumbnailedFiles {
+            try store.files.writeThumb(storage: e.storage, key: key, png: Data("PNG\(index)".utf8), index: index)
+        }
+        for index in 0..<Clipboard.thumbnailedFiles {
+            XCTAssertEqual(store.files.readThumb(storage: e.storage, key: key, index: index), Data("PNG\(index)".utf8))
+            XCTAssertTrue(store.files.hasThumb(storage: e.storage, index: index))
+        }
+        XCTAssertEqual(store.files.readThumb(storage: e.storage, key: key), Data("PNG0".utf8), "index 0 is the default")
+        XCTAssertFalse(store.files.hasThumb(storage: e.storage, index: Clipboard.thumbnailedFiles))
+        // Sealed to its place: the second picture put where the first goes
+        // does not open as the first.
+        try FileManager.default.removeItem(at: store.files.thumbURL(e.storage))
+        try FileManager.default.copyItem(at: store.files.thumbURL(e.storage, index: 1), to: store.files.thumbURL(e.storage))
+        XCTAssertNil(store.files.readThumb(storage: e.storage, key: key), "a picture cannot stand in for another")
+    }
+
+    /// The context of the first thumbnail is what it was before pictures
+    /// were numbered: a thumbnail sealed by the old call opens by the new.
+    func testTheFirstThumbnailsContextIsUnchanged() throws {
+        let key = SealingKey.generate()
+        let storage = ClipboardSealed.newStorage()
+        let bytes = try Sealing.seal([1, 2, 3], context: SealContext(ClipboardSealed.thumbPurpose, storage), key: key)
+        XCTAssertNoThrow(try Sealing.open(bytes, context: ClipboardSealed.thumbContext(storage), key: key))
+        XCTAssertNoThrow(try Sealing.open(bytes, context: ClipboardSealed.thumbContext(storage, index: 0), key: key))
+        XCTAssertThrowsError(try Sealing.open(bytes, context: ClipboardSealed.thumbContext(storage, index: 1), key: key))
+    }
+
+    func testDeletingAFileCopyRemovesEveryPictureAndLoadCollectsOrphanedOnes() throws {
+        let store = clipboard()
+        ready(store)
+        let gone = try entry(store, clip("gone"))
+        let kept = try entry(store, clip("kept"))
+        store.append([.front(kept)])
+        for e in [gone, kept] {
+            for index in 0..<Clipboard.thumbnailedFiles {
+                try store.files.writeThumb(storage: e.storage, key: try XCTUnwrap(e.key), png: Data("p".utf8), index: index)
+            }
+        }
+        let torn = store.files.thumbURL(kept.storage, index: 3).appendingPathExtension("1a2b3c4d")
+        try Data("half".utf8).write(to: torn)
+        store.files.remove(storages: [gone.storage])
+        for index in 0..<Clipboard.thumbnailedFiles {
+            XCTAssertFalse(store.files.hasThumb(storage: gone.storage, index: index), "picture \(index) of a deleted clip is gone")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: store.files.itemURL(gone.storage).path))
+        // And what a crash left behind: pictures of a clip no record names,
+        // and a picture whose write was cut short.
+        let orphan = try entry(store, clip("orphan"))
+        for index in 0..<2 {
+            try store.files.writeThumb(storage: orphan.storage, key: try XCTUnwrap(orphan.key), png: Data("p".utf8), index: index)
+        }
+        store.close()
+        let back = ready(clipboard())
+        XCTAssertGreaterThanOrEqual(back.orphansRemoved, 4, "the orphan's blob and two pictures, and the torn write")
+        XCTAssertFalse(store.files.hasThumb(storage: orphan.storage, index: 1))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: torn.path))
+        for index in 0..<Clipboard.thumbnailedFiles {
+            XCTAssertTrue(store.files.hasThumb(storage: kept.storage, index: index), "a live clip keeps all of its pictures")
+        }
+    }
+
+    func testAThumbnailsOwnerIsTheStorageInItsName() {
+        let storage = ClipboardSealed.newStorage()
+        XCTAssertEqual(ClipboardSealed.storage(ofThumbName: storage), storage)
+        XCTAssertEqual(ClipboardSealed.storage(ofThumbName: storage + "-3"), storage)
+        XCTAssertEqual(ClipboardSealed.storage(ofThumbName: storage + ".1a2b3c4d"), storage, "a write cut short")
+        XCTAssertEqual(ClipboardSealed.storage(ofThumbName: storage + "-3.1a2b3c4d"), storage)
+        XCTAssertNil(ClipboardSealed.storage(ofThumbName: storage + "-"))
+        XCTAssertNil(ClipboardSealed.storage(ofThumbName: storage + "-x"))
+        XCTAssertNil(ClipboardSealed.storage(ofThumbName: storage + "-1-2"))
+        XCTAssertNil(ClipboardSealed.storage(ofThumbName: "README"))
+        XCTAssertNil(ClipboardSealed.storage(ofThumbName: "-1"))
+    }
+
     func testCompactionFoldsTheLogAndTheHistoryIsTheSameAfter() throws {
         let store = clipboard()
         ready(store)

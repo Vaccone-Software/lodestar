@@ -492,6 +492,12 @@ class GlassPanel: NSPanel {
     }
 }
 
+extension Notification.Name {
+    /// The accent in force changed: a new choice in the config, or the Mac's
+    /// own when the setting is System. Posted on the main thread.
+    static let accentDidChange = Notification.Name("lodestar.accentDidChange")
+}
+
 /// One visual system for every bar. The searcher, web bar, and menu
 /// search must feel like a single instrument — same width, rhythm, and
 /// type — so the tokens live here, where drift can't hide in literals.
@@ -773,6 +779,15 @@ enum BarTheme {
 
     /// The accent the person chose, as a closure so a test can choose one.
     static var accentColor: () -> NSColor = { .controlAccentColor }
+
+    /// Choose the accent a config asks for, and say so. A key painted in
+    /// the old accent stays that colour until something repaints it, and
+    /// the resident ones, like the ⏎ on a bar's row, are only hidden and
+    /// shown. Whoever holds the accent in a layer listens for this.
+    static func setAccent(_ choice: Config.Accent) {
+        accentColor = { accent(for: choice) }
+        NotificationCenter.default.post(name: .accentDidChange, object: nil)
+    }
 
     /// The one accent every surface draws with: a row's highlight, a
     /// wash over a match, the walk's star, the settings' dots. The
@@ -1563,10 +1578,18 @@ final class KeyFace: NSView {
             heightAnchor.constraint(equalToConstant: BarTheme.chipHeight),
             widthAnchor.constraint(greaterThanOrEqualToConstant: BarTheme.chipMinWidth),
         ])
+        NotificationCenter.default.addObserver(self, selector: #selector(accentChanged),
+                                               name: .accentDidChange, object: nil)
         refresh()
     }
 
     required init?(coder: NSCoder) { nil }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
+
+    /// A lit key wears the accent, and a resident one is not rebuilt when
+    /// the accent changes.
+    @objc private func accentChanged() { refresh() }
 
     override func layout() {
         super.layout()

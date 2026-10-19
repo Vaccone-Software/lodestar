@@ -438,6 +438,34 @@ final class KeyFaceTests: XCTestCase {
         XCTAssertEqual(key.layer?.shadowOffset.height ?? 0, -1.5, accuracy: 0.01, "the lip falls in shadow")
     }
 
+    /// The ⏎ on a bar's row is built once and only hidden and shown, so a
+    /// new accent has to reach a key that is already lit.
+    func testALitKeyRepaintsWhenTheAccentChanges() {
+        let saved = BarTheme.accentColor
+        BarTheme.accentColor = { BarTheme.accent(for: .orange) }
+        defer { BarTheme.accentColor = saved }
+        let key = KeyFace("⏎")
+        key.lit = true
+        XCTAssertEqual(key.layer?.backgroundColor, BarTheme.accent.cgColor)
+        BarTheme.accentColor = { NSColor.systemTeal }
+        NotificationCenter.default.post(name: .accentDidChange, object: nil)
+        XCTAssertEqual(key.layer?.backgroundColor, BarTheme.accent.cgColor)
+        XCTAssertEqual(key.label.textColor, BarTheme.onAccent)
+        XCTAssertEqual(key.layer?.shadowColor, Glass.resolved(BarTheme.litKeyLip, in: key))
+    }
+
+    func testAKeyThatIsNotLitIgnoresAnAccentChange() {
+        let saved = BarTheme.accentColor
+        BarTheme.accentColor = { BarTheme.accent(for: .orange) }
+        defer { BarTheme.accentColor = saved }
+        let key = KeyFace("E")
+        let resting = key.layer?.backgroundColor
+        BarTheme.accentColor = { NSColor.systemTeal }
+        NotificationCenter.default.post(name: .accentDidChange, object: nil)
+        XCTAssertEqual(key.layer?.backgroundColor, resting)
+        XCTAssertNotEqual(key.layer?.backgroundColor, BarTheme.accent.cgColor)
+    }
+
     /// A caption's grey is resolved when drawn: the same colour object
     /// reads dark on paper and light on charcoal, so a title built in one
     /// appearance is right after the Mac switches to the other.

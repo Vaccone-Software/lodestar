@@ -334,6 +334,11 @@ final class ClipboardController {
                                "types": types.joined(separator: " ")])
     }
 
+    /// What a pasted file's item says about where and what the file was at
+    /// the copy, written fresh instead: its address and its name as text.
+    static let addressTypes: Set<String> = [Clipboard.fileURLType, "public.utf8-plain-text",
+                                            "public.utf16-external-plain-text"]
+
     /// How long a paste waits to learn whether a copy's files are still
     /// there. A seam for the tests.
     nonisolated(unsafe) static var presenceDeadline: TimeInterval = 0.3
@@ -345,23 +350,35 @@ final class ClipboardController {
         // near the size ceiling, tens of megabytes re-read inside the tap.
         let stored = store.itemData(clip)
         let board = pasteboard
-        // Files that are no longer there paste as nothing: the Finder would
-        // make a text file of their names, which is not what was copied. The
-        // disk is asked now, not the strip's cache, which is filled in the
-        // background and may not have come in when a quick hand pastes. A
-        // volume that does not answer in time leaves the paste as it was.
+        // Where each file is now, asked at the paste: a card can stand for
+        // weeks, and its file be moved, renamed or deleted since. The strip's
+        // own answer is filled in the background, and a quick hand can beat
+        // it. A disk that does not answer in time leaves the paste as copied.
         let files = clip.pastesAsFiles
+        var places: [Clipboard.FilePlace]?
         if files {
-            let urls = Clipboard.fileURLs(in: stored)
-            let present = FileSense.withDeadline(Self.presenceDeadline) {
-                urls.map { Clipboard.isStillThere($0) { FileManager.default.fileExists(atPath: $0) } }
+            let bookmarks = clip.fileBookmarks ?? []
+            places = FileSense.withDeadline(Self.presenceDeadline) {
+                stored.enumerated().map { item, content in
+                    Clipboard.place(bookmark: bookmarks.indices.contains(item) ? bookmarks[item] : nil,
+                                    address: Clipboard.fileAddress(in: content)).place
+                }
             }
+            func count(_ kind: (Clipboard.FilePlace) -> Bool) -> Int { places.map { $0.filter(kind).count } ?? -1 }
             // Counts only: what a file is called is nobody's business here.
-            Log.info("clipboard", ["paste": "files", "files": urls.count,
-                                   "present": present.map { $0.filter { $0 }.count } ?? -1,
-                                   "references": urls.filter { $0.path.hasPrefix("/.file/") }.count])
-            if Clipboard.allMissing(present) {
-                flash(clip.itemCount == 1 ? "✕ That file is no longer there" : "✕ Those files are no longer there")
+            Log.info("clipboard", ["paste": "files", "files": stored.count,
+                                   "bookmarked": bookmarks.compactMap { $0 }.count,
+                                   "here": count { if case .here = $0 { return true }; return false },
+                                   "trashed": count { if case .trashed = $0 { return true }; return false },
+                                   "gone": count { $0 == .gone }, "away": count { $0 == .away }])
+            if let places, !places.isEmpty, places.allSatisfy({ $0.url == nil }) {
+                let one = clip.itemCount == 1
+                if places.allSatisfy({ $0 == .away }) {
+                    flash(one ? "✕ That file is on a disk that is not connected"
+                              : "✕ Those files are on a disk that is not connected")
+                } else {
+                    flash(one ? "✕ That file is no longer there" : "✕ Those files are no longer there")
+                }
                 return
             }
         }
@@ -379,24 +396,37 @@ final class ClipboardController {
         // One board item per item copied, so three copied files arrive as
         // three files rather than as the first one three times.
         var items: [NSPasteboardItem] = []
-        for content in stored {
+        for (position, content) in stored.enumerated() {
             let item = NSPasteboardItem()
             var wrote = false
-            // Files go back whole under every label: their plain form is a
-            // name, and a name alone is not the file.
-            if action == .native || files {
-                for native in content.natives {
+            if files, let places, places.indices.contains(position) {
+                // A file pastes from where it is now, under the name it has
+                // now, or not at all: never by the address it had at the
+                // copy, which may lead somewhere else or nowhere.
+                guard let url = places[position].url else { continue }
+                for native in content.natives where !Self.addressTypes.contains(native.type) {
+                    item.setData(native.data, forType: NSPasteboard.PasteboardType(native.type))
+                }
+                item.setString(url.absoluteString, forType: .fileURL)
+                item.setString(url.lastPathComponent, forType: .string)
+                wrote = true
+            } else {
+                // Files go back whole under every label: their plain form is
+                // a name, and a name alone is not the file.
+                if action == .native || files {
+                    for native in content.natives {
+                        item.setData(native.data, forType: NSPasteboard.PasteboardType(native.type))
+                        wrote = true
+                    }
+                }
+                if let plain = content.plain, let text = String(data: plain, encoding: .utf8) {
+                    item.setString(text, forType: .string)
+                    wrote = true
+                } else if action != .native, let native = content.natives.first {
+                    // An image has no plain form; both labels paste the image.
                     item.setData(native.data, forType: NSPasteboard.PasteboardType(native.type))
                     wrote = true
                 }
-            }
-            if let plain = content.plain, let text = String(data: plain, encoding: .utf8) {
-                item.setString(text, forType: .string)
-                wrote = true
-            } else if action != .native, let native = content.natives.first {
-                // An image has no plain form; both labels paste the image.
-                item.setData(native.data, forType: NSPasteboard.PasteboardType(native.type))
-                wrote = true
             }
             if wrote {
                 if secret {

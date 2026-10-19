@@ -81,14 +81,91 @@ extension Clipboard {
         return resolved
     }
 
-    /// Whether a copied file is still there to paste. The Finder names a
-    /// copied file by reference, so its address follows the file wherever
-    /// it goes: moved, the card follows it; deleted, the address leads into
-    /// the Trash, and a file in the Trash is gone to the hand that deleted
-    /// it (the Finder will not paste it either, and makes a text clipping
-    /// of its name instead).
-    public static func isStillThere(_ url: URL, exists: (String) -> Bool) -> Bool {
-        !isInTrash(url) && exists(url.path)
+    // MARK: - Where a copied file is now
+
+    /// How many files of one copy are remembered by bookmark. A copy of
+    /// more pastes the rest by the Finder's own address, which is good for
+    /// as long as the Finder's reference lasts.
+    public static let fileBookmarksKept = 200
+
+    /// Where a copied file is now, which is what a paste has to know: a
+    /// card can stand for weeks, and its file is moved, renamed, deleted or
+    /// left on a disk that is not plugged in.
+    public enum FilePlace: Equatable {
+        /// Where it is, under the name it has now.
+        case here(URL)
+        /// In a Trash: deleted, and still there until the Trash is emptied.
+        case trashed(URL)
+        /// Its disk is here and the file is not.
+        case gone
+        /// Its disk is not connected, or where it was cannot be told, so
+        /// nothing is known either way.
+        case away
+
+        /// Where it pastes from, when it can be pasted at all.
+        public var url: URL? {
+            switch self {
+            case .here(let url), .trashed(let url): return url
+            case .gone, .away: return nil
+            }
+        }
+    }
+
+    /// The Finder's address for an item of a copy, as it was written.
+    public static func fileAddress(in item: ClipboardContent.Item) -> Data? {
+        item.natives.first { $0.type == fileURLType }?.data
+    }
+
+    /// A bookmark of a file: what the system keeps to find a file again
+    /// after it has been moved or renamed, and across restarts, which the
+    /// Finder's reference is not made for. It names the file, never holds
+    /// any of it, and keeps its disk so a disk that is not plugged in can
+    /// be told from a file that is gone.
+    public static func bookmark(for url: URL) -> Data? {
+        try? url.bookmarkData(options: [], includingResourceValuesForKeys: [.volumeURLKey], relativeTo: nil)
+    }
+
+    /// Where the file an item of a copy names is now: by its bookmark when
+    /// it has one, otherwise by the Finder's address. A bookmark that has
+    /// gone stale, or a clip from before bookmarks whose file is still
+    /// found, comes back with a fresh one to keep.
+    public static func place(bookmark: Data?, address: Data?,
+                             exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) })
+        -> (place: FilePlace, bookmark: Data?) {
+        if let bookmark {
+            var stale = false
+            if let url = try? URL(resolvingBookmarkData: bookmark, options: [.withoutUI, .withoutMounting],
+                                  relativeTo: nil, bookmarkDataIsStale: &stale) {
+                let found = place(of: url, exists: exists)
+                return (found, stale && found.url != nil ? Self.bookmark(for: url) : nil)
+            }
+            // Not found: either its disk is away, or the file is.
+            if let volume = URL.resourceValues(forKeys: [.volumeURLKey], fromBookmarkData: bookmark)?.volume,
+               !exists(volume.path) {
+                return (.away, nil)
+            }
+            return (.gone, nil)
+        }
+        // A reference that no longer resolves says nothing of where its file
+        // went, so it is away rather than gone: nothing is decided on it.
+        guard let address, let url = fileURL(from: address) else { return (.away, nil) }
+        let found = place(of: url, exists: exists)
+        return (found, found.url != nil ? Self.bookmark(for: url) : nil)
+    }
+
+    /// What a path says: here, in a Trash, or not there, and then whether
+    /// its disk is.
+    static func place(of url: URL, exists: (String) -> Bool) -> FilePlace {
+        if exists(url.path) { return isInTrash(url) ? .trashed(url) : .here(url) }
+        return diskIsHere(for: url, exists: exists) ? .gone : .away
+    }
+
+    /// A path under `/Volumes` is on a disk of its own, there only while it
+    /// is mounted; anything else is on the startup disk, which always is.
+    static func diskIsHere(for url: URL, exists: (String) -> Bool) -> Bool {
+        let parts = url.pathComponents
+        guard parts.count > 2, parts[1] == "Volumes" else { return true }
+        return exists("/Volumes/\(parts[2])")
     }
 
     /// A Trash is `.Trash` in a home folder and `.Trashes` on any other volume.

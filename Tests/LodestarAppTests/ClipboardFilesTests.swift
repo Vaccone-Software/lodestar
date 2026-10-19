@@ -404,30 +404,34 @@ final class ClipboardFilesTests: XCTestCase {
         XCTAssertEqual(said, ["✕ Those files are no longer there"])
     }
 
-    /// The Finder's own sequence: a file copied by reference, then deleted,
-    /// which moves it into a Trash where the reference still finds it.
-    func testAFileDeletedToTheTrashPastesAsNothingAndItsCardIsMissing() throws {
-        let url = try make("photo.jpeg")
-        // Through Objective-C: bridged to a Swift URL, a reference comes
-        // back as the path it points to, and the test would copy a path.
-        let reference = try XCTUnwrap((url as NSURL).perform(#selector(NSURL.fileReferenceURL))?
-            .takeUnretainedValue() as? NSURL)
-        let address = try XCTUnwrap(reference.absoluteString)
-        XCTAssertTrue(address.hasPrefix("file:///.file/"), "copied by reference, as the Finder does")
+    /// A file copied the way the Finder copies it: by reference, an address
+    /// that names the file by identity, not by place. The clip comes back
+    /// once its bookmarks have been made, as the strip holds it.
+    private func finderReferenceCopy(_ urls: [URL]) throws -> Clipboard.Clip {
         board.clearContents()
-        let item = NSPasteboardItem()
-        item.setString(address, forType: .fileURL)
-        item.setString(url.lastPathComponent, forType: .string)
-        board.writeObjects([item])
+        let items = try urls.map { url -> NSPasteboardItem in
+            // Through Objective-C: bridged to a Swift URL, a reference comes
+            // back as the path it points to, and the test would copy a path.
+            let reference = try XCTUnwrap((url as NSURL).perform(#selector(NSURL.fileReferenceURL))?
+                .takeUnretainedValue() as? NSURL)
+            let address = try XCTUnwrap(reference.absoluteString)
+            XCTAssertTrue(address.hasPrefix("file:///.file/"), "copied by reference, as the Finder does")
+            let item = NSPasteboardItem()
+            item.setString(address, forType: .fileURL)
+            item.setString(url.lastPathComponent, forType: .string)
+            return item
+        }
+        board.writeObjects(items)
         controller.capture()
-        let clip = try XCTUnwrap(store.clips.first)
+        wait("a bookmark per file is made at the copy") {
+            self.store.clips.first?.fileBookmarks?.compactMap { $0 }.count == urls.count
+        }
+        return try XCTUnwrap(store.clips.first)
+    }
 
-        let trash = directory.appendingPathComponent(".Trash", isDirectory: true)
-        try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
-        try FileManager.default.moveItem(at: url, to: trash.appendingPathComponent("photo.jpeg"))
-        XCTAssertTrue(Clipboard.fileURLs(in: store.itemData(clip)).allSatisfy(Clipboard.isInTrash),
-                      "the reference follows the file into the Trash")
-
+    /// Pastes the clip over a board that holds something else, and says
+    /// what the paste did.
+    private func pasteOverSomethingElse(_ clip: Clipboard.Clip) -> (said: [String], posted: Int) {
         board.clearContents()
         board.setString("kept", forType: .string)
         var said: [String] = []
@@ -435,10 +439,63 @@ final class ClipboardFilesTests: XCTestCase {
         controller.flash = { said.append($0) }
         controller.postPaste = { posted += 1 }
         controller.paste(clip, action: .plain)
+        return (said, posted)
+    }
+
+    private var pastedPaths: [String] {
+        (board.pasteboardItems ?? []).compactMap { $0.string(forType: .fileURL) }
+            .compactMap(URL.init(string:)).map { $0.resolvingSymlinksInPath().path }
+    }
+
+    func testACopyOfFilesKeepsABookmarkForEachFile() throws {
+        let clip = try finderReferenceCopy([try make("a.txt"), try make("b.txt")])
+        XCTAssertEqual(clip.fileBookmarks?.count, 2)
+    }
+
+    func testAMovedAndRenamedFilePastesFromWhereItIsNow() throws {
+        let url = try make("report.pdf")
+        let clip = try finderReferenceCopy([url])
+        let elsewhere = directory.appendingPathComponent("Elsewhere", isDirectory: true)
+        try FileManager.default.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+        let moved = elsewhere.appendingPathComponent("final report.pdf")
+        try FileManager.default.moveItem(at: url, to: moved)
+
+        let pasted = pasteOverSomethingElse(clip)
+
+        XCTAssertEqual(pasted.posted, 1)
+        XCTAssertEqual(pastedPaths, [moved.resolvingSymlinksInPath().path], "its path now, never the old reference")
+        XCTAssertEqual(board.string(forType: .string), "final report.pdf", "and its name now")
+    }
+
+    /// Delete in the Finder moves the file to the Trash, where the bookmark
+    /// still finds it. It pastes from there, so copy, delete and paste is a
+    /// move for as long as the Trash holds it.
+    func testAFileDeletedToTheTrashPastesFromTheTrash() throws {
+        let url = try make("photo.jpeg")
+        let clip = try finderReferenceCopy([url])
+        let trash = directory.appendingPathComponent(".Trash", isDirectory: true)
+        try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
+        let trashed = trash.appendingPathComponent("photo.jpeg")
+        try FileManager.default.moveItem(at: url, to: trashed)
+
+        let pasted = pasteOverSomethingElse(clip)
+
+        XCTAssertEqual(pasted.posted, 1)
+        XCTAssertEqual(pastedPaths, [trashed.resolvingSymlinksInPath().path], "by its path in the Trash")
+        store.forgetFilePresence()
+        wait("its card stays bright") { self.store.filesPresent(clip.id) == [true] }
+    }
+
+    func testAFileDeletedForGoodPastesAsNothingAndItsCardSaysSo() throws {
+        let url = try make("photo.jpeg")
+        let clip = try finderReferenceCopy([url])
+        try FileManager.default.removeItem(at: url)
+
+        let pasted = pasteOverSomethingElse(clip)
 
         XCTAssertEqual(board.string(forType: .string), "kept", "the board is left as it was")
-        XCTAssertEqual(posted, 0, "nothing is pasted, so the Finder makes no clipping")
-        XCTAssertEqual(said, ["✕ That file is no longer there"])
+        XCTAssertEqual(pasted.posted, 0, "nothing is pasted, so the Finder makes no clipping")
+        XCTAssertEqual(pasted.said, ["✕ That file is no longer there"])
         store.forgetFilePresence()
         wait("the card learns its file is gone") { self.store.filesPresent(clip.id) == [false] }
     }

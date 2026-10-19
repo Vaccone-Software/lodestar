@@ -24,15 +24,60 @@ final class ClipboardFileTests: XCTestCase {
 
     // MARK: - Whether a file is still there
 
-    func testAFileInATrashIsNotStillThere() {
-        let exists: (String) -> Bool = { _ in true }
-        XCTAssertFalse(Clipboard.isStillThere(URL(fileURLWithPath: "/Users/x/.Trash/a.jpeg"), exists: exists))
-        XCTAssertFalse(Clipboard.isStillThere(URL(fileURLWithPath: "/Volumes/Disk/.Trashes/501/a.jpeg"), exists: exists),
-                       "another volume's Trash")
-        XCTAssertTrue(Clipboard.isStillThere(URL(fileURLWithPath: "/Users/x/Documents/a.jpeg"), exists: exists))
-        XCTAssertTrue(Clipboard.isStillThere(URL(fileURLWithPath: "/Users/x/My.Trash notes/a.jpeg"), exists: exists),
-                      "a folder whose name only mentions a Trash")
-        XCTAssertFalse(Clipboard.isStillThere(URL(fileURLWithPath: "/Users/x/Documents/a.jpeg"), exists: { _ in false }))
+    func testATrashIsKnownByItsFolderOnEveryDisk() {
+        XCTAssertTrue(Clipboard.isInTrash(URL(fileURLWithPath: "/Users/x/.Trash/a.jpeg")))
+        XCTAssertTrue(Clipboard.isInTrash(URL(fileURLWithPath: "/Volumes/Disk/.Trashes/501/a.jpeg")), "another disk's Trash")
+        XCTAssertFalse(Clipboard.isInTrash(URL(fileURLWithPath: "/Users/x/Documents/a.jpeg")))
+        XCTAssertFalse(Clipboard.isInTrash(URL(fileURLWithPath: "/Users/x/My.Trash notes/a.jpeg")),
+                       "a folder whose name only mentions a Trash")
+    }
+
+    /// A real file, bookmarked as the copy does, then moved, renamed, put in
+    /// a Trash and deleted, asked where it is each time.
+    func testABookmarkFindsItsFileWhereverItWent() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lodestar-place-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let documents = root.appendingPathComponent("Documents"), elsewhere = root.appendingPathComponent("Elsewhere")
+        let trash = root.appendingPathComponent(".Trash")
+        for folder in [documents, elsewhere, trash] {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        let original = documents.appendingPathComponent("report.pdf")
+        try Data("x".utf8).write(to: original)
+        let bookmark = try XCTUnwrap(Clipboard.bookmark(for: original))
+        func place() -> Clipboard.FilePlace { Clipboard.place(bookmark: bookmark, address: nil).place }
+        func standard(_ place: Clipboard.FilePlace) -> String? { place.url?.resolvingSymlinksInPath().path }
+
+        XCTAssertEqual(standard(place()), original.resolvingSymlinksInPath().path, "where it was copied")
+
+        let moved = elsewhere.appendingPathComponent("final report.pdf")
+        try FileManager.default.moveItem(at: original, to: moved)
+        guard case .here = place() else { return XCTFail("moved and renamed, it is still here: \(place())") }
+        XCTAssertEqual(standard(place()), moved.resolvingSymlinksInPath().path, "under its new name, in its new folder")
+
+        let trashed = trash.appendingPathComponent("final report.pdf")
+        try FileManager.default.moveItem(at: moved, to: trashed)
+        guard case .trashed = place() else { return XCTFail("deleted to a Trash: \(place())") }
+
+        try FileManager.default.removeItem(at: trashed)
+        XCTAssertEqual(place(), .gone, "the Trash emptied: its disk is here and it is not")
+    }
+
+    func testAFileOnADiskThatIsNotConnectedIsAwayNotGone() {
+        let address = Data("file:///Volumes/No%20Such%20Disk/report.pdf".utf8)
+        XCTAssertEqual(Clipboard.place(bookmark: nil, address: address).place, .away,
+                       "nothing is decided about a file whose disk is unplugged")
+        XCTAssertEqual(Clipboard.place(bookmark: nil, address: Data("file:///.file/id=1.2/".utf8)).place, .away,
+                       "nor about a reference that no longer resolves")
+    }
+
+    func testAClipFromBeforeBookmarksGetsOneWhileItsFileIsThere() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("lodestar-old-\(UUID().uuidString).txt")
+        try Data("x".utf8).write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let found = Clipboard.place(bookmark: nil, address: Data(file.absoluteString.utf8))
+        guard case .here = found.place else { return XCTFail("found by its address: \(found.place)") }
+        XCTAssertNotNil(found.bookmark, "and handed a bookmark to keep")
     }
 
     // MARK: - What pastes as files

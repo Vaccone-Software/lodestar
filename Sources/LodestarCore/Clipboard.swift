@@ -74,6 +74,11 @@ public enum Clipboard {
         /// after the card exists, off the main thread, and absent for every
         /// clip written before files were a kind of their own.
         public var fileFacts: [FileFact]?
+        /// A bookmark per item of a file copy, in item order (nil where one
+        /// could not be made), so the files are found again after they move
+        /// and across restarts. Absent for every clip from before bookmarks,
+        /// which gets them the first time its files are found.
+        public var fileBookmarks: [Data?]?
 
         public init(id: String, kind: Kind, created: Date,
                     sourceBundleID: String?, sourceAppName: String?,
@@ -81,7 +86,7 @@ public enum Clipboard {
                     nativeTypes: [String] = [], otherItemTypes: [[String]] = [],
                     pinnedSlot: Int? = nil, sourceHost: String? = nil,
                     lines: Int? = nil, characters: Int? = nil, keptName: String? = nil,
-                    fileFacts: [FileFact]? = nil) {
+                    fileFacts: [FileFact]? = nil, fileBookmarks: [Data?]? = nil) {
             self.id = id
             self.kind = kind
             self.created = created
@@ -101,6 +106,7 @@ public enum Clipboard {
             self.pinnedSlot = pinnedSlot
             self.keptName = keptName
             self.fileFacts = fileFacts
+            self.fileBookmarks = fileBookmarks
         }
 
         public var isPinned: Bool { pinnedSlot != nil }
@@ -688,6 +694,7 @@ public enum Clipboard {
                 // The files are read again after every copy, and until that
                 // lands the card is the card it was.
                 promoted.fileFacts = arrival.fileFacts ?? known.fileFacts
+                promoted.fileBookmarks = arrival.fileBookmarks ?? known.fileBookmarks
             }
             out.insert(promoted, at: 0)
             return out

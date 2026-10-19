@@ -573,7 +573,7 @@ final class ClipboardStore {
             // preview has; the rest arrives a beat after.
             if arrival.kind == .file {
                 let urls = Clipboard.fileURLs(in: items)
-                if !urls.isEmpty { self.filing.async { self.readFiles(id, urls: urls, ref: ref) } }
+                if !urls.isEmpty { self.filing.async { self.readFiles(id, urls: urls, items: items, ref: ref) } }
             }
             // An image says what it shows: the recognizer reads it once,
             // off the main thread and off this queue — the accurate pass
@@ -629,9 +629,16 @@ final class ClipboardStore {
     /// four, on the files queue. The facts are handed over as soon as they
     /// are known, so the card has its names before it has its pictures; a
     /// picture that cannot be had in time is the file's icon.
-    private func readFiles(_ id: String, urls: [URL], ref: Ref) {
+    private func readFiles(_ id: String, urls: [URL], items: [ClipboardContent.Item], ref: Ref) {
         guard let key = ref.key else { return }
         let files = disk.files
+        // First what finds the files again, while every one of them is
+        // surely where the copy said: a bookmark per item, in item order.
+        let bookmarks: [Data?] = items.prefix(Clipboard.fileBookmarksKept).map { item in
+            guard let url = Clipboard.fileAddress(in: item).flatMap(Clipboard.fileURL(from:)) else { return nil }
+            return FileSense.withDeadline(FileSense.deadline) { Clipboard.bookmark(for: url) }
+        }
+        DispatchQueue.main.async { self.bookmarksMade(id, bookmarks, storage: ref.storage) }
         var facts = urls.prefix(Clipboard.fileFactsKept).map { FileSense.fact(for: $0) }
         let early = facts
         DispatchQueue.main.async { self.filesRead(id, facts: early, storage: ref.storage) }
@@ -693,25 +700,56 @@ final class ClipboardStore {
         presenceAsked.insert(id)
         let files = disk.files
         let epoch = presenceEpoch
+        let bookmarks = index.first { $0.id == id }?.fileBookmarks ?? []
         checking.async { [weak self] in
             var answer: [Bool]?
+            var refreshed: [Int: Data] = [:]
             if let key = ref.key, case .items(let items) = files.readBlob(storage: ref.storage, key: key) {
-                answer = Clipboard.fileURLs(in: items).map {
-                    Clipboard.isStillThere($0) { FileManager.default.fileExists(atPath: $0) }
+                // Each item where it is now: a file that can be pasted, from
+                // where it stands or from a Trash, keeps its card bright.
+                answer = items.enumerated().map { item, content in
+                    let found = Clipboard.place(bookmark: bookmarks.indices.contains(item) ? bookmarks[item] : nil,
+                                                address: Clipboard.fileAddress(in: content))
+                    if let fresh = found.bookmark, item < Clipboard.fileBookmarksKept { refreshed[item] = fresh }
+                    return found.place.url != nil
                 }
             }
-            DispatchQueue.main.async { self?.presenceKnown(id, answer, epoch: epoch) }
+            DispatchQueue.main.async { self?.presenceKnown(id, answer, refreshed: refreshed, epoch: epoch) }
         }
         return nil
     }
 
-    private func presenceKnown(_ id: String, _ answer: [Bool]?, epoch: Int) {
+    private func presenceKnown(_ id: String, _ answer: [Bool]?, refreshed: [Int: Data], epoch: Int) {
+        // A bookmark made afresh is kept whatever showing asked for it.
+        if !refreshed.isEmpty, let ref = refs[id] { keepBookmarks(id, refreshed, storage: ref.storage) }
         guard epoch == presenceEpoch else { return }
         // A blob that would not read (its write is still on its way) is
         // asked about again at the next draw, not remembered as an answer.
         guard let answer else { presenceAsked.remove(id); return }
         presence[id] = answer
         refreshSoon()
+    }
+
+    /// Main. The bookmarks of a copy's files, made at the copy.
+    private func bookmarksMade(_ id: String, _ bookmarks: [Data?], storage: String) {
+        guard refs[id]?.storage == storage, let position = index.firstIndex(where: { $0.id == id }),
+              index[position].kind == .file, bookmarks.contains(where: { $0 != nil }) else { return }
+        index[position].fileBookmarks = bookmarks
+        commitChange(at: position)
+    }
+
+    /// Main. Bookmarks made again for files found by an old or stale one,
+    /// by item number, so a card keeps finding its files.
+    private func keepBookmarks(_ id: String, _ fresh: [Int: Data], storage: String) {
+        guard refs[id]?.storage == storage, let position = index.firstIndex(where: { $0.id == id }),
+              index[position].pastesAsFiles else { return }
+        var bookmarks = index[position].fileBookmarks ?? []
+        let count = min(index[position].itemCount, Clipboard.fileBookmarksKept)
+        if bookmarks.count < count { bookmarks += Array(repeating: nil, count: count - bookmarks.count) }
+        for (item, data) in fresh where bookmarks.indices.contains(item) { bookmarks[item] = data }
+        guard bookmarks != index[position].fileBookmarks else { return }
+        index[position].fileBookmarks = bookmarks
+        commitChange(at: position)
     }
 
     /// The strip is opening: what was known about the files is asked again.

@@ -119,7 +119,7 @@ What leaves the clipboard is read twice. The pixels are served at once; then the
 
 The mode always ends the same way: **the span is highlighted, and the next verb is yours.** When the span is one stretch inside the text field you are editing, it becomes a real selection — the app's own highlight, so copy, replace, and delete all work from muscle memory. Everywhere else, Lodestar holds the highlight itself: it stays on screen after the mode ends, **`⌘C` copies it** (into the clipboard history like any copy), and any other key, click, or `esc` dismisses it. Copied text is checked against what accessibility could read of the same region, so a recognized `1` that was really an `l` comes out corrected — what you paste is what was there, not what the pixels resembled.
 
-If a span is always a copy for you, say so once: **`select.copy-on-complete`** serves the clipboard the moment the second anchor lands, in every ending alike, with a quiet "copied" on the band as the receipt. The highlight stands exactly as before and `⌘C` still works; the keystroke just stopped being necessary. Off by default — the decision lives in the config, never in the mode.
+If a span is always a copy for you, say so once: **`select.copy-on-complete`** serves the clipboard the moment the second anchor lands, in every ending alike, with a quiet "copied" on the band as the receipt. The highlight stands exactly as before and `⌘C` still works; the keystroke just stopped being necessary. With it on, `esc` after only the first anchor copies that word, the same ending `⌘C` reaches. Off by default — the decision lives in the config, never in the mode.
 
 ## Ask
 

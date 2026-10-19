@@ -601,7 +601,7 @@ public enum SettingsModel {
             gesture("select", group: "Select", detail: "Select text you can see by typing it"),
             Row(title: "Copy on select", path: "select.copy-on-complete",
                 control: .toggle(config.selectCopyOnComplete),
-                detail: "A finished selection is copied the moment its second end lands",
+                detail: "A finished selection is copied the moment its second end lands, and Escape after the first end copies that word",
                 isDefault: !config.selectCopyOnComplete, group: "Select"),
             gesture("commands", group: "Commands", detail: "The app's menu commands, by name"),
             permission("Screen Recording", state: machine.screenRecording,

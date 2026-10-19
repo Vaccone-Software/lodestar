@@ -368,20 +368,23 @@ final class PasteModeTests: XCTestCase {
         XCTAssertEqual(core.state, .paste(searching: false), "back to the strip, not out")
     }
 
-    /// A copy of files: F shows them, O opens them, M moves them where the
-    /// Finder is, and each ends the strip, because the next thing happens in
-    /// another app. On any other card the keys do nothing.
+    /// A copy of files: F shows them, O opens one (never a group), M moves
+    /// them where the Finder is, and each ends the strip, because the next
+    /// thing happens in another app. On any other card the keys do nothing.
     func testAFileCardShowsOpensAndMovesItsFilesAndLeavesTheStrip() {
-        for (key, verb) in [("f", PanelAction.reveal), ("o", .open)] {
-            open()
-            world.panelIsFiles = false
-            _ = press("a", command: true)
-            XCTAssertEqual(press(key), [], "\(key) means nothing on a card that is not files")
-            XCTAssertEqual(core.state, .pastePanel(searching: false))
-            world.panelIsFiles = true
-            XCTAssertEqual(press(key), [.pastePanelAct(verb), .pastePanelDismiss, .exitPaste])
-            XCTAssertEqual(core.state, .idle)
-        }
+        open()
+        _ = press("a", command: true)
+        XCTAssertEqual(press("f"), [], "F means nothing on a card that is not files")
+        world.panelIsFiles = true
+        XCTAssertEqual(press("o"), [], "O opens one file, never a group")
+        XCTAssertEqual(core.state, .pastePanel(searching: false))
+        XCTAssertEqual(press("f"), [.pastePanelAct(.reveal), .pastePanelDismiss, .exitPaste])
+        XCTAssertEqual(core.state, .idle)
+        open()
+        _ = press("a", command: true)
+        world.panelOpens = true
+        XCTAssertEqual(press("o"), [.pastePanelAct(.open), .pastePanelDismiss, .exitPaste])
+        XCTAssertEqual(core.state, .idle)
         open()
         _ = press("a", command: true)
         world.panelMovesHere = false

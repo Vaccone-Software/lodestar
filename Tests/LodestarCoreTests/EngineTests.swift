@@ -124,6 +124,9 @@ final class WorldStub: EngineWorld {
     var panelIsFiles = false
     var panelMovesHere = false
     func pastePanelIsFiles() -> Bool { panelIsFiles }
+    /// Whether that copy of files is one file, which opens.
+    var panelOpens = false
+    func pastePanelOpens() -> Bool { panelOpens }
     func pastePanelMovesHere() -> Bool { panelMovesHere }
 
     /// Whether the card whose actions stand is a keepsake.

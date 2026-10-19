@@ -802,6 +802,7 @@ final class ClipboardStore {
         let files = disk.files
         checking.async { [weak self] in
             var dead: [(id: String, storage: String)] = []
+            var shrunk: [Shrinking] = []
             var refreshed: [String: [Int: Data]] = [:]
             for candidate in candidates {
                 guard let key = candidate.ref.key,
@@ -817,18 +818,37 @@ final class ClipboardStore {
                 for (item, answer) in found.enumerated() {
                     if let fresh = answer.bookmark, item < Clipboard.fileBookmarksKept { refreshed[candidate.id, default: [:]][item] = fresh }
                 }
-                let goneForGood = found.allSatisfy { answer in
-                    if case .trashed = answer.place { return true }
-                    return answer.place == .gone
+                // A file in a Trash or gone for good is gone from the card;
+                // one on a disk that is not connected stays, undecided.
+                let kept = found.indices.filter { item in
+                    switch found[item].place {
+                    case .trashed, .gone: return false
+                    case .here, .away: return true
+                    }
                 }
-                if goneForGood { dead.append((candidate.id, candidate.ref.storage)) }
+                if kept.isEmpty {
+                    dead.append((candidate.id, candidate.ref.storage))
+                } else if kept.count < found.count {
+                    shrunk.append(Shrinking(id: candidate.id, storage: candidate.ref.storage, kept: kept, items: items))
+                }
             }
-            DispatchQueue.main.async { self?.pruned(dead, refreshed: refreshed, completion: completion) }
+            DispatchQueue.main.async {
+                self?.pruned(dead, shrunk: shrunk, refreshed: refreshed, completion: completion)
+            }
         }
     }
 
-    private func pruned(_ dead: [(id: String, storage: String)], refreshed: [String: [Int: Data]],
-                        completion: (() -> Void)?) {
+    /// A group with some of its files gone, as the look over the cards
+    /// found it: which items remain, and every item, to make it again.
+    private struct Shrinking {
+        let id: String
+        let storage: String
+        let kept: [Int]
+        let items: [ClipboardContent.Item]
+    }
+
+    private func pruned(_ dead: [(id: String, storage: String)], shrunk: [Shrinking],
+                        refreshed: [String: [Int: Data]], completion: (() -> Void)?) {
         pruning = false
         for (id, fresh) in refreshed { if let ref = refs[id] { keepBookmarks(id, fresh, storage: ref.storage) } }
         defer { completion?() }
@@ -836,13 +856,19 @@ final class ClipboardStore {
         // moves now, and the next look decides.
         guard !removalsHeld() else { return }
         // Still the same card, and still not kept, now that it is decided.
-        let ids = dead.filter { entry in
-            refs[entry.id]?.storage == entry.storage && index.first(where: { $0.id == entry.id })?.isPinned == false
-        }.map(\.id)
-        guard !ids.isEmpty else { return }
-        delete(ids)
+        func unchanged(_ id: String, _ storage: String) -> Bool {
+            refs[id]?.storage == storage && index.first(where: { $0.id == id })?.isPinned == false
+        }
+        var made = 0
+        for group in shrunk where unchanged(group.id, group.storage) {
+            if shrink(group.id, keeping: group.kept, of: group.items) != nil { made += 1 }
+        }
+        let ids = dead.filter { unchanged($0.id, $0.storage) }.map(\.id)
+        if !ids.isEmpty { delete(ids) }
         // Counts only.
-        Log.info("clipboard", ["removed cards of gone files": ids.count])
+        if made > 0 || !ids.isEmpty {
+            Log.info("clipboard", ["removed cards of gone files": ids.count, "groups made smaller": made])
+        }
     }
 
     /// The strip is opening: what was known about the files is asked again.
@@ -903,6 +929,69 @@ final class ClipboardStore {
         removeFiles(of: [live.id], storages: storages)
         deletionOwed = true
         scheduleCompaction(after: Self.deletionDelay)
+        return now
+    }
+
+    /// A group of files with some of them gone, made again of the rest, in
+    /// place: same position, same age, same source, a new id since the id
+    /// is the content. What was known of the files that remain is kept at
+    /// once, so the card never goes blank; their pictures are made again,
+    /// because a picture is numbered by its file's place in the copy.
+    @discardableResult
+    func shrink(_ id: String, keeping kept: [Int], of items: [ClipboardContent.Item]) -> Clipboard.Clip? {
+        guard phase == .ready, let position = index.firstIndex(where: { $0.id == id }) else { return nil }
+        let live = index[position]
+        let kept = kept.filter { items.indices.contains($0) }
+        let remaining = kept.map { items[$0] }
+        guard !remaining.isEmpty, remaining.count < items.count else { return nil }
+        let newID = Self.identity(for: Clipboard.identityData(items: remaining.map { $0.plain ?? $0.natives.first?.data ?? Data() }))
+        guard newID != live.id else { return live }
+        let key = SealingKey.generate()
+        let fresh = Ref(storage: ClipboardSealed.newStorage(), blobKey: Data(key.exportedForWrapping()))
+        do {
+            try disk.files.writeBlob(storage: fresh.storage, key: key, items: remaining)
+        } catch {
+            Log.error("clipboard: could not write the card of the files that remain (\(error))")
+            return nil
+        }
+        // What a card of files shows as its text and is searched by: each
+        // file's name as the Finder gave it, or its path.
+        let readable = remaining.compactMap { item in
+            item.plain.flatMap { String(data: $0, encoding: .utf8) }
+                ?? Clipboard.fileAddress(in: item).flatMap(Clipboard.fileURL(from:))?.path
+        }.joined(separator: "\n")
+        let facts = live.fileFacts.map { all in
+            kept.filter { all.indices.contains($0) }.map { position -> Clipboard.FileFact in
+                var fact = all[position]
+                fact.pictured = nil
+                return fact
+            }
+        }
+        let bookmarks = live.fileBookmarks.map { all in kept.map { all.indices.contains($0) ? all[$0] : nil } }
+        let bytes = remaining.reduce(0) { sum, item in
+            sum + (item.plain?.count ?? 0) + item.natives.reduce(0) { $0 + $1.data.count }
+        }
+        let replacement = Clipboard.Clip(
+            id: newID, kind: .file, created: live.created,
+            sourceBundleID: live.sourceBundleID, sourceAppName: live.sourceAppName,
+            preview: Clipboard.preview(of: readable), bytes: bytes,
+            nativeTypes: remaining[0].natives.map(\.type),
+            otherItemTypes: remaining.dropFirst().map { $0.natives.map(\.type) },
+            pinnedSlot: live.pinnedSlot, sourceHost: live.sourceHost, keptName: live.keptName,
+            fileFacts: facts, fileBookmarks: bookmarks)
+        // Another card of exactly these files is one card with them.
+        let storages = [live.id, newID].compactMap { refs[$0]?.storage }
+        index = Clipboard.replacing(index, id: live.id, with: replacement)
+        if let other = index.indices.first(where: { $0 != position && index[$0].id == newID }) { index.remove(at: other) }
+        refs[live.id] = nil
+        refs[newID] = fresh
+        let now = index.first { $0.id == newID }
+        if let now, let entry = entry(for: now) { commit(.replace(old: live.id, entry)) }
+        removeFiles(of: [live.id], storages: storages)
+        deletionOwed = true
+        scheduleCompaction(after: Self.deletionDelay)
+        let urls = Clipboard.fileURLs(in: remaining)
+        if !urls.isEmpty { filing.async { self.readFiles(newID, urls: urls, items: remaining, ref: fresh) } }
         return now
     }
 

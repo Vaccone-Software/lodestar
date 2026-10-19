@@ -2407,12 +2407,14 @@ extension HotkeyEngine: EngineWorld {
             actions.append(.init(key: "S", label: "Save as",
                                  symbol: "square.and.arrow.down"))
         }
-        // Files: where they are, what they open in, and, with the Finder in
-        // front, a move into the folder it shows, which is the Finder's own
-        // Move Item Here, undone with ⌘Z there.
+        // Files: where they are, what one opens in (a group does not open),
+        // and, with the Finder in front, a move into the folder it shows,
+        // which is the Finder's own Move Item Here, undone with ⌘Z there.
         if clip.pastesAsFiles {
             actions.append(.init(key: "F", label: "Show in Finder", symbol: "folder"))
-            actions.append(.init(key: "O", label: "Open", symbol: "arrow.up.forward.app"))
+            if clip.itemCount == 1 {
+                actions.append(.init(key: "O", label: "Open", symbol: "arrow.up.forward.app"))
+            }
             if finderInFront {
                 actions.append(.init(key: "M", label: "Move here", symbol: "arrow.right.doc.on.clipboard"))
             }
@@ -2665,6 +2667,7 @@ extension HotkeyEngine: EngineWorld {
     func pastePanelIsImage() -> Bool { panelClip?.kind == .image }
     func pastePanelIsKept() -> Bool { panelClip?.isPinned == true }
     func pastePanelIsFiles() -> Bool { panelClip?.pastesAsFiles == true }
+    func pastePanelOpens() -> Bool { pastePanelIsFiles() && panelClip?.itemCount == 1 }
     func pastePanelMovesHere() -> Bool { pastePanelIsFiles() && Self.finderInFront }
 
     /// Whether the Finder is the app in front: the one place files move to.

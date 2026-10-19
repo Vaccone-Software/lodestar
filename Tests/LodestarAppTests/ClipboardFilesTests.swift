@@ -536,19 +536,19 @@ final class ClipboardFilesTests: XCTestCase {
         XCTAssertEqual(shown, [trashed.resolvingSymlinksInPath().path], "where it went is where it is shown")
     }
 
-    func testOpenOpensAtMostADozenAndSaysSo() throws {
-        let urls = try (1...14).map { try make("page \($0).txt") }
-        copy(urls)
-        let clip = try XCTUnwrap(store.clips.first)
-        var opened = 0
-        var said: [String] = []
-        controller.openFile = { _ in opened += 1 }
-        controller.flash = { said.append($0) }
+    func testOpenOpensOneFileAndNeverAGroup() throws {
+        let one = try make("report.pdf")
+        copy([one])
+        let single = try XCTUnwrap(store.clips.first)
+        copy([try make("a.txt"), try make("b.txt")])
+        let group = try XCTUnwrap(store.clips.first)
+        var opened: [String] = []
+        controller.openFile = { opened.append($0.resolvingSymlinksInPath().path) }
 
-        controller.open(clip)
-
-        XCTAssertEqual(opened, ClipboardController.openLimit)
-        XCTAssertEqual(said, ["⌂ Opened the first 12 of 14 files"])
+        controller.open(group)
+        XCTAssertEqual(opened, [], "a group does not open")
+        controller.open(single)
+        XCTAssertEqual(opened, [one.resolvingSymlinksInPath().path])
     }
 
     func testMoveHerePutsTheFilesOnTheBoardAndPressesMoveItemHere() throws {
@@ -606,15 +606,40 @@ final class ClipboardFilesTests: XCTestCase {
         XCTAssertFalse(ids().contains(clip.id))
     }
 
-    func testACardWithSomeOfItsFilesLeftStays() throws {
-        let one = try make("one.txt"), two = try make("two.txt")
-        copy([one, two])
-        let id = try XCTUnwrap(store.clips.first?.id)
+    /// A group loses the files that are gone and keeps its place: it is the
+    /// same card, holding what is left of it.
+    func testAGroupWithSomeOfItsFilesGoneKeepsItsPlaceAndTheRest() throws {
+        let one = try make("one.txt"), two = try make("two.txt"), three = try make("three.txt")
+        copy([one, two, three])
+        let group = try XCTUnwrap(store.clips.first)
+        copy([try make("newer.txt")])
+        let newer = try XCTUnwrap(store.clips.first?.id)
         try FileManager.default.removeItem(at: one)
 
         prune()
 
-        XCTAssertTrue(ids().contains(id), "it still pastes the file that is left")
+        XCTAssertEqual(store.clips.count, 2, "no card left and none was added")
+        XCTAssertEqual(store.clips.first?.id, newer, "the order is as it was")
+        let shrunk = try XCTUnwrap(store.clips.last)
+        XCTAssertNotEqual(shrunk.id, group.id, "a card's id is what it holds")
+        XCTAssertEqual(shrunk.itemCount, 2)
+        XCTAssertEqual(shrunk.kind, .file)
+        XCTAssertEqual(shrunk.created, group.created, "and it is as old as it was")
+        XCTAssertEqual(Clipboard.namesOnCard(of: shrunk), ["two.txt", "three.txt"])
+        _ = pasteOverSomethingElse(shrunk)
+        XCTAssertEqual(pastedPaths, [two, three].map { $0.resolvingSymlinksInPath().path }, "it pastes what is left")
+    }
+
+    func testAKeptGroupKeepsEveryFileWhenSomeAreGone() throws {
+        let one = try make("one.txt"), two = try make("two.txt")
+        copy([one, two])
+        let id = try XCTUnwrap(store.clips.first?.id)
+        XCTAssertTrue(store.pin(id))
+        try FileManager.default.removeItem(at: one)
+
+        prune()
+
+        XCTAssertEqual(store.clips.first(where: { $0.id == id })?.itemCount, 2, "a keepsake changes only by hand")
     }
 
     func testAKeepsakeStaysWhenItsFilesAreGone() throws {

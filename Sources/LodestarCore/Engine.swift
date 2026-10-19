@@ -278,8 +278,11 @@ public protocol EngineWorld: AnyObject {
     /// lets a keepsake go; `R` renames only a keepsake.
     func pastePanelIsKept() -> Bool
     /// Is the card whose actions stand a copy of files? `F` shows them in
-    /// the Finder and `O` opens them only then.
+    /// the Finder only then.
     func pastePanelIsFiles() -> Bool
+    /// Is it one file? `O` opens it. A group does not open: a dozen windows
+    /// at once is never what a key was pressed for.
+    func pastePanelOpens() -> Bool
     /// Could the card's files be moved here? A copy of files with the
     /// Finder in front: `M` moves them into the folder it shows.
     func pastePanelMovesHere() -> Bool
@@ -329,6 +332,7 @@ public extension EngineWorld {
     func enterEditor() -> Bool { false }
     func pastePanelIsKept() -> Bool { false }
     func pastePanelIsFiles() -> Bool { false }
+    func pastePanelOpens() -> Bool { false }
     func pastePanelMovesHere() -> Bool { false }
     func hintType(_ letter: String, shift: Bool, control: Bool, option: Bool) -> HintStep {
         hintType(letter, shift: shift, control: control)
@@ -1393,7 +1397,7 @@ public struct EngineCore {
         // A copy of files: what follows happens in the Finder or the app a
         // file opens in, so the strip goes with the verb.
         case "f" where world.pastePanelIsFiles(),
-             "o" where world.pastePanelIsFiles(),
+             "o" where world.pastePanelOpens(),
              "m" where world.pastePanelMovesHere():
             state = .idle
             let verb: PanelAction = key == "f" ? .reveal : key == "o" ? .open : .moveHere

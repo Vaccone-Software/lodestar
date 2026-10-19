@@ -531,17 +531,15 @@ final class ClipboardController {
         revealFiles(shown)
     }
 
-    /// Each file opened in the app the system opens it in. At most a dozen:
-    /// a card of two hundred files opened at once is never what was meant.
+    /// The one file of a card, opened in the app the system opens it in. A
+    /// group does not open: a dozen windows at once is never what was meant.
     var openFile: (URL) -> Void = { SystemEvents.open($0) }
-    static let openLimit = 12
 
     func open(_ clip: Clipboard.Clip) {
+        guard clip.itemCount == 1 else { return }
         guard let places = places(of: clip) else { return flash("✕ That disk did not answer in time") }
-        let urls = places.compactMap(\.url)
-        guard !urls.isEmpty else { return flash(Self.unreachable(places, count: clip.itemCount)) }
-        urls.prefix(Self.openLimit).forEach(openFile)
-        if urls.count > Self.openLimit { flash("⌂ Opened the first \(Self.openLimit) of \(urls.count) files") }
+        guard let url = places.first?.url else { return flash(Self.unreachable(places, count: 1)) }
+        openFile(url)
     }
 
     /// A reading pasted: plain text Lodestar wrote, not a clip, so it goes

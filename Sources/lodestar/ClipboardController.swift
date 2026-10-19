@@ -320,6 +320,10 @@ final class ClipboardController {
     /// — copies reorder it, pastes never do.
     static let concealed = "org.nspasteboard.ConcealedType"
 
+    /// How long a paste waits to learn whether a copy's files are still
+    /// there. A seam for the tests.
+    nonisolated(unsafe) static var presenceDeadline: TimeInterval = 0.3
+
     func paste(_ clip: Clipboard.Clip, action: PasteAction) {
         // One disk read for every representation this method wants: the
         // native loop, the image fallback, and the file handover all drew
@@ -329,12 +333,23 @@ final class ClipboardController {
         let board = pasteboard
         // Files that are no longer there paste as nothing: the Finder would
         // make a text file of their names, which is not what was copied. The
-        // answer is the strip's own, asked off the main thread; one that has
-        // not come in leaves the paste as it was.
+        // disk is asked now, not the strip's cache, which is filled in the
+        // background and may not have come in when a quick hand pastes. A
+        // volume that does not answer in time leaves the paste as it was.
         let files = clip.pastesAsFiles
-        if files, Clipboard.allMissing(store.filesPresent(clip.id)) {
-            flash(clip.itemCount == 1 ? "✕ That file is no longer there" : "✕ Those files are no longer there")
-            return
+        if files {
+            let urls = Clipboard.fileURLs(in: stored)
+            let present = FileSense.withDeadline(Self.presenceDeadline) {
+                urls.map { FileManager.default.fileExists(atPath: $0.path) }
+            }
+            // Counts only: what a file is called is nobody's business here.
+            Log.info("clipboard", ["paste": "files", "files": urls.count,
+                                   "present": present.map { $0.filter { $0 }.count } ?? -1,
+                                   "references": urls.filter { $0.path.hasPrefix("/.file/") }.count])
+            if Clipboard.allMissing(present) {
+                flash(clip.itemCount == 1 ? "✕ That file is no longer there" : "✕ Those files are no longer there")
+                return
+            }
         }
         // A secret goes back the way a password manager puts it out: kept
         // to this Mac, never carried to another device by Universal

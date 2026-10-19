@@ -384,8 +384,9 @@ final class ClipboardFilesTests: XCTestCase {
         finderCopy(urls)
         let clip = try XCTUnwrap(store.clips.first)
         for url in urls { try FileManager.default.removeItem(at: url) }
-        store.forgetFilePresence()
-        wait("the files are known to be gone") { self.store.filesPresent(clip.id) == [false, false] }
+        // No wait for the strip's own answer: a quick hand pastes before it
+        // has come in, and the paste asks the disk itself.
+        XCTAssertNil(store.filesPresent(clip.id), "the strip has not been told yet")
         board.clearContents()
         board.setString("kept", forType: .string)
         var said: [String] = []

@@ -284,22 +284,28 @@ final class ClipboardController {
         // that did not come from a page.
         let sourceHost = Clipboard.sourceHost(fromURL: boardItems[0].string(
             forType: NSPasteboard.PasteboardType(Clipboard.sourceURLType)))
+        // What the copy is. A picture is read first, as it always was; a
+        // copy is files only when every item on the board is a file's
+        // address, and anything else is text.
+        let kind: Clipboard.Kind = imageData != nil ? .image
+            : Clipboard.kind(ofCopy: boardItems.map { $0.types.map(\.rawValue) }) == .file ? .file : .text
         // How long the text is, said once at capture so the card can say
         // when it holds more than it shows. Counting characters is a pass
         // over every one of them — 12 ms a megabyte, 240 for the 19 the
         // ceiling allows — so a long text is counted a moment after its
         // card exists, off the main thread, and meanwhile the card says
-        // what its preview says.
-        let long = readable.utf8.count > Self.countedInlineLimit
-        let counted = imageData == nil && !long ? Clipboard.counts(of: readable) : nil
-        store.record(id: id, kind: imageData != nil ? .image : .text,
+        // what its preview says. A card of files holds paths, which are
+        // not text to measure.
+        let long = kind == .text && readable.utf8.count > Self.countedInlineLimit
+        let counted = kind == .text && !long ? Clipboard.counts(of: readable) : nil
+        store.record(id: id, kind: kind,
                      items: items, imageData: imageData,
                      preview: preview,
                      sourceBundleID: source?.bundleIdentifier,
                      sourceAppName: source?.localizedName,
                      sourceHost: sourceHost,
                      lines: counted?.lines, characters: counted?.characters)
-        if imageData == nil, long { store.count(id: id, text: readable) }
+        if long { store.count(id: id, text: readable) }
         store.trim(maxBytes: maxBytes, maxItems: maxItems)
         onCapture?()
         onCopied?()

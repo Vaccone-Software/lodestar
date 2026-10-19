@@ -20,6 +20,8 @@ final class ClipboardFilesTests: XCTestCase {
         try? FileManager.default.createDirectory(at: files, withIntermediateDirectories: true)
         store = SealedFixture.clipboardStore(directory.appendingPathComponent("history", isDirectory: true))
         controller = ClipboardController(store: store)
+        // A paste goes to the sealed test board, never to the one in use.
+        controller.pasteboard = board
         // Real QuickLook is another process's to answer in its own time; the
         // tests stand in for it, and the icon fallback is the real one.
         FileSense.thumbnailer = { _ in Self.swatch() }
@@ -339,6 +341,63 @@ final class ClipboardFilesTests: XCTestCase {
         for id in ids { for index in 0..<4 { _ = store.thumbnail(for: id, index: index) } }
         RunLoop.main.run(until: Date().addingTimeInterval(0.5))
         XCTAssertEqual(store.cachedThumbnails, ClipboardStore.thumbnailLimit, "bounded, and full")
+    }
+
+    // MARK: Pasting files
+
+    /// What the Finder puts on the board for a copied file: its address, and
+    /// its name as the plain form.
+    private func finderCopy(_ urls: [URL]) {
+        board.clearContents()
+        let items = urls.map { url -> NSPasteboardItem in
+            let item = NSPasteboardItem()
+            item.setString(url.absoluteString, forType: .fileURL)
+            item.setString(url.lastPathComponent, forType: .string)
+            return item
+        }
+        board.writeObjects(items)
+        controller.capture()
+    }
+
+    func testAPlainPasteOfFilesPutsTheFilesOnTheBoardAndNotTheirNames() throws {
+        let urls = [try make("a.txt"), try make("b.txt")]
+        finderCopy(urls)
+        let clip = try XCTUnwrap(store.clips.first)
+        XCTAssertEqual(clip.kind, .file)
+        var posted = 0
+        controller.postPaste = { posted += 1 }
+        // Something else has been copied since, as it has by the time a card
+        // is pasted: the board holds nothing of the files.
+        board.clearContents()
+        board.setString("something else", forType: .string)
+
+        controller.paste(clip, action: .plain)
+
+        let back = board.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]
+        XCTAssertEqual(back?.map { $0.standardizedFileURL.path }, urls.map { $0.standardizedFileURL.path },
+                       "the Finder pastes files only when the board holds their addresses")
+        XCTAssertEqual(posted, 1)
+    }
+
+    func testFilesThatAreGonePasteAsNothingAndSayWhy() throws {
+        let urls = [try make("a.txt"), try make("b.txt")]
+        finderCopy(urls)
+        let clip = try XCTUnwrap(store.clips.first)
+        for url in urls { try FileManager.default.removeItem(at: url) }
+        store.forgetFilePresence()
+        wait("the files are known to be gone") { self.store.filesPresent(clip.id) == [false, false] }
+        board.clearContents()
+        board.setString("kept", forType: .string)
+        var said: [String] = []
+        var posted = 0
+        controller.flash = { said.append($0) }
+        controller.postPaste = { posted += 1 }
+
+        controller.paste(clip, action: .plain)
+
+        XCTAssertEqual(board.string(forType: .string), "kept", "the board is left as it was")
+        XCTAssertEqual(posted, 0, "nothing is pasted")
+        XCTAssertEqual(said, ["✕ Those files are no longer there"])
     }
 
     // MARK: Whether the files are still there

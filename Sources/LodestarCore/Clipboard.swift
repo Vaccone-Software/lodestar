@@ -108,6 +108,14 @@ public enum Clipboard {
         /// what a paste has to put back.
         public var itemTypes: [[String]] { [nativeTypes] + (otherItemTypes ?? []) }
         public var itemCount: Int { 1 + (otherItemTypes?.count ?? 0) }
+        /// Whether pasting this clip must put its files on the board. A
+        /// file clip is, and so is a copy of files recorded before files
+        /// were a kind, told by every item carrying a file's address. The
+        /// plain form of such an item is only the file's name, and pasted
+        /// alone it makes a text file of that name in the Finder.
+        public var pastesAsFiles: Bool {
+            kind == .file || (kind == .text && itemTypes.allSatisfy { $0.contains(Clipboard.fileURLType) })
+        }
         /// ⇧label differs from label only when the source offered more than
         /// plain text.
         public var hasNativeForm: Bool { itemTypes.contains { !$0.isEmpty } }

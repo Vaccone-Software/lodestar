@@ -22,6 +22,22 @@ final class ClipboardFileTests: XCTestCase {
                        fileFacts: facts)
     }
 
+    // MARK: - What pastes as files
+
+    func testACopyOfFilesPastesAsFilesWhateverKindItWasRecordedAs() {
+        func clip(_ kind: Clipboard.Kind, _ native: [String], others: [[String]] = []) -> Clipboard.Clip {
+            Clipboard.Clip(id: "p", kind: kind, created: Date(timeIntervalSince1970: 1_000_000),
+                           sourceBundleID: nil, sourceAppName: nil, preview: "x", bytes: 1,
+                           nativeTypes: native, otherItemTypes: others)
+        }
+        XCTAssertTrue(clip(.file, file).pastesAsFiles)
+        XCTAssertTrue(clip(.text, file, others: [file]).pastesAsFiles, "a file copy from before files were a kind")
+        XCTAssertFalse(clip(.text, ["public.html"]).pastesAsFiles)
+        XCTAssertFalse(clip(.text, file, others: [["public.html"]]).pastesAsFiles, "files beside other things are as copied")
+        XCTAssertFalse(clip(.image, ["public.png"]).pastesAsFiles)
+        XCTAssertFalse(clip(.text, []).pastesAsFiles, "plain text carries no types at all")
+    }
+
     // MARK: - An index with a kind this build does not know
 
     /// The test that must not regress: the index is one journal, and one

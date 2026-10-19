@@ -327,6 +327,15 @@ final class ClipboardController {
         // near the size ceiling, tens of megabytes re-read inside the tap.
         let stored = store.itemData(clip)
         let board = pasteboard
+        // Files that are no longer there paste as nothing: the Finder would
+        // make a text file of their names, which is not what was copied. The
+        // answer is the strip's own, asked off the main thread; one that has
+        // not come in leaves the paste as it was.
+        let files = clip.pastesAsFiles
+        if files, Clipboard.allMissing(store.filesPresent(clip.id)) {
+            flash(clip.itemCount == 1 ? "✕ That file is no longer there" : "✕ Those files are no longer there")
+            return
+        }
         // A secret goes back the way a password manager puts it out: kept
         // to this Mac, never carried to another device by Universal
         // Clipboard, and marked concealed so every other clipboard tool
@@ -344,7 +353,9 @@ final class ClipboardController {
         for content in stored {
             let item = NSPasteboardItem()
             var wrote = false
-            if action == .native {
+            // Files go back whole under every label: their plain form is a
+            // name, and a name alone is not the file.
+            if action == .native || files {
                 for native in content.natives {
                     item.setData(native.data, forType: NSPasteboard.PasteboardType(native.type))
                     wrote = true

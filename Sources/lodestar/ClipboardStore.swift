@@ -696,7 +696,9 @@ final class ClipboardStore {
         checking.async { [weak self] in
             var answer: [Bool]?
             if let key = ref.key, case .items(let items) = files.readBlob(storage: ref.storage, key: key) {
-                answer = Clipboard.fileURLs(in: items).map { FileManager.default.fileExists(atPath: $0.path) }
+                answer = Clipboard.fileURLs(in: items).map {
+                    Clipboard.isStillThere($0) { FileManager.default.fileExists(atPath: $0) }
+                }
             }
             DispatchQueue.main.async { self?.presenceKnown(id, answer, epoch: epoch) }
         }

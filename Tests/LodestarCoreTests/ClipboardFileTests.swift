@@ -22,6 +22,19 @@ final class ClipboardFileTests: XCTestCase {
                        fileFacts: facts)
     }
 
+    // MARK: - Whether a file is still there
+
+    func testAFileInATrashIsNotStillThere() {
+        let exists: (String) -> Bool = { _ in true }
+        XCTAssertFalse(Clipboard.isStillThere(URL(fileURLWithPath: "/Users/x/.Trash/a.jpeg"), exists: exists))
+        XCTAssertFalse(Clipboard.isStillThere(URL(fileURLWithPath: "/Volumes/Disk/.Trashes/501/a.jpeg"), exists: exists),
+                       "another volume's Trash")
+        XCTAssertTrue(Clipboard.isStillThere(URL(fileURLWithPath: "/Users/x/Documents/a.jpeg"), exists: exists))
+        XCTAssertTrue(Clipboard.isStillThere(URL(fileURLWithPath: "/Users/x/My.Trash notes/a.jpeg"), exists: exists),
+                      "a folder whose name only mentions a Trash")
+        XCTAssertFalse(Clipboard.isStillThere(URL(fileURLWithPath: "/Users/x/Documents/a.jpeg"), exists: { _ in false }))
+    }
+
     // MARK: - What pastes as files
 
     func testACopyOfFilesPastesAsFilesWhateverKindItWasRecordedAs() {

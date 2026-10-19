@@ -404,6 +404,45 @@ final class ClipboardFilesTests: XCTestCase {
         XCTAssertEqual(said, ["✕ Those files are no longer there"])
     }
 
+    /// The Finder's own sequence: a file copied by reference, then deleted,
+    /// which moves it into a Trash where the reference still finds it.
+    func testAFileDeletedToTheTrashPastesAsNothingAndItsCardIsMissing() throws {
+        let url = try make("photo.jpeg")
+        // Through Objective-C: bridged to a Swift URL, a reference comes
+        // back as the path it points to, and the test would copy a path.
+        let reference = try XCTUnwrap((url as NSURL).perform(#selector(NSURL.fileReferenceURL))?
+            .takeUnretainedValue() as? NSURL)
+        let address = try XCTUnwrap(reference.absoluteString)
+        XCTAssertTrue(address.hasPrefix("file:///.file/"), "copied by reference, as the Finder does")
+        board.clearContents()
+        let item = NSPasteboardItem()
+        item.setString(address, forType: .fileURL)
+        item.setString(url.lastPathComponent, forType: .string)
+        board.writeObjects([item])
+        controller.capture()
+        let clip = try XCTUnwrap(store.clips.first)
+
+        let trash = directory.appendingPathComponent(".Trash", isDirectory: true)
+        try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
+        try FileManager.default.moveItem(at: url, to: trash.appendingPathComponent("photo.jpeg"))
+        XCTAssertTrue(Clipboard.fileURLs(in: store.itemData(clip)).allSatisfy(Clipboard.isInTrash),
+                      "the reference follows the file into the Trash")
+
+        board.clearContents()
+        board.setString("kept", forType: .string)
+        var said: [String] = []
+        var posted = 0
+        controller.flash = { said.append($0) }
+        controller.postPaste = { posted += 1 }
+        controller.paste(clip, action: .plain)
+
+        XCTAssertEqual(board.string(forType: .string), "kept", "the board is left as it was")
+        XCTAssertEqual(posted, 0, "nothing is pasted, so the Finder makes no clipping")
+        XCTAssertEqual(said, ["✕ That file is no longer there"])
+        store.forgetFilePresence()
+        wait("the card learns its file is gone") { self.store.filesPresent(clip.id) == [false] }
+    }
+
     // MARK: Whether the files are still there
 
     func testWhetherFilesAreThereIsAskedOffTheMainThreadAndKeptForTheShowing() throws {

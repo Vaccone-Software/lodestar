@@ -330,7 +330,7 @@ final class ClipboardController {
         Log.info("clipboard", ["file-board": moment, "change": change, "items": items.count,
                                "addresses": urls.count,
                                "existing": urls.filter { FileManager.default.fileExists(atPath: $0.path) }.count,
-                               "in-trash": urls.filter { $0.path.contains("/.Trash/") }.count,
+                               "in-trash": urls.filter(Clipboard.isInTrash).count,
                                "types": types.joined(separator: " ")])
     }
 
@@ -354,7 +354,7 @@ final class ClipboardController {
         if files {
             let urls = Clipboard.fileURLs(in: stored)
             let present = FileSense.withDeadline(Self.presenceDeadline) {
-                urls.map { FileManager.default.fileExists(atPath: $0.path) }
+                urls.map { Clipboard.isStillThere($0) { FileManager.default.fileExists(atPath: $0) } }
             }
             // Counts only: what a file is called is nobody's business here.
             Log.info("clipboard", ["paste": "files", "files": urls.count,

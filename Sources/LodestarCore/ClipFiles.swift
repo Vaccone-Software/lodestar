@@ -81,6 +81,21 @@ extension Clipboard {
         return resolved
     }
 
+    /// Whether a copied file is still there to paste. The Finder names a
+    /// copied file by reference, so its address follows the file wherever
+    /// it goes: moved, the card follows it; deleted, the address leads into
+    /// the Trash, and a file in the Trash is gone to the hand that deleted
+    /// it (the Finder will not paste it either, and makes a text clipping
+    /// of its name instead).
+    public static func isStillThere(_ url: URL, exists: (String) -> Bool) -> Bool {
+        !isInTrash(url) && exists(url.path)
+    }
+
+    /// A Trash is `.Trash` in a home folder and `.Trashes` on any other volume.
+    public static func isInTrash(_ url: URL) -> Bool {
+        url.pathComponents.contains { $0 == ".Trash" || $0 == ".Trashes" }
+    }
+
     /// Every item's file, in copy order. An item that names none is left
     /// out, so the list can be shorter than the copy.
     public static func fileURLs(in items: [ClipboardContent.Item]) -> [URL] {

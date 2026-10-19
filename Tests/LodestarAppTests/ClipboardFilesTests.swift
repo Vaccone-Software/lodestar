@@ -28,6 +28,7 @@ final class ClipboardFilesTests: XCTestCase {
     override func tearDown() {
         FileSense.deadline = 2
         FileSense.thumbnailer = FileSense.quickLook
+        FileSense.dataless = FileSense.isDataless
         store.close()
         try? FileManager.default.removeItem(at: directory)
     }
@@ -258,6 +259,25 @@ final class ClipboardFilesTests: XCTestCase {
         wait("the icon stands in", timeout: 1.8) { self.store.thumbnail(for: id) != nil }
         XCTAssertLessThan(Date().timeIntervalSince(began), 1.8, "without waiting for the slow answer")
         wait("and the card is told it is an icon") { self.store.clips.first?.fileFacts?.first?.pictured == false }
+    }
+
+    /// A file iCloud has evicted is described by what is known of it and
+    /// drawn as its icon: asking it for its pages or its picture would
+    /// fetch it from the network.
+    func testAFileThatIsNotOnThisMacIsNeverOpenedForItsPagesOrItsPicture() throws {
+        FileSense.dataless = { _, _ in true }
+        var asked = 0
+        FileSense.thumbnailer = { _ in asked += 1; return Self.swatch() }
+        let png = files.appendingPathComponent("evicted.png")
+        try Stage.pngData(width: 40, height: 20).write(to: png)
+        copy([png])
+        let id = try XCTUnwrap(store.clips.first).id
+        let fact = read(id, facts: 1)[0]
+        wait("its icon is its picture") { self.store.clips.first?.fileFacts?.first?.pictured == false }
+        XCTAssertEqual(fact.name, "evicted.png")
+        XCTAssertNotNil(fact.bytes, "what the directory says of it is still said")
+        XCTAssertNil(fact.detail, "its pixels are not read: that would open it")
+        XCTAssertEqual(asked, 0, "and QuickLook is not asked for it")
     }
 
     func testTheFactsAndPicturesOutliveTheFileAndTheSession() throws {

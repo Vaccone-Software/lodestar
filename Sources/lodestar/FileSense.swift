@@ -29,6 +29,10 @@ enum FileSense {
     /// stand in for QuickLook so a slow volume can be made to happen.
     nonisolated(unsafe) static var thumbnailer: (URL) -> CGImage? = quickLook
 
+    /// Whether a file's content is somewhere else. A seam for the tests, which
+    /// cannot make a file iCloud has evicted.
+    nonisolated(unsafe) static var dataless: (URL, URLUbiquitousItemDownloadingStatus?) -> Bool = isDataless
+
     struct Picture {
         let png: Data
         /// The file's own face (a first page, a poster frame), not its icon.
@@ -83,12 +87,12 @@ enum FileSense {
             fact.bytes = values?.fileSize
         }
         return Basics(fact: fact, type: type, isFolder: isFolder,
-                      dataless: isDataless(url, status: values?.ubiquitousItemDownloadingStatus))
+                      dataless: dataless(url, values?.ubiquitousItemDownloadingStatus))
     }
 
     /// Whether the file's content is somewhere else: evicted from iCloud, or
     /// a placeholder a file provider has not filled. Reading it would fetch it.
-    static func isDataless(_ url: URL, status: URLUbiquitousItemDownloadingStatus?) -> Bool {
+    static func isDataless(_ url: URL, _ status: URLUbiquitousItemDownloadingStatus?) -> Bool {
         if let status, status != .current { return true }
         var info = stat()
         guard stat(url.path, &info) == 0 else { return false }
@@ -135,7 +139,7 @@ enum FileSense {
     /// itself), otherwise its icon, drawn at the same size. Nil only when
     /// not even an icon could be drawn.
     static func picture(of url: URL) -> Picture? {
-        if !isDataless(url, status: nil),
+        if !dataless(url, nil),
            let image = withDeadline(deadline, { thumbnailer(url) }), let png = png(image) {
             return Picture(png: png, pictured: true)
         }

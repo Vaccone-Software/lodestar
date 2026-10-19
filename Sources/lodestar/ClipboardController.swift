@@ -204,6 +204,7 @@ final class ClipboardController {
             Log.info("clipboard", ["refused": "\(refusal)"])
             return
         }
+        if types.contains(Clipboard.fileURLType) { logFileBoard("copy", boardItems, change: count) }
 
         // What each item pastes as text, and — separately — what it can be
         // read and searched by. They part company for a file: its URL is
@@ -320,6 +321,19 @@ final class ClipboardController {
     /// — copies reorder it, pastes never do.
     static let concealed = "org.nspasteboard.ConcealedType"
 
+    /// A board that carries files, described by shape alone: the types of
+    /// its items, how many addresses it holds, how many of those exist,
+    /// and how many lie in a Trash. Never a name or a path.
+    func logFileBoard(_ moment: String, _ items: [NSPasteboardItem], change: Int) {
+        let types = Array(Set(items.flatMap { $0.types.map(\.rawValue) })).sorted()
+        let urls = items.compactMap { $0.string(forType: .fileURL) }.compactMap(URL.init(string:))
+        Log.info("clipboard", ["file-board": moment, "change": change, "items": items.count,
+                               "addresses": urls.count,
+                               "existing": urls.filter { FileManager.default.fileExists(atPath: $0.path) }.count,
+                               "in-trash": urls.filter { $0.path.contains("/.Trash/") }.count,
+                               "types": types.joined(separator: " ")])
+    }
+
     /// How long a paste waits to learn whether a copy's files are still
     /// there. A seam for the tests.
     nonisolated(unsafe) static var presenceDeadline: TimeInterval = 0.3
@@ -415,6 +429,16 @@ final class ClipboardController {
         }
         selfWrittenChangeCount = board.changeCount
         lastChangeCount = board.changeCount
+        if files {
+            // What the board holds as written, and again a moment later: a
+            // paste of files the Finder turns into a clipping says here
+            // whether the address was ever on the board or was replaced.
+            let written = board.changeCount
+            logFileBoard("paste", board.pasteboardItems ?? [], change: written)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                self?.logFileBoard("after-paste", board.pasteboardItems ?? [], change: board.changeCount)
+            }
+        }
 
         // Secure input blocks synthetic keystrokes entirely, so a password
         // field would swallow the paste in silence. The clip is on the

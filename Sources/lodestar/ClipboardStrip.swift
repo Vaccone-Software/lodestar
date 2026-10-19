@@ -619,10 +619,12 @@ final class ClipboardStrip {
         return cap
     }
 
+    /// One card, built and not shown: internal so a test can look into it
+    /// without a strip on the display.
     func makeCard(clip: Clipboard.Clip, key: String?, lit: Bool, size: NSSize,
-                          face: NSFont = BarTheme.bodyFont,
-                          lift: ObjectSurface.Lift, reading: String?,
-                          thumbnail: NSImage?, files: FileArt? = nil, raised: Bool) -> NSView {
+                  face: NSFont = BarTheme.bodyFont,
+                  lift: ObjectSurface.Lift, reading: String?,
+                  thumbnail: NSImage?, files: FileArt? = nil, raised: Bool) -> NSView {
         let card = surface(size: size, lift: lift, weight: raised ? .highlighted : .normal)
         shownCards[clip.id] = card
         let width = size.width, height = size.height
@@ -837,10 +839,9 @@ final class ClipboardStrip {
         let count = clip.itemCount
         let missing = Clipboard.allMissing(art.present)
         var drawn: [NSView] = []
-        let sheets: [NSRect]
 
         if count > 1 {
-            sheets = Self.cascadeSheets(count: min(Clipboard.thumbnailedFiles, count), in: body)
+            let sheets = Self.cascadeSheets(count: min(Clipboard.thumbnailedFiles, count), in: body)
             // Behind first, so the first file stands in front.
             for index in sheets.indices.reversed() {
                 drawn.append(makeSheet(frame: sheets[index], picture: art.pictures.indices.contains(index) ? art.pictures[index] : nil,

@@ -60,7 +60,7 @@ final class GlassTests: XCTestCase {
     }
 
     func testAMarkIsTheOneKeyStandingOnAShadow() {
-        let mark = KeyMark.key("ab", lit: false)
+        let mark = KeyMark.key("ab")
         XCTAssertNotNil(mark.layer?.shadowPath, "stands on a short warm shadow")
         let key = try? XCTUnwrap(mark.subviews.first)
         XCTAssertEqual(key?.layer?.backgroundColor, BarTheme.markFill.cgColor, "the key's face, opaque over the app")

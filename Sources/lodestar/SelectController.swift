@@ -756,7 +756,10 @@ final class SelectController {
             renderEditor()
             return .pending
         case .none:
+            // A letter no label continues clears the prefix, and the full
+            // set comes back with it.
             entryTyped = ""
+            renderEditor()
             return .pending
         }
     }
@@ -811,6 +814,7 @@ final class SelectController {
             return .pending
         case .none:
             entryTyped = ""
+            renderEntry()
             return .pending
         }
     }

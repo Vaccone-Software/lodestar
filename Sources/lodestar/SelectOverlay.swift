@@ -75,7 +75,8 @@ final class SelectOverlay {
 
     /// The chips a partial capital leaves standing: only those the typed
     /// letters can still complete, so a pick's progress is visible on the
-    /// glass and never in the pill.
+    /// glass and never in the pill. The keys that stand dim the letters
+    /// already typed.
     static func narrowed(_ chips: [Chip], typed: String) -> [Chip] {
         guard !typed.isEmpty else { return chips }
         return chips.filter { $0.label.lowercased().hasPrefix(typed.lowercased()) }
@@ -137,14 +138,13 @@ final class SelectOverlay {
             decorations.append(line)
         }
 
-        let lit = !typed.isEmpty
         var placedTags: [NSRect] = []
         for chip in Self.narrowed(chips, typed: typed) {
             guard let first = chip.frames.first else { continue }
             let target = appKitRect(first)
             switch chip.style {
             case .tag(let word):
-                let tag = KeyMark.tag(letter: chip.label, word: word, lit: lit)
+                let tag = KeyMark.tag(letter: chip.label, word: word, typed: typed)
                 let placed = Self.place(tag.frame.size, above: target, avoiding: placedTags,
                                         within: NSRect(origin: .zero, size: panel.frame.size))
                 tag.frame.origin = placed.frame.origin
@@ -171,7 +171,7 @@ final class SelectOverlay {
             case .target:
                 break
             }
-            let key = KeyMark.key(chip.label, lit: lit)
+            let key = KeyMark.key(chip.label, typed: typed)
             let width = key.frame.width, height = key.frame.height
             let x = min(max(target.minX - 2, 0), panel.frame.width - width)
             // A match's key floats just above the word; a target's pins to

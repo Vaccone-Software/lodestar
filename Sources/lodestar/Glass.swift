@@ -2010,9 +2010,10 @@ final class ShadowHostView: NSView {
 /// Marks laid over another app's window, drawn as the one key: the dark cap
 /// with its lit top edge and its lip, standing on a short warm shadow so it
 /// reads over any app, light or dark. A mark the hand has begun typing
-/// lights, the accent's face with the mark's ink, the way a key lights when
-/// it is the one about to be pressed. Built by hand, without layout, because
-/// a window of click hints can be four hundred of them at once.
+/// stays the resting key and keeps its width: the letters already typed
+/// dim in its label, and the ones still to press keep the mark's ink.
+/// Built by hand, without layout, because a window of click hints can be
+/// four hundred of them at once.
 enum KeyMark {
     static let height: CGFloat = BarTheme.chipHeight
     /// The peek's numerals: the same key at a size read across the screen.
@@ -2025,13 +2026,27 @@ enum KeyMark {
     /// The anchor's and the held span's heavier line.
     static let heavyUnderline: CGFloat = 3.5
 
-    /// One key, origin at zero, sized to its letters.
-    static func key(_ text: String, lit: Bool, peek: Bool = false) -> NSView {
+    /// A label with its first `typed` letters dimmed, in the caption grey,
+    /// and the rest in the mark's ink. The label compares to what was
+    /// typed without case, since it is drawn in capitals; a label the typed
+    /// letters do not begin is drawn whole.
+    static func letters(_ text: String, typed: String, font: NSFont) -> NSAttributedString {
+        let drawn = text.uppercased()
+        let done = !typed.isEmpty && text.lowercased().hasPrefix(typed.lowercased()) ? typed.count : 0
+        let label = NSMutableAttributedString(string: drawn, attributes: [
+            .font: font, .foregroundColor: BarTheme.markLetter])
+        label.addAttribute(.foregroundColor, value: BarTheme.secondaryColor,
+                           range: NSRange(location: 0, length: min(done, label.length)))
+        return label
+    }
+
+    /// One key, origin at zero, sized to its letters. `typed` is what the
+    /// hand has typed of the label so far; those letters dim.
+    static func key(_ text: String, typed: String = "", peek: Bool = false) -> NSView {
         let height = peek ? peekHeight : height
         let radius = peek ? BarTheme.chipRadius * BarTheme.phi : BarTheme.chipRadius
-        let label = NSTextField(labelWithString: text.uppercased())
-        label.font = peek ? peekFont : BarTheme.chipFont
-        label.textColor = lit ? BarTheme.onAccent : BarTheme.markLetter
+        let label = NSTextField(labelWithAttributedString:
+            letters(text, typed: typed, font: peek ? peekFont : BarTheme.chipFont))
         label.alignment = .center
         label.sizeToFit()
         let width = max(height, ceil(label.frame.width) + BarTheme.chipPadX * 2)
@@ -2040,9 +2055,9 @@ enum KeyMark {
         guard let layer = view.layer else { return view }
         layer.masksToBounds = false
         layer.cornerRadius = radius
-        layer.backgroundColor = (lit ? BarTheme.accent : BarTheme.markFill).cgColor
+        layer.backgroundColor = BarTheme.markFill.cgColor
         // The lip: the key's own shadow, straight down and unblurred.
-        layer.shadowColor = (lit ? BarTheme.litKeyLip : BarTheme.keyLip).cgColor
+        layer.shadowColor = BarTheme.keyLip.cgColor
         layer.shadowOpacity = 1
         layer.shadowRadius = 0
         layer.shadowOffset = CGSize(width: 0, height: peek ? -3 : -1.5)
@@ -2050,7 +2065,7 @@ enum KeyMark {
         // The top edge catching the light.
         let top = CALayer()
         top.frame = CGRect(x: radius * 0.8, y: height - 1, width: max(0, width - radius * 1.6), height: 1)
-        top.backgroundColor = (lit ? BarTheme.litKeyTop : BarTheme.keyTop).cgColor
+        top.backgroundColor = BarTheme.keyTop.cgColor
         top.cornerRadius = 0.5
         layer.addSublayer(top)
         label.frame = NSRect(x: 0, y: ((height - label.frame.height) / 2).rounded(), width: width,
@@ -2061,10 +2076,10 @@ enum KeyMark {
 
     /// The editor lens's tag: the key and the fix in words, on a small
     /// surface of the palette in force, just above the word it fixes.
-    static func tag(letter: String, word: String, lit: Bool) -> NSView {
+    static func tag(letter: String, word: String, typed: String = "") -> NSView {
         let pad: CGFloat = 3
         let radius = BarTheme.chipRadius + pad
-        let key = KeyMark.key(letter, lit: lit)
+        let key = KeyMark.key(letter, typed: typed)
         let label = NSTextField(labelWithString: word)
         label.font = BarTheme.secondaryFont
         label.textColor = .labelColor

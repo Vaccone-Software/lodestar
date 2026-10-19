@@ -1072,6 +1072,7 @@ final class SelectController {
     private func gather(_ pieces: [SelectCore.Match]) -> (text: String, rects: [CGRect]) {
         var parts: [String] = []
         var rects: [CGRect] = []
+        var bare: [CGRect] = []
         var confirmed = 0, repaired = 0, declined = 0, axRead = 0
         for piece in pieces {
             guard units.indices.contains(piece.element) else { continue }
@@ -1091,10 +1092,19 @@ final class SelectController {
                 axRead += 1
             }
             parts.append(text)
-            rects.append(contentsOf: boundsRects(unit: unit, range: piece.range))
+            // The highlight is trimmed like a real selection: a piece draws
+            // from its first glyph to its last, never over the whitespace
+            // at its ends. A piece of nothing but whitespace draws nothing,
+            // and its text stays in the copy.
+            if let drawn = SelectCore.highlightRange(piece.range, in: unit.run.text) {
+                rects.append(contentsOf: boundsRects(unit: unit, range: drawn))
+            } else {
+                bare.append(contentsOf: boundsRects(unit: unit, range: piece.range))
+            }
         }
         groundingNote = "confirmed=\(confirmed) repaired=\(repaired) declined=\(declined) ax=\(axRead)"
-        return (parts.joined(separator: "\n"), rects)
+        // A span of nothing but whitespace is left as it is, not as nothing.
+        return (parts.joined(separator: "\n"), rects.isEmpty ? bare : rects)
     }
 
     private func commit(pieces: [SelectCore.Match]) {
@@ -1267,15 +1277,20 @@ final class SelectController {
             if let truth = OCRSense.reconcile(pixel: attempt.pixel, app: app) {
                 attempt.settled = true
                 committedOutcome = "dragged"
-                // The app's copy stands when it already says exactly that;
-                // cut to the pixels or carrying a space at an end, it is
-                // served again as the trimmed text.
-                if SelectCore.trimmedForCopy(truth) != app { serve(truth) }
+                // The app's copy stands when it already says exactly that
+                // and carries nothing else. Cut to the pixels, carrying a
+                // space at an end, or riding with the app's own markup
+                // (whose edges the highlight never showed), it is served
+                // again as the trimmed plain text.
+                let flavors = (SystemEvents.pasteboard.types ?? []).map(\.rawValue)
+                let stands = SelectCore.appCopyStands(app: app, truth: truth, flavors: flavors)
+                if !stands { serve(truth) }
                 // Counts only, never the text: glyphs say whether the
                 // app restored a space the pixels dropped or a glyph.
                 Log.info("select", ["copy": "app", "chars": (truth as NSString).length,
                                     "pixelChars": (attempt.pixel as NSString).length,
                                     "changed": truth != attempt.pixel, "trimmed": truth != app,
+                                    "richReplaced": !stands && SelectCore.trimmedForCopy(truth) == app,
                                     "ms": elapsed])
                 // The app's own selection is the ending now.
                 dissolveGhost()

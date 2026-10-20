@@ -281,7 +281,10 @@ final class ClipboardStore {
             }
             Log.info("clipboard: loaded \(index.count) clips", ["seconds": String(format: "%.2f", opened.seconds),
                                                                 "unreadable": opened.unreadable])
-            pruneGoneFilesSoon(after: Self.prunePeriod / 10)
+            // The first look waits past the update watchdog's minute: a card it
+            // made smaller is a card of files, and a build put back in that
+            // minute (0.51 and earlier) cannot read one.
+            pruneGoneFilesSoon(after: Self.prunePeriod)
             let waiting = queued
             queued.removeAll()
             queuedBytes = 0

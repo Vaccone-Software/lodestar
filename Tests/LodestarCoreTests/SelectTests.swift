@@ -465,4 +465,39 @@ final class SelectCopyTrimTests: XCTestCase {
         XCTAssertEqual(SelectCore.trimmedRange(NSRange(location: 100, length: 3), in: text),
                        NSRange(location: 100, length: 3), "a range past the text is left alone")
     }
+
+    func testAHighlightDrawsNoWhitespace() {
+        let text = "  indented line \n"
+        let ns = text as NSString
+        let whole = NSRange(location: 0, length: ns.length)
+        let drawn = SelectCore.highlightRange(whole, in: text)
+        XCTAssertEqual(drawn.map { ns.substring(with: $0) }, "indented line")
+        XCTAssertNil(SelectCore.highlightRange(NSRange(location: 0, length: 2), in: text),
+                     "a piece of nothing but spaces draws nothing")
+        XCTAssertEqual(SelectCore.highlightRange(NSRange(location: 100, length: 3), in: text),
+                       NSRange(location: 100, length: 3), "a range past the text is left alone")
+        XCTAssertEqual(SelectCore.highlightRange(NSRange(location: 4, length: 0), in: text),
+                       NSRange(location: 4, length: 0))
+    }
+
+    func testTheAppsCopyStandsOnlyAsPlainTextEqualToTheTrimmedSpan() {
+        let plain = ["public.utf8-plain-text"]
+        let truth = "line one\nline two"
+        XCTAssertTrue(SelectCore.appCopyStands(app: truth, truth: truth, flavors: plain))
+        XCTAssertTrue(SelectCore.appCopyStands(app: truth, truth: "line one\nline two \n", flavors: plain),
+                      "the truth is trimmed before it is compared")
+        XCTAssertFalse(SelectCore.appCopyStands(app: truth, truth: truth,
+                                                flavors: plain + ["public.html", "public.rtf"]),
+                       "the app's markup carries its own edges")
+        XCTAssertFalse(SelectCore.appCopyStands(app: "\nline one\nline two\n", truth: truth, flavors: plain),
+                       "a plain string with edges is served again")
+        XCTAssertFalse(SelectCore.appCopyStands(app: truth, truth: truth,
+                                                flavors: plain + ["com.example.unknown"]),
+                       "a flavor this does not know counts as rich")
+        XCTAssertTrue(SelectCore.appCopyStands(
+            app: truth, truth: truth,
+            flavors: plain + ["org.nspasteboard.source", "NSStringPboardType", "public.utf16-external-plain-text"]),
+                      "markers and other spellings of the same string are not content")
+        XCTAssertTrue(SelectCore.appCopyStands(app: truth, truth: truth, flavors: []))
+    }
 }

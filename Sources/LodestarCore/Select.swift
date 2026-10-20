@@ -40,8 +40,25 @@ public struct SelectCore {
     /// The same trim on a range of a text, in UTF-16 as AX counts, so a
     /// real selection in an app highlights exactly what its copy will hold.
     public static func trimmedRange(_ range: NSRange, in text: String) -> NSRange {
+        edgeTrimmed(range, in: text) ?? range
+    }
+
+    /// Where a held highlight is drawn for one piece of a span: the piece
+    /// without the whitespace at its ends, because whitespace is never a
+    /// visible glyph and a highlight must not cover it. A piece that is
+    /// nothing but whitespace has nothing to draw, and nil says so; its
+    /// text still belongs to the copy, so the line structure holds.
+    public static func highlightRange(_ range: NSRange, in text: String) -> NSRange? {
+        guard range.location != NSNotFound, NSMaxRange(range) <= (text as NSString).length,
+              range.length > 0 else { return range }
+        return edgeTrimmed(range, in: text)
+    }
+
+    /// The range without whitespace at its ends; nil when it is out of
+    /// bounds, empty, or nothing but whitespace.
+    private static func edgeTrimmed(_ range: NSRange, in text: String) -> NSRange? {
         let ns = text as NSString
-        guard range.location != NSNotFound, NSMaxRange(range) <= ns.length, range.length > 0 else { return range }
+        guard range.location != NSNotFound, NSMaxRange(range) <= ns.length, range.length > 0 else { return nil }
         let edges = CharacterSet.whitespacesAndNewlines
         var start = range.location
         var end = NSMaxRange(range)
@@ -51,8 +68,36 @@ public struct SelectCore {
         }
         while start < end, isEdge(start) { start += 1 }
         while end > start, isEdge(end - 1) { end -= 1 }
-        return start == end ? range : NSRange(location: start, length: end - start)
+        return start == end ? nil : NSRange(location: start, length: end - start)
     }
+
+    /// Whether the app's own copy may stand on the pasteboard in place of
+    /// the text Lodestar would write. It stands only when it is that text
+    /// and nothing more: the plain string equals the trimmed truth, and no
+    /// other flavor rides with it. The rich flavors (HTML, RTF) are the
+    /// app's markup for its whole block, with its own edges, and an editor
+    /// prefers them to the plain string, so they would paste the whitespace
+    /// the highlight never showed.
+    public static func appCopyStands(app: String, truth: String, flavors: [String]) -> Bool {
+        trimmedForCopy(truth) == app && !carriesRichFlavor(flavors)
+    }
+
+    /// Whether a pasteboard holds any flavor beyond plain text. The plain
+    /// text spellings an app writes for one string are not rich, and neither
+    /// are the `org.nspasteboard.*` markers (source, auto-generated,
+    /// transient, concealed) that describe the copy without being content.
+    /// Anything else, including a type this does not know, counts as rich,
+    /// because the safe error is to write plain text again.
+    public static func carriesRichFlavor(_ flavors: [String]) -> Bool {
+        flavors.contains { flavor in
+            !plainFlavors.contains(flavor) && !flavor.hasPrefix("org.nspasteboard.")
+        }
+    }
+
+    private static let plainFlavors: Set<String> = [
+        "public.utf8-plain-text", "public.utf16-external-plain-text", "public.plain-text",
+        "com.apple.traditional-mac-plain-text", "NSStringPboardType",
+    ]
 
     /// One text-bearing element, in reading order. The id is the caller's
     /// index into whatever geometry it keeps alongside.

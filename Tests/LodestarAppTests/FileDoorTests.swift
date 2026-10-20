@@ -240,4 +240,16 @@ final class FileDoorTests: XCTestCase {
         XCTAssertTrue(ImageDoor.firstScroller(in: nested) === scroller)
         ImageDoor.slide(nil, "j", fast: false) // nothing to scroll is nothing done
     }
+
+    /// Seen on the display 2026-10-19: fitted to the width, one page stood
+    /// across the whole display. A page opens whole in the room's height,
+    /// a sheet with glass beside it, and never wider than the room.
+    func testAPageOpensWholeInTheRoomsHeightAndNeverWiderThanTheRoom() {
+        let letter = CGSize(width: 612, height: 792)
+        XCTAssertEqual(ImageDoor.pageScale(page: letter, room: CGSize(width: 3000, height: 1900)),
+                       1900 * 0.94 / 792, accuracy: 0.0001, "a wide room: the height decides")
+        XCTAssertEqual(ImageDoor.pageScale(page: CGSize(width: 2000, height: 500), room: CGSize(width: 1000, height: 1900)),
+                       0.5, accuracy: 0.0001, "a wide page in a narrow room: the width decides")
+        XCTAssertEqual(ImageDoor.pageScale(page: .zero, room: CGSize(width: 10, height: 10)), 1)
+    }
 }

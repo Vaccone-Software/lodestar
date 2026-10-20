@@ -92,7 +92,7 @@ final class ImageDoor {
     static let zoomStep: CGFloat = 1.25
     /// The space left around each page of a PDF, so the pages stand one
     /// above another with a little glass between them.
-    static let pageMargin: CGFloat = 6
+    static let pageMargin: CGFloat = 18
     /// How far a PDF may be zoomed, as a scale of its pages' own size.
     static let pdfScales: ClosedRange<CGFloat> = 0.1...maxMagnification
 
@@ -233,7 +233,23 @@ final class ImageDoor {
             Self.configure(view, showing: document)
             root.addSubview(view)
             pdfView = view
+            // A page opens whole, a sheet on the glass with the next one
+            // below it, from the top of the first: fitted to the width it
+            // stood one page across the display, opened somewhere inside it.
+            if let first = document.page(at: 0) {
+                let page = first.bounds(for: view.displayBox)
+                view.autoScales = false
+                view.scaleFactor = Self.pageScale(page: page.size, room: room)
+                view.go(to: PDFDestination(page: first, at: NSPoint(x: page.minX, y: page.maxY)))
+            }
         }
+    }
+
+    /// The scale a page opens at: the whole page in the room's height, with
+    /// a margin of glass above and below, and never wider than the room.
+    static func pageScale(page: CGSize, room: CGSize) -> CGFloat {
+        guard page.width > 0, page.height > 0, room.width > 0, room.height > 0 else { return 1 }
+        return min(room.height * 0.94 / page.height, room.width / page.width)
     }
 
     /// Anything else, as the system previews it: a film plays, a document

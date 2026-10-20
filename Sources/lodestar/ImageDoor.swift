@@ -318,6 +318,16 @@ final class ImageDoor {
         // document goes back to its own (a hundredfold); and setting a limit
         // turns the fit off, so the fit comes last.
         view.document = document
+        // Its scroll bars float over the pages, as the picture's do: a bar
+        // that keeps its own strip (System Settings' "always") takes the
+        // width the pages were fitted to, and they stand a bar's width too
+        // wide, sliding sideways for nothing. Seen on CI, 2026-10-20.
+        if let scroll = view.documentView?.enclosingScrollView {
+            scroll.scrollerStyle = .overlay
+            // The room is measured again at once, so the fit below is taken
+            // with the bar floating, not with the strip it had kept.
+            scroll.tile()
+        }
         view.minScaleFactor = pdfScales.lowerBound
         view.maxScaleFactor = pdfScales.upperBound
         view.autoScales = true

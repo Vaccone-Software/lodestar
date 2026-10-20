@@ -199,6 +199,23 @@ final class FileDoorTests: XCTestCase {
         XCTAssertEqual(fromTop(), start, accuracy: 0.5, "past the top there is nothing")
     }
 
+    /// CI's Mac shows scroll bars always: a bar that keeps its own strip
+    /// left a page fitted to the width a bar too wide, and `l` slid it 18
+    /// points. The door's pages take floating bars whatever the setting.
+    func testAPDFsScrollBarsFloatEvenWhereTheMacShowsThemAlways() throws {
+        let view = PDFView(frame: NSRect(x: 0, y: 0, width: 612, height: 600))
+        view.document = try pdf(pages: 6)
+        let scroller = try XCTUnwrap(view.documentView?.enclosingScrollView)
+        scroller.scrollerStyle = .legacy
+        ImageDoor.configure(view, showing: try pdf(pages: 6))
+        view.layoutDocumentView()
+        XCTAssertEqual(view.documentView?.enclosingScrollView?.scrollerStyle, .overlay)
+        let clipView = try XCTUnwrap(view.documentView?.enclosingScrollView?.contentView)
+        let fitted = clipView.bounds.origin.x
+        ImageDoor.slide(view.documentView?.enclosingScrollView, "l", fast: false)
+        XCTAssertEqual(clipView.bounds.origin.x, fitted, accuracy: 0.5, "fitted to the width, nowhere to go")
+    }
+
     func testHAndLMoveAPDFOnlyWhenItIsWiderThanTheRoom() throws {
         let view = try laidOut()
         let scroller = try XCTUnwrap(view.documentView?.enclosingScrollView)

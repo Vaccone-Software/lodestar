@@ -778,7 +778,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
         }
         if config.showMenuBar { createStatusItem() }
-        BarTheme.accentColor = { [accent = config.accent] in BarTheme.accent(for: accent) }
+        BarTheme.setAccent(config.accent)
         Log.info("appearance", ["accent": config.accent.rawValue])
         watchAppIcon()
         actions.revealLodestar = { [weak self] in self?.revealMenuBar() }
@@ -1077,7 +1077,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // A new system accent.
         iconObservers.append(NotificationCenter.default.addObserver(
             forName: NSColor.systemColorsDidChangeNotification, object: nil, queue: .main
-        ) { [weak self] _ in self?.refreshAppIcon() })
+        ) { [weak self] _ in
+            NotificationCenter.default.post(name: .accentDidChange, object: nil)
+            self?.refreshAppIcon()
+        })
     }
 
     /// The plan, shown whole before anything is touched, in Lodestar's own
@@ -2450,7 +2453,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Keys.apply(overrides: loaded.keyOverrides)
         ActivePolicy.mode = loaded.activeDisplayMode
         engine.config = loaded
-        BarTheme.accentColor = { [accent = loaded.accent] in BarTheme.accent(for: accent) }
+        BarTheme.setAccent(loaded.accent)
         refreshAppIcon()
         webBar.config = loaded
         updater.enabled = loaded.autoUpdate

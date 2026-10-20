@@ -78,9 +78,14 @@ VERSION=$(grep 'public static let version' Sources/LodestarCore/Version.swift | 
 plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP/Contents/Info.plist"
 plutil -replace CFBundleVersion -string "$VERSION" "$APP/Contents/Info.plist"
 # A development build says so, before it is signed: it keeps the dictation
-# journal (DictationJournal), which a release never does.
+# journal (DictationJournal), which a release never does. It names its
+# commit when the tree was clean, so dev-build.sh stop can tell which
+# releases hold its work.
 if [ -n "${LODESTAR_DEVELOPMENT:-}" ]; then
     plutil -replace LodestarDevelopment -bool YES "$APP/Contents/Info.plist"
+    if git diff --quiet HEAD 2>/dev/null; then
+        plutil -replace LodestarCommit -string "$(git rev-parse HEAD)" "$APP/Contents/Info.plist"
+    fi
 fi
 # The binary must be the code it is labelled as. A bare run is a CLI asking
 # for help, and the first line names the version compiled in: ask it.

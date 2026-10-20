@@ -601,6 +601,62 @@ enum StripPreview {
             app.run()
         }
 
+        /// A three-page report, drawn as a PDF is: a title, a rule, lines of
+        /// text, so its first page is a real first page.
+        func stagePDF(at url: URL) {
+            var box = CGRect(x: 0, y: 0, width: 612, height: 792)
+            guard let context = CGContext(url as CFURL, mediaBox: &box, nil) else { return }
+            let body = "Revenue grew in every region this quarter, led by the new plan. The cost of serving each customer fell for the third quarter running, and the team that ships it is the same size as in spring."
+            for page in 1...3 {
+                context.beginPDFPage(nil)
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+                let title = page == 1 ? "Quarterly Report" : "Q3, part \(page)"
+                (title as NSString).draw(at: NSPoint(x: 72, y: 690),
+                                         withAttributes: [.font: NSFont.preferredFont(forTextStyle: .largeTitle)])
+                NSColor(srgbRed: 0.76, green: 0.26, blue: 0.09, alpha: 1).setFill()
+                NSRect(x: 72, y: 670, width: 120, height: 4).fill()
+                for paragraph in 0..<4 {
+                    (body as NSString).draw(in: NSRect(x: 72, y: 520 - CGFloat(paragraph) * 130, width: 468, height: 120),
+                                            withAttributes: [.font: NSFont.preferredFont(forTextStyle: .body)])
+                }
+                NSGraphicsContext.restoreGraphicsState()
+                context.endPDFPage()
+            }
+            context.closePDF()
+        }
+
+        /// A picture in flat colour: a beach (sky, sea, sand, sun) as a JPEG,
+        /// or a bar chart as a PNG.
+        func stagePicture(at url: URL, chart: Bool) {
+            let width = 1200, height = 800
+            guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                          space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
+            func fill(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ rect: CGRect) {
+                context.setFillColor(CGColor(srgbRed: r, green: g, blue: b, alpha: 1))
+                context.fill(rect)
+            }
+            if chart {
+                fill(0.98, 0.98, 0.97, CGRect(x: 0, y: 0, width: width, height: height))
+                for (index, value) in [0.35, 0.5, 0.42, 0.68, 0.81].enumerated() {
+                    fill(0.76, 0.26, 0.09, CGRect(x: 140 + index * 200, y: 100, width: 120,
+                                                  height: Int(Double(height - 200) * value)))
+                }
+            } else {
+                fill(0.55, 0.75, 0.88, CGRect(x: 0, y: 0, width: width, height: height))
+                fill(0.16, 0.42, 0.62, CGRect(x: 0, y: 220, width: width, height: 160))
+                fill(0.93, 0.84, 0.66, CGRect(x: 0, y: 0, width: width, height: 220))
+                context.setFillColor(CGColor(srgbRed: 0.98, green: 0.80, blue: 0.32, alpha: 1))
+                context.fillEllipse(in: CGRect(x: 860, y: 560, width: 140, height: 140))
+            }
+            guard let image = context.makeImage(),
+                  let out = CGImageDestinationCreateWithURL(url as CFURL, (chart ? "public.png" : "public.jpeg") as CFString, 1, nil)
+            else { return }
+            CGImageDestinationAddImage(out, image, nil)
+            CGImageDestinationFinalize(out)
+        }
+
         let strip = ClipboardStrip()
         // 9 stages the search band instead of the menu: every chip wears ⌥,
         // because while the letters are the query that is what addresses a
@@ -612,6 +668,58 @@ enum StripPreview {
                                  recents[0], recents[2], recents[4]],
                        pins: pins, thumbnail: { _ in nil },
                        band: .search("report"), selection: 0)
+        } else if (140...143).contains(variant) {
+            // 140: cards of files made from real files (a PDF, a photo, a
+            // chart, a note), read by the copy's own code, so each card has
+            // the picture and the facts a copy would give it. 141 holds ⌃:
+            // the cards read as their paths. 142 is one file's actions, the
+            // Finder in front. 143 opens the PDF large in the door.
+            let folder = FileManager.default.temporaryDirectory
+                .appendingPathComponent("lodestar-stage-files", isDirectory: true)
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let pdf = folder.appendingPathComponent("Q3 report.pdf")
+            let photo = folder.appendingPathComponent("Beach.jpeg")
+            let chart = folder.appendingPathComponent("Revenue chart.png")
+            let note = folder.appendingPathComponent("Offsite notes.txt")
+            stagePDF(at: pdf)
+            stagePicture(at: photo, chart: false)
+            stagePicture(at: chart, chart: true)
+            try? "Ideas for the offsite\n\nA walk before lunch.\nThe roadmap, one page.\n"
+                .write(to: note, atomically: true, encoding: .utf8)
+            if variant == 143 {
+                let door = ImageDoor()
+                let facts = FileSense.fact(for: pdf)
+                _ = door.show(file: pdf, kind: nil,
+                              caption: Caption.line([facts.name, facts.folder, facts.kind, facts.detail]))
+                app.run()
+            }
+            var pictures: [String: [NSImage?]] = [:]
+            var paths: [String: [URL]] = [:]
+            func card(_ id: String, _ urls: [URL], minutes: Double) -> Clipboard.Clip {
+                var facts = urls.map(FileSense.fact(for:))
+                pictures[id] = urls.prefix(Clipboard.thumbnailedFiles).enumerated().map { position, url in
+                    guard let picture = FileSense.picture(of: url) else { return nil }
+                    facts[position].pictured = picture.pictured
+                    return NSImage(data: picture.png)
+                }
+                paths[id] = urls
+                return Clipboard.Clip(id: id, kind: .file, created: Date().addingTimeInterval(-60 * minutes),
+                                      sourceBundleID: "com.apple.finder", sourceAppName: "Finder",
+                                      preview: urls.map(\.lastPathComponent).joined(separator: "\n"), bytes: 1,
+                                      nativeTypes: [Clipboard.fileURLType],
+                                      otherItemTypes: Array(repeating: [Clipboard.fileURLType], count: urls.count - 1),
+                                      fileFacts: facts)
+            }
+            let cards = [card("a", [pdf], minutes: 1), card("b", [photo], minutes: 4),
+                         card("c", [pdf, chart, note], minutes: 12),
+                         card("d", [chart, photo, pdf, note, photo, pdf, chart], minutes: 40), recents[0]]
+            strip.show(recents: cards, pins: pins, thumbnail: { _ in nil },
+                       fileThumbnail: { id, index in pictures[id].flatMap { $0.indices.contains(index) ? $0[index] : nil } },
+                       filesPresent: { id in paths[id].map { $0.map { _ in true } } },
+                       filePaths: { paths[$0] },
+                       band: variant == 142 ? .actions(HotkeyEngine.panelActions(for: cards[0], finderInFront: true)) : .none,
+                       selection: 0, actingOn: variant == 142 ? "a" : nil,
+                       held: variant == 141 ? .control : .none)
         } else if variant == 82 {
             // 82: the cards read as a moment, with Tokyo kept: Unix seconds
             // and milliseconds, an ISO date, the mail format, a day, and a

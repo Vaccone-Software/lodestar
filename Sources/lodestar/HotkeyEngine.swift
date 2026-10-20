@@ -2408,6 +2408,12 @@ extension HotkeyEngine: EngineWorld {
             actions.append(.init(key: "S", label: "Save as",
                                  symbol: "square.and.arrow.down"))
         }
+        // One file is viewed large on the image door's glass; a group is not,
+        // for the reason it does not open.
+        if clip.pastesAsFiles, clip.itemCount == 1 {
+            actions.append(.init(key: "E", label: "View",
+                                 symbol: "arrow.up.left.and.arrow.down.right"))
+        }
         // Files: where they are, what one opens in (a group does not open),
         // and, with the Finder in front, a move into the folder it shows,
         // which is the Finder's own Move Item Here, undone with ⌘Z there.
@@ -2517,6 +2523,7 @@ extension HotkeyEngine: EngineWorld {
     /// grammar already in the door and is answered by it. What cannot
     /// open says why and leaves the strip as it was.
     private func openImageDoor(_ clip: Clipboard.Clip) {
+        if clip.pastesAsFiles { return openFileDoor(clip) }
         panelClip = nil
         guard let (data, pixels) = clipboard.imageBytes(of: clip) else {
             hud.flash("✕ That image cannot be opened")
@@ -2542,6 +2549,33 @@ extension HotkeyEngine: EngineWorld {
         }
     }
 
+    /// The same door for one file: where it is now is asked of the disk with
+    /// a deadline, and what is shown is chosen by what the file is. The
+    /// door's clip is set at once, so the strip stays gone and `S` is
+    /// refused while the disk answers; a file that cannot be had says why
+    /// and leaves the strip as it was.
+    private func openFileDoor(_ clip: Clipboard.Clip) {
+        panelClip = nil
+        imageDoorClip = clip
+        let named = stripSession?.outcome
+        stripSession?.outcome = ("acted", named?.source, "view", named?.rank)
+        strip.hide()
+        let caption = Clipboard.fileDoorCaption(of: clip)
+        OffTap.run { [weak self] in
+            guard let self, self.imageDoorClip?.id == clip.id else { return }
+            guard let places = self.clipboard.places(of: clip) else {
+                self.hud.flash("✕ That disk did not answer in time")
+                self.imageDoorClosed(); return
+            }
+            guard let url = places.first?.url else {
+                self.hud.flash(ClipboardController.unreachable(places, count: 1))
+                self.imageDoorClosed(); return
+            }
+            let shown = self.imageDoor.show(file: url, kind: clip.fileFacts?.first?.type, caption: caption)
+            Log.info("strip", ["door": "file", "kind": shown.logName])
+        }
+    }
+
     /// The image door failed to open: back to the strip.
     private func imageDoorClosed() {
         imageDoorClip = nil
@@ -2552,9 +2586,10 @@ extension HotkeyEngine: EngineWorld {
     /// The grammar closed the image door, from inside or out.
     private func closeImageDoor(reason: String) {
         guard imageDoorClip != nil || imageDoor.isVisible else { return }
+        let ofFile = imageDoorClip?.pastesAsFiles == true
         imageDoor.hide()
         imageDoorClip = nil
-        Log.info("strip", ["door": "image", "close": reason])
+        Log.info("strip", ["door": ofFile ? "file" : "image", "close": reason])
         switch core.state {
         case .paste, .pasteSave: renderStrip()
         default: break
@@ -2676,6 +2711,7 @@ extension HotkeyEngine: EngineWorld {
     func pastePanelIsKept() -> Bool { panelClip?.isPinned == true }
     func pastePanelIsFiles() -> Bool { panelClip?.pastesAsFiles == true }
     func pastePanelOpens() -> Bool { pastePanelIsFiles() && panelClip?.itemCount == 1 }
+    func pasteDoorIsFile() -> Bool { imageDoorClip?.pastesAsFiles == true }
     func pastePanelMovesHere() -> Bool { pastePanelIsFiles() && Self.finderInFront }
 
     /// Whether the Finder is the app in front: the one place files move to.

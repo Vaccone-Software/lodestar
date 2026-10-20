@@ -338,6 +338,25 @@ final class ClipboardFileTests: XCTestCase {
         XCTAssertEqual(Clipboard.fileCaption(of: clip, age: "just now"), "just now")
     }
 
+    func testTheLineUnderAFileOpenedLargeSaysNameFolderKindSizeAndDetail() {
+        let pdf = files([fact("Q3.pdf", folder: "Downloads", bytes: 3_000_000, detail: "12 pages")])
+        XCTAssertEqual(Clipboard.fileDoorCaption(of: pdf), "Q3.pdf · Downloads · PDF document · 3 MB · 12 pages")
+        let folder = files([fact("Notes", folder: "Desktop", kind: "Folder", bytes: nil, items: 4)])
+        XCTAssertEqual(Clipboard.fileDoorCaption(of: folder), "Notes · Desktop · Folder · 4 items",
+                       "a folder says what it holds, and has no detail")
+        let bare = files([Clipboard.FileFact(name: "a.txt", folder: "tmp", kind: "Plain Text Document")])
+        XCTAssertEqual(Clipboard.fileDoorCaption(of: bare), "a.txt · tmp · Plain Text Document",
+                       "what is not known is left out, not guessed")
+    }
+
+    func testTheLineBeforeTheFilesAreReadIsTheCardsOwnName() {
+        var clip = files([fact("a.pdf")])
+        clip.fileFacts = nil
+        XCTAssertEqual(Clipboard.fileDoorCaption(of: clip), "a.pdf", "the last part of the path the preview holds")
+        clip.fileFacts = []
+        XCTAssertEqual(Clipboard.fileDoorCaption(of: clip), "a.pdf")
+    }
+
     func testACardWhoseFilesAreAllGoneSaysMissingInPlaceOfItsFoot() {
         let clip = files([fact("a"), fact("b")])
         XCTAssertEqual(Clipboard.fileCaption(of: clip, age: "2m ago", missing: true), "Missing")

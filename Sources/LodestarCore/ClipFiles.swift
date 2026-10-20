@@ -315,6 +315,16 @@ extension Clipboard {
         return Caption.line([withKind ? fact.kind : nil, sizeText(of: fact), age])
     }
 
+    /// The line under a file opened large: its name, the folder it sits in,
+    /// what kind it is, how big, and the one line more (pages, pixels,
+    /// minutes), as they were when it was copied. Before the file has been
+    /// read the name is the card's own and the rest is left out.
+    public static func fileDoorCaption(of clip: Clip) -> String {
+        let fact = clip.fileFacts?.first
+        return Caption.line([fact?.name ?? namesOnCard(of: clip).first, fact?.folder, fact?.kind,
+                             fact.flatMap(sizeText), fact?.detail])
+    }
+
     /// What VoiceOver says a file card holds.
     public static func fileSpeech(of clip: Clip, missing: Bool = false) -> String {
         let count = clip.itemCount

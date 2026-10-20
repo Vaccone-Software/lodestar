@@ -160,6 +160,41 @@ final class ClipboardFileCardLayoutTests: XCTestCase {
         XCTAssertEqual(roomy.shownSources[made.id], "Finder")
     }
 
+    /// Seen on the display 2026-10-19: a card a little wider than the
+    /// narrowest drew "Reven…" and "and 5…" beside its stack. A name cut to
+    /// its first letters names nothing, so a card shows names only where a
+    /// name can stand.
+    func testACardWithRoomOnlyForTheFirstLettersOfNamesShowsNone() {
+        let made = clip([fact("Revenue chart.png"), fact("Beach.jpeg"), fact("Q3 report.pdf"), fact("Notes.txt")])
+        let (strip, card) = build(made, size: NSSize(width: 190, height: 150))
+        XCTAssertEqual(strip.shownFiles[made.id], [])
+        XCTAssertTrue(labels(in: card).contains("4 files"), "the count still says it")
+    }
+
+    func testTheMoreLineIsNeverCutAndBecomesTheNumberWhereItDoesNotFit() {
+        let names = (1...130).map { "File \($0).pdf" }
+        let made = clip(names.map { fact($0) })
+        let (strip, _) = build(made, size: NSSize(width: 210, height: 150))
+        XCTAssertEqual(strip.shownFiles[made.id]?.last, "+128", "no room for \"and 128 more\" whole")
+        let (roomy, _) = build(made, size: wide)
+        XCTAssertEqual(roomy.shownFiles[made.id]?.last, "and 128 more")
+    }
+
+    /// Seen on the display: "Find…" in the foot. The source is whole or absent.
+    func testTheSourceOfACardOfFilesIsWholeOrNotThere() {
+        let made = clip([fact("a.pdf"), fact("b.pdf")])
+        for width in stride(from: 150, through: 260, by: 2) {
+            let (strip, card) = build(made, size: NSSize(width: CGFloat(width), height: 150))
+            guard strip.shownSources[made.id] != nil else { continue }
+            let source = card.subviews.compactMap { $0 as? NSTextField }.first { $0.stringValue == "Finder" }
+            XCTAssertNotNil(source)
+            if let source {
+                XCTAssertGreaterThanOrEqual(source.frame.width, source.fittingSize.width - 0.5,
+                                            "cut short at a card \(width) points wide")
+            }
+        }
+    }
+
     func testACardTooNarrowForNamesKeepsTheStackAlone() {
         let made = clip([fact("a.pdf"), fact("b.pdf"), fact("c.pdf"), fact("d.pdf")])
         let (strip, card) = build(made, size: narrow)

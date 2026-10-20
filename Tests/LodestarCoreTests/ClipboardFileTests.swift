@@ -79,6 +79,21 @@ final class ClipboardFileTests: XCTestCase {
                        "a space or a bracket is only a name, and a quote closes, escapes and reopens")
     }
 
+    func testACardShowsItsPathsALineEachWithHomeAsATilde() {
+        let urls = [URL(fileURLWithPath: "/Users/x/Downloads/Q3 report.pdf"), URL(fileURLWithPath: "/Volumes/Disk/a.txt"),
+                    URL(fileURLWithPath: "/Users/xy/b.txt"),
+                    URL(fileURLWithPath: "/Users/x/Documents/Work/Clients/Acme/plan.pdf"),
+                    URL(fileURLWithPath: "/var/folders/1b/w9nj/T/stage/Q3 report.pdf")]
+        XCTAssertEqual(Clipboard.pathsOnCard(urls, home: "/Users/x"),
+                       "~/Downloads/Q3 report.pdf\n/Volumes/Disk/a.txt\n/Users/xy/b.txt\n…/Acme/plan.pdf\n…/stage/Q3 report.pdf",
+                       "home is ~ (never a neighbour whose name begins the same), and a deep path keeps its folder and name")
+    }
+
+    func testAMoreLineTooLongForItsRoomIsTheNumberAlone() {
+        XCTAssertEqual(Clipboard.moreLine(5), "and 5 more")
+        XCTAssertEqual(Clipboard.moreLine(5, short: true), "+5")
+    }
+
     func testAFileCardReadsAsItsPathsAndNothingUntilTheyAreFound() {
         let card = files([fact("a.pdf")])
         XCTAssertNil(Clipboard.reading(of: card, units: .metric), "not until where the files are is known")

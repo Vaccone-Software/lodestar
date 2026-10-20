@@ -573,8 +573,12 @@ final class ClipboardStrip {
 
     /// What the card would paste as a reading, or nil.
     private func readingText(_ clip: Clipboard.Clip) -> String? {
-        Clipboard.reading(of: clip, units: units, zones: timeZones,
-                          paths: clip.pastesAsFiles ? pathsOf(clip.id) : nil)
+        // Files show where they are in a form an eye reads on a narrow
+        // card, and paste the same places whole and quoted.
+        if clip.pastesAsFiles {
+            return pathsOf(clip.id).flatMap { $0.isEmpty ? nil : Clipboard.pathsOnCard($0) }
+        }
+        return Clipboard.reading(of: clip, units: units, zones: timeZones)
     }
     /// Where a card's files are now, as the history last found them: the
     /// reading of a card of files is their paths.
@@ -746,6 +750,9 @@ final class ClipboardStrip {
             source.lineBreakMode = .byTruncatingTail
             source.sizeToFit()
             let room = age.frame.minX - 8 - Self.pad
+            // A card of files names its source whole or not at all: it is
+            // nearly always the Finder, and "Find…" is no name.
+            if clip.kind == .file, source.frame.width > room { return card }
             source.frame = NSRect(x: Self.pad, y: 8, width: max(0, min(source.frame.width, room)),
                                   height: source.frame.height)
             card.addSubview(source)
@@ -858,11 +865,16 @@ final class ClipboardStrip {
             let room = body.maxX - left
             var lines: [String] = []
             // A card too narrow for the names keeps the stack alone: the
-            // count beside the key and VoiceOver still say them.
-            if room >= Self.minimumNames {
+            // count beside the key and VoiceOver still say them. A name cut
+            // to its first letters names nothing, so the room must hold one.
+            if room >= Self.minimumNamesBeside {
                 var top = body.maxY - 14
                 for line in Clipboard.nameLines(names: names, total: count) {
-                    let label = NSTextField(labelWithString: line.text)
+                    // "and 5 more" is never cut: where it does not fit, the
+                    // number alone says it.
+                    let text = line.grey && Self.lineWidth(line.text) > room
+                        ? Clipboard.moreLine(count - (Clipboard.fileCardNames - 1), short: true) : line.text
+                    let label = NSTextField(labelWithString: text)
                     label.font = BarTheme.secondaryFont
                     label.textColor = line.grey ? BarTheme.secondaryColor : .labelColor
                     label.lineBreakMode = .byTruncatingTail
@@ -871,7 +883,7 @@ final class ClipboardStrip {
                     label.frame = NSRect(x: left, y: top, width: min(label.frame.width, room), height: 16)
                     top -= 3
                     drawn.append(label)
-                    lines.append(line.text)
+                    lines.append(text)
                 }
             }
             shownFiles[clip.id] = lines
@@ -930,8 +942,11 @@ final class ClipboardStrip {
         card.addSubview(content)
     }
 
-    /// The least room beside the sheets worth a name.
+    /// The least room beside the one file's sheet worth its name, which
+    /// may take two lines.
     private static let minimumNames: CGFloat = 40
+    /// The least room beside a stack worth its names, one line each.
+    private static let minimumNamesBeside: CGFloat = 76
     /// The least room a card's source is worth in the foot of a card of files.
     private static let minimumSource: CGFloat = 40
 

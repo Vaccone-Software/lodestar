@@ -252,7 +252,10 @@ extension Clipboard {
     }
 
     /// "and 5 more", the grey line under the names a card has room for.
-    public static func moreLine(_ count: Int) -> String { "and \(count) more" }
+    /// "+5" where "and 5 more" does not fit beside a stack.
+    public static func moreLine(_ count: Int, short: Bool = false) -> String {
+        short ? "+\(count)" : "and \(count) more"
+    }
 
     /// The names a card lists beside its stack: all of them when three or
     /// fewer files were copied, otherwise the first two and how many more.

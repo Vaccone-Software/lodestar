@@ -942,6 +942,26 @@ public extension Clipboard {
         // A copy of files reads as where its files are now, for whatever
         // takes only text: a shell first of all.
         if clip.pastesAsFiles { return paths.flatMap { $0.isEmpty ? nil : quotedPaths($0) } }
+        return readingOfText(clip, units: units, zones: zones, now: now)
+    }
+
+    /// What a card of files shows while `⌃` is held: where each file is, a
+    /// line each, the home folder as `~`, so a narrow card can be read. It
+    /// pastes the same places whole and quoted (`reading`, `quotedPaths`);
+    /// a shell needs those, an eye needs these.
+    static func pathsOnCard(_ urls: [URL], home: String = NSHomeDirectory()) -> String {
+        urls.map { url -> String in
+            let path = url.path.hasPrefix(home + "/") ? "~" + url.path.dropFirst(home.count) : url.path
+            // A deep path keeps its end, the folder and the name, which is
+            // what a narrow card must not lose.
+            let parts = path.split(separator: "/", omittingEmptySubsequences: true)
+            let depth = parts.first == "~" ? parts.count - 1 : parts.count
+            return depth > 3 ? "…/" + parts.suffix(2).joined(separator: "/") : path
+        }.joined(separator: "\n")
+    }
+
+    private static func readingOfText(_ clip: Clip, units: ClipQuantity.System,
+                                      zones: [TimeZone], now: Date) -> String? {
         if let color = clip.color { return color.name }
         if let time = clip.time { return time.note(zones: zones, now: now).local }
         if let read = clip.quantity?.note(into: units) { return read.exact ?? read.voice }

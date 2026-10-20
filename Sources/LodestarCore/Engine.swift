@@ -283,6 +283,10 @@ public protocol EngineWorld: AnyObject {
     /// Is it one file? `O` opens it. A group does not open: a dozen windows
     /// at once is never what a key was pressed for.
     func pastePanelOpens() -> Bool
+    /// Is the door that stands open on a file, not on a picture the strip
+    /// kept? A file is not the clipboard's to save, so `S` means nothing in
+    /// it.
+    func pasteDoorIsFile() -> Bool
     /// Could the card's files be moved here? A copy of files with the
     /// Finder in front: `M` moves them into the folder it shows.
     func pastePanelMovesHere() -> Bool
@@ -333,6 +337,7 @@ public extension EngineWorld {
     func pastePanelIsKept() -> Bool { false }
     func pastePanelIsFiles() -> Bool { false }
     func pastePanelOpens() -> Bool { false }
+    func pasteDoorIsFile() -> Bool { false }
     func pastePanelMovesHere() -> Bool { false }
     func hintType(_ letter: String, shift: Bool, control: Bool, option: Bool) -> HintStep {
         hintType(letter, shift: shift, control: control)
@@ -1409,13 +1414,14 @@ public struct EngineCore {
             state = .pasteSave(searching: searching)
             return [.pasteSaveBegin, .pastePanelDismiss]
         case "e":
-            // An image opens large in its own door; the grammar keeps its
-            // keys, because there is no draft to feed. A text card opens
-            // in the draft, which stands above the strip while the strip
-            // waits: the shell feeds the draft until it closes and then
-            // says so (`doorClosed`), which is what brings the search
-            // band back exactly as it was.
-            if world.pastePanelIsImage() {
+            // An image opens large in its own door, and so does one file
+            // (a group does not open, as it does not for `O`); the grammar
+            // keeps its keys, because there is no draft to feed. A text
+            // card opens in the draft, which stands above the strip while
+            // the strip waits: the shell feeds the draft until it closes
+            // and then says so (`doorClosed`), which is what brings the
+            // search band back exactly as it was.
+            if world.pastePanelIsImage() || world.pastePanelOpens() {
                 state = .pasteImage(searching: searching)
                 return [.pasteImageShow, .pastePanelDismiss]
             }
@@ -1472,8 +1478,9 @@ public struct EngineCore {
         case "escape", "return":
             state = .paste(searching: searching)
             return [.pasteImageClose(reason: key)]
-        case "s" where !shift:
+        case "s" where !shift && !world.pasteDoorIsFile():
             // The band is read from the door's card before the door goes.
+            // A file in the door is not saved: it is already a file.
             state = .pasteSave(searching: searching)
             return [.pasteSaveBegin, .pasteImageClose(reason: "save")]
         case "h", "j", "k", "l":

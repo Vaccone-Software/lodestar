@@ -394,6 +394,29 @@ final class PasteModeTests: XCTestCase {
         XCTAssertEqual(core.state, .idle)
     }
 
+    /// `E` on one file views it large in the image door, whose keys the
+    /// grammar keeps; on a group it does what it did before, which is to
+    /// try the draft (and be refused there, the card having no text of
+    /// its own to edit).
+    func testEOnOneFileOpensTheDoorAndOnAGroupItDoesNotView() {
+        world.panelIsFiles = true
+        world.panelOpens = true
+        open()
+        _ = press("a", command: true)
+        XCTAssertEqual(press("e"), [.pasteImageShow, .pastePanelDismiss])
+        XCTAssertEqual(core.state, .pasteImage(searching: false))
+        XCTAssertEqual(press("escape"), [.pasteImageClose(reason: "escape")], "esc steps back to the strip")
+        XCTAssertEqual(core.state, .paste(searching: false))
+        _ = press("escape")
+
+        world.panelOpens = false
+        open()
+        _ = press("a", command: true)
+        XCTAssertEqual(press("e"), [.pastePanelAct(.edit), .pastePanelDismiss],
+                       "a group is not viewed: the draft is asked, as before")
+        XCTAssertEqual(core.state, .pasteDoor(searching: false))
+    }
+
     // MARK: - The letter picks the card, the modifier picks the form
 
     /// `⌃` pastes the reading, in Keep and while searching alike, because

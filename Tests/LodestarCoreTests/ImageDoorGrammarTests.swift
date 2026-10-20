@@ -77,6 +77,21 @@ final class ImageDoorGrammarTests: XCTestCase {
         XCTAssertEqual(core.state, .pasteSave(searching: false))
     }
 
+    func testSInAFileDoorBeginsNoSaveAndTheDoorStays() {
+        world.panelIsImage = false
+        world.panelOpens = true
+        world.doorIsFile = true
+        openDoor()
+        XCTAssertEqual(core.state, .pasteImage(searching: false), "one file opens the door")
+        XCTAssertEqual(press("s"), [], "a file is not the clipboard's to save")
+        XCTAssertEqual(press("s", shift: true), [])
+        XCTAssertEqual(core.state, .pasteImage(searching: false))
+        XCTAssertEqual(press("j"), [.pasteImageMove(key: "j", fast: false)], "the other keys are the picture's")
+        XCTAssertEqual(press("-"), [.pasteImageZoom(in: false)])
+        XCTAssertEqual(press("escape"), [.pasteImageClose(reason: "escape")])
+        XCTAssertEqual(core.state, .paste(searching: false))
+    }
+
     func testHJKLMoveThePictureAndShiftMovesItFaster() {
         openDoor()
         for key in ["h", "j", "k", "l"] {

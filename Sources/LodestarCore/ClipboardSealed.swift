@@ -29,7 +29,30 @@ public enum ClipboardSealed {
 
     public static var indexContext: SealContext { SealContext(indexPurpose) }
     public static func blobContext(_ storage: String) -> SealContext { SealContext(blobPurpose, storage) }
-    public static func thumbContext(_ storage: String) -> SealContext { SealContext(thumbPurpose, storage) }
+    /// The first thumbnail of a clip is named by the storage alone, as it
+    /// always was; a file copy's later pictures add their number, so no
+    /// picture can be opened as another's.
+    public static func thumbContext(_ storage: String, index: Int = 0) -> SealContext {
+        index == 0 ? SealContext(thumbPurpose, storage) : SealContext(thumbPurpose, storage, String(index))
+    }
+
+    /// A thumbnail's file name: the storage name for the first (every image
+    /// clip's only one), `<storage>-<n>` for the n-th picture of a file copy.
+    public static func thumbName(_ storage: String, index: Int = 0) -> String {
+        index == 0 ? storage : "\(storage)-\(index)"
+    }
+
+    /// The storage a name in `thumbs/` belongs to — the name itself, or one
+    /// of the numbered pictures — or nil if it is not one of ours. A write
+    /// cut short (`<name>.<token>`) belongs to the same storage.
+    public static func storage(ofThumbName name: String) -> String? {
+        let stem = name.split(separator: ".", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? name
+        if isStorageName(stem) { return stem }
+        let parts = stem.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 2, isStorageName(String(parts[0])), !parts[1].isEmpty,
+              parts[1].utf8.allSatisfy({ $0 >= 0x30 && $0 <= 0x39 }) else { return nil }
+        return String(parts[0])
+    }
 
     /// Every reader and writer of the index agrees on this: the record size
     /// is part of what a frame is valid as. The snapshot is the whole index

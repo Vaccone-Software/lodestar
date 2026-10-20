@@ -368,6 +368,55 @@ final class PasteModeTests: XCTestCase {
         XCTAssertEqual(core.state, .paste(searching: false), "back to the strip, not out")
     }
 
+    /// A copy of files: F shows them, O opens one (never a group), M moves
+    /// them where the Finder is, and each ends the strip, because the next
+    /// thing happens in another app. On any other card the keys do nothing.
+    func testAFileCardShowsOpensAndMovesItsFilesAndLeavesTheStrip() {
+        open()
+        _ = press("a", command: true)
+        XCTAssertEqual(press("f"), [], "F means nothing on a card that is not files")
+        world.panelIsFiles = true
+        XCTAssertEqual(press("o"), [], "O opens one file, never a group")
+        XCTAssertEqual(core.state, .pastePanel(searching: false))
+        XCTAssertEqual(press("f"), [.pastePanelAct(.reveal), .pastePanelDismiss, .exitPaste])
+        XCTAssertEqual(core.state, .idle)
+        open()
+        _ = press("a", command: true)
+        world.panelOpens = true
+        XCTAssertEqual(press("o"), [.pastePanelAct(.open), .pastePanelDismiss, .exitPaste])
+        XCTAssertEqual(core.state, .idle)
+        open()
+        _ = press("a", command: true)
+        world.panelMovesHere = false
+        XCTAssertEqual(press("m"), [], "no move with the Finder not in front")
+        world.panelMovesHere = true
+        XCTAssertEqual(press("m"), [.pastePanelAct(.moveHere), .pastePanelDismiss, .exitPaste])
+        XCTAssertEqual(core.state, .idle)
+    }
+
+    /// `E` on one file views it large in the image door, whose keys the
+    /// grammar keeps; on a group it does what it did before, which is to
+    /// try the draft (and be refused there, the card having no text of
+    /// its own to edit).
+    func testEOnOneFileOpensTheDoorAndOnAGroupItDoesNotView() {
+        world.panelIsFiles = true
+        world.panelOpens = true
+        open()
+        _ = press("a", command: true)
+        XCTAssertEqual(press("e"), [.pasteImageShow, .pastePanelDismiss])
+        XCTAssertEqual(core.state, .pasteImage(searching: false))
+        XCTAssertEqual(press("escape"), [.pasteImageClose(reason: "escape")], "esc steps back to the strip")
+        XCTAssertEqual(core.state, .paste(searching: false))
+        _ = press("escape")
+
+        world.panelOpens = false
+        open()
+        _ = press("a", command: true)
+        XCTAssertEqual(press("e"), [.pastePanelAct(.edit), .pastePanelDismiss],
+                       "a group is not viewed: the draft is asked, as before")
+        XCTAssertEqual(core.state, .pasteDoor(searching: false))
+    }
+
     // MARK: - The letter picks the card, the modifier picks the form
 
     /// `⌃` pastes the reading, in Keep and while searching alike, because

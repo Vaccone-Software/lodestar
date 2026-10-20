@@ -37,6 +37,7 @@ final class ClipboardController {
     /// whatever window the machine has focused.
     var pasteboard: NSPasteboard = .general
     lazy var postPaste: () -> Void = { [weak self] in self?.synthesizePaste() }
+    lazy var postMove: () -> Void = { [weak self] in self?.synthesizePaste(flags: [.maskCommand, .maskAlternate]) }
     var excludedApps: Set<String> = []
     var excludedPatterns: [String] = []
     var maxBytes = 500_000_000
@@ -284,23 +285,31 @@ final class ClipboardController {
         // that did not come from a page.
         let sourceHost = Clipboard.sourceHost(fromURL: boardItems[0].string(
             forType: NSPasteboard.PasteboardType(Clipboard.sourceURLType)))
+        // What the copy is. A picture is read first, as it always was; a
+        // copy is files only when every item on the board is a file's
+        // address, and anything else is text.
+        let kind: Clipboard.Kind = imageData != nil ? .image
+            : Clipboard.kind(ofCopy: boardItems.map { $0.types.map(\.rawValue) }) == .file ? .file : .text
         // How long the text is, said once at capture so the card can say
         // when it holds more than it shows. Counting characters is a pass
         // over every one of them — 12 ms a megabyte, 240 for the 19 the
         // ceiling allows — so a long text is counted a moment after its
         // card exists, off the main thread, and meanwhile the card says
-        // what its preview says.
-        let long = readable.utf8.count > Self.countedInlineLimit
-        let counted = imageData == nil && !long ? Clipboard.counts(of: readable) : nil
-        store.record(id: id, kind: imageData != nil ? .image : .text,
+        // what its preview says. A card of files holds paths, which are
+        // not text to measure.
+        let long = kind == .text && readable.utf8.count > Self.countedInlineLimit
+        let counted = kind == .text && !long ? Clipboard.counts(of: readable) : nil
+        store.record(id: id, kind: kind,
                      items: items, imageData: imageData,
                      preview: preview,
                      sourceBundleID: source?.bundleIdentifier,
                      sourceAppName: source?.localizedName,
                      sourceHost: sourceHost,
                      lines: counted?.lines, characters: counted?.characters)
-        if imageData == nil, long { store.count(id: id, text: readable) }
+        if long { store.count(id: id, text: readable) }
         store.trim(maxBytes: maxBytes, maxItems: maxItems)
+        // A copy is a moment the files of older cards may have been deleted.
+        store.pruneGoneFilesSoon()
         onCapture?()
         onCopied?()
     }
@@ -314,13 +323,46 @@ final class ClipboardController {
     /// — copies reorder it, pastes never do.
     static let concealed = "org.nspasteboard.ConcealedType"
 
-    func paste(_ clip: Clipboard.Clip, action: PasteAction) {
+    /// What a pasted file's item says about where and what the file was at
+    /// the copy, written fresh instead: its address and its name as text.
+    static let addressTypes: Set<String> = [Clipboard.fileURLType, "public.utf8-plain-text",
+                                            "public.utf16-external-plain-text"]
+
+    /// How long a paste waits to learn whether a copy's files are still
+    /// there. A seam for the tests.
+    nonisolated(unsafe) static var presenceDeadline: TimeInterval = 0.3
+
+    /// `moving`: the card's files go on the board as for a paste, and the
+    /// keystroke is the Finder's Move Item Here (⌥⌘V) instead of ⌘V, so the
+    /// Finder moves them, asks about any name already there, and undoes it
+    /// with ⌘Z. Offered only with the Finder in front.
+    func paste(_ clip: Clipboard.Clip, action: PasteAction, moving: Bool = false) {
         // One disk read for every representation this method wants: the
         // native loop, the image fallback, and the file handover all drew
         // from `nativeData`, each paying the read again — for an image
         // near the size ceiling, tens of megabytes re-read inside the tap.
         let stored = store.itemData(clip)
         let board = pasteboard
+        // Where each file is now, asked at the paste: a card can stand for
+        // weeks, and its file be moved, renamed or deleted since. The strip's
+        // own answer is filled in the background, and a quick hand can beat
+        // it. A disk that does not answer in time leaves the paste as copied.
+        let files = clip.pastesAsFiles
+        var places: [Clipboard.FilePlace]?
+        if files {
+            places = self.places(of: clip, items: stored)
+            func count(_ kind: (Clipboard.FilePlace) -> Bool) -> Int { places.map { $0.filter(kind).count } ?? -1 }
+            // Counts only: what a file is called is nobody's business here.
+            Log.info("clipboard", ["paste": moving ? "move" : "files", "files": stored.count,
+                                   "bookmarked": (clip.fileBookmarks ?? []).compactMap { $0 }.count,
+                                   "here": count { if case .here = $0 { return true }; return false },
+                                   "trashed": count { if case .trashed = $0 { return true }; return false },
+                                   "gone": count { $0 == .gone }, "away": count { $0 == .away }])
+            if let places, !places.isEmpty, places.allSatisfy({ $0.url == nil }) {
+                flash(Self.unreachable(places, count: clip.itemCount))
+                return
+            }
+        }
         // A secret goes back the way a password manager puts it out: kept
         // to this Mac, never carried to another device by Universal
         // Clipboard, and marked concealed so every other clipboard tool
@@ -335,22 +377,37 @@ final class ClipboardController {
         // One board item per item copied, so three copied files arrive as
         // three files rather than as the first one three times.
         var items: [NSPasteboardItem] = []
-        for content in stored {
+        for (position, content) in stored.enumerated() {
             let item = NSPasteboardItem()
             var wrote = false
-            if action == .native {
-                for native in content.natives {
+            if files, let places, places.indices.contains(position) {
+                // A file pastes from where it is now, under the name it has
+                // now, or not at all: never by the address it had at the
+                // copy, which may lead somewhere else or nowhere.
+                guard let url = places[position].url else { continue }
+                for native in content.natives where !Self.addressTypes.contains(native.type) {
+                    item.setData(native.data, forType: NSPasteboard.PasteboardType(native.type))
+                }
+                item.setString(url.absoluteString, forType: .fileURL)
+                item.setString(url.lastPathComponent, forType: .string)
+                wrote = true
+            } else {
+                // Files go back whole under every label: their plain form is
+                // a name, and a name alone is not the file.
+                if action == .native || files {
+                    for native in content.natives {
+                        item.setData(native.data, forType: NSPasteboard.PasteboardType(native.type))
+                        wrote = true
+                    }
+                }
+                if let plain = content.plain, let text = String(data: plain, encoding: .utf8) {
+                    item.setString(text, forType: .string)
+                    wrote = true
+                } else if action != .native, let native = content.natives.first {
+                    // An image has no plain form; both labels paste the image.
                     item.setData(native.data, forType: NSPasteboard.PasteboardType(native.type))
                     wrote = true
                 }
-            }
-            if let plain = content.plain, let text = String(data: plain, encoding: .utf8) {
-                item.setString(text, forType: .string)
-                wrote = true
-            } else if action != .native, let native = content.natives.first {
-                // An image has no plain form; both labels paste the image.
-                item.setData(native.data, forType: NSPasteboard.PasteboardType(native.type))
-                wrote = true
             }
             if wrote {
                 if secret {
@@ -388,7 +445,8 @@ final class ClipboardController {
         // field would swallow the paste in silence. The clip is on the
         // pasteboard either way — hand off rather than fail.
         if secureInput() {
-            flash("⌂ This field only takes a paste you press\n[⌘][V] pastes it")
+            flash(moving ? "⌂ This window only takes a move you press\n[⌥][⌘][V] moves it"
+                         : "⌂ This field only takes a paste you press\n[⌘][V] pastes it")
             return
         }
         // Only when the file could not be written does the last keystroke go
@@ -401,7 +459,73 @@ final class ClipboardController {
             flash("⌂ That image could not be saved as a file\n[⌃][V] pastes it as an image")
             return
         }
-        postPaste()
+        if moving { postMove() } else { postPaste() }
+    }
+
+    // MARK: - Where a card's files are
+
+    /// Where each file of a card is now, asked of the disk with the paste's
+    /// deadline. Nil when the disk did not answer in time.
+    func places(of clip: Clipboard.Clip, items stored: [ClipboardContent.Item]? = nil) -> [Clipboard.FilePlace]? {
+        let items = stored ?? store.itemData(clip)
+        let bookmarks = clip.fileBookmarks ?? []
+        return FileSense.withDeadline(Self.presenceDeadline) {
+            items.enumerated().map { item, content in
+                Clipboard.place(bookmark: bookmarks.indices.contains(item) ? bookmarks[item] : nil,
+                                address: Clipboard.fileAddress(in: content)).place
+            }
+        }
+    }
+
+    /// What the pill says when none of a card's files can be had, by where
+    /// they went.
+    static func unreachable(_ places: [Clipboard.FilePlace], count: Int) -> String {
+        let one = count == 1
+        if places.allSatisfy({ $0 == .away }) {
+            return one ? "✕ That file is on a disk that is not connected"
+                       : "✕ Those files are on a disk that is not connected"
+        }
+        if places.allSatisfy({ if case .trashed = $0 { return true }; return false }) {
+            return one ? "✕ That file is in the Trash" : "✕ Those files are in the Trash"
+        }
+        return one ? "✕ That file is no longer there" : "✕ Those files are no longer there"
+    }
+
+    /// The Finder, the files selected in it, wherever they are now. A file
+    /// in the Trash is shown there, which is where it went.
+    var revealFiles: ([URL]) -> Void = { SystemEvents.reveal($0) }
+
+    func reveal(_ clip: Clipboard.Clip) {
+        guard let places = places(of: clip) else { return flash("✕ That disk did not answer in time") }
+        let shown = places.compactMap { place -> URL? in
+            switch place {
+            case .here(let url), .trashed(let url): return url
+            case .gone, .away: return nil
+            }
+        }
+        guard !shown.isEmpty else { return flash(Self.unreachable(places, count: clip.itemCount)) }
+        revealFiles(shown)
+    }
+
+    /// `⌃` on a card of files: their paths as text, each in single quotes,
+    /// found where the files are now. What cannot be pasted is left out,
+    /// and a card none of whose files can be says why.
+    func pastePaths(of clip: Clipboard.Clip) {
+        guard let places = places(of: clip) else { return flash("✕ That disk did not answer in time") }
+        let urls = places.compactMap(\.url)
+        guard !urls.isEmpty else { return flash(Self.unreachable(places, count: clip.itemCount)) }
+        pasteText(Clipboard.quotedPaths(urls))
+    }
+
+    /// The one file of a card, opened in the app the system opens it in. A
+    /// group does not open: a dozen windows at once is never what was meant.
+    var openFile: (URL) -> Void = { SystemEvents.open($0) }
+
+    func open(_ clip: Clipboard.Clip) {
+        guard clip.itemCount == 1 else { return }
+        guard let places = places(of: clip) else { return flash("✕ That disk did not answer in time") }
+        guard let url = places.first?.url else { return flash(Self.unreachable(places, count: 1)) }
+        openFile(url)
     }
 
     /// A reading pasted: plain text Lodestar wrote, not a clip, so it goes
@@ -470,13 +594,13 @@ final class ClipboardController {
     /// ⌘V, built clean. The user very likely still has shift down from
     /// pressing ⇧label; inheriting it would post ⇧⌘V and re-open the strip
     /// we just closed.
-    private func synthesizePaste() {
+    private func synthesizePaste(flags: CGEventFlags = .maskCommand) {
         guard let source = CGEventSource(stateID: .combinedSessionState),
               let vCode = Keys.codes["v"] else { return }
         let down = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(vCode), keyDown: true)
         let up = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(vCode), keyDown: false)
-        down?.flags = .maskCommand
-        up?.flags = .maskCommand
+        down?.flags = flags
+        up?.flags = flags
         // A beat for the pasteboard to settle: some apps read it lazily, and
         // a paste that lands first inserts the previous clip.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {

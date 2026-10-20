@@ -361,6 +361,9 @@ final class HotkeyEngine {
         self.select = select
         self.clipboard = clipboard
         clipboard.onCapture = { [weak self] in self?.refreshStripIfOpen() }
+        // No card leaves the history while the strip or a door of it is up:
+        // the letters under the hand would shift to other cards.
+        clipboard.history.removalsHeld = { [weak self] in self?.stripIsUp ?? false }
         draft.onActivity = { [weak self] in
             guard let self else { return }
             self.lastActivityAt = self.clock.now()
@@ -1119,6 +1122,8 @@ final class HotkeyEngine {
                     stopWatchingClicks()
                     strip.hide()
                 }
+                // With the strip down, cards whose files are gone can leave.
+                clipboard.history.pruneGoneFilesSoon()
             case .bringType(let text):
                 bringQuery += text
                 renderBring()
@@ -2106,7 +2111,7 @@ extension HotkeyEngine: EngineWorld {
         // One band, whichever of its three jobs applies right now.
         let band: ClipboardStrip.Band
         if let clip = panelClip {
-            band = .actions(Self.panelActions(for: clip))
+            band = .actions(Self.panelActions(for: clip, finderInFront: Self.finderInFront))
         } else if let clip = saveClip {
             band = .save(name: saveName, offered: clipboard.offeredImageName(for: clip),
                          folder: clipboard.saveFolder)
@@ -2123,6 +2128,9 @@ extension HotkeyEngine: EngineWorld {
         let named = naming.map { ClipboardStrip.Naming(id: $0.id, text: $0.text, selected: $0.selected) }
         strip.show(recents: recents, pins: history.pins,
                    thumbnail: { [clipboard] id in clipboard.history.thumbnail(for: id) },
+                   fileThumbnail: { [clipboard] id, index in clipboard.history.thumbnail(for: id, index: index) },
+                   filesPresent: { [clipboard] id in clipboard.history.filesPresent(id) },
+                   filePaths: { [clipboard] id in clipboard.history.filePaths(id) },
                    band: band, selection: pasteSelection,
                    actingOn: panelClip?.id ?? doorClip?.id ?? saveClip?.id,
                    pinsHidden: doorClip != nil, held: heldOverStrip,
@@ -2379,7 +2387,7 @@ extension HotkeyEngine: EngineWorld {
     /// Benign first, destructive after — the strip draws the rule between
     /// them, so the order here is what puts an action on the right side of
     /// it.
-    static func panelActions(for clip: Clipboard.Clip) -> [ClipboardStrip.Action] {
+    static func panelActions(for clip: Clipboard.Clip, finderInFront: Bool = false) -> [ClipboardStrip.Action] {
         var actions = [ClipboardStrip.Action(
             key: "K",
             label: clip.isPinned ? "Let go" : "Keep",
@@ -2399,6 +2407,24 @@ extension HotkeyEngine: EngineWorld {
                                  symbol: "arrow.up.left.and.arrow.down.right"))
             actions.append(.init(key: "S", label: "Save as",
                                  symbol: "square.and.arrow.down"))
+        }
+        // One file is viewed large on the image door's glass; a group is not,
+        // for the reason it does not open.
+        if clip.pastesAsFiles, clip.itemCount == 1 {
+            actions.append(.init(key: "E", label: "View",
+                                 symbol: "arrow.up.left.and.arrow.down.right"))
+        }
+        // Files: where they are, what one opens in (a group does not open),
+        // and, with the Finder in front, a move into the folder it shows,
+        // which is the Finder's own Move Item Here, undone with ⌘Z there.
+        if clip.pastesAsFiles {
+            actions.append(.init(key: "F", label: "Show in Finder", symbol: "folder"))
+            if clip.itemCount == 1 {
+                actions.append(.init(key: "O", label: "Open", symbol: "arrow.up.forward.app"))
+            }
+            if finderInFront {
+                actions.append(.init(key: "M", label: "Move here", symbol: "arrow.right.doc.on.clipboard"))
+            }
         }
         actions.append(.init(key: "D", label: "Delete", symbol: "trash",
                              isDestructive: true))
@@ -2428,6 +2454,9 @@ extension HotkeyEngine: EngineWorld {
         case .delete: verb = "delete"
         case .excludeApp: verb = "exclude"
         case .edit: verb = "edit"
+        case .reveal: verb = "reveal"
+        case .open: verb = "open"
+        case .moveHere: verb = "move"
         }
         let named = stripSession?.outcome
         stripSession?.outcome = ("acted", named?.source, verb, named?.rank)
@@ -2447,6 +2476,9 @@ extension HotkeyEngine: EngineWorld {
             }
         case .edit:
             openClipDoor(clip)
+        case .reveal: clipboard.reveal(clip)
+        case .open: clipboard.open(clip)
+        case .moveHere: clipboard.paste(clip, action: .plain, moving: true)
         }
         panelClip = nil
     }
@@ -2491,6 +2523,7 @@ extension HotkeyEngine: EngineWorld {
     /// grammar already in the door and is answered by it. What cannot
     /// open says why and leaves the strip as it was.
     private func openImageDoor(_ clip: Clipboard.Clip) {
+        if clip.pastesAsFiles { return openFileDoor(clip) }
         panelClip = nil
         guard let (data, pixels) = clipboard.imageBytes(of: clip) else {
             hud.flash("✕ That image cannot be opened")
@@ -2516,6 +2549,33 @@ extension HotkeyEngine: EngineWorld {
         }
     }
 
+    /// The same door for one file: where it is now is asked of the disk with
+    /// a deadline, and what is shown is chosen by what the file is. The
+    /// door's clip is set at once, so the strip stays gone and `S` is
+    /// refused while the disk answers; a file that cannot be had says why
+    /// and leaves the strip as it was.
+    private func openFileDoor(_ clip: Clipboard.Clip) {
+        panelClip = nil
+        imageDoorClip = clip
+        let named = stripSession?.outcome
+        stripSession?.outcome = ("acted", named?.source, "view", named?.rank)
+        strip.hide()
+        let caption = Clipboard.fileDoorCaption(of: clip)
+        OffTap.run { [weak self] in
+            guard let self, self.imageDoorClip?.id == clip.id else { return }
+            guard let places = self.clipboard.places(of: clip) else {
+                self.hud.flash("✕ That disk did not answer in time")
+                self.imageDoorClosed(); return
+            }
+            guard let url = places.first?.url else {
+                self.hud.flash(ClipboardController.unreachable(places, count: 1))
+                self.imageDoorClosed(); return
+            }
+            let shown = self.imageDoor.show(file: url, kind: clip.fileFacts?.first?.type, caption: caption)
+            Log.info("strip", ["door": "file", "kind": shown.logName])
+        }
+    }
+
     /// The image door failed to open: back to the strip.
     private func imageDoorClosed() {
         imageDoorClip = nil
@@ -2526,9 +2586,10 @@ extension HotkeyEngine: EngineWorld {
     /// The grammar closed the image door, from inside or out.
     private func closeImageDoor(reason: String) {
         guard imageDoorClip != nil || imageDoor.isVisible else { return }
+        let ofFile = imageDoorClip?.pastesAsFiles == true
         imageDoor.hide()
         imageDoorClip = nil
-        Log.info("strip", ["door": "image", "close": reason])
+        Log.info("strip", ["door": ofFile ? "file" : "image", "close": reason])
         switch core.state {
         case .paste, .pasteSave: renderStrip()
         default: break
@@ -2593,6 +2654,13 @@ extension HotkeyEngine: EngineWorld {
             clipboard.paste(clip, action: action)
         case .reading:
             strip.hide()
+            // A copy of files reads as its paths, found where they are now
+            // at the moment of the paste.
+            if clip.pastesAsFiles {
+                stripSession?.outcome = ("pasted", source, "reading", rank)
+                clipboard.pastePaths(of: clip)
+                return
+            }
             guard let reading = Clipboard.reading(of: clip, units: strip.units, zones: strip.timeZones) else {
                 stripSession?.outcome = ("abandoned", source, nil, rank)
                 hud.flash("✕ That card has no reading")
@@ -2611,11 +2679,23 @@ extension HotkeyEngine: EngineWorld {
     /// or is paused because its key cannot be asked for.
     var historyNotice: String? { clipboard.history.statusLine }
 
+    /// Whether the strip, or anything standing on it, is showing cards by
+    /// letter.
+    private var stripIsUp: Bool {
+        switch core.state {
+        case .paste, .pastePanel, .pasteDoor, .pasteImage, .pasteSave, .pasteSource, .pasteName, .bring: return true
+        default: return false
+        }
+    }
+
     func enterPaste() -> Bool {
         guard !clipboard.history.clips.isEmpty else { return false }
         pasteQuery = nil
         pasteSelection = 0
         panelClip = nil
+        // Whether a file card's files are still there is asked afresh each
+        // time the strip opens, and kept until it closes.
+        clipboard.history.forgetFilePresence()
         watchClicks()
         renderStrip()
         return true
@@ -2629,6 +2709,15 @@ extension HotkeyEngine: EngineWorld {
 
     func pastePanelIsImage() -> Bool { panelClip?.kind == .image }
     func pastePanelIsKept() -> Bool { panelClip?.isPinned == true }
+    func pastePanelIsFiles() -> Bool { panelClip?.pastesAsFiles == true }
+    func pastePanelOpens() -> Bool { pastePanelIsFiles() && panelClip?.itemCount == 1 }
+    func pasteDoorIsFile() -> Bool { imageDoorClip?.pastesAsFiles == true }
+    func pastePanelMovesHere() -> Bool { pastePanelIsFiles() && Self.finderInFront }
+
+    /// Whether the Finder is the app in front: the one place files move to.
+    static var finderInFront: Bool {
+        NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.finder"
+    }
 
     func pasteQueryIsEmpty() -> Bool { (pasteQuery ?? "").isEmpty }
 
@@ -2645,7 +2734,9 @@ extension HotkeyEngine: EngineWorld {
             let index = address.flatMap { ClipboardStrip.labels.firstIndex(of: $0) } ?? pasteSelection
             clip = strip.shownRecents.indices.contains(index) ? strip.shownRecents[index] : nil
         }
-        return clip.map { Clipboard.reading(of: $0, units: strip.units, zones: strip.timeZones) != nil } ?? false
+        // A card of files always reads as its paths; where they are is
+        // asked when it pastes.
+        return clip.map { $0.pastesAsFiles || Clipboard.reading(of: $0, units: strip.units, zones: strip.timeZones) != nil } ?? false
     }
 
     /// A click means the user is looking at something else now, and the

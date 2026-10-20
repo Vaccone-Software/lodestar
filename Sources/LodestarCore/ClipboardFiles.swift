@@ -39,7 +39,9 @@ public struct ClipboardFiles: Sendable {
     public var indexPath: String { base.appendingPathComponent("index.sj").path }
 
     public func itemURL(_ storage: String) -> URL { items.appendingPathComponent(storage) }
-    public func thumbURL(_ storage: String) -> URL { thumbs.appendingPathComponent(storage) }
+    public func thumbURL(_ storage: String, index: Int = 0) -> URL {
+        thumbs.appendingPathComponent(ClipboardSealed.thumbName(storage, index: index))
+    }
 
     public struct Failure: Error, CustomStringConvertible {
         public let description: String
@@ -75,27 +77,34 @@ public struct ClipboardFiles: Sendable {
 
     // MARK: Thumbnails
 
-    public func writeThumb(storage: String, key: SealingKey, png: Data) throws {
-        try write([UInt8](png), to: thumbURL(storage), ClipboardSealed.thumbContext(storage), key)
+    /// A clip has one thumbnail (an image's), or, for a copy of files, one
+    /// per file up to `Clipboard.thumbnailedFiles`, numbered from 0. The
+    /// first is where the single one always was.
+    public func writeThumb(storage: String, key: SealingKey, png: Data, index: Int = 0) throws {
+        try write([UInt8](png), to: thumbURL(storage, index: index),
+                  ClipboardSealed.thumbContext(storage, index: index), key)
     }
 
     /// The thumbnail's PNG bytes, or nil when there is none or it does not open.
-    public func readThumb(storage: String, key: SealingKey) -> Data? {
-        if case .bytes(let plain) = open(thumbURL(storage), ClipboardSealed.thumbContext(storage), key) { return Data(plain) }
+    public func readThumb(storage: String, key: SealingKey, index: Int = 0) -> Data? {
+        if case .bytes(let plain) = open(thumbURL(storage, index: index),
+                                         ClipboardSealed.thumbContext(storage, index: index), key) { return Data(plain) }
         return nil
     }
 
-    public func hasThumb(storage: String) -> Bool { access(thumbURL(storage).path, F_OK) == 0 }
+    public func hasThumb(storage: String, index: Int = 0) -> Bool {
+        access(thumbURL(storage, index: index).path, F_OK) == 0
+    }
 
     // MARK: Removing
 
-    /// Unlink each storage's blob and thumbnail. What was in them stays on
+    /// Unlink each storage's blob and thumbnails. What was in them stays on
     /// the disk's blocks as ciphertext, and stops being readable when the
     /// compaction after the deletion retires the key that was in the record.
     public func remove(storages: [String]) {
         for storage in storages where ClipboardSealed.isStorageName(storage) {
             unlink(itemURL(storage).path)
-            unlink(thumbURL(storage).path)
+            for index in 0..<Clipboard.thumbnailedFiles { unlink(thumbURL(storage, index: index).path) }
         }
     }
 
@@ -107,10 +116,14 @@ public struct ClipboardFiles: Sendable {
         var removed = 0
         for directory in [items, thumbs] {
             for name in (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? [] {
+                // A blob is named by its storage; a thumbnail by it too, or
+                // with the number of the file's picture after a hyphen.
                 let stem = name.split(separator: ".", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? name
-                guard ClipboardSealed.isStorageName(stem) else { continue }
+                let owner = directory == thumbs ? ClipboardSealed.storage(ofThumbName: name)
+                    : (ClipboardSealed.isStorageName(stem) ? stem : nil)
+                guard let owner else { continue }
                 // `<storage>.<token>` is a write that was cut short.
-                guard name.contains(".") || !live.contains(stem) else { continue }
+                guard name.contains(".") || !live.contains(owner) else { continue }
                 if unlink(directory.appendingPathComponent(name).path) == 0 { removed += 1 }
             }
         }

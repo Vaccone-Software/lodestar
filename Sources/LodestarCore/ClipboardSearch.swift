@@ -30,6 +30,11 @@ public final class ClipboardSearchIndex {
         /// A color's name, folded: a search for "orange" finds the orange
         /// that was copied as a hex.
         let name: [UInt8]?
+        /// A card of files' words beyond its text (`Clipboard.searchTerms`),
+        /// and the facts they were made from: the facts arrive a beat after
+        /// the card, so the key is made again when they do.
+        let files: [UInt8]?
+        let facts: [Clipboard.FileFact]?
     }
 
     private var keys: [String: Key] = [:]
@@ -37,7 +42,7 @@ public final class ClipboardSearchIndex {
     public init() {}
 
     func key(for clip: Clipboard.Clip) -> Key {
-        if let key = keys[clip.id], key.preview == clip.preview { return key }
+        if let key = keys[clip.id], key.preview == clip.preview, key.facts == clip.fileFacts { return key }
         var folded = Array(clip.preview.utf8)
         var ascii = true
         folded.withUnsafeMutableBufferPointer { bytes in
@@ -47,7 +52,9 @@ public final class ClipboardSearchIndex {
             }
         }
         let key = Key(preview: clip.preview, folded: folded, ascii: ascii,
-                      name: clip.color.map { Array($0.name.utf8).map(Self.fold) })
+                      name: clip.color.map { Array($0.name.utf8).map(Self.fold) },
+                      files: Clipboard.searchTerms(of: clip).map { Array($0.utf8) },
+                      facts: clip.fileFacts)
         keys[clip.id] = key
         return key
     }
@@ -85,6 +92,9 @@ public final class ClipboardSearchIndex {
         if let host = clip.sourceHost, host.contains(text) { score = max(score ?? 0, Clipboard.hostRelevance) }
         if let name = key.name, Self.find(needle, in: name) != nil {
             score = max(score ?? 0, Clipboard.nameRelevance)
+        }
+        if let files = key.files, Self.find(needle, in: files) != nil {
+            score = max(score ?? 0, Clipboard.fileRelevance)
         }
         return score
     }

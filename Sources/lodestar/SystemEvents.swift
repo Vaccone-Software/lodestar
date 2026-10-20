@@ -79,6 +79,12 @@ enum SystemEvents {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    /// The Finder comes to the front with these files selected.
+    static func reveal(_ urls: [URL]) {
+        guard !held() else { return }
+        NSWorkspace.shared.activateFileViewerSelecting(urls)
+    }
+
     /// Another app comes to the front.
     static func activate(_ app: NSRunningApplication) {
         guard !held() else { return }

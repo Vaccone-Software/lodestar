@@ -11,6 +11,19 @@ public enum Clipboard {
     public enum Kind: String, Codable, Equatable {
         case text
         case image
+        /// A copy of files: every item is a file's address, and the card
+        /// shows the files themselves (see `FileFact`), not a path as text.
+        case file
+
+        /// A kind this build does not know decodes as text. The index is
+        /// one journal, and a clip that will not decode takes the whole
+        /// history down with it: an older build meeting a kind a newer one
+        /// wrote, or the reverse, must lose a card's look and never the
+        /// cards. The raw strings are the file format and never change.
+        public init(from decoder: Decoder) throws {
+            let raw = try decoder.singleValueContainer().decode(String.self)
+            self = Kind(rawValue: raw) ?? .text
+        }
     }
 
     public struct Clip: Codable, Equatable {
@@ -56,13 +69,24 @@ public enum Clipboard {
         /// counted once, later, off the main thread.
         public var lines: Int?
         public var characters: Int?
+        /// What each file of a file copy is, in copy order, so the card
+        /// can show it without reading the file again: gathered a beat
+        /// after the card exists, off the main thread, and absent for every
+        /// clip written before files were a kind of their own.
+        public var fileFacts: [FileFact]?
+        /// A bookmark per item of a file copy, in item order (nil where one
+        /// could not be made), so the files are found again after they move
+        /// and across restarts. Absent for every clip from before bookmarks,
+        /// which gets them the first time its files are found.
+        public var fileBookmarks: [Data?]?
 
         public init(id: String, kind: Kind, created: Date,
                     sourceBundleID: String?, sourceAppName: String?,
                     preview: String, bytes: Int,
                     nativeTypes: [String] = [], otherItemTypes: [[String]] = [],
                     pinnedSlot: Int? = nil, sourceHost: String? = nil,
-                    lines: Int? = nil, characters: Int? = nil, keptName: String? = nil) {
+                    lines: Int? = nil, characters: Int? = nil, keptName: String? = nil,
+                    fileFacts: [FileFact]? = nil, fileBookmarks: [Data?]? = nil) {
             self.id = id
             self.kind = kind
             self.created = created
@@ -81,6 +105,8 @@ public enum Clipboard {
             self.otherItemTypes = otherItemTypes.isEmpty ? nil : otherItemTypes
             self.pinnedSlot = pinnedSlot
             self.keptName = keptName
+            self.fileFacts = fileFacts
+            self.fileBookmarks = fileBookmarks
         }
 
         public var isPinned: Bool { pinnedSlot != nil }
@@ -88,6 +114,14 @@ public enum Clipboard {
         /// what a paste has to put back.
         public var itemTypes: [[String]] { [nativeTypes] + (otherItemTypes ?? []) }
         public var itemCount: Int { 1 + (otherItemTypes?.count ?? 0) }
+        /// Whether pasting this clip must put its files on the board. A
+        /// file clip is, and so is a copy of files recorded before files
+        /// were a kind, told by every item carrying a file's address. The
+        /// plain form of such an item is only the file's name, and pasted
+        /// alone it makes a text file of that name in the Finder.
+        public var pastesAsFiles: Bool {
+            kind == .file || (kind == .text && itemTypes.allSatisfy { $0.contains(Clipboard.fileURLType) })
+        }
         /// ⇧label differs from label only when the source offered more than
         /// plain text.
         public var hasNativeForm: Bool { itemTypes.contains { !$0.isEmpty } }
@@ -98,7 +132,9 @@ public enum Clipboard {
         /// A card whose text can be opened in the draft and edited: one
         /// text item that is the text itself. A copy of files carries its
         /// paths as its plain form, and editing a path is not editing the
-        /// copy; an image has no text to edit.
+        /// copy (a file clip is never text, and a text clip recorded before
+        /// files had a kind is told by its file-url type); an image has no
+        /// text to edit.
         public var isEditable: Bool {
             kind == .text && itemCount == 1 && !nativeTypes.contains(Clipboard.fileURLType)
         }
@@ -133,6 +169,9 @@ public enum Clipboard {
     /// the preview when it does not — a preview cut at the cap means the
     /// text is at least that long, and the badge says so.
     public static func lengthBadge(for clip: Clip) -> String? {
+        // A card of files says how many files, beside its key; it holds no
+        // text that could run past five lines.
+        guard clip.kind != .file else { return nil }
         if let lines = clip.lines, let characters = clip.characters {
             return lengthBadge(lines: lines, characters: characters)
         }
@@ -560,6 +599,12 @@ public enum Clipboard {
     /// many as fit a short name, never cut inside a word. An image is
     /// named by what was read off it, or simply "Image".
     public static func offeredName(for clip: Clip, limit: Int = 24) -> String {
+        if clip.kind == .file {
+            // The first file's name, not the start of its path.
+            let first = clip.fileFacts?.first?.name
+                ?? clip.preview.split(separator: "\n").first.map { ($0 as NSString).lastPathComponent }
+            return first.map { offeredName(fromText: $0, limit: limit) } ?? "Files"
+        }
         if clip.kind == .image {
             // Under the size line, whatever the recognizer read.
             let lines = clip.preview.split(separator: "\n", maxSplits: 1)
@@ -646,6 +691,10 @@ public enum Clipboard {
                 promoted.preview = known.preview
                 promoted.lines = known.lines ?? arrival.lines
                 promoted.characters = known.characters ?? arrival.characters
+                // The files are read again after every copy, and until that
+                // lands the card is the card it was.
+                promoted.fileFacts = arrival.fileFacts ?? known.fileFacts
+                promoted.fileBookmarks = arrival.fileBookmarks ?? known.fileBookmarks
             }
             out.insert(promoted, at: 0)
             return out
@@ -775,8 +824,15 @@ public enum Clipboard {
         if !needle.isEmpty, let name = clip.color?.name.lowercased(), name.contains(needle) {
             score = max(score ?? 0, nameRelevance)
         }
+        if !needle.isEmpty, let terms = searchTerms(of: clip), terms.contains(needle) {
+            score = max(score ?? 0, fileRelevance)
+        }
         return score
     }
+
+    /// A card of files found by its folder, kind, site or title stands
+    /// with a page's host: under a hit in the names its text holds.
+    static let fileRelevance = hostRelevance
 
     /// Newest-first among equals, so an untyped strip and a searched one
     /// order the same way and the labels stay where the eye expects them.
@@ -882,11 +938,43 @@ public extension Clipboard {
     /// line), a column its sum. The card shows this same text while `⌃`
     /// is held, so what is seen is what pastes.
     static func reading(of clip: Clip, units: ClipQuantity.System,
-                        zones: [TimeZone] = [], now: Date = Date()) -> String? {
+                        zones: [TimeZone] = [], now: Date = Date(), paths: [URL]? = nil) -> String? {
+        // A copy of files reads as where its files are now, for whatever
+        // takes only text: a shell first of all.
+        if clip.pastesAsFiles { return paths.flatMap { $0.isEmpty ? nil : quotedPaths($0) } }
+        return readingOfText(clip, units: units, zones: zones, now: now)
+    }
+
+    /// What a card of files shows while `⌃` is held: where each file is, a
+    /// line each, the home folder as `~`, so a narrow card can be read. It
+    /// pastes the same places whole and quoted (`reading`, `quotedPaths`);
+    /// a shell needs those, an eye needs these.
+    static func pathsOnCard(_ urls: [URL], home: String = NSHomeDirectory()) -> String {
+        urls.map { url -> String in
+            let path = url.path.hasPrefix(home + "/") ? "~" + url.path.dropFirst(home.count) : url.path
+            // A deep path keeps its end, the folder and the name, which is
+            // what a narrow card must not lose.
+            let parts = path.split(separator: "/", omittingEmptySubsequences: true)
+            let depth = parts.first == "~" ? parts.count - 1 : parts.count
+            return depth > 3 ? "…/" + parts.suffix(2).joined(separator: "/") : path
+        }.joined(separator: "\n")
+    }
+
+    private static func readingOfText(_ clip: Clip, units: ClipQuantity.System,
+                                      zones: [TimeZone], now: Date) -> String? {
         if let color = clip.color { return color.name }
         if let time = clip.time { return time.note(zones: zones, now: now).local }
         if let read = clip.quantity?.note(into: units) { return read.exact ?? read.voice }
         if let sum = clip.sum { return sum.voice() }
         return nil
+    }
+
+    /// Files' paths as a shell takes them: each whole, in single quotes, so
+    /// a space or a bracket in a name is only a name, and separated by a
+    /// space. A quote inside a name closes the quoting, is escaped, and
+    /// opens it again. Always the whole path: `~` does not grow inside
+    /// quotes.
+    static func quotedPaths(_ urls: [URL]) -> String {
+        urls.map { "'" + $0.path.replacingOccurrences(of: "'", with: #"'\''"#) + "'" }.joined(separator: " ")
     }
 }

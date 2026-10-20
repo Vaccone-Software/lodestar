@@ -112,6 +112,18 @@ final class ClipboardStore {
     private let ocr = DispatchQueue(label: "lodestar.clipboard.ocr", qos: .utility)
     /// The length of a long text is counted here, a text at a time.
     private let counting = DispatchQueue(label: "lodestar.clipboard.counts", qos: .utility)
+    /// A copy of files is read here: what each file is, and its picture.
+    /// Concurrent, because one file on a dead mount must not hold up the
+    /// next copy, and off the io queue, which is writing blobs.
+    private let filing = DispatchQueue(label: "lodestar.clipboard.files", qos: .utility, attributes: .concurrent)
+    /// Whether a file card's files are still where they were, asked off
+    /// the main thread and kept for as long as the strip is showing.
+    private let checking = DispatchQueue(label: "lodestar.clipboard.presence", qos: .utility, attributes: .concurrent)
+    private var presence: [String: [Bool]] = [:]
+    private var presenceAsked: Set<String> = []
+    /// Bumped each time the strip opens, so an answer to a question asked
+    /// of an earlier showing is not taken for this one's.
+    private var presenceEpoch = 0
     /// What an image says. The recognizer here; a test's own, to count its
     /// calls and watch their order.
     var readText: (Data) -> String? = { OCRSense.readText(imageData: $0) }
@@ -269,6 +281,7 @@ final class ClipboardStore {
             }
             Log.info("clipboard: loaded \(index.count) clips", ["seconds": String(format: "%.2f", opened.seconds),
                                                                 "unreadable": opened.unreadable])
+            pruneGoneFilesSoon(after: Self.prunePeriod / 10)
             let waiting = queued
             queued.removeAll()
             queuedBytes = 0
@@ -555,6 +568,14 @@ final class ClipboardStore {
                     return
                 }
             }
+            // A copy of files is read off the main thread and off this queue:
+            // a file can be anywhere, and nothing about it is worth a write
+            // waiting. The card is on screen already, with the names its
+            // preview has; the rest arrives a beat after.
+            if arrival.kind == .file {
+                let urls = Clipboard.fileURLs(in: items)
+                if !urls.isEmpty { self.filing.async { self.readFiles(id, urls: urls, items: items, ref: ref) } }
+            }
             // An image says what it shows: the recognizer reads it once,
             // off the main thread and off this queue — the accurate pass
             // on a screenshot is most of a second, and the writes must not
@@ -601,6 +622,271 @@ final class ClipboardStore {
         refs[id] = nil
         pendingOps.removeAll { $0.storages.contains(ref.storage) }
         onThumbnail?()
+    }
+
+    // MARK: - Files
+
+    /// What each file of a copy is, then a picture of each of the first
+    /// four, on the files queue. The facts are handed over as soon as they
+    /// are known, so the card has its names before it has its pictures; a
+    /// picture that cannot be had in time is the file's icon.
+    private func readFiles(_ id: String, urls: [URL], items: [ClipboardContent.Item], ref: Ref) {
+        guard let key = ref.key else { return }
+        let files = disk.files
+        // First what finds the files again, while every one of them is
+        // surely where the copy said: a bookmark per item, in item order.
+        let bookmarks: [Data?] = items.prefix(Clipboard.fileBookmarksKept).map { item in
+            guard let url = Clipboard.fileAddress(in: item).flatMap(Clipboard.fileURL(from:)) else { return nil }
+            return FileSense.withDeadline(FileSense.deadline) { Clipboard.bookmark(for: url) }
+        }
+        DispatchQueue.main.async { self.bookmarksMade(id, bookmarks, storage: ref.storage) }
+        var facts = urls.prefix(Clipboard.fileFactsKept).map { FileSense.fact(for: $0) }
+        let early = facts
+        DispatchQueue.main.async { self.filesRead(id, facts: early, storage: ref.storage) }
+        var pictures = 0
+        for (position, url) in urls.prefix(Clipboard.thumbnailedFiles).enumerated() {
+            guard let picture = FileSense.picture(of: url) else { continue }
+            do {
+                try files.writeThumb(storage: ref.storage, key: key, png: picture.png, index: position)
+            } catch {
+                Log.error("clipboard: could not write a file's picture (\(error))")
+                continue
+            }
+            facts[position].pictured = picture.pictured
+            pictures += 1
+            // Decoded here, so the first draw has nothing left to decode.
+            let image = Self.decodedImage(from: picture.png)
+            DispatchQueue.main.async {
+                if let image, self.refs[id]?.storage == ref.storage { self.cache(image, for: Self.thumbKey(id, position)) }
+                self.refreshSoon()
+            }
+        }
+        let done = facts
+        DispatchQueue.main.async { self.filesRead(id, facts: done, storage: ref.storage) }
+        // Counts only: what a file is called is nobody's business but the card's.
+        Log.info("clipboard", ["files read": urls.count, "pictures": pictures])
+    }
+
+    /// Main. A copy's files are known. A clip deleted while they were being
+    /// read takes the pictures that landed after it with it.
+    private func filesRead(_ id: String, facts: [Clipboard.FileFact], storage: String) {
+        guard refs[id]?.storage == storage, let position = index.firstIndex(where: { $0.id == id }),
+              index[position].kind == .file else {
+            if refs.values.allSatisfy({ $0.storage != storage }) {
+                let files = disk.files
+                io.async { files.remove(storages: [storage]) }
+            }
+            return
+        }
+        var facts = facts
+        // Until a file's picture has been made again, the card keeps the
+        // face it had: the first answer must not turn a page into an icon.
+        let known = index[position].fileFacts ?? []
+        for at in facts.indices where facts[at].pictured == nil && known.indices.contains(at) && known[at].name == facts[at].name {
+            facts[at].pictured = known[at].pictured
+        }
+        guard facts != known else { return }
+        index[position].fileFacts = facts
+        commitChange(at: position)
+        refreshSoon()
+    }
+
+    /// For a file card: whether each of its files is still where it was,
+    /// per file in copy order. Nil until the answer is in, and the question
+    /// goes to another thread the first time it is asked, so drawing never
+    /// waits on a disk. The answers are kept until the strip is next opened.
+    func filesPresent(_ id: String) -> [Bool]? {
+        if let known = presence[id] { return known }
+        guard !presenceAsked.contains(id), phase == .ready, let ref = refs[id] else { return nil }
+        presenceAsked.insert(id)
+        let files = disk.files
+        let epoch = presenceEpoch
+        let bookmarks = index.first { $0.id == id }?.fileBookmarks ?? []
+        checking.async { [weak self] in
+            var answer: [URL?]?
+            var refreshed: [Int: Data] = [:]
+            if let key = ref.key, case .items(let items) = files.readBlob(storage: ref.storage, key: key) {
+                // Each item where it is now: a file that can be pasted keeps
+                // its card bright, and is where the card's paths lead.
+                answer = items.enumerated().map { item, content in
+                    let found = Clipboard.place(bookmark: bookmarks.indices.contains(item) ? bookmarks[item] : nil,
+                                                address: Clipboard.fileAddress(in: content))
+                    if let fresh = found.bookmark, item < Clipboard.fileBookmarksKept { refreshed[item] = fresh }
+                    return found.place.url
+                }
+            }
+            DispatchQueue.main.async { self?.presenceKnown(id, answer, refreshed: refreshed, epoch: epoch) }
+        }
+        return nil
+    }
+
+    /// For a file card: where its files that can be pasted are now, in copy
+    /// order, for the reading `⌃` shows. Asked with `filesPresent`, and nil
+    /// until that answer is in.
+    func filePaths(_ id: String) -> [URL]? {
+        guard filesPresent(id) != nil else { return nil }
+        return paths[id]
+    }
+    private var paths: [String: [URL]] = [:]
+
+    private func presenceKnown(_ id: String, _ answer: [URL?]?, refreshed: [Int: Data], epoch: Int) {
+        // A bookmark made afresh is kept whatever showing asked for it.
+        if !refreshed.isEmpty, let ref = refs[id] { keepBookmarks(id, refreshed, storage: ref.storage) }
+        guard epoch == presenceEpoch else { return }
+        // A blob that would not read (its write is still on its way) is
+        // asked about again at the next draw, not remembered as an answer.
+        guard let answer else { presenceAsked.remove(id); return }
+        presence[id] = answer.map { $0 != nil }
+        paths[id] = answer.compactMap { $0 }
+        refreshSoon()
+    }
+
+    /// Main. The bookmarks of a copy's files, made at the copy.
+    private func bookmarksMade(_ id: String, _ bookmarks: [Data?], storage: String) {
+        guard refs[id]?.storage == storage, let position = index.firstIndex(where: { $0.id == id }),
+              index[position].kind == .file, bookmarks.contains(where: { $0 != nil }) else { return }
+        index[position].fileBookmarks = bookmarks
+        commitChange(at: position)
+    }
+
+    /// Main. Bookmarks made again for files found by an old or stale one,
+    /// by item number, so a card keeps finding its files.
+    private func keepBookmarks(_ id: String, _ fresh: [Int: Data], storage: String) {
+        guard refs[id]?.storage == storage, let position = index.firstIndex(where: { $0.id == id }),
+              index[position].pastesAsFiles else { return }
+        var bookmarks = index[position].fileBookmarks ?? []
+        let count = min(index[position].itemCount, Clipboard.fileBookmarksKept)
+        if bookmarks.count < count { bookmarks += Array(repeating: nil, count: count - bookmarks.count) }
+        for (item, data) in fresh where bookmarks.indices.contains(item) { bookmarks[item] = data }
+        guard bookmarks != index[position].fileBookmarks else { return }
+        index[position].fileBookmarks = bookmarks
+        commitChange(at: position)
+    }
+
+    // MARK: - Cards whose files are gone
+
+    /// Whether removing cards must wait: the strip, or a door of it, is
+    /// open. A card leaving then would move every card after it, and the
+    /// letter under the hand would name another card. The engine says.
+    var removalsHeld: () -> Bool = { false }
+    /// Off in the tests that are about something else, where a card whose
+    /// file a test has just deleted must stay to be pasted.
+    var prunesGoneFiles = true
+    /// How often the cards of files are looked over when nothing else asks.
+    nonisolated(unsafe) static var prunePeriod: TimeInterval = 300
+    private var pruneScheduled = false
+    private var pruning = false
+    private var pruneDue: Date?
+
+    /// Look the cards of files over soon: after a copy, when the strip
+    /// closes, and every `prunePeriod` in between.
+    func pruneGoneFilesSoon(after delay: TimeInterval = 1) {
+        let due = Date().addingTimeInterval(delay)
+        guard prunesGoneFiles, !pruneScheduled || due < (pruneDue ?? .distantFuture) else { return }
+        pruneScheduled = true
+        pruneDue = due
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self, let planned = self.pruneDue, planned <= Date().addingTimeInterval(0.05) else { return }
+            self.pruneScheduled = false
+            self.pruneDue = nil
+            self.pruneGoneFiles()
+        }
+    }
+
+    /// A card of files leaves the history once every one of its files is in
+    /// a Trash or gone for good: it can paste nothing, and the hand that
+    /// deleted the files has no use for it. A keepsake stays, dimmed, until
+    /// the hand removes it, because it was kept on purpose. A file on a disk
+    /// that is not connected decides nothing, and neither does an old
+    /// reference that no longer resolves. Main; the files are asked about
+    /// off it, and nothing leaves while the strip is open.
+    func pruneGoneFiles(completion: (() -> Void)? = nil) {
+        guard prunesGoneFiles, phase == .ready, !pruning else { completion?(); return }
+        defer { pruneGoneFilesSoon(after: Self.prunePeriod) }
+        guard !removalsHeld() else { completion?(); return }
+        let candidates: [(id: String, ref: Ref, bookmarks: [Data?])] = index
+            .filter { $0.pastesAsFiles && !$0.isPinned }
+            .compactMap { clip in refs[clip.id].map { (clip.id, $0, clip.fileBookmarks ?? []) } }
+        guard !candidates.isEmpty else { completion?(); return }
+        pruning = true
+        let files = disk.files
+        checking.async { [weak self] in
+            var dead: [(id: String, storage: String)] = []
+            var shrunk: [Shrinking] = []
+            var refreshed: [String: [Int: Data]] = [:]
+            for candidate in candidates {
+                guard let key = candidate.ref.key,
+                      case .items(let items) = files.readBlob(storage: candidate.ref.storage, key: key),
+                      !items.isEmpty else { continue }
+                let found = FileSense.withDeadline(FileSense.deadline) {
+                    items.enumerated().map { item, content in
+                        Clipboard.place(bookmark: candidate.bookmarks.indices.contains(item) ? candidate.bookmarks[item] : nil,
+                                        address: Clipboard.fileAddress(in: content))
+                    }
+                }
+                guard let found else { continue }
+                for (item, answer) in found.enumerated() {
+                    if let fresh = answer.bookmark, item < Clipboard.fileBookmarksKept { refreshed[candidate.id, default: [:]][item] = fresh }
+                }
+                // A file in a Trash or gone for good is gone from the card;
+                // one on a disk that is not connected stays, undecided.
+                let kept = found.indices.filter { item in
+                    switch found[item].place {
+                    case .trashed, .gone: return false
+                    case .here, .away: return true
+                    }
+                }
+                if kept.isEmpty {
+                    dead.append((candidate.id, candidate.ref.storage))
+                } else if kept.count < found.count {
+                    shrunk.append(Shrinking(id: candidate.id, storage: candidate.ref.storage, kept: kept, items: items))
+                }
+            }
+            DispatchQueue.main.async {
+                self?.pruned(dead, shrunk: shrunk, refreshed: refreshed, completion: completion)
+            }
+        }
+    }
+
+    /// A group with some of its files gone, as the look over the cards
+    /// found it: which items remain, and every item, to make it again.
+    private struct Shrinking {
+        let id: String
+        let storage: String
+        let kept: [Int]
+        let items: [ClipboardContent.Item]
+    }
+
+    private func pruned(_ dead: [(id: String, storage: String)], shrunk: [Shrinking],
+                        refreshed: [String: [Int: Data]], completion: (() -> Void)?) {
+        pruning = false
+        for (id, fresh) in refreshed { if let ref = refs[id] { keepBookmarks(id, fresh, storage: ref.storage) } }
+        defer { completion?() }
+        // The strip opened while the files were being asked about: nothing
+        // moves now, and the next look decides.
+        guard !removalsHeld() else { return }
+        // Still the same card, and still not kept, now that it is decided.
+        func unchanged(_ id: String, _ storage: String) -> Bool {
+            refs[id]?.storage == storage && index.first(where: { $0.id == id })?.isPinned == false
+        }
+        var made = 0
+        for group in shrunk where unchanged(group.id, group.storage) {
+            if shrink(group.id, keeping: group.kept, of: group.items) != nil { made += 1 }
+        }
+        let ids = dead.filter { unchanged($0.id, $0.storage) }.map(\.id)
+        if !ids.isEmpty { delete(ids) }
+        // Counts only.
+        if made > 0 || !ids.isEmpty {
+            Log.info("clipboard", ["removed cards of gone files": ids.count, "groups made smaller": made])
+        }
+    }
+
+    /// The strip is opening: what was known about the files is asked again.
+    func forgetFilePresence() {
+        presence.removeAll()
+        paths.removeAll()
+        presenceAsked.removeAll()
+        presenceEpoch &+= 1
     }
 
     // MARK: - Editing a card
@@ -654,6 +940,69 @@ final class ClipboardStore {
         removeFiles(of: [live.id], storages: storages)
         deletionOwed = true
         scheduleCompaction(after: Self.deletionDelay)
+        return now
+    }
+
+    /// A group of files with some of them gone, made again of the rest, in
+    /// place: same position, same age, same source, a new id since the id
+    /// is the content. What was known of the files that remain is kept at
+    /// once, so the card never goes blank; their pictures are made again,
+    /// because a picture is numbered by its file's place in the copy.
+    @discardableResult
+    func shrink(_ id: String, keeping kept: [Int], of items: [ClipboardContent.Item]) -> Clipboard.Clip? {
+        guard phase == .ready, let position = index.firstIndex(where: { $0.id == id }) else { return nil }
+        let live = index[position]
+        let kept = kept.filter { items.indices.contains($0) }
+        let remaining = kept.map { items[$0] }
+        guard !remaining.isEmpty, remaining.count < items.count else { return nil }
+        let newID = Self.identity(for: Clipboard.identityData(items: remaining.map { $0.plain ?? $0.natives.first?.data ?? Data() }))
+        guard newID != live.id else { return live }
+        let key = SealingKey.generate()
+        let fresh = Ref(storage: ClipboardSealed.newStorage(), blobKey: Data(key.exportedForWrapping()))
+        do {
+            try disk.files.writeBlob(storage: fresh.storage, key: key, items: remaining)
+        } catch {
+            Log.error("clipboard: could not write the card of the files that remain (\(error))")
+            return nil
+        }
+        // What a card of files shows as its text and is searched by: each
+        // file's name as the Finder gave it, or its path.
+        let readable = remaining.compactMap { item in
+            item.plain.flatMap { String(data: $0, encoding: .utf8) }
+                ?? Clipboard.fileAddress(in: item).flatMap(Clipboard.fileURL(from:))?.path
+        }.joined(separator: "\n")
+        let facts = live.fileFacts.map { all in
+            kept.filter { all.indices.contains($0) }.map { position -> Clipboard.FileFact in
+                var fact = all[position]
+                fact.pictured = nil
+                return fact
+            }
+        }
+        let bookmarks = live.fileBookmarks.map { all in kept.map { all.indices.contains($0) ? all[$0] : nil } }
+        let bytes = remaining.reduce(0) { sum, item in
+            sum + (item.plain?.count ?? 0) + item.natives.reduce(0) { $0 + $1.data.count }
+        }
+        let replacement = Clipboard.Clip(
+            id: newID, kind: .file, created: live.created,
+            sourceBundleID: live.sourceBundleID, sourceAppName: live.sourceAppName,
+            preview: Clipboard.preview(of: readable), bytes: bytes,
+            nativeTypes: remaining[0].natives.map(\.type),
+            otherItemTypes: remaining.dropFirst().map { $0.natives.map(\.type) },
+            pinnedSlot: live.pinnedSlot, sourceHost: live.sourceHost, keptName: live.keptName,
+            fileFacts: facts, fileBookmarks: bookmarks)
+        // Another card of exactly these files is one card with them.
+        let storages = [live.id, newID].compactMap { refs[$0]?.storage }
+        index = Clipboard.replacing(index, id: live.id, with: replacement)
+        if let other = index.indices.first(where: { $0 != position && index[$0].id == newID }) { index.remove(at: other) }
+        refs[live.id] = nil
+        refs[newID] = fresh
+        let now = index.first { $0.id == newID }
+        if let now, let entry = entry(for: now) { commit(.replace(old: live.id, entry)) }
+        removeFiles(of: [live.id], storages: storages)
+        deletionOwed = true
+        scheduleCompaction(after: Self.deletionDelay)
+        let urls = Clipboard.fileURLs(in: remaining)
+        if !urls.isEmpty { filing.async { self.readFiles(newID, urls: urls, items: remaining, ref: fresh) } }
         return now
     }
 
@@ -840,41 +1189,53 @@ final class ClipboardStore {
         return NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
     }
 
+    /// The key a decoded picture is cached under: a clip's own id for its
+    /// first picture (an image's only one), the id and the picture's number
+    /// for the others of a copy of files.
+    static func thumbKey(_ id: String, _ index: Int) -> String { index == 0 ? id : "\(id)#\(index)" }
+
     /// What is decoded, now — or nil, and `onThumbnail` fires when the
     /// card's picture has been read and decoded off the main thread. A
     /// redraw shows what it has and fills in the rest as it lands; it used
     /// to read and decode every missing card on the main thread, with the
-    /// strip's key tap waiting.
-    func thumbnail(for id: String) -> NSImage? {
-        if let cached = thumbnails[id] {
-            cache(cached, for: id)
+    /// strip's key tap waiting. A copy of files has a picture per file,
+    /// asked for by its number.
+    func thumbnail(for id: String, index picture: Int = 0) -> NSImage? {
+        let key = Self.thumbKey(id, picture)
+        if let cached = thumbnails[key] {
+            cache(cached, for: key)
             return cached
         }
-        guard !decoding.contains(id), !thumbnailless.contains(id), let ref = refs[id] else { return nil }
-        decoding.insert(id)
+        guard !decoding.contains(key), !thumbnailless.contains(key), let ref = refs[id] else { return nil }
+        decoding.insert(key)
         decodes += 1
         let files = disk.files
         decoder.async { [weak self] in
-            let image = ref.key.flatMap { files.readThumb(storage: ref.storage, key: $0) }.flatMap(Self.decodedImage(from:))
-            DispatchQueue.main.async { self?.decoded(image, for: id) }
+            let image = ref.key.flatMap { files.readThumb(storage: ref.storage, key: $0, index: picture) }
+                .flatMap(Self.decodedImage(from:))
+            DispatchQueue.main.async { self?.decoded(image, for: id, key: key) }
         }
         return nil
     }
 
-    private func decoded(_ image: NSImage?, for id: String) {
-        decoding.remove(id)
+    private func decoded(_ image: NSImage?, for id: String, key: String) {
+        decoding.remove(key)
         // A card deleted while its picture was being read stays deleted.
         guard contains(id) else { return }
         guard let image else {
             // Unless the copy's own thumbnail has landed since: it is
             // written after the card exists, and a read that lost the race
             // with it must not outlive it.
-            if thumbnails[id] == nil { thumbnailless.insert(id) }
+            if thumbnails[key] == nil { thumbnailless.insert(key) }
             return
         }
-        cache(image, for: id)
-        // A strip's worth of cards arrive within a few milliseconds of one
-        // another; one redraw takes them all.
+        cache(image, for: key)
+        refreshSoon()
+    }
+
+    /// A strip's worth of cards arrive within a few milliseconds of one
+    /// another; one redraw takes them all.
+    private func refreshSoon() {
         guard !refreshPending else { return }
         refreshPending = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
@@ -884,11 +1245,11 @@ final class ClipboardStore {
     }
 
     /// Most recently used last; the front falls off the end.
-    private func cache(_ image: NSImage, for id: String) {
-        thumbnailless.remove(id)
-        thumbnails[id] = image
-        thumbnailOrder.removeAll { $0 == id }
-        thumbnailOrder.append(id)
+    private func cache(_ image: NSImage, for key: String) {
+        thumbnailless.remove(key)
+        thumbnails[key] = image
+        thumbnailOrder.removeAll { $0 == key }
+        thumbnailOrder.append(key)
         while thumbnailOrder.count > Self.thumbnailLimit {
             thumbnails.removeValue(forKey: thumbnailOrder.removeFirst())
         }
@@ -1055,12 +1416,17 @@ final class ClipboardStore {
     /// The thumbnails dropped and the files of the clips unlinked, off the
     /// main thread.
     private func removeFiles(of ids: [String], storages: [String]) {
-        let gone = Set(ids)
-        for id in ids {
-            thumbnails[id] = nil
-            thumbnailless.remove(id)
+        let keys = Set(ids.flatMap { id in (0..<Clipboard.thumbnailedFiles).map { Self.thumbKey(id, $0) } })
+        for key in keys {
+            thumbnails[key] = nil
+            thumbnailless.remove(key)
         }
-        thumbnailOrder.removeAll { gone.contains($0) }
+        for id in ids {
+            presence[id] = nil
+            paths[id] = nil
+            presenceAsked.remove(id)
+        }
+        thumbnailOrder.removeAll { keys.contains($0) }
         let files = disk.files
         io.async { files.remove(storages: storages) }
     }
@@ -1107,6 +1473,7 @@ final class ClipboardStore {
         thumbnailOrder.removeAll()
         thumbnailless.removeAll()
         decoding.removeAll()
+        forgetFilePresence()
         unwritten.withLock { $0.removeAll() }
         phase = .closed
         io.async { [disk] in

@@ -261,9 +261,13 @@ final class ImageDoor {
     /// instead, which knows more. The kind shown is returned for the record.
     @discardableResult
     func show(file url: URL, kind copied: String?, caption text: String) -> Content {
-        let type = (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType
-            ?? copied.flatMap { UTType($0) }
-        switch Content.of(type) {
+        let values = try? url.resourceValues(forKeys: [.contentTypeKey, .ubiquitousItemDownloadingStatusKey])
+        let type = values?.contentType ?? copied.flatMap { UTType($0) }
+        // A file whose content is not on this Mac would be fetched by the
+        // read on this thread, and the app would wait on the network: the
+        // system's preview fetches it in its own process instead.
+        let here = !FileSense.dataless(url, values?.ubiquitousItemDownloadingStatus)
+        switch here ? Content.of(type) : .preview {
         case .image:
             if let (image, pixels) = Self.loadImage(at: url) {
                 show(image: image, pixels: pixels, caption: text, saves: false)

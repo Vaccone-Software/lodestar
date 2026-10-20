@@ -338,7 +338,7 @@ extension ConfigFile {
 
     private static let selectSection = section(Select.self, default: Select()) {
         Field("copy-on-complete", \.copyOnComplete, .bool,
-              doc: "Copy a completed span to the clipboard the moment its second anchor lands.")
+              doc: "Copy a completed span to the clipboard the moment its second anchor lands. Escape after only the first anchor copies that word.")
     }
     .readingNullAsEmpty()
 

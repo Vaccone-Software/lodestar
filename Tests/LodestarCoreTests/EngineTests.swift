@@ -47,6 +47,13 @@ final class WorldStub: EngineWorld {
         return selectCopyStep
     }
 
+    /// What the controller would say: copy-on-complete on, a start anchored.
+    var selectEscapeCopiesNow = false
+    var selectEscapeCopies: Bool { selectEscapeCopiesNow }
+    func selectEscapeCopy() {
+        calls.append("selectEscapeCopy")
+    }
+
     func resolveGraph(_ letters: [String]) -> GraphResolution {
         calls.append("resolve:\(letters.joined())")
         return graph[letters.joined()] ?? .miss

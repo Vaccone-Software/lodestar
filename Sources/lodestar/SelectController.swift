@@ -1407,9 +1407,30 @@ final class SelectController {
             flash("✕ Nothing is selected yet\n[⇧] and a letter selects, then [⌘][C] copies")
             return .pending
         }
+        return copy(anchor: anchor, via: nil)
+    }
+
+    /// Escape would take the anchored word: the switch is on, the anchor
+    /// door stands, and a start is placed with no far end. Anywhere else
+    /// Escape only leaves.
+    var escapeCopies: Bool {
+        guard copyOnComplete, door == .anchor, let anchor = core?.anchor else { return false }
+        return units.indices.contains(anchor.element)
+    }
+
+    /// Escape after the first anchor, with copy-on-complete on: the same
+    /// ending ⌘C reaches. The engine ends the mode whatever happens here,
+    /// so a word that moved is a quiet nothing rather than a flash on a
+    /// band that is leaving.
+    func copyOnEscape() {
+        guard escapeCopies, let anchor = core?.anchor else { return }
+        _ = copy(anchor: anchor, via: "escape")
+    }
+
+    private func copy(anchor: SelectCore.Match, via: String?) -> SelectStep {
         let span = gather([anchor])
         guard !span.text.isEmpty else {
-            flash("✕ That text moved before it was picked")
+            if via == nil { flash("✕ That text moved before it was picked") }
             return .pending
         }
         serve(span.text)
@@ -1417,8 +1438,12 @@ final class SelectController {
         // there is the same statement it always was — and the ending it
         // records is the one it actually reached, native or held.
         commit(pieces: [anchor])
-        Log.info("select", ["outcome": "anchor-copied",
-                            "chars": (span.text as NSString).length])
+        let chars = (span.text as NSString).length
+        if let via {
+            Log.info("select", ["outcome": "anchor-copied", "chars": chars, "via": via])
+        } else {
+            Log.info("select", ["outcome": "anchor-copied", "chars": chars])
+        }
         return .done
     }
 

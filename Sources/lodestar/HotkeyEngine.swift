@@ -2717,6 +2717,12 @@ extension HotkeyEngine: EngineWorld {
         select.copySelection()
     }
 
+    var selectEscapeCopies: Bool { select.escapeCopies }
+
+    func selectEscapeCopy() {
+        select.copyOnEscape()
+    }
+
     func selectKey(_ key: String, shift: Bool) -> SelectStep {
         select.key(key, shift: shift)
     }

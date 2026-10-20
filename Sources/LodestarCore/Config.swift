@@ -63,7 +63,8 @@ public struct Config {
     /// A completed span copies itself the moment its second anchor lands.
     /// The second capital is the grammar's full stop — nothing follows it —
     /// so copying there arbitrates nothing; the config line is the arbiter,
-    /// decided once, never at the moment of use.
+    /// decided once, never at the moment of use. Escape after the first
+    /// anchor alone takes that word the same way.
     public var selectCopyOnComplete = false
     /// A select search narrowed to exactly one match picks it without the
     /// capital. The capital there could only confirm — a keystroke with

@@ -206,8 +206,17 @@ final class FileDoorTests: XCTestCase {
         let fitted = clipView.bounds.origin.x
         ImageDoor.slide(scroller, "l", fast: false)
         XCTAssertEqual(clipView.bounds.origin.x, fitted, accuracy: 0.5, "fitted to the width, nowhere to go")
-        for _ in 0..<4 { ImageDoor.zoom(view, in: true) }
-        view.layoutDocumentView()
+        // Zoomed until the pages are wider than the room by several strides,
+        // so neither key meets an edge, where a move stops short by design.
+        // Four fixed steps were not enough on CI's display (2026-10-20): the
+        // pages came out barely wider than the room and `l` met the edge.
+        let document = try XCTUnwrap(scroller.documentView)
+        let stride = ImageDoor.moveStep * clipView.bounds.width / clipView.frame.width
+        for _ in 0..<40 where document.frame.width - clipView.bounds.width < stride * 4 {
+            ImageDoor.zoom(view, in: true)
+            view.layoutDocumentView()
+        }
+        XCTAssertGreaterThan(document.frame.width - clipView.bounds.width, stride * 3, "room to move both ways")
         let zoomed = clipView.bounds.origin.x
         ImageDoor.slide(scroller, "l", fast: false)
         XCTAssertGreaterThan(clipView.bounds.origin.x, zoomed, "zoomed in, l brings what is to the right")

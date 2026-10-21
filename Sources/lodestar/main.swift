@@ -1580,7 +1580,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// was not there at boot is said.
     private func stateSettled() {
         if store.isKnown {
-            parking.adopt(store.parkedSpots)
+            if actions != nil {
+                actions.rescueParkedWindows()
+            } else {
+                store.takeOverEarlierParks()
+                parking.adopt(store.parkedRecords)
+            }
             applyEditor(config)
         }
         if let warning = store.bootWarning, warning != stateWarningFlashed {

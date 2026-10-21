@@ -118,6 +118,11 @@ public final class WindowModel {
     public private(set) var focusedID: CGWindowID?
 
     public var onCreated: ((CGWindowID) -> Void)?
+    /// A window entered the model, including the ones the launch scan
+    /// finds. `onCreated` stays quiet for that scan; this does not, so a
+    /// window left in the corner by an earlier login can be recognized
+    /// as it appears.
+    public var onTracked: ((CGWindowID) -> Void)?
     public var onDestroyed: ((CGWindowID) -> Void)?
     public var onFocus: ((CGWindowID) -> Void)?
     public var onTitleChanged: ((CGWindowID) -> Void)?
@@ -586,6 +591,7 @@ public final class WindowModel {
         onTrace?("track id=\(id) \(window.appName) '\(window.title.prefix(30))' bundle=\(window.bundleID ?? "nil") subrole=\((reading?.subrole ?? "?").replacingOccurrences(of: "AX", with: "")) layer=\(CGWindows.layer(of: id).map(String.init) ?? "?")")
         watch(element, app: app, id: id)
         if !seeding { onCreated?(id) }
+        onTracked?(id)
         return id
     }
 
@@ -628,6 +634,7 @@ public final class WindowModel {
         idByElement[ElementKey(element: element)] = id
         onTrace?("revive id=\(id) \(window.appName) '\(window.title.prefix(30))' — a fresh element for a known window")
         watch(element, app: app, id: id)
+        onTracked?(id)
     }
 
     /// Dead records serve close-vs-hide judgment and history skipping for

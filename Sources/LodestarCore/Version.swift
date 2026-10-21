@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// Version identity — the single source of truth. make-app.sh stamps the
@@ -68,6 +69,61 @@ public enum Lodestar {
             return recorded == bootSession
         }
         return abs(now - then) < 120
+    }
+
+    /// Identifies this login, for state whose window ids must not outlive it.
+    ///
+    /// A `CGWindowID` is recycled when the window server starts, which is a
+    /// login, not a reboot: `kern.boottime` stays put across a logout, so a
+    /// parked id read back after one can name a different window. The
+    /// console's login time is the same for a relaunch — a crash, a kill,
+    /// the successor a self-update starts — and a different one after the
+    /// next login. When the console record cannot be read, the boot stands
+    /// in, which is the coarser answer this used before.
+    public static let loginSession: String = {
+        if let login = consoleLoginSeconds() { return "login:\(login)" }
+        return "boot:\(bootSession)"
+    }()
+
+    /// Whether parked window ids recorded as `session` still name this
+    /// login's windows.
+    ///
+    /// A login id matches exactly. A bare boot time is what an older build
+    /// wrote: it still names this login while this boot is that one, and
+    /// the next save rewrites it as a login id so a logout cannot inherit it.
+    public static func parksBelongToThisLogin(_ session: String?) -> Bool {
+        guard let session, !session.isEmpty, session != "unknown" else { return false }
+        if session == loginSession { return true }
+        if session.hasPrefix("login:") || session.hasPrefix("boot:") { return false }
+        return isCurrentBootSession(session)
+    }
+
+    /// The GUI login's start, in seconds, from the console's utmpx record.
+    private static func consoleLoginSeconds() -> Int? {
+        setutxent()
+        defer { endutxent() }
+        var latest: Int?
+        while let entry = getutxent() {
+            // Copy before reading fields. The next `getutxent` reuses the
+            // pointer the library just handed back.
+            var record = entry.pointee
+            guard Int(record.ut_type) == Int(USER_PROCESS) else { continue }
+            guard cString(of: &record) == "console" else { continue }
+            let seconds = Int(record.ut_tv.tv_sec)
+            if let known = latest, seconds <= known { continue }
+            latest = seconds
+        }
+        return latest
+    }
+
+    /// `ut_line` is a fixed C char array. Stop at the terminator, or at the
+    /// end of the array when the terminator is missing.
+    private static func cString(of record: inout utmpx) -> String {
+        withUnsafeBytes(of: &record.ut_line) { raw in
+            let bytes = Array(raw)
+            let end = bytes.firstIndex(of: 0) ?? bytes.count
+            return String(decoding: bytes[..<end], as: UTF8.self)
+        }
     }
 }
 

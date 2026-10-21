@@ -7,10 +7,11 @@ final class ParkingTests: XCTestCase {
     private final class Mover: WindowMoving {
         var positions: [(id: CGWindowID, point: CGPoint)] = []
         var frames: [(id: CGWindowID, frame: CGRect)] = []
+        var acceptFrames = true
 
         func setFrame(_ window: WindowModel.Window, _ frame: CGRect) -> Bool {
             frames.append((window.id, frame))
-            return true
+            return acceptFrames
         }
 
         func setPosition(_ window: WindowModel.Window, _ point: CGPoint) -> Bool {
@@ -139,5 +140,118 @@ final class ParkingTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(restored!.width, 320)
         XCTAssertGreaterThanOrEqual(restored!.height, 240)
         XCTAssertTrue(main.contains(restored!))
+    }
+
+    /// The move was refused. The window is still the sliver, and the only
+    /// way back is the frame the park recorded — dropping it here is what
+    /// left the sliver with nothing that knew where it came from.
+    func testARefusedUnparkKeepsTheFrameAndCanBeRetried() {
+        let mover = Mover()
+        mover.acceptFrames = false
+        let lot = ParkingLot(mover: mover, bounds: { [self.main] })
+        let frame = CGRect(x: 100, y: 100, width: 400, height: 300)
+        let w = window(10, frame: frame)
+
+        XCTAssertTrue(lot.park(w))
+        XCTAssertFalse(lot.unpark(w))
+        XCTAssertEqual(lot.snapshot()[10], frame, "a refused restore must keep the way back")
+
+        mover.acceptFrames = true
+        XCTAssertTrue(lot.unpark(w))
+        XCTAssertFalse(lot.isParked(10))
+        XCTAssertEqual(mover.frames.last?.frame, frame)
+    }
+
+    // MARK: - An earlier login's slivers
+
+    private func parked(_ title: String, frame: CGRect,
+                        bundle: String = "com.example.slack", app: String = "Slack") -> ParkedWindow {
+        ParkedWindow(frame: frame, bundleID: bundle, appName: app, title: title)
+    }
+
+    private func sliver(_ id: CGWindowID, title: String, yOffset: CGFloat = 0,
+                        bundle: String = "com.example.slack", app: String = "Slack") -> ParkingLot.Candidate {
+        let park = ParkingLot.parkPosition(on: main)
+        return ParkingLot.Candidate(id: id,
+                                   frame: CGRect(x: park.x, y: park.y + yOffset, width: 800, height: 600),
+                                   bundleID: bundle, appName: app, title: title)
+    }
+
+    func testReattachGivesACornerSliverItsOwnFrame() {
+        let home = CGRect(x: 40, y: 40, width: 500, height: 400)
+        let matched = ParkingLot.reattach(
+            [parked("general", frame: home)],
+            onto: [sliver(7, title: "general"),
+                   ParkingLot.Candidate(id: 8, frame: CGRect(x: 10, y: 10, width: 500, height: 400),
+                                        bundleID: "com.example.slack", appName: "Slack", title: "general")],
+            displays: [main])
+        XCTAssertEqual(matched[7]?.frame, home, "the window still in the corner gets its frame back")
+        XCTAssertNil(matched[8], "a window that is not a sliver is not the parked one")
+    }
+
+    func testReattachDoesNotGuessWhenSeveralSliversShareATitle() {
+        let one = CGRect(x: 1, y: 1, width: 200, height: 200)
+        let two = CGRect(x: 2, y: 2, width: 300, height: 300)
+        let matched = ParkingLot.reattach(
+            [parked("general", frame: one), parked("general", frame: two)],
+            onto: [sliver(7, title: "general")],
+            displays: [main])
+        XCTAssertTrue(matched.isEmpty, "one sliver and two frames is a guess, and a guess moves the wrong window")
+    }
+
+    func testReattachPairsEqualSameTitleSliversInAStableOrder() {
+        let one = CGRect(x: 1, y: 1, width: 200, height: 200)
+        let two = CGRect(x: 9, y: 9, width: 300, height: 300)
+        let matched = ParkingLot.reattach(
+            [parked("", frame: two), parked("", frame: one)],
+            onto: [sliver(4, title: ""), sliver(2, title: "")],
+            displays: [main])
+        XCTAssertEqual(Set(matched.keys), [2, 4])
+        XCTAssertEqual(Set(matched.values.map(\.frame)), [one, two])
+        // Frames sorted by origin, windows by id: the lower id takes the
+        // frame that sorts first.
+        XCTAssertEqual(matched[2]?.frame, one)
+        XCTAssertEqual(matched[4]?.frame, two)
+    }
+
+    func testReattachKeepsDifferentTitlesApart() {
+        let general = CGRect(x: 10, y: 10, width: 400, height: 300)
+        let random = CGRect(x: 20, y: 20, width: 500, height: 400)
+        let matched = ParkingLot.reattach(
+            [parked("general", frame: general), parked("random", frame: random)],
+            onto: [sliver(1, title: "random"), sliver(2, title: "general")],
+            displays: [main])
+        XCTAssertEqual(matched[2]?.frame, general)
+        XCTAssertEqual(matched[1]?.frame, random)
+    }
+
+    /// A browser title changes while the window is a sliver. With one
+    /// window of that app in the corner and one frame saved for it, the
+    /// title is not what says which window it is.
+    func testReattachMatchesTheOnlyWindowOfAnAppWhenItsTitleChanged() {
+        let home = CGRect(x: 30, y: 30, width: 640, height: 480)
+        let matched = ParkingLot.reattach(
+            [parked("Inbox (3)", frame: home)],
+            onto: [sliver(5, title: "Inbox (4)")],
+            displays: [main])
+        XCTAssertEqual(matched[5]?.frame, home)
+    }
+
+    func testAFrameWithNoAppIsNotAimedAtALiveWindow() {
+        let nameless = ParkedWindow(frame: CGRect(x: 1, y: 1, width: 20, height: 20),
+                                    bundleID: nil, appName: "", title: "")
+        let matched = ParkingLot.reattach([nameless], onto: [sliver(1, title: "")], displays: [main])
+        XCTAssertTrue(matched.isEmpty)
+    }
+
+    func testACornerIsTheParkPositionWithinTheTitleBarClamp() {
+        let park = ParkingLot.parkPosition(on: main)
+        XCTAssertTrue(ParkingLot.isParkedCorner(
+            CGRect(x: park.x, y: park.y - 40, width: 800, height: 600), on: [main]))
+        XCTAssertFalse(ParkingLot.isParkedCorner(
+            CGRect(x: park.x - 30, y: park.y, width: 800, height: 600), on: [main]),
+                       "a window merely near the edge was placed there")
+        XCTAssertFalse(ParkingLot.isParkedCorner(
+            CGRect(x: park.x, y: park.y - 120, width: 800, height: 600), on: [main]))
     }
 }

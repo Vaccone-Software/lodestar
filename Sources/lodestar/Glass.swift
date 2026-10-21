@@ -233,24 +233,25 @@ enum Accessibility {
 final class CeramicPane: NSView {
     var weight: Glass.Weight { didSet { if weight != oldValue { repaint() } } }
     let radius: CGFloat
-    /// The polished edge: a line along the top, clipped to the pane's own
-    /// corners, so it thins into the curve where the pane turns away from
-    /// the light.
-    private let rim = CALayer()
+    /// The pane's edge, drawn above everything the surface holds: its
+    /// hairline and the polished rim along its top. Content that fills a
+    /// pane edge to edge (a picture, a tile) would cover an edge drawn in
+    /// the pane's own layer, which stands under the content.
+    let edge: PaneEdge
     /// The pane's own edge, unless the object it stands in draws one.
     var drawsEdge = true { didSet { if drawsEdge != oldValue { repaint() } } }
 
-    static let rimHeight: CGFloat = 1.5
-    static let edgeWidth: CGFloat = 0.5
+    static let rimHeight: CGFloat = PaneEdge.rimHeight
+    static let edgeWidth: CGFloat = PaneEdge.edgeWidth
 
     init(radius: CGFloat, weight: Glass.Weight = .normal) {
         self.radius = radius
         self.weight = weight
+        edge = PaneEdge(radius: radius)
         super.init(frame: .zero)
         wantsLayer = true
         layer?.masksToBounds = true
         layer?.cornerRadius = radius
-        layer?.addSublayer(rim)
         paint()
     }
 
@@ -266,6 +267,22 @@ final class CeramicPane: NSView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         repaint()
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        edge.removeFromSuperview()
+        guard let superview else { return }
+        // Above whatever is there now, and by its depth above whatever is
+        // added later, which a sibling's order alone would not hold.
+        edge.translatesAutoresizingMaskIntoConstraints = false
+        superview.addSubview(edge, positioned: .above, relativeTo: nil)
+        NSLayoutConstraint.activate([
+            edge.topAnchor.constraint(equalTo: topAnchor),
+            edge.bottomAnchor.constraint(equalTo: bottomAnchor),
+            edge.leadingAnchor.constraint(equalTo: leadingAnchor),
+            edge.trailingAnchor.constraint(equalTo: trailingAnchor),
+        ])
     }
 
     override func viewDidMoveToWindow() {
@@ -286,8 +303,6 @@ final class CeramicPane: NSView {
     private func place() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        rim.frame = CGRect(x: 0, y: max(0, bounds.height - Self.rimHeight), width: bounds.width,
-                           height: Self.rimHeight)
         // A surface shorter than twice its rounding is a stadium.
         layer?.cornerRadius = min(radius, min(bounds.width, bounds.height) / 2)
         CATransaction.commit()
@@ -303,10 +318,71 @@ final class CeramicPane: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layer.backgroundColor = Glass.resolved(weight.fill, in: self)
-        layer.borderWidth = drawsEdge ? Self.edgeWidth : 0
-        layer.borderColor = drawsEdge ? Glass.resolved(BarTheme.hairline, in: self) : nil
+        CATransaction.commit()
+        edge.paint(border: drawsEdge, rim: weight != .faint, in: self)
+    }
+}
+
+/// The edge of a ceramic pane: a half-point hairline and the polished rim
+/// catching the one light along the top, clipped to the pane's own corners
+/// so it thins into the curve where the pane turns away from the light. It
+/// is a view of its own, standing above the surface's content, and takes no
+/// pointer.
+final class PaneEdge: NSView {
+    private let rim = CALayer()
+    private let radius: CGFloat
+
+    static let rimHeight: CGFloat = 1.5
+    static let edgeWidth: CGFloat = 0.5
+
+    init(radius: CGFloat) {
+        self.radius = radius
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.masksToBounds = true
+        layer?.cornerRadius = radius
+        layer?.zPosition = 1000
+        layer?.addSublayer(rim)
+        setAccessibilityElement(false)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func layout() {
+        super.layout()
+        place()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        place()
+    }
+
+    /// The rim is a layer, the hairline the view's own border; what each is
+    /// coloured is read in the pane's look, the look this edge stands in.
+    var rimColor: CGColor? { rim.backgroundColor }
+    var hairlineWidth: CGFloat { layer?.borderWidth ?? 0 }
+    var hairlineColor: CGColor? { layer?.borderColor }
+    var rimFrame: CGRect { rim.frame }
+
+    private func place() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        rim.frame = CGRect(x: 0, y: max(0, bounds.height - Self.rimHeight), width: bounds.width,
+                           height: Self.rimHeight)
+        layer?.cornerRadius = min(radius, min(bounds.width, bounds.height) / 2)
+        CATransaction.commit()
+    }
+
+    func paint(border: Bool, rim shows: Bool, in pane: NSView) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.borderWidth = border ? Self.edgeWidth : 0
+        layer?.borderColor = border ? Glass.resolved(BarTheme.hairline, in: pane) : nil
         // A place sunk in the surface catches no light on its rim.
-        rim.backgroundColor = weight == .faint ? nil : Glass.resolved(BarTheme.polishedRim, in: self)
+        rim.backgroundColor = shows ? Glass.resolved(BarTheme.polishedRim, in: pane) : nil
         CATransaction.commit()
     }
 }

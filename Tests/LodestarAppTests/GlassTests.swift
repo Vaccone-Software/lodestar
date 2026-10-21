@@ -35,8 +35,8 @@ final class GlassTests: XCTestCase {
             XCTAssertEqual(fill, steps.pane.color.usingColorSpace(.sRGB), "the look's pane: \(look.rawValue)")
             XCTAssertEqual(fill?.alphaComponent, 1, "opaque: nothing of the desktop shows through")
             XCTAssertEqual(pane.layer?.cornerRadius, BarTheme.surfaceRadius)
-            XCTAssertEqual(pane.layer?.borderWidth, 0.5, "a half-point hairline for its edge")
-            XCTAssertEqual(rgb(pane.layer?.borderColor)?.alphaComponent ?? 0, CGFloat(steps.hairlineAlpha), accuracy: 0.001)
+            XCTAssertEqual(pane.edge.hairlineWidth, 0.5, "a half-point hairline for its edge")
+            XCTAssertEqual(rgb(pane.edge.hairlineColor)?.alphaComponent ?? 0, CGFloat(steps.hairlineAlpha), accuracy: 0.001)
             _ = window
         }
     }
@@ -44,13 +44,12 @@ final class GlassTests: XCTestCase {
     func testThePolishedRimCatchesTheLightAlongTheTop() throws {
         let (day, dayPane) = paneInAWindow(.aqua)
         let (night, nightPane) = paneInAWindow(.darkAqua)
-        let rim = try XCTUnwrap(dayPane.layer?.sublayers?.first, "the rim is a layer of the pane")
-        XCTAssertEqual(rim.frame.height, 1.5)
-        XCTAssertEqual(rim.frame.maxY, dayPane.bounds.height, "along the top edge")
-        XCTAssertEqual(rgb(rim.backgroundColor), NSColor.white.usingColorSpace(.sRGB), "white by day")
-        let nightRim = try XCTUnwrap(nightPane.layer?.sublayers?.first)
-        XCTAssertEqual(rgb(nightRim.backgroundColor)?.alphaComponent ?? 0, 0.10, accuracy: 0.001, "a tenth at night")
-        XCTAssertEqual(dayPane.layer?.masksToBounds, true, "clipped to the pane's own corners")
+        dayPane.edge.layoutSubtreeIfNeeded()
+        XCTAssertEqual(dayPane.edge.rimFrame.height, 1.5)
+        XCTAssertEqual(dayPane.edge.rimFrame.maxY, dayPane.edge.bounds.height, "along the top edge")
+        XCTAssertEqual(rgb(dayPane.edge.rimColor), NSColor.white.usingColorSpace(.sRGB), "white by day")
+        XCTAssertEqual(rgb(nightPane.edge.rimColor)?.alphaComponent ?? 0, 0.10, accuracy: 0.001, "a tenth at night")
+        XCTAssertEqual(dayPane.edge.layer?.masksToBounds, true, "clipped to the pane's own corners")
         _ = (day, night)
     }
 
@@ -98,8 +97,24 @@ final class GlassTests: XCTestCase {
 
     func testASunkSlotCatchesNoLightOnItsRim() throws {
         let (window, pane) = paneInAWindow(.aqua, weight: .faint)
-        XCTAssertNil(pane.layer?.sublayers?.first?.backgroundColor, "a place you put something is not a thing the light falls on")
+        XCTAssertNil(pane.edge.rimColor, "a place you put something is not a thing the light falls on")
         _ = window
+    }
+
+    /// Content that fills a pane edge to edge (a picture, a tile) covers an
+    /// edge drawn under it, so the edge is a view above the content, whenever
+    /// the content was added.
+    func testThePanesEdgeStandsAboveContentAddedAfterIt() throws {
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 60))
+        let pane = try XCTUnwrap(Glass.installBackdrop(in: root, cornerRadius: 18) as? CeramicPane)
+        let picture = NSView(frame: root.bounds)
+        picture.wantsLayer = true
+        root.addSubview(picture)
+        XCTAssertTrue(pane.edge.superview === root, "beside the content, not under it")
+        XCTAssertGreaterThan(pane.edge.layer?.zPosition ?? 0, picture.layer?.zPosition ?? 0, "and above what came later")
+        XCTAssertNil(pane.edge.hitTest(NSPoint(x: 50, y: 30)), "it takes no pointer")
+        pane.removeFromSuperview()
+        XCTAssertNil(pane.edge.superview, "it goes with its pane")
     }
 
     func testAPaneStandingInAnObjectLeavesTheEdgeToIt() {

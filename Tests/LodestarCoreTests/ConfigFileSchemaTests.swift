@@ -33,6 +33,7 @@ final class ConfigFileSchemaTests: XCTestCase {
             ]),
             "scroll": .table(["smooth": .bool(true), "speed": .int(1800), "step": .int(60)]),
             "select": .table(["copy-on-complete": .bool(false)]),
+            "appearance": .table(["eye-comfort": .bool(true)]),
             "draft": .table(["input": .string(""), "model": .string(""), "words": .table([:])]),
             "clipboard": .table([
                 "enabled": .bool(true), "max-size-mb": .int(500), "save-to": .string("~/Downloads"),
@@ -76,7 +77,7 @@ final class ConfigFileSchemaTests: XCTestCase {
     /// emitter never listed come last, alphabetically.
     func testTheSectionsAreDeclaredInTheOrderOfTheFile() {
         let root = ConfigSchemaWalk.objects().first { $0.path.isEmpty }!.object
-        XCTAssertEqual(root.fields.map(\.key), ConfigStore.sectionOrder + ["draft", "health"])
+        XCTAssertEqual(root.fields.map(\.key), ConfigStore.sectionOrder + ["appearance", "draft", "health"])
     }
 
 
@@ -85,7 +86,7 @@ final class ConfigFileSchemaTests: XCTestCase {
     /// for byte.
     func testEverySectionDeclaresItsFieldsAlphabetically() {
         let sections = ConfigSchemaWalk.objects().filter { !$0.path.isEmpty }
-        XCTAssertGreaterThan(sections.count, 14)
+        XCTAssertGreaterThan(sections.count, 15)
         for (path, object) in sections {
             let keys = object.fields.map(\.key)
             XCTAssertEqual(keys, keys.sorted(), "\(path.joined(separator: ".")) is not alphabetical")

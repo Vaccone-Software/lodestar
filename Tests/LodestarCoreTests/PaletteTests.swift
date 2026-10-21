@@ -105,13 +105,17 @@ final class PaletteTests: XCTestCase {
         }
     }
 
-    /// The retired section is not written back: the next canonical write
-    /// leaves it out, so the key is gone from the file, not only ignored.
-    func testTheRetiredSectionIsNotWrittenBack() throws {
-        let tree = try JSONDocument(parsing: #"{"appearance": {"accent": "orange"}, "scroll": {"speed": 2500}}"#,
-                                    options: .strict).value
+    /// The retired choices are not written back: the next canonical write
+    /// leaves them out, so the key is gone from the file, not only ignored,
+    /// while the section's one live setting stays where it is.
+    func testTheRetiredKeysAreNotWrittenBack() throws {
+        let tree = try JSONDocument(
+            parsing: #"{"appearance": {"accent": "orange", "background": "lodestone", "eye-comfort": false}, "scroll": {"speed": 2500}}"#,
+            options: .strict).value
         let normalized = ConfigFile.schema.normalized(tree)
-        XCTAssertNil(normalized.value(at: JSONPath([.key("appearance")])), "the section is dropped")
+        XCTAssertNil(normalized.value(at: JSONPath([.key("appearance"), .key("accent")])), "the accent is dropped")
+        XCTAssertNil(normalized.value(at: JSONPath([.key("appearance"), .key("background")])), "and so is the background")
+        XCTAssertEqual(normalized.value(at: JSONPath([.key("appearance"), .key("eye-comfort")])), .bool(false))
         XCTAssertNotNil(normalized.value(at: JSONPath([.key("scroll"), .key("speed")])))
     }
 }

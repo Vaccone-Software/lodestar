@@ -329,15 +329,23 @@ final class SettingsCoverageTests: XCTestCase {
     }
 
     /// Lodestar is International Orange and nothing else: no accent row, and
-    /// nothing on the appearance side of the config to set.
-    func testThereIsNoAccentRowAndNoAppearanceSetting() {
+    /// on the appearance side of the config only Eye comfort, a switch in
+    /// Sound and display.
+    func testThereIsNoAccentRowAndEyeComfortIsTheOneAppearanceSetting() {
         let sections = SettingsModel.catalog(config: Config(), machine: .init())
         let paths = sections.flatMap { $0.rows }.compactMap { $0.path }
-        XCTAssertEqual(paths.filter { $0.hasPrefix("appearance.") }, [],
-                       "an appearance setting may change how Lodestar looks, never what it asks; none has passed the sentence")
+        XCTAssertEqual(paths.filter { $0.hasPrefix("appearance.") }, ["appearance.eye-comfort"],
+                       "an appearance setting may change how Lodestar looks, never what it asks; this one has passed the sentence")
         XCTAssertFalse(sections.flatMap { $0.rows }.contains { $0.title == "Accent" })
         let general = sections.first { $0.name == "General" }!
         XCTAssertEqual(general.rows.compactMap(\.letter).prefix(4), ["a", "b", "c", "d"], "the letters stay one per row, in reading order")
+        let eye = general.rows.first { $0.path == "appearance.eye-comfort" }
+        XCTAssertEqual(eye?.title, "Eye comfort")
+        XCTAssertEqual(eye?.group, "Sound and display")
+        XCTAssertNotNil(eye?.letter, "a row has its key like the rest")
+        XCTAssertEqual(eye?.detail, "Lodestar adjusts its own surfaces through the day to be easier on your eyes: dimmer and softer after sunset, dark at bedtime, and quieter when you're not using them. What you copy and view is never changed")
+        if case .toggle(let on)? = eye?.control { XCTAssertTrue(on, "on by default") } else { XCTFail("one switch") }
+        XCTAssertEqual(eye?.isDefault, true)
     }
 
     func testTheRetiredInteractionSwitchesAreGone() {

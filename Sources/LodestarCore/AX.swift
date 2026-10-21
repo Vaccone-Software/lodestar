@@ -38,28 +38,71 @@ public enum AX {
     }
 
     public static func element(_ element: AXUIElement, _ attribute: String) -> AXUIElement? {
-        guard let value = copy(element, attribute), CFGetTypeID(value) == AXUIElementGetTypeID() else {
-            return nil
-        }
-        return (value as! AXUIElement)
+        guard let value = copy(element, attribute) else { return nil }
+        return AX.element(value)
+    }
+
+    /// An element the other app actually returned. The type tag is
+    /// checked and then Swift's cast: a string or a number where an
+    /// element was promised used to abort this process, and the event
+    /// tap with it. A miss is skipped.
+    public static func element(_ value: CFTypeRef) -> AXUIElement? {
+        guard CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
+        return value as? AXUIElement
     }
 
     public static func point(_ element: AXUIElement, _ attribute: String) -> CGPoint? {
-        guard let value = copy(element, attribute), CFGetTypeID(value) == AXValueGetTypeID() else {
-            return nil
-        }
+        guard let value = copy(element, attribute) else { return nil }
+        return point(value)
+    }
+
+    /// A point boxed as an accessibility value, or nil when the box is a
+    /// different type or a different shape.
+    public static func point(_ value: CFTypeRef) -> CGPoint? {
+        guard let ax = axValue(value) else { return nil }
         var point = CGPoint.zero
-        guard AXValueGetValue(value as! AXValue, .cgPoint, &point) else { return nil }
+        guard AXValueGetValue(ax, .cgPoint, &point) else { return nil }
         return point
     }
 
     public static func size(_ element: AXUIElement, _ attribute: String) -> CGSize? {
-        guard let value = copy(element, attribute), CFGetTypeID(value) == AXValueGetTypeID() else {
-            return nil
-        }
+        guard let value = copy(element, attribute) else { return nil }
+        return size(value)
+    }
+
+    /// A size boxed as an accessibility value, or nil when the box is a
+    /// different type or a different shape.
+    public static func size(_ value: CFTypeRef) -> CGSize? {
+        guard let ax = axValue(value) else { return nil }
         var size = CGSize.zero
-        guard AXValueGetValue(value as! AXValue, .cgSize, &size) else { return nil }
+        guard AXValueGetValue(ax, .cgSize, &size) else { return nil }
         return size
+    }
+
+    /// A rectangle boxed as an accessibility value, or nil when the box
+    /// is a different type or a different shape.
+    public static func rect(_ value: CFTypeRef) -> CGRect? {
+        guard let ax = axValue(value) else { return nil }
+        var rect = CGRect.zero
+        guard AXValueGetValue(ax, .cgRect, &rect) else { return nil }
+        return rect
+    }
+
+    /// A text range boxed as an accessibility value, or nil when the box
+    /// is a different type or a different shape.
+    public static func range(_ value: CFTypeRef) -> CFRange? {
+        guard let ax = axValue(value) else { return nil }
+        var range = CFRange()
+        guard AXValueGetValue(ax, .cfRange, &range) else { return nil }
+        return range
+    }
+
+    /// An `AXValue`, or nil. Both the type tag and Swift's cast have to
+    /// agree: `as!` traps when an app returns another type, including
+    /// when the tag and the cast disagree.
+    private static func axValue(_ value: CFTypeRef) -> AXValue? {
+        guard CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        return value as? AXValue
     }
 
     @discardableResult

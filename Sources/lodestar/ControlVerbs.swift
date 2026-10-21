@@ -52,7 +52,10 @@ struct ControlVerbs {
 
     /// The same calls the keys make, so a scripted draft is the draft a
     /// hand would get. `type` spells its text through the key table, one
-    /// press per character, shift where the character needs it.
+    /// press per character, shift where the character needs it. The draft
+    /// may already be in normal mode — after escape — so the text is
+    /// entered in insert first. A newline is shift-return, and that key
+    /// is a line break once insert mode is where the characters land.
     private func runDraft(_ verb: DraftVerb) -> [String: Any] {
         guard let draft = draft() else { return ["ok": false, "error": "the draft is not wired"] }
         switch verb {
@@ -65,11 +68,8 @@ struct ControlVerbs {
         case .state:
             break
         case .type(let text):
-            for character in text {
-                guard let press = Self.press(for: character) else {
-                    return ["ok": false, "error": "no key types '\(character)'"]
-                }
-                _ = draft.handleKey(press.key, shift: press.shift, command: false, option: false, control: false)
+            if let error = Self.type(text, into: draft) {
+                return ["ok": false, "error": error]
             }
         case .key(let name, let shift):
             guard Keys.isValidName(name) || ["return", "escape", "delete", "space", "tab", "left", "right", "up", "down"].contains(name) else {
@@ -94,6 +94,8 @@ struct ControlVerbs {
                 }
             }
         }
+        // Shift-return. Plain return commits, in insert and in normal, so a
+        // newline in this string must send the key that breaks the line.
         out["\n"] = ("return", true)
         out[" "] = ("space", false)
         return out
@@ -101,6 +103,18 @@ struct ControlVerbs {
 
     private static func press(for character: Character) -> (key: String, shift: Bool)? {
         presses[character]
+    }
+
+    /// Spell `text` into the draft. Nil when every character had a key.
+    static func type(_ text: String, into draft: DraftController) -> String? {
+        draft.prepareToTypeText()
+        for character in text {
+            guard let press = press(for: character) else {
+                return "no key types '\(character)'"
+            }
+            _ = draft.handleKey(press.key, shift: press.shift, command: false, option: false, control: false)
+        }
+        return nil
     }
 
     // MARK: - go

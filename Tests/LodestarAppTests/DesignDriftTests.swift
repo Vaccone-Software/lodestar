@@ -258,10 +258,13 @@ final class DesignDriftTests: XCTestCase {
         XCTAssertEqual(offenders, [], "use BarTheme.motion")
     }
 
-    /// Grey matter is a well or a hairline (`BarTheme.well`,
-    /// `BarTheme.hairline`), never an opacity chosen where it is drawn.
-    /// What remains inline is not matter: a selection's wash over text, a
-    /// caret, and the overview's ring, tuned per look.
+    /// Depth is by role (Ceramic): what you press stands up with a side (a
+    /// key, the slab, a switch's knob), a place you put something sinks (a
+    /// field, Keep's empty keepsake: `BarTheme.well`), and everything else is
+    /// flat, set off by a hairline at most (`BarTheme.hairline`). Grey
+    /// matter is one of those two, never an opacity chosen where it is
+    /// drawn. What remains inline is not matter: a selection's wash over
+    /// text, a caret, and the overview's ring, tuned per look.
     func testGreyMatterIsAWellOrAHairline() throws {
         let notMatter: [String: Int] = [
             "DraftPanel.swift": 1,      // the draft's selection

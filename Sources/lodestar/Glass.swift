@@ -1329,8 +1329,14 @@ final class ChoiceMenuItemView: NSView {
 
 final class AccentSwitch: NSControl {
     private let track = CALayer()
+    /// The knob is a thing you press, so it stands up: a ceramic face on a
+    /// side, as a key does, never a shadow.
     private let knob = CALayer()
+    private let knobFace = CALayer()
+    private let knobSide = CALayer()
     static let size = NSSize(width: 30, height: 17)
+    /// How far the knob's side shows below its face.
+    static let knobSideHeight: CGFloat = 1.5
 
     var state: NSControl.StateValue = .off {
         didSet { paint() }
@@ -1343,12 +1349,11 @@ final class AccentSwitch: NSControl {
         wantsLayer = true
         layer?.masksToBounds = false
         track.cornerRadius = Self.size.height / 2
-        knob.cornerRadius = (Self.size.height - 4) / 2
-        knob.backgroundColor = NSColor.white.cgColor
-        knob.shadowColor = NSColor.black.withAlphaComponent(0.35).cgColor
-        knob.shadowOpacity = 1
-        knob.shadowRadius = 1.5
-        knob.shadowOffset = CGSize(width: 0, height: -0.5)
+        let diameter = Self.size.height - 4
+        for part in [knobSide, knobFace] {
+            part.cornerRadius = diameter / 2
+            knob.addSublayer(part)
+        }
         layer?.addSublayer(track)
         layer?.addSublayer(knob)
         setAccessibilityElement(true)
@@ -1381,6 +1386,8 @@ final class AccentSwitch: NSControl {
         let on = state == .on
         let tint = Glass.resolved(on ? BarTheme.accent : BarTheme.ink.withAlphaComponent(0.22), in: self)
         let knobSize = Self.size.height - 4
+        let knobFaceColor = Glass.resolved(BarTheme.keyFace, in: self)
+        let knobSideColor = Glass.resolved(BarTheme.keySide, in: self)
         let knobFrame = NSRect(x: on ? bounds.width - knobSize - 2 : 2, y: 2, width: knobSize, height: knobSize)
         let fromPosition = knob.presentation()?.position ?? knob.position
         let fromTint = track.presentation()?.backgroundColor ?? track.backgroundColor
@@ -1389,6 +1396,10 @@ final class AccentSwitch: NSControl {
         track.frame = bounds
         track.backgroundColor = tint
         knob.frame = knobFrame
+        knobFace.frame = knob.bounds
+        knobSide.frame = knob.bounds.offsetBy(dx: 0, dy: -Self.knobSideHeight)
+        knobFace.backgroundColor = knobFaceColor
+        knobSide.backgroundColor = knobSideColor
         layer?.opacity = isEnabled ? 1 : 0.45
         CATransaction.commit()
         // A layout pass leaves a running slide alone; only a new slide

@@ -408,6 +408,25 @@ final class AccentSwitchTests: XCTestCase {
         XCTAssertEqual(sink.fired, 1)
     }
 
+    /// A switch's knob is a thing you press, so it stands on a side like a
+    /// key does, in the same ceramic, and casts no shadow.
+    func testTheKnobStandsOnASideLikeAKey() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 60, height: 40), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        let toggle = AccentSwitch(frame: .zero)
+        window.contentView?.addSubview(toggle)
+        window.contentView?.layoutSubtreeIfNeeded()
+        let knob = toggle.layer!.sublayers![1]
+        XCTAssertEqual(knob.shadowOpacity, 0, "no shadow: the side is what stands")
+        let parts = try XCTUnwrap(knob.sublayers)
+        XCTAssertEqual(parts.count, 2, "a side and a face")
+        XCTAssertEqual(parts[0].frame.minY, -AccentSwitch.knobSideHeight, accuracy: 0.01, "the side hangs below the face")
+        func rgb(_ c: CGColor?) -> NSColor? { c.flatMap(NSColor.init(cgColor:))?.usingColorSpace(.sRGB) }
+        XCTAssertEqual(rgb(parts[1].backgroundColor), BarTheme.palette.keyFace.color.usingColorSpace(.sRGB), "the key's own face")
+        XCTAssertEqual(rgb(parts[0].backgroundColor), BarTheme.palette.keySide.color.usingColorSpace(.sRGB), "and side")
+        _ = window
+    }
+
     func testItSpeaksAsACheckBox() {
         let toggle = AccentSwitch(frame: .zero)
         XCTAssertEqual(toggle.accessibilityRole(), .checkBox)

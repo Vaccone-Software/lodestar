@@ -517,19 +517,38 @@ enum BarTheme {
         static let input: CGFloat = 23
     }
 
-    /// The three faces, one per speaker. The interface speaks in the
-    /// system's sans. The hand speaks in mono: whatever the person types
-    /// or says wears it, in every field, in the draft, and in the pill's
-    /// echo of an aim or a search. Lodestar speaks in New York, below.
-    /// A face is never borrowed: a label is never mono, a fact is never
-    /// serif, and the hand's words are never sans.
+    /// One family: the system's sans, for every word Lodestar draws and
+    /// every word the person types into it. Lodestar no longer speaks in a
+    /// serif, and a label, a fact and a field are never in a face of their
+    /// own. The one other face is the hand's mono, which is only for the
+    /// draft and the editor's lens, where Vim-style motions edit text a
+    /// character at a time and the columns have to line up.
     static func handFont(_ size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
         NSFont.monospacedSystemFont(ofSize: size, weight: weight)
     }
-    static let inputFont = handFont(Scale.input)
+
+    /// The weight a face is set in: the weight asked for by day, and one
+    /// step heavier at night, because light type on a dark ground blooms
+    /// and thins to the eye at the weight that sits right on a light one.
+    /// Only the weights the theme picks centrally go through here; a face
+    /// built from the system directly keeps the one it was given.
+    static func weight(_ day: NSFont.Weight, dark: Bool) -> NSFont.Weight {
+        guard dark else { return day }
+        let steps: [NSFont.Weight] = [.ultraLight, .thin, .light, .regular, .medium, .semibold, .bold, .heavy, .black]
+        guard let index = steps.firstIndex(of: day), index + 1 < steps.count else { return day }
+        return steps[index + 1]
+    }
+
+    /// The interface's face at a size and a day weight, in the look in
+    /// force when it is asked for. The system's sans, whose own figures are
+    /// the ones every number on the screen uses.
+    static func face(_ size: CGFloat, _ weight: NSFont.Weight = .regular) -> NSFont {
+        NSFont.systemFont(ofSize: size, weight: Self.weight(weight, dark: Tone.systemDark))
+    }
+
+    static var inputFont: NSFont { face(Scale.input) }
     /// A placeholder is the interface asking, not the hand answering, so
-    /// it wears the sans at the field's size and the quiet tone, and mono
-    /// stays reserved for what the person actually typed.
+    /// it wears the quiet tone at the field's size.
     static func placeholder(_ text: String, like font: NSFont?) -> NSAttributedString {
         let size = font?.pointSize ?? Scale.body
         return NSAttributedString(string: text, attributes: [
@@ -542,27 +561,19 @@ enum BarTheme {
     /// cousin for the strip's own controls. Weight matched to the text.
     static let symbol = NSImage.SymbolConfiguration(pointSize: Scale.meta, weight: .medium)
     static let symbolBand = NSImage.SymbolConfiguration(pointSize: 15, weight: .medium)
-    /// The hand's words in the pill: the hand's face, a point above the
-    /// body and medium, so they stand apart from the wings.
-    static let typedFont = handFont(17, weight: .medium)
-    /// Lodestar's voice: the system's serif, New York, reached by design
-    /// so nothing ships. Reserved for sentences Lodestar says when it
-    /// asks, teaches or reflects, and the note on a clip it has read;
-    /// facts, addresses, keys and the hand's words never wear it.
-    static let voiceFont: NSFont = {
-        // The title size, the size Settings speaks in: a voice card's
-        // sentence once sat at 20, a fourth reading size.
-        let size: CGFloat = Scale.title
-        let descriptor = NSFont.systemFont(ofSize: size).fontDescriptor.withDesign(.serif)
-        return descriptor.flatMap { NSFont(descriptor: $0, size: size) } ?? NSFont.systemFont(ofSize: size)
-    }()
+    /// What the person has typed or aimed, echoed in the pill: the same
+    /// sans, a point above the body and medium, so it stands apart from the
+    /// wings.
+    static var typedFont: NSFont { NSFont.systemFont(ofSize: 17, weight: .medium) }
+    /// Lodestar's voice: the sentences it says when it asks, teaches or
+    /// reflects, and the note on a clip it has read, at the title size, the
+    /// size Settings speaks in. It was set in New York until 20 October
+    /// 2026; it is the interface's own sans now, and that it is Lodestar
+    /// speaking is said by its place and its size, not by a second family.
+    static var voiceFont: NSFont { face(Scale.title) }
     /// Lodestar's voice at the title size: a place's sentence in Settings,
     /// under its name.
-    static let settingsSentenceFont: NSFont = {
-        let size = Scale.title
-        let descriptor = NSFont.systemFont(ofSize: size).fontDescriptor.withDesign(.serif)
-        return descriptor.flatMap { NSFont(descriptor: $0, size: size) } ?? NSFont.systemFont(ofSize: size)
-    }()
+    static var settingsSentenceFont: NSFont { face(Scale.title) }
     /// The mark at the centre of the settings overview.
     static let settingsMarkSize: CGFloat = 132
     /// The dot that says "yours" beside a value, and "needs you" beside a
@@ -574,7 +585,7 @@ enum BarTheme {
     static let voiceWidth: CGFloat = 380
     /// The strip's search field, the index badge, and the searcher's dot:
     /// sizes with one home each, so the drift guard can hold the line.
-    static let stripInputFont = handFont(19)
+    static var stripInputFont: NSFont { face(19) }
     /// The meeting's stub, on the scale like everything read: its count at
     /// the title's size in digits that hold their width while they change,
     /// a word ("Now") at the body's, and the unit in small caps at meta.
@@ -583,21 +594,13 @@ enum BarTheme {
     static let stubUnitFont = NSFont.systemFont(ofSize: Scale.meta, weight: .semibold)
     /// The meeting's name on its stub, in the voice at the body's size,
     /// and the line beneath it.
-    static let stubTitleFont: NSFont = {
-        let size = Scale.body
-        let descriptor = NSFont.systemFont(ofSize: size).fontDescriptor.withDesign(.serif)
-        return descriptor.flatMap { NSFont(descriptor: $0, size: size) } ?? NSFont.systemFont(ofSize: size)
-    }()
+    static var stubTitleFont: NSFont { face(Scale.body) }
     /// Nothing read is set under the meta size: the coach's record and its
     /// way out, the stub's line, were 11.5 point in grey.
     static let stubDetailFont = NSFont.systemFont(ofSize: Scale.meta)
     /// The coach's sentence over its row: the voice at the body's size, so
     /// the card stays a line of type and a row.
-    static let coachVoiceFont: NSFont = {
-        let size = Scale.body
-        let descriptor = NSFont.systemFont(ofSize: size).fontDescriptor.withDesign(.serif)
-        return descriptor.flatMap { NSFont(descriptor: $0, size: size) } ?? NSFont.systemFont(ofSize: size)
-    }()
+    static var coachVoiceFont: NSFont { face(Scale.body) }
     static let dotFont = NSFont.systemFont(ofSize: 8)
     /// Controls and marks on the ladder: a chip and a settings well
     /// are controls; a match's wash on the page is a mark. The hairline
@@ -613,10 +616,10 @@ enum BarTheme {
     /// The breath's mark: air moving. A breath is taken and released,
     /// not filed, so it wears wind rather than a window.
     static let breathSymbol = "wind"
-    static let titleFont = NSFont.systemFont(ofSize: Scale.title, weight: .regular)
+    static var titleFont: NSFont { face(Scale.title) }
     /// A room's name at its head: the title size, set firm. Every room
     /// (Feedback, Uninstall, the calendar's question) wears this one.
-    static let roomTitleFont = NSFont.systemFont(ofSize: Scale.title, weight: .semibold)
+    static var roomTitleFont: NSFont { face(Scale.title, .semibold) }
     /// The one look for secondary text — captions, legends, notes: meta
     /// size, regular weight, the secondary label colour. Weight is not a
     /// second style; a caption that needs emphasis is a caption too long.
@@ -805,16 +808,17 @@ enum BarTheme {
         return ratio >= Readability.markFloor ? accent : BarTheme.ink
     }
     /// What a key's row says it does — the reading size, not a caption.
-    static let rowLabelFont = NSFont.systemFont(ofSize: Scale.body, weight: .regular)
-    static let bodyFont = NSFont.systemFont(ofSize: Scale.body, weight: .regular)
-    static let chipFont = NSFont.monospacedSystemFont(ofSize: Scale.meta, weight: .semibold)
+    static var rowLabelFont: NSFont { face(Scale.body) }
+    static var bodyFont: NSFont { face(Scale.body) }
+    /// A key's letter: the interface's sans, set firm, as a key is the one
+    /// place Lodestar shows a letter as an object.
+    static let chipFont = NSFont.systemFont(ofSize: Scale.meta, weight: .semibold)
     static let footerFont = NSFont.systemFont(ofSize: Scale.meta, weight: .regular)
-    /// The draft's face, and any other mono text the eye rests on.
-    static let readingMono = NSFont.monospacedSystemFont(ofSize: Scale.body, weight: .regular)
-    static let readingMonoAccent = NSFont.monospacedSystemFont(ofSize: Scale.body, weight: .semibold)
-    /// Mono at the caption size, for a copied value longer than a card is
-    /// wide: still the hand's face, a step down the scale.
-    static let metaMono = handFont(Scale.meta)
+    /// The draft's face, which is also the editor lens's: the only mono
+    /// Lodestar draws, because they are the only place text is edited a
+    /// character at a time.
+    static let readingMono = handFont(Scale.body)
+    static let readingMonoAccent = handFont(Scale.body, weight: .semibold)
 }
 
 /// Chips you can move, and put back by ignoring.
@@ -2205,7 +2209,7 @@ enum KeyMark {
     static let height: CGFloat = BarTheme.chipHeight
     /// The peek's numerals: the same key at a size read across the screen.
     static let peekHeight: CGFloat = 48
-    static let peekFont = NSFont.monospacedSystemFont(ofSize: 24, weight: .semibold)
+    static let peekFont = NSFont.monospacedDigitSystemFont(ofSize: 24, weight: .semibold)
     /// The neutral hairline from a displaced tag to its word.
     static var connector: NSColor { BarTheme.ink.withAlphaComponent(Tone.systemDark ? 0.38 : 0.35) }
     /// The underline's weight: the editor's line, select's matches, a held span.

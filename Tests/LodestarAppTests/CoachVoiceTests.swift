@@ -38,15 +38,17 @@ final class CoachVoiceTests: XCTestCase {
         XCTAssertNil(Coach.Keymap.parse("meetings at the door"))
     }
 
-    func testTheVoiceIsTheSystemSerifAndNothingElseWearsIt() {
+    /// Lodestar no longer speaks in a serif (Ceramic, one type family): the
+    /// voice is the interface's own sans at the size Settings speaks in.
+    func testTheVoiceIsTheSystemSansAtTheTitleSize() {
         XCTAssertEqual(BarTheme.voiceFont.pointSize, BarTheme.Scale.title, "the size Settings speaks in")
-        let design = BarTheme.voiceFont.fontDescriptor.object(forKey: .init(rawValue: "NSCTFontUIUsageAttribute"))
-        XCTAssertNotNil(BarTheme.voiceFont.familyName)
-        XCTAssertTrue(BarTheme.voiceFont.familyName?.contains("New York") == true
-                      || BarTheme.voiceFont.fontName.contains("NewYork"),
-                      "the system serif: \(BarTheme.voiceFont.fontName)")
-        _ = design
-        XCTAssertFalse(BarTheme.typedFont.fontName.contains("NewYork"), "the hand's words never wear it")
-        XCTAssertFalse(BarTheme.bodyFont.fontName.contains("NewYork"), "nor does the interface")
+        XCTAssertEqual(BarTheme.settingsSentenceFont.pointSize, BarTheme.Scale.title)
+        XCTAssertEqual(BarTheme.stubTitleFont.pointSize, BarTheme.Scale.body)
+        XCTAssertEqual(BarTheme.coachVoiceFont.pointSize, BarTheme.Scale.body)
+        for font in [BarTheme.voiceFont, BarTheme.settingsSentenceFont, BarTheme.stubTitleFont,
+                     BarTheme.coachVoiceFont, BarTheme.typedFont, BarTheme.bodyFont] {
+            XCTAssertFalse(font.fontName.contains("NewYork"), "no serif: \(font.fontName)")
+            XCTAssertEqual(font.familyName, BarTheme.bodyFont.familyName, "one family")
+        }
     }
 }

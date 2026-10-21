@@ -149,16 +149,59 @@ final class DesignDriftTests: XCTestCase {
         XCTAssertEqual(row.layer?.cornerRadius, BarTheme.surfaceRadius - 6, "six in rounds a little more")
     }
 
-    /// Three faces, one per speaker, never borrowed.
-    func testThreeFacesOnePerSpeaker() {
-        XCTAssertFalse(BarTheme.bodyFont.isFixedPitch, "the interface is the sans")
-        XCTAssertFalse(BarTheme.secondaryFont.isFixedPitch)
-        XCTAssertTrue(BarTheme.inputFont.isFixedPitch, "what the hand types is mono")
-        XCTAssertTrue(BarTheme.typedFont.isFixedPitch, "the pill's echo of the hand is mono")
+    /// One family (Ceramic): the system's sans for every word and every
+    /// field. The one mono is the draft's, which the editor's lens shares,
+    /// because they are the only places text is edited a character at a
+    /// time.
+    func testOneFamilyAndMonoOnlyInTheDraftAndEditor() {
+        let family = BarTheme.bodyFont.familyName
+        let sans: [(String, NSFont)] = [
+            ("body", BarTheme.bodyFont), ("row", BarTheme.rowLabelFont), ("title", BarTheme.titleFont),
+            ("room title", BarTheme.roomTitleFont), ("secondary", BarTheme.secondaryFont),
+            ("the launcher's field", BarTheme.inputFont), ("the strip's field", BarTheme.stripInputFont),
+            ("the pill's echo", BarTheme.typedFont), ("a key's letter", BarTheme.chipFont),
+            ("the voice", BarTheme.voiceFont), ("a sentence in Settings", BarTheme.settingsSentenceFont),
+            ("the stub's title", BarTheme.stubTitleFont), ("the coach's voice", BarTheme.coachVoiceFont),
+        ]
+        for (name, font) in sans {
+            XCTAssertFalse(font.isFixedPitch, "\(name) is not mono")
+            XCTAssertFalse(font.fontName.contains("NewYork"), "\(name) is not a serif")
+            XCTAssertEqual(font.familyName, family, "\(name) is the one family")
+        }
         XCTAssertTrue(BarTheme.readingMono.isFixedPitch, "the draft is mono")
-        XCTAssertTrue(BarTheme.voiceFont.fontName.contains("NewYork") || BarTheme.voiceFont.familyName?.contains("New York") == true,
-                      "Lodestar speaks in New York")
-        XCTAssertFalse(BarTheme.voiceFont.isFixedPitch)
+        XCTAssertTrue(BarTheme.readingMonoAccent.isFixedPitch)
+    }
+
+    /// The hand's mono is reached only by the draft: no surface asks for a
+    /// monospaced face of its own, a serif design, or the hand's face.
+    func testNoSurfaceSpeaksInAnotherFaceThanTheSansExceptTheDraft() throws {
+        let hits = try offenders(#"withDesign\(|monospacedSystemFont|\.monospaced\b|handFont\("#, in: surfaces())
+        XCTAssertEqual(hits, [], "the system's sans from the theme; mono is the draft's alone")
+        let reading = try sources().filter { $0.text.contains("readingMono") }.map(\.name)
+            .filter { !["Glass.swift", "DraftPanel.swift", "SplitPreview.swift"].contains($0) }
+        XCTAssertEqual(reading, [], "readingMono is the draft's and the editor lens's, which draws in the draft")
+    }
+
+    /// Light type on a dark ground blooms: the theme sets body and title text
+    /// one weight step heavier at night than it does by day.
+    func testNightTextIsOneWeightStepHeavier() {
+        XCTAssertEqual(BarTheme.weight(.regular, dark: false), .regular)
+        XCTAssertEqual(BarTheme.weight(.regular, dark: true), .medium)
+        XCTAssertEqual(BarTheme.weight(.medium, dark: true), .semibold)
+        XCTAssertEqual(BarTheme.weight(.semibold, dark: true), .bold)
+        XCTAssertEqual(BarTheme.weight(.black, dark: true), .black, "nothing past the heaviest")
+        let app = NSApplication.shared
+        let before = app.appearance
+        defer { app.appearance = before }
+        func weight(of font: NSFont) -> CGFloat {
+            (font.fontDescriptor.object(forKey: .traits) as? [NSFontDescriptor.TraitKey: Any])?[.weight] as? CGFloat ?? 0
+        }
+        app.appearance = NSAppearance(named: .aqua)
+        let day = [BarTheme.bodyFont, BarTheme.titleFont, BarTheme.voiceFont, BarTheme.inputFont].map(weight(of:))
+        app.appearance = NSAppearance(named: .darkAqua)
+        let night = [BarTheme.bodyFont, BarTheme.titleFont, BarTheme.voiceFont, BarTheme.inputFont].map(weight(of:))
+        for (d, n) in zip(day, night) { XCTAssertGreaterThan(n, d, "heavier at night") }
+        XCTAssertEqual(BarTheme.bodyFont.pointSize, BarTheme.Scale.body, "the size does not move")
     }
 
     /// A messaging timeout set on a system-wide element is the whole

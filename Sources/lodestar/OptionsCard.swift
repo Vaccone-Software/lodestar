@@ -200,9 +200,10 @@ final class OptionsCard {
             case .text(let text, let placeholder):
                 // A name is one word you will type into the bar, so it is
                 // shown as that word — keycaps would claim it is a chord.
-                // The hand's words wear mono; the placeholder is Lodestar's.
+                // What the person typed is set in the title's size, in colour; the
+                // placeholder is Lodestar's and is quiet.
                 bodyRow.addArrangedSubview(label(text.isEmpty ? placeholder : text,
-                                                 font: text.isEmpty ? BarTheme.titleFont : BarTheme.handFont(BarTheme.Scale.title),
+                                                 font: text.isEmpty ? BarTheme.titleFont : BarTheme.titleFont,
                                                  color: text.isEmpty ? BarTheme.secondaryColor : BarTheme.ink))
             }
             stack.addArrangedSubview(bodyRow)

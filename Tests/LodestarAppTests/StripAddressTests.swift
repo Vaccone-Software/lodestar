@@ -19,7 +19,8 @@ final class StripAddressTests: XCTestCase {
         stage.press("escape")
     }
 
-    func testTheBandIsTheHandsFace() {
-        XCTAssertTrue(BarTheme.stripInputFont.isFixedPitch)
+    func testTheBandIsTheInterfacesFaceAtItsOwnSize() {
+        XCTAssertFalse(BarTheme.stripInputFont.isFixedPitch, "mono is for the draft and the editor's lens")
+        XCTAssertEqual(BarTheme.stripInputFont.pointSize, 19)
     }
 }

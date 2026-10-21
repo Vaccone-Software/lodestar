@@ -374,7 +374,10 @@ final class ModePill {
         root.layoutSubtreeIfNeeded()
         var size = root.fittingSize
         if keys == nil { size.height = Self.height }
-        size.width = min(max(size.width, 160), 1100)
+        // Whole points: the window lands on them anyway, and a width of
+        // words in the sans is rarely one.
+        size.width = min(max(size.width.rounded(.up), 160), 1100)
+        size.height = size.height.rounded(.up)
         let rowSize = NSSize(width: size.width, height: Self.height)
         let home = Self.home(for: rowSize)
         // Home plus the hand's displacement, kept on the screen: a pill

@@ -1298,7 +1298,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         if row.dimmed { line.alphaValue = 0.45 }
 
         let letter = label(row.letter ?? "", size: BarTheme.Scale.meta, weight: .medium,
-                           color: BarTheme.secondaryColor, mono: true)
+                           color: BarTheme.secondaryColor)
         letter.translatesAutoresizingMaskIntoConstraints = false
         letter.widthAnchor.constraint(equalToConstant: 12).isActive = true
         line.addArrangedSubview(letter)
@@ -1469,7 +1469,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             column.addArrangedSubview(read)
             if let sub {
                 column.addArrangedSubview(label(sub, size: BarTheme.Scale.meta, weight: .regular,
-                                                color: BarTheme.secondaryColor, mono: true))
+                                                color: BarTheme.secondaryColor))
             }
             return column
         case .table:
@@ -1543,10 +1543,10 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             row.addArrangedSubview(name)
             var subLabel: NSTextField?
             if let sub {
-                let mono = label(sub, size: BarTheme.Scale.meta, weight: .regular,
-                                 color: BarTheme.secondaryColor, mono: true)
-                subLabel = mono
-                row.addArrangedSubview(mono)
+                let detail = label(sub, size: BarTheme.Scale.meta, weight: .regular,
+                                 color: BarTheme.secondaryColor)
+                subLabel = detail
+                row.addArrangedSubview(detail)
             }
             if kind == .links || kind == .routes {
                 // On the words, never the row: a recognizer spanning the
@@ -1872,7 +1872,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         fieldRow.addArrangedSubview(keycap("/"))
         let field = NSTextField()
         field.setPlaceholder(ask == nil ? "Search every setting" : "Search, or ask in your own words")
-        field.font = BarTheme.handFont(BarTheme.Scale.title)
+        field.font = BarTheme.titleFont
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
@@ -2090,7 +2090,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
 
     private func editableField(_ value: String, width: CGFloat) -> NSTextField {
         let field = NSTextField(string: value)
-        field.font = BarTheme.handFont(BarTheme.Scale.meta)
+        field.font = BarTheme.secondaryFont
         field.delegate = self
         // No target/action on purpose: an action fires on *every* end of
         // editing, so a re-render or a tab committed half-typed values.
@@ -2131,10 +2131,9 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     }
 
     private func label(_ text: String, size: CGFloat, weight: NSFont.Weight,
-                       color: NSColor, mono: Bool = false) -> NSTextField {
+                       color: NSColor) -> NSTextField {
         let field = NSTextField(labelWithString: text)
-        field.font = mono ? .monospacedSystemFont(ofSize: size, weight: weight)
-                          : .systemFont(ofSize: size, weight: weight)
+        field.font = .systemFont(ofSize: size, weight: weight)
         field.textColor = color
         field.lineBreakMode = .byTruncatingTail
         return field

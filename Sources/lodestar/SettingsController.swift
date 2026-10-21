@@ -1962,7 +1962,9 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     /// Raise a row onto the bars' step, the one way this window says
     /// chosen: a landing, the entry the keys are on, the result picked.
     /// The step reaches `sides` past the row's sides and `ends` past its
-    /// top and bottom; a negative reach tucks it inside.
+    /// top and bottom; a negative reach tucks it inside. The slab's side is
+    /// inside the step's own bounds, so the step runs a side lower than its
+    /// face, which is what the row's words are centred on.
     @discardableResult
     private func raise(_ row: NSView, sides: CGFloat, ends: CGFloat) -> NSView {
         let step = LandingStep()
@@ -1976,7 +1978,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         row.addSubview(step, positioned: .below, relativeTo: nil)
         NSLayoutConstraint.activate([
             step.topAnchor.constraint(equalTo: row.topAnchor, constant: -ends),
-            step.bottomAnchor.constraint(equalTo: row.bottomAnchor, constant: ends),
+            step.bottomAnchor.constraint(equalTo: row.bottomAnchor, constant: ends + RaisedRow.sideHeight),
             step.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: -sides),
             step.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: sides),
         ])

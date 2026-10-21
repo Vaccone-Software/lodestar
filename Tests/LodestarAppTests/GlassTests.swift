@@ -512,11 +512,41 @@ final class SlabTests: XCTestCase {
             let (window, row, _, _) = row(in: look)
             XCTAssertEqual(rgb(row.slabColors.face), steps.slab.color.usingColorSpace(.sRGB), "the slab, \(look.rawValue)")
             XCTAssertEqual(rgb(row.slabColors.side), steps.slabSide.color.usingColorSpace(.sRGB), "and its side")
-            let side = row.layer!.sublayers!.first { $0.frame.minY < 0 }
-            XCTAssertEqual(side?.frame.minY, -4, "a four-point side hangs below the face")
+            let layers = row.layer!.sublayers!
+            let side = layers.first { $0.frame.minY == 0 && $0.backgroundColor != nil && $0.frame.height < row.bounds.height }
+            XCTAssertNotNil(side, "a four-point side stands at the foot of the row")
             XCTAssertEqual(side?.isHidden, false)
+            XCTAssertGreaterThanOrEqual(layers.map { $0.frame.minY }.min() ?? 0, 0, "inside the row's own bounds: nothing hangs below")
             _ = window
         }
+    }
+
+    /// The side is inside the row, so a scroll view cannot clip it and the
+    /// next row cannot cover it: the face is the row less the side, and the
+    /// words are centred on the face, whether the row is chosen or not.
+    func testTheSlabsSideIsInsideTheRowAndTheContentIsCentredOnTheFace() {
+        let (window, row, _, _) = row(in: .aqua)
+        let face = row.faceBounds
+        XCTAssertEqual(face.minY, RaisedRow.sideHeight)
+        XCTAssertEqual(face.height, row.bounds.height - RaisedRow.sideHeight)
+        XCTAssertEqual(face.maxY, row.bounds.maxY, "the face reaches the row's top")
+        let layout = RaisedRow(frame: NSRect(x: 0, y: 0, width: 200, height: 48))
+        layout.setupRaised()
+        let content = NSView()
+        content.translatesAutoresizingMaskIntoConstraints = false
+        layout.addSubview(content)
+        NSLayoutConstraint.activate([
+            content.centerYAnchor.constraint(equalTo: layout.faceGuide.centerYAnchor),
+            content.heightAnchor.constraint(equalToConstant: 20), content.widthAnchor.constraint(equalToConstant: 20),
+        ])
+        layout.layoutSubtreeIfNeeded()
+        XCTAssertEqual(content.frame.midY, layout.faceBounds.midY, accuracy: 0.5, "centred on the face, not on the row")
+        for raised in [false, true] {
+            layout.applyRaised(raised)
+            layout.layoutSubtreeIfNeeded()
+            XCTAssertEqual(content.frame.midY, layout.faceBounds.midY, accuracy: 0.5, "and it stays when chosen: \(raised)")
+        }
+        _ = window
     }
 
     func testTheRowTakesTheOtherLooksAppearanceAndLetsGoWhenNotChosen() {

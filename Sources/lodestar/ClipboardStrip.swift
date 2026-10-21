@@ -1324,7 +1324,7 @@ final class ClipboardStrip {
     /// cards: its own field, All apps above a rule, then the apps
     /// alphabetically with how many clips each holds.
     private func addSourceMenu(_ menu: SourceMenu, under bar: NSRect) {
-        let rowHeight: CGFloat = 30, fieldHeight: CGFloat = 38, width: CGFloat = 270
+        let rowHeight: CGFloat = 26 + RaisedRow.sideHeight, fieldHeight: CGFloat = 38, width: CGFloat = 270
         let visible = 9
         let start = max(0, min(menu.selection - visible / 2, menu.rows.count - visible))
         let rows = Array(menu.rows.enumerated().dropFirst(start).prefix(visible))
@@ -1370,8 +1370,8 @@ final class ClipboardStrip {
             count.textColor = BarTheme.secondaryColor
             count.sizeToFit()
             count.frame.origin = NSPoint(x: line.frame.width - 10 - count.frame.width,
-                                         y: (rowHeight - count.frame.height) / 2)
-            name.frame = NSRect(x: 10, y: (rowHeight - name.frame.height) / 2,
+                                         y: line.faceBounds.minY + (line.faceBounds.height - count.frame.height) / 2)
+            name.frame = NSRect(x: 10, y: line.faceBounds.minY + (line.faceBounds.height - name.frame.height) / 2,
                                 width: min(name.frame.width, count.frame.minX - 18), height: name.frame.height)
             line.addSubview(name)
             line.addSubview(count)

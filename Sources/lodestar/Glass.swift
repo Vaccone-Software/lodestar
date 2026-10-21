@@ -449,7 +449,9 @@ enum BarTheme {
 
     static let panelWidth: CGFloat = 640
     static let inputHeight: CGFloat = 60
-    static let rowHeight: CGFloat = 48
+    /// A row's height: a face of 48 and the slab's side beneath it, which
+    /// the row holds whether or not it is chosen.
+    static let rowHeight: CGFloat = 48 + RaisedRow.sideHeight
     static let footerHeight: CGFloat = 24
     /// A bar's bottom edge when nothing stands beneath its rows. The bars
     /// carry no legend: their keys live on the sheet, behind lode ?.
@@ -1704,9 +1706,21 @@ class RaisedRow: NSView {
     /// makes the other look).
     weak var surroundings: NSView?
 
-    /// How far the slab's side hangs below the row: it overhangs the row's
-    /// own bounds, so what is in the row stays centred on the face.
+    /// The slab's side, at the foot of the row and inside its bounds: a
+    /// side hung below the row was clipped by a scroll view or covered by
+    /// the next sibling. The face is the row less this, and what is in the
+    /// row is centred on the face, so a row reserves the side whether it is
+    /// chosen or not and nothing in it moves when it is.
     static let sideHeight: CGFloat = 4
+
+    /// The face as a layout guide, for a row whose content is laid out by
+    /// constraints: pin to it and the content is centred on the face.
+    let faceGuide = NSLayoutGuide()
+
+    /// The face in the row's own coordinates, for a row laid out by hand.
+    var faceBounds: CGRect {
+        CGRect(x: 0, y: Self.sideHeight, width: bounds.width, height: max(0, bounds.height - Self.sideHeight))
+    }
 
     /// How far the row stands from the edge of the surface it is in, which
     /// decides its rounding: concentric with that surface, so a row six
@@ -1728,6 +1742,13 @@ class RaisedRow: NSView {
         layer?.insertSublayer(slabSide, at: 0)
         layer?.insertSublayer(slabFace, at: 1)
         light.install(in: slabFace)
+        addLayoutGuide(faceGuide)
+        NSLayoutConstraint.activate([
+            faceGuide.topAnchor.constraint(equalTo: topAnchor),
+            faceGuide.leadingAnchor.constraint(equalTo: leadingAnchor),
+            faceGuide.trailingAnchor.constraint(equalTo: trailingAnchor),
+            faceGuide.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Self.sideHeight),
+        ])
         // A row is the other look's only while it is chosen, and the look it
         // is the other of is the one around it, which a Mac that turns dark
         // at sunset changes without telling the row.
@@ -1739,17 +1760,17 @@ class RaisedRow: NSView {
 
     override func layout() {
         super.layout()
-        // A row shorter than twice its rounding is a stadium, not a
+        // A face shorter than twice its rounding is a stadium, not a
         // rectangle with corners that overlap.
-        let round = min(radius, bounds.height / 2)
+        let face = faceBounds
+        let round = min(radius, face.height / 2)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        slabFace.frame = bounds
+        slabFace.frame = face
         slabFace.cornerRadius = round
-        // The side's top is buried in the face, so only what hangs below
-        // the face shows.
-        slabSide.frame = CGRect(x: 0, y: -Self.sideHeight, width: bounds.width,
-                                height: bounds.height / 2 + Self.sideHeight)
+        // The side's top is buried in the face, so only what is below the
+        // face shows.
+        slabSide.frame = CGRect(x: 0, y: 0, width: bounds.width, height: face.height / 2 + Self.sideHeight)
         slabSide.cornerRadius = round
         CATransaction.commit()
         light.fit(slabFace.bounds, radius: round, reach: round + 4)

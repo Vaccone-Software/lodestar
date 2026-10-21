@@ -578,13 +578,13 @@ private final class WebRowView: RaisedRow {
         NSLayoutConstraint.activate([
             // Where the commands bar's rows start their words.
             title.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
-            title.centerYAnchor.constraint(equalTo: centerYAnchor),
+            title.centerYAnchor.constraint(equalTo: faceGuide.centerYAnchor),
             chipLabel.leadingAnchor.constraint(equalTo: chip.leadingAnchor, constant: 6),
             chipLabel.trailingAnchor.constraint(equalTo: chip.trailingAnchor, constant: -6),
             chipLabel.topAnchor.constraint(equalTo: chip.topAnchor, constant: 2),
             chipLabel.bottomAnchor.constraint(equalTo: chip.bottomAnchor, constant: -2),
-            chip.centerYAnchor.constraint(equalTo: centerYAnchor),
-            enter.centerYAnchor.constraint(equalTo: centerYAnchor),
+            chip.centerYAnchor.constraint(equalTo: faceGuide.centerYAnchor),
+            enter.centerYAnchor.constraint(equalTo: faceGuide.centerYAnchor),
             enter.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
             chip.trailingAnchor.constraint(equalTo: enter.leadingAnchor, constant: -8),
         ])

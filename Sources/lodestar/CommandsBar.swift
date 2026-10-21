@@ -346,10 +346,10 @@ private final class CommandsRowView: RaisedRow {
         addSubview(trailing)
         NSLayoutConstraint.activate([
             title.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
-            title.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+            title.topAnchor.constraint(equalTo: faceGuide.topAnchor, constant: 6),
             crumb.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
             crumb.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 1),
-            trailing.centerYAnchor.constraint(equalTo: centerYAnchor),
+            trailing.centerYAnchor.constraint(equalTo: faceGuide.centerYAnchor),
             trailing.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
             title.trailingAnchor.constraint(lessThanOrEqualTo: trailing.leadingAnchor,
                                             constant: -12),

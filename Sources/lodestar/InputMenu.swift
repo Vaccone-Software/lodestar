@@ -27,7 +27,7 @@ final class InputMenu {
     var onChoose: ((String?) -> Void)?
 
     static let inset: CGFloat = 6
-    static let rowHeight: CGFloat = 36
+    static let rowHeight: CGFloat = 32 + RaisedRow.sideHeight
     static let gap: CGFloat = 12
 
     init() {
@@ -148,12 +148,13 @@ final class InputMenuRow: RaisedRow {
     override func layout() {
         super.layout()
         let leading: CGFloat = 14
-        dot.frame = NSRect(x: leading, y: ((bounds.height - BarTheme.dotDiameter) / 2).rounded(),
+        let face = faceBounds
+        dot.frame = NSRect(x: leading, y: (face.minY + (face.height - BarTheme.dotDiameter) / 2).rounded(),
                            width: BarTheme.dotDiameter, height: BarTheme.dotDiameter)
         let text = leading + BarTheme.dotDiameter + 10
         let natural = label.sizeThatFits(NSSize(width: CGFloat.greatestFiniteMagnitude,
                                                 height: CGFloat.greatestFiniteMagnitude)).height
-        label.frame = NSRect(x: text, y: ((bounds.height - natural) / 2).rounded(),
+        label.frame = NSRect(x: text, y: (face.minY + (face.height - natural) / 2).rounded(),
                              width: bounds.width - text - leading, height: natural)
     }
 

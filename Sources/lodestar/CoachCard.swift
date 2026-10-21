@@ -128,7 +128,7 @@ enum CoachCard {
             row.heightAnchor.constraint(equalToConstant: BarTheme.rowHeight),
             line.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 11),
             line.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -10),
-            line.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            line.centerYAnchor.constraint(equalTo: row.faceGuide.centerYAnchor),
             whisper.topAnchor.constraint(equalTo: row.bottomAnchor, constant: 8),
             whisper.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: textInset),
             whisper.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -textInset),

@@ -933,7 +933,7 @@ private final class SearcherRowView: RaisedRow {
         addSubview(stack)
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: topAnchor),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+            stack.bottomAnchor.constraint(equalTo: faceGuide.bottomAnchor),
             stack.leadingAnchor.constraint(equalTo: leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])

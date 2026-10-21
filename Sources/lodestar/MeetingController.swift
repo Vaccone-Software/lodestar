@@ -405,26 +405,28 @@ final class MeetingController: NSObject {
 
     // MARK: - The chip, drawn
 
-    /// The stub: an admission ticket folded down to a pill's height. A torn
-    /// stub holds the countdown, the body holds the meeting and where and
-    /// with how many it opens, and the join chord stands at the end. It is
-    /// one size for its whole life, so it never jumps beside the work; at
-    /// the door the stub lights, and the light is the message.
+    /// The countdown key: one key whose legend is the time, standing beside
+    /// the meeting's name, over a pill's height. It replaced the ticket stub,
+    /// a shape of its own where the key already said it. The body holds the
+    /// meeting and where it opens and with how many, and the join chord
+    /// stands at the end. It is one size for its whole life, so it never
+    /// jumps beside the work; at the door the key lights, and the light is
+    /// the message.
     private var chipContent: NSView?
+    private var keyView: KeyFace?
 
     static let chipHeight: CGFloat = 48
-    static let stubWidth: CGFloat = 52
 
-    /// What the stub says and whether it is lit: minutes while the
-    /// meeting is minutes away (quiet), seconds at the door, then how long
-    /// ago it began, lit from the last minute on because from then joining
-    /// is the thing to do.
-    static func stub(for phase: Meetings.Phase) -> (number: String, unit: String?, lit: Bool) {
+    /// What the key says and whether it is lit: minutes while the meeting is
+    /// minutes away (quiet, a key lying flat), seconds at the door, then how
+    /// long ago it began, lit from the last minute on because from then
+    /// joining is the thing to do.
+    static func countdown(for phase: Meetings.Phase) -> (legend: String, lit: Bool) {
         switch phase {
-        case .upcoming(let minutes): return ("\(minutes)", "min", false)
-        case .soon(let seconds): return ("\(seconds)", "sec", true)
-        case .now: return ("Now", nil, true)
-        case .inProgress(let minutes): return ("\(minutes)", "min ago", true)
+        case .upcoming(let minutes): return ("\(minutes)m", false)
+        case .soon(let seconds): return ("\(seconds)s", true)
+        case .now: return ("Now", true)
+        case .inProgress(let minutes): return ("\(minutes)m ago", true)
         }
     }
 
@@ -441,50 +443,22 @@ final class MeetingController: NSObject {
         let native = Meetings.nativeJoin(for: occurrence.link) != nil ? Self.providerName(occurrence.link.provider) : nil
         let place = native ?? (resolved.profile == nil ? "Browser" : resolved.profileLabel)
         let meta = Self.meta(place: place, people: occurrence.people)
-        let stub = Self.stub(for: candidate.phase)
+        let countdown = Self.countdown(for: candidate.phase)
 
         let content = NSView()
         content.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(content)
         chipContent = content
 
-        // The stub, lit at the door: the accent's face on the glass's
-        // leading corners, the countdown in the ink that reads on it.
-        let stubView = NSView()
-        stubView.translatesAutoresizingMaskIntoConstraints = false
-        stubView.wantsLayer = true
-        stubView.layer?.cornerRadius = BarTheme.glassRadius
-        stubView.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner]
-        if stub.lit {
-            stubView.effectiveAppearance.performAsCurrentDrawingAppearance {
-                stubView.layer?.backgroundColor = BarTheme.accent.cgColor
-            }
-        }
-        content.addSubview(stubView)
-        let ink: NSColor = stub.lit ? BarTheme.onAccent : BarTheme.ink
-        let number = NSTextField(labelWithString: stub.number)
-        number.font = stub.unit == nil ? BarTheme.stubWordFont : BarTheme.stubCountFont
-        number.textColor = ink
-        number.alignment = .center
-        let unitField = NSTextField(labelWithString: "")
-        if let unit = stub.unit {
-            unitField.attributedStringValue = NSAttributedString(string: unit.uppercased(), attributes: [
-                .font: BarTheme.stubUnitFont, .kern: 0.6,
-                .foregroundColor: stub.lit ? BarTheme.onAccent.withAlphaComponent(0.8) : BarTheme.secondaryColor])
-        }
-        unitField.alignment = .center
-        let count = NSStackView(views: stub.unit == nil ? [number] : [number, unitField])
-        count.orientation = .vertical
-        count.alignment = .centerX
-        count.spacing = 2
-        count.translatesAutoresizingMaskIntoConstraints = false
-        stubView.addSubview(count)
-
-        // The perforation: where the stub tears from the ticket.
-        let perforation = PerforationView()
-        perforation.translatesAutoresizingMaskIntoConstraints = false
-        perforation.ink = stub.lit ? BarTheme.onAccent.withAlphaComponent(0.3) : BarTheme.hairline
-        content.addSubview(perforation)
+        // The countdown, a key: the accent's face at the door, flat and
+        // quiet before it. It is the one lit thing on the chip.
+        let countdownKey = KeyFace(countdown.legend, padX: 12, height: BarTheme.countdownHeight,
+                                   font: BarTheme.countdownFont, minWidth: BarTheme.countdownHeight)
+        countdownKey.lit = countdown.lit
+        countdownKey.quiet = !countdown.lit
+        countdownKey.setAccessibilityElement(false)
+        keyView = countdownKey
+        content.addSubview(countdownKey)
 
         let title = NSTextField(labelWithString: occurrence.title)
         title.font = BarTheme.stubTitleFont
@@ -503,14 +477,11 @@ final class MeetingController: NSObject {
         body.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(body)
 
-        // Join, drawn as the chord that does it, lit: the one thing the
-        // chip is for. Dismiss stays on lode ⌫, pressed three times in
-        // fifty-four meetings, and is not drawn.
-        let caps = ["lode", "lode"].map { key -> Keycaps.CapView in
-            let cap = Keycaps.cap(key)
-            cap.lit = true
-            return cap
-        }
+        // Join, drawn as the chord that does it, resting: at the door only
+        // the countdown lights, and it is the press that joins. Dismiss
+        // stays on lode ⌫, pressed three times in fifty-four meetings, and
+        // is not drawn.
+        let caps = ["lode", "lode"].map { Keycaps.cap($0) }
         let join = Keycaps.CapGroup(caps: caps, action: { [weak self] in _ = self?.join() })
         join.translatesAutoresizingMaskIntoConstraints = false
         join.setAccessibilityLabel("Join")
@@ -522,24 +493,16 @@ final class MeetingController: NSObject {
             content.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             content.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             content.heightAnchor.constraint(equalToConstant: Self.chipHeight),
-            stubView.topAnchor.constraint(equalTo: content.topAnchor),
-            stubView.bottomAnchor.constraint(equalTo: content.bottomAnchor),
-            stubView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            stubView.widthAnchor.constraint(equalToConstant: Self.stubWidth),
-            count.centerXAnchor.constraint(equalTo: stubView.centerXAnchor),
-            count.centerYAnchor.constraint(equalTo: stubView.centerYAnchor),
-            perforation.leadingAnchor.constraint(equalTo: stubView.trailingAnchor, constant: -1),
-            perforation.widthAnchor.constraint(equalToConstant: 2),
-            perforation.topAnchor.constraint(equalTo: content.topAnchor),
-            perforation.bottomAnchor.constraint(equalTo: content.bottomAnchor),
-            body.leadingAnchor.constraint(equalTo: stubView.trailingAnchor, constant: 12),
+            countdownKey.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 10),
+            countdownKey.centerYAnchor.constraint(equalTo: content.centerYAnchor),
+            body.leadingAnchor.constraint(equalTo: countdownKey.trailingAnchor, constant: 12),
             body.centerYAnchor.constraint(equalTo: content.centerYAnchor),
             body.widthAnchor.constraint(lessThanOrEqualToConstant: 180),
             join.leadingAnchor.constraint(equalTo: body.trailingAnchor, constant: 14),
             join.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -10),
             join.centerYAnchor.constraint(equalTo: content.centerYAnchor),
         ])
-        // Said whole to VoiceOver, since the stub alone is a number.
+        // Said whole to VoiceOver, since the key alone is a number.
         root.setAccessibilityElement(true)
         root.setAccessibilityRole(.group)
         root.setAccessibilityLabel(Self.sentence(title: occurrence.title, phase: candidate.phase) + ", " + meta)
@@ -569,7 +532,9 @@ final class MeetingController: NSObject {
         }
         return chipContent.map(words) ?? []
     }
-    var stubLit: Bool { current.map { Self.stub(for: $0.phase).lit } ?? false }
+    var stubLit: Bool { current.map { Self.countdown(for: $0.phase).lit } ?? false }
+    /// The countdown key as drawn, for the tests.
+    var countdownKey: KeyFace? { keyView }
     #endif
 
     // MARK: - The prime card
@@ -758,21 +723,5 @@ extension MeetingController {
         case .webex: return "Webex"
         case .facetime: return "FaceTime"
         }
-    }
-}
-
-/// The stub's tear line: short dashes down the seam, flat, one hairline
-/// wide, in whatever ink reads on the side it is drawn against.
-final class PerforationView: NSView {
-    var ink: NSColor = BarTheme.hairline { didSet { needsDisplay = true } }
-
-    override func draw(_ dirtyRect: NSRect) {
-        let path = NSBezierPath()
-        path.move(to: NSPoint(x: bounds.midX, y: bounds.minY + 5))
-        path.line(to: NSPoint(x: bounds.midX, y: bounds.maxY - 5))
-        path.lineWidth = 1.5
-        path.setLineDash([3, 3], count: 2, phase: 0)
-        ink.setStroke()
-        path.stroke()
     }
 }

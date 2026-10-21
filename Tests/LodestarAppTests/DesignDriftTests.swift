@@ -190,7 +190,7 @@ final class DesignDriftTests: XCTestCase {
             ("the launcher's field", BarTheme.inputFont), ("the strip's field", BarTheme.stripInputFont),
             ("the pill's echo", BarTheme.typedFont), ("a key's letter", BarTheme.chipFont),
             ("the voice", BarTheme.voiceFont), ("a sentence in Settings", BarTheme.settingsSentenceFont),
-            ("the stub's title", BarTheme.stubTitleFont), ("the coach's voice", BarTheme.coachVoiceFont),
+            ("the meeting's title", BarTheme.stubTitleFont), ("the coach's voice", BarTheme.coachVoiceFont),
         ]
         for (name, font) in sans {
             XCTAssertFalse(font.isFixedPitch, "\(name) is not mono")

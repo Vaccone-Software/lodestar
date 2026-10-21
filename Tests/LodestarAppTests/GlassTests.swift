@@ -317,13 +317,37 @@ final class AccentAndChipWordsTests: XCTestCase {
                        "Standup began 25 minutes ago", "past twelve, digits")
     }
 
-    func testTheStubCountsDownAndLightsAtTheDoor() {
-        XCTAssertTrue(MeetingController.stub(for: .upcoming(minutes: 3)) == ("3", "min", false),
-                      "minutes away: the count, quiet")
-        XCTAssertTrue(MeetingController.stub(for: .soon(seconds: 42)) == ("42", "sec", true), "at the door: lit")
-        XCTAssertTrue(MeetingController.stub(for: .now) == ("Now", nil, true))
-        XCTAssertTrue(MeetingController.stub(for: .inProgress(minutes: 4)) == ("4", "min ago", true),
+    /// The meeting is a countdown key (it replaced the ticket stub): its
+    /// legend is the time, and it lights only when joining is the thing to do.
+    func testTheCountdownKeyCountsDownAndLightsAtTheDoor() {
+        XCTAssertTrue(MeetingController.countdown(for: .upcoming(minutes: 3)) == ("3m", false),
+                      "minutes away: the count, a quiet key")
+        XCTAssertTrue(MeetingController.countdown(for: .upcoming(minutes: 14)) == ("14m", false))
+        XCTAssertTrue(MeetingController.countdown(for: .soon(seconds: 42)) == ("42s", true), "at the door: lit")
+        XCTAssertTrue(MeetingController.countdown(for: .now) == ("Now", true))
+        XCTAssertTrue(MeetingController.countdown(for: .inProgress(minutes: 4)) == ("4m ago", true),
                       "begun: still lit, joining is still the thing to do")
+    }
+
+    /// No ticket shapes remain: the chip is a pane, a key and words. The
+    /// countdown is a `KeyFace` in the theme's countdown face, lit exactly
+    /// when the phase says, and nothing draws a perforation or a torn edge.
+    func testTheChipHasNoTicketShapesAndTheCountdownIsTheOneKey() throws {
+        let text = try String(contentsOf: DesignDriftTests.appSources.appendingPathComponent("MeetingController.swift"),
+                              encoding: .utf8)
+        let code = DesignDriftTests.code(text)
+        for shape in ["Perforation", "perforation", "maskedCorners", "stubWidth", "stubView"] {
+            XCTAssertFalse(code.contains(shape), "a ticket's \(shape) is gone")
+        }
+        XCTAssertTrue(code.contains("KeyFace(countdown.legend"), "the legend stands on a key")
+        XCTAssertTrue(code.contains("countdownKey.lit = countdown.lit"), "lit only when it is time to join")
+        XCTAssertTrue(code.contains("countdownKey.quiet = !countdown.lit"), "quiet before that")
+        XCTAssertEqual(BarTheme.countdownFont.pointSize, BarTheme.Scale.title, "read on the scale")
+        let key = KeyFace("4m", height: BarTheme.countdownHeight, font: BarTheme.countdownFont, minWidth: BarTheme.countdownHeight)
+        key.lit = true
+        XCTAssertEqual(key.stance, .standing, "lit, it stands on its side")
+        key.quiet = true; key.lit = false
+        XCTAssertEqual(key.stance, .flat, "quiet, it lies flat with no side")
     }
 
     func testTheChipSaysWhereAndHowMany() {

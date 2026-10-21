@@ -44,14 +44,13 @@ final class OneLightSweepTests: XCTestCase {
 
     // MARK: - Every size read is on the scale
 
-    func testTheMeetingStubReadsOnTheScale() {
+    func testTheMeetingsCountdownKeyReadsOnTheScale() {
         let scale: Set<CGFloat> = [BarTheme.Scale.meta, BarTheme.Scale.body, BarTheme.Scale.title]
-        for (name, font) in [("count", BarTheme.stubCountFont), ("word", BarTheme.stubWordFont),
-                             ("unit", BarTheme.stubUnitFont), ("name", BarTheme.stubTitleFont),
+        for (name, font) in [("legend", BarTheme.countdownFont), ("name", BarTheme.stubTitleFont),
                              ("line", BarTheme.stubDetailFont)] {
-            XCTAssertTrue(scale.contains(font.pointSize), "the stub's \(name) is \(font.pointSize) point")
+            XCTAssertTrue(scale.contains(font.pointSize), "the countdown's \(name) is \(font.pointSize) point")
         }
-        XCTAssertEqual(BarTheme.stubCountFont.pointSize, BarTheme.Scale.title)
+        XCTAssertEqual(BarTheme.countdownFont.pointSize, BarTheme.Scale.title)
         XCTAssertEqual(BarTheme.stubTitleFont.pointSize, BarTheme.Scale.body)
     }
 

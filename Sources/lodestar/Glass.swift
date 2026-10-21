@@ -690,12 +690,11 @@ enum BarTheme {
     /// The strip's search field, the index badge, and the searcher's dot:
     /// sizes with one home each, so the drift guard can hold the line.
     static var stripInputFont: NSFont { face(19) }
-    /// The meeting's stub, on the scale like everything read: its count at
-    /// the title's size in digits that hold their width while they change,
-    /// a word ("Now") at the body's, and the unit in small caps at meta.
-    static let stubCountFont = NSFont.monospacedDigitSystemFont(ofSize: Scale.title, weight: .semibold)
-    static let stubWordFont = NSFont.systemFont(ofSize: Scale.body, weight: .semibold)
-    static let stubUnitFont = NSFont.systemFont(ofSize: Scale.meta, weight: .semibold)
+    /// The meeting's countdown key, on the scale like everything read: its
+    /// legend at the title's size in digits that hold their width while they
+    /// change, so the key does not tremble as the minutes go.
+    static let countdownFont = NSFont.monospacedDigitSystemFont(ofSize: Scale.title, weight: .semibold)
+    static let countdownHeight: CGFloat = 36
     /// The meeting's name on its stub, in the voice at the body's size,
     /// and the line beneath it.
     static var stubTitleFont: NSFont { face(Scale.body) }
@@ -1870,25 +1869,32 @@ final class KeyFace: NSView {
     private var pointer = Keycaps.CapState.resting
     private let layers: KeyLayers
     private var labelLift: NSLayoutConstraint?
+    /// The key's own height: the chip's, or a larger one for a key that is
+    /// read as much as pressed (the meeting's countdown).
+    private let keyHeight: CGFloat
 
     /// What the key is drawn with, for the tests: the face's and the side's
     /// colours, and how much of the side shows.
     var faceColor: CGColor? { layers.face.backgroundColor }
     var sideColor: CGColor? { layers.side.backgroundColor }
-    var visibleSide: CGFloat { layers.visibleSide(forHeight: bounds.height > 0 ? bounds.height : BarTheme.chipHeight) }
+    var visibleSide: CGFloat { layers.visibleSide(forHeight: bounds.height > 0 ? bounds.height : keyHeight) }
     var stance: KeyLayers.Stance { layers.stance }
     var rimColor: NSColor? { layers.rim.color }
 
     /// `padX` widens a key whose label is a word on a long cap, the walk's
-    /// space bar; every other key takes the theme's.
-    init(_ text: String, padX: CGFloat = BarTheme.chipPadX) {
+    /// space bar; every other key takes the theme's. `height`, `font` and
+    /// `minWidth` make the one key larger for a legend that is read, which
+    /// is the countdown's.
+    init(_ text: String, padX: CGFloat = BarTheme.chipPadX, height: CGFloat = BarTheme.chipHeight,
+         font: NSFont = BarTheme.chipFont, minWidth: CGFloat = BarTheme.chipMinWidth) {
         layers = KeyLayers(radius: BarTheme.chipRadius)
+        keyHeight = height
         super.init(frame: .zero)
         wantsLayer = true
         translatesAutoresizingMaskIntoConstraints = false
         if let layer { layers.install(in: layer) }
         label.stringValue = text
-        label.font = BarTheme.chipFont
+        label.font = font
         label.alignment = .center
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
@@ -1898,8 +1904,8 @@ final class KeyFace: NSView {
             label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: padX),
             label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -padX),
             lift,
-            heightAnchor.constraint(equalToConstant: BarTheme.chipHeight),
-            widthAnchor.constraint(greaterThanOrEqualToConstant: BarTheme.chipMinWidth),
+            heightAnchor.constraint(equalToConstant: height),
+            widthAnchor.constraint(greaterThanOrEqualToConstant: minWidth),
         ])
         refresh()
     }
@@ -1925,8 +1931,8 @@ final class KeyFace: NSView {
 
     func refresh() {
         let stance: KeyLayers.Stance = quiet && !lit ? .flat : (pointer == .pressed ? .pressed : .standing)
-        layers.place(stance, in: bounds.isEmpty ? NSRect(x: 0, y: 0, width: 0, height: BarTheme.chipHeight) : bounds)
-        labelLift?.constant = layers.labelLift(forHeight: bounds.height > 0 ? bounds.height : BarTheme.chipHeight)
+        layers.place(stance, in: bounds.isEmpty ? NSRect(x: 0, y: 0, width: 0, height: keyHeight) : bounds)
+        labelLift?.constant = layers.labelLift(forHeight: bounds.height > 0 ? bounds.height : keyHeight)
         // Every colour is made in this key's own look: a blend, like an
         // alpha, is fixed in whatever look is current when it is made.
         effectiveAppearance.performAsCurrentDrawingAppearance {

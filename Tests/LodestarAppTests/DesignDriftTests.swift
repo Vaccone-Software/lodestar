@@ -389,6 +389,33 @@ final class DesignDriftTests: XCTestCase {
         XCTAssertEqual(offenders, [], "a well is where something is put; a choice is a key, a tile that is pressed is a key, anything else is flat, a hairline at most")
     }
 
+    /// One material, drawn by hand: no system material stands behind a
+    /// surface (no frost, no glass), and no system colour is chrome. The
+    /// one place a system material is allowed is a harness that is not
+    /// compiled into a release, which says so in its first line. Every
+    /// colour is the palette's (`BarTheme`), so no surface is left in the
+    /// Mac's accent, label ink or window grey, and none is pure white or
+    /// pure black.
+    func testNoSystemMaterialOrSystemColourIsChrome() throws {
+        let materials = try NSRegularExpression(pattern: #"NSVisualEffectView|NSGlassEffectView|NSGlassEffectContainerView"#)
+        let colours = try NSRegularExpression(pattern:
+            #"\.system(Blue|Green|Orange|Yellow|Purple|Pink|Teal|Indigo|Gray|Mint|Cyan|Brown|Red)\b|controlAccentColor|\b(secondary|tertiary|quaternary)?[lL]abelColor\b|windowBackgroundColor|controlBackgroundColor|textBackgroundColor|controlTextColor|separatorColor|selectedContentBackgroundColor|NSColor\.(white|black)\b"#)
+        var material: [String] = [], system: [String] = []
+        for (name, text) in try sources() {
+            let code = DesignDriftTests.code(text)
+            let range = NSRange(location: 0, length: (code as NSString).length)
+            let debugOnly = text.hasPrefix("#if DEBUG")
+            if !debugOnly, materials.firstMatch(in: code, range: range) != nil { material.append(name) }
+            // The theme names the system's colours to blend and to test
+            // against; a harness photographs them.
+            if name != "Ceramic.swift", !debugOnly, let hit = colours.firstMatch(in: code, range: range) {
+                system.append("\(name): \((code as NSString).substring(with: hit.range))")
+            }
+        }
+        XCTAssertEqual(material, [], "a surface is ceramic drawn by hand; a system material is a harness's, behind #if DEBUG")
+        XCTAssertEqual(system, [], "use the palette's ink, quiet ink and accent through BarTheme")
+    }
+
     /// Selection is the slab, in every list, menu and strip: the raised step
     /// is a key's face and no row's highlight. Outside the theme it is read
     /// once, for the face of a file's sheet resting on a card.

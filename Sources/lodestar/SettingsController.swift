@@ -1047,12 +1047,9 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         let center = NSPoint(x: width / 2, y: height / 2 - 8)
         let rx: CGFloat = 372, ry: CGFloat = 232
 
-        let ring = ToneView(edge: BarTheme.ink.withAlphaComponent(Tone.systemDark ? 0.06 : 0.11), edgeWidth: 1, radius: ry)
+        let ring = ToneView(edge: BarTheme.hairline, edgeWidth: 0.5, radius: ry)
         ring.frame = NSRect(x: center.x - rx, y: center.y - ry, width: rx * 2, height: ry * 2)
         field.addSubview(ring)
-
-        field.addSubview(MarkPool(frame: NSRect(x: center.x - rx * 1.1, y: center.y - ry * 1.25,
-                                                width: rx * 2.2, height: ry * 2.5)))
 
         let markSize = BarTheme.settingsMarkSize
         let mark = NSImageView(frame: NSRect(x: center.x - markSize / 2, y: center.y - markSize / 2,
@@ -1221,7 +1218,9 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         let height = Self.height - 50, soft: CGFloat = 28
         fade.frame = CGRect(x: 0, y: 0, width: cardWidth + 18, height: height)
         // The scroll view's layer is flipped: location 0 is the top.
-        fade.colors = [NSColor.black.cgColor, NSColor.black.cgColor, NSColor.clear.cgColor]
+        // A mask: only its alpha is read.
+        let opaque = CGColor(gray: 0, alpha: 1)
+        fade.colors = [opaque, opaque, CGColor(gray: 0, alpha: 0)]
         fade.locations = [0, NSNumber(value: Double(1 - soft / height)), 1]
         scroll.layer?.mask = fade
         paneScroll = scroll
@@ -1306,7 +1305,6 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         line.edgeInsets = NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
         line.translatesAutoresizingMaskIntoConstraints = false
         line.widthAnchor.constraint(equalToConstant: width).isActive = true
-        if row.dimmed { line.alphaValue = 0.45 }
 
         line.addArrangedSubview(keyColumn(for: row, index: index))
 
@@ -1318,7 +1316,10 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         titleRow.orientation = .horizontal
         titleRow.alignment = .centerY
         titleRow.spacing = 7
-        titleRow.addArrangedSubview(label(row.title, size: BarTheme.Scale.body, weight: .medium, color: BarTheme.ink))
+        // A row that cannot act now is quiet, never faded: its key lies flat and its
+        // name is in the quiet ink.
+        titleRow.addArrangedSubview(label(row.title, size: BarTheme.Scale.body, weight: .medium,
+                                          color: row.dimmed ? BarTheme.secondaryColor : BarTheme.ink))
         for cap in row.keycaps { titleRow.addArrangedSubview(keycap(cap)) }
         text.addArrangedSubview(titleRow)
         let armed = armedAction == index
@@ -1407,6 +1408,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         guard let letter = row.letter else { return chipSpacer() }
         let key = KeyFace(letter)
         key.lit = stopsFocus == index
+        key.quiet = row.dimmed
         key.setAccessibilityElement(false)
         let column = NSView()
         column.translatesAutoresizingMaskIntoConstraints = false
@@ -1641,9 +1643,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                                     action: #selector(removePressed(_:)))
             button.identifier = NSUserInterfaceItemIdentifier("\(addKey(kind))|\(entry.key)")
             row.addArrangedSubview(button)
-            // The entry the keys are on rises, as the launcher's chosen row
-            // does: the raised step and its lit edge, never the accent
-            // washed across it.
+            // The entry the keys are on is the slab, as the launcher's chosen
+            // row is, never the accent washed across it.
             if let focus = listFocus, focus.row == paneRow, focus.entry == entryIndex {
                 raise(row, sides: 8, ends: 3)
             }
@@ -2034,9 +2035,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
 
     private weak var landing: NSView?
 
-    /// The row a search landed on rises, the way a bar's chosen row
-    /// does: the raised step with its lit top edge, there at once and gone
-    /// at once. It is a chosen row, not an alarm, so it neither glows nor
+    /// The row a search landed on is the slab, the way a bar's chosen row
+    /// is, there at once and gone at once. It is a chosen row, not an alarm, so it neither glows nor
     /// settles.
     private func addLanding(to row: NSView) {
         landing = raise(row, sides: -4, ends: -3)
@@ -2349,56 +2349,6 @@ extension SettingsController {
 }
 
 
-/// The step a Settings row rises onto when a search lands on it: the bars'
-/// own raised row.
+/// The step a Settings row stands on when a search lands on it: the bars'
+/// own chosen row, the slab.
 final class LandingStep: RaisedRow {}
-
-/// The mark's light on the light page: a faint warm pool spreading from
-/// the star under the ring, so the shadows falling away from it have a
-/// source. The night needs none; the mark already glows on Slip. The pool
-/// is the mark's own light, so it is the person's accent: a fixed orange
-/// beside any other accent was a second light in the room.
-final class MarkPool: NSView {
-    private let glow = CAGradientLayer()
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        wantsLayer = true
-        glow.type = .radial
-        glow.locations = [0, 0.45, 1]
-        glow.startPoint = CGPoint(x: 0.5, y: 0.5)
-        glow.endPoint = CGPoint(x: 1, y: 1)
-        layer?.addSublayer(glow)
-        restyle()
-    }
-
-    required init?(coder: NSCoder) { nil }
-
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-    override func layout() {
-        super.layout()
-        glow.frame = bounds
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        restyle()
-    }
-
-    private func restyle() {
-        glow.frame = bounds
-        glow.isHidden = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        let light = BarTheme.accent.usingColorSpace(.sRGB) ?? .orange
-        // Warmer and paler as it spreads, as the fixed pool was.
-        let spread = light.blended(withFraction: 0.18, of: .white) ?? light
-        glow.colors = [light.withAlphaComponent(0.13).cgColor,
-                       spread.withAlphaComponent(0.05).cgColor,
-                       spread.withAlphaComponent(0).cgColor]
-    }
-
-    #if DEBUG
-    /// The pool's colours, centre outward, for the tests.
-    var colors: [CGColor] { (glow.colors as? [CGColor]) ?? [] }
-    #endif
-}

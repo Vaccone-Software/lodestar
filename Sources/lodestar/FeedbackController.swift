@@ -32,7 +32,7 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
     // the window redraws around it.
     private let textView = NSTextView()
     private let scroll = NSScrollView()
-    private let noteBox = ToneView(fill: BarTheme.well, edge: BarTheme.hairline, edgeWidth: 1)
+    private let noteBox = ToneView(fill: BarTheme.well, edge: BarTheme.hairline, edgeWidth: 0.5)
     private let replyBox = RoomField(placeholder: "Your email, if you would like a reply")
     private var reply: NSTextField { replyBox.field }
     /// Settings' own switch, not the system's checkbox: a room's controls

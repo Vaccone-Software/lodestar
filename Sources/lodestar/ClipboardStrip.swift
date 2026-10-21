@@ -625,18 +625,18 @@ final class ClipboardStrip {
         // everything on it in that look. A free keepsake is a place that
         // receives, sunk. The bar and the menus are panes over the work and
         // keep the drawn shadow, flat.
-        let veil: Ceramic.Weight
+        let fill: Ceramic.Weight
         switch (weight, counted) {
-        case (.normal, true): veil = .raised; card.stance = .key
+        case (.normal, true): fill = .raised; card.stance = .key
         case (.highlighted, true):
-            veil = .slab
+            fill = .slab
             card.stance = .slab
             card.appearance = BarTheme.slabLook(over: root.effectiveAppearance)
-        case (.empty, _): veil = .faint; card.stance = .well
-        case (.normal, false), (.highlighted, false): veil = .normal
+        case (.empty, _): fill = .faint; card.stance = .well
+        case (.normal, false), (.highlighted, false): fill = .normal
         }
-        Ceramic.installBackdrop(in: card, cornerRadius: BarTheme.surfaceRadius, weight: veil)
-        if counted { shownWeights.append(veil); shownStances.append(card.stance) }
+        Ceramic.installBackdrop(in: card, cornerRadius: BarTheme.surfaceRadius, weight: fill)
+        if counted { shownWeights.append(fill); shownStances.append(card.stance) }
         card.setAccessibilityElement(true)
         card.setAccessibilityRole(.button)
         return card
@@ -1569,5 +1569,5 @@ final class ClipboardStrip {
     }
 }
 
-/// A row of the source list: the bars' raised step.
+/// A row of the source list: a row that is the slab when chosen, as the bars' are.
 private final class RaisedLine: RaisedRow {}

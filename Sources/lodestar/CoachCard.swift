@@ -4,8 +4,8 @@ import LodestarCore
 /// The coach's offer, compact: one sentence in the voice, over the row you
 /// would take, with a whisper beneath it.
 ///
-/// The row is the launcher's own raised row, because an offer is a row you
-/// take: the app's icon, its name, the address on offer in quiet keys, and
+/// The row is the launcher's own chosen row, the slab, because an offer is a
+/// row you take: the app's icon, its name, the address on offer in quiet keys, and
 /// the chord that accepts it lit at the end. Nothing else on the card is
 /// lit, so the one light means yes. Beneath the row, in the quiet register
 /// the chrome whispers in, the record on the left and the way out on the
@@ -140,8 +140,8 @@ enum CoachCard {
         return card
     }
 
-    /// The offer's row: always raised, the way the launcher raises the row
-    /// the hand is about to take.
+    /// The offer's row: always the slab, the way the launcher chooses the
+    /// row the hand is about to take.
     final class OfferRow: RaisedRow {
         override init(frame: NSRect) {
             super.init(frame: frame)

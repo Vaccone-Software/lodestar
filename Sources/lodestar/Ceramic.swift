@@ -391,7 +391,7 @@ final class PaneEdge: NSView {
 /// pinned under the content, so the content and the material stay apart.
 ///
 /// One recipe for every panel, card, and chip: the clipboard's cards and
-/// the hint chips once wore a second glass under a heavier veil, and a
+/// the hint chips once wore a second, heavier pane, and a
 /// second recipe is how one material becomes several near-misses.
 enum Ceramic {
     /// Which step of the palette the pane is. The material is the same;
@@ -1235,7 +1235,7 @@ enum Keycaps {
 
         for (index, gesture) in gestures.enumerated() {
             if index > 0 {
-                add(word("·", color: .tertiaryLabelColor), spacingBefore: 10)
+                add(word("·", color: BarTheme.secondaryColor), spacingBefore: 10)
             }
             let caps = gesture.keys.map { cap($0) }
             for capView in caps {
@@ -1271,12 +1271,6 @@ enum Keycaps {
     }
 }
 
-/// A switch drawn in Lodestar's accent. macOS's own switch takes its tint
-/// from the system accent and offers no way to say otherwise, so a
-/// person who chose International Orange saw the settings' switches in
-/// the Mac's colour. This one is the same gesture — click, space, the
-/// screen reader's press — drawn by the theme. The knob slides; nothing
-/// else moves.
 /// A room's one-line field, drawn rather than the system's bezel: the
 /// note box's material — a faint fill and a hairline, the theme's control
 /// rounding — around a borderless field. The bezelled field is a system
@@ -1288,7 +1282,7 @@ final class RoomField: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = BarTheme.controlRadius
-        layer?.borderWidth = 1
+        layer?.borderWidth = 0.5
         translatesAutoresizingMaskIntoConstraints = false
         field.isBordered = false
         field.drawsBackground = false
@@ -1760,6 +1754,11 @@ final class ChoiceMenuItemView: NSView {
     }
 }
 
+/// A switch drawn in Lodestar's orange. macOS's own switch takes its tint
+/// from the system accent and offers no way to say otherwise. This one is
+/// the same gesture — click, space, the screen reader's press — drawn by the
+/// theme: a knob that stands on a side, sliding over a track that is the
+/// accent while the switch is on. The knob slides; nothing else moves.
 final class AccentSwitch: NSControl {
     private let track = CALayer()
     /// The knob is a thing you press, so it stands up: a ceramic face on a
@@ -1817,7 +1816,13 @@ final class AccentSwitch: NSControl {
     /// into place must not slide into it.
     private func paint(animated: Bool = false) {
         let on = state == .on
-        let tint = Ceramic.resolved(on ? BarTheme.accent : BarTheme.ink.withAlphaComponent(0.22), in: self)
+        // A switch that cannot be pressed now lies flat like a quiet key: a
+        // well for its track, a hairline round the knob and no side, never
+        // a fade (a translucent key is not a thing the light falls on).
+        let live = isEnabled
+        let hairline = Ceramic.resolved(BarTheme.hairline, in: self)
+        let tint = live ? Ceramic.resolved(on ? BarTheme.accent : BarTheme.ink.withAlphaComponent(0.22), in: self)
+                        : Ceramic.resolved(BarTheme.well, in: self)
         let knobSize = Self.size.height - 4
         let knobFaceColor = Ceramic.resolved(BarTheme.keyFace, in: self)
         let knobSideColor = Ceramic.resolved(BarTheme.keySide, in: self)
@@ -1831,9 +1836,13 @@ final class AccentSwitch: NSControl {
         knob.frame = knobFrame
         knobFace.frame = knob.bounds
         knobSide.frame = knob.bounds.offsetBy(dx: 0, dy: -Self.knobSideHeight)
-        knobFace.backgroundColor = knobFaceColor
+        knobFace.backgroundColor = live ? knobFaceColor : nil
+        knobFace.borderWidth = live ? 0 : 0.5
+        knobFace.borderColor = hairline
         knobSide.backgroundColor = knobSideColor
-        layer?.opacity = isEnabled ? 1 : 0.45
+        knobSide.isHidden = !live
+        track.borderWidth = live ? 0 : 0.5
+        track.borderColor = hairline
         CATransaction.commit()
         // A layout pass leaves a running slide alone; only a new slide
         // replaces one.

@@ -510,6 +510,25 @@ final class AccentSwitchTests: XCTestCase {
         _ = window
     }
 
+    /// A switch that cannot be pressed lies flat like a quiet key, and is
+    /// never faded: no side, a hairline round the knob, and the layer opaque.
+    func testASwitchThatCannotBePressedLiesFlatAndIsNeverFaded() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 60, height: 40), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        let toggle = AccentSwitch(frame: .zero)
+        window.contentView?.addSubview(toggle)
+        toggle.isEnabled = false
+        window.contentView?.layoutSubtreeIfNeeded()
+        XCTAssertEqual(toggle.layer?.opacity, 1, "depth carries it, never a fade")
+        let parts = try XCTUnwrap(toggle.layer!.sublayers![1].sublayers)
+        XCTAssertTrue(parts[0].isHidden, "no side")
+        XCTAssertNil(parts[1].backgroundColor, "no fill on the knob")
+        XCTAssertEqual(parts[1].borderWidth, 0.5, "a hairline instead")
+        toggle.isEnabled = true
+        XCTAssertFalse(parts[0].isHidden, "and the side is back when it can be pressed")
+        _ = window
+    }
+
     func testItSpeaksAsACheckBox() {
         let toggle = AccentSwitch(frame: .zero)
         XCTAssertEqual(toggle.accessibilityRole(), .checkBox)

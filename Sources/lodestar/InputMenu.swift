@@ -113,7 +113,7 @@ final class InputMenu {
 }
 
 /// One microphone: its name, and the accent's dot before it when chosen.
-/// Rises under the pointer, the bars' raised row, because the pointer is
+/// Becomes the slab under the pointer, the bars' chosen row, because the pointer is
 /// where the hand is going.
 final class InputMenuRow: RaisedRow {
     let choice: InputMenu.Choice

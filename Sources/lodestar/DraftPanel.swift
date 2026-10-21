@@ -238,7 +238,7 @@ final class DraftPanel {
     private(set) var expanded = false
 
     /// Internal so the tests can read the storage the screen reads: the
-    /// find lights once shipped as background washes that vibrancy ate,
+    /// find lights once shipped as background washes that never appeared,
     /// and only a test against the rendered attributes catches that class
     /// of nothing-appears bug.
     let textView = NSTextView()
@@ -276,9 +276,9 @@ final class DraftPanel {
     /// reads at a glance, and in the mono face the same width, so
     /// nothing reflows.
     private static let accentFont = BarTheme.readingMonoAccent
-    /// The panel's ground, for the glyph a block cursor inverts: the
-    /// equalizer scrim keeps every panel charcoal, whatever the material
-    /// decided, so the ground is a known dark rather than a query.
+    /// The panel's ground, for the glyph a block cursor inverts: the pane is
+    /// opaque ceramic, so its ground is the palette's own pane colour and
+    /// never a reading of what lies behind it.
     static var ground: NSColor { BarTheme.ground }
     /// Wet ink is the ghost's grey: grey can still change, ink is final.
     /// A third tone between them was tried and could not be told from
@@ -574,9 +574,9 @@ final class DraftPanel {
                                     range: NSRange(location: lower, length: max(0, upper - lower)))
         }
         // The find lights recolor the letters themselves — nothing is
-        // drawn behind them, because a background wash under this pane
-        // is composited by vibrancy and can vanish entirely (the first
-        // build of this feature shipped invisible that way). Painted only
+        // drawn behind them, because a background wash behind them
+        // can vanish entirely (the first build of this feature shipped
+        // invisible that way). Painted only
         // with no ghost standing, like the selection: the ghost shifts
         // every position after the cursor.
         if view.buffer.ghost.isEmpty {

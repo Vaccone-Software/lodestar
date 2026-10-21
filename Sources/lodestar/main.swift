@@ -30,8 +30,10 @@ enum StatusIcon {
     private static func make(active: Bool) -> NSImage {
         let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { rect in
             let center = NSPoint(x: rect.midX, y: rect.midY)
-            NSColor.black.setFill()
-            NSColor.black.setStroke()
+            // A template image: the menu bar reads its alpha and tints it.
+            let template = NSColor(white: 0, alpha: 1)
+            template.setFill()
+            template.setStroke()
             if active {
                 NSBezierPath(ovalIn: NSRect(x: center.x - 8.6, y: center.y - 8.6, width: 17.2, height: 17.2)).fill()
                 NSGraphicsContext.current?.compositingOperation = .destinationOut

@@ -298,7 +298,7 @@ private final class CommandsRowView: RaisedRow {
     /// ⏎ on the chosen row, lit: the key that runs it.
     private let enter = KeyFace("⏎")
     private let sourceLabel = NSTextField(labelWithString: "")
-    private let sourceChip = NSView()
+    private let sourceChip = ToneView.flatChip()
     private let trailing = NSStackView()
     private var selectedState = false
 
@@ -389,7 +389,6 @@ private final class CommandsRowView: RaisedRow {
         title.textColor = BarTheme.ink
         crumb.textColor = BarTheme.secondaryColor
         sourceLabel.textColor = BarTheme.secondaryColor
-        sourceChip.layer?.backgroundColor = Glass.resolved(BarTheme.well, in: sourceChip)
         chip.lit = selectedState
         enter.isHidden = !selectedState
     }

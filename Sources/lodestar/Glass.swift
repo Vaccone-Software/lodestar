@@ -117,6 +117,16 @@ final class PictureView: NSImageView {
     }
 }
 
+extension ToneView {
+    /// A fact set in a small frame: a chip that is read and not pressed (a
+    /// profile, a source). It is not a place and not a thing you press, so it
+    /// is flat on whatever it lies on, the pane or the slab, with a hairline
+    /// for its edge and no fill.
+    static func flatChip() -> ToneView {
+        ToneView(edge: BarTheme.hairline, edgeWidth: 0.5, radius: BarTheme.chipRadius)
+    }
+}
+
 /// A plain surface whose fill and edge follow the appearance: a card, a
 /// rule, a dot, a caret. A layer's colour is a fixed value, so one set
 /// once keeps the look it was set in; this repaints whenever the view's

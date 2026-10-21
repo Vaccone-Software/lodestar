@@ -2054,10 +2054,10 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     private static let cardInset: CGFloat = 32
 
     /// One group's card: a thing set in the window, rounded concentric with
-    /// it on the ladder.
+    /// it on the ladder. It is flat, because it is not a place anything is
+    /// put and not a thing you press: the pane itself, with a hairline.
     static func card() -> NSView {
-        let card = ToneView(fill: BarTheme.well,
-                            edge: BarTheme.hairline, edgeWidth: 1,
+        let card = ToneView(edge: BarTheme.hairline, edgeWidth: 0.5,
                             radius: BarTheme.nested(outer: BarTheme.surfaceRadius, inset: cardInset,
                                                     rung: BarTheme.controlRadius))
         card.translatesAutoresizingMaskIntoConstraints = false

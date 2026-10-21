@@ -266,7 +266,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     /// Row views are pooled and mutated — typing repaints, it never rebuilds.
     private var rowViews: [WebRowView] = []
     /// The inferred profile, at the end of the field.
-    private let inferredChip = ChipGround()
+    private let inferredChip = ToneView.flatChip()
     private let inferredLabel = NSTextField(labelWithString: "")
     /// Where a row goes when nothing decides otherwise.
     private var inferred: BrowserProfile?
@@ -515,34 +515,11 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     }
 }
 
-/// One reusable web-bar row: symbol, destination, profile chip.
-/// A quiet chip's ground: the label colour at 8%, set again whenever the
-/// appearance changes, since a layer keeps the colour it was given.
-private final class ChipGround: NSView {
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        wantsLayer = true
-        tint()
-    }
-
-    required init?(coder: NSCoder) { nil }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        tint()
-    }
-
-    private func tint() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = Glass.resolved(BarTheme.well, in: self)
-        }
-    }
-}
-
+/// One reusable web-bar row: destination and profile chip.
 private final class WebRowView: RaisedRow {
     private let title = NSTextField(labelWithString: "")
     private let chipLabel = NSTextField(labelWithString: "")
-    private let chip = ChipGround()
+    private let chip = ToneView.flatChip()
     /// The title ends at the chip when the chip is shown, and at ⏎'s place
     /// when it is not: a hidden chip still holds its width in the layout,
     /// and a long address was cut short beside empty air.

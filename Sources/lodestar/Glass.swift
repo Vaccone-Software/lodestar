@@ -699,7 +699,6 @@ enum BarTheme {
                 ? NSColor(white: 1, alpha: 0.10) : NSColor(white: 1, alpha: 1)
         }
     }
-    static var raisedRim: NSColor { polishedRim }
 
     /// The one key, resting: the look's raised step, which is a key's face,
     /// standing on its side. A key is the thing you press, so it is the
@@ -773,13 +772,23 @@ enum BarTheme {
         return white >= ink ? .white : NSColor(white: 0.08, alpha: 1)
     }
 
+    /// International Orange as a colour that knows both looks: itself on
+    /// espresso, where it clears the mark floor with room to spare, and on
+    /// clay the same hue a step deeper (Readability measures both). It is
+    /// resolved in the appearance of the view that draws it, so a lit key in
+    /// a selected row, which wears the other look, wears the orange that
+    /// stands on that row's ground.
+    static let internationalOrange = NSColor(name: "LodestarOrange") { appearance in
+        let pair = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? Readability.orangeOnCharcoal : Readability.orangeOnPaper
+        return NSColor(srgbRed: pair.red, green: pair.green, blue: pair.blue, alpha: 1)
+    }
+
     /// The accent a config asks for: the Mac's, or Lodestar's own pair.
     static func accent(for choice: Config.Accent) -> NSColor {
         switch choice {
         case .system: return .controlAccentColor
-        case .orange:
-            let pair = Tone.systemDark ? Readability.orangeOnCharcoal : Readability.orangeOnPaper
-            return NSColor(srgbRed: pair.red, green: pair.green, blue: pair.blue, alpha: 1)
+        case .orange: return internationalOrange
         }
     }
 
@@ -1702,13 +1711,35 @@ final class KeyFace: NSView {
     }
 }
 
-/// A row that rises when it is chosen: the raised step, its top edge
-/// catching the light, and its keys lit by whoever subclasses it. The
-/// bars' rows share it, so the launcher, Ask and the commands bar choose
-/// a row the same way.
+/// A row that becomes the slab when it is chosen (DESIGN, "Ceramic"): the
+/// opposite look's ground with a four-point side in its darker shade, an
+/// espresso slab with clay ink by day and a clay slab with espresso ink by
+/// night. Each look is the other's selection.
+///
+/// The row takes the other look's appearance, so everything inside it that
+/// follows the look follows it: the labels and their quiet ink, the keys,
+/// the accent. A lit key on the slab is the accent that stands on that
+/// ground, with no second colour stored for it. The bars' rows share it, so
+/// the launcher, Ask and the commands bar choose a row the same way.
 class RaisedRow: NSView {
     private let light = EdgeLight()
+    private let slabFace = CALayer()
+    private let slabSide = CALayer()
     private(set) var raised = false
+    private var lookObserver: NSKeyValueObservation?
+
+    /// What stands on the slab, when it is not the row itself: a step drawn
+    /// behind a row's own content (Settings' chosen entry and result), whose
+    /// words are siblings of the step and so take the other look from here.
+    weak var carries: NSView?
+    /// The view whose look the row is the other of, when that is not the
+    /// row's own superview (it is not, for a step inside the content it
+    /// makes the other look).
+    weak var surroundings: NSView?
+
+    /// How far the slab's side hangs below the row: it overhangs the row's
+    /// own bounds, so what is in the row stays centred on the face.
+    static let sideHeight: CGFloat = 4
 
     /// How far the row stands from the edge of the surface it is in, which
     /// decides its rounding: concentric with that surface, so a row six
@@ -1718,15 +1749,24 @@ class RaisedRow: NSView {
     }
     var radius: CGFloat { BarTheme.nested(outer: BarTheme.surfaceRadius, inset: inset, rung: BarTheme.controlRadius) }
 
+    /// The slab as drawn, for the tests: its face and side colours.
+    var slabColors: (face: CGColor?, side: CGColor?) { (slabFace.backgroundColor, slabSide.backgroundColor) }
+
     func setupRaised() {
         wantsLayer = true
         layer?.cornerRadius = radius
         layer?.masksToBounds = false
-        if let layer { light.install(in: layer) }
-        // A soft, short shadow cast by the row's own rounded shape: no line
-        // under it, nothing that stops where the corners begin.
-        layer?.shadowOffset = CGSize(width: 0, height: -2)
-        layer?.shadowRadius = 3
+        // Face and side under everything the row adds, so its labels and
+        // keys draw on the slab and not beneath it.
+        layer?.insertSublayer(slabSide, at: 0)
+        layer?.insertSublayer(slabFace, at: 1)
+        light.install(in: slabFace)
+        // A row is the other look's only while it is chosen, and the look it
+        // is the other of is the one around it, which a Mac that turns dark
+        // at sunset changes without telling the row.
+        lookObserver = NSApplication.shared.observe(\.effectiveAppearance) { [weak self] _, _ in
+            DispatchQueue.main.async { self?.applyRaised(self?.raised ?? false) }
+        }
         applyRaised(false)
     }
 
@@ -1735,8 +1775,22 @@ class RaisedRow: NSView {
         // A row shorter than twice its rounding is a stadium, not a
         // rectangle with corners that overlap.
         let round = min(radius, bounds.height / 2)
-        light.fit(bounds, radius: round, reach: round + 4)
-        layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: round, cornerHeight: round, transform: nil)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        slabFace.frame = bounds
+        slabFace.cornerRadius = round
+        // The side's top is buried in the face, so only what hangs below
+        // the face shows.
+        slabSide.frame = CGRect(x: 0, y: -Self.sideHeight, width: bounds.width,
+                                height: bounds.height / 2 + Self.sideHeight)
+        slabSide.cornerRadius = round
+        CATransaction.commit()
+        light.fit(slabFace.bounds, radius: round, reach: round + 4)
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        if superview != nil { applyRaised(raised) }
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -1744,15 +1798,30 @@ class RaisedRow: NSView {
         applyRaised(raised)
     }
 
+    /// The look the row is standing in, which is its surroundings' and never
+    /// its own once it has taken the other.
+    private var surroundingLook: NSAppearance {
+        (surroundings ?? superview)?.effectiveAppearance ?? window?.effectiveAppearance
+            ?? NSApplication.shared.effectiveAppearance
+    }
+
     func applyRaised(_ on: Bool) {
         raised = on
+        let surrounding = surroundingLook
+        let dark = surrounding.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let slab = BarTheme.steps(for: surrounding)
+        let wanted: NSAppearance? = on ? NSAppearance(named: dark ? .aqua : .darkAqua) : nil
+        let wearer = carries ?? self
+        if wearer.appearance?.name != wanted?.name { wearer.appearance = wanted }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        layer?.backgroundColor = on ? BarTheme.raised.cgColor : nil
-        light.color = on ? BarTheme.raisedRim : nil
-        layer?.shadowColor = NSColor.black.cgColor
-        layer?.shadowOpacity = on ? (Tone.systemDark ? 0.32 : 0.10) : 0
+        slabFace.backgroundColor = on ? slab.slab.color.cgColor : nil
+        slabSide.backgroundColor = on ? slab.slabSide.color.cgColor : nil
+        slabSide.isHidden = !on
         CATransaction.commit()
+        // The rim is the pane's, in the slab's own look: a tenth of white
+        // on the dark slab, white on the clay one.
+        light.color = on ? NSColor(cgColor: Glass.resolved(BarTheme.polishedRim, in: self)) : nil
     }
 }
 

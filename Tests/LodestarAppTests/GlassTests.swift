@@ -458,6 +458,117 @@ final class SettingsSwitchSurvivalTests: XCTestCase {
     }
 }
 
+/// Each look is the other's selection: a chosen row is a slab of the
+/// opposite look, and everything in it follows.
+final class SlabTests: XCTestCase {
+    override func tearDown() { BarTheme.accentColor = { .controlAccentColor } }
+
+    private func rgb(_ color: CGColor?) -> NSColor? { color.flatMap(NSColor.init(cgColor:))?.usingColorSpace(.sRGB) }
+
+    /// A row in a window of the given look, with a label and a lit key in it.
+    private func row(in look: NSAppearance.Name) -> (NSWindow, RaisedRow, NSTextField, KeyFace) {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 120), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: look)
+        let row = RaisedRow(frame: NSRect(x: 10, y: 20, width: 280, height: 48))
+        window.contentView?.addSubview(row)
+        row.setupRaised()
+        let label = NSTextField(labelWithString: "Safari")
+        label.textColor = BarTheme.ink
+        let key = KeyFace("⏎")
+        key.lit = true
+        row.addSubview(label)
+        row.addSubview(key)
+        row.applyRaised(true)
+        window.contentView?.layoutSubtreeIfNeeded()
+        row.layout()
+        return (window, row, label, key)
+    }
+
+    func testAChosenRowIsTheOppositeLooksSlabOnAFourPointSide() {
+        for (look, steps) in [(NSAppearance.Name.aqua, Palette.clay), (.darkAqua, Palette.night)] {
+            let (window, row, _, _) = row(in: look)
+            XCTAssertEqual(rgb(row.slabColors.face), steps.slab.color.usingColorSpace(.sRGB), "the slab, \(look.rawValue)")
+            XCTAssertEqual(rgb(row.slabColors.side), steps.slabSide.color.usingColorSpace(.sRGB), "and its side")
+            let side = row.layer!.sublayers!.first { $0.frame.minY < 0 }
+            XCTAssertEqual(side?.frame.minY, -4, "a four-point side hangs below the face")
+            XCTAssertEqual(side?.isHidden, false)
+            _ = window
+        }
+    }
+
+    func testTheRowTakesTheOtherLooksAppearanceAndLetsGoWhenNotChosen() {
+        let (window, row, _, _) = row(in: .aqua)
+        XCTAssertEqual(row.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]), .darkAqua, "an espresso slab by day")
+        row.applyRaised(false)
+        XCTAssertNil(row.appearance, "an unchosen row is in its own surroundings")
+        XCTAssertEqual(row.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]), .aqua)
+        XCTAssertNil(row.slabColors.face)
+        let (night, dark, _, _) = self.row(in: .darkAqua)
+        XCTAssertEqual(dark.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]), .aqua, "a clay slab by night")
+        _ = (window, night)
+    }
+
+    func testTheInkInsideTheSlabIsTheOtherLooksInk() {
+        for (look, other) in [(NSAppearance.Name.aqua, Palette.night), (.darkAqua, Palette.clay)] {
+            let (window, _, label, key) = row(in: look)
+            XCTAssertEqual(rgb(Glass.resolved(BarTheme.ink, in: label)), other.ink.color.usingColorSpace(.sRGB),
+                           "the labels read as the other look's ink on the slab")
+            XCTAssertEqual(rgb(Glass.resolved(BarTheme.secondaryColor, in: label)),
+                           other.secondary.color.usingColorSpace(.sRGB), "and its quiet ink")
+            XCTAssertEqual(key.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]),
+                           other.ink.lightness > 0.5 ? .darkAqua : .aqua, "the key inside is in the slab's look")
+            _ = window
+        }
+    }
+
+    func testALitKeyOnTheSlabIsTheAccentThatStandsOnIt() {
+        BarTheme.accentColor = { BarTheme.accent(for: .orange) }
+        for (look, orange) in [(NSAppearance.Name.aqua, Readability.orangeOnCharcoal), (.darkAqua, Readability.orangeOnPaper)] {
+            let (window, _, _, key) = row(in: look)
+            key.refresh()
+            let face = rgb(key.faceColor)
+            XCTAssertEqual(face?.redComponent ?? 0, CGFloat(orange.red), accuracy: 0.01, "the orange of the slab's own look: \(look.rawValue)")
+            XCTAssertEqual(face?.greenComponent ?? 0, CGFloat(orange.green), accuracy: 0.01)
+            _ = window
+        }
+    }
+
+    /// Settings draws the slab as a step behind a row's own words, which are
+    /// its siblings: the row takes the other look with the step and gives it
+    /// back when the step goes.
+    func testAStepBehindARowsWordsCarriesTheRowIntoTheOtherLook() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 120), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: .aqua)
+        let around = window.contentView!
+        let row = NSView(frame: NSRect(x: 0, y: 0, width: 280, height: 40))
+        around.addSubview(row)
+        let words = NSTextField(labelWithString: "Clipboard")
+        words.textColor = BarTheme.ink
+        row.addSubview(words)
+        let step = LandingStep(frame: row.bounds)
+        step.surroundings = around
+        step.carries = row
+        row.addSubview(step, positioned: .below, relativeTo: nil)
+        step.setupRaised()
+        step.applyRaised(true)
+        XCTAssertEqual(row.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]), .darkAqua, "the words are on an espresso slab")
+        XCTAssertEqual(rgb(Glass.resolved(BarTheme.ink, in: words)), Palette.night.ink.color.usingColorSpace(.sRGB))
+        XCTAssertEqual(rgb(step.slabColors.face), Palette.clay.slab.color.usingColorSpace(.sRGB),
+                       "and the step is the day's slab, not the night's, though it lives inside the other look")
+        step.applyRaised(false)
+        XCTAssertNil(row.appearance, "the row is its own again")
+        XCTAssertEqual(rgb(Glass.resolved(BarTheme.ink, in: words)), Palette.clay.ink.color.usingColorSpace(.sRGB))
+    }
+
+    func testAChosenRowCastsNoShadowForItsSideStandsInstead() {
+        let (window, row, _, _) = row(in: .darkAqua)
+        XCTAssertEqual(row.layer?.shadowOpacity, 0, "the side survives the night where a shadow does not")
+        _ = window
+    }
+}
+
 /// The one key: resting a quiet cap, lit a piece of the mark.
 final class KeyFaceTests: XCTestCase {
     func testALitKeyIsTheAccentWithItsReadableInk() {

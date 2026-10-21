@@ -1976,6 +1976,10 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     private func raise(_ row: NSView, sides: CGFloat, ends: CGFloat) -> NSView {
         let step = LandingStep()
         step.translatesAutoresizingMaskIntoConstraints = false
+        // The row's words are the step's siblings, so the row takes the
+        // other look with it, from the window's own.
+        step.surroundings = root
+        step.carries = row
         step.setupRaised()
         step.applyRaised(true)
         row.addSubview(step, positioned: .below, relativeTo: nil)
@@ -1996,6 +2000,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     }
 
     private func removeLanding() {
+        (landing as? RaisedRow)?.applyRaised(false)
         landing?.removeFromSuperview()
         landing = nil
     }

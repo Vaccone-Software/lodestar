@@ -42,13 +42,14 @@ public enum AX {
         return AX.element(value)
     }
 
-    /// An element the other app actually returned. The type tag is
-    /// checked and then Swift's cast: a string or a number where an
-    /// element was promised used to abort this process, and the event
-    /// tap with it. A miss is skipped.
+    /// An element the other app actually returned. The type tag is the
+    /// check: a conditional cast to a CoreFoundation type does not
+    /// inspect it, and Swift rejects the cast. A string or a number
+    /// where an element was promised is skipped. The force-cast runs
+    /// only after the tag matches.
     public static func element(_ value: CFTypeRef) -> AXUIElement? {
         guard CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
-        return value as? AXUIElement
+        return value as! AXUIElement
     }
 
     public static func point(_ element: AXUIElement, _ attribute: String) -> CGPoint? {
@@ -97,12 +98,12 @@ public enum AX {
         return range
     }
 
-    /// An `AXValue`, or nil. Both the type tag and Swift's cast have to
-    /// agree: `as!` traps when an app returns another type, including
-    /// when the tag and the cast disagree.
+    /// An `AXValue`, or nil. The type tag is the check, for the same
+    /// reason as `element`: the cast is unconditional and runs only
+    /// after the tag matches, so a value of another type is skipped.
     private static func axValue(_ value: CFTypeRef) -> AXValue? {
         guard CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
-        return value as? AXValue
+        return value as! AXValue
     }
 
     @discardableResult

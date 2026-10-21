@@ -181,7 +181,7 @@ public enum EngineEffect: Equatable {
 }
 
 public extension EngineEffect {
-    /// Does running this effect take the shared glass panel away from
+    /// Does running this effect take the shared pane away from
     /// whatever was on it?
     ///
     /// The coach's chip is the only thing that lives on that panel long
@@ -1470,7 +1470,7 @@ public struct EngineCore {
     /// save band with the door gone, because the band lives where the
     /// door stood. A lode verb or a ⌘ chord ends the door and the strip
     /// together and executes — the strip's bargain. Anything else is
-    /// swallowed: it was aimed at a card under glass.
+    /// swallowed: it was aimed at a card under a pane.
     private mutating func pasteImagePress(key: String, held: Bool, shift: Bool,
                                           command: Bool, searching: Bool,
                                           world: EngineWorld) -> [EngineEffect] {

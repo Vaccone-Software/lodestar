@@ -107,7 +107,7 @@ enum HintTargets {
             // chips are full, so the door is usable as fast as it ever
             // was; the walk then goes on to the deadline collecting
             // role-named pressables only — owners for a typed pick, never
-            // chips, so nothing on the glass changes under the hand — and
+            // chips, so nothing on the pane changes under the hand — and
             // answers once more. Asana's Share button was pressable
             // number 1,115 in its tree; a walk that stopped at 200
             // targets never reached it, and a wrapper it had reached

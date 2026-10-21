@@ -1,7 +1,7 @@
 import AppKit
 import LodestarCore
 
-/// Select's glass: an accent underline under every match, a key at each,
+/// Select's pane: an accent underline under every match, a key at each,
 /// the anchor's line heavier, and the editor lens's tags. Every label is
 /// the one key, and the only paint is the accent's line.
 /// Never key, ignores the mouse — the window underneath keeps focus and
@@ -44,7 +44,7 @@ final class SelectOverlay {
     /// Clear water between the band and the bottom of the usable screen.
 
     init() {
-        panel = Glass.makePanel(level: .statusBar, takesKeys: false)
+        panel = Ceramic.makePanel(level: .statusBar, takesKeys: false)
         panel.ignoresMouseEvents = true
         // Each mark draws its own soft shadow. The window server's would trace
         // a hard ring round every one.
@@ -66,7 +66,7 @@ final class SelectOverlay {
 
     }
 
-    /// The glass goes up over the window before anything is known: the
+    /// The pane goes up over the window before anything is known: the
     /// pill says what is being read; this only takes its place.
     func showScanning(over windowFrame: CGRect) {
         clear()
@@ -75,7 +75,7 @@ final class SelectOverlay {
 
     /// The chips a partial capital leaves standing: only those the typed
     /// letters can still complete, so a pick's progress is visible on the
-    /// glass and never in the pill. The keys that stand dim the letters
+    /// pane and never in the pill. The keys that stand dim the letters
     /// already typed.
     static func narrowed(_ chips: [Chip], typed: String) -> [Chip] {
         guard !typed.isEmpty else { return chips }
@@ -152,7 +152,7 @@ final class SelectOverlay {
                     let line = NSView(frame: NSRect(x: x, y: target.maxY, width: 1,
                                                     height: max(0, placed.frame.minY - target.maxY)))
                     line.wantsLayer = true
-                    line.layer?.backgroundColor = Glass.resolved(KeyMark.connector, in: root)
+                    line.layer?.backgroundColor = Ceramic.resolved(KeyMark.connector, in: root)
                     highlightHost.addSubview(line)
                     decorations.append(line)
                 }
@@ -217,7 +217,7 @@ final class SelectOverlay {
     /// stay lit and nothing else remains — no band, no chip, no words.
     /// The highlight is the entire statement; what it answers to (⌘C, or
     /// any key to dismiss) lives in the hands and the guide, not on the
-    /// glass.
+    /// pane.
     func hold(spans: [CGRect], over windowFrame: CGRect) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)

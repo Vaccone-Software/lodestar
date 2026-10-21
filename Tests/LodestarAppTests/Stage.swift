@@ -170,7 +170,7 @@ final class FakeBar: SearcherSurface, WebBarSurface {
 /// The app's surfaces, wired the way the app wires them, on a world that
 /// never moves a window.
 ///
-/// The engine, the glass, and the coach are the real classes — the ones
+/// The engine, the pane, and the coach are the real classes — the ones
 /// that ship — and the wiring between them is `SurfaceWiring`, the same
 /// call the app delegate makes. Only the window world and the bars are
 /// stand-ins, and every wait runs on a clock the test advances by hand.
@@ -178,7 +178,7 @@ final class FakeBar: SearcherSurface, WebBarSurface {
 /// callback, so a scripted `lode s` walks exactly the path a hardware one
 /// does, verdict included.
 ///
-/// The glass panel is real too, which means it briefly appears on screen
+/// The pane panel is real too, which means it briefly appears on screen
 /// while these run. That is the point: a test that stubbed the panel
 /// would be testing the stub.
 final class Stage {
@@ -800,7 +800,7 @@ final class Stage {
     func boundary(app: String = "slack") { coach.noteBoundary(app: app) }
 
     /// Stand the offer, cross a boundary, and let the settle pass, so the
-    /// chip is on the glass when the test begins.
+    /// chip is on the pane when the test begins.
     func raiseChip(file: StaticString = #filePath, line: UInt = #line) {
         stand()
         boundary()

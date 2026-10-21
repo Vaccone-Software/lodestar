@@ -2,7 +2,7 @@ import AppKit
 import LodestarCore
 
 /// The editor asks before it reads anything. Turning it on puts one card
-/// on the glass: what it does, what it holds, and Accept or Decline, by
+/// on the pane: what it does, what it holds, and Accept or Decline, by
 /// lode lode and lode ⌫ or by the mouse. Accepted once per Mac; declined,
 /// the switch goes back off and nothing was read.
 ///
@@ -16,7 +16,7 @@ final class EditorConsent {
 
     /// The card, drawn: sentence, the engine's line, the two answers.
     var present: (_ sentence: String, _ detail: String, _ rows: [GuideRow]) -> Void = { _, _, _ in }
-    /// Is this card the one on the glass right now?
+    /// Is this card the one on the pane right now?
     var isShowing: () -> Bool = { false }
     var clear: () -> Void = {}
     /// Accepted: remembered for this Mac, and the editor starts.

@@ -212,7 +212,7 @@ final class AnalysisTests: XCTestCase {
         XCTAssertEqual(candidates.count, 1)
         XCTAssertNotNil(candidates.first?.p, "tested, so it carries its p")
         XCTAssertEqual(candidates.first?.offerable, false,
-                       "in the family, never on the glass")
+                       "in the family, never on the pane")
     }
 
     func testRetireStandsOutsideTheFamily() {

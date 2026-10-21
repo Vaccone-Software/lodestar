@@ -7,7 +7,7 @@ import LodestarCore
 /// and the bars, and those calls are the seam between a keystroke and a
 /// window moving. `Actions` and the three bar controllers are the app's
 /// only implementations; the scenario harness supplies the others, so the
-/// real engine, glass, and coach can run against a world that records
+/// real engine, pane, and coach can run against a world that records
 /// what it was asked and never touches a window. Nothing here changes
 /// what the app does — it names what the engine was already asking for.
 protocol EngineActions: AnyObject {
@@ -40,7 +40,7 @@ protocol BarSurface: AnyObject {
     var isVisible: Bool { get }
     func show()
     func hide()
-    /// The bar's keys, held in its own glass on lode ?.
+    /// The bar's keys, held in its own pane on lode ?.
     var keysShown: Bool { get }
     func toggleKeys(_ sections: [CheatSheet.Section])
     func hideKeys()

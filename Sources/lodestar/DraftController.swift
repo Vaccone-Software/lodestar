@@ -235,7 +235,7 @@ final class DraftController {
         render()
         return true
     }
-    /// `lode ?` while the draft is open: its own keys, in its own glass.
+    /// `lode ?` while the draft is open: its own keys, in its own pane.
     /// The draft carries no legend now, so this is the only way they are
     /// read — and the only way they are ever asked for.
     var keysShown: Bool { panel.keysShown }

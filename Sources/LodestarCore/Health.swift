@@ -97,7 +97,7 @@ public struct HealthPulse: Equatable {
     var fixSumSq = 0.0
     /// Wheel bursts by what made them: precise deltas (a trackpad or a
     /// Magic Mouse, against a wheel's notches) and bursts that carried
-    /// momentum (a flick, against a drag held to the glass).
+    /// momentum (a flick, against a drag held to the pane).
     var scrollPrecise = 0
     var scrollMomentum = 0
     /// Clicks Lodestar or another process posted, counted apart so the

@@ -62,8 +62,8 @@ final class WalkController: NSObject {
         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
     private let doorRoot = NSView()
 
-    /// The companion: a floating glass card that can never become key.
-    private let card = Glass.makePanel(level: .floating)
+    /// The companion: a floating card that can never become key.
+    private let card = Ceramic.makePanel(level: .floating)
     private let cardRoot = NSView()
 
     private static let welcomeWidth: CGFloat = 660
@@ -123,14 +123,14 @@ final class WalkController: NSObject {
         door.backgroundColor = .clear
         door.isReleasedWhenClosed = false
         door.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
-        SoftShadow.host(doorRoot, in: door, cornerRadius: BarTheme.glassRadius)
-        _ = Glass.installBackdrop(in: doorRoot, cornerRadius: BarTheme.glassRadius)
+        SoftShadow.host(doorRoot, in: door, cornerRadius: BarTheme.surfaceRadius)
+        _ = Ceramic.installBackdrop(in: doorRoot, cornerRadius: BarTheme.surfaceRadius)
         door.onKeyDown = { [weak self] event in
             guard let self, let key = Keys.name(for: Int64(event.keyCode)) else { return false }
             return self.doorKey(key)
         }
-        SoftShadow.host(cardRoot, in: card, cornerRadius: BarTheme.glassRadius)
-        _ = Glass.installBackdrop(in: cardRoot, cornerRadius: BarTheme.glassRadius)
+        SoftShadow.host(cardRoot, in: card, cornerRadius: BarTheme.surfaceRadius)
+        _ = Ceramic.installBackdrop(in: cardRoot, cornerRadius: BarTheme.surfaceRadius)
         Movable.enable(door)
         Movable.enable(card)
     }
@@ -141,7 +141,7 @@ final class WalkController: NSObject {
     var cardVisible: Bool { card.isVisible }
     /// The coach yields while any walk surface is up.
     var isUp: Bool { doorVisible || cardVisible }
-    /// The lesson on the glass right now, if one is.
+    /// The lesson on the pane right now, if one is.
     var showingLesson: Curriculum.Lesson? { cardVisible ? lesson : nil }
 
     /// From the boot trigger or the menu. `resumeAt` and `door` are an
@@ -627,7 +627,7 @@ final class WalkController: NSObject {
         let origin = page == .waiting
             ? NSPoint(x: visible.maxX - size.width - 20, y: visible.midY - size.height / 2)
             : NSPoint(x: visible.midX - size.width / 2, y: visible.midY - size.height / 2 + 40)
-        door.setGlassFrame(NSRect(origin: origin, size: size), display: true)
+        door.setPaneFrame(NSRect(origin: origin, size: size), display: true)
         door.orderFrontRegardless()
     }
 
@@ -678,7 +678,7 @@ final class WalkController: NSObject {
             let tile = SoftShadow.object(radius: radius, lift: .rest)
             tile.stance = selected ? .slab : .key
             if selected { tile.appearance = BarTheme.slabLook(over: doorRoot.effectiveAppearance) }
-            Glass.installBackdrop(in: tile, cornerRadius: radius, weight: selected ? .slab : .raised)
+            Ceramic.installBackdrop(in: tile, cornerRadius: radius, weight: selected ? .slab : .raised)
             tile.translatesAutoresizingMaskIntoConstraints = false
             tile.addSubview(column)
             NSLayoutConstraint.activate([
@@ -922,7 +922,7 @@ final class WalkController: NSObject {
         "\(door) · \(position) of \(total)"
     }
 
-    /// A lesson on the companion's glass, in the voice.
+    /// A lesson on the companion's pane, in the voice.
     private func renderLesson(_ lesson: Curriculum.Lesson) {
         for view in cardRoot.subviews where view is NSStackView { view.removeFromSuperview() }
         let stack: NSStackView

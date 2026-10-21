@@ -73,7 +73,7 @@ final class ReadabilityTests: XCTestCase {
     }
 
     func testTheScaleHasAFloorAndThreeSteps() {
-        XCTAssertGreaterThanOrEqual(BarTheme.Scale.meta, 13, "nothing on glass below the floor")
+        XCTAssertGreaterThanOrEqual(BarTheme.Scale.meta, 13, "nothing on pane below the floor")
         XCTAssertLessThan(BarTheme.Scale.meta, BarTheme.Scale.body)
         XCTAssertLessThan(BarTheme.Scale.body, BarTheme.Scale.title)
         XCTAssertLessThan(BarTheme.Scale.title, BarTheme.Scale.input)

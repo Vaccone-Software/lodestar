@@ -5,7 +5,7 @@ import LodestarCore
 /// model catches best — "their" for "they're", a word heard twice — and the
 /// draft is where they can be fixed before anything lands in an app.
 ///
-/// The draft is Lodestar's own glass, so nothing here goes through
+/// The draft is Lodestar's own pane, so nothing here goes through
 /// accessibility: the marks are a line drawn by the draft's text, the lens
 /// is `lode ⇥` as everywhere, with its chips over the draft, and a fix is
 /// one undo step in the draft's own history. The rules are the editor's:

@@ -31,7 +31,7 @@ final class ChipNarrowingTests: XCTestCase {
     }
 
     func testAMarkTheHandHasBegunTypingStaysTheRestingKey() {
-        XCTAssertEqual(face(KeyMark.key("af", typed: "a")), Glass.resolved(BarTheme.markFill), "no accent: the same cap")
+        XCTAssertEqual(face(KeyMark.key("af", typed: "a")), Ceramic.resolved(BarTheme.markFill), "no accent: the same cap")
         XCTAssertEqual(face(KeyMark.key("af", typed: "a")), face(KeyMark.key("af")), "typing changes the letters, not the key")
         let typed = KeyMark.key("af", typed: "a"), resting = KeyMark.key("af")
         XCTAssertEqual(body(typed)?.sideColor, body(resting)?.sideColor, "the side is the resting side")

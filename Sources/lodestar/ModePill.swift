@@ -133,7 +133,7 @@ final class ModePill {
     private var content: NSStackView?
     private(set) var state: State?
     var isVisible: Bool { panel.isVisible }
-    var frame: NSRect { panel.glassFrame }
+    var frame: NSRect { panel.paneFrame }
     /// Where the hand put the pill, as a displacement from its home, so
     /// a dragged pill comes back where it was left for the rest of the
     /// session. Zero until dragged; the home is the guide's.
@@ -142,9 +142,9 @@ final class ModePill {
     private var placing = false
 
     init() {
-        panel = Glass.makePanel(level: .statusBar, takesKeys: false)
+        panel = Ceramic.makePanel(level: .statusBar, takesKeys: false)
         SoftShadow.host(root, in: panel, cornerRadius: Self.radius)
-        surface = Glass.installBackdrop(in: root, cornerRadius: Self.radius)
+        surface = Ceramic.installBackdrop(in: root, cornerRadius: Self.radius)
         // Draggable by its surface, the way the coach's chip is: one home by
         // default, and a remembered displacement once the hand moves it.
         Movable.enable(panel)
@@ -164,11 +164,11 @@ final class ModePill {
     /// drag.
     private func noteMoved() {
         guard !placing, panel.isVisible else { return }
-        remember(origin: panel.glassFrame.origin)
+        remember(origin: panel.paneFrame.origin)
     }
 
     func remember(origin: NSPoint) {
-        let home = Self.home(for: panel.glassFrame.size)
+        let home = Self.home(for: panel.paneFrame.size)
         offset = NSPoint(x: origin.x - home.x, y: origin.y - home.y)
     }
 
@@ -219,7 +219,7 @@ final class ModePill {
         root.addSubview(columns)
         // Laid out once at their own width, centred on the row and standing
         // on it, so the pane reveals them as it grows and nothing inside
-        // it moves or reflows. The edges that ask the glass to be big
+        // it moves or reflows. The edges that ask the pane to be big
         // enough sit below the window-size threshold: above it AppKit
         // would size the window to them at once, ahead of the motion, and
         // the row would sit off centre until the pane caught up. They
@@ -372,7 +372,7 @@ final class ModePill {
 
     private func present() {
         placing = true
-        panel.setGlassFrame(frameForContent(), display: true)
+        panel.setPaneFrame(frameForContent(), display: true)
         placing = false
         panel.orderFrontRegardless()
     }

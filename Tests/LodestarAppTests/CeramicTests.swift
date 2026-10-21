@@ -5,7 +5,7 @@ import XCTest
 
 /// One ceramic. Every panel, card, and chip is the launcher's pane: opaque,
 /// in the palette's own colour, re-read live.
-final class GlassTests: XCTestCase {
+final class CeramicTests: XCTestCase {
     override func setUp() { Accessibility.reset() }
     override func tearDown() { Accessibility.reset() }
 
@@ -15,7 +15,7 @@ final class GlassTests: XCTestCase {
     }
 
     /// A pane in a window of the given look, the way a backdrop stands.
-    private func paneInAWindow(_ look: NSAppearance.Name = .aqua, weight: Glass.Weight = .normal)
+    private func paneInAWindow(_ look: NSAppearance.Name = .aqua, weight: Ceramic.Weight = .normal)
         -> (NSWindow, CeramicPane) {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 60),
                               styleMask: [.borderless], backing: .buffered, defer: false)
@@ -64,7 +64,7 @@ final class GlassTests: XCTestCase {
 
     func testNothingFrostsBehindAnyInstalledBackdrop() {
         let root = NSView()
-        Glass.installBackdrop(in: root, cornerRadius: 18)
+        Ceramic.installBackdrop(in: root, cornerRadius: 18)
         var found: [String] = []
         func walk(_ view: NSView) {
             if view is NSVisualEffectView || view is NSGlassEffectView { found.append(String(describing: type(of: view))) }
@@ -76,18 +76,18 @@ final class GlassTests: XCTestCase {
 
     func testOneBackdropWithAWeight() {
         let root = NSView()
-        let normal = Glass.installBackdrop(in: root, cornerRadius: 18)
-        let raised = Glass.installBackdrop(in: NSView(), cornerRadius: 18, weight: .raised)
-        let faint = Glass.installBackdrop(in: NSView(), cornerRadius: 18, weight: .faint)
-        XCTAssertEqual(Glass.weight(in: normal), .normal)
-        XCTAssertEqual(Glass.weight(in: raised), .raised)
-        XCTAssertEqual(Glass.weight(in: faint), .faint)
+        let normal = Ceramic.installBackdrop(in: root, cornerRadius: 18)
+        let raised = Ceramic.installBackdrop(in: NSView(), cornerRadius: 18, weight: .raised)
+        let faint = Ceramic.installBackdrop(in: NSView(), cornerRadius: 18, weight: .faint)
+        XCTAssertEqual(Ceramic.weight(in: normal), .normal)
+        XCTAssertEqual(Ceramic.weight(in: raised), .raised)
+        XCTAssertEqual(Ceramic.weight(in: faint), .faint)
         XCTAssertEqual(root.subviews.first, normal, "installed under everything else")
     }
 
     func testAWeightIsAStepOfThePalette() {
         for (look, steps) in [(NSAppearance.Name.aqua, Palette.clay), (.darkAqua, Palette.night)] {
-            for (weight, step) in [(Glass.Weight.normal, steps.pane), (.raised, steps.raised), (.faint, steps.ground)] {
+            for (weight, step) in [(Ceramic.Weight.normal, steps.pane), (.raised, steps.raised), (.faint, steps.ground)] {
                 let (window, pane) = paneInAWindow(look, weight: weight)
                 XCTAssertEqual(rgb(pane.layer?.backgroundColor), step.color.usingColorSpace(.sRGB), "\(weight) in \(look.rawValue)")
                 _ = window
@@ -106,7 +106,7 @@ final class GlassTests: XCTestCase {
     /// the content was added.
     func testThePanesEdgeStandsAboveContentAddedAfterIt() throws {
         let root = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 60))
-        let pane = try XCTUnwrap(Glass.installBackdrop(in: root, cornerRadius: 18) as? CeramicPane)
+        let pane = try XCTUnwrap(Ceramic.installBackdrop(in: root, cornerRadius: 18) as? CeramicPane)
         let picture = NSView(frame: root.bounds)
         picture.wantsLayer = true
         root.addSubview(picture)
@@ -119,7 +119,7 @@ final class GlassTests: XCTestCase {
 
     func testAPaneStandingInAnObjectLeavesTheEdgeToIt() {
         let card = SoftShadow.object(radius: BarTheme.surfaceRadius, lift: .rest)
-        let pane = Glass.installBackdrop(in: card, cornerRadius: BarTheme.surfaceRadius) as? CeramicPane
+        let pane = Ceramic.installBackdrop(in: card, cornerRadius: BarTheme.surfaceRadius) as? CeramicPane
         XCTAssertEqual(pane?.drawsEdge, false, "the hairline is drawn once")
     }
 
@@ -127,8 +127,8 @@ final class GlassTests: XCTestCase {
         let mark = KeyMark.key("ab")
         XCTAssertNotNil(mark.layer?.shadowPath, "stands on a short warm shadow")
         let key = try XCTUnwrap(mark.subviews.first as? KeyBody)
-        XCTAssertEqual(key.faceColor, Glass.resolved(BarTheme.markFill), "the key's face, opaque over the app")
-        XCTAssertEqual(key.sideColor, Glass.resolved(BarTheme.keySide), "on its side")
+        XCTAssertEqual(key.faceColor, Ceramic.resolved(BarTheme.markFill), "the key's face, opaque over the app")
+        XCTAssertEqual(key.sideColor, Ceramic.resolved(BarTheme.keySide), "on its side")
         XCTAssertEqual(key.layers.stance, .standing)
         XCTAssertEqual(key.layers.face.frame.minY, KeyLayers.sideHeight(forHeight: KeyMark.height), "three points up at key size")
         let label = key.subviews.compactMap { $0 as? NSTextField }.first
@@ -146,7 +146,7 @@ final class GlassTests: XCTestCase {
         XCTAssertEqual(cards.filter { $0 == .raised }.count, cards.count - 1, "every other card is a key's face")
         XCTAssertFalse(cards.contains(.normal), "no card is a flat pane")
         for card in stage.engine.strip.shownCards.values {
-            let backdrop = card.subviews.first { Glass.weight(in: $0) != nil }
+            let backdrop = card.subviews.first { Ceramic.weight(in: $0) != nil }
             XCTAssertNotNil(backdrop)
             XCTAssertTrue(backdrop is CeramicPane, "the strip's cards are the launcher's ceramic")
         }
@@ -292,7 +292,7 @@ final class AccentAndChipWordsTests: XCTestCase {
         for (look, pair) in [(NSAppearance.Name.darkAqua, Readability.orangeOnCharcoal), (.aqua, Readability.orangeOnPaper)] {
             let view = NSView()
             view.appearance = NSAppearance(named: look)
-            let resolved = Glass.resolved(BarTheme.internationalOrange, in: view)
+            let resolved = Ceramic.resolved(BarTheme.internationalOrange, in: view)
             let color = NSColor(cgColor: resolved)?.usingColorSpace(.sRGB)
             XCTAssertEqual(color?.redComponent ?? 0, CGFloat(pair.red), accuracy: 0.002, look.rawValue)
             XCTAssertEqual(color?.greenComponent ?? 0, CGFloat(pair.green), accuracy: 0.002)
@@ -630,7 +630,7 @@ final class SlabTests: XCTestCase {
         let view = ChoiceMenuItemView(item: item, chosen: true, width: 200, popup: popup)
         window.contentView?.addSubview(view)
         view.paint(lit: false)
-        XCTAssertEqual(rgb(Glass.resolved(BarTheme.ink, in: view)), Palette.clay.ink.color.usingColorSpace(.sRGB))
+        XCTAssertEqual(rgb(Ceramic.resolved(BarTheme.ink, in: view)), Palette.clay.ink.color.usingColorSpace(.sRGB))
         view.paint(lit: true)
         let label = view.subviews.compactMap { $0 as? NSTextField }.first
         XCTAssertEqual(rgb(label?.textColor?.cgColor), Palette.night.ink.color.usingColorSpace(.sRGB), "the slab's ink, by day")
@@ -657,9 +657,9 @@ final class SlabTests: XCTestCase {
     func testTheInkInsideTheSlabIsTheOtherLooksInk() {
         for (look, other) in [(NSAppearance.Name.aqua, Palette.night), (.darkAqua, Palette.clay)] {
             let (window, _, label, key) = row(in: look)
-            XCTAssertEqual(rgb(Glass.resolved(BarTheme.ink, in: label)), other.ink.color.usingColorSpace(.sRGB),
+            XCTAssertEqual(rgb(Ceramic.resolved(BarTheme.ink, in: label)), other.ink.color.usingColorSpace(.sRGB),
                            "the labels read as the other look's ink on the slab")
-            XCTAssertEqual(rgb(Glass.resolved(BarTheme.secondaryColor, in: label)),
+            XCTAssertEqual(rgb(Ceramic.resolved(BarTheme.secondaryColor, in: label)),
                            other.secondary.color.usingColorSpace(.sRGB), "and its quiet ink")
             XCTAssertEqual(key.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]),
                            other.ink.lightness > 0.5 ? .darkAqua : .aqua, "the key inside is in the slab's look")
@@ -699,12 +699,12 @@ final class SlabTests: XCTestCase {
         step.setupRaised()
         step.applyRaised(true)
         XCTAssertEqual(row.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]), .darkAqua, "the words are on an espresso slab")
-        XCTAssertEqual(rgb(Glass.resolved(BarTheme.ink, in: words)), Palette.night.ink.color.usingColorSpace(.sRGB))
+        XCTAssertEqual(rgb(Ceramic.resolved(BarTheme.ink, in: words)), Palette.night.ink.color.usingColorSpace(.sRGB))
         XCTAssertEqual(rgb(step.slabColors.face), Palette.clay.slab.color.usingColorSpace(.sRGB),
                        "and the step is the day's slab, not the night's, though it lives inside the other look")
         step.applyRaised(false)
         XCTAssertNil(row.appearance, "the row is its own again")
-        XCTAssertEqual(rgb(Glass.resolved(BarTheme.ink, in: words)), Palette.clay.ink.color.usingColorSpace(.sRGB))
+        XCTAssertEqual(rgb(Ceramic.resolved(BarTheme.ink, in: words)), Palette.clay.ink.color.usingColorSpace(.sRGB))
     }
 
     func testAChosenRowCastsNoShadowForItsSideStandsInstead() {
@@ -867,7 +867,7 @@ final class KeyPopUpTests: XCTestCase {
         let standing = key.visibleSide
         XCTAssertEqual(standing, KeyLayers.sideHeight(forHeight: KeyPopUp.height))
         XCTAssertNotNil(key.sideColor)
-        XCTAssertEqual(rgbOf(key.faceColor), rgbOf(NSColor(cgColor: Glass.resolved(BarTheme.keyFace, in: key))),
+        XCTAssertEqual(rgbOf(key.faceColor), rgbOf(NSColor(cgColor: Ceramic.resolved(BarTheme.keyFace, in: key))),
                        "the key's own face, and no well")
         key.holdForTesting(true)
         XCTAssertEqual(key.stance, .pressed)
@@ -910,9 +910,9 @@ final class KeyFaceTests: XCTestCase {
         BarTheme.accentColor = { BarTheme.internationalOrange }
         defer { BarTheme.accentColor = saved }
         let key = KeyFace("E")
-        XCTAssertNotEqual(key.faceColor, Glass.resolved(BarTheme.accent, in: key), "resting is not lit")
+        XCTAssertNotEqual(key.faceColor, Ceramic.resolved(BarTheme.accent, in: key), "resting is not lit")
         key.lit = true
-        XCTAssertEqual(key.faceColor, Glass.resolved(BarTheme.accent, in: key))
+        XCTAssertEqual(key.faceColor, Ceramic.resolved(BarTheme.accent, in: key))
         XCTAssertEqual(key.label.textColor, BarTheme.onAccent)
         XCTAssertEqual(key.visibleSide, 3, "it stands on its side")
         XCTAssertNotEqual(key.sideColor, key.faceColor, "a lit key's side is a darker shade of the accent")
@@ -922,15 +922,15 @@ final class KeyFaceTests: XCTestCase {
     /// key that is lit later takes the accent then, in its own look.
     func testALitKeyWearsTheAccentOfItsOwnLook() {
         let key = KeyFace("⏎")
-        XCTAssertNotEqual(key.faceColor, Glass.resolved(BarTheme.accent, in: key), "resting is not lit")
+        XCTAssertNotEqual(key.faceColor, Ceramic.resolved(BarTheme.accent, in: key), "resting is not lit")
         key.lit = true
-        XCTAssertEqual(key.faceColor, Glass.resolved(BarTheme.accent, in: key))
+        XCTAssertEqual(key.faceColor, Ceramic.resolved(BarTheme.accent, in: key))
         XCTAssertEqual(key.label.textColor, BarTheme.onAccent)
         key.effectiveAppearance.performAsCurrentDrawingAppearance {
-            XCTAssertEqual(key.sideColor, Glass.resolved(BarTheme.litKeySide, in: key))
+            XCTAssertEqual(key.sideColor, Ceramic.resolved(BarTheme.litKeySide, in: key))
         }
         key.lit = false
-        XCTAssertNotEqual(key.faceColor, Glass.resolved(BarTheme.accent, in: key))
+        XCTAssertNotEqual(key.faceColor, Ceramic.resolved(BarTheme.accent, in: key))
     }
 
     private func rgb(_ color: CGColor?) -> NSColor? { color.flatMap(NSColor.init(cgColor:))?.usingColorSpace(.sRGB) }
@@ -1039,17 +1039,17 @@ final class KeyFaceTests: XCTestCase {
     }
 
     /// Every surface with the drawn shadow is gated by construction: the
-    /// shadow's margin passes the pointer through, the glass takes it.
-    func testAHostedSurfaceTakesThePointerOnlyOverItsGlass() {
-        let panel = Glass.makePanel(level: .floating)
-        let gate = SoftShadow.host(NSView(), in: panel, cornerRadius: BarTheme.glassRadius)
-        let glass = NSRect(x: 300, y: 300, width: 400, height: 120)
-        panel.setFrame(SoftShadow.outset(glass), display: false)
+    /// shadow's margin passes the pointer through, the pane takes it.
+    func testAHostedSurfaceTakesThePointerOnlyOverItsPane() {
+        let panel = Ceramic.makePanel(level: .floating)
+        let gate = SoftShadow.host(NSView(), in: panel, cornerRadius: BarTheme.surfaceRadius)
+        let pane = NSRect(x: 300, y: 300, width: 400, height: 120)
+        panel.setFrame(SoftShadow.outset(pane), display: false)
         panel.orderFrontRegardless()
         defer { panel.orderOut(nil) }
-        gate.update(pointer: NSPoint(x: glass.midX, y: glass.midY))
+        gate.update(pointer: NSPoint(x: pane.midX, y: pane.midY))
         XCTAssertTrue(gate.open)
-        gate.update(pointer: NSPoint(x: glass.midX, y: glass.minY - 30))
+        gate.update(pointer: NSPoint(x: pane.midX, y: pane.minY - 30))
         XCTAssertFalse(gate.open, "a click in the shadow belongs to the app beneath")
     }
 
@@ -1147,7 +1147,7 @@ final class ToneFollowsAppearanceTests: XCTestCase {
         let view = NSView()
         view.appearance = NSAppearance(named: .aqua)
         NSAppearance(named: .darkAqua)!.performAsCurrentDrawingAppearance {
-            let ink = Glass.resolved(.labelColor, in: view).components ?? []
+            let ink = Ceramic.resolved(.labelColor, in: view).components ?? []
             XCTAssertLessThan(ink.first ?? 1, 0.5, "the view is light, whatever is current")
         }
     }

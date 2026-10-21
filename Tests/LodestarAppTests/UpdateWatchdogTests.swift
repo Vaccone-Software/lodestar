@@ -54,8 +54,8 @@ final class UpdateWatchdogTests: XCTestCase {
     /// panel ordered in took key status without Lodestar coming forward,
     /// and the launch note rang the alert for every key typed under it.
     func testASurfaceThatOnlyShowsNeverTakesKeys() throws {
-        XCTAssertFalse(Glass.makePanel(level: .statusBar, takesKeys: false).canBecomeKey)
-        XCTAssertTrue(Glass.makePanel(level: .statusBar).canBecomeKey, "a surface that types still can")
+        XCTAssertFalse(Ceramic.makePanel(level: .statusBar, takesKeys: false).canBecomeKey)
+        XCTAssertTrue(Ceramic.makePanel(level: .statusBar).canBecomeKey, "a surface that types still can")
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         for name in ["HUD", "ModePill", "SelectOverlay", "IndexBadges", "LinkChip", "CheatSheet"] {
             let source = try String(contentsOf: root.appendingPathComponent("Sources/lodestar/\(name).swift"), encoding: .utf8)

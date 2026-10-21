@@ -83,7 +83,7 @@ enum PresenceProbe {
     }
 }
 
-/// The coach's coat: clocks, cameras, glass, and the two gestures. Every
+/// The coach's coat: clocks, cameras, pane, and the two gestures. Every
 /// decision — which suggestion, whether now, what the chip says, how "no"
 /// is remembered — lives in `Coach` (LodestarCore), pure and tested; this
 /// class only carries those decisions to the screen and back.
@@ -125,7 +125,7 @@ final class CoachController {
     var humanIdle: () -> TimeInterval = { 0 }
     var showChip: (Coach.Chip) -> Void = { _ in }
     var hideChip: () -> Void = {}
-    /// Are the chip's pixels still the ones on the glass? True by default,
+    /// Are the chip's pixels still the ones on the pane? True by default,
     /// for the same reason the other probes are permissive: an unwired
     /// coach must not silence itself.
     var ownsSurface: () -> Bool = { true }
@@ -158,14 +158,14 @@ final class CoachController {
 
     private(set) var standing: Recommendation?
     private var standingSince = Date.distantPast
-    /// The coach's belief that its chip is on the glass. The harness reads
+    /// The coach's belief that its chip is on the pane. The harness reads
     /// it beside `HUD.owner`, because the two disagreeing is the whole
     /// shape of the bug this seam exists to catch.
     private(set) var chipVisible = false
     private var chipHide: DispatchWorkItem?
     private var chipSeen: DispatchWorkItem?
     /// The boundary that wants to speak, waiting to see whether the hand
-    /// has actually stopped. Disarmed by any further claim on the glass.
+    /// has actually stopped. Disarmed by any further claim on the pane.
     private var settleWork: DispatchWorkItem?
     private var lastShownAt = Date.distantPast
     /// One line per hold kind per standing suggestion, not per boundary.
@@ -250,7 +250,7 @@ final class CoachController {
         considerShowing(cueApp: nil, cueHost: host)
     }
 
-    /// The engine took the glass — a chain started, a chain finished, a bar
+    /// The engine took the pane — a chain started, a chain finished, a bar
     /// opened. The chip yields instantly and its decay counts as "later".
     ///
     /// This also disarms a pending settle, and that is the more important
@@ -469,7 +469,7 @@ final class CoachController {
         guard chipVisible, !offerCounted else { return }
         // Two ways a chip that is still believed in was never read. The
         // screen locked, the display slept, or the chair emptied while it
-        // stood — or something took the glass and the chip has not been on
+        // stood — or something took the pane and the chip has not been on
         // it since. Either way nothing was read, so nothing is spent, and
         // it comes down rather than waiting behind a lock screen for a
         // gesture.
@@ -555,7 +555,7 @@ final class CoachController {
                 let changed = offer?.target != self.standing?.target
                     || offer?.kind != self.standing?.kind
                 if changed {
-                    // A chip on the glass must be the standing offer, never
+                    // A chip on the pane must be the standing offer, never
                     // a memory of one: left up through a swap, the two
                     // gestures would answer a suggestion the user never read.
                     if self.chipVisible { self.dismissChip(record: false) }

@@ -65,7 +65,7 @@ struct DraftView {
 /// The voice light: the panel's own top edge, lit in the accent while the
 /// draft listens, spreading out from the middle as the voice gets louder
 /// and curving down into the corners at its fullest. One flat stroke
-/// along the glass's outline, no glow and no fade, so the level reads as
+/// along the pane's outline, no glow and no fade, so the level reads as
 /// a length that can be seen from across the room.
 ///
 /// It is the microphone's whole status, in three states: out while the
@@ -125,7 +125,7 @@ final class VoiceLight: NSView {
     /// is the middle of the edge and a length grows from there both ways.
     static func edge(in bounds: NSRect) -> CGPath {
         let inset = lineWidth / 2
-        let r = BarTheme.glassRadius - inset
+        let r = BarTheme.surfaceRadius - inset
         let left = bounds.minX + inset, right = bounds.maxX - inset, top = bounds.maxY - inset
         let path = CGMutablePath()
         path.move(to: CGPoint(x: left, y: top - r))
@@ -152,7 +152,7 @@ final class VoiceLight: NSView {
         painted = color
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        stroke.strokeColor = Glass.resolved(color, in: self)
+        stroke.strokeColor = Ceramic.resolved(color, in: self)
         CATransaction.commit()
     }
 
@@ -197,7 +197,7 @@ final class VoiceLight: NSView {
     }
 }
 
-/// The draft's glass: bottom center, fixed in place, growing upward with
+/// The draft's pane: bottom center, fixed in place, growing upward with
 /// the text. Never key — the app under it keeps its cursor the whole
 /// time — but it takes the mouse for two things on its register line:
 /// the microphone, which toggles, and the input, which is a menu.
@@ -205,14 +205,14 @@ final class DraftPanel {
     let panel: NSPanel
     private let root = AppearanceRoot()
     private let gate: PointerGate
-    /// Where the glass is going: the surface's frame as last laid out,
+    /// Where the pane is going: the surface's frame as last laid out,
     /// which a quick fold reaches a tenth of a second later.
     private var target: NSRect?
     /// A fold in motion, by generation, so a render that lands mid-way
     /// carries the motion on rather than fighting it.
     private var foldMotion = 0
     private var restaging = false
-    /// How long the glass takes to fold or open: fast enough to read as
+    /// How long the pane takes to fold or open: fast enough to read as
     /// sudden, long enough that the eye sees where the text went.
     static let foldSeconds: TimeInterval = 0.1
     private var backdrop: NSView?
@@ -246,7 +246,7 @@ final class DraftPanel {
     private let caret = NSView()
     /// The keys, when they are asked for. The draft carries no legend:
     /// every key it owns lives behind `lode ?`, like every other
-    /// surface's, and the glass grows to hold them.
+    /// surface's, and the pane grows to hold them.
     private var keysView: NSView?
     private(set) var keysShown = false
 
@@ -289,17 +289,17 @@ final class DraftPanel {
     var isVisible: Bool { panel.isVisible }
 
     init() {
-        panel = Glass.makePanel(level: .statusBar)
+        panel = Ceramic.makePanel(level: .statusBar)
         // A click on the foot must not make the draft key: ⏎'s paste goes
         // to the app that has the keyboard, which has to stay that app.
         panel.becomesKeyOnlyIfNeeded = true
         // The bars' edge and soft shadow, drawn by the window around the
-        // glass rather than by the system.
+        // pane rather than by the system.
         // The mouse reaches the foot's input menu, and only over the
-        // glass. The panel never becomes key, so the app underneath
+        // pane. The panel never becomes key, so the app underneath
         // keeps its cursor.
-        gate = SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
-        backdrop = Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+        gate = SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
+        backdrop = Ceramic.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
 
         registerName.font = BarTheme.rowLabelFont
         registerName.textColor = BarTheme.ink
@@ -392,7 +392,7 @@ final class DraftPanel {
     }
 
     /// Where the panel stands and what its lines say, for the tests.
-    /// The glass's frame — where it stands, or where a fold in motion
+    /// The pane's frame — where it stands, or where a fold in motion
     /// is taking it — without the shadow's margin.
     var frame: NSRect { target ?? SoftShadow.inset(panel.frame) }
     /// Whether the window takes the mouse right now, for the tests.
@@ -505,7 +505,7 @@ final class DraftPanel {
     }
 
     /// The last frame rendered, so the keys can re-render the panel once
-    /// the glass has finished growing.
+    /// the pane has finished growing.
     private var lastView: DraftView?
 
     func show(_ view: DraftView) {
@@ -574,7 +574,7 @@ final class DraftPanel {
                                     range: NSRange(location: lower, length: max(0, upper - lower)))
         }
         // The find lights recolor the letters themselves — nothing is
-        // drawn behind them, because a background wash under this glass
+        // drawn behind them, because a background wash under this pane
         // is composited by vibrancy and can vanish entirely (the first
         // build of this feature shipped invisible that way). Painted only
         // with no ghost standing, like the selection: the ghost shifts
@@ -592,7 +592,7 @@ final class DraftPanel {
                 attributed.addAttributes(accent, range: characterRange(target..<target + 1))
             }
             // The editor's line, drawn by the text itself like the find
-            // lights, so the glass cannot wash it out, and it follows the
+            // lights, so the pane cannot wash it out, and it follows the
             // words as they wrap.
             for mark in view.editorMarks where mark.location + mark.length <= attributed.length {
                 attributed.addAttributes([
@@ -684,7 +684,7 @@ final class DraftPanel {
         // reading is the task.
         scroll.hasVerticalScroller = expanded && used > maxTextHeight
 
-        // Whole points: the window lands on them anyway, and a glass whose
+        // Whole points: the window lands on them anyway, and a pane whose
         // edge falls between pixels is a soft edge.
         let height = (chrome + textHeight).rounded(.up)
         let frame = NSRect(x: (screen.midX - width / 2).rounded(),
@@ -848,7 +848,7 @@ final class DraftPanel {
             // into a layer's colour takes whatever appearance is current at
             // the call, and off the draw pass that was the dark one, so the
             // light look drew a white plate on a light pane.
-            caret.layer?.backgroundColor = Glass.resolved(block ? BarTheme.ink : BarTheme.readableAccent,
+            caret.layer?.backgroundColor = Ceramic.resolved(block ? BarTheme.ink : BarTheme.readableAccent,
                                                           in: root)
         }
 
@@ -857,7 +857,7 @@ final class DraftPanel {
         CATransaction.commit()
         NSAnimationContext.endGrouping()
 
-        // Folding or opening moves the glass quickly rather than not at
+        // Folding or opening moves the pane quickly rather than not at
         // all: laid out where it is going, put back where it was, and
         // carried there on the subviews' masks, the keys' own method. A
         // render that lands mid-way carries the motion on.
@@ -869,13 +869,13 @@ final class DraftPanel {
             let motion = foldMotion
             // Correctness cannot depend on the animation: under load a
             // window animation can fail to move at all, so when its time
-            // is up the glass is put exactly where the layout said,
+            // is up the pane is put exactly where the layout said,
             // whether or not the motion ran.
             let land = { [weak self] in
                 guard let self, self.foldMotion == motion else { return }
                 self.foldMotion = 0
                 // Laid out again where it stands: the motion carried the
-                // glass but the scroll view clamped its window on the way,
+                // pane but the scroll view clamped its window on the way,
                 // and the pointer gate read the old frame.
                 if let last = self.lastView { self.show(last) }
             }
@@ -893,7 +893,7 @@ final class DraftPanel {
 
     // MARK: - The keys
 
-    /// The height the glass owes its keys: zero while they are away.
+    /// The height the pane owes its keys: zero while they are away.
     private var keysBand: CGFloat {
         guard keysShown, let keysView else { return 0 }
         return Self.keysAbove + keysView.frame.height
@@ -903,7 +903,7 @@ final class DraftPanel {
     /// legend used to stand.
     ///
     /// Placed against the width the panel actually has, not against the
-    /// draft's default one. The glass is 720 wide on every display a Mac
+    /// draft's default one. The pane is 720 wide on every display a Mac
     /// has, and the columns want 454 of it, so the clamp does not bind
     /// in practice — but it was written against the constant, and a
     /// constant is the wrong thing to measure a variable against.
@@ -930,7 +930,7 @@ final class DraftPanel {
         // layout pass.
         columns.translatesAutoresizingMaskIntoConstraints = true
         // The height is the columns' own; the width is settled by
-        // `placeKeys` against the glass this draft actually has.
+        // `placeKeys` against the pane this draft actually has.
         columns.frame = NSRect(x: Self.padX, y: Self.footHeight,
                                width: columns.fittingSize.width,
                                height: columns.fittingSize.height)
@@ -952,7 +952,7 @@ final class DraftPanel {
                           completion: { [weak self] in self?.relay() })
     }
 
-    /// Lay the panel out for where it is going, then put the glass back
+    /// Lay the panel out for where it is going, then put the pane back
     /// where it was so the animation has somewhere to travel from.
     ///
     /// The layout used to be corrected in the animation's completion
@@ -963,10 +963,10 @@ final class DraftPanel {
     /// hundred points of its own text and left them there until some
     /// other keystroke happened to re-render it. Correctness cannot
     /// depend on an animation: the layout is right from the first frame
-    /// now, and the motion only carries the glass between two frames
+    /// now, and the motion only carries the pane between two frames
     /// that are both already true. The subviews ride on their
     /// autoresizing masks the whole way.
-    /// Lay the panel out again where a motion left it: the glass is right,
+    /// Lay the panel out again where a motion left it: the pane is right,
     /// but a folded window's scroll was clamped while the frame travelled.
     private func relay() {
         guard panel.isVisible, let last = lastView else { return }
@@ -976,7 +976,7 @@ final class DraftPanel {
     @discardableResult
     private func restaged(_ view: DraftView) -> (from: NSRect, to: NSRect) {
         let from = panel.frame
-        // The keys' motion owns the glass now; a fold landing late must not
+        // The keys' motion owns the pane now; a fold landing late must not
         // put it back where the fold was going.
         foldMotion = 0
         restaging = true

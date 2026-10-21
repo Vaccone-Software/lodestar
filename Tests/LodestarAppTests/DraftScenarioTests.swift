@@ -1012,7 +1012,7 @@ final class DraftHearsNothingScenarioTests: XCTestCase {
 }
 
 /// The draft carries no legend. Every key it owns lives behind `lode ?`,
-/// the one door, and the glass grows to hold them the way a bar's does.
+/// the one door, and the pane grows to hold them the way a bar's does.
 final class DraftKeysScenarioTests: XCTestCase {
     func testTheDraftOpensWithNoLegend() {
         let stage = Stage()

@@ -104,7 +104,7 @@ final class CoachPacingTests: XCTestCase {
     }
 
     /// The debut's shortcut exists because a first chip is the one most
-    /// likely to be missed outright. A chip that held the glass for a full
+    /// likely to be missed outright. A chip that held the pane for a full
     /// minute was not missed, so the shortcut has nothing left to correct.
     func testAFullStandingOverridesTheDebutShortcut() {
         XCTAssertEqual(Coach.retryDays(channelOffers: 1, thisOffers: 1, stoodFull: true),

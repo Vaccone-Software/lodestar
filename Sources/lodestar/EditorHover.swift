@@ -161,16 +161,16 @@ final class EditorHover: NSObject {
         if let existing = self.panel {
             panel = existing
         } else {
-            panel = Glass.makePanel(level: NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue + 1))
+            panel = Ceramic.makePanel(level: NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue + 1))
             // The drawn shadow, hosted once; each card is built into it.
-            SoftShadow.host(holder, in: panel, cornerRadius: BarTheme.glassRadius)
+            SoftShadow.host(holder, in: panel, cornerRadius: BarTheme.surfaceRadius)
             self.panel = panel
         }
         holder.subviews.forEach { $0.removeFromSuperview() }
         let root = NSView(frame: holder.bounds)
         root.autoresizingMask = [.width, .height]
         holder.addSubview(root)
-        Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+        Ceramic.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
 
         let words = Self.answers(for: mark.issue)
         let answers = NSStackView()
@@ -218,7 +218,7 @@ final class EditorHover: NSObject {
         let x = min(max((mark.rect.minX - inset - 2).rounded(), screen.visibleFrame.minX + 4),
                     screen.visibleFrame.maxX - size.width - 4)
         cardFrame = CGRect(x: x, y: top, width: size.width, height: size.height)
-        panel.setGlassFrame(NSRect(x: x, y: height - top - size.height, width: size.width, height: size.height),
+        panel.setPaneFrame(NSRect(x: x, y: height - top - size.height, width: size.width, height: size.height),
                             display: true)
         panel.orderFrontRegardless()
         shown = mark

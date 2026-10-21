@@ -101,7 +101,7 @@ final class FileDoorTests: XCTestCase {
 
     // MARK: - A PDF
 
-    func testAPDFStandsAsPagesOnTheGlassFittedToTheWidth() throws {
+    func testAPDFStandsAsPagesOnThePaneFittedToTheWidth() throws {
         let view = PDFView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         ImageDoor.configure(view, showing: try pdf(pages: 2))
         XCTAssertEqual(view.displayMode, .singlePageContinuous, "pages one above another, scrolling")
@@ -113,7 +113,7 @@ final class FileDoorTests: XCTestCase {
         XCTAssertEqual(view.pageBreakMargins.left, margin)
         XCTAssertEqual(view.pageBreakMargins.right, margin)
         XCTAssertTrue(view.autoScales, "fitted to the room's width")
-        XCTAssertEqual(view.backgroundColor, .clear, "the glass shows between the pages")
+        XCTAssertEqual(view.backgroundColor, .clear, "the pane shows between the pages")
         XCTAssertFalse(view.pageShadowsEnabled, "the system's shadows are not the door's")
         XCTAssertFalse(view.acceptsDraggedFiles)
         XCTAssertEqual(view.minScaleFactor, ImageDoor.pdfScales.lowerBound)
@@ -269,7 +269,7 @@ final class FileDoorTests: XCTestCase {
 
     /// Seen on the display 2026-10-19: fitted to the width, one page stood
     /// across the whole display. A page opens whole in the room's height,
-    /// a sheet with glass beside it, and never wider than the room.
+    /// a sheet with pane beside it, and never wider than the room.
     func testAPageOpensWholeInTheRoomsHeightAndNeverWiderThanTheRoom() {
         let letter = CGSize(width: 612, height: 792)
         XCTAssertEqual(ImageDoor.pageScale(page: letter, room: CGSize(width: 3000, height: 1900)),

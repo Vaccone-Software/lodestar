@@ -1,6 +1,6 @@
 import Foundation
 
-/// Who the shared glass panel currently belongs to.
+/// Who the shared pane currently belongs to.
 ///
 /// One panel serves three different kinds of thing: the chain guide (the
 /// pending state a hand is waiting on), a flash (a receipt for something
@@ -11,7 +11,7 @@ import Foundation
 /// The sharing is fine. What was missing was the *record* of it: a writer
 /// could take the panel without the previous occupant ever learning, so
 /// the coach went on believing a chip stood when it had been ordered off
-/// the glass a third of a second after it was drawn — and billed the
+/// the pane a third of a second after it was drawn — and billed the
 /// suggestion for a showing nobody could have read. This type exists so
 /// that handing the panel over is a transition that cannot happen
 /// silently.

@@ -1,7 +1,7 @@
 import AppKit
 import LodestarCore
 
-/// The ⌘K card: a small glass panel floating beside a bar — the searcher's
+/// The ⌘K card: a small pane floating beside a bar — the searcher's
 /// graph card, the web bar's quick-link card, and whatever comes next.
 /// Appearing next to the list — not replacing it — is what says "you are
 /// somewhere else now." Display-only: the bar's panel stays key and feeds
@@ -80,19 +80,19 @@ final class OptionsCard {
         case card(NSRect, panel: NSRect)
     }
 
-    private let panel = Glass.makePanel(level: .modalPanel)
+    private let panel = Ceramic.makePanel(level: .modalPanel)
     private let root = NSView()
     private var content: NSView?
 
     init() {
         // Fed by the bar's keys, never the mouse: the drawn shadow, gated
         // shut.
-        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius, takesPointer: false)
-        Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius, takesPointer: false)
+        Ceramic.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
     }
 
     /// The card's frame on screen, so a second card can unfurl beside it.
-    var frame: NSRect { panel.glassFrame }
+    var frame: NSRect { panel.paneFrame }
 
     var isVisible: Bool { panel.isVisible }
 
@@ -102,7 +102,7 @@ final class OptionsCard {
         root.layoutSubtreeIfNeeded()
         var size = root.fittingSize
         size.width = max(size.width, 210)
-        panel.setGlassFrame(Self.place(size, anchor: anchor), display: true)
+        panel.setPaneFrame(Self.place(size, anchor: anchor), display: true)
         panel.orderFrontRegardless()
     }
 

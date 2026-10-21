@@ -1,7 +1,7 @@
 import AppKit
 import LodestarCore
 
-/// Uninstall, asked in Lodestar's own glass: the plan shown whole before
+/// Uninstall, asked in Lodestar's own pane: the plan shown whole before
 /// anything is touched, a switch for whether everything Lodestar has kept
 /// goes too, and the room's actions as its keys. It replaced the system's
 /// alert, the last bezel, checkbox and system button left in the app.
@@ -34,8 +34,8 @@ final class UninstallRoom: NSObject {
         panel.backgroundColor = .clear
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
-        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
-        _ = Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
+        _ = Ceramic.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
         panel.onKeyDown = { [weak self] event in self?.key(event) ?? false }
         Movable.enable(panel)
         everything.state = .off
@@ -153,9 +153,9 @@ final class UninstallRoom: NSObject {
         let size = NSSize(width: Self.width, height: stack.fittingSize.height + Self.inset * 2)
         let visible = ActivePolicy.presentationFrame
         let origin = panel.isVisible
-            ? NSPoint(x: panel.glassFrame.minX, y: panel.glassFrame.maxY - size.height)
+            ? NSPoint(x: panel.paneFrame.minX, y: panel.paneFrame.maxY - size.height)
             : NSPoint(x: visible.midX - size.width / 2, y: visible.midY - size.height / 2 + 40)
-        panel.setGlassFrame(NSRect(origin: origin, size: size), display: true)
+        panel.setPaneFrame(NSRect(origin: origin, size: size), display: true)
     }
 
     private func wrapped(_ text: String, color: NSColor, width: CGFloat,

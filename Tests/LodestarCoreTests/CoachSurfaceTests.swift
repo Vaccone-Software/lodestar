@@ -1,7 +1,7 @@
 import XCTest
 @testable import LodestarCore
 
-/// The seam where the coach's chip meets the glass it shares with the
+/// The seam where the coach's chip meets the pane it shares with the
 /// chain guide.
 ///
 /// This is where the coach's first real bug lived, and it lived there
@@ -17,7 +17,7 @@ import XCTest
 /// So these are the tests that keep the decision where it can be checked.
 final class CoachSurfaceTests: XCTestCase {
 
-    // MARK: - Which effects take the glass
+    // MARK: - Which effects take the pane
 
     /// The regression itself. A completed graph chain emits
     /// `[.hideGuide, .summonGraph]`, so if `hideGuide` does not claim the
@@ -108,7 +108,7 @@ final class CoachSurfaceTests: XCTestCase {
     }
 
     /// The bug, as a test. The timer fires on schedule and the user is
-    /// right there — but the chip was ordered off the glass seconds ago,
+    /// right there — but the chip was ordered off the pane seconds ago,
     /// so there was nothing to read and nothing may be charged.
     func testAnErasedChipDoesNotCount() {
         XCTAssertFalse(Coach.offerCounts(stoodFor: Coach.seenSeconds,

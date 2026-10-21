@@ -4,7 +4,7 @@ import LodestarCore
 /// The draft's one mouse target: which microphone it hears. Drawn the way
 /// Lodestar draws everything, not as a system popup: the system's menu
 /// paints its highlight in the Mac's accent, its chevrons in its own
-/// grey, and is the one control on the glass that is a system window in
+/// grey, and is the one control on the pane that is a system window in
 /// costume. Here the name sits quietly in the foot, and choosing opens a
 /// small card beside the draft — beside, never over, so the words stay
 /// in view — whose rows rise under the pointer like the bars' rows, with
@@ -16,7 +16,7 @@ final class InputMenu {
         let device: String?
     }
 
-    private let panel = Glass.makePanel(level: .popUpMenu)
+    private let panel = Ceramic.makePanel(level: .popUpMenu)
     private let root = NSView()
     private let gate: PointerGate
     private var rows: [InputMenuRow] = []
@@ -31,22 +31,22 @@ final class InputMenu {
     static let gap: CGFloat = 12
 
     init() {
-        gate = SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
+        gate = SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
         // Choosing a microphone must not take the keyboard from the app the
         // draft lands in.
         panel.becomesKeyOnlyIfNeeded = true
-        Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+        Ceramic.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
     }
 
     var isVisible: Bool { panel.isVisible }
     /// The rows' titles, top to bottom, and which is chosen, for the tests.
     var titles: [String] { rows.map(\.choice.title) }
     var chosenTitle: String? { rows.first(where: \.chosen)?.choice.title }
-    /// The card's glass, without the shadow's margin.
+    /// The card's pane, without the shadow's margin.
     var frame: NSRect { SoftShadow.inset(panel.frame) }
 
-    /// Open beside `glass` (the draft's frame), level with its foot.
-    func present(_ choices: [Choice], chosen: Int, beside glass: NSRect) {
+    /// Open beside `frame` (the draft's frame), level with its foot.
+    func present(_ choices: [Choice], chosen: Int, beside frame: NSRect) {
         rows.forEach { $0.removeFromSuperview() }
         let font = BarTheme.rowLabelFont
         let widest = choices.map { ($0.title as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
@@ -65,10 +65,10 @@ final class InputMenu {
         // (code) leaves neither, and then the card stands above it at its
         // right end, still off the words' line, never off the screen.
         let visible = ActivePolicy.presentationFrame
-        var card = NSRect(x: glass.maxX + Self.gap, y: glass.minY, width: width, height: height)
-        if card.maxX > visible.maxX - 8 { card.origin.x = glass.minX - width - Self.gap }
+        var card = NSRect(x: frame.maxX + Self.gap, y: frame.minY, width: width, height: height)
+        if card.maxX > visible.maxX - 8 { card.origin.x = frame.minX - width - Self.gap }
         if card.minX < visible.minX + 8 {
-            card.origin = NSPoint(x: glass.maxX - width, y: glass.maxY + Self.gap)
+            card.origin = NSPoint(x: frame.maxX - width, y: frame.maxY + Self.gap)
         }
         card.origin.x = min(max(card.minX, visible.minX + 8), visible.maxX - 8 - width).rounded()
         card.origin.y = min(card.minY, visible.maxY - 8 - height).rounded()
@@ -149,7 +149,7 @@ final class InputMenuRow: RaisedRow {
     /// is the other look's while the row is chosen, so it is resolved in the
     /// row's own look and again whenever that changes.
     private func tintDot() {
-        dot.layer?.backgroundColor = Glass.resolved(BarTheme.accent, in: self)
+        dot.layer?.backgroundColor = Ceramic.resolved(BarTheme.accent, in: self)
     }
 
     override func viewDidChangeEffectiveAppearance() {

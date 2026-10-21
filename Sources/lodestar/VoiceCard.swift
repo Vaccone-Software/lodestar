@@ -1,7 +1,7 @@
 import AppKit
 import LodestarCore
 
-/// The rows every glass surface draws: a label, its app icon when it has
+/// The rows every surface draws: a label, its app icon when it has
 /// one, and the key at the trailing edge as a cap. One builder, so a key
 /// never looks like two different things on two surfaces.
 enum GuideRows {
@@ -111,7 +111,7 @@ enum GuideRows {
 /// Lodestar speaking, as one composition: the sentence in the voice, the
 /// keymap as keys, the measurements in the interface's face, the answers
 /// as key rows. The HUD, the meeting, and the walk's lessons all draw it,
-/// each on its own glass.
+/// each on its own pane.
 enum VoiceCard {
     /// With `mark`, the card is Lodestar speaking about itself: the mark
     /// stands before the words, lit as far as the thing spoken of has come.

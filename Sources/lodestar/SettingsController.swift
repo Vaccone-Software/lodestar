@@ -2,7 +2,7 @@ import AppKit
 import LodestarCore
 
 /// The settings window: `SettingsModel` (LodestarCore) decides what exists
-/// and what the keys mean; this draws it and translates. One keyable glass
+/// and what the keys mean; this draws it and translates. One keyable pane
 /// window, born centered every time. It opens on the overview: the ten
 /// places on a ring around the mark, each with its picture and one line
 /// saying what that part of Lodestar is doing. A digit opens a place from
@@ -162,8 +162,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         panel.autorecalculatesKeyViewLoop = true
         panel.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
         // A room floats like every other object, on its own drawn shadow.
-        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
-        _ = Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
+        _ = Ceramic.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
         panel.onKeyDown = { [weak self] event in
             guard let self, let key = Keys.name(for: Int64(event.keyCode)) else { return false }
             return self.handle(key: key, event: event)
@@ -219,7 +219,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         editing = [:]
         render()
         let visible = ActivePolicy.presentationFrame
-        panel.setGlassFrame(NSRect(x: visible.midX - Self.width / 2,
+        panel.setPaneFrame(NSRect(x: visible.midX - Self.width / 2,
                               y: visible.midY - Self.height / 2 + 20,
                               width: Self.width, height: Self.height), display: true)
         SystemEvents.activateLodestar()

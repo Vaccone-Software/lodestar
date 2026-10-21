@@ -5,7 +5,7 @@ import XCTest
 
 /// The find lights, read from the storage the screen reads. The first
 /// build of this feature set state correctly, passed its state tests,
-/// and painted nothing: it drew background washes that the glass's
+/// and painted nothing: it drew background washes that the pane's
 /// vibrancy composited away. Only an assertion against the rendered
 /// attributes catches that class of bug.
 final class DraftPanelFindTests: XCTestCase {

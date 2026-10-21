@@ -2,7 +2,7 @@ import AppKit
 import LodestarCore
 
 /// The keys a bar holds when asked: the sections as columns beneath its
-/// rows, inside the bar's own glass, with air and no line between. The
+/// rows, inside the bar's own pane, with air and no line between. The
 /// bar grows to hold them and shrinks when they go; nothing arrives
 /// beside it.
 final class BarKeys {
@@ -11,7 +11,7 @@ final class BarKeys {
     private var view: NSView?
     private(set) var isShown = false
 
-    /// The columns' inset from the glass, the field's own.
+    /// The columns' inset from the pane, the field's own.
     static let inset: CGFloat = 22
     /// Air between the last row and the columns, the pill's own.
     static let above: CGFloat = ModePill.inset
@@ -28,7 +28,7 @@ final class BarKeys {
     }
 
     /// Builds the keys in place, invisible, and reports the view so the
-    /// bar can reveal it once its glass has grown.
+    /// bar can reveal it once its pane has grown.
     @discardableResult
     func show(_ sections: [CheatSheet.Section]) -> NSView? {
         guard let root, let rows else { return nil }
@@ -37,7 +37,7 @@ final class BarKeys {
         columns.alphaValue = 0
         root.addSubview(columns)
         // Below required, so a wide label truncates inside the bar rather
-        // than pushing the glass wider than the bar it belongs to.
+        // than pushing the pane wider than the bar it belongs to.
         let trailing = columns.trailingAnchor.constraint(lessThanOrEqualTo: root.trailingAnchor, constant: -Self.inset)
         trailing.priority = .init(999)
         NSLayoutConstraint.activate([
@@ -62,7 +62,7 @@ final class BarKeys {
     }
 }
 
-/// One object changing size: the glass leads, the words follow. The
+/// One object changing size: the pane leads, the words follow. The
 /// timing is the system's own for a window changing frame, no overshoot
 /// and no spring, and the surface itself never fades, only what it
 /// reveals. Reduced motion shows the result in place.

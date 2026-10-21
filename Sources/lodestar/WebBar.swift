@@ -85,7 +85,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
         panel.delegate = self
-        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
         panel.onKeyEquivalent = { [weak self] event in
             self?.handleKeyEquivalent(event) ?? false
         }
@@ -93,7 +93,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             self?.handleMenuKey(event) ?? false
         }
 
-        Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+        Ceramic.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
 
         globe.image = NSImage(systemSymbolName: "network", accessibilityDescription: "links and the web")
         globe.symbolConfiguration = BarTheme.inputSymbol
@@ -152,7 +152,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
     var isVisible: Bool { panel.isVisible }
 
-    /// The bar's keys, held in its own glass on lode ?.
+    /// The bar's keys, held in its own pane on lode ?.
     private let keys = BarKeys()
     var keysShown: Bool { keys.isShown }
 

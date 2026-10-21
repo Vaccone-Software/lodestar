@@ -118,7 +118,7 @@ final class EyeComfortController {
     /// Every surface paints again in the level in force, and the type set
     /// for the look that has gone is set for the one that has come.
     func refreshSurfaces() {
-        Glass.followSystemAppearance()
+        Ceramic.followSystemAppearance()
         let dark = Tone.systemDark
         if let was = weightsFor, was != dark { TypeWeights.follow(dark: dark) }
         weightsFor = dark

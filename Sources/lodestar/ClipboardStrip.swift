@@ -171,7 +171,7 @@ final class ClipboardStrip {
     /// drawn dimmed because every file of them is gone.
     private(set) var shownSheets: [String: Int] = [:]
     private(set) var shownDimmed: Set<String> = []
-    private(set) var shownWeights: [Glass.Weight] = []
+    private(set) var shownWeights: [Ceramic.Weight] = []
     /// What each card is to the hand, in the same order: a key, the slab, or
     /// a well that receives.
     private(set) var shownStances: [ObjectSurface.Stance] = []
@@ -215,7 +215,7 @@ final class ClipboardStrip {
     private static let foot: CGFloat = 26
 
     init() {
-        panel = Glass.makePanel(level: .statusBar)
+        panel = Ceramic.makePanel(level: .statusBar)
         panel.ignoresMouseEvents = true
         panel.contentView = root
         // Separate objects in one window: each card casts its own drawn
@@ -625,7 +625,7 @@ final class ClipboardStrip {
         // everything on it in that look. A free keepsake is a place that
         // receives, sunk. The bar and the menus are panes over the work and
         // keep the drawn shadow, flat.
-        let veil: Glass.Weight
+        let veil: Ceramic.Weight
         switch (weight, counted) {
         case (.normal, true): veil = .raised; card.stance = .key
         case (.highlighted, true):
@@ -635,7 +635,7 @@ final class ClipboardStrip {
         case (.empty, _): veil = .faint; card.stance = .well
         case (.normal, false), (.highlighted, false): veil = .normal
         }
-        Glass.installBackdrop(in: card, cornerRadius: BarTheme.surfaceRadius, weight: veil)
+        Ceramic.installBackdrop(in: card, cornerRadius: BarTheme.surfaceRadius, weight: veil)
         if counted { shownWeights.append(veil); shownStances.append(card.stance) }
         card.setAccessibilityElement(true)
         card.setAccessibilityRole(.button)
@@ -845,7 +845,7 @@ final class ClipboardStrip {
         face.wantsLayer = true
         face.layer?.cornerRadius = BarTheme.markRadius
         face.layer?.masksToBounds = true
-        face.layer?.backgroundColor = Glass.resolved(BarTheme.raised, in: card)
+        face.layer?.backgroundColor = Ceramic.resolved(BarTheme.raised, in: card)
         // The file's own face is cropped to the sheet, as a print is; an
         // icon is whole, with room around it.
         let ownFace = fact?.pictured == true && picture != nil
@@ -1002,7 +1002,7 @@ final class ClipboardStrip {
                 let mark = NSView(frame: title.frame.insetBy(dx: -2, dy: 0))
                 mark.wantsLayer = true
                 mark.layer?.cornerRadius = BarTheme.markRadius
-                mark.layer?.backgroundColor = Glass.resolved(BarTheme.ink.withAlphaComponent(0.14), in: card)
+                mark.layer?.backgroundColor = Ceramic.resolved(BarTheme.ink.withAlphaComponent(0.14), in: card)
                 card.addSubview(mark)
             }
             card.addSubview(title)
@@ -1010,7 +1010,7 @@ final class ClipboardStrip {
             let caret = NSView(frame: NSRect(x: title.frame.minX + min(glyphs, room) + 1,
                                              y: line - 9, width: 1.5, height: 18))
             caret.wantsLayer = true
-            caret.layer?.backgroundColor = Glass.resolved(BarTheme.readableAccent)
+            caret.layer?.backgroundColor = Ceramic.resolved(BarTheme.readableAccent)
             card.addSubview(caret)
         } else {
             card.addSubview(title)
@@ -1157,7 +1157,7 @@ final class ClipboardStrip {
             swatch.layer?.backgroundColor = NSColor(srgbRed: color.red, green: color.green, blue: color.blue,
                                                     alpha: color.alpha).cgColor
             swatch.layer?.borderWidth = 0.5
-            swatch.layer?.borderColor = Glass.resolved(BarTheme.hairline)
+            swatch.layer?.borderColor = Ceramic.resolved(BarTheme.hairline)
             card.addSubview(swatch)
             top = max(top, swatch.frame.maxY)
         }
@@ -1198,7 +1198,7 @@ final class ClipboardStrip {
 
     /// A card's text as drawn: as much as a card holds, with a secret's
     /// middle as a bar (see `ClipSecret`). The clip keeps its whole text
-    /// and the search reads it; only the glass is spared it, because Keep
+    /// and the search reads it; only the pane is spared it, because Keep
     /// opened during a screen share is on everyone's screen.
     private func shown(_ clip: Clipboard.Clip, font: NSFont = BarTheme.bodyFont) -> NSAttributedString {
         let masked = masked(clip)
@@ -1333,7 +1333,7 @@ final class ClipboardStrip {
         let caret = NSView(frame: NSRect(x: x + min(glyphs, field.frame.width) + (query.isEmpty ? 0 : 2),
                                          y: (height - 20) / 2, width: 1.5, height: 20))
         caret.wantsLayer = true
-        caret.layer?.backgroundColor = Glass.resolved(BarTheme.readableAccent)
+        caret.layer?.backgroundColor = Ceramic.resolved(BarTheme.readableAccent)
         bar.addSubview(caret)
         root.addSubview(bar)
     }
@@ -1368,7 +1368,7 @@ final class ClipboardStrip {
         let caret = NSView(frame: NSRect(x: 16 + glyphs + (menu.typed.isEmpty ? -3 : 2),
                                          y: fieldY + (fieldHeight - 18) / 2, width: 1.5, height: 18))
         caret.wantsLayer = true
-        caret.layer?.backgroundColor = Glass.resolved(BarTheme.readableAccent)
+        caret.layer?.backgroundColor = Ceramic.resolved(BarTheme.readableAccent)
         plate.addSubview(caret)
         top = fieldY - 8
 
@@ -1401,7 +1401,7 @@ final class ClipboardStrip {
             if index == 0, ruled {
                 let rule = NSView(frame: NSRect(x: 16, y: top - 5, width: width - 32, height: 1))
                 rule.wantsLayer = true
-                rule.layer?.backgroundColor = Glass.resolved(BarTheme.hairline)
+                rule.layer?.backgroundColor = Ceramic.resolved(BarTheme.hairline)
                 plate.addSubview(rule)
                 top -= 9
             }
@@ -1476,7 +1476,7 @@ final class ClipboardStrip {
                     x: Self.actionInset, y: top - Self.actionSeparator / 2,
                     width: frame.width - Self.actionInset * 2, height: 1))
                 line.wantsLayer = true
-                line.layer?.backgroundColor = Glass.resolved(BarTheme.hairline)
+                line.layer?.backgroundColor = Ceramic.resolved(BarTheme.hairline)
                 plate.addSubview(line)
                 top -= Self.actionSeparator
             }
@@ -1557,7 +1557,7 @@ final class ClipboardStrip {
         let caret = NSView(frame: NSRect(x: field.frame.minX + min(glyphs, field.frame.width) + 2,
                                          y: (height - 20) / 2, width: 1.5, height: 20))
         caret.wantsLayer = true
-        caret.layer?.backgroundColor = Glass.resolved(BarTheme.readableAccent)
+        caret.layer?.backgroundColor = Ceramic.resolved(BarTheme.readableAccent)
         plate.addSubview(caret)
         root.addSubview(plate)
     }

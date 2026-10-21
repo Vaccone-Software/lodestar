@@ -1,7 +1,7 @@
 import AppKit
 import LodestarCore
 
-/// `lode ?` — the whole system on one glass sheet, generated from live
+/// `lode ?` — the whole system on one sheet, generated from live
 /// config and state so it can never go stale. Toggles with the same key;
 /// any other lode gesture dismisses it.
 final class CheatSheet {
@@ -15,10 +15,10 @@ final class CheatSheet {
     private var content: NSStackView?
 
     init() {
-        panel = Glass.makePanel(level: .statusBar, takesKeys: false)
+        panel = Ceramic.makePanel(level: .statusBar, takesKeys: false)
         // Shown, never touched: the drawn shadow, and no mouse anywhere.
-        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius, takesPointer: false)
-        Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius, takesPointer: false)
+        Ceramic.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
     }
 
     var isVisible: Bool { panel.isVisible }
@@ -60,7 +60,7 @@ final class CheatSheet {
         size.width = min(size.width, 1500)
         let visible = ActivePolicy.presentationFrame
         let origin = NSPoint(x: visible.midX - size.width / 2, y: visible.midY - size.height / 2)
-        panel.setGlassFrame(NSRect(origin: origin, size: size), display: true)
+        panel.setPaneFrame(NSRect(origin: origin, size: size), display: true)
         panel.orderFrontRegardless()
     }
 
@@ -75,8 +75,8 @@ final class CheatSheet {
         // the bar's, and the sections have to share it.
         columns.spacing = ModePill.inset
         columns.translatesAutoresizingMaskIntoConstraints = false
-        // Inside a bar the glass has a width of its own: the stacks give
-        // way before the glass does, and a long label truncates.
+        // Inside a bar the pane has a width of its own: the stacks give
+        // way before the pane does, and a long label truncates.
         columns.setClippingResistancePriority(.init(900), for: .horizontal)
 
         for section in sections where !section.rows.isEmpty {

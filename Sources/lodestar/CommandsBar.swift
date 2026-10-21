@@ -34,9 +34,9 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
         panel.delegate = self
-        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
 
-        Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+        Ceramic.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
 
         symbol.image = NSImage(systemSymbolName: "menubar.rectangle", accessibilityDescription: "menus")
         symbol.symbolConfiguration = BarTheme.inputSymbol
@@ -77,7 +77,7 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
 
     var isVisible: Bool { panel.isVisible }
 
-    /// The bar's keys, held in its own glass on lode ?.
+    /// The bar's keys, held in its own pane on lode ?.
     private let keys = BarKeys()
     var keysShown: Bool { keys.isShown }
 

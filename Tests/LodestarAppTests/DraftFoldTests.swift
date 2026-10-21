@@ -74,7 +74,7 @@ final class DraftFoldTests: XCTestCase {
     }
 
     /// The panel shows what the view says and guesses nothing: escape,
-    /// muting or a door are the controller's to weigh, not the glass's.
+    /// muting or a door are the controller's to weigh, not the pane's.
     func testThePanelShowsWhatTheViewSays() {
         panel.show(view(long, ghost: "spoken"))
         let folded = panel.frame.height
@@ -161,27 +161,27 @@ final class DraftFoldTests: XCTestCase {
         XCTAssertEqual(panel.lightState, .off)
     }
 
-    /// The window is the glass plus the shadow's margin; the glass lands
+    /// The window is the pane plus the shadow's margin; the pane lands
     /// where the draft has always stood.
-    func testTheGlassStandsWhereTheDraftAlwaysStood() {
+    func testThePaneStandsWhereTheDraftAlwaysStood() {
         panel.show(view(long))
         let screen = ActivePolicy.presentationFrame
-        let glass = SoftShadow.inset(panel.panel.frame)
-        XCTAssertEqual(glass, panel.frame, "the window is where the glass says")
-        XCTAssertEqual(glass.minY, screen.minY + 22, accuracy: 0.5)
+        let pane = SoftShadow.inset(panel.panel.frame)
+        XCTAssertEqual(pane, panel.frame, "the window is where the pane says")
+        XCTAssertEqual(pane.minY, screen.minY + 22, accuracy: 0.5)
         XCTAssertFalse(panel.panel.hasShadow, "the shadow is drawn, not the system's")
     }
 
     /// The shadow's margin is not a target: a click there belongs to the
     /// app beneath, the Dock's top edge among them.
-    func testOnlyTheGlassTakesThePointer() {
+    func testOnlyThePaneTakesThePointer() {
         panel.show(view("hello"))
-        let glass = panel.frame
-        panel.gatePointer(at: NSPoint(x: glass.midX, y: glass.midY))
+        let pane = panel.frame
+        panel.gatePointer(at: NSPoint(x: pane.midX, y: pane.midY))
         XCTAssertTrue(panel.takesPointer)
-        panel.gatePointer(at: NSPoint(x: glass.midX, y: glass.minY - 10))
-        XCTAssertFalse(panel.takesPointer, "under the glass, in its shadow")
-        panel.gatePointer(at: NSPoint(x: glass.maxX + 30, y: glass.midY))
+        panel.gatePointer(at: NSPoint(x: pane.midX, y: pane.minY - 10))
+        XCTAssertFalse(panel.takesPointer, "under the pane, in its shadow")
+        panel.gatePointer(at: NSPoint(x: pane.maxX + 30, y: pane.midY))
         XCTAssertFalse(panel.takesPointer)
     }
 
@@ -260,8 +260,8 @@ final class DraftFoldTests: XCTestCase {
             && clip.bounds.height > 0
     }
 
-    /// After `zo` then `zc` the glass shows the last lines again, not the
-    /// first: the scroll is laid out where the motion left the glass.
+    /// After `zo` then `zc` the pane shows the last lines again, not the
+    /// first: the scroll is laid out where the motion left the pane.
     func testFoldingBackShowsTheLastLines() {
         var open = view(long)
         open.expanded = true

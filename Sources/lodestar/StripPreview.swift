@@ -6,7 +6,7 @@ import LodestarCore
 /// against fixed sample clips so the layout can be looked at, not just
 /// reasoned about. Debug-only — `swift build -c release` drops it.
 enum StripPreview {
-    /// A full screen ground to photograph the panels against. Glass composites
+    /// A full screen ground to photograph the panels against. A translucent window composites
     /// whatever is behind it, so a capture taken over a terminal has that
     /// terminal's text inside the panel — and whatever else was on screen.
     /// This is the one background that is repeatable and cannot leak anything.
@@ -86,7 +86,7 @@ enum StripPreview {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                     app.appearance = NSAppearance(named: to)
                     StageView.light = to == .aqua
-                    Glass.followSystemAppearance()
+                    Ceramic.followSystemAppearance()
                     for window in app.windows { window.contentView?.needsDisplay = true }
                     if ProcessInfo.processInfo.environment["LODESTAR_FLIP"] == "trace" {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
@@ -106,7 +106,7 @@ enum StripPreview {
                 }
             }
             // `LODESTAR_GROUND=light|dark` stages the other ground under
-            // this appearance. Glass composites what is behind it, so a
+            // this appearance. A translucent window composites what is behind it, so a
             // veil's weight only shows over a ground that disagrees with it.
             if let other = ProcessInfo.processInfo.environment["LODESTAR_GROUND"] {
                 StageView.light = other == "light"
@@ -443,7 +443,7 @@ enum StripPreview {
 
         // 100…106: the next sheet, staged for approval before anything is
         // built. Real materials throughout: the pill, the voice surface,
-        // the keycaps, the glass.
+        // the keycaps, the pane.
         if (100...107).contains(variant) {
             DispatchQueue.main.async { NextSheet.run(variant) }
             app.run()
@@ -763,7 +763,7 @@ enum StripPreview {
 }
 
 /// The ground the panels are photographed against: the page's own near black,
-/// with a trace of light so the glass has an edge to catch. Anything more
+/// with a trace of light so the pane has an edge to catch. Anything more
 /// colourful competes with the one accent the page is allowed.
 private final class StageView: NSView {
     static var light = false

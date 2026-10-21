@@ -23,7 +23,7 @@ final class EyeComfortAppTests: XCTestCase {
         controller.restingAppearance = nil
         NSApplication.shared.appearance = nil
         // The drawing appearance the others read is the application's again.
-        Glass.followSystemAppearance()
+        Ceramic.followSystemAppearance()
         super.tearDown()
     }
 

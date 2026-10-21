@@ -152,8 +152,8 @@ final class EditorLensScenarioTests: XCTestCase {
     }
 
     /// Past the alphabet's letters the labels are pairs. A first letter narrows the
-    /// glass to the pairs it begins; a second that no pair continues
-    /// clears what was typed, and the glass must show every mark again
+    /// pane to the pairs it begins; a second that no pair continues
+    /// clears what was typed, and the pane must show every mark again
     /// rather than keep the narrowed few over an empty prefix.
     func testALetterNoLabelContinuesBringsTheFullSetBack() throws {
         let count = KeyboardLayout.chipAlphabet().count + 4
@@ -167,7 +167,7 @@ final class EditorLensScenarioTests: XCTestCase {
             let first = String(try XCTUnwrap(all.last?.label.first))
             stage.press(first)
             let narrowed = stage.engine.select.shownChips
-            XCTAssertTrue((1..<count).contains(narrowed.count), "a first letter narrows the glass")
+            XCTAssertTrue((1..<count).contains(narrowed.count), "a first letter narrows the pane")
             let dead = try XCTUnwrap(stage.engine.select.letters.map(String.init).first { letter in
                 !all.contains { $0.label == first + letter }
             })

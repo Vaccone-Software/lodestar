@@ -17,7 +17,7 @@ final class CoachVoiceTests: XCTestCase {
         stage.press("escape")
     }
 
-    func testADeclineIsAnsweredInTheVoiceAndThenTheGlassIsClear() {
+    func testADeclineIsAnsweredInTheVoiceAndThenThePaneIsClear() {
         let stage = Stage()
         stage.raiseChip()
         XCTAssertTrue(stage.coach.lodeDelete())

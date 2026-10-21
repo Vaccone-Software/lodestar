@@ -9,7 +9,7 @@ struct Voice {
     let dismiss: () -> Bool
 }
 
-/// The seam between the engine, the glass, and the coach — wired in one
+/// The seam between the engine, the pane, and the coach — wired in one
 /// place, and the place has a harness on it.
 ///
 /// This used to be a run of closures in the app delegate, which is where
@@ -72,7 +72,7 @@ enum SurfaceWiring {
                 owner: .coach)
         }
         // A decline is answered in the voice too, briefly, and then the
-        // glass is clear: the offer sleeps a season.
+        // pane is clear: the offer sleeps a season.
         coach.note = { [weak hud] sentence in
             hud?.showVoice(sentence: sentence, detail: nil, rows: [], owner: .flash,
                            seconds: Readability.flashSeconds(for: sentence))
@@ -85,7 +85,7 @@ enum SurfaceWiring {
             return clock.now().timeIntervalSince(engine.lastHumanInputAt)
         }
         coach.flash = { [weak hud] text in hud?.flash(text) }
-        // A flash steals the glass without going through the engine's
+        // A flash steals the pane without going through the engine's
         // surface claim; the chip must not outlive its own pixels.
         hud.onTakeover = { [weak coach] in coach?.surfaceClaimed() }
         engine.onSurfaceClaimed = { [weak coach] in coach?.surfaceClaimed() }

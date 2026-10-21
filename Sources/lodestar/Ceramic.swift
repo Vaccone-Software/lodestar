@@ -4,7 +4,7 @@ import LodestarCore
 /// The app's tone: the system's choice, and nothing else. The material
 /// has no vote: a pane is opaque ceramic in the palette's own colours, so
 /// the launcher and its ⌘K card cannot resolve to opposite tones a foot
-/// apart, as the glass they once were did.
+/// apart, as the pane they once were did.
 enum Tone {
     static var systemDark: Bool {
         // `shared`, not `NSApp`: a chip made before the application object
@@ -13,7 +13,7 @@ enum Tone {
     }
 }
 
-extension Glass {
+extension Ceramic {
     /// A colour as a layer needs it, resolved in the appearance of the view
     /// it is drawn in. `NSColor.cgColor` resolves a dynamic colour in the
     /// appearance current at the call, which off a draw pass is not the
@@ -32,7 +32,7 @@ extension Glass {
     }
 }
 
-extension Glass {
+extension Ceramic {
     /// The appearance a colour resolves in when it is turned into a layer's
     /// colour outside a draw pass, kept with the system's. Left alone it is
     /// whatever was current when the app started, so a Lodestar launched at
@@ -182,8 +182,8 @@ final class ToneView: NSView {
     }
 
     private func paint() {
-        layer?.backgroundColor = fill.map { make in Glass.resolved(make(), in: self) }
-        layer?.borderColor = edge.map { make in Glass.resolved(make(), in: self) }
+        layer?.backgroundColor = fill.map { make in Ceramic.resolved(make(), in: self) }
+        layer?.borderColor = edge.map { make in Ceramic.resolved(make(), in: self) }
         guard lifted, let layer else { return }
         let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         layer.masksToBounds = false
@@ -231,7 +231,7 @@ enum Accessibility {
 /// pill, the strip) is clay by day and espresso by night without being
 /// told.
 final class CeramicPane: NSView {
-    var weight: Glass.Weight { didSet { if weight != oldValue { repaint() } } }
+    var weight: Ceramic.Weight { didSet { if weight != oldValue { repaint() } } }
     let radius: CGFloat
     /// The pane's edge, drawn above everything the surface holds: its
     /// hairline and the polished rim along its top. Content that fills a
@@ -244,7 +244,7 @@ final class CeramicPane: NSView {
     static let rimHeight: CGFloat = PaneEdge.rimHeight
     static let edgeWidth: CGFloat = PaneEdge.edgeWidth
 
-    init(radius: CGFloat, weight: Glass.Weight = .normal) {
+    init(radius: CGFloat, weight: Ceramic.Weight = .normal) {
         self.radius = radius
         self.weight = weight
         edge = PaneEdge(radius: radius)
@@ -317,7 +317,7 @@ final class CeramicPane: NSView {
         guard let layer else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        layer.backgroundColor = Glass.resolved(weight.fill, in: self)
+        layer.backgroundColor = Ceramic.resolved(weight.fill, in: self)
         CATransaction.commit()
         edge.paint(border: drawsEdge, rim: weight != .faint, in: self)
     }
@@ -380,9 +380,9 @@ final class PaneEdge: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layer?.borderWidth = border ? Self.edgeWidth : 0
-        layer?.borderColor = border ? Glass.resolved(BarTheme.hairline, in: pane) : nil
+        layer?.borderColor = border ? Ceramic.resolved(BarTheme.hairline, in: pane) : nil
         // A place sunk in the surface catches no light on its rim.
-        rim.backgroundColor = shows ? Glass.resolved(BarTheme.polishedRim, in: pane) : nil
+        rim.backgroundColor = shows ? Ceramic.resolved(BarTheme.polishedRim, in: pane) : nil
         CATransaction.commit()
     }
 }
@@ -393,7 +393,7 @@ final class PaneEdge: NSView {
 /// One recipe for every panel, card, and chip: the clipboard's cards and
 /// the hint chips once wore a second glass under a heavier veil, and a
 /// second recipe is how one material becomes several near-misses.
-enum Glass {
+enum Ceramic {
     /// Which step of the palette the pane is. The material is the same;
     /// this is state — a lit card, an empty slot — never a second style.
     /// Normal is the pane, raised the step a key's face stands on, faint
@@ -451,8 +451,8 @@ enum Glass {
         // every pane in it resolves in the one look.
         let frame = NSRect(x: 0, y: 0, width: 100, height: 100)
         let style: NSWindow.StyleMask = [.titled, .fullSizeContentView, .nonactivatingPanel]
-        let panel: GlassPanel = takesKeys
-            ? GlassPanel(contentRect: frame, styleMask: style, backing: .buffered, defer: true)
+        let panel: CeramicPanel = takesKeys
+            ? CeramicPanel(contentRect: frame, styleMask: style, backing: .buffered, defer: true)
             : ShowingPanel(contentRect: frame, styleMask: style, backing: .buffered, defer: true)
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
@@ -484,7 +484,7 @@ enum Glass {
 }
 
 /// A ceramic panel that only shows, and so is never the key window.
-final class ShowingPanel: GlassPanel {
+final class ShowingPanel: CeramicPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 }
@@ -493,7 +493,7 @@ final class ShowingPanel: GlassPanel {
 /// reframing: the server derives a shadow from the window's opaque content
 /// at order-in and does not ask again after a reframe, so it is derived
 /// again after every reframe and every ordering.
-class GlassPanel: NSPanel {
+class CeramicPanel: NSPanel {
     /// A titled window is screen-constrained: AppKit slides it down until
     /// its title bar clears the menu bar, and never gives the height back.
     /// Select and hints hand their panel a whole display on purpose — the
@@ -559,7 +559,6 @@ enum BarTheme {
     static let surfaceRadius: CGFloat = 22
     static let controlRadius: CGFloat = surfaceRadius / (phi * phi)
     static let markRadius: CGFloat = controlRadius / (phi * phi)
-    static let glassRadius: CGFloat = surfaceRadius
 
     /// A rounded thing inside another is concentric with it: it rounds at
     /// the outer radius less its inset, so the gap between the two curves
@@ -709,7 +708,6 @@ enum BarTheme {
     /// are controls; a match's wash on the page is a mark. The hairline
     /// things (the draft's caret and its meter bars) round to half their
     /// width.
-    static let glassChipRadius: CGFloat = controlRadius
     static let wellRadius: CGFloat = controlRadius
     static let highlightRadius: CGFloat = markRadius
     static let hairlineRadius: CGFloat = 1
@@ -815,7 +813,7 @@ enum BarTheme {
 
     /// One step of the palette as a colour that knows both looks, for a
     /// layer that must change with the look while it stands (`ToneView`
-    /// and `Glass.resolved` resolve it in the view's own appearance).
+    /// and `Ceramic.resolved` resolve it in the view's own appearance).
     static func dynamicStep(_ step: KeyPath<Palette.Steps, Readability.RGB>, alpha: CGFloat = 1) -> NSColor {
         NSColor(name: nil) { appearance in
             steps(for: appearance)[keyPath: step].color.withAlphaComponent(alpha)
@@ -1006,13 +1004,13 @@ enum Movable {
     /// person aimed when they dropped it.
     static func place(_ panel: NSPanel, size: NSSize, corner: () -> NSPoint) {
         guard panel.isVisible else {
-            panel.setGlassFrame(NSRect(origin: corner(), size: size), display: true)
+            panel.setPaneFrame(NSRect(origin: corner(), size: size), display: true)
             return
         }
-        var frame = panel.glassFrame
+        var frame = panel.paneFrame
         frame.origin.y += frame.height - size.height
         frame.size = size
-        panel.setGlassFrame(frame, display: true)
+        panel.setPaneFrame(frame, display: true)
     }
 }
 
@@ -1318,8 +1316,8 @@ final class RoomField: NSView {
 
     private func tint() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = Glass.resolved(BarTheme.well, in: self)
-            layer?.borderColor = Glass.resolved(BarTheme.hairline, in: self)
+            layer?.backgroundColor = Ceramic.resolved(BarTheme.well, in: self)
+            layer?.borderColor = Ceramic.resolved(BarTheme.hairline, in: self)
         }
     }
 }
@@ -1819,10 +1817,10 @@ final class AccentSwitch: NSControl {
     /// into place must not slide into it.
     private func paint(animated: Bool = false) {
         let on = state == .on
-        let tint = Glass.resolved(on ? BarTheme.accent : BarTheme.ink.withAlphaComponent(0.22), in: self)
+        let tint = Ceramic.resolved(on ? BarTheme.accent : BarTheme.ink.withAlphaComponent(0.22), in: self)
         let knobSize = Self.size.height - 4
-        let knobFaceColor = Glass.resolved(BarTheme.keyFace, in: self)
-        let knobSideColor = Glass.resolved(BarTheme.keySide, in: self)
+        let knobFaceColor = Ceramic.resolved(BarTheme.keyFace, in: self)
+        let knobSideColor = Ceramic.resolved(BarTheme.keySide, in: self)
         let knobFrame = NSRect(x: on ? bounds.width - knobSize - 2 : 2, y: 2, width: knobSize, height: knobSize)
         let fromPosition = knob.presentation()?.position ?? knob.position
         let fromTint = track.presentation()?.backgroundColor ?? track.backgroundColor
@@ -2118,7 +2116,7 @@ final class KeyFace: NSView {
         // alpha, is fixed in whatever look is current when it is made.
         effectiveAppearance.performAsCurrentDrawingAppearance {
             if stance == .flat {
-                layers.paint(face: nil, side: nil, rim: nil, outline: Glass.resolved(BarTheme.hairline, in: self))
+                layers.paint(face: nil, side: nil, rim: nil, outline: Ceramic.resolved(BarTheme.hairline, in: self))
                 label.textColor = quietInk ?? BarTheme.secondaryColor
                 return
             }
@@ -2131,8 +2129,8 @@ final class KeyFace: NSView {
             let face = pointer == .resting ? resting : resting.blended(withFraction: hover, of: toward) ?? resting
             let side = lit ? BarTheme.litKeySide : BarTheme.keySide
             let rim = lit ? BarTheme.litKeyTop : BarTheme.keyTop
-            layers.paint(face: Glass.resolved(face, in: self), side: Glass.resolved(side, in: self),
-                         rim: NSColor(cgColor: Glass.resolved(rim, in: self)))
+            layers.paint(face: Ceramic.resolved(face, in: self), side: Ceramic.resolved(side, in: self),
+                         rim: NSColor(cgColor: Ceramic.resolved(rim, in: self)))
             label.textColor = lit ? BarTheme.onAccent : BarTheme.keyLetter
         }
     }
@@ -2266,7 +2264,7 @@ class RaisedRow: NSView {
         CATransaction.commit()
         // The rim is the pane's, in the slab's own look: a tenth of white
         // on the dark slab, white on the clay one.
-        light.color = on ? NSColor(cgColor: Glass.resolved(BarTheme.polishedRim, in: self)) : nil
+        light.color = on ? NSColor(cgColor: Ceramic.resolved(BarTheme.polishedRim, in: self)) : nil
     }
 }
 
@@ -2492,8 +2490,8 @@ final class ObjectSurface: NSView {
         contact.shadowRadius = 1
         // The slab is a ground of its own and wants no outline round it.
         edge.borderWidth = stance == .slab ? 0 : 0.5
-        edge.borderColor = Glass.resolved(BarTheme.hairline, in: self)
-        side.backgroundColor = Glass.resolved(stance == .slab ? BarTheme.slabSideFill : BarTheme.keySide, in: self)
+        edge.borderColor = Ceramic.resolved(BarTheme.hairline, in: self)
+        side.backgroundColor = Ceramic.resolved(stance == .slab ? BarTheme.slabSideFill : BarTheme.keySide, in: self)
         CATransaction.commit()
     }
 }
@@ -2502,12 +2500,12 @@ extension NSWindow {
     /// The surface's frame: the window's, less the drawn shadow's margin
     /// when the window hosts one. Surfaces place and read their pane by
     /// this, so moving onto the drawn shadow changes no arithmetic.
-    var glassFrame: NSRect {
+    var paneFrame: NSRect {
         contentView is ShadowHostView ? SoftShadow.inset(frame) : frame
     }
 
-    func setGlassFrame(_ glass: NSRect, display: Bool) {
-        setFrame(contentView is ShadowHostView ? SoftShadow.outset(glass) : glass, display: display)
+    func setPaneFrame(_ frame: NSRect, display: Bool) {
+        setFrame(contentView is ShadowHostView ? SoftShadow.outset(frame) : frame, display: display)
     }
 }
 
@@ -2733,8 +2731,8 @@ enum KeyMark {
         let view = KeyBody(frame: NSRect(x: 0, y: 0, width: width, height: height), radius: radius)
         // The mark is built outside any window, so its look is the one the
         // Mac shows now, and it is made again when the hints are.
-        view.layers.paint(face: Glass.resolved(BarTheme.markFill), side: Glass.resolved(BarTheme.keySide),
-                          rim: NSColor(cgColor: Glass.resolved(BarTheme.keyTop)))
+        view.layers.paint(face: Ceramic.resolved(BarTheme.markFill), side: Ceramic.resolved(BarTheme.keySide),
+                          rim: NSColor(cgColor: Ceramic.resolved(BarTheme.keyTop)))
         // The letter sits on the face's middle, which the side has raised.
         let lift = view.layers.labelLift(forHeight: height)
         label.frame = NSRect(x: 0, y: ((height - label.frame.height) / 2 + lift).rounded(), width: width,

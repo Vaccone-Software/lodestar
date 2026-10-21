@@ -70,7 +70,7 @@ enum EditorAX {
     // MARK: - Reading
 
     /// The focused field, if it is one the editor may read: editable, not a
-    /// password, not a search box, not Lodestar's own glass.
+    /// password, not a search box, not Lodestar's own pane.
     static func focusedField(frontmost: pid_t? = nil) -> EditorField? {
         dispatchPrecondition(condition: .onQueue(queue))
         // The system-wide question can fail outright ("cannot complete",

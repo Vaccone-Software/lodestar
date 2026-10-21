@@ -755,7 +755,7 @@ final class HotkeyEngine {
         // comes down.
         //
         // The order used to be the other way, and the teardown answered the
-        // gesture first: cancelling a peek hides the glass, hiding the glass
+        // gesture first: cancelling a peek hides the pane, hiding the pane
         // is a handover away from `.coach`, and that handover retires the
         // chip. So `coachDelete` arrived to find nothing standing, said it
         // had not acted, and the key was let through — which is not a
@@ -851,7 +851,7 @@ final class HotkeyEngine {
         // beneath waits. A ⌘ chord the draft does not take is the strip's
         // rule — the door closes with the edit kept, and the strip goes
         // with it — and anything else it declines is swallowed, since it
-        // was aimed at a card under glass.
+        // was aimed at a card under a pane.
         if case .pasteDoor = core.state, !held {
             guard draft.isOpen else {
                 // The door failed to open and nobody said so: back to the strip.
@@ -1688,7 +1688,7 @@ final class HotkeyEngine {
     }
 
     /// Scroll's pill: standing while nothing has been said, folded to the
-    /// aimed word once something has. The word is shown on the glass and
+    /// aimed word once something has. The word is shown on the pane and
     /// never logged. Every key the mode owns is on the sheet, lode ?.
     private func showScrollPill() {
         pill.show(ModePill.State(mode: .scroll, app: scroller.appName, icon: scroller.appIcon,
@@ -1869,7 +1869,7 @@ final class HotkeyEngine {
     }
 
     /// The settings window's keys, on the sheet: a slow surface with its
-    /// own key handling, so it asks the engine for the glass rather than
+    /// own key handling, so it asks the engine for the pane rather than
     /// drawing a legend of its own.
     /// Whether the settings window is up: lode ? there shows its keys.
     var settingsUp: () -> Bool = { false }
@@ -2274,7 +2274,7 @@ extension HotkeyEngine: EngineWorld {
     }
 
     /// The text goes where the hand was: Bring closes first so nothing of
-    /// it is on the glass, then the token, or with ⇧ the line, is typed
+    /// it is on the pane, then the token, or with ⇧ the line, is typed
     /// into the app that was in front. The pasteboard is never touched.
     private func landBring(_ match: Bring.Match?, line: Bool, rank: Int) {
         guard let match else {
@@ -2408,7 +2408,7 @@ extension HotkeyEngine: EngineWorld {
             actions.append(.init(key: "S", label: "Save as",
                                  symbol: "square.and.arrow.down"))
         }
-        // One file is viewed large on the image door's glass; a group is not,
+        // One file is viewed large on the image door's pane; a group is not,
         // for the reason it does not open.
         if clip.pastesAsFiles, clip.itemCount == 1 {
             actions.append(.init(key: "E", label: "View",

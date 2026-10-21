@@ -2,7 +2,7 @@ import Foundation
 
 /// The coach: policy over the advisor's findings. Which one to offer,
 /// whether now is the time, what the chip says, and how "no" is
-/// remembered. Pure — the controller owns cameras, glass, and clocks;
+/// remembered. Pure — the controller owns cameras, pane, and clocks;
 /// this owns every decision, so every decision is testable.
 ///
 /// The shape of the policy is progressive overload: one learning habit at
@@ -14,7 +14,7 @@ import Foundation
 ///
 /// The pacing distinguishes a chip that was answered from one that merely
 /// stood: an answer buys days of quiet, but an unanswered showing is a
-/// chip on glass, not a chip read, and the attention budget is only truly
+/// chip on a pane, not a chip read, and the attention budget is only truly
 /// spent by chips a person noticed. So unanswered showings retry on a
 /// short leash before parking, while the long silences are reserved for
 /// what was actually declined.
@@ -87,7 +87,7 @@ public enum Coach {
     /// The debut floor above only guards the first offer; past it there was
     /// no floor at all, so a finding worth six seconds a week — five
     /// minutes a year — earned the same three chips as one worth three
-    /// minutes a week. A chip costs a minute of glass and a decision, so a
+    /// minutes a week. A chip costs a minute of pane and a decision, so a
     /// suggestion that cannot repay the attention its own offers cost is
     /// not a suggestion, and silence is the better answer.
     public static let offerFloorSecondsPerWeek = 10.0
@@ -122,7 +122,7 @@ public enum Coach {
 
     /// A keymap, as the chip draws it: the keys as keys, then the target.
     /// Parsed from the headline's "lode F → Figma" form, so every address
-    /// on the glass wears keycaps and a keymap is never mistaken for prose.
+    /// on the pane wears keycaps and a keymap is never mistaken for prose.
     public struct Keymap: Equatable {
         public let keys: [String]
         public let target: String
@@ -149,11 +149,11 @@ public enum Coach {
 
     /// How long a chip stands before fading to "later". A minute, because
     /// the chip must survive the seconds of focused work between its
-    /// boundary and the eye's next saccade to the glass — a chip that fades
+    /// boundary and the eye's next saccade to the pane — a chip that fades
     /// in half a thought teaches the user they hallucinated it.
     public static let chipSeconds: TimeInterval = 60
     /// How long it must stand unclaimed before the offer is spent. A chip
-    /// the engine takes off the glass in its first seconds was never read,
+    /// the engine takes off the pane in its first seconds was never read,
     /// and the curriculum must not charge for what nobody saw.
     public static let seenSeconds: TimeInterval = 10
     /// A showing that never counted may try again — but not at once. A chip
@@ -220,7 +220,7 @@ public enum Coach {
     /// The rule the code always claimed and did not enforce: an offer is
     /// spent by being read, not by being drawn. Three things have to hold
     /// at the checkpoint, and the middle one is the one that was missing —
-    /// the chip must still be the thing on the glass. A chip the engine
+    /// the chip must still be the thing on the pane. A chip the engine
     /// ordered off two hundred milliseconds after it appeared was never
     /// read, however faithfully a timer went on counting for it.
     public static func offerCounts(stoodFor: TimeInterval, ownsSurface: Bool,
@@ -308,7 +308,7 @@ public enum Coach {
     ///
     /// A chip that stood its full life takes the long leash even on the
     /// debut. The debut's shortcut exists because a first chip is the one
-    /// most likely to be missed outright — but a chip that held the glass
+    /// most likely to be missed outright — but a chip that held the pane
     /// for a solid minute was not missed, and the shortcut has nothing
     /// left to correct for.
     public static func retryDays(channelOffers: Int, thisOffers: Int,
@@ -459,7 +459,7 @@ public enum Coach {
     /// nil is the common, correct answer. Standing is not showing: an
     /// unanswered suggestion keeps standing through every cooldown, so a
     /// missed chip can wait in the menu instead of evaporating — the
-    /// moment gate is what paces its next appearance on the glass.
+    /// moment gate is what paces its next appearance on the pane.
     public static func standingOffer(observations: Observations,
                                      recommendations: [Recommendation],
                                      now: Date) -> Recommendation? {

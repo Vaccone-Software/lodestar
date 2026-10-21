@@ -74,8 +74,8 @@ final class MeetingController: NSObject {
 
     // MARK: - Surfaces
 
-    /// The chip: floating glass, never key.
-    private let panel = Glass.makePanel(level: .floating)
+    /// The chip: floating pane, never key.
+    private let panel = Ceramic.makePanel(level: .floating)
     private let root = NSView()
     /// Receding: the chip's ink moves toward its pane when it has been left
     /// alone, and returns when it appears, is pointed at, or its countdown
@@ -93,9 +93,9 @@ final class MeetingController: NSObject {
 
     override init() {
         super.init()
-        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
         Movable.enable(panel)
-        _ = Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+        _ = Ceramic.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
         recessHover = RecessHover(root, clock: recess)
         recess.mayRecede = { [weak self] in !(self?.countdownLit ?? false) }
         recess.onChange = { [weak self] in SurfacePaint.again(self?.root) }
@@ -104,9 +104,9 @@ final class MeetingController: NSObject {
         prime.backgroundColor = .clear
         prime.isReleasedWhenClosed = false
         prime.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
-        SoftShadow.host(primeRoot, in: prime, cornerRadius: BarTheme.glassRadius)
+        SoftShadow.host(primeRoot, in: prime, cornerRadius: BarTheme.surfaceRadius)
         Movable.enable(prime)
-        _ = Glass.installBackdrop(in: primeRoot, cornerRadius: BarTheme.glassRadius)
+        _ = Ceramic.installBackdrop(in: primeRoot, cornerRadius: BarTheme.surfaceRadius)
         prime.onKeyDown = { [weak self] event in
             guard let self, let key = Keys.name(for: Int64(event.keyCode)),
                   self.prime.isVisible, self.prime.isKeyWindow else { return false }
@@ -686,7 +686,7 @@ final class MeetingController: NSObject {
                 // to reach the window server in this headless process, so
                 // the photograph borrows the searcher's panel shell and
                 // wears the chip's real content view — every pixel inside
-                // the glass is the production render.
+                // the pane is the production render.
                 let frame = controller.panel.frame
                 let content = controller.panel.contentView
                 controller.panel.orderOut(nil)

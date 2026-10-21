@@ -394,7 +394,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         selectController.editor = editor
         editorController = editor
         // Asked before anything is read: the card, answered by lode lode
-        // and lode ⌫ or the mouse. A coach chip on the glass steps aside
+        // and lode ⌫ or the mouse. A coach chip on the pane steps aside
         // the recorded way, so it never thinks it is still showing.
         editorConsent.present = { [weak self] sentence, detail, rows in
             guard let self else { return }
@@ -660,7 +660,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 return nil
             }
         }
-        // Everything the engine, the glass, and the coach say to each other
+        // Everything the engine, the pane, and the coach say to each other
         // is wired in `SurfaceWiring`, once, with the scenario harness on
         // it. Every voice on the floor shares the lode-lode grammar, so the
         // floor has one owner at a time: walk, then meeting, then the link
@@ -1064,7 +1064,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func watchAppIcon() {
-        Glass.followSystemAppearance()
+        Ceramic.followSystemAppearance()
         refreshAppIcon()
         // Light and dark: the system says so a beat before every window
         // has taken the new look.
@@ -1072,7 +1072,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             forName: Notification.Name("AppleInterfaceThemeChangedNotification"), object: nil, queue: .main
         ) { [weak self] _ in
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                Glass.followSystemAppearance()
+                Ceramic.followSystemAppearance()
                 self?.refreshAppIcon()
                 EyeComfortController.shared.systemLookChanged()
             }
@@ -2288,7 +2288,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                     .flatMap { EditorEngine.unavailable($0) } ?? "unknown", "using": engine.rawValue])
         }
         // Nothing is read until the hand accepts, once per Mac. At launch
-        // the card waits for the glass to settle.
+        // the card waits for the pane to settle.
         let consented = store.editorConsented
         if !store.isKnown {
             // Whether it was asked is in the state, which is not known: the
@@ -2371,7 +2371,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     /// The question, put back until it is answered: a card another surface
-    /// took the glass from is asked again once the glass is clear, so a
+    /// took the pane from is asked again once the pane is clear, so a
     /// switch left on never means an editor silently off.
     private func askEditorConsentWhenClear(after seconds: TimeInterval) {
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in

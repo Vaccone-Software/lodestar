@@ -188,7 +188,7 @@ final class CoachPresenceTests: XCTestCase {
     }
 
     /// And the re-show floor has to outlive the chip, so a retry can never
-    /// race a chip that is still on the glass.
+    /// race a chip that is still on the pane.
     func testTheReshowFloorOutlivesTheChip() {
         XCTAssertGreaterThanOrEqual(Coach.reshowSeconds, Coach.chipSeconds)
     }

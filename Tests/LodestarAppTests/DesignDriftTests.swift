@@ -9,7 +9,7 @@ import LodestarCore
 /// file named, so the φ table and the type scale stay the only source.
 final class DesignDriftTests: XCTestCase {
     /// The theme's homes: the values live here and nowhere else.
-    private static let homes: Set<String> = ["Glass.swift", "ModePill.swift"]
+    private static let homes: Set<String> = ["Ceramic.swift", "ModePill.swift"]
 
     /// Every Swift file under a folder, subfolders included: a guard that
     /// read only the top level would exempt any folder added later.
@@ -65,13 +65,13 @@ final class DesignDriftTests: XCTestCase {
     /// `.cgColor` on a dynamic colour resolves it in whatever appearance is
     /// current at the call, which off a draw pass is not the surface's: a
     /// Lodestar started at night went on painting night's colours on
-    /// clay. `Glass.resolved(_:in:)` and `ToneView` are the two ways.
+    /// clay. `Ceramic.resolved(_:in:)` and `ToneView` are the two ways.
     func testNoDynamicColourIsFixedOutsideItsAppearance() throws {
         let files = Self.swiftFiles(under: Self.appSources).filter { !$0.lastPathComponent.contains("Preview") }
         let hits = try offenders(
             #"(labelColor|BarTheme\.ink|secondaryColor|readableAccent|secondaryLabelColor|tertiaryLabelColor|separatorColor|controlAccentColor|textColor)[^\n]*\.cgColor"#,
             in: files)
-        XCTAssertEqual(hits, [], "resolve it with Glass.resolved(_:in:) or draw it in a ToneView")
+        XCTAssertEqual(hits, [], "resolve it with Ceramic.resolved(_:in:) or draw it in a ToneView")
     }
 
     /// A label or a field the hand types into that sets no colour is drawn in
@@ -146,11 +146,11 @@ final class DesignDriftTests: XCTestCase {
         XCTAssertEqual(BarTheme.controlRadius, 8.4, accuracy: 0.05)
         XCTAssertEqual(BarTheme.markRadius, BarTheme.controlRadius / (phi * phi), accuracy: 0.001)
         XCTAssertEqual(BarTheme.markRadius, 3.2, accuracy: 0.05)
-        for surface in [BarTheme.glassRadius, ModePill.radius] {
+        for surface in [BarTheme.surfaceRadius, ModePill.radius] {
             XCTAssertEqual(surface, BarTheme.surfaceRadius, "every surface rounds at the first rung")
         }
         XCTAssertEqual(BarTheme.rowRadius, 12, "a row ten points inside a pane rounds at twelve")
-        for control in [BarTheme.chipRadius, BarTheme.glassChipRadius, BarTheme.wellRadius] {
+        for control in [BarTheme.chipRadius, BarTheme.wellRadius] {
             XCTAssertEqual(control, BarTheme.controlRadius, "every control at the second")
         }
         XCTAssertEqual(BarTheme.highlightRadius, BarTheme.markRadius, "a mark at the third")
@@ -207,7 +207,7 @@ final class DesignDriftTests: XCTestCase {
         let hits = try offenders(#"withDesign\(|monospacedSystemFont|\.monospaced\b|handFont\("#, in: surfaces())
         XCTAssertEqual(hits, [], "the system's sans from the theme; mono is the draft's alone")
         let reading = try sources().filter { $0.text.contains("readingMono") }.map(\.name)
-            .filter { !["Glass.swift", "DraftPanel.swift", "SplitPreview.swift"].contains($0) }
+            .filter { !["Ceramic.swift", "DraftPanel.swift", "SplitPreview.swift"].contains($0) }
         XCTAssertEqual(reading, [], "readingMono is the draft's and the editor lens's, which draws in the draft")
     }
 
@@ -287,16 +287,16 @@ final class DesignDriftTests: XCTestCase {
     /// new surface may not join it.
     private static let notYetOnTheDrawnShadow: Set<String> = [
         // Marks laid over another app's windows — hint badges, select's
-        // letters — are not glass surfaces and cast no surface's shadow.
+        // letters — are not pane surfaces and cast no surface's shadow.
         "IndexBadges.swift", "SelectOverlay.swift",
     ]
 
     /// Objects float, and cast their own shadow: a surface made with
-    /// `Glass.makePanel` stands on the drawn soft shadow and its fine
+    /// `Ceramic.makePanel` stands on the drawn soft shadow and its fine
     /// edge, the bars' and the draft's, never the system's.
     func testEverySurfaceStandsOnTheDrawnShadow() throws {
         var missing: [String] = [], stale: [String] = []
-        for (name, text) in try sources() where name != "Glass.swift" && text.contains("makePanel(") {
+        for (name, text) in try sources() where name != "Ceramic.swift" && text.contains("makePanel(") {
             // One surface per window is hosted; Keep's cards share one
             // window and each casts the same shadow as an object.
             let hosted = text.contains("SoftShadow.host(") || text.contains("SoftShadow.object(")
@@ -311,26 +311,26 @@ final class DesignDriftTests: XCTestCase {
     }
 
     /// No window wears the window server's shadow: it cannot be shaped to
-    /// the glass, and a room in it reads as a system window in costume.
-    /// `Glass.makePanel` sets it only for `SoftShadow.host` to take away.
+    /// the pane, and a room in it reads as a system window in costume.
+    /// `Ceramic.makePanel` sets it only for `SoftShadow.host` to take away.
     func testNoWindowWearsTheSystemShadow() throws {
         let offenders = try sources()
-            .filter { $0.name != "Glass.swift" && $0.text.contains("hasShadow = true") }
+            .filter { $0.name != "Ceramic.swift" && $0.text.contains("hasShadow = true") }
             .map(\.name)
         XCTAssertEqual(offenders, [], "host the surface on SoftShadow instead")
     }
 
     /// Every window Lodestar makes floats on the drawn shadow, not only
-    /// the ones `Glass.makePanel` builds: a panel made by hand keeps the
+    /// the ones `Ceramic.makePanel` builds: a panel made by hand keeps the
     /// window server's shadow unless it says otherwise, which is how four
     /// rooms kept it. A file that makes a window hosts its surface on
     /// `SoftShadow`, or turns the shadow off and draws its own.
     func testEveryWindowMadeByHandCastsTheDrawnShadow() throws {
-        let makesWindow = ["KeyablePanel(", "NSPanel(", "NSWindow(", "GlassPanel(", "ShowingPanel("]
+        let makesWindow = ["KeyablePanel(", "NSPanel(", "NSWindow(", "CeramicPanel(", "ShowingPanel("]
         var missing: [String] = []
         // The render tool's flat ground and stand-in app window are the
         // scene a surface is photographed over, not surfaces.
-        let notSurfaces: Set<String> = ["Glass.swift", "StripPreview.swift"]
+        let notSurfaces: Set<String> = ["Ceramic.swift", "StripPreview.swift"]
         for (name, text) in try sources() where !notSurfaces.contains(name) {
             guard makesWindow.contains(where: text.contains) else { continue }
             let drawn = text.contains("SoftShadow.host(") || text.contains("SoftShadow.object(")
@@ -345,7 +345,7 @@ final class DesignDriftTests: XCTestCase {
     /// materials.
     func testEverythingMovesOnOneCurve() throws {
         let offenders = try sources()
-            .filter { $0.text.contains("CAMediaTimingFunction(") && !($0.name == "Glass.swift"
+            .filter { $0.text.contains("CAMediaTimingFunction(") && !($0.name == "Ceramic.swift"
                 && $0.text.components(separatedBy: "CAMediaTimingFunction(").count == 2) }
             .map(\.name)
         XCTAssertEqual(offenders, [], "use BarTheme.motion")
@@ -366,7 +366,7 @@ final class DesignDriftTests: XCTestCase {
             "SettingsController.swift": 1, // the overview's ring
         ]
         var offenders: [String] = []
-        for (name, text) in try sources() where name != "Glass.swift" {
+        for (name, text) in try sources() where name != "Ceramic.swift" {
             let count = text.components(separatedBy: "labelColor.withAlphaComponent(").count - 1
                 + text.components(separatedBy: "BarTheme.ink.withAlphaComponent(").count - 1
             if count > notMatter[name, default: 0] { offenders.append(name) }
@@ -380,7 +380,7 @@ final class DesignDriftTests: XCTestCase {
     /// fill. Nothing else wears it: a popup and a door tile are pressed, so
     /// they are keys.
     func testTheWellIsOnlyWhereSomethingIsPut() throws {
-        let receptacles: Set<String> = ["Glass.swift", "FeedbackController.swift"]
+        let receptacles: Set<String> = ["Ceramic.swift", "FeedbackController.swift"]
         var offenders: [String] = []
         for (name, text) in try sources() {
             let uses = DesignDriftTests.code(text).range(of: #"BarTheme\.well\b"#, options: .regularExpression) != nil
@@ -394,23 +394,23 @@ final class DesignDriftTests: XCTestCase {
     /// once, for the face of a file's sheet resting on a card.
     func testSelectionIsTheSlabNotTheRaisedStep() throws {
         var offenders: [String] = []
-        for (name, text) in try sources() where name != "Glass.swift" {
+        for (name, text) in try sources() where name != "Ceramic.swift" {
             let count = DesignDriftTests.code(text).components(separatedBy: "BarTheme.raised").count - 1
             if count > (name == "ClipboardStrip.swift" ? 1 : 0) { offenders.append(name) }
         }
         XCTAssertEqual(offenders, [], "a chosen row is RaisedRow's slab, a chosen card is the slab weight")
-        let glass = try String(contentsOf: Self.appSources.appendingPathComponent("Glass.swift"), encoding: .utf8)
-        XCTAssertFalse(DesignDriftTests.code(glass).contains("BarTheme.raised.setFill()"), "no highlight is drawn in the raised step")
+        let pane = try String(contentsOf: Self.appSources.appendingPathComponent("Ceramic.swift"), encoding: .utf8)
+        XCTAssertFalse(DesignDriftTests.code(pane).contains("BarTheme.raised.setFill()"), "no highlight is drawn in the raised step")
     }
 
-    /// The drawn shadow is window, not glass: a hosted surface that took
+    /// The drawn shadow is window, not pane: a hosted surface that took
     /// the mouse everywhere would eat clicks in its shadow. It takes the
     /// mouse through a `PointerGate`, or not at all.
     func testAHostedSurfaceNeverTakesTheMouseInItsShadow() throws {
         let offenders = try sources()
             .filter { $0.text.contains("SoftShadow.host(") && $0.text.contains("ignoresMouseEvents = false") }
             .map(\.name)
-        XCTAssertEqual(offenders, [], "use PointerGate, which opens only over the glass")
+        XCTAssertEqual(offenders, [], "use PointerGate, which opens only over the pane")
     }
 
     /// No Lodestar window shows a control in the system's tint: a system
@@ -419,7 +419,7 @@ final class DesignDriftTests: XCTestCase {
     /// popup's behaviour but draws its face and every menu row
     /// (`KeyPopUp`, `ChoiceMenuItemView`), the one file allowed to.
     func testNoSurfaceUsesASystemPopup() throws {
-        let notYet: Set<String> = ["SettingsController.swift", "Glass.swift"]
+        let notYet: Set<String> = ["SettingsController.swift", "Ceramic.swift"]
         var offenders: [String] = [], stale: [String] = []
         for (name, text) in try sources() {
             let uses = text.contains("NSPopUpButton")
@@ -433,7 +433,7 @@ final class DesignDriftTests: XCTestCase {
     /// the edge light's, in the theme, where a lit rim turns down into a
     /// corner; a room may fade its own scroll edge. Chrome never does.
     func testChromeIsNeverShadedByAGradient() throws {
-        let homes: Set<String> = ["Glass.swift", "SettingsController.swift"]
+        let homes: Set<String> = ["Ceramic.swift", "SettingsController.swift"]
         let offenders = try sources()
             .filter { !homes.contains($0.name) }
             .filter { $0.text.contains("CAGradientLayer") || $0.text.contains("NSGradient(") }
@@ -491,7 +491,7 @@ final class DesignDriftTests: XCTestCase {
     /// theme and on the two chips that are read rather than pressed (Ask's
     /// profile, the commands bar's source); a harness may use it.
     func testOnlyTheThemeDrawsAKey() throws {
-        let allowed: Set<String> = ["Glass.swift", "WebBar.swift", "CommandsBar.swift", "SplitPreview.swift"]
+        let allowed: Set<String> = ["Ceramic.swift", "WebBar.swift", "CommandsBar.swift", "SplitPreview.swift"]
         let offenders = try sources()
             .filter { $0.text.contains("BarTheme.chipFont") && !allowed.contains($0.name) }
             .map(\.name)
@@ -522,7 +522,7 @@ final class DesignDriftTests: XCTestCase {
 
     /// One voice for every flash (DESIGN, the flash rules): it opens with
     /// one of the marks, then a capital; a key it names is drawn, written
-    /// in brackets; no timer and no "see the log" on the glass.
+    /// in brackets; no timer and no "see the log" on the pane.
     func testEveryFlashSpeaksOneWay() throws {
         let marks: Set<Character> = ["✕", "⚠", "✓", "⌂", "◎", "⟲", "↺", "⤺", "☰"]
         var unmarked: [String] = [], lowercase: [String] = [], typed: [String] = [], timers: [String] = []
@@ -540,7 +540,7 @@ final class DesignDriftTests: XCTestCase {
         XCTAssertEqual(unmarked, [], "open with a mark: ✕ refused, ⚠ needs you, ✓ done, ⌂ Keep, ◎ a breath, ⟲ ↺ ⤺ layout, ☰ the menu bar")
         XCTAssertEqual(lowercase, [], "the fact opens with a capital")
         XCTAssertEqual(typed, [], "write a key as [⌘], and it is drawn")
-        XCTAssertEqual(timers, [], "no timer and no log on the glass")
+        XCTAssertEqual(timers, [], "no timer and no log on the pane")
     }
 
     /// A label is a name, capitalized: a section's title, a link, a

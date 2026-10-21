@@ -2,7 +2,7 @@ import XCTest
 @testable import lodestar
 @testable import LodestarCore
 
-/// Scripted keystrokes against the real engine, the real glass, and the
+/// Scripted keystrokes against the real engine, the real pane, and the
 /// real coach, wired the way the app wires them.
 ///
 /// `CoachSurfaceTests` (LodestarCore) pins the decisions one at a time:
@@ -11,17 +11,17 @@ import XCTest
 /// reached by way of a keystroke, through `HotkeyEngine.handle`, the
 /// effect loop, `HUD.handOver`, and `SurfaceWiring`, which is the seam the
 /// unit tests could not see and where the 0.24.4 bug actually lived. Each
-/// test asks two things of every moment: what the glass shows, and what
+/// test asks two things of every moment: what the pane shows, and what
 /// the coach believes it shows. They must agree.
 final class SurfaceScenarioTests: XCTestCase {
 
     // MARK: - The regression, end to end
 
     /// A chip is standing; `lode s` completes a one-letter chain, whose
-    /// effects are `[.hideGuide, .summonGraph]`. The glass goes dark, and
+    /// effects are `[.hideGuide, .summonGraph]`. The pane goes dark, and
     /// the coach must know it did: no offer may be billed for a chip that
     /// stood five seconds.
-    func testACompletedChainTakesTheGlassAndTheCoachKnows() {
+    func testACompletedChainTakesThePaneAndTheCoachKnows() {
         let stage = Stage()
         stage.raiseChip()
 
@@ -52,7 +52,7 @@ final class SurfaceScenarioTests: XCTestCase {
     }
 
     /// A flash that no claim preceded — `lode 0` with nothing focused —
-    /// reaches the coach through the glass itself. The engine never said
+    /// reaches the coach through the pane itself. The engine never said
     /// it was taking the panel; the panel did, and that is the only road
     /// a flash from anywhere else in the app has.
     func testAFlashWithNoClaimBeforeItStillDisplacesTheChip() {
@@ -84,9 +84,9 @@ final class SurfaceScenarioTests: XCTestCase {
         XCTAssertEqual(stage.engine.stateDescription, "idle")
     }
 
-    /// Holding lode peeks the graph on the same glass. Releasing it gives
-    /// the glass back — and not to the chip, which has already yielded.
-    func testThePeekTakesTheGlassAndReleaseGivesItBack() {
+    /// Holding lode peeks the graph on the same pane. Releasing it gives
+    /// the pane back — and not to the chip, which has already yielded.
+    func testThePeekTakesThePaneAndReleaseGivesItBack() {
         let stage = Stage()
         stage.raiseChip()
 
@@ -102,7 +102,7 @@ final class SurfaceScenarioTests: XCTestCase {
     }
 
     /// The launcher is a surface of its own, but opening it claims the
-    /// shared glass all the same: a chip must not stand behind a bar.
+    /// shared pane all the same: a chip must not stand behind a bar.
     func testOpeningABarDisplacesTheChip() {
         let stage = Stage()
         stage.raiseChip()

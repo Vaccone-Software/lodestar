@@ -46,7 +46,7 @@ struct GuideRow {
     }
 }
 
-/// The chain guide: a floating glass panel that IS the pending state made
+/// The chain guide: a floating pane that IS the pending state made
 /// visible. While a chain is active it stays up, showing the typed prefix
 /// and every legal continuation; flashes fade on their own. Rows flow into
 /// columns sized by the screen — a laptop gets two, a big display three or
@@ -63,7 +63,7 @@ final class HUD {
     private(set) var owner: SurfaceOwner = .none
     /// The sentence the voice surface shows, for the stage.
     private(set) var voiceSentence: String?
-    /// Which voice card is on the glass, when its speaker named it: a
+    /// Which voice card is on the pane, when its speaker named it: a
     /// card answered by lode lode must still be the one showing, and any
     /// other drawing clears this.
     private(set) var voiceTag: String?
@@ -74,7 +74,7 @@ final class HUD {
     private(set) var titleText: String?
 
     private let panel: NSPanel
-    /// Opens the glass to the pointer only while the coach offers something.
+    /// Opens the pane to the pointer only while the coach offers something.
     private let gate: PointerGate
     private let root = NSView()
     private var content: NSView?
@@ -97,10 +97,10 @@ final class HUD {
 
     init(clock: Clock = .live) {
         self.clock = clock
-        panel = Glass.makePanel(level: .statusBar, takesKeys: false)
+        panel = Ceramic.makePanel(level: .statusBar, takesKeys: false)
         // Shut until it offers something: the coach's chip.
-        gate = SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius, takesPointer: false)
-        Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+        gate = SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius, takesPointer: false)
+        Ceramic.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
     }
 
     // MARK: - Public surface
@@ -220,7 +220,7 @@ final class HUD {
         let previous = owner
         cameFromCoach = previous == .coach
         owner = next
-        // The glass takes the mouse only for the one occupant that is an
+        // The pane takes the mouse only for the one occupant that is an
         // offer. A chain guide is the pending state of a gesture already in
         // progress and stands over whatever you are working in; if it took
         // clicks it would eat them mid-chain, and if it could be dragged a
@@ -365,10 +365,10 @@ final class HUD {
         // once would hand its position to the next chain guide, which has
         // no business being anywhere but centred.
         if owner == .coach, cameFromCoach, panel.isVisible {
-            Movable.place(panel, size: size) { panel.glassFrame.origin }
+            Movable.place(panel, size: size) { panel.paneFrame.origin }
         } else {
             let visible = ActivePolicy.presentationFrame
-            panel.setGlassFrame(NSRect(origin: NSPoint(x: visible.midX - size.width / 2,
+            panel.setPaneFrame(NSRect(origin: NSPoint(x: visible.midX - size.width / 2,
                                                   y: visible.minY + 96),
                                   size: size), display: true)
         }

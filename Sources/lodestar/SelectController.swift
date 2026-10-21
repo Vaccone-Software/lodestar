@@ -174,7 +174,7 @@ final class SelectController {
     /// doors, saying which door, over which app, and what the hand has
     /// typed. Set by the shell.
     var pill: ModePill?
-    /// The chips standing on the glass, for the tests.
+    /// The chips standing on the pane, for the tests.
     var shownChips: [SelectOverlay.Chip] { overlay.shownChips }
     /// The aim door's whole verb: the picked word's center, and the word,
     /// handed to whoever moves the pointer. Set by the shell; a stage
@@ -202,7 +202,7 @@ final class SelectController {
     /// The `;` door's entry chips: pressables harvested from the
     /// accessibility tree, pickable by capitals before any typing — a
     /// dialog's three buttons answer the instant the tree does, even
-    /// while OCR is still reading. They yield the glass the moment aiming
+    /// while OCR is still reading. They yield the pane the moment aiming
     /// starts and return if the query empties.
     ///
     /// Two sets, because the harvest serves two jobs. `entryTargets` is
@@ -821,7 +821,7 @@ final class SelectController {
 
     /// The entry chips, filtered by any capital prefix underway. Shown
     /// only while the query is empty: the moment aiming starts, the
-    /// search universe owns the glass, and it owns it again the moment
+    /// search universe owns the pane, and it owns it again the moment
     /// the query walks back to nothing.
     /// Where the click door's chips are spent. The rule is the doctrine's
     /// — a chip goes where typing cannot reach — and the word world is the
@@ -1963,7 +1963,7 @@ final class SelectController {
         let labels = core.labels
         let anchor = core.anchor
         let snapshot = units
-        // The query alone: a capital narrows the chips on the glass and
+        // The query alone: a capital narrows the chips on the pane and
         // never belongs in the text, because it is not part of the search.
         // The anchored word rides ahead of it while the far end is chosen.
         showPill(text: core.query.isEmpty ? nil : core.query, anchored: anchoredWord(anchor, in: units))

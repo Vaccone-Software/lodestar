@@ -8,8 +8,8 @@ import LodestarCore
 /// shows no evidence that the click did anything at all. Without this the
 /// protected case is indistinguishable from the bug the whole change was for.
 ///
-/// Its own panel, never the shared glass. The chip has to outlive the gesture
-/// that drew it, and the glass belongs to whichever hand touched it last — a
+/// Its own panel, never the shared pane. The chip has to outlive the gesture
+/// that drew it, and the pane belongs to whichever hand touched it last — a
 /// chain guide or a flash would erase this a third of a second in, which is
 /// the failure the surface owner type was introduced to catch. The meeting
 /// chip learned this first; this follows it.
@@ -32,14 +32,14 @@ final class LinkChip {
     /// at the door is more urgent and sits in the same corner.
     var suppressed: () -> Bool = { false }
 
-    private let panel = Glass.makePanel(level: .floating, takesKeys: false)
+    private let panel = Ceramic.makePanel(level: .floating, takesKeys: false)
     private let root = NSView()
     private var expiry: Timer?
 
     init() {
-        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
         Movable.enable(panel)
-        _ = Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+        _ = Ceramic.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
     }
 
     var isUp: Bool { panel.isVisible }

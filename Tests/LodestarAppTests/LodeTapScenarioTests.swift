@@ -52,12 +52,12 @@ final class LodeTapScenarioTests: XCTestCase {
         XCTAssertTrue(stage.actions.summoned.isEmpty)
     }
 
-    /// A tap puts nothing on the glass, however long the hand waits. A
+    /// A tap puts nothing on the pane, however long the hand waits. A
     /// mark saying lode was armed was built and taken out again: nine
     /// gestures in ten strike inside 300 ms, so it would have been
     /// motion on almost every one, and what bounds the state the eye
     /// cannot see is the expiry, not something the eye has to find.
-    func testATapPutsNothingOnTheGlass() {
+    func testATapPutsNothingOnThePane() {
         stage.tapLode()
         for _ in 0..<4 {
             stage.clock.advance(by: 0.2)

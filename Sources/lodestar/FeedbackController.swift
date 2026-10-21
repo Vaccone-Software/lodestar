@@ -5,7 +5,7 @@ import Stoic
 import StoicHTTP
 #endif
 
-/// Send Feedback: a note, written in Lodestar's own glass, that reaches the
+/// Send Feedback: a note, written in Lodestar's own pane, that reaches the
 /// person who makes it. It replaced "Report an Issue", which sent people to
 /// GitHub, where most of them have no account and the rest must write in
 /// public. The note travels to the site's endpoint and on by email; the
@@ -81,8 +81,8 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
         panel.backgroundColor = .clear
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
-        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
-        _ = Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
+        _ = Ceramic.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
         panel.onKeyDown = { [weak self] event in self?.key(event) ?? false }
         Movable.enable(panel)
 
@@ -373,9 +373,9 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
         // the note and the thanks loses the eye that was on it.
         let visible = ActivePolicy.presentationFrame
         let origin = panel.isVisible
-            ? NSPoint(x: panel.glassFrame.minX, y: panel.glassFrame.maxY - size.height)
+            ? NSPoint(x: panel.paneFrame.minX, y: panel.paneFrame.maxY - size.height)
             : NSPoint(x: visible.midX - size.width / 2, y: visible.midY - size.height / 2 + 40)
-        panel.setGlassFrame(NSRect(origin: origin, size: size), display: true)
+        panel.setPaneFrame(NSRect(origin: origin, size: size), display: true)
     }
 
     private func label(_ text: String, size: CGFloat, weight: NSFont.Weight,

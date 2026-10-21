@@ -2,7 +2,7 @@ import AppKit
 import LodestarCore
 
 /// The entry point: a floating fuzzy searcher, styled like it belongs to the
-/// OS — glass, SF type, accent-filled selection. Two levels: apps (default),
+/// OS — pane, SF type, accent-filled selection. Two levels: apps (default),
 /// and the windows of one app (`lode tab`, or Tab on a running app row;
 /// esc walks back). Enter = focus-or-launch full-screen; shift+enter =
 /// beside. ⌘K on an app row opens the graph card beside the list — add
@@ -130,7 +130,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
         panel.delegate = self
-        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
         panel.onKeyEquivalent = { [weak self] event in
             self?.handleKeyEquivalent(event) ?? false
         }
@@ -138,7 +138,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
             self?.handleMenuKey(event) ?? false
         }
 
-        Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+        Ceramic.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
 
         magnifier.image = NSImage(
             systemSymbolName: "macwindow.on.rectangle",
@@ -191,7 +191,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
 
     var isVisible: Bool { panel.isVisible }
 
-    /// The bar's keys, held in its own glass on lode ?.
+    /// The bar's keys, held in its own pane on lode ?.
     private let keys = BarKeys()
     var keysShown: Bool { keys.isShown }
 
@@ -1018,10 +1018,10 @@ final class SearcherRowView: RaisedRow {
 /// Titled under the hood: a key window with no opaque shape gets its
 /// shadow — and the hairline the window server etches around it — drawn
 /// on the raw window rect, a square outline floating over the rounded
-/// glass. The hidden title bar hands the window server a real rounded
+/// pane. The hidden title bar hands the window server a real rounded
 /// shape instead; .fullSizeContentView keeps the content geometry
 /// identical to borderless.
-final class KeyablePanel: GlassPanel {
+final class KeyablePanel: CeramicPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
@@ -1061,9 +1061,9 @@ final class KeyablePanel: GlassPanel {
 /// shared chip lives.
 enum SearcherRowPreview {
     static func show() -> NSPanel {
-        let panel = Glass.makePanel(level: .statusBar)
+        let panel = Ceramic.makePanel(level: .statusBar)
         let root = NSView(frame: NSRect(x: 0, y: 0, width: BarTheme.panelWidth, height: 230))
-        Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+        Ceramic.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
 
         let stack = NSStackView()
         stack.orientation = .vertical
@@ -1097,7 +1097,7 @@ enum SearcherRowPreview {
             stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 10),
             stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -10),
         ])
-        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
         panel.setFrame(SoftShadow.outset(NSRect(x: 400, y: 400, width: BarTheme.panelWidth, height: 230)),
                        display: true)
         panel.orderFrontRegardless()

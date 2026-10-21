@@ -14,7 +14,7 @@ import LodestarCore
 final class StandCueController {
     var enabled: () -> Bool = { true }
     var minutes: () -> Int = { 30 }
-    /// Every gate the coach keeps: nothing else on the glass, no lens, no
+    /// Every gate the coach keeps: nothing else on the pane, no lens, no
     /// call, a person present. True when the moment is quiet enough.
     var quiet: () -> Bool = { true }
     var draftOpen: () -> Bool = { false }

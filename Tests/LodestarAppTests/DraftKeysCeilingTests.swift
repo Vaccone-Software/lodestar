@@ -7,7 +7,7 @@ import XCTest
 ///
 /// The draft stands 22pt off the bottom of the screen and grows upward
 /// with its text, so a long dictation reaches the top and stops there.
-/// Asking for the keys then cannot make the glass any taller: the room
+/// Asking for the keys then cannot make the pane any taller: the room
 /// has to come out of the text instead. The bug this pins was worse than
 /// a crooked frame — the layout used to be corrected in the animation's
 /// completion handler, and a frame animation whose target equals its
@@ -70,7 +70,7 @@ final class DraftKeysCeilingTests: XCTestCase {
         settle()
         let after = panel.frame
         XCTAssertLessThanOrEqual(after.maxY, screen.maxY,
-                                 "the glass may not run off the top to hold its keys")
+                                 "the pane may not run off the top to hold its keys")
         XCTAssertEqual(after.height, before.height, accuracy: 0.5,
                        "at the ceiling there is no room to take, so the text gives it instead")
     }
@@ -116,8 +116,8 @@ final class DraftKeysCeilingTests: XCTestCase {
     /// The keys are capped against the draft's own default width, and a
     /// draft can be narrower than that — the panel takes the screen's
     /// width when the screen is small. The columns must stay inside
-    /// whatever glass they are actually in.
-    func testTheKeysStayInsideANarrowGlass() {
+    /// whatever pane they are actually in.
+    func testTheKeysStayInsideANarrowPane() {
         var narrow = view("short")
         narrow.width = 380
         panel.show(narrow)
@@ -125,7 +125,7 @@ final class DraftKeysCeilingTests: XCTestCase {
         settle()
         XCTAssertEqual(panel.frame.width, 380, accuracy: 0.5)
         XCTAssertLessThanOrEqual(panel.keysFrame.maxX, panel.frame.width,
-                                 "the columns may not run out through the side of the glass")
+                                 "the columns may not run out through the side of the pane")
     }
 
     /// The clip door is a draft that stands above the strip, so its

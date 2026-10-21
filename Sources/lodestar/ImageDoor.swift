@@ -8,7 +8,7 @@ import UniformTypeIdentifiers
 /// An image card, open across the display.
 ///
 /// The text card's door is the draft; an image has no text to edit, so
-/// its door is the image itself, on the launcher's glass across the whole
+/// its door is the image itself, on the launcher's pane across the whole
 /// visible display with the strip gone beneath it. It opens fitted, so
 /// the whole picture is seen first, and from there the trackpad does what
 /// it does to any image: a pinch zooms about the pointer, two fingers
@@ -91,7 +91,7 @@ final class ImageDoor {
     /// One press of `+` or `-`.
     static let zoomStep: CGFloat = 1.25
     /// The space left around each page of a PDF, so the pages stand one
-    /// above another with a little glass between them.
+    /// above another with a little pane between them.
     static let pageMargin: CGFloat = 18
     /// How far a PDF may be zoomed, as a scale of its pages' own size.
     static let pdfScales: ClosedRange<CGFloat> = 0.1...maxMagnification
@@ -122,9 +122,9 @@ final class ImageDoor {
         // meaning, and a key window that beeps at each is not quiet.
         panel.onKeyDown = { _ in true }
         // The door floats on its drawn shadow, and takes the pointer only
-        // over its glass.
-        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
-        backdrop = Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+        // over its pane.
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
+        backdrop = Ceramic.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
 
         scroll.contentView = clip
         scroll.documentView = imageView
@@ -233,7 +233,7 @@ final class ImageDoor {
             Self.configure(view, showing: document)
             root.addSubview(view)
             pdfView = view
-            // A page opens whole, a sheet on the glass with the next one
+            // A page opens whole, a sheet on the pane with the next one
             // below it, from the top of the first: fitted to the width it
             // stood one page across the display, opened somewhere inside it.
             if let first = document.page(at: 0) {
@@ -246,7 +246,7 @@ final class ImageDoor {
     }
 
     /// The scale a page opens at: the whole page in the room's height, with
-    /// a margin of glass above and below, and never wider than the room.
+    /// a margin of pane above and below, and never wider than the room.
     static func pageScale(page: CGSize, room: CGSize) -> CGFloat {
         guard page.width > 0, page.height > 0, room.width > 0, room.height > 0 else { return 1 }
         return min(room.height * 0.94 / page.height, room.width / page.width)
@@ -303,7 +303,7 @@ final class ImageDoor {
 
     /// How a PDF stands in the room: pages stacked with a little space
     /// between them, scrolling without end, scaled to the room's width,
-    /// on the glass itself with no ground of its own and none of PDFKit's
+    /// on the pane itself with no ground of its own and none of PDFKit's
     /// shadows, which are the system's and not the door's.
     static func configure(_ view: PDFView, showing document: PDFDocument) {
         view.displayMode = .singlePageContinuous
@@ -352,7 +352,7 @@ final class ImageDoor {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
 
-        panel.setGlassFrame(frame, display: false)
+        panel.setPaneFrame(frame, display: false)
         backdrop?.frame = root.bounds
         scroll.isHidden = true
         body(room)
@@ -454,7 +454,7 @@ extension ImageDoor {
     private func gesture(_ event: NSEvent) -> Bool {
         guard isVisible else { return false }
         let pointer = NSEvent.mouseLocation
-        guard panel.glassFrame.contains(pointer) else { return false }
+        guard panel.paneFrame.contains(pointer) else { return false }
         switch event.type {
         case .magnify:
             pinch(by: event.magnification, at: pointer)

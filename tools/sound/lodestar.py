@@ -18,7 +18,7 @@ Three cues, one voice:
   Lodestar   the alert: one strike at A5, level 1 (peak -9 dBFS, matched to
              the alerts it sits beside; installs to ~/Library/Sounds, which
              is where Sound settings looks)
-  Listening  two strikes at level 0.5, a fifth below A5 then A5, 80 ms
+  Listening  two strikes at level 0.5, A5 then the fifth above it, 80 ms
              apart: the microphone is live (peak -12 dBFS)
   Landed     the same two reversed: the words landed (peak -12 dBFS)
 
@@ -168,8 +168,8 @@ def write(path, chans, peak_db, tail_silence=0.35):
 GAP = 0.08
 CUES = [
     ("Lodestar", [(0.0, A5, 1.0)], -9.0, None),
-    ("Listening", [(0.0, A5 / FIFTH, 0.5), (GAP, A5, 0.5)], -12.0, 0.54),
-    ("Landed", [(0.0, A5, 0.5), (GAP, A5 / FIFTH, 0.5)], -12.0, 0.54),
+    ("Listening", [(0.0, A5, 0.5), (GAP, A5 * FIFTH, 0.5)], -12.0, 0.54),
+    ("Landed", [(0.0, A5 * FIFTH, 0.5), (GAP, A5, 0.5)], -12.0, 0.54),
 ]
 
 if __name__ == "__main__":

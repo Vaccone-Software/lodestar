@@ -90,19 +90,45 @@ public enum WebRouting {
         }
     }
 
-    /// Resolve a routing table against an input: case-insensitive substring
-    /// match, longest pattern wins — deterministic without ordering.
+    /// Resolve a routing table against an input. Longest pattern wins, and
+    /// ties break by name — deterministic without ordering. A destination
+    /// matches on whole host labels; a query matches on whole words.
     public static func route(_ input: String, routes: [String: String]) -> String? {
         routePattern(input, routes: routes).flatMap { routes[$0] }
     }
 
     /// The pattern that won, rather than what it points at — so a surface can
     /// say *why* a destination is going where it is going.
+    ///
+    /// The match is bounded, because a substring is how `github.com` swallows
+    /// `notgithub.com` and how `ai` hides inside `mail`. A destination is
+    /// read as a host — the path and the query are not the site. A pattern
+    /// of one label matches any label of that host, so `youtube` still
+    /// routes `music.youtube.com` and `ai` does not hide inside `mail`. A
+    /// pattern with a dot is a domain: the host is that domain or a
+    /// subdomain of it, so `github.com` routes `gist.github.com` and does
+    /// not route `notgithub.com`, `mygithub.com.evil.test`, or
+    /// `github.com.evil.test`. The same test is also tried with the host's
+    /// last label removed, which is how `music.youtube` still routes
+    /// `music.youtube.com`. A query has no host, so the boundary is a word:
+    /// `acme` routes "acme deploy runbook" and does not route "notacme".
+    /// A URL pasted into a query is still a host; its path and query are
+    /// not words of the sentence around it.
     public static func routePattern(_ input: String, routes: [String: String]) -> String? {
-        let lowered = input.lowercased()
+        let trimmed = input.trimmingCharacters(in: .whitespaces)
+        let matches: (String) -> Bool
+        if hasScheme(trimmed) || isDomainLike(trimmed) {
+            // A URL that does not parse has no host to route on. Falling
+            // through to the query rule would search the absolute string,
+            // which is the bug.
+            guard let host = host(of: trimmed), !host.isEmpty else { return nil }
+            matches = { matchesHost(host, pattern: $0) }
+        } else {
+            matches = { matchesQuery(trimmed, pattern: $0) }
+        }
         var best: String?
         for pattern in routes.keys {
-            guard lowered.contains(pattern.lowercased()) else { continue }
+            guard matches(pattern.lowercased()) else { continue }
             // Ties broken by name, so the answer never depends on dictionary
             // ordering.
             if let current = best,
@@ -112,6 +138,79 @@ public enum WebRouting {
             best = pattern
         }
         return best
+    }
+
+    /// True when `pattern` names `host`. Both are lowercased. A single
+    /// label matches any label (`youtube` in `music.youtube.com`). A dotted
+    /// pattern is a domain, so the host has to be that domain or a
+    /// subdomain of it — a suffix of labels, not a run that merely occurs
+    /// inside the name. Empty labels (a leading, trailing, or doubled dot)
+    /// are not a run, so they cannot widen the match.
+    private static func matchesHost(_ host: String, pattern: String) -> Bool {
+        guard !pattern.isEmpty else { return false }
+        let patternLabels = pattern.split(separator: ".")
+        // `split` drops empty pieces, so ".com" and "github..com" would
+        // otherwise collapse into a real label run.
+        guard patternLabels.joined(separator: ".") == pattern else { return false }
+        let hostLabels = host.split(separator: ".")
+        guard !hostLabels.isEmpty else { return false }
+        if patternLabels.count == 1 {
+            return hostLabels.contains(patternLabels[0])
+        }
+        if hasSuffixLabels(hostLabels[...], patternLabels) { return true }
+        // `music.youtube` is `music.youtube.com` without its last label.
+        // One label only: a public suffix of two (`co.uk`) is not guessed.
+        guard hostLabels.count > 1 else { return false }
+        return hasSuffixLabels(hostLabels.dropLast(), patternLabels)
+    }
+
+    private static func hasSuffixLabels(_ host: ArraySlice<Substring>,
+                                        _ pattern: [Substring]) -> Bool {
+        guard pattern.count <= host.count else { return false }
+        return host.suffix(pattern.count).elementsEqual(pattern)
+    }
+
+    /// A query, which may have a URL pasted into it. Each URL is matched on
+    /// its host; the words around it are matched on word boundaries. The
+    /// URL's own path and query never join the sentence.
+    private static func matchesQuery(_ text: String, pattern: String) -> Bool {
+        guard !pattern.isEmpty else { return false }
+        var prose: [String] = []
+        for token in text.split(whereSeparator: \.isWhitespace) {
+            let word = String(token)
+            // A token that contains a scheme is not prose. Its host is read
+            // the same way a destination's is, so a pattern in `?next=` is
+            // not a word of the sentence it was pasted into.
+            if word.contains("://") {
+                if let host = host(of: word), matchesHost(host, pattern: pattern) {
+                    return true
+                }
+            } else {
+                prose.append(word)
+            }
+        }
+        return matchesWords(prose.joined(separator: " ").lowercased(), pattern: pattern)
+    }
+
+    /// True when `pattern` occurs in `text` without starting or ending
+    /// mid-word. Both are lowercased. Letters, digits, and underscores are
+    /// a word; a space, a hyphen, or a dot ends one.
+    private static func matchesWords(_ text: String, pattern: String) -> Bool {
+        guard !pattern.isEmpty, !text.isEmpty else { return false }
+        var from = text.startIndex
+        while let found = text.range(of: pattern, range: from..<text.endIndex) {
+            let leftOK = found.lowerBound == text.startIndex
+                || !isWord(text[text.index(before: found.lowerBound)])
+            let rightOK = found.upperBound == text.endIndex
+                || !isWord(text[found.upperBound])
+            if leftOK && rightOK { return true }
+            from = text.index(after: found.lowerBound)
+        }
+        return false
+    }
+
+    private static func isWord(_ character: Character) -> Bool {
+        character.isLetter || character.isNumber || character == "_"
     }
 
     /// Build a search URL: `%s` is replaced with the encoded query, or the

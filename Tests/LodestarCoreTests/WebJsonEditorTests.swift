@@ -98,8 +98,8 @@ final class WebJsonEditorTests: XCTestCase {
     }
 
     func testAPatternKeepsItsSpacesButNotItsSlop() {
-        // A pattern is matched as a substring, so a phrase is legitimate —
-        // only case and stray whitespace are normalized away.
+        // A pattern is matched on words, so a phrase is legitimate — only
+        // case and stray whitespace are normalized away.
         XCTAssertEqual(WebJsonEditor.normalizePattern("  Google   Docs "), "google docs")
         XCTAssertEqual(WebJsonEditor.normalizePattern("X.com"), "x.com")
     }

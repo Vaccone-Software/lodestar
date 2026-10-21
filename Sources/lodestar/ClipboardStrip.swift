@@ -1026,7 +1026,7 @@ final class ClipboardStrip {
         return card
     }
 
-    /// A free place keeps the material and loses the frosting, with its
+    /// A free place keeps the material and sinks a step, with its
     /// number legible: it is how a hand that has never kept anything
     /// learns that it can.
     private func makeFreePlace(slot: Int, size: NSSize, wearsKey: Bool) -> NSView {
@@ -1543,7 +1543,7 @@ final class ClipboardStrip {
 
     enum Weight {
         case normal, highlighted
-        /// A free place: the same material, less frosted.
+        /// A free place: the same material, sunk a step below the pane.
         case empty
     }
 }

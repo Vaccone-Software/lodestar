@@ -3,45 +3,76 @@ import XCTest
 @testable import lodestar
 @testable import LodestarCore
 
-/// One glass. Every panel, card, and chip is the launcher's backdrop,
-/// tinted toward the system's ground and re-read live.
+/// One ceramic. Every panel, card, and chip is the launcher's pane: opaque,
+/// in the palette's own colour, re-read live.
 final class GlassTests: XCTestCase {
-    /// The veil these tests read is the frost's, not the opaque one a
-    /// runner with Reduce Transparency on would draw.
     override func setUp() { Accessibility.reset() }
     override func tearDown() { Accessibility.reset() }
 
-    /// A toned glass in a window, the way a backdrop stands.
-    @available(macOS 26.0, *)
-    private func glassInAWindow() -> (NSWindow, TonedGlass) {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10),
+    /// The colour a layer holds, in sRGB.
+    private func rgb(_ color: CGColor?) -> NSColor? {
+        color.flatMap(NSColor.init(cgColor:))?.usingColorSpace(.sRGB)
+    }
+
+    /// A pane in a window of the given look, the way a backdrop stands.
+    private func paneInAWindow(_ look: NSAppearance.Name = .aqua, weight: Glass.Weight = .normal)
+        -> (NSWindow, CeramicPane) {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 60),
                               styleMask: [.borderless], backing: .buffered, defer: false)
-        let glass = TonedGlass()
-        glass.frame = NSRect(x: 0, y: 0, width: 10, height: 10)
-        window.contentView?.addSubview(glass)
-        return (window, glass)
+        window.appearance = NSAppearance(named: look)
+        let pane = CeramicPane(radius: BarTheme.surfaceRadius, weight: weight)
+        pane.frame = NSRect(x: 0, y: 0, width: 100, height: 60)
+        window.contentView?.addSubview(pane)
+        window.contentView?.layoutSubtreeIfNeeded()
+        pane.updateLayer()
+        return (window, pane)
     }
 
-    func testTheGlassIsTintedTowardTheSystemsGroundOnArrival() throws {
-        guard #available(macOS 26.0, *) else { throw XCTSkip("no glass before 26") }
-        let (window, glass) = glassInAWindow()
-        let tint = try XCTUnwrap(glass.tintColor?.usingColorSpace(.sRGB), "arriving in a window is a reading")
-        XCTAssertEqual(tint.alphaComponent, 0.92, accuracy: 0.01, "the measured number")
-        XCTAssertEqual(tint.redComponent, Tone.systemDark ? 0.25 : 0.92, accuracy: 0.02,
-                       "the grey that lands on charcoal or paper: the system's tone, never the backdrop's")
-        XCTAssertEqual(glass.veilAlpha, 0.90, accuracy: 0.01, "the veil takes the backdrop's vote, and the frost shows through the rest")
-        _ = window
+    func testThePaneIsOpaqueCeramicInThePalettesOwnColour() {
+        for (look, steps) in [(NSAppearance.Name.aqua, Palette.clay), (.darkAqua, Palette.night)] {
+            let (window, pane) = paneInAWindow(look)
+            let fill = rgb(pane.layer?.backgroundColor)
+            XCTAssertEqual(fill, steps.pane.color.usingColorSpace(.sRGB), "the look's pane: \(look.rawValue)")
+            XCTAssertEqual(fill?.alphaComponent, 1, "opaque: nothing of the desktop shows through")
+            XCTAssertEqual(pane.layer?.cornerRadius, BarTheme.surfaceRadius)
+            XCTAssertEqual(pane.layer?.borderWidth, 0.5, "a half-point hairline for its edge")
+            XCTAssertEqual(rgb(pane.layer?.borderColor)?.alphaComponent ?? 0, CGFloat(steps.hairlineAlpha), accuracy: 0.001)
+            _ = window
+        }
     }
 
-    func testTheGlassRetintsWhenTheSettingsChange() throws {
-        guard #available(macOS 26.0, *) else { throw XCTSkip("no glass before 26") }
-        let (window, glass) = glassInAWindow()
-        glass.weight = .raised
-        XCTAssertEqual(glass.tintColor?.alphaComponent ?? 0, 0.96, accuracy: 0.01, "a lit card is heavier")
-        Accessibility.reduceTransparency = { true }
-        glass.viewDidChangeEffectiveAppearance()
-        XCTAssertEqual(glass.veilAlpha, Glass.opaque, accuracy: 0.01, "a flipped setting is a new reading, not the next opening's")
-        _ = window
+    func testThePolishedRimCatchesTheLightAlongTheTop() throws {
+        let (day, dayPane) = paneInAWindow(.aqua)
+        let (night, nightPane) = paneInAWindow(.darkAqua)
+        let rim = try XCTUnwrap(dayPane.layer?.sublayers?.first, "the rim is a layer of the pane")
+        XCTAssertEqual(rim.frame.height, 1.5)
+        XCTAssertEqual(rim.frame.maxY, dayPane.bounds.height, "along the top edge")
+        XCTAssertEqual(rgb(rim.backgroundColor), NSColor.white.usingColorSpace(.sRGB), "white by day")
+        let nightRim = try XCTUnwrap(nightPane.layer?.sublayers?.first)
+        XCTAssertEqual(rgb(nightRim.backgroundColor)?.alphaComponent ?? 0, 0.10, accuracy: 0.001, "a tenth at night")
+        XCTAssertEqual(dayPane.layer?.masksToBounds, true, "clipped to the pane's own corners")
+        _ = (day, night)
+    }
+
+    func testThePaneFollowsTheLookWhileItStands() {
+        let (window, pane) = paneInAWindow(.aqua)
+        window.appearance = NSAppearance(named: .darkAqua)
+        pane.viewDidChangeEffectiveAppearance()
+        pane.updateLayer()
+        XCTAssertEqual(rgb(pane.layer?.backgroundColor), Palette.night.pane.color.usingColorSpace(.sRGB),
+                       "a standing surface is espresso when the Mac turns dark, not at its next opening")
+    }
+
+    func testNothingFrostsBehindAnyInstalledBackdrop() {
+        let root = NSView()
+        Glass.installBackdrop(in: root, cornerRadius: 18)
+        var found: [String] = []
+        func walk(_ view: NSView) {
+            if view is NSVisualEffectView || view is NSGlassEffectView { found.append(String(describing: type(of: view))) }
+            view.subviews.forEach(walk)
+        }
+        walk(root)
+        XCTAssertEqual(found, [], "no blur, no frost, no material: on every macOS")
     }
 
     func testOneBackdropWithAWeight() {
@@ -52,11 +83,29 @@ final class GlassTests: XCTestCase {
         XCTAssertEqual(Glass.weight(in: normal), .normal)
         XCTAssertEqual(Glass.weight(in: raised), .raised)
         XCTAssertEqual(Glass.weight(in: faint), .faint)
-        XCTAssertLessThan(Glass.Weight.faint.alpha, Glass.Weight.normal.alpha)
-        XCTAssertLessThan(Glass.Weight.normal.alpha, Glass.Weight.raised.alpha)
-        XCTAssertLessThan(Glass.Weight.faint.veil, Glass.Weight.normal.veil)
-        XCTAssertLessThan(Glass.Weight.normal.veil, Glass.Weight.raised.veil)
         XCTAssertEqual(root.subviews.first, normal, "installed under everything else")
+    }
+
+    func testAWeightIsAStepOfThePalette() {
+        for (look, steps) in [(NSAppearance.Name.aqua, Palette.clay), (.darkAqua, Palette.night)] {
+            for (weight, step) in [(Glass.Weight.normal, steps.pane), (.raised, steps.raised), (.faint, steps.ground)] {
+                let (window, pane) = paneInAWindow(look, weight: weight)
+                XCTAssertEqual(rgb(pane.layer?.backgroundColor), step.color.usingColorSpace(.sRGB), "\(weight) in \(look.rawValue)")
+                _ = window
+            }
+        }
+    }
+
+    func testASunkSlotCatchesNoLightOnItsRim() throws {
+        let (window, pane) = paneInAWindow(.aqua, weight: .faint)
+        XCTAssertNil(pane.layer?.sublayers?.first?.backgroundColor, "a place you put something is not a thing the light falls on")
+        _ = window
+    }
+
+    func testAPaneStandingInAnObjectLeavesTheEdgeToIt() {
+        let card = SoftShadow.object(radius: BarTheme.surfaceRadius, lift: .rest)
+        let pane = Glass.installBackdrop(in: card, cornerRadius: BarTheme.surfaceRadius) as? CeramicPane
+        XCTAssertEqual(pane?.drawsEdge, false, "the hairline is drawn once")
     }
 
     func testAMarkIsTheOneKeyStandingOnAShadow() {
@@ -69,7 +118,7 @@ final class GlassTests: XCTestCase {
         XCTAssertEqual(mark.frame.height, KeyMark.height)
     }
 
-    func testTheStripsCardsAreTheLaunchersGlassAndOnlyTheLitOneIsRaised() {
+    func testTheStripsCardsAreTheLaunchersCeramicAndOnlyTheLitOneIsRaised() {
         let stage = Stage()
         let a = stage.seedClip("one")
         stage.seedClip("two")
@@ -79,9 +128,7 @@ final class GlassTests: XCTestCase {
         for card in stage.engine.strip.shownCards.values {
             let backdrop = card.subviews.first { Glass.weight(in: $0) != nil }
             XCTAssertNotNil(backdrop)
-            if #available(macOS 26.0, *) {
-                XCTAssertEqual((backdrop as? NSGlassEffectView)?.style, .regular)
-            }
+            XCTAssertTrue(backdrop is CeramicPane, "the strip's cards are the launcher's ceramic")
         }
         stage.chord("k", .maskCommand)
         let weights = stage.engine.strip.shownWeights.filter { $0 != .faint }
@@ -101,30 +148,14 @@ final class GlassTests: XCTestCase {
     }
 }
 
-/// The system's accessibility settings, honoured: no transparency means
-/// an opaque veil, more contrast means captions in the label colour,
-/// and a mark's accent never sits on its ground.
+/// The system's accessibility settings, honoured: more contrast means
+/// captions in the label colour, and a mark's accent never sits on its
+/// ground. Reduce Transparency has nothing to ask of a surface that is
+/// opaque already.
 final class AccessibilitySettingsTests: XCTestCase {
     override func tearDown() {
         Accessibility.reset()
         BarTheme.accentColor = { .controlAccentColor }
-    }
-
-    private func veilAlpha(reduce: Bool) throws -> CGFloat {
-        guard #available(macOS 26.0, *) else { throw XCTSkip("no glass before 26") }
-        Accessibility.reduceTransparency = { reduce }
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
-        let glass = TonedGlass()
-        glass.frame = NSRect(x: 0, y: 0, width: 10, height: 10)
-        window.contentView?.addSubview(glass)
-        _ = window
-        return glass.veilAlpha
-    }
-
-    func testReduceTransparencyMakesTheVeilOpaque() throws {
-        XCTAssertEqual(try veilAlpha(reduce: true), Glass.opaque, accuracy: 0.01)
-        XCTAssertLessThan(try veilAlpha(reduce: false), Glass.opaque, "and the frost is back when it is off")
     }
 
     func testIncreaseContrastSetsCaptionsInTheLabelColour() {

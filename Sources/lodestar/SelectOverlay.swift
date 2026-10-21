@@ -84,7 +84,7 @@ final class SelectOverlay {
 
     /// What stands, for the tests.
     private(set) var shownChips: [Chip] = []
-    /// The rest of what the last draw was made of. Four hundred frosted
+    /// The rest of what the last draw was made of. Four hundred
     /// chips cost a quarter second of the main thread to build, and the
     /// door redraws whenever a new world lands — the harvest, then the
     /// sketch, then the settled read — each time with the identical
@@ -105,7 +105,7 @@ final class SelectOverlay {
         shownAnchor = anchor
         shownFrame = windowFrame
         shownTyped = typed
-        // Dozens of frosted chips at once: the instrument times itself.
+        // Dozens of chips at once: the instrument times itself.
         let began = Date()
         defer {
             Log.info("chips", ["count": chips.count,

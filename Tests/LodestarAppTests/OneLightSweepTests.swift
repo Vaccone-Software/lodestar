@@ -61,7 +61,8 @@ final class OneLightSweepTests: XCTestCase {
         let well = try XCTUnwrap(BarTheme.well.usingColorSpace(.sRGB))
         let hairline = try XCTUnwrap(BarTheme.hairline.usingColorSpace(.sRGB))
         XCTAssertEqual(well.alphaComponent, 0.05, accuracy: 0.001)
-        XCTAssertEqual(hairline.alphaComponent, 0.12, accuracy: 0.001)
+        XCTAssertEqual(hairline.alphaComponent, CGFloat(BarTheme.palette.hairlineAlpha), accuracy: 0.001,
+                       "the ink at the look's own share, a tenth by day and less by night")
     }
 
     // MARK: - Every card that asks lights its answer

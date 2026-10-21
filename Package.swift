@@ -52,6 +52,10 @@ let package = Package(
             .product(name: "StoicSealed", package: "stoic"),
             .product(name: "StoicSealedKeychain", package: "stoic"),
             .product(name: "StoicApple", package: "stoic"),
+        ], linkerSettings: [
+            // Raw deflate for the update zip (ZIP method 8). libz is the
+            // system library; the call is lodestar_raw_inflate.
+            .linkedLibrary("z"),
         ]),
         // Dictation's settling ears: second recognizers that re-hear a
         // phrase, on MLX (Qwen3-ASR) or the Neural Engine (Parakeet, Core

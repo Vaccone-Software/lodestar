@@ -11,10 +11,12 @@ import Stoic
 /// so the change is quiet but never hidden.
 ///
 /// The verification bar: a zip this process downloads carries no
-/// quarantine, so Gatekeeper never assesses it — we are the gate. Nothing
-/// touches the install path unless codesign verifies the staged bundle
-/// strictly AND its signature chains to Apple with this bundle id and
-/// this team, AND its Info.plist version matches the release tag.
+/// quarantine, so Gatekeeper never assesses it — we are the gate. The
+/// zip's sha256 is checked before it is unpacked. The unpack writes only
+/// inside a fresh staging directory. Nothing is moved into place unless
+/// codesign then verifies that bundle strictly AND its signature chains
+/// to Apple with this bundle id and this team, AND its Info.plist version
+/// matches the release tag.
 final class UpdateController {
     /// The install this instance runs from; nil for dev builds and
     /// translocated copies — the updater stands down entirely.
@@ -372,8 +374,14 @@ final class UpdateController {
             finishCheck(force: force, note: "✕ Could not check for updates", log: "bad asset url")
             return
         }
-        Log.info("update", ["phase": "downloading", "asset": release.zipName,
-                            "digest": UpdateDownload.digest(of: release) == nil ? "none" : "sha256"])
+        // Unpacking requires a sha256. Refuse before the fetch so a release
+        // that names none — an older stable answer — is held back here.
+        guard UpdateArchive.isSHA256(release.zipDigest) else {
+            finishCheck(force: force, note: "✕ Could not check for updates",
+                        log: "the release names no sha256")
+            return
+        }
+        Log.info("update", ["phase": "downloading", "asset": release.zipName, "digest": "sha256"])
         if force {
             let (sentence, detail) = Voice.found(release.tag)
             DispatchQueue.main.async { self.voice(sentence, detail, 0, true) }
@@ -425,14 +433,26 @@ final class UpdateController {
     }
 
     private func stage(zip: URL, release: Updater.Release, force: Bool) {
+        // The digest is checked before a byte of the archive is written.
+        // The download checked the same digest as it arrived; this is the
+        // gate, so a file swapped in afterwards never gets unpacked.
+        guard UpdateArchive.matches(file: zip, digest: release.zipDigest) else {
+            failStage(force: force, log: "the zip has no sha256, or it does not match")
+            return
+        }
         let staging = Self.directory.appendingPathComponent("staged", isDirectory: true)
-        try? FileManager.default.removeItem(at: staging)
-        guard step("unpack", force: force, "/usr/bin/ditto", "-x", "-k", zip.path, staging.path) else { return }
+        do {
+            try UpdateArchive.extract(zip, replacing: staging)
+        } catch {
+            failStage(force: force, log: "unpack failed (\(error))")
+            return
+        }
         try? FileManager.default.removeItem(at: zip)
         let bundle = staging.appendingPathComponent("lodestar.app")
 
-        // The gate, in three locks: integrity, identity, and the version
-        // actually being the one the release claims.
+        // The signature, then the version, then whether this Mac can run
+        // it. Nothing is moved into place until these pass. The unpack
+        // wrote only inside the fresh staging directory.
         guard step("codesign integrity check", force: force,
                    "/usr/bin/codesign", "--verify", "--strict", "--deep", bundle.path) else { return }
         guard step("signature check (this team's Developer ID)", force: force,
@@ -501,12 +521,14 @@ final class UpdateController {
     private func clearStaging() {
         try? FileManager.default.removeItem(at: Self.directory.appendingPathComponent("download.zip"))
         try? FileManager.default.removeItem(at: Self.directory.appendingPathComponent("staged"))
+        try? FileManager.default.removeItem(at: Self.directory.appendingPathComponent("staged.incoming"))
+        try? FileManager.default.removeItem(at: Self.directory.appendingPathComponent("staged.outgoing"))
     }
 
-    /// How long one of the staging tools may take. `ditto` unpacking a
-    /// bundle and `codesign` verifying it take seconds; two minutes is far
-    /// past any healthy run, and short of leaving the update `.checking`
-    /// for ever, which refuses every later check.
+    /// How long one of the staging tools may take. `codesign` verifying a
+    /// bundle takes seconds; two minutes is far past any healthy run, and
+    /// short of leaving the update `.checking` for ever, which refuses
+    /// every later check.
     static let toolDeadline: Duration = .seconds(120)
 
     /// One staging command, and the update failing if it does not pass
@@ -623,6 +645,9 @@ final class UpdateController {
         Log.info("update", ["phase": "applying", "to": version])
 
         do {
+            // `bundle` was unpacked into an empty staging directory and
+            // codesign verified it before this phase became `.ready`.
+            // These two moves are the first time anything is put in place.
             try FileManager.default.moveItem(at: installURL, to: previous)
             try FileManager.default.moveItem(at: bundle, to: installURL)
         } catch {

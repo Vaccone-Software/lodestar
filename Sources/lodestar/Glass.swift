@@ -222,7 +222,7 @@ enum Accessibility {
 /// half-point hairline for its edge. No blur, no frost, no material and no
 /// veil, on every system: glass contradicted honest matter, and its tone
 /// drifted with whatever lay behind it, which is how a dark bar over paper
-/// once measured 2.65 to 1 (tools/glass-sweep, 2026-09-14). Opaque, the
+/// once measured 2.65 to 1. Opaque, the
 /// ground is a known colour rather than a reading, so the contrast floors
 /// are held by the palette and not measured on the desktop.
 ///

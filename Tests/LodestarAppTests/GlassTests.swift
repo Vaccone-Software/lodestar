@@ -549,6 +549,29 @@ final class SlabTests: XCTestCase {
         _ = window
     }
 
+    /// A Settings popup's rows highlight as the slab too: the highlight is
+    /// the other look's ground, and the words on it that look's ink.
+    func testAChoiceMenuRowHighlightsAsTheSlab() {
+        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+        let item = NSMenuItem(title: "Weekly", action: nil, keyEquivalent: "")
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 120), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: .aqua)
+        let view = ChoiceMenuItemView(item: item, chosen: true, width: 200, popup: popup)
+        window.contentView?.addSubview(view)
+        view.paint(lit: false)
+        XCTAssertEqual(rgb(Glass.resolved(BarTheme.ink, in: view)), Palette.clay.ink.color.usingColorSpace(.sRGB))
+        view.paint(lit: true)
+        let label = view.subviews.compactMap { $0 as? NSTextField }.first
+        XCTAssertEqual(rgb(label?.textColor?.cgColor), Palette.night.ink.color.usingColorSpace(.sRGB), "the slab's ink, by day")
+        XCTAssertTrue(view.lit)
+        let dot = view.subviews.first { $0.layer?.cornerRadius == BarTheme.dotRadius }
+        let orange = Readability.orangeOnCharcoal
+        XCTAssertEqual(rgb(dot?.layer?.backgroundColor)?.redComponent ?? 0, CGFloat(orange.red), accuracy: 0.01,
+                       "and its dot is the orange of the slab's own look")
+        XCTAssertGreaterThanOrEqual(ChoiceMenuItemView.height, 22 + RaisedRow.sideHeight, "room for the side")
+    }
+
     func testTheRowTakesTheOtherLooksAppearanceAndLetsGoWhenNotChosen() {
         let (window, row, _, _) = row(in: .aqua)
         XCTAssertEqual(row.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]), .darkAqua, "an espresso slab by day")

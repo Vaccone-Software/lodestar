@@ -658,6 +658,13 @@ enum BarTheme {
         appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? Palette.night : Palette.clay
     }
 
+    /// The look the chosen row stands in: the other of the one around it,
+    /// dark by day and light by night.
+    static func slabLook(over appearance: NSAppearance) -> NSAppearance {
+        let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        return NSAppearance(named: dark ? .aqua : .darkAqua) ?? appearance
+    }
+
     /// One step of the palette as a colour that knows both looks, for a
     /// layer that must change with the look while it stands (`ToneView`
     /// and `Glass.resolved` resolve it in the view's own appearance).
@@ -1248,17 +1255,20 @@ final class RoomButton: NSButton {
 
 /// A row in a room's choice menu, drawn by Lodestar: the system's menu
 /// highlights in the Mac's accent, so each item wears this view, which
-/// rises under the pointer or the arrow keys like the bars' rows and marks
-/// the current choice with the accent's dot.
+/// becomes the slab under the pointer or the arrow keys like the bars' rows
+/// and marks the current choice with the accent's dot.
 final class ChoiceMenuItemView: NSView {
     private let label = NSTextField(labelWithString: "")
     private let icon = NSImageView()
     private let dot = NSView()
     private weak var popup: NSPopUpButton?
-    static let height: CGFloat = 26
+    private let enabled: Bool
+    private(set) var lit = false
+    static let height: CGFloat = 22 + RaisedRow.sideHeight
 
     init(item: NSMenuItem, chosen: Bool, width: CGFloat, popup: NSPopUpButton) {
         self.popup = popup
+        enabled = item.isEnabled
         super.init(frame: NSRect(x: 0, y: 0, width: width, height: Self.height))
         wantsLayer = true
         label.stringValue = item.title
@@ -1268,40 +1278,79 @@ final class ChoiceMenuItemView: NSView {
         icon.image = item.image
         dot.wantsLayer = true
         dot.layer?.cornerRadius = BarTheme.dotRadius
-        dot.layer?.backgroundColor = BarTheme.accent.cgColor
         dot.isHidden = !chosen
         [dot, icon, label].forEach(addSubview)
         setAccessibilityElement(true)
         setAccessibilityRole(.menuItem)
         setAccessibilityLabel(item.title)
         setAccessibilitySelected(chosen)
+        paint(lit: false)
     }
 
     required init?(coder: NSCoder) { nil }
 
+    /// The slab the row stands on while it is chosen: the face, and the
+    /// side beneath it inside the row's own bounds.
+    private var face: NSRect {
+        NSRect(x: 5, y: RaisedRow.sideHeight, width: max(0, bounds.width - 10),
+               height: max(0, bounds.height - RaisedRow.sideHeight))
+    }
+
     override func layout() {
         super.layout()
         let inset: CGFloat = 12
-        dot.frame = NSRect(x: inset, y: ((bounds.height - BarTheme.dotDiameter) / 2).rounded(),
+        let face = face
+        dot.frame = NSRect(x: inset, y: (face.minY + (face.height - BarTheme.dotDiameter) / 2).rounded(),
                            width: BarTheme.dotDiameter, height: BarTheme.dotDiameter)
         var x = inset + BarTheme.dotDiameter + 8
         if icon.image != nil {
-            icon.frame = NSRect(x: x, y: ((bounds.height - 12) / 2).rounded(), width: 19, height: 12)
+            icon.frame = NSRect(x: x, y: (face.minY + (face.height - 12) / 2).rounded(), width: 19, height: 12)
             x += 24
         }
         let natural = label.sizeThatFits(NSSize(width: CGFloat.greatestFiniteMagnitude,
                                                 height: CGFloat.greatestFiniteMagnitude)).height
-        label.frame = NSRect(x: x, y: ((bounds.height - natural) / 2).rounded(),
+        label.frame = NSRect(x: x, y: (face.minY + (face.height - natural) / 2).rounded(),
                              width: max(0, bounds.width - x - inset), height: natural)
     }
 
-    /// Lit by the menu's own highlight, which follows the pointer and the
-    /// arrow keys alike.
+    /// The menu's own highlight follows the pointer and the arrow keys
+    /// alike, and says so only by drawing: what stands on the slab takes
+    /// the other look's ink and orange before it is drawn.
+    override func viewWillDraw() {
+        super.viewWillDraw()
+        let on = enclosingMenuItem?.isHighlighted == true && enabled
+        if on != lit { paint(lit: on) }
+    }
+
+    /// The words and the dot in the look the row is standing in now: its
+    /// own, or the slab's, which is the other.
+    func paint(lit on: Bool) {
+        lit = on
+        let around = effectiveAppearance
+        let look = on ? BarTheme.slabLook(over: around) : around
+        let steps = BarTheme.steps(for: look)
+        label.textColor = (enabled ? steps.ink : steps.secondary).color
+        look.performAsCurrentDrawingAppearance {
+            dot.layer?.backgroundColor = BarTheme.accent.cgColor
+        }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        paint(lit: lit)
+    }
+
+    /// The slab: the other look's ground on a four-point side.
     override func draw(_ dirtyRect: NSRect) {
-        guard enclosingMenuItem?.isHighlighted == true, enclosingMenuItem?.isEnabled == true else { return }
-        BarTheme.raised.setFill()
-        NSBezierPath(roundedRect: bounds.insetBy(dx: 5, dy: 1), xRadius: BarTheme.controlRadius,
-                     yRadius: BarTheme.controlRadius).fill()
+        guard lit else { return }
+        let steps = BarTheme.steps(for: effectiveAppearance)
+        let face = face
+        let round = min(BarTheme.controlRadius, face.height / 2)
+        let side = NSRect(x: face.minX, y: 0, width: face.width, height: face.height / 2 + RaisedRow.sideHeight)
+        steps.slabSide.color.setFill()
+        NSBezierPath(roundedRect: side, xRadius: round, yRadius: round).fill()
+        steps.slab.color.setFill()
+        NSBezierPath(roundedRect: face, xRadius: round, yRadius: round).fill()
     }
 
     /// A view in a menu takes the click itself: choose, close, and send
@@ -1796,9 +1845,8 @@ class RaisedRow: NSView {
     func applyRaised(_ on: Bool) {
         raised = on
         let surrounding = surroundingLook
-        let dark = surrounding.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         let slab = BarTheme.steps(for: surrounding)
-        let wanted: NSAppearance? = on ? NSAppearance(named: dark ? .aqua : .darkAqua) : nil
+        let wanted: NSAppearance? = on ? BarTheme.slabLook(over: surrounding) : nil
         let wearer = carries ?? self
         if wearer.appearance?.name != wanted?.name { wearer.appearance = wanted }
         CATransaction.begin()

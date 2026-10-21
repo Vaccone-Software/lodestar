@@ -133,7 +133,7 @@ final class InputMenuRow: RaisedRow {
         label.lineBreakMode = .byTruncatingTail
         dot.wantsLayer = true
         dot.layer?.cornerRadius = BarTheme.dotRadius
-        dot.layer?.backgroundColor = BarTheme.accent.cgColor
+        tintDot()
         dot.isHidden = !chosen
         addSubview(dot)
         addSubview(label)
@@ -144,6 +144,18 @@ final class InputMenuRow: RaisedRow {
     }
 
     required init?(coder: NSCoder) { nil }
+
+    /// The dot's orange is the one that stands on the row's ground, which
+    /// is the other look's while the row is chosen, so it is resolved in the
+    /// row's own look and again whenever that changes.
+    private func tintDot() {
+        dot.layer?.backgroundColor = Glass.resolved(BarTheme.accent, in: self)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        tintDot()
+    }
 
     override func layout() {
         super.layout()

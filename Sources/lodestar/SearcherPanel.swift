@@ -465,7 +465,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
             // address that takes none. The row already names the app and
             // lights its ⏎, so the footer draws no ⏎ of its own. "Again",
             // not "twice": the first press is what brought the note up.
-            let address = (["lode"] + chain.map { $0.uppercased() }).map { "[\($0)]" }.joined()
+            let address = (["lode"] + chain).map { "[\($0)]" }.joined()
             setFooter(("Press again to open", address))
             reposition()
             return

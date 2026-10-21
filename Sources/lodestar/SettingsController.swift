@@ -1449,7 +1449,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     /// is where the hand goes next. A row with no letter keeps the column.
     private func keyColumn(for row: SettingsModel.Row, index: Int) -> NSView {
         guard let letter = row.letter else { return chipSpacer() }
-        let key = KeyFace(letter.uppercased())
+        let key = KeyFace(letter)
         key.lit = stopsFocus == index
         key.setAccessibilityElement(false)
         let column = NSView()

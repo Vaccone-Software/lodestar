@@ -111,11 +111,11 @@ final class SettingsStopsTests: XCTestCase {
         let section = SettingsModel.catalog(config: Config(), machine: .init())[0]
         let letters = settings.viewsForTesting(of: KeyFace.self).map(\.label.stringValue)
         for row in section.rows {
-            XCTAssertTrue(letters.contains(row.letter!.uppercased()), "\(row.title) leads with its letter as a key")
+            XCTAssertTrue(letters.contains(row.letter!), "\(row.title) leads with its letter as a key")
         }
         // Every key of the column stands at one left edge.
         let column = settings.viewsForTesting(of: KeyFace.self).filter {
-            section.rows.compactMap(\.letter).map { $0.uppercased() }.contains($0.label.stringValue)
+            section.rows.compactMap(\.letter).contains($0.label.stringValue)
         }
         let edges = Set(column.map { Int($0.convert($0.bounds, to: nil).minX.rounded()) })
         XCTAssertEqual(edges.count, 1, "one column: \(edges)")

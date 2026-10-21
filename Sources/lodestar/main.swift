@@ -1174,7 +1174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return item
     }
 
-    /// lowercased app name -> graph chain display ("proton mail" -> "E P"),
+    /// lowercased app name -> graph chain display ("proton mail" -> "e p"),
     /// shown as teaching chips in the searcher.
     private var graphAddressByApp: [String: String] = [:]
 
@@ -1188,7 +1188,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             case .app(let name): key = name.lowercased()
             case .browserProfile(let profile): key = profile.browser.appName.lowercased()
             }
-            let address = chain.map { $0.uppercased() }.joined(separator: " ")
+            let address = chain.joined(separator: " ")
             // Shortest chain wins; ties break on the sorted walk, so the
             // chip an app shows is stable across launches.
             if map[key].map({ $0.count > address.count }) ?? true {

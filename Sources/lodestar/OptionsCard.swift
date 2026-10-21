@@ -192,7 +192,7 @@ final class OptionsCard {
                     bodyRow.addArrangedSubview(label("type letters", font: BarTheme.titleFont,
                                                      color: BarTheme.secondaryColor))
                 } else {
-                    bodyRow.addArrangedSubview(keycap("lode", quiet: true, caps: false))
+                    bodyRow.addArrangedSubview(keycap("lode", quiet: true))
                     for letter in letters {
                         bodyRow.addArrangedSubview(keycap(letter))
                     }
@@ -275,7 +275,7 @@ final class OptionsCard {
         stack.addArrangedSubview(icon)
         stack.addArrangedSubview(title)
         if let detail = item.detail {
-            stack.addArrangedSubview(keycap(detail, quiet: true, caps: false))
+            stack.addArrangedSubview(keycap(detail, quiet: true))
         }
         // Several bindings carry the same title and differ only by chain, so
         // the chain travels with the title it distinguishes. Only the key
@@ -301,8 +301,11 @@ final class OptionsCard {
     /// separate "press this" from the searcher's informational chips — but
     /// the guides and the clipboard's menu now draw the pressable key flat
     /// too, so the border was the one thing out of step.
-    private func keycap(_ text: String, quiet: Bool = false, caps: Bool = true) -> NSView {
-        let key = KeyFace(caps ? text.uppercased() : text)
+    ///
+    /// The legend is the letter as it is typed: lodestar's shortcuts are
+    /// lowercase, and a capital reads as Shift.
+    private func keycap(_ text: String, quiet: Bool = false) -> NSView {
+        let key = KeyFace(text)
         key.setContentHuggingPriority(.required, for: .horizontal)
         key.quiet = quiet
         return key

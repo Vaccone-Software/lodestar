@@ -1444,7 +1444,7 @@ final class AccentSwitch: NSControl {
 /// clipboard, … opening, ✓ ⌖ done, and the layout family's arrows. The
 /// glyph was the kind; the kind now draws as a symbol in the pill's
 /// configuration and the line opens with a capital, so every flash on
-/// the glass is one family with the pill and nothing is retyped at
+/// the surface is one family with the pill and nothing is retyped at
 /// sixty sites.
 enum FlashMark {
     static let symbols: [Character: String] = [
@@ -1856,13 +1856,13 @@ enum SoftShadow {
     static func inset(_ window: NSRect) -> NSRect { window.insetBy(dx: margin, dy: margin) }
 
     /// Host `content` as the panel's surface, with the shadow drawn here,
-    /// and gate the pointer so only the glass takes it: the margin is
+    /// and gate the pointer so only the surface takes it: the margin is
     /// window, and a click there belongs to whatever is beneath. Every
     /// hosted surface is gated by construction; the gate is returned for a
     /// surface that changes size under a still pointer and must re-read it.
     ///
     /// `takesPointer: false` is for a surface that only shows (a key
-    /// guide, the ⌘K card): it never takes the mouse, glass or shadow.
+    /// guide, the ⌘K card): it never takes the mouse, surface or shadow.
     @discardableResult
     static func host(_ content: NSView, in panel: NSPanel, cornerRadius: CGFloat,
                      takesPointer: Bool = true) -> PointerGate {
@@ -1962,8 +1962,8 @@ final class ObjectSurface: NSView {
 }
 
 extension NSWindow {
-    /// The glass's frame: the window's, less the drawn shadow's margin
-    /// when the window hosts one. Surfaces place and read their glass by
+    /// The surface's frame: the window's, less the drawn shadow's margin
+    /// when the window hosts one. Surfaces place and read their pane by
     /// this, so moving onto the drawn shadow changes no arithmetic.
     var glassFrame: NSRect {
         contentView is ShadowHostView ? SoftShadow.inset(frame) : frame
@@ -1976,11 +1976,11 @@ extension NSWindow {
 
 /// A soft-shadowed window is larger than its surface by the shadow's
 /// margin, and a window that takes the mouse takes it everywhere it
-/// stands, shadow included: a band of air around the glass that eats
+/// stands, shadow included: a band of air around the surface that eats
 /// clicks meant for the app beneath, the Dock's top edge among them. The
 /// system's own shadow was never a target. A surface that stays open over
 /// someone else's work therefore takes the mouse only while the pointer
-/// is over its glass, and lets it through everywhere else.
+/// is over its surface, and lets it through everywhere else.
 final class PointerGate {
     private weak var panel: NSPanel?
     private var monitors: [Any] = []
@@ -2035,8 +2035,8 @@ final class PointerGate {
         didSet { if enabled != oldValue { update() } }
     }
 
-    /// Read the pointer against the glass. Called on every move and
-    /// whenever the glass changes size under a still pointer.
+    /// Read the pointer against the surface. Called on every move and
+    /// whenever the surface changes size under a still pointer.
     func update(pointer: NSPoint = NSEvent.mouseLocation) {
         guard let panel else { return }
         let over = enabled && panel.isVisible && SoftShadow.inset(panel.frame).contains(pointer)

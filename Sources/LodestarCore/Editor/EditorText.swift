@@ -67,8 +67,10 @@ public enum EditorText {
         return out
     }
 
-    /// Where a quoted thread begins in an email reply — everything from
-    /// there down is someone else's words, and is not read.
+    /// Where a quoted mail thread begins — an "On … wrote:" line, an
+    /// Original Message rule, a header block. Everything from there down
+    /// is someone else's words, and is not read. A line that opens with
+    /// ">" is not a thread start.
     public static func quoteStart(in text: String) -> Int? {
         let ns = text as NSString
         let patterns = [
@@ -76,7 +78,6 @@ public enum EditorText {
             "(?m)^-{2,}\\s*Original Message\\s*-{2,}",       // Outlook, older
             "(?m)^_{10,}\\s*$",                              // Outlook's rule
             "(?m)^From: .+\\n(?:.*\\n){0,3}?(?:Sent|Date): ", // a header block
-            "(?m)^>",                                         // quoted lines
         ]
         var earliest: Int?
         for pattern in patterns {
@@ -150,9 +151,15 @@ public enum EditorText {
         if let shortcode = try? NSRegularExpression(pattern: ":[a-z0-9_+-]+:") {
             out += shortcode.matches(in: text, range: NSRange(location: 0, length: ns.length)).map(\.range)
         }
-        // A quoted thread below a reply is someone else's.
+        // A mail reply's quoted thread, from the header down, is someone
+        // else's. A line that only opens with ">" is protected as that
+        // line alone — a markdown blockquote, a Slack quote, a diff, a
+        // review. The text under it is the writer's, and is read.
         if let quote = quoteStart(in: text) {
             out.append(NSRange(location: quote, length: ns.length - quote))
+        }
+        if let quoteLine = try? NSRegularExpression(pattern: "(?m)^>.*") {
+            out += quoteLine.matches(in: text, range: NSRange(location: 0, length: ns.length)).map(\.range)
         }
         // Paths and identifiers a detector does not call links:
         // ~/x, ./x, Sources/x.swift, snake_case, dotted.names.

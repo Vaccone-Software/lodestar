@@ -336,6 +336,54 @@ final class EditorCasesTests: XCTestCase {
                        ["Sounds good, I will recieve it tomorrow."])
     }
 
+    /// A markdown blockquote, a Slack quote, a diff, a review: the `>`
+    /// line stays unread, and the writer's text under it is still read.
+    func testAGreaterThanLineDoesNotHideTheTextUnderIt() {
+        let text = "Looks good\n\n> old comment\n\nPlease fix the typo in teh function"
+        XCTAssertNil(EditorText.quoteStart(in: text), "a > line is not a mail reply")
+        let ns = text as NSString
+        let protected = EditorText.protectedRanges(in: text)
+        let quote = ns.range(of: "> old comment")
+        XCTAssertTrue(protected.contains { NSIntersectionRange($0, quote).length == quote.length },
+                      "the quote line is not read")
+        let typo = ns.range(of: "teh")
+        XCTAssertFalse(protected.contains { NSIntersectionRange($0, typo).length > 0 },
+                       "the writer's text under the quote is read")
+        XCTAssertFalse(protected.contains { $0.location == quote.location && NSMaxRange($0) == ns.length },
+                       "the quote does not run to the end of the field")
+        XCTAssertEqual(spelling(text).map(\.original), ["teh"])
+        XCTAssertEqual(EditorSession().sentencesToCheck(text: text, caret: nil, paused: true),
+                       ["Looks good", "Please fix the typo in teh function"])
+
+        let quotedTypo = "Looks good\n\n> send teh files\n\nPlease fix the typo in teh function"
+        let quoted = quotedTypo as NSString
+        XCTAssertEqual(spelling(quotedTypo).map(\.range), [quoted.range(of: "teh", options: .backwards)],
+                       "a typo on the quote line stays quiet")
+    }
+
+    /// A real reply header still covers everything under it, `>` lines and
+    /// the prose beneath them. The writer's words above stay readable.
+    func testAMailHeaderStillProtectsTheReplyBelowIt() {
+        let text = "Sounds good, I will recieve it tomorrow.\n\nOn Tue, Sep 23, 2026 at 9:00 AM Sam Lee <sam@example.com> wrote:\n> Their going to send teh files.\n\nSend teh files today."
+        let ns = text as NSString
+        let start = ns.range(of: "On Tue").location
+        XCTAssertEqual(EditorText.quoteStart(in: text), start)
+        let protected = EditorText.protectedRanges(in: text)
+        XCTAssertTrue(protected.contains { $0.location == start && NSMaxRange($0) == ns.length },
+                      "the thread runs to the end of the field")
+        XCTAssertEqual(spelling(text).map(\.original), ["recieve"])
+        XCTAssertEqual(EditorSession().sentencesToCheck(text: text, caret: nil, paused: true),
+                       ["Sounds good, I will recieve it tomorrow."])
+
+        let outlook = "I will recieve it.\n\n-----Original Message-----\nFrom: Sam\nSend teh files today."
+        let outlookStart = (outlook as NSString).range(of: "-----Original Message-----").location
+        XCTAssertEqual(EditorText.quoteStart(in: outlook), outlookStart)
+        XCTAssertTrue(EditorText.protectedRanges(in: outlook).contains {
+            $0.location == outlookStart && NSMaxRange($0) == (outlook as NSString).length
+        })
+        XCTAssertEqual(spelling(outlook).map(\.original), ["recieve"])
+    }
+
     func testOutlooksThreadStartsAreFound() {
         XCTAssertNotNil(EditorText.quoteStart(in: "Thanks.\n\n-----Original Message-----\nFrom: Sam"))
         XCTAssertNotNil(EditorText.quoteStart(in: "Thanks.\n\nFrom: Sam Lee\nSent: Tuesday\nTo: Rocco"))

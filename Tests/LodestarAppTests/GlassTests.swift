@@ -659,6 +659,64 @@ final class SlabTests: XCTestCase {
     }
 }
 
+/// A room's button is a key: it stands on a side, and pressed it collapses
+/// at once; the answer is the lit key.
+final class RoomButtonTests: XCTestCase {
+    private func button(_ title: String, primary: Bool = false, look: NSAppearance.Name = .aqua)
+        -> (NSWindow, RoomButton) {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 80), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: look)
+        let button = RoomButton(frame: NSRect(x: 10, y: 10, width: 90, height: RoomButton.height))
+        button.title = title
+        button.primary = primary
+        window.contentView?.addSubview(button)
+        return (window, button)
+    }
+
+    func testAButtonStandsOnASideAndCollapsesWhenPressed() {
+        let (window, key) = button("Save")
+        defer { _ = window }
+        XCTAssertEqual(key.stance, .standing)
+        let standing = key.visibleSide
+        XCTAssertEqual(standing, KeyLayers.sideHeight(forHeight: RoomButton.height), "the side a key of its height stands on")
+        XCTAssertNotNil(key.sideColor, "a visible side")
+        key.holdForTesting(true)
+        XCTAssertEqual(key.stance, .pressed)
+        XCTAssertEqual(key.visibleSide, standing / 3, accuracy: 0.001, "pressed, it collapses onto a third of its side")
+        key.holdForTesting(false)
+        XCTAssertEqual(key.visibleSide, standing, "and comes back up when let go")
+    }
+
+    func testAButtonThatCannotBePressedLiesFlatLikeAQuietKey() {
+        let (window, key) = button("Continue")
+        defer { _ = window }
+        key.isEnabled = false
+        XCTAssertEqual(key.stance, .flat)
+        XCTAssertEqual(key.visibleSide, 0)
+        XCTAssertNil(key.sideColor, "no side")
+        XCTAssertNil(key.faceColor, "and no fill: a hairline and the quiet ink")
+    }
+
+    func testThePrimaryButtonIsTheLitKeyWithTheInkThatReadsOnIt() {
+        for look in [NSAppearance.Name.aqua, .darkAqua] {
+            let (w1, normal) = button("Cancel", look: look), (w2, lit) = button("Send", primary: true, look: look)
+            defer { _ = (w1, w2) }
+            let orange = look == .aqua ? Readability.orangeOnPaper : Readability.orangeOnCharcoal
+            let face = lit.faceColor?.usingColorSpace(.sRGB)
+            XCTAssertEqual(face?.redComponent ?? 0, CGFloat(orange.red), accuracy: 0.01, "the orange: \(look.rawValue)")
+            XCTAssertNotEqual(normal.faceColor, lit.faceColor)
+            var word: NSColor?
+            lit.effectiveAppearance.performAsCurrentDrawingAppearance {
+                word = (lit.attributedTitle.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor)?.usingColorSpace(.sRGB)
+            }
+            var ink: NSColor?
+            lit.effectiveAppearance.performAsCurrentDrawingAppearance { ink = BarTheme.onAccent.usingColorSpace(.sRGB) }
+            XCTAssertEqual(word, ink, "ink chosen by contrast against the lit face")
+        }
+    }
+}
+
 /// The one key: resting a quiet cap, lit a piece of the mark.
 final class KeyFaceTests: XCTestCase {
     func testALitKeyIsTheAccentWithItsReadableInk() {

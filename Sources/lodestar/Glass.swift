@@ -1266,50 +1266,57 @@ final class RoomField: NSView {
     }
 }
 
-/// A room's button, drawn rather than the system's bezel: the room field's
-/// material, a word in the interface's face, brightening under the
-/// pointer. The system's default button wears the Mac's accent; a room's
-/// buttons wear Lodestar's material, and its primary actions are keys.
+/// A room's button, drawn rather than the system's bezel: a key. It is the
+/// thing you press, so it stands on a visible side, three points and a bit
+/// at its size, and pressed it collapses onto it at once. The answer a
+/// surface exists for (`primary`) is the lit key: the accent's face with the
+/// mark's bright top edge, its letters in whichever ink reads on it. One that
+/// cannot be pressed now lies flat with a hairline and no side, like a quiet
+/// key. Drawn by hand in `draw`, face and side and word together, because
+/// the system's cell would draw the word under any layer standing behind it;
+/// the title stays the button's own, an attributed title on a borderless
+/// button.
 final class RoomButton: NSButton {
     /// Kept for its callers; what cannot be undone is told by its words.
     var destructive = false { didSet { restyle() } }
-    /// The answer the surface exists for: lit as a key is lit, the
-    /// accent's face with the mark's bright top edge and the letter in the
-    /// ink that reads on it. One per surface.
+    /// The answer the surface exists for: lit as a key is lit. One per
+    /// surface.
     var primary = false { didSet { restyle() } }
     /// A word given as an answer (the editor's card): set in the body's
     /// face and size, on a taller key, because it is the person's text.
     var answer = false { didSet { restyle() } }
     private var hovering = false { didSet { restyle() } }
-    private let light = EdgeLight()
+    private var pressing = false { didSet { restyle() } }
+
+    static let height: CGFloat = 28
+    static let answerHeight: CGFloat = 34
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         isBordered = false
         wantsLayer = true
-        layer?.cornerRadius = BarTheme.controlRadius
-        layer?.borderWidth = 1
-        layer?.masksToBounds = false
-        if let layer { light.install(in: layer) }
         restyle()
     }
 
-    override func layout() {
-        super.layout()
-        light.fit(bounds, radius: BarTheme.controlRadius, reach: BarTheme.controlRadius + 3, flipped: isFlipped)
-    }
-
     required init?(coder: NSCoder) { nil }
+
+    /// Drawn upright, so the side is at the foot whichever way the system's
+    /// button counts.
+    override var isFlipped: Bool { false }
 
     override var title: String {
         didSet { restyle() }
     }
 
+    override var isEnabled: Bool {
+        didSet { if isEnabled != oldValue { restyle() } }
+    }
+
     override var intrinsicContentSize: NSSize {
         let text = attributedTitle.size()
         return answer
-            ? NSSize(width: (text.width + 22).rounded(.up), height: 30)
-            : NSSize(width: (text.width + 20).rounded(.up), height: 24)
+            ? NSSize(width: (text.width + 22).rounded(.up), height: Self.answerHeight)
+            : NSSize(width: (text.width + 20).rounded(.up), height: Self.height)
     }
 
     override func updateTrackingAreas() {
@@ -1324,31 +1331,115 @@ final class RoomButton: NSButton {
     override func mouseEntered(with event: NSEvent) { hovering = true }
     override func mouseExited(with event: NSEvent) { hovering = false }
 
+    /// The key goes down while the button is held and comes up when it is
+    /// let go, whether or not the pointer was still on it: the system's
+    /// tracking decides whether that was a press.
+    override func mouseDown(with event: NSEvent) {
+        guard isEnabled else { return }
+        pressing = true
+        super.mouseDown(with: event)
+        pressing = false
+    }
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         restyle()
     }
 
+    /// For the tests: the key held down, as the pointer's press holds it.
+    func holdForTesting(_ down: Bool) { pressing = down }
+
+    /// What the key stands on, for the tests and the draw alike.
+    var stance: KeyLayers.Stance { !isEnabled ? .flat : (pressing ? .pressed : .standing) }
+
+    /// How much of the side shows now.
+    var visibleSide: CGFloat {
+        let full = KeyLayers.sideHeight(forHeight: bounds.height > 0 ? bounds.height : Self.height)
+        switch stance {
+        case .standing: return full
+        case .pressed: return full / 3
+        case .flat: return 0
+        }
+    }
+
+    /// The face's and the side's colours in the button's own look, nil when
+    /// there is none to draw (a flat key has no side and no fill).
+    var faceColor: NSColor? { colours.face }
+    var sideColor: NSColor? { colours.side }
+
+    private var colours: (face: NSColor?, side: NSColor?, rim: NSColor?, word: NSColor) {
+        var out: (face: NSColor?, side: NSColor?, rim: NSColor?, word: NSColor) = (nil, nil, nil, BarTheme.ink)
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            guard stance != .flat else {
+                out = (nil, nil, nil, BarTheme.secondaryColor)
+                return
+            }
+            let resting = primary ? BarTheme.accent : BarTheme.keyFace
+            // Under the pointer the face catches a little more light, as a
+            // key's does.
+            let toward: NSColor = dark || primary ? .white : BarTheme.ink
+            let hover = dark || primary ? 0.12 : 0.05
+            let face = hovering || pressing ? resting.blended(withFraction: hover, of: toward) ?? resting : resting
+            // Fixed here, in the button's own look: a dynamic colour handed
+            // out resolves in whichever look is current where it is read.
+            func fixed(_ color: NSColor) -> NSColor { NSColor(cgColor: color.cgColor) ?? color }
+            out = (fixed(face), fixed(primary ? BarTheme.litKeySide : BarTheme.keySide),
+                   fixed(primary ? BarTheme.litKeyTop : BarTheme.keyTop),
+                   primary ? BarTheme.onAccent : BarTheme.ink)
+        }
+        return out
+    }
+
     private func restyle() {
         // A button that cannot be undone says so in its words, never in
         // an alarm colour: one light, no paint.
-        let color: NSColor = primary ? BarTheme.onAccent : (isEnabled ? BarTheme.ink : BarTheme.secondaryColor)
         let words = super.title
         super.attributedTitle = NSAttributedString(string: words, attributes: [
-            .font: answer ? BarTheme.bodyFont : BarTheme.secondaryFont, .foregroundColor: color])
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            if primary {
-                let face = BarTheme.accent
-                layer?.backgroundColor = (hovering ? face.blended(withFraction: 0.10, of: .white) ?? face : face).cgColor
-                layer?.borderColor = BarTheme.litKeySide.cgColor
-                light.color = BarTheme.litKeyTop
-            } else {
-                layer?.backgroundColor = Glass.resolved(hovering ? BarTheme.hairline : BarTheme.well, in: self)
-                layer?.borderColor = Glass.resolved(BarTheme.hairline, in: self)
-                light.color = nil
-            }
-        }
+            .font: answer ? BarTheme.bodyFont : BarTheme.secondaryFont, .foregroundColor: colours.word])
         invalidateIntrinsicContentSize()
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let colours = colours
+        let full = KeyLayers.sideHeight(forHeight: bounds.height)
+        let visible = visibleSide
+        let faceHeight = max(0, bounds.height - full)
+        // A flat key keeps the face where a standing one has it, so the
+        // word does not move when the button is enabled.
+        let face = NSRect(x: 0, y: stance == .flat ? full : visible, width: bounds.width, height: faceHeight)
+        let round = min(BarTheme.controlRadius, faceHeight / 2)
+        let facePath = NSBezierPath(roundedRect: face, xRadius: round, yRadius: round)
+        if let side = colours.side {
+            // The side's top is buried in the face, so only what is below it shows.
+            side.setFill()
+            NSBezierPath(roundedRect: NSRect(x: 0, y: 0, width: bounds.width, height: visible + faceHeight / 2),
+                         xRadius: round, yRadius: round).fill()
+        }
+        if let fill = colours.face {
+            fill.setFill()
+            facePath.fill()
+        } else {
+            // Quiet: a hairline for its outline, nothing beneath it.
+            BarTheme.hairline.setStroke()
+            let outline = NSBezierPath(roundedRect: face.insetBy(dx: 0.25, dy: 0.25), xRadius: round, yRadius: round)
+            outline.lineWidth = 0.5
+            outline.stroke()
+        }
+        if let rim = colours.rim {
+            // The top edge catching the light: a flat line, clipped to the
+            // face's own corners so it thins into the curve.
+            NSGraphicsContext.saveGraphicsState()
+            facePath.addClip()
+            rim.setFill()
+            NSRect(x: face.minX, y: face.maxY - 1, width: face.width, height: 1).fill()
+            NSGraphicsContext.restoreGraphicsState()
+        }
+        let text = attributedTitle
+        let size = text.size()
+        text.draw(at: NSPoint(x: (bounds.width - size.width) / 2,
+                              y: (face.midY - size.height / 2).rounded()))
     }
 }
 

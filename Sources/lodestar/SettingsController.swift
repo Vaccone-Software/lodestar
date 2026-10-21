@@ -1028,50 +1028,6 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         }
     }
 
-    /// A choice, behaving as the system's popup does (keys, tabbing, the
-    /// tokens the rows store) and drawn as Lodestar's: the room field's
-    /// face, and a menu whose rows rise like the bars' rows with the
-    /// accent's dot on the current one, rather than the system's bezel and
-    /// a highlight in the Mac's accent.
-    private final class KeyPopUp: NSPopUpButton, NSMenuDelegate {
-        override var acceptsFirstResponder: Bool { true }
-        override var canBecomeKeyView: Bool { true }
-        override func resetCursorRects() {
-            addCursorRect(bounds, cursor: .pointingHand)
-        }
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            isBordered = false
-            wantsLayer = true
-            layer?.cornerRadius = BarTheme.controlRadius
-            layer?.borderWidth = 1
-            menu?.delegate = self
-            tint()
-        }
-
-        override func viewDidChangeEffectiveAppearance() {
-            super.viewDidChangeEffectiveAppearance()
-            tint()
-        }
-
-        private func tint() {
-            effectiveAppearance.performAsCurrentDrawingAppearance {
-                layer?.backgroundColor = Glass.resolved(BarTheme.well, in: self)
-                layer?.borderColor = Glass.resolved(BarTheme.hairline, in: self)
-            }
-        }
-
-        func menuNeedsUpdate(_ menu: NSMenu) {
-            let font = BarTheme.secondaryFont
-            let widest = menu.items.map { ($0.title as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
-            let width = max(bounds.width, widest + 70)
-            for item in menu.items where !item.isSeparatorItem {
-                item.view = ChoiceMenuItemView(item: item, chosen: item == selectedItem, width: width, popup: self)
-            }
-        }
-    }
-
     private final class HandStack: NSStackView {
         override func resetCursorRects() {
             addCursorRect(bounds, cursor: .pointingHand)
@@ -1552,7 +1508,6 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             if let at = options.firstIndex(of: current) {
                 popup.selectItem(at: at)
             }
-            popup.font = .systemFont(ofSize: BarTheme.Scale.meta)
             popup.target = self
             popup.action = #selector(choicePressed(_:))
             popups[index] = popup
@@ -1608,7 +1563,6 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             if let at = options.firstIndex(of: current) {
                 popup.selectItem(at: at)
             }
-            popup.font = .systemFont(ofSize: BarTheme.Scale.meta)
             popup.target = self
             popup.action = #selector(selectorPressed(_:))
             popups[index] = popup
@@ -1769,7 +1723,6 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         }
         let popup = KeyPopUp()
         popup.addItems(withTitles: labels.isEmpty ? ["none found"] : labels)
-        popup.font = .systemFont(ofSize: BarTheme.Scale.meta)
         popup.widthAnchor.constraint(lessThanOrEqualToConstant: width + 40).isActive = true
         return (popup, tokens)
     }
@@ -1813,7 +1766,6 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         func popup(_ titles: [String], width: CGFloat = 130) -> NSPopUpButton {
             let popup = KeyPopUp()
             popup.addItems(withTitles: titles.isEmpty ? ["none found"] : titles)
-            popup.font = .systemFont(ofSize: BarTheme.Scale.meta)
             popup.widthAnchor.constraint(lessThanOrEqualToConstant: width + 40).isActive = true
             return popup
         }

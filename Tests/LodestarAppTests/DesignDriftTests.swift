@@ -377,19 +377,16 @@ final class DesignDriftTests: XCTestCase {
     /// A well is a receptacle: the field, the note box, the keepsake that
     /// receives. A group's card, a chip that is read and a row that is
     /// pressed are not places, so they are flat and never take the well's
-    /// fill. What still wears it and is not a receptacle is named, and the
-    /// list only shrinks.
+    /// fill. Nothing else wears it: a popup and a door tile are pressed, so
+    /// they are keys.
     func testTheWellIsOnlyWhereSomethingIsPut() throws {
         let receptacles: Set<String> = ["Glass.swift", "FeedbackController.swift"]
-        let notYet: Set<String> = ["SettingsController.swift", "WalkController.swift"]
-        var offenders: [String] = [], stale: [String] = []
+        var offenders: [String] = []
         for (name, text) in try sources() {
             let uses = DesignDriftTests.code(text).range(of: #"BarTheme\.well\b"#, options: .regularExpression) != nil
-            if notYet.contains(name) { if !uses { stale.append(name) } }
-            else if uses && !receptacles.contains(name) { offenders.append(name) }
+            if uses && !receptacles.contains(name) { offenders.append(name) }
         }
-        XCTAssertEqual(offenders, [], "a well is where something is put; anything else is flat, a hairline at most")
-        XCTAssertEqual(stale, [], "made flat: take it off the not-yet list")
+        XCTAssertEqual(offenders, [], "a well is where something is put; a choice is a key, a tile that is pressed is a key, anything else is flat, a hairline at most")
     }
 
     /// Selection is the slab, in every list, menu and strip: the raised step

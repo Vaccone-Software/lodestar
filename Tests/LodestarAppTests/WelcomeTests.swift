@@ -34,4 +34,19 @@ final class WelcomeTests: XCTestCase {
         XCTAssertTrue(AppDelegate.walkEngineAnswer("minimal").contains("Apple"),
                       "Minimal downloads nothing and says whose model it is")
     }
+
+    /// A door is pressed and chosen, so each tile is a key on a side and the
+    /// chosen one is the slab: never a well, never an accent ring.
+    func testEveryDoorTileIsAKeyAndTheChosenOneIsTheSlab() {
+        let walk = WalkController()
+        let none = walk.doorTilesForTesting(chosen: nil)
+        XCTAssertEqual(none.count, Walk.Door.allCases.count)
+        XCTAssertTrue(none.allSatisfy { $0.stance == .key }, "pressed things stand on a side")
+        let tiles = walk.doorTilesForTesting(chosen: .speak)
+        let at = Walk.Door.allCases.firstIndex(of: .speak)!
+        XCTAssertEqual(tiles.map(\.stance), Walk.Door.allCases.indices.map { $0 == at ? .slab : .key },
+                       "the chosen door is the slab, the rest keys")
+        XCTAssertNotNil(tiles[at].appearance, "and everything on the slab is in the other look")
+        XCTAssertNil(tiles[(at + 1) % tiles.count].appearance)
+    }
 }

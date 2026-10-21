@@ -882,7 +882,7 @@ enum BarTheme {
     /// The key's top face catches the light: the pane's polished rim.
     static var keyTop: NSColor { polishedRim }
     /// The neutral matter, two steps and no more. A well is where something
-    /// is put — a field, a note box, a choice, a group's card, Keep's empty
+    /// is put — a field, a note box, Keep's empty
     /// keepsake — and a quiet key lies beside, shallow and sunk; a
     /// hairline is an edge, a rule or a rim. Anything grey that is not
     /// text is one of the two, and a thing under the pointer takes the next
@@ -1411,42 +1411,15 @@ final class RoomButton: NSButton {
     var stance: KeyLayers.Stance { !isEnabled ? .flat : (pressing ? .pressed : .standing) }
 
     /// How much of the side shows now.
-    var visibleSide: CGFloat {
-        let full = KeyLayers.sideHeight(forHeight: bounds.height > 0 ? bounds.height : Self.height)
-        switch stance {
-        case .standing: return full
-        case .pressed: return full / 3
-        case .flat: return 0
-        }
-    }
+    var visibleSide: CGFloat { KeyPaint.visibleSide(stance, height: bounds.height > 0 ? bounds.height : Self.height) }
 
     /// The face's and the side's colours in the button's own look, nil when
     /// there is none to draw (a flat key has no side and no fill).
     var faceColor: NSColor? { colours.face }
     var sideColor: NSColor? { colours.side }
 
-    private var colours: (face: NSColor?, side: NSColor?, rim: NSColor?, word: NSColor) {
-        var out: (face: NSColor?, side: NSColor?, rim: NSColor?, word: NSColor) = (nil, nil, nil, BarTheme.ink)
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            guard stance != .flat else {
-                out = (nil, nil, nil, BarTheme.secondaryColor)
-                return
-            }
-            let resting = primary ? BarTheme.accent : BarTheme.keyFace
-            // Under the pointer the face catches a little more light, as a
-            // key's does.
-            let toward: NSColor = dark || primary ? .white : BarTheme.ink
-            let hover = dark || primary ? 0.12 : 0.05
-            let face = hovering || pressing ? resting.blended(withFraction: hover, of: toward) ?? resting : resting
-            // Fixed here, in the button's own look: a dynamic colour handed
-            // out resolves in whichever look is current where it is read.
-            func fixed(_ color: NSColor) -> NSColor { NSColor(cgColor: color.cgColor) ?? color }
-            out = (fixed(face), fixed(primary ? BarTheme.litKeySide : BarTheme.keySide),
-                   fixed(primary ? BarTheme.litKeyTop : BarTheme.keyTop),
-                   primary ? BarTheme.onAccent : BarTheme.ink)
-        }
-        return out
+    private var colours: KeyPaint.Colours {
+        KeyPaint.colours(stance: stance, primary: primary, hovering: hovering || pressing, in: self)
     }
 
     private func restyle() {
@@ -1460,12 +1433,65 @@ final class RoomButton: NSButton {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let colours = colours
+        let face = KeyPaint.draw(in: bounds, stance: stance, colours: colours)
+        let text = attributedTitle
+        let size = text.size()
+        text.draw(at: NSPoint(x: (bounds.width - size.width) / 2,
+                              y: (face.midY - size.height / 2).rounded()))
+    }
+}
+
+/// What a key is drawn with, shared by every control that is a key without
+/// being a `KeyFace`: the room's button and a Settings choice. One place
+/// for the face, the side, the lit rim and the hairline of a flat key, so a
+/// pressed thing is the same object wherever it is.
+enum KeyPaint {
+    typealias Colours = (face: NSColor?, side: NSColor?, rim: NSColor?, word: NSColor)
+
+    /// The colours in the view's own look, nil where there is none to draw
+    /// (a flat key has no side and no fill). `hovering` also covers a key
+    /// held down: the face catches a little more light under the pointer.
+    static func colours(stance: KeyLayers.Stance, primary: Bool, hovering: Bool, in view: NSView) -> Colours {
+        var out: Colours = (nil, nil, nil, BarTheme.ink)
+        view.effectiveAppearance.performAsCurrentDrawingAppearance {
+            let dark = view.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            guard stance != .flat else {
+                out = (nil, nil, nil, BarTheme.secondaryColor)
+                return
+            }
+            let resting = primary ? BarTheme.accent : BarTheme.keyFace
+            let toward: NSColor = dark || primary ? .white : BarTheme.ink
+            let hover = dark || primary ? 0.12 : 0.05
+            let face = hovering ? resting.blended(withFraction: hover, of: toward) ?? resting : resting
+            // Fixed here, in the view's own look: a dynamic colour handed
+            // out resolves in whichever look is current where it is read.
+            func fixed(_ color: NSColor) -> NSColor { NSColor(cgColor: color.cgColor) ?? color }
+            out = (fixed(face), fixed(primary ? BarTheme.litKeySide : BarTheme.keySide),
+                   fixed(primary ? BarTheme.litKeyTop : BarTheme.keyTop),
+                   primary ? BarTheme.onAccent : BarTheme.keyLetter)
+        }
+        return out
+    }
+
+    /// The side the stance shows, of a key `height` tall.
+    static func visibleSide(_ stance: KeyLayers.Stance, height: CGFloat) -> CGFloat {
+        let full = KeyLayers.sideHeight(forHeight: height)
+        switch stance {
+        case .standing: return full
+        case .pressed: return full / 3
+        case .flat: return 0
+        }
+    }
+
+    /// Draw the key in an upright view (not flipped) and return the face,
+    /// where the legend is centred.
+    @discardableResult
+    static func draw(in bounds: NSRect, stance: KeyLayers.Stance, colours: Colours) -> NSRect {
         let full = KeyLayers.sideHeight(forHeight: bounds.height)
-        let visible = visibleSide
+        let visible = visibleSide(stance, height: bounds.height)
         let faceHeight = max(0, bounds.height - full)
         // A flat key keeps the face where a standing one has it, so the
-        // word does not move when the button is enabled.
+        // word does not move when the key is enabled.
         let face = NSRect(x: 0, y: stance == .flat ? full : visible, width: bounds.width, height: faceHeight)
         let round = min(BarTheme.controlRadius, faceHeight / 2)
         let facePath = NSBezierPath(roundedRect: face, xRadius: round, yRadius: round)
@@ -1494,10 +1520,131 @@ final class RoomButton: NSButton {
             NSRect(x: face.minX, y: face.maxY - 1, width: face.width, height: 1).fill()
             NSGraphicsContext.restoreGraphicsState()
         }
-        let text = attributedTitle
-        let size = text.size()
-        text.draw(at: NSPoint(x: (bounds.width - size.width) / 2,
-                              y: (face.midY - size.height / 2).rounded()))
+        return face
+    }
+}
+
+/// A choice in Settings, drawn as the key it is: you press it and a menu
+/// opens, so it stands on a side and collapses when pressed, at once. The
+/// system's popup supplies the behaviour (keys, tabbing, the tokens the
+/// rows store); the face is Lodestar's, with its legend in the key's ink and
+/// a pair of chevrons for the choice. One that cannot be pressed lies flat.
+/// Its menu's rows are `ChoiceMenuItemView`s: the slab under the pointer,
+/// with the accent's dot on the current one.
+final class KeyPopUp: NSPopUpButton, NSMenuDelegate {
+    private var hovering = false { didSet { needsDisplay = true } }
+    private var pressing = false { didSet { needsDisplay = true } }
+    static let height: CGFloat = StopSlab.height
+    private static let padX: CGFloat = 12
+    private static let chevronWidth: CGFloat = 7
+    private static let gap: CGFloat = 8
+
+    override init(frame frameRect: NSRect, pullsDown flag: Bool) {
+        super.init(frame: frameRect, pullsDown: flag)
+        font = BarTheme.secondaryFont
+        isBordered = false
+    }
+
+    convenience init() { self.init(frame: .zero, pullsDown: false) }
+
+    required init?(coder: NSCoder) { nil }
+
+    override var acceptsFirstResponder: Bool { true }
+    override var canBecomeKeyView: Bool { true }
+    /// Drawn upright, so the side is at the foot, as the room's button is.
+    override var isFlipped: Bool { false }
+    override var isEnabled: Bool { didSet { if isEnabled != oldValue { needsDisplay = true } } }
+
+    /// What the key stands on, for the tests and the draw alike.
+    var stance: KeyLayers.Stance { !isEnabled ? .flat : (pressing ? .pressed : .standing) }
+    var visibleSide: CGFloat { KeyPaint.visibleSide(stance, height: bounds.height > 0 ? bounds.height : Self.height) }
+    var faceColor: NSColor? { colours.face }
+    var sideColor: NSColor? { colours.side }
+    /// For the tests: the key held down, as the press holds it.
+    func holdForTesting(_ down: Bool) { pressing = down }
+    private var colours: KeyPaint.Colours {
+        KeyPaint.colours(stance: stance, primary: false, hovering: hovering || pressing, in: self)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        menu?.delegate = self
+    }
+
+    override var intrinsicContentSize: NSSize {
+        let widest = itemTitles.map { ($0 as NSString).size(withAttributes: [.font: font as Any]).width }.max() ?? 0
+        return NSSize(width: (widest + Self.padX * 2 + Self.gap + Self.chevronWidth).rounded(.up),
+                      height: Self.height)
+    }
+
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways],
+                                       owner: self))
+    }
+
+    override func mouseEntered(with event: NSEvent) { hovering = true }
+    override func mouseExited(with event: NSEvent) { hovering = false }
+
+    /// The key goes down while the menu is open and comes up when it
+    /// closes, whatever was chosen. It is drawn before the menu takes the
+    /// run loop, so it is down when the menu appears.
+    override func mouseDown(with event: NSEvent) {
+        guard isEnabled else { return }
+        pressing = true
+        displayIfNeeded()
+        super.mouseDown(with: event)
+        pressing = false
+        hovering = false
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let colours = colours
+        let face = KeyPaint.draw(in: bounds, stance: stance, colours: colours)
+        let title = NSAttributedString(string: titleOfSelectedItem ?? "", attributes: [
+            .font: font as Any, .foregroundColor: colours.word])
+        let size = title.size()
+        let room = max(0, face.width - Self.padX * 2 - Self.gap - Self.chevronWidth)
+        title.draw(in: NSRect(x: Self.padX, y: (face.midY - size.height / 2).rounded(),
+                              width: room, height: ceil(size.height)))
+        // The choice's chevrons, up and down, in the legend's own ink.
+        let x = face.maxX - Self.padX - Self.chevronWidth, mid = face.midY.rounded()
+        let path = NSBezierPath()
+        path.lineWidth = 1.25
+        path.lineCapStyle = .round
+        path.lineJoinStyle = .round
+        path.move(to: NSPoint(x: x, y: mid + 2)); path.line(to: NSPoint(x: x + 3.5, y: mid + 5))
+        path.line(to: NSPoint(x: x + 7, y: mid + 2))
+        path.move(to: NSPoint(x: x, y: mid - 2)); path.line(to: NSPoint(x: x + 3.5, y: mid - 5))
+        path.line(to: NSPoint(x: x + 7, y: mid - 2))
+        colours.word.setStroke()
+        path.stroke()
+    }
+
+    /// The row the pointer or the arrow keys are on is the slab; no other is.
+    func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
+        for other in menu.items { (other.view as? ChoiceMenuItemView)?.highlight(other === item) }
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        for other in menu.items { (other.view as? ChoiceMenuItemView)?.highlight(false) }
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        let font = BarTheme.secondaryFont
+        let widest = menu.items.map { ($0.title as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
+        let width = max(bounds.width, widest + 70)
+        for item in menu.items where !item.isSeparatorItem {
+            item.view = ChoiceMenuItemView(item: item, chosen: item == selectedItem, width: width, popup: self)
+        }
     }
 }
 
@@ -1561,19 +1708,22 @@ final class ChoiceMenuItemView: NSView {
                              width: max(0, bounds.width - x - inset), height: natural)
     }
 
-    /// The menu's own highlight follows the pointer and the arrow keys
-    /// alike, and says so only by drawing: what stands on the slab takes
-    /// the other look's ink and orange before it is drawn.
-    override func viewWillDraw() {
-        super.viewWillDraw()
-        let on = enclosingMenuItem?.isHighlighted == true && enabled
-        if on != lit { paint(lit: on) }
+    /// The highlight is state, set by the menu's delegate when the pointer
+    /// or the arrow keys move it (`menu(_:willHighlight:)`), never read
+    /// back while drawing: a row that asked the menu in the middle of a
+    /// draw pass was a frame behind it. What stands on the slab takes the
+    /// other look's ink and orange as it is set, and the slab is painted
+    /// by the ordinary `draw`.
+    func highlight(_ on: Bool) {
+        let wanted = on && enabled
+        if wanted != lit { paint(lit: wanted) }
     }
 
     /// The words and the dot in the look the row is standing in now: its
     /// own, or the slab's, which is the other.
     func paint(lit on: Bool) {
         lit = on
+        needsDisplay = true
         let around = effectiveAppearance
         let look = on ? BarTheme.slabLook(over: around) : around
         let steps = BarTheme.steps(for: look)

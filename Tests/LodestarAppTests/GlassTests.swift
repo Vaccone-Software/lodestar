@@ -844,6 +844,65 @@ final class RoomButtonTests: XCTestCase {
     }
 }
 
+/// A Settings choice is a key: you press it and a menu opens, so it stands
+/// on a side and collapses at once when pressed; its menu's rows are the
+/// slab as the highlight moves, set by the menu's delegate and never read
+/// back in the middle of a draw.
+final class KeyPopUpTests: XCTestCase {
+    private func popup(look: NSAppearance.Name = .aqua) -> (NSWindow, KeyPopUp) {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 80), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: look)
+        let popup = KeyPopUp()
+        popup.addItems(withTitles: ["Daily", "Weekly", "Monthly"])
+        popup.frame = NSRect(x: 10, y: 10, width: popup.intrinsicContentSize.width, height: KeyPopUp.height)
+        window.contentView?.addSubview(popup)
+        return (window, popup)
+    }
+
+    func testAChoiceStandsOnASideAndCollapsesWhenPressed() {
+        let (window, key) = popup()
+        defer { _ = window }
+        XCTAssertEqual(key.stance, .standing)
+        let standing = key.visibleSide
+        XCTAssertEqual(standing, KeyLayers.sideHeight(forHeight: KeyPopUp.height))
+        XCTAssertNotNil(key.sideColor)
+        XCTAssertEqual(rgbOf(key.faceColor), rgbOf(NSColor(cgColor: Glass.resolved(BarTheme.keyFace, in: key))),
+                       "the key's own face, and no well")
+        key.holdForTesting(true)
+        XCTAssertEqual(key.stance, .pressed)
+        XCTAssertEqual(key.visibleSide, standing / 3, accuracy: 0.001)
+        key.holdForTesting(false)
+        XCTAssertEqual(key.visibleSide, standing)
+    }
+
+    func testAChoiceThatCannotBePressedLiesFlat() {
+        let (window, key) = popup()
+        defer { _ = window }
+        key.isEnabled = false
+        XCTAssertEqual(key.stance, .flat)
+        XCTAssertNil(key.sideColor)
+        XCTAssertNil(key.faceColor)
+    }
+
+    func testTheMenuRowUnderTheHighlightIsTheSlabAndTheOthersAreNot() {
+        let (window, key) = popup()
+        defer { _ = window }
+        key.menu?.delegate = key
+        key.menuNeedsUpdate(key.menu!)
+        let rows = key.menu!.items.compactMap { $0.view as? ChoiceMenuItemView }
+        XCTAssertEqual(rows.count, 3)
+        key.menu(key.menu!, willHighlight: key.menu!.items[1])
+        XCTAssertEqual(rows.map(\.lit), [false, true, false], "the highlight is set as it moves")
+        key.menu(key.menu!, willHighlight: key.menu!.items[2])
+        XCTAssertEqual(rows.map(\.lit), [false, false, true], "and only one row at a time")
+        key.menuDidClose(key.menu!)
+        XCTAssertEqual(rows.map(\.lit), [false, false, false], "a closed menu highlights nothing")
+    }
+
+    private func rgbOf(_ color: NSColor?) -> NSColor? { color?.usingColorSpace(.sRGB) }
+}
+
 /// The one key: resting a quiet cap, lit a piece of the mark.
 final class KeyFaceTests: XCTestCase {
     func testALitKeyIsTheAccentWithItsReadableInk() {

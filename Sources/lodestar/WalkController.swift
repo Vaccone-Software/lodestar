@@ -45,6 +45,8 @@ final class WalkController: NSObject {
     /// The door the welcome has selected. Nothing is selected until the
     /// person chooses: the app never learns it from the download.
     private var chosen: Walk.Door?
+    /// The door tiles as drawn, for the tests: a key each, the chosen one the slab.
+    private(set) var tileSurfaces: [ObjectSurface] = []
     /// A lesson standing on the card, after the walk is done. The card is
     /// the same one; the sequence is the curriculum's.
     private var lesson: Curriculum.Lesson?
@@ -629,15 +631,27 @@ final class WalkController: NSObject {
         door.orderFrontRegardless()
     }
 
+    /// The tiles for a door chosen, built and not shown, for the tests.
+    func doorTilesForTesting(chosen door: Walk.Door?) -> [ObjectSurface] {
+        chosen = door
+        _ = tiles(width: 560)
+        return tileSurfaces
+    }
+
     /// The four doors, side by side: each its picture, its name and one
-    /// line, the chosen one ringed in the accent. Clickable, and 1 to 4
-    /// and the arrows choose from the keys.
+    /// line. A door is pressed and is chosen, so each is a key standing on
+    /// a side, and the chosen one is the slab (the other look's ground, with
+    /// everything on it in that look). Clickable, and 1 to 4 and the arrows
+    /// choose from the keys.
     private func tiles(width: CGFloat) -> NSView {
         let row = NSStackView()
         row.orientation = .horizontal
         row.spacing = 10
         row.distribution = .fillEqually
+        tileSurfaces = []
         let tileWidth = (width - 30) / 4
+        let radius = BarTheme.nested(outer: BarTheme.surfaceRadius, inset: Self.inset,
+                                     rung: BarTheme.controlRadius)
         for (index, option) in Walk.Door.allCases.enumerated() {
             let selected = option == chosen
             let column = NSStackView()
@@ -658,15 +672,23 @@ final class WalkController: NSObject {
                                             color: BarTheme.ink))
             column.addArrangedSubview(wrapped(Self.doorLine(option), size: BarTheme.Scale.meta,
                                               color: BarTheme.secondaryColor, alignment: .left, width: tileWidth - 20))
-            column.wantsLayer = true
-            column.layer?.cornerRadius = BarTheme.nested(outer: BarTheme.surfaceRadius, inset: Self.inset,
-                                                         rung: BarTheme.controlRadius)
-            column.layer?.borderWidth = selected ? 1.5 : 1
-            column.layer?.borderColor = Glass.resolved(selected ? BarTheme.accent : BarTheme.hairline)
-            column.layer?.backgroundColor = Glass.resolved(selected ? BarTheme.accent.withAlphaComponent(0.08)
-                                                                    : BarTheme.well)
             column.translatesAutoresizingMaskIntoConstraints = false
-            column.widthAnchor.constraint(equalToConstant: tileWidth).isActive = true
+
+            // The tile is the object: a key on its side, or the slab when chosen.
+            let tile = SoftShadow.object(radius: radius, lift: .rest)
+            tile.stance = selected ? .slab : .key
+            if selected { tile.appearance = BarTheme.slabLook(over: doorRoot.effectiveAppearance) }
+            Glass.installBackdrop(in: tile, cornerRadius: radius, weight: selected ? .slab : .raised)
+            tile.translatesAutoresizingMaskIntoConstraints = false
+            tile.addSubview(column)
+            NSLayoutConstraint.activate([
+                column.topAnchor.constraint(equalTo: tile.topAnchor),
+                column.leadingAnchor.constraint(equalTo: tile.leadingAnchor),
+                column.trailingAnchor.constraint(equalTo: tile.trailingAnchor),
+                column.bottomAnchor.constraint(equalTo: tile.bottomAnchor),
+                tile.widthAnchor.constraint(equalToConstant: tileWidth),
+            ])
+            tileSurfaces.append(tile)
 
             // The whole tile is the target: a borderless button over it.
             let hit = HandButton(title: "", target: self, action: #selector(tilePressed(_:)))
@@ -674,14 +696,14 @@ final class WalkController: NSObject {
             hit.tag = index
             hit.setAccessibilityLabel(option.name)
             hit.translatesAutoresizingMaskIntoConstraints = false
-            column.addSubview(hit)
+            tile.addSubview(hit)
             NSLayoutConstraint.activate([
-                hit.leadingAnchor.constraint(equalTo: column.leadingAnchor),
-                hit.trailingAnchor.constraint(equalTo: column.trailingAnchor),
-                hit.topAnchor.constraint(equalTo: column.topAnchor),
-                hit.bottomAnchor.constraint(equalTo: column.bottomAnchor),
+                hit.leadingAnchor.constraint(equalTo: tile.leadingAnchor),
+                hit.trailingAnchor.constraint(equalTo: tile.trailingAnchor),
+                hit.topAnchor.constraint(equalTo: tile.topAnchor),
+                hit.bottomAnchor.constraint(equalTo: tile.bottomAnchor),
             ])
-            row.addArrangedSubview(column)
+            row.addArrangedSubview(tile)
         }
         // Four tiles, one height: a door whose line wraps longer does not
         // stand taller than the rest.

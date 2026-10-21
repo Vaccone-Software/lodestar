@@ -1,6 +1,7 @@
 import CryptoKit
 import Darwin
 import Foundation
+import LodestarInflate
 
 /// The update zip, opened only after its sha256 matches and only into a
 /// fresh directory. `ditto -x` writes whatever paths the archive names
@@ -73,7 +74,7 @@ public enum UpdateArchive {
         }
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: false)
         do {
-            let root = scratch.path.withCString { lodestarOpenDir($0) }
+            let root = scratch.path.withCString { lodestar_open_dir($0) }
             guard root >= 0 else { throw ExtractError.unreadable }
             defer { _ = Darwin.close(root) }
             for item in items {
@@ -324,7 +325,7 @@ public enum UpdateArchive {
             src.withUnsafeBytes { srcRaw in
                 guard let dstPtr = dstRaw.bindMemory(to: UInt8.self).baseAddress,
                       let srcPtr = srcRaw.bindMemory(to: UInt8.self).baseAddress else { return false }
-                return lodestarRawInflate(srcPtr, src.count, dstPtr, size) == 0
+                return lodestar_raw_inflate(srcPtr, src.count, dstPtr, size) == 0
             }
         }
         if !ok { throw ExtractError.corrupt }
@@ -348,18 +349,18 @@ public enum UpdateArchive {
                   symlinkStaysInside(item.parts, target) else {
                 throw ExtractError.unsafePath(shown(item.name))
             }
-            let rc = target.withCString { target in name.withCString { name in lodestarMakeSymlink(dir, name, target) } }
+            let rc = target.withCString { target in name.withCString { name in lodestar_make_symlink(dir, name, target) } }
             if rc != 0 { throw ExtractError.corrupt }
             return
         }
         let perm = permissions(item.unixMode)
         let rc: Int32
         if bytes.isEmpty {
-            rc = name.withCString { lodestarWriteNewFile(dir, $0, nil, 0, perm) }
+            rc = name.withCString { lodestar_write_new_file(dir, $0, nil, 0, perm) }
         } else {
             rc = bytes.withUnsafeBytes { raw in
                 name.withCString { name in
-                    lodestarWriteNewFile(dir, name, raw.bindMemory(to: UInt8.self).baseAddress, bytes.count, perm)
+                    lodestar_write_new_file(dir, name, raw.bindMemory(to: UInt8.self).baseAddress, bytes.count, perm)
                 }
             }
         }
@@ -373,7 +374,7 @@ public enum UpdateArchive {
         var opened: [Int32] = []
         do {
             for part in parts {
-                let fd = part.withCString { lodestarMkdirDir(current, $0) }
+                let fd = part.withCString { lodestar_mkdir_dir(current, $0) }
                 if fd < 0 { throw ExtractError.unsafePath(shown(name)) }
                 opened.append(fd)
                 current = fd
@@ -450,21 +451,3 @@ public enum UpdateArchive {
         return crc ^ 0xFFFF_FFFF
     }
 }
-
-@_silgen_name("lodestar_raw_inflate")
-private func lodestarRawInflate(_ src: UnsafePointer<UInt8>?, _ srcLen: Int,
-                               _ dst: UnsafeMutablePointer<UInt8>?, _ dstLen: Int) -> Int32
-
-@_silgen_name("lodestar_open_dir")
-private func lodestarOpenDir(_ path: UnsafePointer<CChar>?) -> Int32
-
-@_silgen_name("lodestar_mkdir_dir")
-private func lodestarMkdirDir(_ parent: Int32, _ name: UnsafePointer<CChar>?) -> Int32
-
-@_silgen_name("lodestar_write_new_file")
-private func lodestarWriteNewFile(_ parent: Int32, _ name: UnsafePointer<CChar>?,
-                                  _ bytes: UnsafePointer<UInt8>?, _ length: Int, _ mode: Int32) -> Int32
-
-@_silgen_name("lodestar_make_symlink")
-private func lodestarMakeSymlink(_ parent: Int32, _ name: UnsafePointer<CChar>?,
-                                 _ target: UnsafePointer<CChar>?) -> Int32

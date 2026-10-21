@@ -1,6 +1,7 @@
+#include "LodestarInflate.h"
+
 #include <errno.h>
 #include <fcntl.h>
-#include <stdint.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>

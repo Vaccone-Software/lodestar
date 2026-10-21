@@ -134,6 +134,55 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertFalse(set.isDefault)
     }
 
+    /// A setting with an order is a row of stops (the dictation model's tiers,
+    /// least to most), and what the config stores is what it always was: the
+    /// tier's word, empty for Automatic.
+    func testTheDictationModelIsARowOfStopsStoringTheSameValues() {
+        var config = Config()
+        let row = place("Speak", config).rows.first { $0.path == "draft.model" }!
+        guard case .stops(let options, let legends, let captions, let current) = row.control else {
+            return XCTFail("the model has an order: a row of stops, not a dropdown")
+        }
+        XCTAssertEqual(options, ["", "apple", "standard", "full", "max"], "the stored values, in order, unchanged")
+        XCTAssertEqual(legends, ["Automatic", "Apple", "Standard", "Full", "Max"])
+        XCTAssertEqual(captions.count, options.count, "each stop says what it means")
+        XCTAssertEqual(current, "")
+        config.draftModel = "standard"
+        let chosen = place("Speak", config).rows.first { $0.path == "draft.model" }!
+        guard case .stops(_, _, _, let now) = chosen.control else { return XCTFail() }
+        XCTAssertEqual(now, "standard")
+        XCTAssertFalse(chosen.isDefault)
+    }
+
+    func testNoRowHoldsMoreStopsThanTheDigitsReach() {
+        let machine = SettingsModel.MachineState()
+        for section in SettingsModel.catalog(config: Config(), machine: machine)
+            + SettingsModel.pages(config: Config(), machine: machine) {
+            for row in section.rows {
+                guard case .stops(let options, let legends, let captions, let current) = row.control else { continue }
+                XCTAssertLessThanOrEqual(options.count, SettingsModel.stopsLimit, "\(row.title): 1–8 choose a stop")
+                XCTAssertEqual(legends.count, options.count)
+                XCTAssertEqual(captions.count, options.count)
+                XCTAssertTrue(options.contains(current), "\(row.title): the current value is one of the stops")
+            }
+        }
+    }
+
+    func testDigitsChooseAStopAndHAndLStepOverWhatCannotBeChosen() {
+        XCTAssertEqual(SettingsModel.stop(forKey: "1", count: 5), 0)
+        XCTAssertEqual(SettingsModel.stop(forKey: "5", count: 5), 4)
+        XCTAssertNil(SettingsModel.stop(forKey: "6", count: 5), "past the last stop")
+        XCTAssertNil(SettingsModel.stop(forKey: "9", count: 9), "only 1–8")
+        XCTAssertNil(SettingsModel.stop(forKey: "0", count: 5))
+        XCTAssertNil(SettingsModel.stop(forKey: "a", count: 5))
+        XCTAssertEqual(SettingsModel.stepStop(from: 2, by: 1, count: 5), 3)
+        XCTAssertEqual(SettingsModel.stepStop(from: 2, by: -1, count: 5), 1)
+        XCTAssertNil(SettingsModel.stepStop(from: 4, by: 1, count: 5), "the end of the line")
+        XCTAssertNil(SettingsModel.stepStop(from: 0, by: -1, count: 5))
+        XCTAssertEqual(SettingsModel.stepStop(from: 1, by: 1, count: 5, unavailable: [2, 3]), 4, "over what it cannot choose")
+        XCTAssertNil(SettingsModel.stepStop(from: 1, by: 1, count: 4, unavailable: [2, 3]), "and nowhere when nothing is left")
+    }
+
     /// A kept zone is listed by its city and offset, never its identifier.
     func testKeptTimeZonesAreListedByPlace() {
         var config = Config()

@@ -62,6 +62,13 @@ public enum SettingsModel {
         /// One of a closed set; `labels` is what the popup shows, `options`
         /// what the config stores, index-aligned.
         case choice(options: [String], labels: [String], current: String)
+        /// A setting with an order, as a row of stops: every value shown as
+        /// a key, the current one the slab. `options` are the stored values
+        /// in order, `legends` what each key says, `captions` what each
+        /// stop means in words (the current one's is read under the row).
+        /// Index-aligned like `choice`, and at most `stopsLimit` of them,
+        /// since `1`–`8` choose a stop directly.
+        case stops(options: [String], legends: [String], captions: [String], current: String)
         case number(Int, min: Int, max: Int, unit: String?)
         case text(String, placeholder: String)
         /// Machine states and notes the config does not own. The sub is
@@ -74,6 +81,30 @@ public enum SettingsModel {
         /// A choice the window keeps rather than the config: which of
         /// several things a page is showing. Index-aligned like `choice`.
         case selector(options: [String], labels: [String], current: String)
+    }
+
+    /// The most stops one row holds: a digit jumps to a stop, `1`–`8`.
+    public static let stopsLimit = 8
+
+    /// The stop a digit chooses, or nil when it is not a stop of `count`.
+    public static func stop(forKey key: String, count: Int) -> Int? {
+        guard key.count == 1, let digit = Int(key), (1...stopsLimit).contains(digit), digit <= count
+        else { return nil }
+        return digit - 1
+    }
+
+    /// Where `h` (-1) and `l` (+1) step from `index`: the nearest stop that
+    /// can be chosen in that direction, or nowhere (nil) at the end of the
+    /// line. A stop that is shown and not choosable is stepped over.
+    public static func stepStop(from index: Int, by delta: Int, count: Int,
+                                unavailable: Set<Int> = []) -> Int? {
+        precondition(delta == 1 || delta == -1)
+        var next = index + delta
+        while (0..<count).contains(next) {
+            if !unavailable.contains(next) { return next }
+            next += delta
+        }
+        return nil
     }
 
     public struct Preset: Equatable {
@@ -554,10 +585,13 @@ public enum SettingsModel {
         // 4 · Speak: the draft
         let inputOptions = [""] + machine.inputDevices
         let inputLabels = ["System · " + (machine.defaultInput ?? "Default")] + machine.inputDevices
+        // The tiers have an order, least to most: a row of stops, Automatic
+        // first, each key a tier and the words under the row the one chosen.
         var speakModel = Row(title: "Model", path: "draft.model",
-            control: .choice(options: ["", "apple", "standard", "full", "max"],
-                             labels: ["Automatic · \(machine.draftModelAutomatic)"] + machine.draftModelLabels,
-                             current: config.draftModel),
+            control: .stops(options: ["", "apple", "standard", "full", "max"],
+                            legends: ["Automatic", "Apple", "Standard", "Full", "Max"],
+                            captions: ["Automatic · \(machine.draftModelAutomatic)"] + machine.draftModelLabels,
+                            current: config.draftModel),
             detail: (machine.earStatus.isEmpty ? "" : machine.earStatus + ". ")
                 + "Hears what you said again while you keep talking, writes it better, and takes out the words you take back",
             isDefault: config.draftModel.isEmpty, group: "Draft")

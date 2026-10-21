@@ -2089,6 +2089,38 @@ class RaisedRow: NSView {
     }
 }
 
+/// The current stop of a row of stops: the slab, at the size of the keys
+/// beside it. The other look's ground on a four-point side, with its legend
+/// in that look's ink.
+final class StopSlab: RaisedRow {
+    /// A stop's height, face and side: the keys beside it are this tall.
+    static let height: CGFloat = 26
+    let legend: NSTextField
+
+    init(_ text: String) {
+        legend = BarTheme.label(text, font: BarTheme.chipFont, color: BarTheme.ink)
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        // Concentric with nothing: a key's own rounding, the control rung.
+        inset = BarTheme.surfaceRadius - BarTheme.controlRadius
+        setupRaised()
+        applyRaised(true)
+        legend.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(legend)
+        setAccessibilityElement(false)
+        NSLayoutConstraint.activate([
+            heightAnchor.constraint(equalToConstant: Self.height),
+            widthAnchor.constraint(greaterThanOrEqualToConstant: BarTheme.chipMinWidth),
+            legend.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            legend.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            legend.centerYAnchor.constraint(equalTo: faceGuide.centerYAnchor),
+        ])
+        setContentHuggingPriority(.required, for: .horizontal)
+    }
+
+    required init?(coder: NSCoder) { nil }
+}
+
 /// Light catching the top of a rounded object: a hairline along the
 /// shape's own outline, brightest across the top, following the curve
 /// into each corner and fading as the edge turns down, so it never starts

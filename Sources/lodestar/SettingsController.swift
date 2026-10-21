@@ -112,6 +112,9 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     private var listFocus: (row: Int, entry: Int)?
     /// A search landing armed this row: return activates it.
     private var armedRow: Int?
+    /// The row of stops the keys are on: `1`–`8` jump to a stop, `h` and `l`
+    /// step, escape lets go.
+    private var stopsFocus: Int?
     /// Popup token tables, so a selected label resolves to its profile.
     private var popupTokens: [String: [String]] = [:]
     private var lastRenderedPane: Int? = -1
@@ -210,6 +213,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         // Nothing survives from the last visit: a window that opens into
         // a stale editor is a window that lies.
         listFocus = nil
+        stopsFocus = nil
         armedRow = nil
         inlineEdit = nil
         editing = [:]
@@ -361,6 +365,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
 
     private func browsingKey(_ key: String) -> Bool {
         if listFocus != nil { return listKey(key) }
+        if stopsFocus != nil, let handled = stopsKey(key) { return handled }
         // A destructive verb asks twice: its own letter again performs it,
         // any other key lets it go. No timer: the ask stands until answered.
         if let armed = armedAction {
@@ -415,6 +420,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         pageReturn = nil
         highlightRow = nil
         listFocus = nil
+        stopsFocus = nil
         inlineEdit = nil
         editing = [:]
         armedAction = nil
@@ -429,6 +435,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         pageReturn = nil
         highlightRow = nil
         listFocus = nil
+        stopsFocus = nil
         armedAction = nil
         render()
         panel.makeFirstResponder(nil)
@@ -481,9 +488,47 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         return true
     }
 
+    /// The row of stops the keys are on: a digit jumps to that stop, `h` and
+    /// `l` step to the one beside it (over any a Mac cannot choose), escape
+    /// or return lets go. Any other key lets go too and does what it does
+    /// anywhere else; nil says so.
+    private func stopsKey(_ key: String) -> Bool? {
+        guard let rowIndex = stopsFocus, current.rows.indices.contains(rowIndex),
+              case .stops(let options, _, _, let value) = current.rows[rowIndex].control
+        else { stopsFocus = nil; return nil }
+        let row = current.rows[rowIndex]
+        let unavailable = Set(options.indices.filter { row.disabledChoices.contains(options[$0]) })
+        let at = options.firstIndex(of: value) ?? 0
+        func choose(_ stop: Int) {
+            guard options.indices.contains(stop), !unavailable.contains(stop) else { return }
+            writeChoice(row, options[stop])
+            render()
+        }
+        switch key {
+        case "h", "left":
+            if let to = SettingsModel.stepStop(from: at, by: -1, count: options.count, unavailable: unavailable) { choose(to) }
+            return true
+        case "l", "right":
+            if let to = SettingsModel.stepStop(from: at, by: 1, count: options.count, unavailable: unavailable) { choose(to) }
+            return true
+        case "escape", "return":
+            stopsFocus = nil
+            render()
+            return true
+        default:
+            // 1–8 are stops here, and a digit past the last stop is nothing.
+            if let to = SettingsModel.stop(forKey: key, count: options.count) { choose(to); return true }
+            if let digit = Int(key), (1...SettingsModel.stopsLimit).contains(digit) { return true }
+            stopsFocus = nil
+            render()
+            return nil
+        }
+    }
+
     private func beginInlineEdit(kind: SettingsModel.TableKind, key: String) {
         inlineEdit = ("\(kind)", key)
         listFocus = nil
+        stopsFocus = nil
         switch kind {
         case .links: editing["links"] = key
         case .routes: editing["routes"] = key
@@ -597,6 +642,10 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             open(page: name)
         case .selector:
             popups[index]?.performClick(nil)
+        case .stops:
+            // The keys are on the row: its stops answer to digits, h and l.
+            stopsFocus = index
+            render()
         case .readout:
             guard let action = row.action else { break }
             if action.destructive {
@@ -743,7 +792,12 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
               options.indices.contains(sender.indexOfSelectedItem) else { return }
         // Every option is the value the config stores — a mode word, or a
         // profile reference like brave:Xonar.
-        let chosen = options[sender.indexOfSelectedItem]
+        writeChoice(row, options[sender.indexOfSelectedItem])
+    }
+
+    /// A choice's write, from a popup or from a stop: the value the config
+    /// stores, the same path for both.
+    private func writeChoice(_ row: SettingsModel.Row, _ chosen: String) {
         if row.path.hasPrefix("health.keyboards.") {
             // A key's placement is one entry of a free table: standard
             // is the entry's absence, so choosing it removes the line
@@ -797,6 +851,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         armedAction = nil
         highlightRow = nil
         listFocus = nil
+        stopsFocus = nil
         armedRow = nil
         inlineEdit = nil
         editing = [:]
@@ -1183,7 +1238,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                         switch control {
                         case .number, .text:
                             if let field = self.fields[index] { self.panel.makeFirstResponder(field) }
-                        case .toggle, .choice:
+                        case .toggle, .choice, .stops:
                             self.armedRow = index
                         default:
                             break
@@ -1297,11 +1352,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         line.widthAnchor.constraint(equalToConstant: width).isActive = true
         if row.dimmed { line.alphaValue = 0.45 }
 
-        let letter = label(row.letter ?? "", size: BarTheme.Scale.meta, weight: .medium,
-                           color: BarTheme.secondaryColor)
-        letter.translatesAutoresizingMaskIntoConstraints = false
-        letter.widthAnchor.constraint(equalToConstant: 12).isActive = true
-        line.addArrangedSubview(letter)
+        line.addArrangedSubview(keyColumn(for: row, index: index))
 
         let text = NSStackView()
         text.orientation = .vertical
@@ -1355,12 +1406,16 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             text.setCustomSpacing(8, after: text.arrangedSubviews.last!)
             text.addArrangedSubview(buildTable(kind: kind, entries: entries, paneRow: index))
         }
+        if case .stops = row.control {
+            text.setCustomSpacing(10, after: text.arrangedSubviews.last!)
+            text.addArrangedSubview(buildStops(row, index: index))
+        }
         line.addArrangedSubview(text)
         line.addArrangedSubview(spacer())
         // Yours: a value you set wears a mark and the way back, beside it.
         if !row.isDefault, !row.path.isEmpty {
             switch row.control {
-            case .choice, .number, .text:
+            case .choice, .number, .text, .stops:
                 // An action is a key, never a word in grey that happens
                 // to be clickable.
                 let reset = RoomButton(title: "Reset", target: self, action: #selector(resetPressed(_:)))
@@ -1386,6 +1441,84 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         line.setAccessibilityLabel([row.title, row.detail].compactMap { $0 }.joined(separator: ". "))
         line.setAccessibilityHelp(row.letter.map { "Press \($0)" })
         return line
+    }
+
+    /// Every row leads with its key: the letter that reaches it, drawn as the
+    /// key it is, in a column of its own so the titles stand in one line down
+    /// the page. The key is lit while the keys are on the row's stops, which
+    /// is where the hand goes next. A row with no letter keeps the column.
+    private func keyColumn(for row: SettingsModel.Row, index: Int) -> NSView {
+        guard let letter = row.letter else { return chipSpacer() }
+        let key = KeyFace(letter.uppercased())
+        key.lit = stopsFocus == index
+        key.setAccessibilityElement(false)
+        let column = NSView()
+        column.translatesAutoresizingMaskIntoConstraints = false
+        column.addSubview(key)
+        NSLayoutConstraint.activate([
+            column.widthAnchor.constraint(equalToConstant: BarTheme.chipMinWidth),
+            column.heightAnchor.constraint(equalTo: key.heightAnchor),
+            key.leadingAnchor.constraint(equalTo: column.leadingAnchor),
+            key.centerYAnchor.constraint(equalTo: column.centerYAnchor),
+        ])
+        column.setContentHuggingPriority(.required, for: .horizontal)
+        return column
+    }
+
+    /// A setting with an order, as stops: every value a key, the current one
+    /// the slab. What the current stop means is said under the row; while the
+    /// keys are on it, so is how to move.
+    private func buildStops(_ row: SettingsModel.Row, index: Int) -> NSView {
+        guard case .stops(let options, let legends, let captions, let value) = row.control else { return NSView() }
+        let column = NSStackView()
+        column.orientation = .vertical
+        column.alignment = .leading
+        column.spacing = 8
+        let keys = NSStackView()
+        keys.orientation = .horizontal
+        keys.alignment = .centerY
+        keys.spacing = 6
+        for (stop, option) in options.enumerated() {
+            let legend = legends.indices.contains(stop) ? legends[stop] : option
+            if option == value {
+                keys.addArrangedSubview(StopSlab(legend))
+                continue
+            }
+            let key = KeyFace(legend, padX: 12, height: StopSlab.height, minWidth: BarTheme.chipMinWidth)
+            if row.disabledChoices.contains(option) || row.dimmed {
+                // Shown and not choosable: flat, with no side, like any key
+                // that cannot be pressed now.
+                key.quiet = true
+                keys.addArrangedSubview(key)
+                continue
+            }
+            let press = Keycaps.CapGroup(caps: [key], action: { [weak self] in
+                guard let self else { return }
+                self.writeChoice(row, option)
+                self.render()
+            })
+            press.setAccessibilityLabel(legend)
+            keys.addArrangedSubview(press)
+        }
+        keys.setAccessibilityElement(true)
+        keys.setAccessibilityRole(.radioGroup)
+        keys.setAccessibilityLabel(row.title)
+        if let at = options.firstIndex(of: value) {
+            keys.setAccessibilityValue(legends.indices.contains(at) ? legends[at] : value)
+        }
+        column.addArrangedSubview(keys)
+        if let at = options.firstIndex(of: value), captions.indices.contains(at), !captions[at].isEmpty {
+            column.addArrangedSubview(label(captions[at], size: BarTheme.Scale.meta, weight: .regular,
+                                            color: BarTheme.secondaryColor))
+        }
+        if stopsFocus == index {
+            let last = min(options.count, SettingsModel.stopsLimit)
+            column.addArrangedSubview(Keycaps.line([
+                .init([last > 1 ? "1…\(last)" : "1"], "choose"),
+                .init(["h", "l"], "step"),
+            ]))
+        }
+        return column
     }
 
     private func buildControl(_ row: SettingsModel.Row, index: Int) -> NSView {
@@ -1463,8 +1596,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                                                 color: BarTheme.secondaryColor))
             }
             return column
-        case .table:
-            return NSView() // the table renders under the title column
+        case .table, .stops:
+            return NSView() // a table and a row of stops render under the title column
         case .page(let name):
             let open = RoomButton(title: "Open", target: self, action: #selector(pagePressed(_:)))
             open.identifier = NSUserInterfaceItemIdentifier(name)

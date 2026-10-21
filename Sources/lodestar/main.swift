@@ -87,6 +87,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     /// Who tells the running icon that the appearance moved.
     private var iconObservers: [NSObjectProtocol] = []
+    /// The look the running icon was last drawn for.
+    private var iconWasDark: Bool?
     private var coachSuggestionItem: NSMenuItem?
     private var menuBarHideTimer: Timer?
     private var signalSource: DispatchSourceSignal?
@@ -779,6 +781,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         if config.showMenuBar { createStatusItem() }
         watchAppIcon()
+        EyeComfortController.shared.configure(enabled: config.eyeComfort)
         actions.revealLodestar = { [weak self] in self?.revealMenuBar() }
         engine.onExcludeApp = { [weak self] bundleID in self?.excludeAppFromClipboard(bundleID) }
         installSignalHandler()
@@ -1054,6 +1057,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// is signed, which would cost the Accessibility grant; it follows the
     /// appearance on its own (packaging/Lodestar.icon).
     private func refreshAppIcon() {
+        iconWasDark = Tone.systemDark
         NSApp.effectiveAppearance.performAsCurrentDrawingAppearance {
             NSApp.applicationIconImage = AppIconArt.current(dark: Tone.systemDark, accent: BarTheme.accent)
         }
@@ -1070,7 +1074,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 Glass.followSystemAppearance()
                 self?.refreshAppIcon()
+                EyeComfortController.shared.systemLookChanged()
             }
+        })
+        // Bedtime puts the application in the night look, and the morning
+        // takes it out: the icon follows the look as it does for the Mac, and
+        // only when the look changes, not at every beat of the evening.
+        iconObservers.append(NotificationCenter.default.addObserver(
+            forName: .eyeComfortDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            guard let self, self.iconWasDark != Tone.systemDark else { return }
+            self.refreshAppIcon()
         })
     }
 
@@ -2444,6 +2458,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Keys.apply(overrides: loaded.keyOverrides)
         ActivePolicy.mode = loaded.activeDisplayMode
         engine.config = loaded
+        EyeComfortController.shared.configure(enabled: loaded.eyeComfort)
         webBar.config = loaded
         updater.enabled = loaded.autoUpdate
         updater.channel = loaded.channel

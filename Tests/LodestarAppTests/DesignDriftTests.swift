@@ -233,6 +233,27 @@ final class DesignDriftTests: XCTestCase {
         XCTAssertEqual(BarTheme.bodyFont.pointSize, BarTheme.Scale.body, "the size does not move")
     }
 
+    /// Eye comfort reaches every surface through one place: the theme resolves
+    /// the palettes (`BarTheme.steps(for:)`) and the accent, and the evening's
+    /// dimming is applied there. A surface that read `Palette.night` or the
+    /// orange pair itself would stay at full brightness at midnight.
+    func testOnlyTheThemeReadsThePalettesAndTheAccentPair() throws {
+        let hits = try offenders(#"Palette\.(night|clay)\b|Readability\.orangeOn"#, in: Self.swiftFiles(under: Self.appSources)
+            .filter { !["EyeComfortController.swift"].contains($0.lastPathComponent) })
+        XCTAssertEqual(hits, [], "the palettes come from BarTheme.steps(for:), where the level is applied")
+    }
+
+    /// No flashes and no fades on anything that is looked at: the evening's
+    /// level and receding change a colour in one repaint, never through an
+    /// animation.
+    func testEyeComfortNeverAnimates() throws {
+        let files = Self.swiftFiles(under: Self.appSources)
+            .filter { ["EyeComfortController.swift", "Recess.swift"].contains($0.lastPathComponent) }
+        XCTAssertEqual(files.count, 2)
+        let hits = try offenders(#"animator\(\)|NSAnimationContext|CABasicAnimation|CATransition|UIView|withAnimation|allowsImplicitAnimation"#, in: files)
+        XCTAssertEqual(hits, [], "a change of the look is applied at once")
+    }
+
     /// A messaging timeout set on a system-wide element is the whole
     /// process's. Only `AX.swift` makes one and only launch sets it; a
     /// helper that wants a short leash sets it on the element it asks.

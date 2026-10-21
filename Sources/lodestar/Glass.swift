@@ -767,15 +767,43 @@ enum BarTheme {
         return field
     }
 
-    /// The palette in force: espresso in dark mode, clay in light.
+    /// The palette in force: espresso in dark mode, clay in light, as Eye
+    /// comfort has eased it at this hour (and exactly as it is when the
+    /// switch is off or the sun is up).
     static var palette: Palette.Steps {
-        Tone.systemDark ? Palette.night : Palette.clay
+        EyeComfortState.shared.look(dark: Tone.systemDark).steps
     }
 
     /// The palette a given appearance asks for, for a colour that is
-    /// resolved where it is drawn.
+    /// resolved where it is drawn. The one place the steps are resolved, so
+    /// the evening's dimming reaches every surface through it and no view
+    /// has a line of its own.
     static func steps(for appearance: NSAppearance) -> Palette.Steps {
-        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? Palette.night : Palette.clay
+        EyeComfortState.shared.look(dark: isDark(appearance)).steps
+    }
+
+    static func isDark(_ appearance: NSAppearance) -> Bool {
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    }
+
+    /// The ink of a surface that recedes when it is left alone
+    /// (`RecessClock`): the look's ink, and toward its pane once the clock
+    /// says the surface has been idle. Resolved where it is drawn, so the
+    /// change is one repaint and never a fade.
+    static func ink(recedingWith clock: RecessClock) -> NSColor {
+        NSColor(name: nil) { appearance in
+            let dark = isDark(appearance)
+            return (clock.receded ? EyeComfortState.shared.recededInks(dark: dark).ink : steps(for: appearance).ink).color
+        }
+    }
+
+    /// The quiet ink of a surface that recedes, as `ink(recedingWith:)`.
+    static func secondary(recedingWith clock: RecessClock) -> NSColor {
+        NSColor(name: nil) { appearance in
+            let dark = isDark(appearance)
+            if Accessibility.increaseContrast() { return steps(for: appearance).ink.color }
+            return (clock.receded ? EyeComfortState.shared.recededInks(dark: dark).secondary : steps(for: appearance).secondary).color
+        }
     }
 
     /// The look the chosen row stands in: the other of the one around it,
@@ -908,11 +936,10 @@ enum BarTheme {
     /// clay the same hue a step deeper (Readability measures both). It is
     /// resolved in the appearance of the view that draws it, so a lit key in
     /// a selected row, which wears the other look, wears the orange that
-    /// stands on that row's ground.
+    /// stands on that row's ground. In the evening it calms with the
+    /// surfaces: a quarter less chroma at the deepest, the same hue.
     static let internationalOrange = NSColor(name: "LodestarOrange") { appearance in
-        let pair = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            ? Readability.orangeOnCharcoal : Readability.orangeOnPaper
-        return NSColor(srgbRed: pair.red, green: pair.green, blue: pair.blue, alpha: 1)
+        EyeComfortState.shared.look(dark: isDark(appearance)).accent.color
     }
 
     /// The accent for a mark the eye must find — the insert bar, a lit
@@ -1864,6 +1891,10 @@ final class KeyFace: NSView {
     /// key glows. Depth carries the importance, never a fade: a
     /// translucent key is not a thing a light falls on.
     var quiet = false { didSet { if quiet != oldValue { refresh() } } }
+    /// The ink of the legend while the key lies flat, when its surface
+    /// recedes (the meeting's countdown, before it is lit); the quiet ink
+    /// otherwise.
+    var quietInk: NSColor? { didSet { refresh() } }
     /// What a pointer is doing to a key that can be clicked: it brightens
     /// under the pointer and sinks onto its side when pressed.
     private var pointer = Keycaps.CapState.resting
@@ -1938,7 +1969,7 @@ final class KeyFace: NSView {
         effectiveAppearance.performAsCurrentDrawingAppearance {
             if stance == .flat {
                 layers.paint(face: nil, side: nil, rim: nil, outline: Glass.resolved(BarTheme.hairline, in: self))
-                label.textColor = BarTheme.secondaryColor
+                label.textColor = quietInk ?? BarTheme.secondaryColor
                 return
             }
             let resting = lit ? BarTheme.accent : BarTheme.keyFace

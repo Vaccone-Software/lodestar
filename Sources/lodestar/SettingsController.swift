@@ -1585,7 +1585,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             column.alignment = .trailing
             column.spacing = 3
             let read = NSTextField(wrappingLabelWithString: value)
-            read.font = .systemFont(ofSize: BarTheme.Scale.body)
+            read.font = BarTheme.face(BarTheme.Scale.body)
             read.textColor = BarTheme.secondaryColor
             read.alignment = .right
             read.isSelectable = false

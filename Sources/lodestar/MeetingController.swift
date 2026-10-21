@@ -77,6 +77,13 @@ final class MeetingController: NSObject {
     /// The chip: floating glass, never key.
     private let panel = Glass.makePanel(level: .floating)
     private let root = NSView()
+    /// Receding: the chip's ink moves toward its pane when it has been left
+    /// alone, and returns when it appears, is pointed at, or its countdown
+    /// lights. A lit countdown is a chip asking for the hand, so it never
+    /// recedes.
+    private let recess = RecessClock()
+    private var recessHover: RecessHover?
+    private var recessKey = ""
     /// The prime card: mouse-first and keyable, in the door's family.
     private let prime = KeyablePanel(
         contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
@@ -89,6 +96,9 @@ final class MeetingController: NSObject {
         SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
         Movable.enable(panel)
         _ = Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+        recessHover = RecessHover(root, clock: recess)
+        recess.mayRecede = { [weak self] in !(self?.countdownLit ?? false) }
+        recess.onChange = { [weak self] in SurfacePaint.again(self?.root) }
         prime.level = .modalPanel
         prime.isOpaque = false
         prime.backgroundColor = .clear
@@ -109,6 +119,9 @@ final class MeetingController: NSObject {
     }
 
     var chipVisible: Bool { panel.isVisible }
+
+    /// The standing countdown is lit: at the door, or running.
+    private var countdownLit: Bool { current.map { Self.countdown(for: $0.phase).lit } ?? false }
 
     /// A meeting is running now, answered from the calendar rather than
     /// from the chip. The chip is spent by the join, so it stops being
@@ -239,6 +252,7 @@ final class MeetingController: NSObject {
         occurrences = []
         current = nil
         panel.orderOut(nil)
+        recess.stop()
         prime.orderOut(nil)
     }
 
@@ -307,6 +321,7 @@ final class MeetingController: NSObject {
         current = candidate
         guard let candidate, !suppressed() else {
             panel.orderOut(nil)
+            recess.stop()
             return
         }
         if !offered.contains(candidate.occurrence.key) {
@@ -398,6 +413,7 @@ final class MeetingController: NSObject {
                                   provider: occurrence.link.provider.rawValue,
                                   decider: decider, lead: lead)
         panel.orderOut(nil)
+        recess.stop()
         current = nil
         // An overlapping meeting may be next in line this same minute.
         evaluate()
@@ -454,6 +470,7 @@ final class MeetingController: NSObject {
         // quiet before it. It is the one lit thing on the chip.
         let countdownKey = KeyFace(countdown.legend, padX: 12, height: BarTheme.countdownHeight,
                                    font: BarTheme.countdownFont, minWidth: BarTheme.countdownHeight)
+        countdownKey.quietInk = BarTheme.secondary(recedingWith: recess)
         countdownKey.lit = countdown.lit
         countdownKey.quiet = !countdown.lit
         countdownKey.setAccessibilityElement(false)
@@ -462,12 +479,12 @@ final class MeetingController: NSObject {
 
         let title = NSTextField(labelWithString: occurrence.title)
         title.font = BarTheme.stubTitleFont
-        title.textColor = BarTheme.ink
+        title.textColor = BarTheme.ink(recedingWith: recess)
         title.lineBreakMode = .byTruncatingTail
         title.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         let detail = NSTextField(labelWithString: meta)
         detail.font = BarTheme.stubDetailFont
-        detail.textColor = BarTheme.secondaryColor
+        detail.textColor = BarTheme.secondary(recedingWith: recess)
         detail.lineBreakMode = .byTruncatingTail
         detail.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         let body = NSStackView(views: [title, detail])
@@ -516,12 +533,27 @@ final class MeetingController: NSObject {
                            y: (visible.maxY - size.height - 20).rounded())
         }
         panel.orderFrontRegardless()
+        // Receding: the chip comes to full ink when it appears, when it is a
+        // different meeting, and when its countdown lights (the door), which
+        // is the moment it is asking for the hand. A minute ticking over is
+        // not an interaction, so it does not hold the chip up.
+        let standing = "\(occurrence.title)|\(occurrence.start.timeIntervalSince1970)|\(countdown.lit)"
+        if !wasVisible || standing != recessKey { recess.touch() }
+        recessKey = standing
         // Only on the way up: render is called again to retitle a chip that
         // is already standing, and that is not a fresh claim.
         if !wasVisible { onChipShown() }
     }
 
     #if DEBUG
+    /// A chip for a candidate, drawn as the evaluation would, for the tests.
+    func stageChip(_ candidate: Meetings.Candidate) {
+        current = candidate
+        render(candidate)
+    }
+    /// Receding's clock and the chip's view, for the tests.
+    var recessClock: RecessClock { recess }
+    var chipRoot: NSView { root }
     /// The chip's words as drawn, for the tests.
     var chipWords: [String] {
         func words(_ view: NSView) -> [String] {

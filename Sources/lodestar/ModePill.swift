@@ -124,6 +124,10 @@ final class ModePill {
 
     private let panel: NSPanel
     private let root = NSView()
+    /// Receding: the pill's ink moves toward its pane when it has been left
+    /// alone, and returns when it is shown, changed, keyed or pointed at.
+    let recess = RecessClock()
+    private var hover: RecessHover?
     /// The opaque ceramic the pill is made of, for the tests.
     private(set) var surface: NSView?
     private var content: NSStackView?
@@ -147,6 +151,8 @@ final class ModePill {
         moveObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didMoveNotification, object: panel, queue: .main
         ) { [weak self] _ in self?.noteMoved() }
+        hover = RecessHover(root, clock: recess)
+        recess.onChange = { [weak self] in SurfacePaint.again(self?.root) }
     }
 
     deinit {
@@ -172,6 +178,8 @@ final class ModePill {
     }
 
     func show(_ state: State) {
+        // Said again, keyed, or changed: the pill is in use.
+        recess.touch()
         if state == self.state, panel.isVisible { return }
         self.state = state
         build(state)
@@ -179,6 +187,7 @@ final class ModePill {
     }
 
     func hide() {
+        recess.stop()
         state = nil
         keys?.removeFromSuperview()
         keys = nil
@@ -294,16 +303,16 @@ final class ModePill {
             let image = NSImage(systemSymbolName: name, accessibilityDescription: state.mode.word)?
                 .withSymbolConfiguration(BarTheme.symbol)
             let view = NSImageView(image: image ?? NSImage())
-            view.contentTintColor = BarTheme.ink
+            view.contentTintColor = BarTheme.ink(recedingWith: recess)
             view.setContentHuggingPriority(.required, for: .horizontal)
             return view
         case .modeWord(let word):
-            return Self.label(word, font: BarTheme.bodyFont, color: BarTheme.ink)
+            return Self.label(word, font: BarTheme.bodyFont, color: BarTheme.ink(recedingWith: recess))
         case .offer(let offer):
             // The pill's one light, when the offer is ⏎: the key, lit.
             return Keycaps.line([.init([offer.key], offer.words, lit: offer.lit, quiet: !offer.lit)])
         case .appWord(let word):
-            return Self.label(word, font: BarTheme.bodyFont, color: BarTheme.secondaryColor)
+            return Self.label(word, font: BarTheme.bodyFont, color: BarTheme.secondary(recedingWith: recess))
         case .appIcon:
             let view = NSImageView(image: state.icon ?? NSImage())
             view.imageScaling = .scaleProportionallyUpOrDown
@@ -314,12 +323,12 @@ final class ModePill {
             ])
             return view
         case .caret:
-            return Self.caret(alpha: 0.55)
+            return Self.caret(alpha: 0.55, ink: BarTheme.ink(recedingWith: recess))
         case .anchored(let word):
             // The word already taken, then a quiet dot before whatever
             // comes next: the far end's letters, or the caret waiting.
-            let label = Self.label(word, font: Self.textFont, color: BarTheme.ink)
-            let dot = Self.label("·", font: BarTheme.bodyFont, color: BarTheme.secondaryColor)
+            let label = Self.label(word, font: Self.textFont, color: BarTheme.ink(recedingWith: recess))
+            let dot = Self.label("·", font: BarTheme.bodyFont, color: BarTheme.secondary(recedingWith: recess))
             let pair = NSStackView(views: [label, dot])
             pair.orientation = .horizontal
             pair.alignment = .centerY
@@ -330,8 +339,8 @@ final class ModePill {
             // The letters and their caret, and no more: a slot reserved
             // ahead of the typing left a gap before the icon that read as
             // something missing. The pill fits what has been said.
-            let label = Self.label(text, font: Self.textFont, color: BarTheme.ink)
-            let slot = NSStackView(views: [label, Self.caret(alpha: 1)])
+            let label = Self.label(text, font: Self.textFont, color: BarTheme.ink(recedingWith: recess))
+            let slot = NSStackView(views: [label, Self.caret(alpha: 1, ink: BarTheme.ink(recedingWith: recess))])
             slot.orientation = .horizontal
             slot.alignment = .centerY
             slot.spacing = 3
@@ -351,8 +360,8 @@ final class ModePill {
     /// A hairline, still. It never blinks: a blinking caret would make
     /// the band a text field, and the band must never look like a thing
     /// to click into.
-    private static func caret(alpha: CGFloat) -> NSView {
-        let view = ToneView(fill: BarTheme.ink.withAlphaComponent(alpha))
+    private static func caret(alpha: CGFloat, ink: NSColor) -> NSView {
+        let view = ToneView(fill: ink.withAlphaComponent(alpha))
         view.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             view.widthAnchor.constraint(equalToConstant: 1.5),

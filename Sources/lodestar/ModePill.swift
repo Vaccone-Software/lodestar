@@ -116,13 +116,16 @@ final class ModePill {
     static let iconSize: CGFloat = 16
 
     /// The hand's words, upright: the italic was tried and did not look
-    /// right on the glass. Size and weight set them apart from the wings.
+    /// right on the pane. Size and weight set them apart from the wings; the
+    /// face is the interface's sans, the same as every other word.
     static var textFont: NSFont { BarTheme.typedFont }
 
     // MARK: - Surface
 
     private let panel: NSPanel
     private let root = NSView()
+    /// The opaque ceramic the pill is made of, for the tests.
+    private(set) var surface: NSView?
     private var content: NSStackView?
     private(set) var state: State?
     var isVisible: Bool { panel.isVisible }
@@ -137,8 +140,8 @@ final class ModePill {
     init() {
         panel = Glass.makePanel(level: .statusBar, takesKeys: false)
         SoftShadow.host(root, in: panel, cornerRadius: Self.radius)
-        _ = Glass.installBackdrop(in: root, cornerRadius: Self.radius)
-        // Draggable by its glass, the way the coach's chip is: one home by
+        surface = Glass.installBackdrop(in: root, cornerRadius: Self.radius)
+        // Draggable by its surface, the way the coach's chip is: one home by
         // default, and a remembered displacement once the hand moves it.
         Movable.enable(panel)
         moveObserver = NotificationCenter.default.addObserver(
@@ -185,12 +188,12 @@ final class ModePill {
 
     // MARK: - The keys
 
-    /// The lens's keys, above the row, in the pill's own glass. The row
-    /// never moves: the glass grows around it, upward and outward, and
+    /// The lens's keys, above the row, in the pill's own pane. The row
+    /// never moves: the pane grows around it, upward and outward, and
     /// the keys fade in above.
     private var keys: NSView?
-    /// The edges that ask the glass to be big enough for the keys. Taken
-    /// off before the glass shrinks, or the departing keys would still
+    /// The edges that ask the pane to be big enough for the keys. Taken
+    /// off before the pane shrinks, or the departing keys would still
     /// hold it wide while they fade.
     private var keyEdges: [NSLayoutConstraint] = []
     var keysShown: Bool { keys != nil }
@@ -206,11 +209,11 @@ final class ModePill {
         columns.alphaValue = 0
         root.addSubview(columns)
         // Laid out once at their own width, centred on the row and standing
-        // on it, so the glass reveals them as it grows and nothing inside
+        // on it, so the pane reveals them as it grows and nothing inside
         // it moves or reflows. The edges that ask the glass to be big
         // enough sit below the window-size threshold: above it AppKit
         // would size the window to them at once, ahead of the motion, and
-        // the row would sit off centre until the glass caught up. They
+        // the row would sit off centre until the pane caught up. They
         // still decide the fitting size the motion grows toward.
         let width = columns.fittingSize.width
         let edges = [
@@ -226,7 +229,7 @@ final class ModePill {
             columns.bottomAnchor.constraint(equalTo: content.topAnchor, constant: -Self.wingGap),
         ])
         keys = columns
-        // The glass moves while it grows; that is placement, not a drag.
+        // The pane moves while it grows; that is placement, not a drag.
         placing = true
         KeysMotion.grow(panel, to: SoftShadow.outset(frameForContent()), revealing: columns) { [weak self] in self?.placing = false }
     }
@@ -257,7 +260,7 @@ final class ModePill {
         }
 
         root.addSubview(stack)
-        // The row is the foot of the glass and its centre line: the same
+        // The row is the foot of the pane and its centre line: the same
         // pill when nothing stands above it, and the unmoved last line
         // of the card when its keys do.
         NSLayoutConstraint.activate([
@@ -338,9 +341,7 @@ final class ModePill {
     }
 
     private static func label(_ text: String, font: NSFont, color: NSColor) -> NSTextField {
-        let field = NSTextField(labelWithString: text)
-        field.font = font
-        field.textColor = color
+        let field = BarTheme.label(text, font: font, color: color)
         field.maximumNumberOfLines = 1
         field.lineBreakMode = .byTruncatingTail
         field.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -367,7 +368,7 @@ final class ModePill {
         panel.orderFrontRegardless()
     }
 
-    /// The glass for what it holds: the row's width and height alone, or
+    /// The pane for what it holds: the row's width and height alone, or
     /// the keys' above them. Its centre and its foot stay where the pill
     /// is, so growing never moves the row.
     func frameForContent() -> NSRect {

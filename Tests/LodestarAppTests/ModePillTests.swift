@@ -76,6 +76,23 @@ final class ModePillTests: XCTestCase {
         XCTAssertFalse(ModePill.textFont.isFixedPitch, "the pill's echo is the interface's sans: mono is for the draft and the lens")
     }
 
+    /// The pill is opaque ceramic and nothing else: no frost, no material, no
+    /// veil, and its words are in the palette's ink.
+    func testThePillIsOpaqueCeramic() throws {
+        let pill = ModePill()
+        pill.show(ModePill.State(mode: .click, app: "Slack", icon: nil, listening: false, text: "ab"))
+        let surface = try XCTUnwrap(pill.surface as? CeramicPane, "the pill's surface is the one pane")
+        XCTAssertEqual(surface.weight, .normal)
+        surface.updateLayer()
+        XCTAssertEqual(surface.layer?.backgroundColor?.alpha, 1, "opaque: nothing of the work beneath shows through")
+        func walk(_ view: NSView) {
+            XCTAssertFalse(view is NSVisualEffectView || view is NSGlassEffectView, "no glass or frost")
+            view.subviews.forEach(walk)
+        }
+        walk(try XCTUnwrap(pill.surface?.superview))
+        pill.hide()
+    }
+
     func testShowAndHideOnTheGlass() {
         let pill = ModePill()
         let state = ModePill.State(mode: .scroll, app: "Slack", icon: icon, listening: false, text: nil)

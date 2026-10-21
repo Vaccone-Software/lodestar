@@ -65,7 +65,7 @@ enum GuideRows {
 
         let text = NSTextField(labelWithString: guideRow.label)
         text.font = BarTheme.rowLabelFont
-        text.textColor = .labelColor
+        text.textColor = BarTheme.ink
         text.lineBreakMode = .byTruncatingTail
         text.setContentHuggingPriority(.defaultHigh, for: .horizontal)
 
@@ -152,7 +152,7 @@ enum VoiceCard {
 
         let voice = NSTextField(wrappingLabelWithString: sentence)
         voice.font = BarTheme.voiceFont
-        voice.textColor = .labelColor
+        voice.textColor = BarTheme.ink
         voice.preferredMaxLayoutWidth = width
         voice.translatesAutoresizingMaskIntoConstraints = false
         voice.widthAnchor.constraint(equalToConstant: width).isActive = true
@@ -172,7 +172,7 @@ enum VoiceCard {
             line.addArrangedSubview(arrow)
             let target = NSTextField(labelWithString: keymap.target)
             target.font = BarTheme.bodyFont
-            target.textColor = .labelColor
+            target.textColor = BarTheme.ink
             line.addArrangedSubview(target)
             line.setCustomSpacing(8, after: line.arrangedSubviews[keymap.keys.count - 1])
             line.setCustomSpacing(8, after: arrow)

@@ -385,7 +385,7 @@ private final class CommandsRowView: RaisedRow {
     /// ⏎. Which feed it came from is a fact, not a key, so it stays quiet.
     private func restyle() {
         applyRaised(selectedState)
-        title.textColor = .labelColor
+        title.textColor = BarTheme.ink
         crumb.textColor = BarTheme.secondaryColor
         sourceLabel.textColor = BarTheme.secondaryColor
         sourceChip.layer?.backgroundColor = Glass.resolved(BarTheme.well, in: sourceChip)

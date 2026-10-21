@@ -69,7 +69,7 @@ final class DesignDriftTests: XCTestCase {
     func testNoDynamicColourIsFixedOutsideItsAppearance() throws {
         let files = Self.swiftFiles(under: Self.appSources).filter { !$0.lastPathComponent.contains("Preview") }
         let hits = try offenders(
-            #"(labelColor|secondaryColor|readableAccent|secondaryLabelColor|tertiaryLabelColor|separatorColor|controlAccentColor|textColor)[^\n]*\.cgColor"#,
+            #"(labelColor|BarTheme\.ink|secondaryColor|readableAccent|secondaryLabelColor|tertiaryLabelColor|separatorColor|controlAccentColor|textColor)[^\n]*\.cgColor"#,
             in: files)
         XCTAssertEqual(hits, [], "resolve it with Glass.resolved(_:in:) or draw it in a ToneView")
     }
@@ -272,6 +272,7 @@ final class DesignDriftTests: XCTestCase {
         var offenders: [String] = []
         for (name, text) in try sources() where name != "Glass.swift" {
             let count = text.components(separatedBy: "labelColor.withAlphaComponent(").count - 1
+                + text.components(separatedBy: "BarTheme.ink.withAlphaComponent(").count - 1
             if count > notMatter[name, default: 0] { offenders.append(name) }
         }
         XCTAssertEqual(offenders, [], "use BarTheme.well or BarTheme.hairline")

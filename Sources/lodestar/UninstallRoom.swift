@@ -100,14 +100,14 @@ final class UninstallRoom: NSObject {
 
         let title = NSTextField(labelWithString: "Uninstall Lodestar")
         title.font = BarTheme.roomTitleFont
-        title.textColor = .labelColor
+        title.textColor = BarTheme.ink
         stack.addArrangedSubview(title)
         stack.setCustomSpacing(12, after: title)
 
         let current = plan(removesEverything)
         for step in current.steps {
             let first = step.name.prefix(1).uppercased() + step.name.dropFirst()
-            stack.addArrangedSubview(wrapped(first, color: .labelColor, width: text))
+            stack.addArrangedSubview(wrapped(first, color: BarTheme.ink, width: text))
         }
         stack.setCustomSpacing(16, after: stack.arrangedSubviews.last!)
 

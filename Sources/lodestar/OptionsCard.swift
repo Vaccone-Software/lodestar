@@ -168,7 +168,7 @@ final class OptionsCard {
             }
             if let error = menu.error {
                 stack.addArrangedSubview(label("✕ \(error)", font: BarTheme.secondaryFont,
-                                               color: .labelColor))
+                                               color: BarTheme.ink))
             }
             if let note = menu.note {
                 let noteLabel = label(note, font: BarTheme.secondaryFont, color: BarTheme.secondaryColor)
@@ -203,12 +203,12 @@ final class OptionsCard {
                 // The hand's words wear mono; the placeholder is Lodestar's.
                 bodyRow.addArrangedSubview(label(text.isEmpty ? placeholder : text,
                                                  font: text.isEmpty ? BarTheme.titleFont : BarTheme.handFont(BarTheme.Scale.title),
-                                                 color: text.isEmpty ? BarTheme.secondaryColor : .labelColor))
+                                                 color: text.isEmpty ? BarTheme.secondaryColor : BarTheme.ink))
             }
             stack.addArrangedSubview(bodyRow)
             let verdictLabel = label("\(typing.problem ? "✕" : "↵") \(typing.verdict)",
                                      font: BarTheme.secondaryFont,
-                                     color: typing.problem ? .labelColor : BarTheme.secondaryColor)
+                                     color: typing.problem ? BarTheme.ink : BarTheme.secondaryColor)
             verdictLabel.lineBreakMode = .byTruncatingTail
             verdictLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 340).isActive = true
             stack.addArrangedSubview(verdictLabel)
@@ -251,7 +251,7 @@ final class OptionsCard {
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         // Told by its place under the rule, never painted.
-        let tint: NSColor = .labelColor
+        let tint: NSColor = BarTheme.ink
         let icon = NSImageView(image: NSImage(
             systemSymbolName: item.symbol, accessibilityDescription: nil)?
             .withSymbolConfiguration(BarTheme.symbol) ?? NSImage())

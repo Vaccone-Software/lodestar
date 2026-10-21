@@ -572,7 +572,7 @@ final class WalkController: NSObject {
         case .permission:
             stack.addArrangedSubview(heading("One permission"))
             stack.addArrangedSubview(wrapped(Self.permissionReason(chosen ?? .switcher), size: BarTheme.Scale.body,
-                                             color: .labelColor, alignment: .left, width: text))
+                                             color: BarTheme.ink, alignment: .left, width: text))
             if !administrator {
                 stack.addArrangedSubview(wrapped(Self.standardAccountNote, size: BarTheme.Scale.body,
                                                  color: BarTheme.secondaryColor, alignment: .left, width: text))
@@ -598,7 +598,7 @@ final class WalkController: NSObject {
             stack.addArrangedSubview(wrapped(
                 "In System Settings, switch Lodestar on in the Accessibility list. "
                     + "This card continues the moment you do.",
-                size: BarTheme.Scale.body, color: .labelColor, alignment: .left, width: text))
+                size: BarTheme.Scale.body, color: BarTheme.ink, alignment: .left, width: text))
             stack.addArrangedSubview(wrapped("No restart needed.", size: BarTheme.Scale.meta,
                                              color: BarTheme.secondaryColor, alignment: .left, width: text))
             stack.setCustomSpacing(16, after: stack.arrangedSubviews.last!)
@@ -655,7 +655,7 @@ final class WalkController: NSObject {
                 column.addArrangedSubview(image)
             }
             column.addArrangedSubview(label(option.name, size: BarTheme.Scale.body, weight: .semibold,
-                                            color: .labelColor))
+                                            color: BarTheme.ink))
             column.addArrangedSubview(wrapped(Self.doorLine(option), size: BarTheme.Scale.meta,
                                               color: BarTheme.secondaryColor, alignment: .left, width: tileWidth - 20))
             column.wantsLayer = true
@@ -960,7 +960,7 @@ final class WalkController: NSObject {
                                            weight: .medium, color: BarTheme.secondaryColor))
         }
         stack.addArrangedSubview(label(content.title, size: BarTheme.Scale.title, weight: .semibold,
-                                       color: .labelColor))
+                                       color: BarTheme.ink))
         stack.addArrangedSubview(wrapped(content.body, size: BarTheme.Scale.body,
                                          color: BarTheme.secondaryColor, alignment: .left,
                                          width: Self.cardText))
@@ -1015,7 +1015,7 @@ final class WalkController: NSObject {
             image.heightAnchor.constraint(equalToConstant: 30).isActive = true
             row.addArrangedSubview(image)
         }
-        row.addArrangedSubview(label(text, size: BarTheme.Scale.title, weight: .semibold, color: .labelColor))
+        row.addArrangedSubview(label(text, size: BarTheme.Scale.title, weight: .semibold, color: BarTheme.ink))
         return row
     }
 
@@ -1116,7 +1116,7 @@ final class WalkController: NSObject {
                 row.addArrangedSubview(keycap(String(letter).uppercased(), lit: true))
             }
             row.addArrangedSubview(label(option.label, size: BarTheme.Scale.body, weight: .regular,
-                                         color: .labelColor))
+                                         color: BarTheme.ink))
             column.addArrangedSubview(row)
         }
         return column
@@ -1134,7 +1134,7 @@ final class WalkController: NSObject {
             row.setContentHuggingPriority(.required, for: .horizontal)
             row.addArrangedSubview(keycap(proposal.letter.uppercased(), lit: true))
             row.addArrangedSubview(label(proposal.app, size: BarTheme.Scale.body, weight: .regular,
-                                         color: .labelColor))
+                                         color: BarTheme.ink))
             column.addArrangedSubview(row)
         }
         return column

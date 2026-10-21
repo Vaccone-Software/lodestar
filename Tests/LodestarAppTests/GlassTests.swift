@@ -169,23 +169,23 @@ final class AccessibilitySettingsTests: XCTestCase {
             return out
         }
         Accessibility.increaseContrast = { true }
-        XCTAssertEqual(drawn(BarTheme.secondaryColor), drawn(.labelColor))
+        XCTAssertEqual(drawn(BarTheme.secondaryColor), drawn(BarTheme.ink))
         Accessibility.increaseContrast = { false }
-        XCTAssertNotEqual(drawn(BarTheme.secondaryColor), drawn(.labelColor))
-        if Tone.systemDark { XCTAssertEqual(drawn(BarTheme.secondaryColor), drawn(.secondaryLabelColor)) }
+        XCTAssertNotEqual(drawn(BarTheme.secondaryColor), drawn(BarTheme.ink))
+        XCTAssertEqual(drawn(BarTheme.secondaryColor), BarTheme.palette.secondary.color.usingColorSpace(.sRGB), "the palette's own quiet ink")
     }
 
     func testAnAccentOnItsGroundFallsBackToTheLabelColour() {
         BarTheme.accentColor = { BarTheme.ground }
-        XCTAssertEqual(BarTheme.readableAccent, .labelColor, "no contrast at all")
+        XCTAssertEqual(BarTheme.readableAccent, BarTheme.ink, "no contrast at all")
         BarTheme.accentColor = { .systemOrange }
         if Tone.systemDark {
             XCTAssertEqual(BarTheme.readableAccent, .systemOrange, "orange clears charcoal")
         } else {
-            XCTAssertEqual(BarTheme.readableAccent, .labelColor, "orange does not clear paper")
+            XCTAssertEqual(BarTheme.readableAccent, BarTheme.ink, "orange does not clear paper")
         }
         BarTheme.accentColor = { Tone.systemDark ? .white : .black }
-        XCTAssertNotEqual(BarTheme.readableAccent, .labelColor, "a strong accent is kept as chosen")
+        XCTAssertNotEqual(BarTheme.readableAccent, BarTheme.ink, "a strong accent is kept as chosen")
     }
 
     func testTheInsertBarWearsTheReadableAccent() {
@@ -194,7 +194,7 @@ final class AccessibilitySettingsTests: XCTestCase {
         defer { panel.hide() }
         panel.show(DraftView(buffer: Draft.Buffer(text: "x", cursor: 0), mode: .insert, editor: .insert,
                              speech: nil, destination: ("Notes", nil), replacing: false))
-        XCTAssertEqual(panel.caretColor?.usingColorSpace(.sRGB), NSColor.labelColor.usingColorSpace(.sRGB),
+        XCTAssertEqual(panel.caretColor?.usingColorSpace(.sRGB), BarTheme.ink.usingColorSpace(.sRGB),
                        "a bar the eye could not find is drawn in the text's colour instead")
     }
 
@@ -509,8 +509,8 @@ final class KeyFaceTests: XCTestCase {
             return out
         }
         let light = resolved(.aqua), dark = resolved(.darkAqua)
-        XCTAssertLessThan(light.redComponent, 0.2, "dark ink on paper")
-        XCTAssertGreaterThan(dark.redComponent, 0.8, "light ink on charcoal")
+        XCTAssertLessThan(light.redComponent, 0.5, "dark ink on clay")
+        XCTAssertGreaterThan(dark.redComponent, 0.5, "light ink on espresso")
     }
 
     /// Every surface with the drawn shadow is gated by construction: the

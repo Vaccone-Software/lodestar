@@ -21,15 +21,14 @@ final class ReadabilityTests: XCTestCase {
         let panel = DraftPanel()
         defer { panel.hide() }
         panel.show(view("hello", cursor: 1, editor: .normal))
-        // The plate is the text's own colour, which on the pinned dark
-        // appearance is white at 85 percent — the same white the glyphs
-        // are drawn in, not the 35 percent wash it used to be.
-        let label = NSColor.labelColor.usingColorSpace(.deviceRGB)!
+        // The plate is the text's own colour, the ink the glyphs are drawn
+        // in, not the 35 percent wash it used to be.
+        let label = BarTheme.ink.usingColorSpace(.deviceRGB)!
         let plate = panel.caretColor?.usingColorSpace(.deviceRGB)
         XCTAssertEqual(plate?.alphaComponent ?? 0, label.alphaComponent, accuracy: 0.01, "a plate, not a wash")
         XCTAssertGreaterThan(plate?.alphaComponent ?? 0, 0.8)
         XCTAssertEqual(color(panel, at: 1), DraftPanel.ground, "the glyph under it is cut out in the ground")
-        XCTAssertEqual(color(panel, at: 0), .labelColor, "its neighbours are not")
+        XCTAssertEqual(color(panel, at: 0), BarTheme.ink, "its neighbours are not")
         XCTAssertGreaterThan(panel.caretFrame.width, 4, "the width of the glyph")
     }
 
@@ -47,16 +46,16 @@ final class ReadabilityTests: XCTestCase {
                        BarTheme.readableAccent.usingColorSpace(.deviceRGB))
         XCTAssertEqual(BarTheme.readableAccent, BarTheme.accent, "orange clears the floor on the night")
         XCTAssertEqual(panel.caretFrame.width, 3, accuracy: 0.01)
-        XCTAssertEqual(color(panel, at: 1), .labelColor, "nothing is inverted under a bar")
+        XCTAssertEqual(color(panel, at: 1), BarTheme.ink, "nothing is inverted under a bar")
     }
 
     func testNoInversionAtTheEndOfTheTextOrOnANewline() {
         let panel = DraftPanel()
         defer { panel.hide() }
         panel.show(view("ab\ncd", cursor: 2, editor: .normal))
-        XCTAssertEqual(color(panel, at: 2), .labelColor, "a newline has no glyph to invert")
+        XCTAssertEqual(color(panel, at: 2), BarTheme.ink, "a newline has no glyph to invert")
         panel.show(view("ab", cursor: 2, editor: .normal))
-        XCTAssertEqual(color(panel, at: 1), .labelColor)
+        XCTAssertEqual(color(panel, at: 1), BarTheme.ink)
     }
 
     func testNoInversionWhileAGhostStands() {

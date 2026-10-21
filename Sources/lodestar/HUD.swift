@@ -276,7 +276,7 @@ final class HUD {
         if let mark, let image = NSImage(systemSymbolName: mark, accessibilityDescription: nil)?
             .withSymbolConfiguration(BarTheme.symbol) {
             let view = NSImageView(image: image)
-            view.contentTintColor = .labelColor
+            view.contentTintColor = BarTheme.ink
             view.setContentHuggingPriority(.required, for: .horizontal)
             titleRow.addArrangedSubview(view)
             titleRow.setCustomSpacing(ModePill.wordGap, after: view)
@@ -298,7 +298,7 @@ final class HUD {
         if let text {
             let titleLabel = NSTextField(labelWithString: text)
             titleLabel.font = BarTheme.bodyFont
-            titleLabel.textColor = .labelColor
+            titleLabel.textColor = BarTheme.ink
             if let way {
                 // The fact, then the way under it, both beside the mark;
                 // the mark stays on the fact's line.

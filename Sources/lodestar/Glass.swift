@@ -625,26 +625,27 @@ enum BarTheme {
     /// it is the card's subject, where the lines beside a stack of files
     /// are only a list.
     static let fileNameFont = NSFont.systemFont(ofSize: Scale.meta, weight: .medium)
-    /// The one colour for secondary text — and the label colour itself
-    /// when a person has asked the system for more contrast. On the
-    /// paper side the system's secondary grey measured 3.9 to 1 against
-    /// the veil, under the 4.5 that reading needs, so light mode sets
-    /// its captions a shade darker than the system would; charcoal's
-    /// secondary measured 6.2 and stays the system's own.
+    /// The ink: tinted, never pure black or pure white (the brightness
+    /// ceiling), resolved in the look of the view that draws it. Text that
+    /// takes this and not the system's label colour is the same ink in a
+    /// selected row, whose own look is the other one's.
+    static let ink = NSColor(name: "LodestarInk") { appearance in
+        steps(for: appearance).ink.color
+    }
+
+    /// The one colour for secondary text — and the ink itself when a person
+    /// has asked the system for more contrast. The palette's own quiet ink,
+    /// measured against its pane and its keys' faces (4.5 to 1 and more) in
+    /// both looks, where the system's secondary grey measured 3.9 to 1
+    /// against clay.
     ///
     /// Resolved when it is drawn, not when it is handed out: a caption
     /// built in light mode and kept (an attributed title, a chip made once)
-    /// otherwise stays 66% black on a dark pane after the Mac turns dark
+    /// otherwise stays clay's grey on a dark pane after the Mac turns dark
     /// at sunset.
     static let secondaryColor = NSColor(name: "LodestarSecondary") { appearance in
-        var resolved = NSColor.secondaryLabelColor
-        appearance.performAsCurrentDrawingAppearance {
-            let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            let color: NSColor = Accessibility.increaseContrast() ? .labelColor
-                : dark ? .secondaryLabelColor : NSColor(white: 0, alpha: 0.66)
-            resolved = color.usingColorSpace(.sRGB) ?? color
-        }
-        return resolved
+        let look = steps(for: appearance)
+        return (Accessibility.increaseContrast() ? look.ink : look.secondary).color
     }
 
     /// The palette in force: espresso in dark mode, clay in light.
@@ -720,7 +721,7 @@ enum BarTheme {
         Tone.systemDark ? NSColor(white: 0.92, alpha: 1) : NSColor(white: 0.13, alpha: 1)
     }
     static var keyLetter: NSColor {
-        if Accessibility.increaseContrast() { return .labelColor }
+        if Accessibility.increaseContrast() { return BarTheme.ink }
         return Tone.systemDark ? secondaryColor : NSColor(white: 0, alpha: 0.62)
     }
     /// The key's top face catches the light; its front lip falls in shadow.
@@ -735,7 +736,9 @@ enum BarTheme {
     /// Eight inline opacities, from 0.03 to 0.2, had made one material read
     /// as several near-misses. The hairline is the look's ink at its own
     /// share (a tenth by day, less at night where light lines read harder).
-    static var well: NSColor { NSColor.labelColor.withAlphaComponent(0.05) }
+    static var well: NSColor {
+        NSColor(name: nil) { appearance in steps(for: appearance).ink.color.withAlphaComponent(0.05) }
+    }
     static var hairline: NSColor {
         NSColor(name: nil) { appearance in
             let look = steps(for: appearance)
@@ -797,7 +800,7 @@ enum BarTheme {
         let ratio = Readability.contrast(
             Readability.luminance(red: a.redComponent, green: a.greenComponent, blue: a.blueComponent),
             Readability.luminance(red: g.redComponent, green: g.greenComponent, blue: g.blueComponent))
-        return ratio >= Readability.markFloor ? accent : .labelColor
+        return ratio >= Readability.markFloor ? accent : BarTheme.ink
     }
     /// What a key's row says it does — the reading size, not a caption.
     static let rowLabelFont = NSFont.systemFont(ofSize: Scale.body, weight: .regular)
@@ -1101,7 +1104,7 @@ enum Keycaps {
             // A label is a name, capitalized wherever it is written from:
             // "esc Back", never "esc back".
             let verb = word(gesture.verb.prefix(1).uppercased() + gesture.verb.dropFirst(),
-                            color: gesture.lit && !gesture.quiet ? .labelColor : BarTheme.secondaryColor)
+                            color: gesture.lit && !gesture.quiet ? BarTheme.ink : BarTheme.secondaryColor)
             add(verb, spacingBefore: 7)
         }
         return row
@@ -1139,7 +1142,7 @@ final class RoomField: NSView {
         field.drawsBackground = false
         field.focusRingType = .none
         field.font = BarTheme.rowLabelFont
-        field.textColor = .labelColor
+        field.textColor = BarTheme.ink
         field.translatesAutoresizingMaskIntoConstraints = false
         field.setPlaceholder(placeholder)
         addSubview(field)
@@ -1233,7 +1236,7 @@ final class RoomButton: NSButton {
     private func restyle() {
         // A button that cannot be undone says so in its words, never in
         // an alarm colour: one light, no paint.
-        let color: NSColor = primary ? BarTheme.onAccent : (isEnabled ? .labelColor : BarTheme.secondaryColor)
+        let color: NSColor = primary ? BarTheme.onAccent : (isEnabled ? BarTheme.ink : BarTheme.secondaryColor)
         let words = super.title
         super.attributedTitle = NSAttributedString(string: words, attributes: [
             .font: answer ? BarTheme.bodyFont : BarTheme.secondaryFont, .foregroundColor: color])
@@ -1270,7 +1273,7 @@ final class ChoiceMenuItemView: NSView {
         wantsLayer = true
         label.stringValue = item.title
         label.font = BarTheme.secondaryFont
-        label.textColor = item.isEnabled ? .labelColor : BarTheme.secondaryColor
+        label.textColor = item.isEnabled ? BarTheme.ink : BarTheme.secondaryColor
         label.lineBreakMode = .byTruncatingTail
         icon.image = item.image
         dot.wantsLayer = true
@@ -1374,7 +1377,7 @@ final class AccentSwitch: NSControl {
     /// into place must not slide into it.
     private func paint(animated: Bool = false) {
         let on = state == .on
-        let tint = Glass.resolved(on ? BarTheme.accent : NSColor.labelColor.withAlphaComponent(0.22), in: self)
+        let tint = Glass.resolved(on ? BarTheme.accent : BarTheme.ink.withAlphaComponent(0.22), in: self)
         let knobSize = Self.size.height - 4
         let knobFrame = NSRect(x: on ? bounds.width - knobSize - 2 : 2, y: 2, width: knobSize, height: knobSize)
         let fromPosition = knob.presentation()?.position ?? knob.position
@@ -2018,7 +2021,7 @@ enum KeyMark {
     static let peekHeight: CGFloat = 48
     static let peekFont = NSFont.monospacedSystemFont(ofSize: 24, weight: .semibold)
     /// The neutral hairline from a displaced tag to its word.
-    static var connector: NSColor { NSColor.labelColor.withAlphaComponent(Tone.systemDark ? 0.38 : 0.35) }
+    static var connector: NSColor { BarTheme.ink.withAlphaComponent(Tone.systemDark ? 0.38 : 0.35) }
     /// The underline's weight: the editor's line, select's matches, a held span.
     static let underline: CGFloat = 2.5
     /// The anchor's and the held span's heavier line.
@@ -2080,7 +2083,7 @@ enum KeyMark {
         let key = KeyMark.key(letter, typed: typed)
         let label = NSTextField(labelWithString: word)
         label.font = BarTheme.secondaryFont
-        label.textColor = .labelColor
+        label.textColor = BarTheme.ink
         label.sizeToFit()
         let height = key.frame.height + pad * 2
         let width = ceil(pad + key.frame.width + 6 + label.frame.width + 8)

@@ -302,7 +302,7 @@ final class DraftPanel {
         backdrop = Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
 
         registerName.font = BarTheme.rowLabelFont
-        registerName.textColor = .labelColor
+        registerName.textColor = BarTheme.ink
         registerName.lineBreakMode = .byTruncatingTail
         registerNote.font = BarTheme.secondaryFont
         registerNote.textColor = BarTheme.secondaryColor
@@ -531,7 +531,7 @@ final class DraftPanel {
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineSpacing = 3
         let settledAttributes: [NSAttributedString.Key: Any] = [
-            .font: Self.font, .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph,
+            .font: Self.font, .foregroundColor: BarTheme.ink, .paragraphStyle: paragraph,
         ]
         let ghostAttributes: [NSAttributedString.Key: Any] = [
             .font: Self.font, .foregroundColor: BarTheme.secondaryColor, .paragraphStyle: paragraph,
@@ -570,7 +570,7 @@ final class DraftPanel {
             let lower = (String(view.buffer.characters[..<selection.lowerBound]) as NSString).length
             let upper = (String(view.buffer.characters[..<selection.upperBound]) as NSString).length
             attributed.addAttribute(.backgroundColor,
-                                    value: NSColor.labelColor.withAlphaComponent(0.3),
+                                    value: BarTheme.ink.withAlphaComponent(0.3),
                                     range: NSRange(location: lower, length: max(0, upper - lower)))
         }
         // The find lights recolor the letters themselves — nothing is
@@ -848,7 +848,7 @@ final class DraftPanel {
             // into a layer's colour takes whatever appearance is current at
             // the call, and off the draw pass that was the dark one, so the
             // light look drew a white plate on a light pane.
-            caret.layer?.backgroundColor = Glass.resolved(block ? NSColor.labelColor : BarTheme.readableAccent,
+            caret.layer?.backgroundColor = Glass.resolved(block ? BarTheme.ink : BarTheme.readableAccent,
                                                           in: root)
         }
 

@@ -701,32 +701,23 @@ enum BarTheme {
     }
     static var raisedRim: NSColor { polishedRim }
 
-    /// The one key, resting: in the night a pale cap on the pane, in clay
-    /// one of the pictures' dark keycaps with a pale letter.
-    static var keyFill: NSColor {
-        Tone.systemDark ? NSColor.white.withAlphaComponent(0.08) : .white
-    }
-    /// In the light a key is drawn the way light keys are: a white face, a
-    /// hairline, a darker lip. In the night the lip and the lit top do it.
-    static var keyEdge: NSColor? {
-        Tone.systemDark ? nil : NSColor(white: 0, alpha: 0.13)
-    }
-    /// A key laid over another app's window: the same cap made opaque, so
-    /// nothing of the window beneath shows through it, with a brighter
-    /// letter, because a mark is read against someone else's content.
-    static var markFill: NSColor {
-        Tone.systemDark ? (ground.blended(withFraction: 0.08, of: .white) ?? ground) : .white
-    }
-    static var markLetter: NSColor {
-        Tone.systemDark ? NSColor(white: 0.92, alpha: 1) : NSColor(white: 0.13, alpha: 1)
-    }
-    static var keyLetter: NSColor {
-        if Accessibility.increaseContrast() { return BarTheme.ink }
-        return Tone.systemDark ? secondaryColor : NSColor(white: 0, alpha: 0.62)
-    }
-    /// The key's top face catches the light; its front lip falls in shadow.
-    static var keyTop: NSColor { NSColor.white.withAlphaComponent(Tone.systemDark ? 0.11 : 0.9) }
-    static var keyLip: NSColor { NSColor.black.withAlphaComponent(Tone.systemDark ? 0.6 : 0.16) }
+    /// The one key, resting: the look's raised step, which is a key's face,
+    /// standing on its side. A key is the thing you press, so it is the
+    /// thing that stands up; the pane around it is flat.
+    static var keyFace: NSColor { dynamicStep(\.raised) }
+    /// The side a resting key stands on, the look's own darker clay or
+    /// espresso. It survives the night where a shadow does not, which is
+    /// why depth is drawn as a side and not as a shadow.
+    static var keySide: NSColor { dynamicStep(\.keySide) }
+    /// A key laid over another app's window: the same ceramic, which is
+    /// opaque already, so nothing of the window beneath shows through it,
+    /// with the ink for its letter, because a mark is read against someone
+    /// else's content.
+    static var markFill: NSColor { keyFace }
+    static var markLetter: NSColor { ink }
+    static var keyLetter: NSColor { ink }
+    /// The key's top face catches the light: the pane's polished rim.
+    static var keyTop: NSColor { polishedRim }
     /// The neutral matter, two steps and no more. A well is where something
     /// is put — a field, a note box, a choice, a group's card, Keep's empty
     /// keepsake — and a quiet key lies beside, shallow and sunk; a
@@ -746,9 +737,11 @@ enum BarTheme {
         }
     }
     /// A lit key is a small piece of the mark: the accent, its top edge the
-    /// mark's brightest face and its lip the darkest.
+    /// mark's brightest face and its side the darkest. Both are made in the
+    /// appearance current where they are asked for (a blend is fixed when
+    /// it is made), so a surface asks inside its own.
     static var litKeyTop: NSColor { accent.blended(withFraction: 0.4, of: .white) ?? accent }
-    static var litKeyLip: NSColor { accent.blended(withFraction: 0.44, of: .black) ?? accent }
+    static var litKeySide: NSColor { accent.blended(withFraction: 0.44, of: .black) ?? accent }
 
     /// The accent the person chose, as a closure so a test can choose one.
     static var accentColor: () -> NSColor = { .controlAccentColor }
@@ -1244,7 +1237,7 @@ final class RoomButton: NSButton {
             if primary {
                 let face = BarTheme.accent
                 layer?.backgroundColor = (hovering ? face.blended(withFraction: 0.10, of: .white) ?? face : face).cgColor
-                layer?.borderColor = BarTheme.litKeyLip.cgColor
+                layer?.borderColor = BarTheme.litKeySide.cgColor
                 light.color = BarTheme.litKeyTop
             } else {
                 layer?.backgroundColor = Glass.resolved(hovering ? BarTheme.hairline : BarTheme.well, in: self)
@@ -1506,48 +1499,148 @@ extension Readability.RGB {
     var color: NSColor { NSColor(srgbRed: red, green: green, blue: blue, alpha: 1) }
 }
 
-/// The one key Lodestar draws: a small object whose top face catches the
-/// light and whose front lip falls in shadow. Lit, it is a piece of the
-/// mark: the accent, with the mark's brightest face for its top edge and
-/// its darkest for its lip, and the letter in whichever ink reads on it.
-/// Resting, it is a quiet cap; in clay, the pictures' dark keycap.
+/// The layers a key is made of, shared by the key a hand presses (`KeyFace`)
+/// and the mark laid over another app's window (`KeyMark`): a side the key
+/// stands on, and the face above it with its polished top edge. A key is
+/// the thing you press, so it is the thing that stands up, three points at
+/// key size and in proportion at any other (never under a point and a half
+/// or over five). Pressed, the side collapses to a third and the face
+/// follows it down, at once; flat, which is a quiet key, there is no side.
+final class KeyLayers {
+    enum Stance { case standing, pressed, flat }
+
+    let side = CALayer()
+    let face = CALayer()
+    /// The top edge catching the light, along the face's own outline.
+    let rim = EdgeLight()
+    let radius: CGFloat
+    private(set) var stance = Stance.standing
+
+    init(radius: CGFloat) {
+        self.radius = radius
+        rim.install(in: face)
+    }
+
+    /// Stand the key's layers in a view's own, under whatever the view
+    /// adds above them.
+    func install(in host: CALayer) {
+        host.masksToBounds = false
+        host.addSublayer(side)
+        host.addSublayer(face)
+    }
+
+    /// The side's height for a key of this height: three at key size, in
+    /// proportion above and below it.
+    static func sideHeight(forHeight height: CGFloat) -> CGFloat {
+        min(5, max(1.5, 3 * height / BarTheme.chipHeight))
+    }
+
+    /// How much of the side shows now, of a key `height` tall.
+    func visibleSide(forHeight height: CGFloat) -> CGFloat {
+        let full = Self.sideHeight(forHeight: height)
+        switch stance {
+        case .standing: return full
+        case .pressed: return full / 3
+        case .flat: return 0
+        }
+    }
+
+    /// How far the face's middle stands above the key's own, which is where
+    /// the letter belongs: up by what the side has put under the face.
+    func labelLift(forHeight height: CGFloat) -> CGFloat {
+        stance == .flat ? 0 : visibleSide(forHeight: height) - Self.sideHeight(forHeight: height) / 2
+    }
+
+    func place(_ stance: Stance, in bounds: CGRect) {
+        self.stance = stance
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        guard stance != .flat else {
+            side.isHidden = true
+            face.frame = bounds
+            face.cornerRadius = min(radius, bounds.height / 2)
+            rim.fit(face.bounds, radius: face.cornerRadius, reach: radius + 3)
+            return
+        }
+        let full = Self.sideHeight(forHeight: bounds.height)
+        let visible = visibleSide(forHeight: bounds.height)
+        let faceHeight = max(0, bounds.height - full)
+        side.isHidden = false
+        face.frame = CGRect(x: bounds.minX, y: bounds.minY + visible, width: bounds.width, height: faceHeight)
+        // The side's top is buried in the face, so only what is below the
+        // face shows and no fringe of it edges the face's own corners.
+        side.frame = CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: visible + faceHeight / 2)
+        face.cornerRadius = min(radius, faceHeight / 2)
+        side.cornerRadius = min(radius, faceHeight / 2)
+        rim.fit(face.bounds, radius: face.cornerRadius, reach: radius + 3)
+    }
+
+    /// The colours, already resolved in the look of the view that draws the
+    /// key. A nil face or side is clear.
+    func paint(face faceColor: CGColor?, side sideColor: CGColor?, rim rimColor: NSColor?,
+               outline: CGColor? = nil) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        face.backgroundColor = faceColor
+        side.backgroundColor = sideColor
+        face.borderWidth = outline == nil ? 0 : 0.5
+        face.borderColor = outline
+        rim.color = rimColor
+        CATransaction.commit()
+    }
+}
+
+/// The one key Lodestar draws: a small object standing on a visible side,
+/// whose top edge catches the light. Lit, it is a piece of the mark: the
+/// accent, with the mark's brightest face for its top edge and its darkest
+/// for its side, and the letter in whichever ink reads on it. Resting, it
+/// is a cap of the look's raised ceramic.
 final class KeyFace: NSView {
     let label = NSTextField(labelWithString: "")
     var lit = false { didSet { if lit != oldValue { refresh() } } }
     /// A key you could press but are not being asked to: the address the
     /// coach offers for later, a cheat sheet's unused gesture, an action
-    /// not available yet. It lies flat. The light falls on raised things,
-    /// so a key that is not raised loses its lit top edge and its lip and
-    /// sits in a shallow well; resting keys stand, the lit key glows.
-    /// Depth carries the importance, never a fade: a translucent key is
-    /// not a thing a light falls on, and on clay it all but vanished.
+    /// not available yet. It lies flat, with no side and no well: it is not
+    /// a place, and the light falls on raised things, so a key that is not
+    /// raised loses its lit top edge and its side, keeps a hairline outline
+    /// and sets its letter in the quiet ink. Resting keys stand, the lit
+    /// key glows. Depth carries the importance, never a fade: a
+    /// translucent key is not a thing a light falls on.
     var quiet = false { didSet { if quiet != oldValue { refresh() } } }
     /// What a pointer is doing to a key that can be clicked: it brightens
-    /// under the pointer and sinks onto its lip when pressed.
+    /// under the pointer and sinks onto its side when pressed.
     private var pointer = Keycaps.CapState.resting
-    private let top = EdgeLight()
+    private let layers: KeyLayers
+    private var labelLift: NSLayoutConstraint?
+
+    /// What the key is drawn with, for the tests: the face's and the side's
+    /// colours, and how much of the side shows.
+    var faceColor: CGColor? { layers.face.backgroundColor }
+    var sideColor: CGColor? { layers.side.backgroundColor }
+    var visibleSide: CGFloat { layers.visibleSide(forHeight: bounds.height > 0 ? bounds.height : BarTheme.chipHeight) }
+    var stance: KeyLayers.Stance { layers.stance }
+    var rimColor: NSColor? { layers.rim.color }
 
     /// `padX` widens a key whose label is a word on a long cap, the walk's
     /// space bar; every other key takes the theme's.
     init(_ text: String, padX: CGFloat = BarTheme.chipPadX) {
+        layers = KeyLayers(radius: BarTheme.chipRadius)
         super.init(frame: .zero)
         wantsLayer = true
         translatesAutoresizingMaskIntoConstraints = false
-        layer?.cornerRadius = BarTheme.chipRadius
-        layer?.masksToBounds = false
-        layer?.shadowOffset = CGSize(width: 0, height: -1.5)
-        layer?.shadowRadius = 0
-        layer?.shadowOpacity = 1
-        if let layer { top.install(in: layer) }
+        if let layer { layers.install(in: layer) }
         label.stringValue = text
         label.font = BarTheme.chipFont
         label.alignment = .center
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
+        let lift = label.centerYAnchor.constraint(equalTo: centerYAnchor)
+        labelLift = lift
         NSLayoutConstraint.activate([
             label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: padX),
             label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -padX),
-            label.centerYAnchor.constraint(equalTo: centerYAnchor),
+            lift,
             heightAnchor.constraint(equalToConstant: BarTheme.chipHeight),
             widthAnchor.constraint(greaterThanOrEqualToConstant: BarTheme.chipMinWidth),
         ])
@@ -1566,7 +1659,7 @@ final class KeyFace: NSView {
 
     override func layout() {
         super.layout()
-        top.fit(bounds, radius: BarTheme.chipRadius, reach: BarTheme.chipRadius + 3)
+        layers.place(layers.stance, in: bounds)
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -1582,37 +1675,30 @@ final class KeyFace: NSView {
     }
 
     func refresh() {
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        let resting = lit ? BarTheme.accent : BarTheme.keyFill
-        // Under the pointer the face catches a little more light; pressed,
-        // it sinks onto its lip, which is the lip's whole height gone.
-        // Light, not ink: a dark clay key blended toward the label colour
-        // barely moved, so the hover catches white in both looks.
-        // Light, not ink, in the night; in the light a white key can only darken.
-        let toward: NSColor = Tone.systemDark || lit ? .white : .black
-        let face = pointer == .resting ? resting
-            : resting.blended(withFraction: pointer == .pressed ? 0.06 : (Tone.systemDark || lit ? 0.12 : 0.05), of: toward) ?? resting
-        if quiet, !lit {
-            layer?.backgroundColor = Glass.resolved(BarTheme.well, in: self)
-            layer?.borderWidth = 0
-            layer?.borderColor = nil
-            layer?.shadowOpacity = 0
-            top.color = nil
-            label.textColor = BarTheme.secondaryColor
-            CATransaction.commit()
-            return
+        let stance: KeyLayers.Stance = quiet && !lit ? .flat : (pointer == .pressed ? .pressed : .standing)
+        layers.place(stance, in: bounds.isEmpty ? NSRect(x: 0, y: 0, width: 0, height: BarTheme.chipHeight) : bounds)
+        labelLift?.constant = layers.labelLift(forHeight: bounds.height > 0 ? bounds.height : BarTheme.chipHeight)
+        // Every colour is made in this key's own look: a blend, like an
+        // alpha, is fixed in whatever look is current when it is made.
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            if stance == .flat {
+                layers.paint(face: nil, side: nil, rim: nil, outline: Glass.resolved(BarTheme.hairline, in: self))
+                label.textColor = BarTheme.secondaryColor
+                return
+            }
+            let resting = lit ? BarTheme.accent : BarTheme.keyFace
+            // Under the pointer the face catches a little more light:
+            // brighter in the night and on the accent, and in the light,
+            // where a key's face is already near the top, a little less.
+            let toward: NSColor = Tone.systemDark || lit ? .white : BarTheme.ink
+            let hover = pointer == .resting ? 0 : (Tone.systemDark || lit ? 0.12 : 0.05)
+            let face = pointer == .resting ? resting : resting.blended(withFraction: hover, of: toward) ?? resting
+            let side = lit ? BarTheme.litKeySide : BarTheme.keySide
+            let rim = lit ? BarTheme.litKeyTop : BarTheme.keyTop
+            layers.paint(face: Glass.resolved(face, in: self), side: Glass.resolved(side, in: self),
+                         rim: NSColor(cgColor: Glass.resolved(rim, in: self)))
+            label.textColor = lit ? BarTheme.onAccent : BarTheme.keyLetter
         }
-        layer?.shadowOpacity = 1
-        layer?.backgroundColor = Glass.resolved(face, in: self)
-        let edge = lit ? nil : BarTheme.keyEdge
-        layer?.borderWidth = edge == nil ? 0 : 0.5
-        layer?.borderColor = edge.map { Glass.resolved($0, in: self) }
-        layer?.shadowOffset = CGSize(width: 0, height: pointer == .pressed ? -0.5 : -1.5)
-        layer?.shadowColor = Glass.resolved(lit ? BarTheme.litKeyLip : BarTheme.keyLip, in: self)
-        top.color = lit ? BarTheme.litKeyTop : BarTheme.keyTop
-        label.textColor = lit ? BarTheme.onAccent : BarTheme.keyLetter
-        CATransaction.commit()
     }
 }
 
@@ -2008,13 +2094,33 @@ final class ShadowHostView: NSView {
     }
 }
 
-/// Marks laid over another app's window, drawn as the one key: the dark cap
-/// with its lit top edge and its lip, standing on a short warm shadow so it
-/// reads over any app, light or dark. A mark the hand has begun typing
-/// stays the resting key and keeps its width: the letters already typed
-/// dim in its label, and the ones still to press keep the mark's ink.
-/// Built by hand, without layout, because a window of click hints can be
-/// four hundred of them at once.
+/// A key drawn without layout, for `KeyMark`: the one key's layers in a plain
+/// view, so a window of four hundred of them costs nothing to build.
+final class KeyBody: NSView {
+    let layers: KeyLayers
+
+    init(frame: NSRect, radius: CGFloat) {
+        layers = KeyLayers(radius: radius)
+        super.init(frame: frame)
+        wantsLayer = true
+        if let layer { layers.install(in: layer) }
+        layers.place(.standing, in: bounds)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    /// The face's and the side's colours, for the tests.
+    var faceColor: CGColor? { layers.face.backgroundColor }
+    var sideColor: CGColor? { layers.side.backgroundColor }
+}
+
+/// Marks laid over another app's window, drawn as the one key: the raised
+/// ceramic cap standing on its side with its lit top edge, on a short warm
+/// shadow so it reads over any app, light or dark. A mark the hand has
+/// begun typing stays the resting key and keeps its width: the letters
+/// already typed dim in its label, and the ones still to press keep the
+/// mark's ink. Built by hand, without layout, because a window of click
+/// hints can be four hundred of them at once.
 enum KeyMark {
     static let height: CGFloat = BarTheme.chipHeight
     /// The peek's numerals: the same key at a size read across the screen.
@@ -2051,25 +2157,14 @@ enum KeyMark {
         label.alignment = .center
         label.sizeToFit()
         let width = max(height, ceil(label.frame.width) + BarTheme.chipPadX * 2)
-        let view = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
-        view.wantsLayer = true
-        guard let layer = view.layer else { return view }
-        layer.masksToBounds = false
-        layer.cornerRadius = radius
-        layer.backgroundColor = BarTheme.markFill.cgColor
-        // The lip: the key's own shadow, straight down and unblurred.
-        layer.shadowColor = BarTheme.keyLip.cgColor
-        layer.shadowOpacity = 1
-        layer.shadowRadius = 0
-        layer.shadowOffset = CGSize(width: 0, height: peek ? -3 : -1.5)
-        layer.shadowPath = CGPath(roundedRect: view.bounds, cornerWidth: radius, cornerHeight: radius, transform: nil)
-        // The top edge catching the light.
-        let top = CALayer()
-        top.frame = CGRect(x: radius * 0.8, y: height - 1, width: max(0, width - radius * 1.6), height: 1)
-        top.backgroundColor = BarTheme.keyTop.cgColor
-        top.cornerRadius = 0.5
-        layer.addSublayer(top)
-        label.frame = NSRect(x: 0, y: ((height - label.frame.height) / 2).rounded(), width: width,
+        let view = KeyBody(frame: NSRect(x: 0, y: 0, width: width, height: height), radius: radius)
+        // The mark is built outside any window, so its look is the one the
+        // Mac shows now, and it is made again when the hints are.
+        view.layers.paint(face: Glass.resolved(BarTheme.markFill), side: Glass.resolved(BarTheme.keySide),
+                          rim: NSColor(cgColor: Glass.resolved(BarTheme.keyTop)))
+        // The letter sits on the face's middle, which the side has raised.
+        let lift = view.layers.labelLift(forHeight: height)
+        label.frame = NSRect(x: 0, y: ((height - label.frame.height) / 2 + lift).rounded(), width: width,
                              height: label.frame.height)
         view.addSubview(label)
         return standing(view, radius: radius)

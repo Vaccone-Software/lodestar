@@ -108,12 +108,15 @@ final class GlassTests: XCTestCase {
         XCTAssertEqual(pane?.drawsEdge, false, "the hairline is drawn once")
     }
 
-    func testAMarkIsTheOneKeyStandingOnAShadow() {
+    func testAMarkIsTheOneKeyStandingOnItsSideAndAShadow() throws {
         let mark = KeyMark.key("ab")
         XCTAssertNotNil(mark.layer?.shadowPath, "stands on a short warm shadow")
-        let key = try? XCTUnwrap(mark.subviews.first)
-        XCTAssertEqual(key?.layer?.backgroundColor, BarTheme.markFill.cgColor, "the key's face, opaque over the app")
-        let label = key?.subviews.compactMap { $0 as? NSTextField }.first
+        let key = try XCTUnwrap(mark.subviews.first as? KeyBody)
+        XCTAssertEqual(key.faceColor, Glass.resolved(BarTheme.markFill), "the key's face, opaque over the app")
+        XCTAssertEqual(key.sideColor, Glass.resolved(BarTheme.keySide), "on its side")
+        XCTAssertEqual(key.layers.stance, .standing)
+        XCTAssertEqual(key.layers.face.frame.minY, KeyLayers.sideHeight(forHeight: KeyMark.height), "three points up at key size")
+        let label = key.subviews.compactMap { $0 as? NSTextField }.first
         XCTAssertEqual(label?.stringValue, "AB")
         XCTAssertEqual(mark.frame.height, KeyMark.height)
     }
@@ -462,11 +465,12 @@ final class KeyFaceTests: XCTestCase {
         BarTheme.accentColor = { BarTheme.accent(for: .orange) }
         defer { BarTheme.accentColor = saved }
         let key = KeyFace("E")
-        XCTAssertNotEqual(key.layer?.backgroundColor, BarTheme.accent.cgColor, "resting is not lit")
+        XCTAssertNotEqual(key.faceColor, Glass.resolved(BarTheme.accent, in: key), "resting is not lit")
         key.lit = true
-        XCTAssertEqual(key.layer?.backgroundColor, BarTheme.accent.cgColor)
+        XCTAssertEqual(key.faceColor, Glass.resolved(BarTheme.accent, in: key))
         XCTAssertEqual(key.label.textColor, BarTheme.onAccent)
-        XCTAssertEqual(key.layer?.shadowOffset.height ?? 0, -1.5, accuracy: 0.01, "the lip falls in shadow")
+        XCTAssertEqual(key.visibleSide, 3, "it stands on its side")
+        XCTAssertNotEqual(key.sideColor, key.faceColor, "a lit key's side is a darker shade of the accent")
     }
 
     /// The ⏎ on a bar's row is built once and only hidden and shown, so a
@@ -477,12 +481,14 @@ final class KeyFaceTests: XCTestCase {
         defer { BarTheme.accentColor = saved }
         let key = KeyFace("⏎")
         key.lit = true
-        XCTAssertEqual(key.layer?.backgroundColor, BarTheme.accent.cgColor)
+        XCTAssertEqual(key.faceColor, Glass.resolved(BarTheme.accent, in: key))
         BarTheme.accentColor = { NSColor.systemTeal }
         NotificationCenter.default.post(name: .accentDidChange, object: nil)
-        XCTAssertEqual(key.layer?.backgroundColor, BarTheme.accent.cgColor)
+        XCTAssertEqual(key.faceColor, Glass.resolved(BarTheme.accent, in: key))
         XCTAssertEqual(key.label.textColor, BarTheme.onAccent)
-        XCTAssertEqual(key.layer?.shadowColor, Glass.resolved(BarTheme.litKeyLip, in: key))
+        key.effectiveAppearance.performAsCurrentDrawingAppearance {
+            XCTAssertEqual(key.sideColor, Glass.resolved(BarTheme.litKeySide, in: key))
+        }
     }
 
     func testAKeyThatIsNotLitIgnoresAnAccentChange() {
@@ -490,11 +496,100 @@ final class KeyFaceTests: XCTestCase {
         BarTheme.accentColor = { BarTheme.accent(for: .orange) }
         defer { BarTheme.accentColor = saved }
         let key = KeyFace("E")
-        let resting = key.layer?.backgroundColor
+        let resting = key.faceColor
         BarTheme.accentColor = { NSColor.systemTeal }
         NotificationCenter.default.post(name: .accentDidChange, object: nil)
-        XCTAssertEqual(key.layer?.backgroundColor, resting)
-        XCTAssertNotEqual(key.layer?.backgroundColor, BarTheme.accent.cgColor)
+        XCTAssertEqual(key.faceColor, resting)
+        XCTAssertNotEqual(key.faceColor, Glass.resolved(BarTheme.accent, in: key))
+    }
+
+    private func rgb(_ color: CGColor?) -> NSColor? { color.flatMap(NSColor.init(cgColor:))?.usingColorSpace(.sRGB) }
+
+    /// A key in a window of the given look, the way one stands.
+    private func key(_ look: NSAppearance.Name, lit: Bool = false, quiet: Bool = false) -> (NSWindow, KeyFace) {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 80, height: 40), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: look)
+        let key = KeyFace("E")
+        key.lit = lit
+        key.quiet = quiet
+        window.contentView?.addSubview(key)
+        window.contentView?.layoutSubtreeIfNeeded()
+        key.refresh()
+        return (window, key)
+    }
+
+    /// A resting key stands on a visible side, three points at key size, in
+    /// the look's own colours; its face is the raised step.
+    func testARestingKeyStandsOnItsSideInTheLooksOwnColours() {
+        for (look, steps) in [(NSAppearance.Name.aqua, Palette.clay), (.darkAqua, Palette.night)] {
+            let (window, key) = key(look)
+            XCTAssertEqual(key.stance, .standing)
+            XCTAssertEqual(key.visibleSide, 3)
+            XCTAssertEqual(rgb(key.faceColor), steps.keyFace.color.usingColorSpace(.sRGB), "the face, \(look.rawValue)")
+            XCTAssertEqual(rgb(key.sideColor), steps.keySide.color.usingColorSpace(.sRGB), "the side, \(look.rawValue)")
+            let faces = key.layer?.sublayers?.filter { $0.backgroundColor != nil } ?? []
+            XCTAssertEqual(faces.count, 2, "a side and a face")
+            let face = faces.last!, side = faces.first!
+            XCTAssertEqual(face.frame.minY - side.frame.minY, 3, accuracy: 0.01, "the face stands three points above the foot")
+            XCTAssertEqual(face.frame.height, BarTheme.chipHeight - 3, accuracy: 0.01)
+            XCTAssertNotNil(key.rimColor, "the polished top edge is kept")
+            _ = window
+        }
+    }
+
+    /// Pressed, the side collapses to a third and the face goes down onto
+    /// it, at once.
+    func testAPressedKeyCollapsesItsSideAndTheFaceFollowsAtOnce() {
+        let (window, key) = key(.aqua)
+        let face = key.layer!.sublayers!.first { $0.backgroundColor != nil && $0.frame.minY > 0 }!
+        let before = face.frame.minY
+        key.fill(.pressed)
+        XCTAssertEqual(key.stance, .pressed)
+        XCTAssertEqual(key.visibleSide, 1, accuracy: 0.01, "about a point of side")
+        XCTAssertEqual(face.frame.minY, 1, accuracy: 0.01, "the face moved down by what the side gave up")
+        XCTAssertEqual(before - face.frame.minY, 2, accuracy: 0.01)
+        XCTAssertNil(face.animation(forKey: "position"), "instantly: nothing animates")
+        XCTAssertNil(face.animation(forKey: "bounds"))
+        key.fill(.resting)
+        XCTAssertEqual(face.frame.minY, 3, accuracy: 0.01, "and back up on release")
+        _ = window
+    }
+
+    /// Quiet is flat: no side, no well, the letter in the quiet ink, a
+    /// hairline outline and nothing else.
+    func testAQuietKeyIsFlatWithAHairlineAndTheQuietInk() {
+        let (window, key) = key(.aqua, quiet: true)
+        XCTAssertEqual(key.stance, .flat)
+        XCTAssertEqual(key.visibleSide, 0)
+        XCTAssertNil(key.faceColor, "no well")
+        XCTAssertNil(key.sideColor, "no side")
+        XCTAssertNil(key.rimColor, "no light falls on what is not raised")
+        let face = key.layer!.sublayers!.first { $0.borderWidth > 0 }
+        XCTAssertEqual(face?.borderWidth, 0.5, "a hairline outline")
+        XCTAssertEqual(face?.frame.height, BarTheme.chipHeight, "flat: the whole key is its face")
+        XCTAssertEqual(key.label.textColor, BarTheme.secondaryColor)
+        _ = window
+    }
+
+    /// A lit key stands on the accent's darker shade and keeps the lit top
+    /// edge as its rim.
+    func testALitKeyStandsOnADarkerShadeOfTheAccent() {
+        let (window, key) = key(.aqua, lit: true)
+        guard let face = rgb(key.faceColor), let side = rgb(key.sideColor) else { return XCTFail("no colours") }
+        XCTAssertLessThan(side.brightnessComponent, face.brightnessComponent, "darker")
+        XCTAssertEqual(side.hueComponent, face.hueComponent, accuracy: 0.03, "the same hue")
+        XCTAssertEqual(key.visibleSide, 3)
+        XCTAssertNotNil(key.rimColor)
+        _ = window
+    }
+
+    func testTheSideScalesWithTheKeyAndHoldsItsLimits() {
+        XCTAssertEqual(KeyLayers.sideHeight(forHeight: BarTheme.chipHeight), 3)
+        XCTAssertEqual(KeyLayers.sideHeight(forHeight: 6), 1.5, "a small mark never under a point and a half")
+        XCTAssertEqual(KeyLayers.sideHeight(forHeight: 11), 1.5)
+        XCTAssertEqual(KeyLayers.sideHeight(forHeight: 33), 4.5, accuracy: 0.01, "in proportion")
+        XCTAssertEqual(KeyLayers.sideHeight(forHeight: KeyMark.peekHeight), 5, "and the biggest stays a thing you press")
     }
 
     /// A caption's grey is resolved when drawn: the same colour object

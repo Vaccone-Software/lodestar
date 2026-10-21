@@ -19,7 +19,8 @@ final class ChipNarrowingTests: XCTestCase {
         XCTAssertEqual(SelectOverlay.narrowed(chips, typed: "z").map(\.label), [], "a letter no label starts with leaves nothing")
     }
 
-    private func face(_ mark: NSView) -> CGColor? { mark.subviews.first?.layer?.backgroundColor }
+    private func body(_ mark: NSView) -> KeyBody? { mark.subviews.first as? KeyBody }
+    private func face(_ mark: NSView) -> CGColor? { body(mark)?.faceColor }
 
     private func label(_ mark: NSView) -> NSTextField? {
         mark.subviews.first?.subviews.compactMap { $0 as? NSTextField }.first
@@ -30,12 +31,11 @@ final class ChipNarrowingTests: XCTestCase {
     }
 
     func testAMarkTheHandHasBegunTypingStaysTheRestingKey() {
-        XCTAssertEqual(face(KeyMark.key("af", typed: "a")), BarTheme.markFill.cgColor, "no accent: the same cap")
+        XCTAssertEqual(face(KeyMark.key("af", typed: "a")), Glass.resolved(BarTheme.markFill), "no accent: the same cap")
         XCTAssertEqual(face(KeyMark.key("af", typed: "a")), face(KeyMark.key("af")), "typing changes the letters, not the key")
         let typed = KeyMark.key("af", typed: "a"), resting = KeyMark.key("af")
-        XCTAssertEqual(typed.subviews.first?.layer?.shadowColor, resting.subviews.first?.layer?.shadowColor, "the lip is the resting lip")
-        XCTAssertEqual(typed.subviews.first?.layer?.sublayers?.first?.backgroundColor,
-                       resting.subviews.first?.layer?.sublayers?.first?.backgroundColor, "and the top edge")
+        XCTAssertEqual(body(typed)?.sideColor, body(resting)?.sideColor, "the side is the resting side")
+        XCTAssertEqual(body(typed)?.layers.rim.color, body(resting)?.layers.rim.color, "and the top edge")
     }
 
     func testTheLettersAlreadyTypedDimAndTheRestKeepTheMarksInk() {

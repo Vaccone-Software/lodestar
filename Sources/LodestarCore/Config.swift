@@ -48,12 +48,6 @@ public struct Config {
     /// "metric" or "imperial": the units a copied measurement is read
     /// into. Empty until chosen, and then the region's.
     public var units = ""
-    /// The one appearance setting: the Mac's accent, or Lodestar's own
-    /// international orange. An appearance setting may change how
-    /// Lodestar looks to you, never what it asks of you; this is the
-    /// only one that has passed that sentence.
-    public enum Accent: String, CaseIterable, Equatable, Sendable { case system, orange }
-    public var accent = Accent.system
     /// Pixels per j/k/h/l press in scroll mode when smooth is off.
     public var scrollStep: CGFloat = 60
     /// Constant velocity while a direction key is held; instant stop on release.
@@ -537,7 +531,6 @@ public struct Config {
                 config.fingerMap.keyboards[id, default: [:]][key] = placement
             }
         }
-        config.accent = file.appearance.accent
         config.webHandleClicks = file.web.clicks.enabled
         config.webClickBrowser = file.web.clicks.browser
         // Naming ourselves is the one answer that cannot be obeyed: macOS

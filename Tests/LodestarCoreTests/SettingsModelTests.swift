@@ -279,21 +279,16 @@ final class SettingsCoverageTests: XCTestCase {
                        "config leaves with no settings row — give them one or retire them")
     }
 
-    func testTheAccentIsTheOneAppearanceSettingAndLivesUnderGeneral() {
+    /// Lodestar is International Orange and nothing else: no accent row, and
+    /// nothing on the appearance side of the config to set.
+    func testThereIsNoAccentRowAndNoAppearanceSetting() {
         let sections = SettingsModel.catalog(config: Config(), machine: .init())
-        let general = sections.first { $0.name == "General" }!
-        let accent = general.rows.first { $0.path == "appearance.accent" }
-        XCTAssertNotNil(accent)
-        if case .choice(let options, let labels, let current)? = accent?.control {
-            XCTAssertEqual(options, ["system", "orange"])
-            XCTAssertEqual(labels, ["System", "International Orange"], "names, capitalized as names are")
-            XCTAssertEqual(current, "system")
-        } else {
-            XCTFail("a choice of two")
-        }
         let paths = sections.flatMap { $0.rows }.compactMap { $0.path }
-        XCTAssertEqual(paths.filter { $0.hasPrefix("appearance.") }, ["appearance.accent"],
-                       "nothing else on the appearance side has passed the sentence")
+        XCTAssertEqual(paths.filter { $0.hasPrefix("appearance.") }, [],
+                       "an appearance setting may change how Lodestar looks, never what it asks; none has passed the sentence")
+        XCTAssertFalse(sections.flatMap { $0.rows }.contains { $0.title == "Accent" })
+        let general = sections.first { $0.name == "General" }!
+        XCTAssertEqual(general.rows.compactMap(\.letter).prefix(4), ["a", "b", "c", "d"], "the letters stay one per row, in reading order")
     }
 
     func testTheRetiredInteractionSwitchesAreGone() {

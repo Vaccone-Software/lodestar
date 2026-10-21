@@ -1,3 +1,4 @@
+import StoicJSON
 import XCTest
 @testable import LodestarCore
 
@@ -92,15 +93,25 @@ final class PaletteTests: XCTestCase {
         XCTAssertGreaterThan(clay.red, 0.7, "deepened, not darkened to brown")
     }
 
-    /// The Background choice retired: a config that made it still loads,
-    /// clean, and keeps nothing of it.
+    /// The Background choice retired, and the Accent after it: a config that
+    /// made either still loads, clean, and keeps nothing of it.
     func testAConfigThatChoseANightStillLoadsClean() throws {
         for night in ["lodestone", "default"] {
             var problems: [String] = []
-            let tree = try Json.parse(#"{ "appearance": { "background": "\#(night)", "accent": "orange" } }"#)
+            let tree = try Json.parse(#"{ "appearance": { "background": "\#(night)", "accent": "orange" }, "scroll": { "speed": 2500 } }"#)
             let config = Config.build(from: tree, problems: &problems)
             XCTAssertEqual(problems, [], "\(night): no warning for a retired choice")
-            XCTAssertEqual(config.accent, .orange, "the rest of the section still reads")
+            XCTAssertEqual(config.scrollSpeed, 2500, "the rest of the file still reads")
         }
+    }
+
+    /// The retired section is not written back: the next canonical write
+    /// leaves it out, so the key is gone from the file, not only ignored.
+    func testTheRetiredSectionIsNotWrittenBack() throws {
+        let tree = try JSONDocument(parsing: #"{"appearance": {"accent": "orange"}, "scroll": {"speed": 2500}}"#,
+                                    options: .strict).value
+        let normalized = ConfigFile.schema.normalized(tree)
+        XCTAssertNil(normalized.value(at: JSONPath([.key("appearance")])), "the section is dropped")
+        XCTAssertNotNil(normalized.value(at: JSONPath([.key("scroll"), .key("speed")])))
     }
 }

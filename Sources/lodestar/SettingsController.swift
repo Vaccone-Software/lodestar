@@ -1408,15 +1408,6 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         case .choice(let options, let labels, let current):
             let popup = KeyPopUp()
             popup.addItems(withTitles: labels)
-            // A choice of colours wears the colours, so the two can be
-            // compared by eye where they are chosen.
-            if row.path == "appearance.accent" {
-                for (item, option) in zip(popup.itemArray, options) {
-                    if let accent = Config.Accent(rawValue: option) {
-                        item.image = BarTheme.swatch(BarTheme.accent(for: accent))
-                    }
-                }
-            }
             // Shown and greyed: an editor model this Mac is too small for
             // says what it needs rather than vanishing.
             if !row.disabledChoices.isEmpty {

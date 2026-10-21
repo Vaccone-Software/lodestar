@@ -221,20 +221,18 @@ final class ConfigBuildTests: XCTestCase {
 
     // MARK: - Appearance
 
-    func testTheAccentIsSystemUnlessAskedOtherwise() throws {
-        let (config, problems) = try build("{}")
-        XCTAssertEqual(config.accent, .system)
-        XCTAssertTrue(problems.isEmpty)
-        let (orange, _) = try build(#"{"appearance": {"accent": "orange"}}"#)
-        XCTAssertEqual(orange.accent, .orange)
-    }
-
-    func testAnUnknownAccentIsReportedAndFallsBackToSystem() throws {
-        let (config, problems) = try build(#"{"appearance": {"accent": "teal"}}"#)
-        XCTAssertEqual(config.accent, .system)
-        // The schema walk and the parse both speak; either is enough.
-        XCTAssertFalse(problems.isEmpty)
-        XCTAssertTrue(problems.allSatisfy { $0.contains("accent") }, "\(problems)")
+    /// The accent setting retired with Ceramic: Lodestar is International
+    /// Orange and nothing else. A file that still sets it, to a colour it once
+    /// had or to one it never did, loads clean and keeps nothing of it.
+    func testAFileThatStillSetsTheAccentLoadsCleanAndKeepsNothing() throws {
+        for accent in ["orange", "system", "teal"] {
+            let (config, problems) = try build(#"{"appearance": {"accent": "\#(accent)"}, "scroll": {"speed": 2500}}"#)
+            XCTAssertEqual(problems, [], "\(accent): no warning for a retired setting")
+            XCTAssertEqual(config.scrollSpeed, 2500, "the rest of the file still reads")
+        }
+        let (bare, problems) = try build(#"{"appearance": {}}"#)
+        XCTAssertEqual(problems, [], "the empty section that is left is retired too")
+        XCTAssertEqual(bare.scrollSpeed, Config().scrollSpeed)
     }
 
     // MARK: - Doctrines, not switches

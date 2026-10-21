@@ -111,10 +111,6 @@ enum StripPreview {
             if let other = ProcessInfo.processInfo.environment["LODESTAR_GROUND"] {
                 StageView.light = other == "light"
             }
-            // `LODESTAR_ACCENT=orange` stages Lodestar's own accent.
-            if ProcessInfo.processInfo.environment["LODESTAR_ACCENT"] == "orange" {
-                BarTheme.accentColor = { BarTheme.accent(for: .orange) }
-            }
             // After the run loop is up: windows made before the app finishes
             // launching never reach the window server, and take the panel with
             // them.

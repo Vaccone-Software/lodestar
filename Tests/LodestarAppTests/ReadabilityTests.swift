@@ -37,7 +37,7 @@ final class ReadabilityTests: XCTestCase {
     /// on a night, where the bar rightly falls back to the text's colour.
     func testTheInsertBarIsTheAccentAndThreePointsWide() {
         let saved = BarTheme.accentColor
-        BarTheme.accentColor = { BarTheme.accent(for: .orange) }
+        BarTheme.accentColor = { BarTheme.internationalOrange }
         defer { BarTheme.accentColor = saved }
         let panel = DraftPanel()
         defer { panel.hide() }

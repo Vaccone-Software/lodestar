@@ -158,7 +158,7 @@ final class GlassTests: XCTestCase {
 final class AccessibilitySettingsTests: XCTestCase {
     override func tearDown() {
         Accessibility.reset()
-        BarTheme.accentColor = { .controlAccentColor }
+        BarTheme.accentColor = { BarTheme.internationalOrange }
     }
 
     func testIncreaseContrastSetsCaptionsInTheLabelColour() {
@@ -232,13 +232,28 @@ final class StripShadowTests: XCTestCase {
 
 /// The chip's words and Lodestar's own accent, as the app draws them.
 final class AccentAndChipWordsTests: XCTestCase {
-    func testTheOrangeAccentIsMeasuredForTheCurrentGround() {
-        BarTheme.accentColor = { BarTheme.accent(for: .orange) }
-        defer { BarTheme.accentColor = { .controlAccentColor } }
+    func testTheAccentIsInternationalOrangeMeasuredForTheCurrentGround() {
+        XCTAssertEqual(BarTheme.accent.usingColorSpace(.sRGB), BarTheme.internationalOrange.usingColorSpace(.sRGB),
+                       "no setting: the accent is Lodestar's own orange")
         XCTAssertEqual(BarTheme.readableAccent.usingColorSpace(.sRGB),
-                       BarTheme.accent(for: .orange).usingColorSpace(.sRGB),
+                       BarTheme.internationalOrange.usingColorSpace(.sRGB),
                        "the pair clears the floor on its own ground, so no fallback")
-        XCTAssertEqual(BarTheme.accent(for: .system), .controlAccentColor)
+    }
+
+    /// One value per look, exactly what Readability measures: the true
+    /// colour on espresso and the same hue deeper on clay.
+    func testTheOrangeIsOneValuePerLookAsMeasured() {
+        for (look, pair) in [(NSAppearance.Name.darkAqua, Readability.orangeOnCharcoal), (.aqua, Readability.orangeOnPaper)] {
+            let view = NSView()
+            view.appearance = NSAppearance(named: look)
+            let resolved = Glass.resolved(BarTheme.internationalOrange, in: view)
+            let color = NSColor(cgColor: resolved)?.usingColorSpace(.sRGB)
+            XCTAssertEqual(color?.redComponent ?? 0, CGFloat(pair.red), accuracy: 0.002, look.rawValue)
+            XCTAssertEqual(color?.greenComponent ?? 0, CGFloat(pair.green), accuracy: 0.002)
+            XCTAssertEqual(color?.blueComponent ?? 1, CGFloat(pair.blue), accuracy: 0.002)
+        }
+        XCTAssertEqual(Readability.orangeOnCharcoal, Readability.RGB(red: 1.0, green: 0.31, blue: 0.0), "#FF4F00 at night")
+        XCTAssertEqual(Readability.orangeOnPaper.red, 0.769, accuracy: 0.001, "#C43B00 on clay")
     }
 
     func testTheMeetingSpeaksMinutesInWordsAndSecondsInDigits() {
@@ -272,15 +287,15 @@ final class AccentAndChipWordsTests: XCTestCase {
     }
 }
 
-/// The accent never drifts: the system's colour reaches a surface only
-/// through the theme, so the setting governs every place it shows.
+/// The accent never drifts: the system's colour reaches no surface, so
+/// International Orange is every place the accent shows.
 final class AccentDriftTests: XCTestCase {
     func testNoSurfaceReadsTheSystemAccentDirectly() throws {
         let sources = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Sources/lodestar")
         let files = try FileManager.default.contentsOfDirectory(at: sources, includingPropertiesForKeys: nil)
-            .filter { $0.pathExtension == "swift" && $0.lastPathComponent != "Glass.swift" }
+            .filter { $0.pathExtension == "swift" }
         XCTAssertGreaterThan(files.count, 20, "the sources were found")
         for file in files {
             let text = try String(contentsOf: file, encoding: .utf8)
@@ -289,19 +304,17 @@ final class AccentDriftTests: XCTestCase {
         }
     }
 
-    func testTheSharedAccentFollowsTheChoice() {
-        BarTheme.accentColor = { BarTheme.accent(for: .orange) }
-        defer { BarTheme.accentColor = { .controlAccentColor } }
-        XCTAssertEqual(BarTheme.accent.usingColorSpace(.sRGB), BarTheme.accent(for: .orange).usingColorSpace(.sRGB))
-        BarTheme.accentColor = { .controlAccentColor }
-        XCTAssertEqual(BarTheme.accent, .controlAccentColor)
+    func testTheAccentIsOrangeWhateverTheMacsAccentIs() {
+        XCTAssertEqual(BarTheme.accent.usingColorSpace(.sRGB), BarTheme.internationalOrange.usingColorSpace(.sRGB))
+        XCTAssertNotEqual(BarTheme.accent.usingColorSpace(.sRGB), NSColor.controlAccentColor.usingColorSpace(.sRGB),
+                          "the Mac's accent never reaches a surface")
     }
 }
 
 /// Text over the accent fill is chosen by measure, so a selected row
 /// reads on any accent a person picks.
 final class OnAccentTests: XCTestCase {
-    override func tearDown() { BarTheme.accentColor = { .controlAccentColor } }
+    override func tearDown() { BarTheme.accentColor = { BarTheme.internationalOrange } }
 
     private func contrast(_ text: NSColor, on fill: NSColor) -> Double {
         let t = text.usingColorSpace(.sRGB)!, f = fill.usingColorSpace(.sRGB)!
@@ -345,7 +358,7 @@ final class OnAccentTests: XCTestCase {
 /// The settings' switches are Lodestar's own, drawn in the accent.
 final class AccentSwitchTests: XCTestCase {
     override func tearDown() {
-        BarTheme.accentColor = { .controlAccentColor }
+        BarTheme.accentColor = { BarTheme.internationalOrange }
         Accessibility.reset()
     }
 
@@ -381,7 +394,7 @@ final class AccentSwitchTests: XCTestCase {
     }
 
     func testOnWearsTheAccentAndOffDoesNot() {
-        let orange = BarTheme.accent(for: .orange)
+        let orange = BarTheme.internationalOrange
         BarTheme.accentColor = { orange }
         let toggle = AccentSwitch(frame: .zero)
         toggle.state = .on
@@ -434,16 +447,6 @@ final class AccentSwitchTests: XCTestCase {
         XCTAssertEqual(toggle.accessibilityValue() as? Int, 1)
     }
 
-    func testTheSwatchIsTheColourItNamesWithRoomAfterIt() {
-        let swatch = BarTheme.swatch(.systemGreen, diameter: 12)
-        XCTAssertEqual(swatch.size, NSSize(width: 19, height: 12), "the dot, then clear room before the title")
-        let bits = NSBitmapImageRep(data: swatch.tiffRepresentation!)!
-        XCTAssertEqual(bits.colorAt(x: 16, y: 6)?.alphaComponent ?? 1, 0, accuracy: 0.01, "the room is clear")
-        let rep = NSBitmapImageRep(data: swatch.tiffRepresentation!)!
-        let center = rep.colorAt(x: 6, y: 6)?.usingColorSpace(.sRGB)
-        let green = NSColor.systemGreen.usingColorSpace(.sRGB)!
-        XCTAssertEqual(center?.greenComponent ?? 0, green.greenComponent, accuracy: 0.05)
-    }
 }
 
 /// A switch survives the pane's rebuild, so its slide is seen.
@@ -480,7 +483,7 @@ final class SettingsSwitchSurvivalTests: XCTestCase {
 /// Each look is the other's selection: a chosen row is a slab of the
 /// opposite look, and everything in it follows.
 final class SlabTests: XCTestCase {
-    override func tearDown() { BarTheme.accentColor = { .controlAccentColor } }
+    override func tearDown() { BarTheme.accentColor = { BarTheme.internationalOrange } }
 
     private func rgb(_ color: CGColor?) -> NSColor? { color.flatMap(NSColor.init(cgColor:))?.usingColorSpace(.sRGB) }
 
@@ -542,7 +545,7 @@ final class SlabTests: XCTestCase {
     }
 
     func testALitKeyOnTheSlabIsTheAccentThatStandsOnIt() {
-        BarTheme.accentColor = { BarTheme.accent(for: .orange) }
+        BarTheme.accentColor = { BarTheme.internationalOrange }
         for (look, orange) in [(NSAppearance.Name.aqua, Readability.orangeOnCharcoal), (.darkAqua, Readability.orangeOnPaper)] {
             let (window, _, _, key) = row(in: look)
             key.refresh()
@@ -592,7 +595,7 @@ final class SlabTests: XCTestCase {
 final class KeyFaceTests: XCTestCase {
     func testALitKeyIsTheAccentWithItsReadableInk() {
         let saved = BarTheme.accentColor
-        BarTheme.accentColor = { BarTheme.accent(for: .orange) }
+        BarTheme.accentColor = { BarTheme.internationalOrange }
         defer { BarTheme.accentColor = saved }
         let key = KeyFace("E")
         XCTAssertNotEqual(key.faceColor, Glass.resolved(BarTheme.accent, in: key), "resting is not lit")
@@ -604,32 +607,17 @@ final class KeyFaceTests: XCTestCase {
     }
 
     /// The ⏎ on a bar's row is built once and only hidden and shown, so a
-    /// new accent has to reach a key that is already lit.
-    func testALitKeyRepaintsWhenTheAccentChanges() {
-        let saved = BarTheme.accentColor
-        BarTheme.accentColor = { BarTheme.accent(for: .orange) }
-        defer { BarTheme.accentColor = saved }
+    /// key that is lit later takes the accent then, in its own look.
+    func testALitKeyWearsTheAccentOfItsOwnLook() {
         let key = KeyFace("⏎")
+        XCTAssertNotEqual(key.faceColor, Glass.resolved(BarTheme.accent, in: key), "resting is not lit")
         key.lit = true
-        XCTAssertEqual(key.faceColor, Glass.resolved(BarTheme.accent, in: key))
-        BarTheme.accentColor = { NSColor.systemTeal }
-        NotificationCenter.default.post(name: .accentDidChange, object: nil)
         XCTAssertEqual(key.faceColor, Glass.resolved(BarTheme.accent, in: key))
         XCTAssertEqual(key.label.textColor, BarTheme.onAccent)
         key.effectiveAppearance.performAsCurrentDrawingAppearance {
             XCTAssertEqual(key.sideColor, Glass.resolved(BarTheme.litKeySide, in: key))
         }
-    }
-
-    func testAKeyThatIsNotLitIgnoresAnAccentChange() {
-        let saved = BarTheme.accentColor
-        BarTheme.accentColor = { BarTheme.accent(for: .orange) }
-        defer { BarTheme.accentColor = saved }
-        let key = KeyFace("E")
-        let resting = key.faceColor
-        BarTheme.accentColor = { NSColor.systemTeal }
-        NotificationCenter.default.post(name: .accentDidChange, object: nil)
-        XCTAssertEqual(key.faceColor, resting)
+        key.lit = false
         XCTAssertNotEqual(key.faceColor, Glass.resolved(BarTheme.accent, in: key))
     }
 

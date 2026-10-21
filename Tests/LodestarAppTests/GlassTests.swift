@@ -136,13 +136,15 @@ final class GlassTests: XCTestCase {
         XCTAssertEqual(mark.frame.height, KeyMark.height)
     }
 
-    func testTheStripsCardsAreTheLaunchersCeramicAndOnlyTheLitOneIsRaised() {
+    func testTheStripsCardsAreKeysAndOnlyTheChosenOneIsTheSlab() {
         let stage = Stage()
         let a = stage.seedClip("one")
         stage.seedClip("two")
         stage.openStrip()
         let cards = stage.engine.strip.shownWeights.filter { $0 != .faint }
-        XCTAssertEqual(Set(cards), [.normal], "no card is lit; the empty slot is faint")
+        XCTAssertEqual(cards.filter { $0 == .slab }.count, 1, "the newest is the one chosen until a key moves it")
+        XCTAssertEqual(cards.filter { $0 == .raised }.count, cards.count - 1, "every other card is a key's face")
+        XCTAssertFalse(cards.contains(.normal), "no card is a flat pane")
         for card in stage.engine.strip.shownCards.values {
             let backdrop = card.subviews.first { Glass.weight(in: $0) != nil }
             XCTAssertNotNil(backdrop)
@@ -150,10 +152,39 @@ final class GlassTests: XCTestCase {
         }
         stage.chord("k", .maskCommand)
         let weights = stage.engine.strip.shownWeights.filter { $0 != .faint }
-        XCTAssertEqual(weights.filter { $0 == .raised }.count, 1, "the card the actions act on")
-        XCTAssertEqual(weights.filter { $0 == .normal }.count, weights.count - 1)
+        XCTAssertEqual(weights.filter { $0 == .slab }.count, 1, "the card the actions act on, and no other")
+        XCTAssertEqual(weights.filter { $0 == .raised }.count, weights.count - 1)
         _ = a
         stage.press("escape")
+        stage.press("escape")
+    }
+
+    /// A clip stands on a visible side, the chosen one on the slab's, and
+    /// the free keepsake is a well that receives: sunk, with no side and no
+    /// shadow. The cards' own content (the clip's text) is untouched.
+    func testClipsStandOnASideTheChosenOneOnTheSlabsAndTheFreeKeepsakeIsAWell() {
+        let stage = Stage()
+        stage.seedClip("one")
+        stage.seedClip("two")
+        stage.openStrip()
+        let surfaces = stage.engine.strip.shownCards.values.compactMap { $0 as? ObjectSurface }
+        XCTAssertEqual(surfaces.filter { $0.stance == .slab }.count, 1)
+        XCTAssertGreaterThan(surfaces.filter { $0.stance == .key }.count, 0)
+        for card in surfaces {
+            XCTAssertGreaterThan(card.sideHeight, 0, "a visible side")
+            XCTAssertNotNil(card.sideColor)
+        }
+        let slab = surfaces.first { $0.stance == .slab }
+        XCTAssertEqual(slab?.appearance?.bestMatch(from: [.darkAqua, .aqua]),
+                       Tone.systemDark ? .aqua : .darkAqua, "the chosen card wears the other look")
+        XCTAssertFalse(slab?.hasEdge ?? true, "the slab is a ground and wants no outline")
+        let well = ObjectSurface(radius: BarTheme.surfaceRadius, lift: .rest)
+        well.stance = .well
+        well.frame = NSRect(x: 0, y: 0, width: 100, height: 100)
+        XCTAssertEqual(well.sideHeight, 0, "a place that receives has no side")
+        XCTAssertTrue(stage.engine.strip.shownStances.contains(.well), "the free keepsake is the well")
+        XCTAssertEqual(stage.engine.strip.shownStances.filter { $0 == .well }.count,
+                       stage.engine.strip.shownWeights.filter { $0 == .faint }.count, "and only it is sunk")
         stage.press("escape")
     }
 

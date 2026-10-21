@@ -172,6 +172,9 @@ final class ClipboardStrip {
     private(set) var shownSheets: [String: Int] = [:]
     private(set) var shownDimmed: Set<String> = []
     private(set) var shownWeights: [Glass.Weight] = []
+    /// What each card is to the hand, in the same order: a key, the slab, or
+    /// a well that receives.
+    private(set) var shownStances: [ObjectSurface.Stance] = []
     private(set) var shownCards: [String: NSView] = [:]
     /// The key each card wears, by clip id; absent when it wears none.
     private(set) var shownKeys: [String: String] = [:]
@@ -255,6 +258,7 @@ final class ClipboardStrip {
         shownSheets = [:]
         shownDimmed = []
         shownWeights = []
+        shownStances = []
         shownCards = [:]
         shownKeys = [:]
         shownNames = [:]
@@ -290,14 +294,18 @@ final class ClipboardStrip {
             let reading = held == .control ? readingText(clip) : nil
             let key = keyText(label: label, rank: rank, searching: query != nil,
                               held: held, hasReading: reading != nil, selection: selection)
-            let lit = key != nil && (query != nil ? rank == selection : rank == 0)
+            // The chosen card is the slab: the one the actions are for, else
+            // the one the next paste takes, which is the newest until a
+            // search moves it. Its key is the lit one.
+            let chosen = query != nil ? rank == selection : rank == 0
+            let lit = key != nil && chosen
             let files = fileArt(for: clip, picture: fileThumbnail, present: filesPresent)
             let card = makeCard(clip: clip, key: key, lit: lit, size: place.size,
                                 face: rank == 0 && layout.wideJ ? BarTheme.titleFont : BarTheme.bodyFont,
                                 lift: rank < 4 ? .float : .rest,
                                 reading: reading,
                                 thumbnail: clip.kind == .image ? thumbnail(clip.id) : nil,
-                                files: files, raised: clip.id == actingOn)
+                                files: files, raised: actingOn.map { $0 == clip.id } ?? chosen)
             card.frame = local(place)
             card.setAccessibilityLabel(spoken(clip, rank: rank, label: label, files: files))
             root.addSubview(card)
@@ -399,6 +407,7 @@ final class ClipboardStrip {
         shownCards = [:]
         shownKeys = [:]
         shownWeights = []
+        shownStances = []
         shownCount = nil
         shownSource = nil
         shownSourceRows = []
@@ -463,7 +472,7 @@ final class ClipboardStrip {
     /// would come.
     private func makeBringCard(_ match: Bring.Match, from: Bring.Source?, key: String, lit: Bool,
                                size: NSSize, lift: ObjectSurface.Lift, wholeLine: Bool, face: NSFont) -> NSView {
-        let card = surface(size: size, lift: lift, weight: .normal)
+        let card = surface(size: size, lift: lift, weight: lit ? .highlighted : .normal)
         let id = "bring-\(match.source)-\(match.hit.location)-\(match.line.hashValue)"
         shownCards[id] = card
         shownKeys[id] = key
@@ -611,14 +620,23 @@ final class ClipboardStrip {
                          counted: Bool = true) -> ObjectSurface {
         let card = SoftShadow.object(radius: BarTheme.surfaceRadius, lift: lift)
         card.frame = NSRect(origin: .zero, size: size)
+        // A card is what you press, so it is a key standing on a side, and
+        // the chosen one is the slab: the other look's ground, with
+        // everything on it in that look. A free keepsake is a place that
+        // receives, sunk. The bar and the menus are panes over the work and
+        // keep the drawn shadow, flat.
         let veil: Glass.Weight
-        switch weight {
-        case .normal: veil = .normal
-        case .highlighted: veil = .raised
-        case .empty: veil = .faint
+        switch (weight, counted) {
+        case (.normal, true): veil = .raised; card.stance = .key
+        case (.highlighted, true):
+            veil = .slab
+            card.stance = .slab
+            card.appearance = BarTheme.slabLook(over: root.effectiveAppearance)
+        case (.empty, _): veil = .faint; card.stance = .well
+        case (.normal, false), (.highlighted, false): veil = .normal
         }
         Glass.installBackdrop(in: card, cornerRadius: BarTheme.surfaceRadius, weight: veil)
-        if counted { shownWeights.append(veil) }
+        if counted { shownWeights.append(veil); shownStances.append(card.stance) }
         card.setAccessibilityElement(true)
         card.setAccessibilityRole(.button)
         return card
@@ -1331,7 +1349,7 @@ final class ClipboardStrip {
         let ruled = rows.first?.offset == 0 && rows.count > 1
         let height = fieldHeight + 8 + CGFloat(rows.count) * rowHeight + (ruled ? 9 : 0) + 8
         let frame = NSRect(x: bar.maxX - width, y: bar.minY - 6 - height, width: width, height: height)
-        let plate = surface(size: frame.size, lift: .float, weight: .highlighted, counted: false)
+        let plate = surface(size: frame.size, lift: .float, weight: .normal, counted: false)
         plate.frame = frame
         plate.setAccessibilityRole(.list)
         plate.setAccessibilityLabel("Sources")
@@ -1445,7 +1463,7 @@ final class ClipboardStrip {
     }
 
     private func addActionCard(_ actions: [Action], frame: NSRect) {
-        let plate = surface(size: frame.size, lift: .float, weight: .highlighted, counted: false)
+        let plate = surface(size: frame.size, lift: .float, weight: .normal, counted: false)
         plate.frame = frame
         plate.setAccessibilityRole(.menu)
         shownActions = actions.map(\.label)

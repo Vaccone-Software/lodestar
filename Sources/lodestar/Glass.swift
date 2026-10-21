@@ -396,10 +396,12 @@ final class PaneEdge: NSView {
 enum Glass {
     /// Which step of the palette the pane is. The material is the same;
     /// this is state — a lit card, an empty slot — never a second style.
-    /// Normal is the pane, raised the step a chosen card stands on, faint
-    /// the ground a slot is sunk into.
+    /// Normal is the pane, raised the step a key's face stands on, faint
+    /// the ground a slot is sunk into, slab the other look's ground a chosen
+    /// card is made of (it wears that look, so the colour is read as the
+    /// other of its own).
     enum Weight: Equatable {
-        case normal, raised, faint
+        case normal, raised, faint, slab
 
         /// The step's colour, a dynamic one that knows both looks.
         var fill: NSColor {
@@ -407,6 +409,7 @@ enum Glass {
             case .normal: return BarTheme.dynamicStep(\.pane)
             case .raised: return BarTheme.dynamicStep(\.raised)
             case .faint: return BarTheme.dynamicStep(\.ground)
+            case .slab: return BarTheme.slabFill
             }
         }
     }
@@ -790,6 +793,16 @@ enum BarTheme {
         NSColor(name: nil) { appearance in
             steps(for: appearance)[keyPath: step].color.withAlphaComponent(alpha)
         }
+    }
+
+    /// The slab's face and its side, for a surface that wears the other look
+    /// while it is chosen: read in that look, they are the ground of the look
+    /// around it, which is the other of its own.
+    static let slabFill = NSColor(name: "LodestarSlab") { appearance in
+        steps(for: slabLook(over: appearance)).slab.color
+    }
+    static let slabSideFill = NSColor(name: "LodestarSlabSide") { appearance in
+        steps(for: slabLook(over: appearance)).slabSide.color
     }
 
     /// The pane as a colour that knows both looks.
@@ -2170,11 +2183,28 @@ extension SoftShadow {
 final class ObjectSurface: NSView {
     enum Lift { case float, rest }
 
+    /// What the object is to the hand. A pane over the work casts the drawn
+    /// shadow (`shadow`); something you press stands on a visible side, in
+    /// the key's own colour (`key`) or the slab's when it is the chosen one
+    /// (`slab`, which wears the other look); a place you put something
+    /// is sunk and casts nothing (`well`).
+    enum Stance { case shadow, key, slab, well }
+
     let radius: CGFloat
     var lift: Lift { didSet { if lift != oldValue { restyle(); place() } } }
+    var stance: Stance = .shadow { didSet { if stance != oldValue { restyle(); place() } } }
     private let soft = CALayer()
     private let contact = CALayer()
     private let edge = CALayer()
+    /// The side a key or a slab stands on, below the face and inside the
+    /// card's own layer; the strip's window is the whole screen, so it hangs
+    /// there unclipped.
+    private let side = CALayer()
+
+    /// How far the side hangs below the card's frame, for the tests.
+    var sideHeight: CGFloat { stance == .key || stance == .slab ? KeyLayers.sideHeight(forHeight: bounds.height) : 0 }
+    var sideColor: CGColor? { side.isHidden ? nil : side.backgroundColor }
+    var hasEdge: Bool { edge.borderWidth > 0 }
 
     init(radius: CGFloat, lift: Lift) {
         self.radius = radius
@@ -2191,6 +2221,7 @@ final class ObjectSurface: NSView {
         edge.cornerRadius = radius
         edge.zPosition = 100
         layer?.addSublayer(edge)
+        layer?.insertSublayer(side, at: 0)
         restyle()
     }
 
@@ -2205,6 +2236,11 @@ final class ObjectSurface: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         edge.frame = bounds
+        let sideHeight = sideHeight
+        side.isHidden = sideHeight == 0
+        // The side's top is buried in the face, so only what hangs below shows.
+        side.frame = CGRect(x: 0, y: -sideHeight, width: bounds.width, height: bounds.height / 2 + sideHeight)
+        side.cornerRadius = radius
         let floating = lift == .float
         let softShape = bounds.insetBy(dx: floating ? 8 : 4, dy: floating ? 8 : 4)
             .offsetBy(dx: 0, dy: floating ? -12 : -4)
@@ -2229,12 +2265,16 @@ final class ObjectSurface: NSView {
         CATransaction.setDisableActions(true)
         soft.shadowColor = (dark ? NSColor(srgbRed: 0.055, green: 0.027, blue: 0.008, alpha: 1)
                                  : NSColor(srgbRed: 0.35, green: 0.23, blue: 0.13, alpha: 1)).cgColor
-        soft.shadowOpacity = floating ? (dark ? 0.58 : 0.26) : (dark ? 0.42 : 0.16)
+        let casts = stance == .shadow
+        soft.shadowOpacity = casts ? (floating ? (dark ? 0.58 : 0.26) : (dark ? 0.42 : 0.16)) : 0
         soft.shadowRadius = floating ? 18 : 7
         contact.shadowColor = soft.shadowColor
-        contact.shadowOpacity = dark ? 0.35 : 0.14
+        contact.shadowOpacity = casts ? (dark ? 0.35 : 0.14) : 0
         contact.shadowRadius = 1
+        // The slab is a ground of its own and wants no outline round it.
+        edge.borderWidth = stance == .slab ? 0 : 0.5
         edge.borderColor = Glass.resolved(BarTheme.hairline, in: self)
+        side.backgroundColor = Glass.resolved(stance == .slab ? BarTheme.slabSideFill : BarTheme.keySide, in: self)
         CATransaction.commit()
     }
 }

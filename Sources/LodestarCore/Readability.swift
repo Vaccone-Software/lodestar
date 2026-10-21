@@ -23,6 +23,19 @@ public enum Readability {
             self.red = red; self.green = green; self.blue = blue
         }
         public var luminance: Double { Readability.luminance(red: red, green: green, blue: blue) }
+
+        /// Perceptual lightness, OKLab L, 0 for black and 1 for white:
+        /// what "a pane at 95 per cent" means. WCAG luminance is the
+        /// measure for contrast; this one is how light a surface looks,
+        /// which is what the brightness ceiling is about.
+        public var lightness: Double {
+            func linear(_ v: Double) -> Double { v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+            let r = linear(red), g = linear(green), b = linear(blue)
+            let l = cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+            let m = cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+            let s = cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+            return 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s
+        }
     }
 
     /// The panels' grounds, as the equalizer keeps them: charcoal in
@@ -32,7 +45,7 @@ public enum Readability {
 
     /// Lodestar's own accent: International Orange itself on the night,
     /// where it clears the mark floor with room to spare, and on clay the
-    /// same hue a step deeper (#EB4900), the least change that clears it
+    /// same hue a step deeper (#C43B00), deep enough to clear it
     /// there: the colour adapted, never replaced, because its name is part
     /// of what it means. A pair, measured, never derived at runtime.
     public static let orangeOnCharcoal = RGB(red: 1.0, green: 0.31, blue: 0.0)

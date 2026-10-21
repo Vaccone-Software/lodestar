@@ -918,15 +918,17 @@ enum BarTheme {
     static var accent: NSColor { accentColor() }
 
     /// Text drawn over the accent as a fill — a selected row, a lit chip.
-    /// White reads on a deep blue and fails on International Orange, so
-    /// the choice is made by measure: whichever of white and near-black
-    /// contrasts more with the fill, decided from the fill itself.
+    /// The two candidates are the palette's own extremes
+    /// (`Palette.onAccentLight`, `onAccentDark`), so even here nothing is
+    /// pure white or black; whichever contrasts more with the fill wins.
     static var onAccent: NSColor {
-        guard let fill = accent.usingColorSpace(.sRGB) else { return .white }
+        let light = Palette.onAccentLight, dark = Palette.onAccentDark
+        guard let fill = accent.usingColorSpace(.sRGB) else { return light.color }
         let ground = Readability.luminance(red: fill.redComponent, green: fill.greenComponent, blue: fill.blueComponent)
-        let white = Readability.contrast(1, ground)
-        let ink = Readability.contrast(Readability.luminance(red: 0.08, green: 0.08, blue: 0.08), ground)
-        return white >= ink ? .white : NSColor(white: 0.08, alpha: 1)
+        func measure(_ c: Readability.RGB) -> Double {
+            Readability.contrast(Readability.luminance(red: c.red, green: c.green, blue: c.blue), ground)
+        }
+        return measure(light) >= measure(dark) ? light.color : dark.color
     }
 
     /// International Orange as a colour that knows both looks: itself on

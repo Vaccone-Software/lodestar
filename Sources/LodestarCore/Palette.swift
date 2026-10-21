@@ -65,6 +65,14 @@ public enum Palette {
         ink: rgb(0x1E1814), secondary: rgb(0x66584E), hairlineAlpha: 0.10,
         slab: rgb(0x2A221D), slabSide: rgb(0x120D0A))
 
+    /// The two inks a letter on the accent can take, chosen by measure where
+    /// it is drawn: a key's clay face and clay's ink, the palette's own
+    /// extremes, so a lit key's letter is never pure white or black. They
+    /// are fixed, not eased by the evening, because the accent they sit on
+    /// is the one colour Eye comfort deepens to keep its contrast.
+    public static let onAccentLight = clay.keyFace
+    public static let onAccentDark = clay.ink
+
     static func rgb(_ hex: Int) -> Readability.RGB {
         Readability.RGB(red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255,
                         blue: Double(hex & 0xFF) / 255)

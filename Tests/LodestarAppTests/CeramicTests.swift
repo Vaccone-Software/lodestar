@@ -403,23 +403,24 @@ final class OnAccentTests: XCTestCase {
 
     /// On clay the orange is the same hue deepened until it reads as text
     /// on the pane (4.65 to 1), one accent for every use; deep enough that
-    /// a lit key's letter is white (5.3 to 1). A deep blue takes white too.
+    /// a lit key's letter is the clay key face (5.0 to 1). A deep blue takes it too.
     func testTheClayOrangeReadsAsTextAndTakesWhite() {
         let deep = NSColor(srgbRed: Readability.orangeOnPaper.red, green: Readability.orangeOnPaper.green,
                            blue: Readability.orangeOnPaper.blue, alpha: 1)
         BarTheme.accentColor = { deep }
         XCTAssertGreaterThanOrEqual(contrast(deep, on: Palette.clay.pane.color), 4.5, "the accent reads as text on clay")
-        XCTAssertEqual(BarTheme.onAccent, .white)
+        XCTAssertEqual(BarTheme.onAccent, Palette.clay.keyFace.color, "the light ink, never pure white")
         XCTAssertGreaterThanOrEqual(contrast(BarTheme.onAccent, on: deep), 4.5)
         BarTheme.accentColor = { NSColor(srgbRed: 0.0, green: 0.3, blue: 0.8, alpha: 1) }
-        XCTAssertEqual(BarTheme.onAccent, .white)
+        XCTAssertEqual(BarTheme.onAccent, Palette.clay.keyFace.color)
     }
 
     func testWhicheverReadsBetterWins() {
         for fill in [NSColor.systemPurple, .systemGreen, .systemYellow, .systemBlue, .systemRed] {
             BarTheme.accentColor = { fill }
             let chosen = contrast(BarTheme.onAccent, on: fill)
-            let other = contrast(BarTheme.onAccent == .white ? NSColor(white: 0.08, alpha: 1) : .white, on: fill)
+            let light = Palette.clay.keyFace.color, dark = Palette.clay.ink.color
+            let other = contrast(BarTheme.onAccent == light ? dark : light, on: fill)
             XCTAssertGreaterThanOrEqual(chosen, other, "\(fill)")
         }
     }

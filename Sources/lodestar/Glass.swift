@@ -278,6 +278,8 @@ final class CeramicPane: NSView {
         CATransaction.setDisableActions(true)
         rim.frame = CGRect(x: 0, y: max(0, bounds.height - Self.rimHeight), width: bounds.width,
                            height: Self.rimHeight)
+        // A surface shorter than twice its rounding is a stadium.
+        layer?.cornerRadius = min(radius, min(bounds.width, bounds.height) / 2)
         CATransaction.commit()
     }
 
@@ -458,18 +460,34 @@ enum BarTheme {
     /// A bar's bottom edge when nothing stands beneath its rows. The bars
     /// carry no legend: their keys live on the sheet, behind lode ?.
     static let barFoot: CGFloat = 6
-    /// The rounding, converged: one ladder from the pill's height, each
-    /// rung the one above over φ². A surface (a panel, a card, the pill)
-    /// rounds at the first rung, a control (a keycap, a chip, a well) at
-    /// the second, a mark (a highlight on the page) at the third. A
-    /// hairline rounds to its own half-width and is not on the ladder.
+    /// The rounding, converged: one ladder, each rung the one above over
+    /// φ², from a surface at 22 to a control at 8.4 and a mark at 3.2. A
+    /// surface (a panel, a card, the pill) rounds at the first rung, a
+    /// control (a keycap, a chip, a well) at the second, a mark (a
+    /// highlight on the page) at the third. The ladder starts from the
+    /// surface and is no longer derived from the pill's height: the pill
+    /// is a surface, and at 44 it is a stadium, which its rung happens to
+    /// make. A hairline rounds to its own half-width and is not on the
+    /// ladder.
     static let phi: CGFloat = 1.618_033_988_75
     static let pillHeight: CGFloat = 44
-    static let surfaceRadius: CGFloat = pillHeight / (phi * phi)
+    static let surfaceRadius: CGFloat = 22
     static let controlRadius: CGFloat = surfaceRadius / (phi * phi)
     static let markRadius: CGFloat = controlRadius / (phi * phi)
     static let glassRadius: CGFloat = surfaceRadius
-    static let rowRadius: CGFloat = surfaceRadius
+
+    /// A rounded thing inside another is concentric with it: it rounds at
+    /// the outer radius less its inset, so the gap between the two curves
+    /// stays one width all the way round, and never below its own rung, so
+    /// a thing far from the edge is not squared off.
+    static func nested(outer: CGFloat, inset: CGFloat, rung: CGFloat) -> CGFloat {
+        max(outer - inset, rung)
+    }
+
+    /// How far a row stands from its bar's edge, left and right: the
+    /// bars' rows are ten points in, so they round at twelve.
+    static let rowInset: CGFloat = 10
+    static let rowRadius: CGFloat = nested(outer: surfaceRadius, inset: rowInset, rung: controlRadius)
     static let chipRadius: CGFloat = controlRadius
     /// One key-and-label row, shared by every surface that draws them: the
     /// chain guide, the cheat sheet, and the clipboard's actions menu. Left
@@ -1603,9 +1621,17 @@ class RaisedRow: NSView {
     private let light = EdgeLight()
     private(set) var raised = false
 
+    /// How far the row stands from the edge of the surface it is in, which
+    /// decides its rounding: concentric with that surface, so a row six
+    /// points in rounds a little more than one ten points in.
+    var inset: CGFloat = BarTheme.rowInset {
+        didSet { if inset != oldValue { layer?.cornerRadius = radius; needsLayout = true } }
+    }
+    var radius: CGFloat { BarTheme.nested(outer: BarTheme.surfaceRadius, inset: inset, rung: BarTheme.controlRadius) }
+
     func setupRaised() {
         wantsLayer = true
-        layer?.cornerRadius = BarTheme.rowRadius
+        layer?.cornerRadius = radius
         layer?.masksToBounds = false
         if let layer { light.install(in: layer) }
         // A soft, short shadow cast by the row's own rounded shape: no line
@@ -1617,9 +1643,11 @@ class RaisedRow: NSView {
 
     override func layout() {
         super.layout()
-        light.fit(bounds, radius: BarTheme.rowRadius, reach: BarTheme.rowRadius + 4)
-        layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: BarTheme.rowRadius,
-                                   cornerHeight: BarTheme.rowRadius, transform: nil)
+        // A row shorter than twice its rounding is a stadium, not a
+        // rectangle with corners that overlap.
+        let round = min(radius, bounds.height / 2)
+        light.fit(bounds, radius: round, reach: round + 4)
+        layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: round, cornerHeight: round, transform: nil)
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -1943,9 +1971,13 @@ final class ShadowHostView: NSView {
         // The soft shadow is cast by a slightly smaller shape held lower,
         // so it falls beneath the surface rather than around it.
         let softShape = surface.insetBy(dx: 16, dy: 16).offsetBy(dx: 0, dy: -26)
-        soft.shadowPath = CGPath(roundedRect: softShape, cornerWidth: radius, cornerHeight: radius, transform: nil)
-        contact.shadowPath = CGPath(roundedRect: surface.offsetBy(dx: 0, dy: -1), cornerWidth: radius,
-                                    cornerHeight: radius, transform: nil)
+        // The rounding is held to what the shape can carry: a surface
+        // shorter than twice its radius is a stadium.
+        func rounding(_ shape: CGRect) -> CGFloat { min(radius, min(shape.width, shape.height) / 2) }
+        soft.shadowPath = CGPath(roundedRect: softShape, cornerWidth: rounding(softShape),
+                                 cornerHeight: rounding(softShape), transform: nil)
+        contact.shadowPath = CGPath(roundedRect: surface.offsetBy(dx: 0, dy: -1), cornerWidth: rounding(surface),
+                                    cornerHeight: rounding(surface), transform: nil)
         CATransaction.commit()
     }
 

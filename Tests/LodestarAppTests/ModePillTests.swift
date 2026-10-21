@@ -61,9 +61,9 @@ final class ModePillTests: XCTestCase {
         XCTAssertEqual(ModePill.layout(for: state).last, .appWord("Ghostty"))
     }
 
-    func testEveryDimensionIsTheHeightOverAPowerOfPhi() {
+    func testEverySpacingIsTheHeightOverAPowerOfPhi() {
         let phi = ModePill.phi
-        XCTAssertEqual(ModePill.radius, ModePill.height / (phi * phi), accuracy: 0.001)
+        XCTAssertEqual(ModePill.radius, BarTheme.surfaceRadius, "the pill is a surface: its rounding is the ladder's first rung, no longer a power of its height")
         XCTAssertEqual(ModePill.inset, ModePill.height / phi, accuracy: 0.001)
         XCTAssertEqual(ModePill.wingGap, ModePill.height / phi, accuracy: 0.001)
         XCTAssertEqual(ModePill.wordGap, ModePill.height / (phi * phi * phi), accuracy: 0.001)

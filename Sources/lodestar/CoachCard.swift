@@ -22,7 +22,7 @@ enum CoachCard {
         var decline: () -> Void
     }
 
-    /// The glass's own inset around the row, so the surface hugs it.
+    /// The surface's own inset around the row, so it hugs it.
     static let inset: CGFloat = 6
     /// The sentence and the whisper sit in from the row's edge by this.
     static let textInset: CGFloat = 10
@@ -43,6 +43,7 @@ enum CoachCard {
         card.addSubview(voice)
 
         let row = OfferRow()
+        row.inset = inset
         row.translatesAutoresizingMaskIntoConstraints = false
         card.addSubview(row)
         let line = NSStackView()

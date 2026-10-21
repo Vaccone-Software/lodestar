@@ -107,19 +107,46 @@ final class DesignDriftTests: XCTestCase {
         XCTAssertEqual(BarTheme.symbol.value(forKey: "pointSize") as? CGFloat, BarTheme.Scale.meta)
     }
 
-    /// One ladder from the pill's height, each rung the one above over φ².
+    /// One ladder from the surface: 22, and each rung the one above over φ²
+    /// (Ceramic's radii; the ladder was derived from the pill's height until
+    /// 20 October 2026, and the rungs are no longer a function of it).
     func testRoundingConvergesOnOneLadder() {
         let phi = BarTheme.phi
-        XCTAssertEqual(BarTheme.surfaceRadius, BarTheme.pillHeight / (phi * phi), accuracy: 0.001)
+        XCTAssertEqual(BarTheme.surfaceRadius, 22)
         XCTAssertEqual(BarTheme.controlRadius, BarTheme.surfaceRadius / (phi * phi), accuracy: 0.001)
+        XCTAssertEqual(BarTheme.controlRadius, 8.4, accuracy: 0.05)
         XCTAssertEqual(BarTheme.markRadius, BarTheme.controlRadius / (phi * phi), accuracy: 0.001)
-        for surface in [BarTheme.glassRadius, BarTheme.rowRadius, ModePill.radius] {
+        XCTAssertEqual(BarTheme.markRadius, 3.2, accuracy: 0.05)
+        for surface in [BarTheme.glassRadius, ModePill.radius] {
             XCTAssertEqual(surface, BarTheme.surfaceRadius, "every surface rounds at the first rung")
         }
+        XCTAssertEqual(BarTheme.rowRadius, 12, "a row ten points inside a pane rounds at twelve")
         for control in [BarTheme.chipRadius, BarTheme.glassChipRadius, BarTheme.wellRadius] {
             XCTAssertEqual(control, BarTheme.controlRadius, "every control at the second")
         }
         XCTAssertEqual(BarTheme.highlightRadius, BarTheme.markRadius, "a mark at the third")
+        XCTAssertEqual(ModePill.radius, BarTheme.pillHeight / 2, "the pill, at its height, is a stadium")
+    }
+
+    /// A thing nested in another is concentric with it, and never below
+    /// its own rung.
+    func testANestedThingRoundsAtTheOuterRadiusLessItsInset() {
+        let surface = BarTheme.surfaceRadius, control = BarTheme.controlRadius
+        XCTAssertEqual(BarTheme.nested(outer: surface, inset: 10, rung: control), 12)
+        XCTAssertEqual(BarTheme.nested(outer: surface, inset: 0, rung: control), surface, "flush with the edge, the same curve")
+        XCTAssertEqual(BarTheme.nested(outer: surface, inset: 6, rung: control), 16)
+        XCTAssertEqual(BarTheme.nested(outer: surface, inset: 20, rung: control), control, "never below its own rung")
+        XCTAssertEqual(BarTheme.nested(outer: surface, inset: 40, rung: control), control)
+        XCTAssertEqual(BarTheme.nested(outer: control, inset: 3, rung: BarTheme.markRadius), control - 3,
+                       "the rule holds a rung down as well")
+    }
+
+    func testARowRoundsConcentricWithItsPaneByItsOwnInset() {
+        let row = RaisedRow()
+        row.setupRaised()
+        XCTAssertEqual(row.layer?.cornerRadius, BarTheme.rowRadius, "ten points in, by default")
+        row.inset = 6
+        XCTAssertEqual(row.layer?.cornerRadius, BarTheme.surfaceRadius - 6, "six in rounds a little more")
     }
 
     /// Three faces, one per speaker, never borrowed.

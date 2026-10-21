@@ -2050,11 +2050,17 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         return nil
     }
 
-    /// One group's card: a surface on the glass, rounded on the ladder.
+    /// How far a group's card stands from the window's edge, to the side:
+    /// half of what its width gives up.
+    private static let cardInset: CGFloat = 32
+
+    /// One group's card: a thing set in the window, rounded concentric with
+    /// it on the ladder.
     static func card() -> NSView {
         let card = ToneView(fill: BarTheme.well,
                             edge: BarTheme.hairline, edgeWidth: 1,
-                            radius: BarTheme.surfaceRadius)
+                            radius: BarTheme.nested(outer: BarTheme.surfaceRadius, inset: cardInset,
+                                                    rung: BarTheme.controlRadius))
         card.translatesAutoresizingMaskIntoConstraints = false
         return card
     }

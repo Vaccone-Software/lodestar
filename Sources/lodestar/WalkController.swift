@@ -659,7 +659,8 @@ final class WalkController: NSObject {
             column.addArrangedSubview(wrapped(Self.doorLine(option), size: BarTheme.Scale.meta,
                                               color: BarTheme.secondaryColor, alignment: .left, width: tileWidth - 20))
             column.wantsLayer = true
-            column.layer?.cornerRadius = BarTheme.surfaceRadius
+            column.layer?.cornerRadius = BarTheme.nested(outer: BarTheme.surfaceRadius, inset: Self.inset,
+                                                         rung: BarTheme.controlRadius)
             column.layer?.borderWidth = selected ? 1.5 : 1
             column.layer?.borderColor = Glass.resolved(selected ? BarTheme.accent : BarTheme.hairline)
             column.layer?.backgroundColor = Glass.resolved(selected ? BarTheme.accent.withAlphaComponent(0.08)

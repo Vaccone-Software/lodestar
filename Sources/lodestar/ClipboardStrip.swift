@@ -205,6 +205,8 @@ final class ClipboardStrip {
     }
 
     private static let pad: CGFloat = 12
+    /// A menu's rows stand this far in from its plate's edge.
+    private static let menuInset: CGFloat = 6
     /// The key's inset from a card's top edge, and the foot's height.
     private static let head: CGFloat = 10
     private static let foot: CGFloat = 26
@@ -607,7 +609,7 @@ final class ClipboardStrip {
     /// list of sources — so the cards' weights read alone.
     private func surface(size: NSSize, lift: ObjectSurface.Lift, weight: Weight,
                          counted: Bool = true) -> ObjectSurface {
-        let card = SoftShadow.object(radius: BarTheme.rowRadius, lift: lift)
+        let card = SoftShadow.object(radius: BarTheme.surfaceRadius, lift: lift)
         card.frame = NSRect(origin: .zero, size: size)
         let veil: Glass.Weight
         switch weight {
@@ -615,7 +617,7 @@ final class ClipboardStrip {
         case .highlighted: veil = .raised
         case .empty: veil = .faint
         }
-        Glass.installBackdrop(in: card, cornerRadius: BarTheme.rowRadius, weight: veil)
+        Glass.installBackdrop(in: card, cornerRadius: BarTheme.surfaceRadius, weight: veil)
         if counted { shownWeights.append(veil) }
         card.setAccessibilityElement(true)
         card.setAccessibilityRole(.button)
@@ -1354,7 +1356,8 @@ final class ClipboardStrip {
 
         for (index, row) in rows {
             let y = top - rowHeight
-            let line = RaisedLine(frame: NSRect(x: 6, y: y, width: width - 12, height: rowHeight))
+            let line = RaisedLine(frame: NSRect(x: Self.menuInset, y: y, width: width - Self.menuInset * 2, height: rowHeight))
+            line.inset = Self.menuInset
             line.setupRaised()
             line.applyRaised(index == menu.selection)
             let name = NSTextField(labelWithString: row.name)

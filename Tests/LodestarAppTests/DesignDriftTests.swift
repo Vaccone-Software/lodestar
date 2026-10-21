@@ -353,6 +353,38 @@ final class DesignDriftTests: XCTestCase {
         XCTAssertEqual(offenders, [], "use BarTheme.well or BarTheme.hairline")
     }
 
+    /// A well is a receptacle: the field, the note box, the keepsake that
+    /// receives. A group's card, a chip that is read and a row that is
+    /// pressed are not places, so they are flat and never take the well's
+    /// fill. What still wears it and is not a receptacle is named, and the
+    /// list only shrinks.
+    func testTheWellIsOnlyWhereSomethingIsPut() throws {
+        let receptacles: Set<String> = ["Glass.swift", "FeedbackController.swift"]
+        let notYet: Set<String> = ["SettingsController.swift", "WalkController.swift"]
+        var offenders: [String] = [], stale: [String] = []
+        for (name, text) in try sources() {
+            let uses = DesignDriftTests.code(text).range(of: #"BarTheme\.well\b"#, options: .regularExpression) != nil
+            if notYet.contains(name) { if !uses { stale.append(name) } }
+            else if uses && !receptacles.contains(name) { offenders.append(name) }
+        }
+        XCTAssertEqual(offenders, [], "a well is where something is put; anything else is flat, a hairline at most")
+        XCTAssertEqual(stale, [], "made flat: take it off the not-yet list")
+    }
+
+    /// Selection is the slab, in every list, menu and strip: the raised step
+    /// is a key's face and no row's highlight. Outside the theme it is read
+    /// once, for the face of a file's sheet resting on a card.
+    func testSelectionIsTheSlabNotTheRaisedStep() throws {
+        var offenders: [String] = []
+        for (name, text) in try sources() where name != "Glass.swift" {
+            let count = DesignDriftTests.code(text).components(separatedBy: "BarTheme.raised").count - 1
+            if count > (name == "ClipboardStrip.swift" ? 1 : 0) { offenders.append(name) }
+        }
+        XCTAssertEqual(offenders, [], "a chosen row is RaisedRow's slab, a chosen card is the slab weight")
+        let glass = try String(contentsOf: Self.appSources.appendingPathComponent("Glass.swift"), encoding: .utf8)
+        XCTAssertFalse(DesignDriftTests.code(glass).contains("BarTheme.raised.setFill()"), "no highlight is drawn in the raised step")
+    }
+
     /// The drawn shadow is window, not glass: a hosted surface that took
     /// the mouse everywhere would eat clicks in its shadow. It takes the
     /// mouse through a `PointerGate`, or not at all.

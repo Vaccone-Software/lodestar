@@ -662,11 +662,7 @@ final class MeetingController: NSObject {
 
     private func label(_ text: String, size: CGFloat, weight: NSFont.Weight,
                        color: NSColor) -> NSTextField {
-        let field = NSTextField(labelWithString: text)
-        field.font = .systemFont(ofSize: size, weight: weight)
-        field.textColor = color
-        field.lineBreakMode = .byTruncatingTail
-        return field
+        BarTheme.label(text, font: .systemFont(ofSize: size, weight: weight), color: color, truncates: true)
     }
 
     // MARK: - Staging

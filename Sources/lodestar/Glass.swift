@@ -647,6 +647,19 @@ enum BarTheme {
         return (Accessibility.increaseContrast() ? look.ink : look.secondary).color
     }
 
+    /// A label, in the palette's ink unless told otherwise: the system's
+    /// label colour is pure black and pure white, and the ink is never
+    /// either. Every word Lodestar sets as a label is made here or sets its
+    /// own colour from the theme.
+    static func label(_ text: String, font: NSFont = secondaryFont, color: NSColor = ink,
+                      truncates: Bool = false) -> NSTextField {
+        let field = NSTextField(labelWithString: text)
+        field.font = font
+        field.textColor = color
+        if truncates { field.lineBreakMode = .byTruncatingTail }
+        return field
+    }
+
     /// The palette in force: espresso in dark mode, clay in light.
     static var palette: Palette.Steps {
         Tone.systemDark ? Palette.night : Palette.clay

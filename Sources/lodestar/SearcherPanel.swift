@@ -154,6 +154,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         field.drawsBackground = false
         field.focusRingType = .none
         field.font = BarTheme.inputFont
+        field.textColor = BarTheme.ink
         field.setPlaceholder("Where to?")
         field.delegate = self
         field.translatesAutoresizingMaskIntoConstraints = false
@@ -970,6 +971,7 @@ private final class SearcherRowView: RaisedRow {
             if showDot {
                 let dotLabel = NSTextField(labelWithString: "●")
                 dotLabel.font = BarTheme.dotFont
+                dotLabel.textColor = BarTheme.secondaryColor
                 dot = dotLabel
                 let afterName = (stack.arrangedSubviews.firstIndex(of: name) ?? 0) + 1
                 stack.insertArrangedSubview(dotLabel, at: afterName)

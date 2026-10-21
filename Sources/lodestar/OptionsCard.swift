@@ -322,10 +322,7 @@ final class OptionsCard {
     }
 
     private func label(_ text: String, font: NSFont, color: NSColor) -> NSTextField {
-        let field = NSTextField(labelWithString: text)
-        field.font = font
-        field.textColor = color
-        return field
+        BarTheme.label(text, font: font, color: color)
     }
 }
 

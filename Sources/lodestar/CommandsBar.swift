@@ -49,6 +49,7 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
         field.drawsBackground = false
         field.focusRingType = .none
         field.font = BarTheme.inputFont
+        field.textColor = BarTheme.ink
         field.setPlaceholder("Do what?")
         field.delegate = self
         field.translatesAutoresizingMaskIntoConstraints = false

@@ -1864,6 +1864,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         let field = NSTextField()
         field.setPlaceholder(ask == nil ? "Search every setting" : "Search, or ask in your own words")
         field.font = BarTheme.titleFont
+        field.textColor = BarTheme.ink
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
@@ -2084,6 +2085,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     private func editableField(_ value: String, width: CGFloat) -> NSTextField {
         let field = NSTextField(string: value)
         field.font = BarTheme.secondaryFont
+        field.textColor = BarTheme.ink
         field.delegate = self
         // No target/action on purpose: an action fires on *every* end of
         // editing, so a re-render or a tab committed half-typed values.
@@ -2125,11 +2127,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
 
     private func label(_ text: String, size: CGFloat, weight: NSFont.Weight,
                        color: NSColor) -> NSTextField {
-        let field = NSTextField(labelWithString: text)
-        field.font = .systemFont(ofSize: size, weight: weight)
-        field.textColor = color
-        field.lineBreakMode = .byTruncatingTail
-        return field
+        BarTheme.label(text, font: .systemFont(ofSize: size, weight: weight), color: color, truncates: true)
     }
 
     // MARK: - Staging

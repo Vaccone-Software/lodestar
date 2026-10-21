@@ -74,6 +74,35 @@ final class DesignDriftTests: XCTestCase {
         XCTAssertEqual(hits, [], "resolve it with Glass.resolved(_:in:) or draw it in a ToneView")
     }
 
+    /// A label or a field the hand types into that sets no colour is drawn in
+    /// the system's text colour, which is pure black or pure white. Every one
+    /// takes the palette's ink (or the quiet one), through `BarTheme.label`
+    /// or a colour set by name in the same file.
+    func testNoLabelOrFieldIsLeftInTheSystemsInk() throws {
+        let made = try NSRegularExpression(
+            pattern: #"(?:let|var)\s+(\w+)\s*=\s*NSTextField\((?:labelWithString:|string:|\))"#)
+        var offenders: [String] = []
+        for file in Self.swiftFiles(under: Self.appSources) {
+            let text = Self.code(try String(contentsOf: file, encoding: .utf8))
+            let ns = text as NSString
+            for match in made.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+                let name = ns.substring(with: match.range(at: 1))
+                let colours = try NSRegularExpression(
+                    pattern: "\\b\(name)\\.(textColor|attributedStringValue|placeholderAttributedString)|" +
+                    "\\b\(name)\\.stringValue = ")
+                // Words that are only measured never draw: a field that only
+                // sizes text sets a font and asks for its frame.
+                let sizing = text.contains("\(name).sizeToFit()") && !text.contains("addSubview(\(name))")
+                    && !text.contains("addArrangedSubview(\(name))")
+                if sizing { continue }
+                if colours.firstMatch(in: text, range: NSRange(location: 0, length: ns.length)) == nil {
+                    offenders.append("\(file.lastPathComponent): \(name)")
+                }
+            }
+        }
+        XCTAssertEqual(offenders, [], "set the ink: BarTheme.label, or textColor from the theme")
+    }
+
     func testNoSurfaceSetsATypeSizeOfItsOwn() throws {
         let hits = try offenders(#"ofSize:\s*[0-9]"#, in: surfaces())
         XCTAssertEqual(hits, [], "a size comes from the type scale, never a literal")

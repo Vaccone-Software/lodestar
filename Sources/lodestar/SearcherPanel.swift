@@ -62,7 +62,6 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     private let root = NSView()
     private let field = NSTextField()
     private let magnifier = NSImageView()
-    private let separator = NSBox()
     private let rowsStack = NSStackView()
     /// The footer: a note in the band under the rows, its keys drawn.
     private let footer = NSStackView()
@@ -159,8 +158,6 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         field.delegate = self
         field.translatesAutoresizingMaskIntoConstraints = false
 
-        separator.boxType = .separator
-        separator.translatesAutoresizingMaskIntoConstraints = false
 
         rowsStack.orientation = .vertical
         rowsStack.spacing = 2
@@ -172,9 +169,9 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         footer.spacing = 8
         footer.translatesAutoresizingMaskIntoConstraints = false
 
+        BarTheme.installFieldWell(in: root, bandHeight: inputHeight)
         root.addSubview(magnifier)
         root.addSubview(field)
-        root.addSubview(separator)
         root.addSubview(rowsStack)
         root.addSubview(footer)
         NSLayoutConstraint.activate([
@@ -183,10 +180,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
             field.leadingAnchor.constraint(equalTo: magnifier.trailingAnchor, constant: 12),
             field.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -22),
             field.centerYAnchor.constraint(equalTo: root.topAnchor, constant: inputHeight / 2),
-            separator.topAnchor.constraint(equalTo: root.topAnchor, constant: inputHeight),
-            separator.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 14),
-            separator.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -14),
-            rowsStack.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 8),
+            rowsStack.topAnchor.constraint(equalTo: root.topAnchor, constant: inputHeight),
             rowsStack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 10),
             rowsStack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -10),
             footer.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 14),
@@ -355,7 +349,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     /// growing to hold its keys extends it downward.
     private func barFrame() -> NSRect {
         let count = CGFloat(rows.count)
-        let rowsArea = count > 0 ? 1 + 8 + count * rowHeight + CGFloat(max(0, rows.count - 1)) * 2 + 6 : 0
+        let rowsArea = count > 0 ? count * rowHeight + CGFloat(max(0, rows.count - 1)) * 2 + 6 : 0
         let height = inputHeight + rowsArea + footerHeight + keys.height
         let visible = ActivePolicy.presentationFrame
         let origin = NSPoint(
@@ -880,11 +874,18 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
 }
 
 /// A reusable searcher row. The icon is loaded once per identity; selection
-/// is a repaint, not a rebuild.
-private final class SearcherRowView: RaisedRow {
+/// is a repaint, not a rebuild. Keys lead: the row reads address, app, name,
+/// and chosen it is the slab with its keys lit and ⏎ at the end.
+final class SearcherRowView: RaisedRow {
     private let icon = NSImageView()
     private let name = NSTextField(labelWithString: "")
     private let stack = NSStackView()
+    /// The keys lead: the address that reaches this target without the
+    /// launcher stands in a column at the row's left, one column down the
+    /// list whether or not a row has one, so the eye reads the keys first
+    /// and the names after.
+    private let keyColumn = NSStackView()
+    static let keyColumnWidth: CGFloat = 88
     private var keys: [KeyFace] = []
     /// ⏎ on the chosen row: the key that opens it, lit with its letters.
     private let enter = KeyFace("⏎")
@@ -915,15 +916,22 @@ private final class SearcherRowView: RaisedRow {
         stack.spacing = 10
         stack.edgeInsets = NSEdgeInsets(top: 0, left: 12, bottom: 0, right: 16)
         stack.translatesAutoresizingMaskIntoConstraints = false
-        // Absorbs the slack so the address chips land at the trailing edge,
-        // in one column down the list — the same place the guides and the
-        // clipboard's menu keep their keys.
+        keyColumn.orientation = .horizontal
+        keyColumn.alignment = .centerY
+        keyColumn.spacing = 4
+        keyColumn.distribution = .gravityAreas
+        keyColumn.translatesAutoresizingMaskIntoConstraints = false
+        keyColumn.setHuggingPriority(.required, for: .horizontal)
+        keyColumn.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.keyColumnWidth).isActive = true
+        // Absorbs the slack so ⏎ lands at the trailing edge, where the
+        // guides and the clipboard's menu keep their keys.
         let spacer = NSView()
         spacer.translatesAutoresizingMaskIntoConstraints = false
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
         spacer.widthAnchor.constraint(
             greaterThanOrEqualToConstant: BarTheme.rowKeyGap).isActive = true
 
+        stack.addArrangedSubview(keyColumn)
         stack.addArrangedSubview(icon)
         stack.addArrangedSubview(name)
         stack.addArrangedSubview(spacer)
@@ -953,19 +961,18 @@ private final class SearcherRowView: RaisedRow {
         let signature = chips.joined(separator: "|") + (showDot ? "|●" : "")
         if signature != trailingSignature {
             trailingSignature = signature
-            for view in keys { stack.removeArrangedSubview(view); view.removeFromSuperview() }
+            for view in keys { keyColumn.removeArrangedSubview(view); view.removeFromSuperview() }
             keys = []
             if let dot { stack.removeArrangedSubview(dot); dot.removeFromSuperview() }
             dot = nil
             // The dot's tighter gap goes with it, or a reused row keeps it.
             stack.setCustomSpacing(NSStackView.useDefaultSpacing, after: name)
 
-            // The address keys, then ⏎ (shown only when chosen), then the dot.
-            let enterIndex = stack.arrangedSubviews.firstIndex(of: enter) ?? stack.arrangedSubviews.count
-            for (offset, chip) in chips.enumerated() {
+            // The address keys lead the row; ⏎ (shown only when chosen) ends it.
+            for chip in chips {
                 let key = KeyFace(chip)
                 keys.append(key)
-                stack.insertArrangedSubview(key, at: enterIndex + offset)
+                keyColumn.addArrangedSubview(key)
             }
             // The open dot belongs to the app, so it sits beside its name.
             if showDot {
@@ -985,6 +992,12 @@ private final class SearcherRowView: RaisedRow {
         guard selected != selectedState else { return }
         selectedState = selected
         restyle()
+    }
+
+    /// What the row draws, left to right, for the tests: the address keys,
+    /// the app's icon, its name, and ⏎.
+    var drawnForTesting: (keys: [KeyFace], icon: NSImageView, name: NSTextField, enter: KeyFace) {
+        (keys, icon, name, enter)
     }
 
     /// Chosen, the row rises and its keys light, ⏎ among them: the light

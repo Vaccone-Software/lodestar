@@ -9,7 +9,6 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
     private let root = NSView()
     private let field = NSTextField()
     private let symbol = NSImageView()
-    private let separator = NSBox()
     private let rowsStack = NSStackView()
 
     private var items: [Commands.Row] = []
@@ -54,17 +53,15 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
         field.delegate = self
         field.translatesAutoresizingMaskIntoConstraints = false
 
-        separator.boxType = .separator
-        separator.translatesAutoresizingMaskIntoConstraints = false
 
         rowsStack.orientation = .vertical
         rowsStack.spacing = 2
         rowsStack.translatesAutoresizingMaskIntoConstraints = false
         keys.install(root: root, below: rowsStack)
 
+        BarTheme.installFieldWell(in: root, bandHeight: inputHeight)
         root.addSubview(symbol)
         root.addSubview(field)
-        root.addSubview(separator)
         root.addSubview(rowsStack)
         NSLayoutConstraint.activate([
             symbol.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 22),
@@ -72,10 +69,7 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
             field.leadingAnchor.constraint(equalTo: symbol.trailingAnchor, constant: 12),
             field.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -22),
             field.centerYAnchor.constraint(equalTo: root.topAnchor, constant: inputHeight / 2),
-            separator.topAnchor.constraint(equalTo: root.topAnchor, constant: inputHeight),
-            separator.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 14),
-            separator.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -14),
-            rowsStack.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 8),
+            rowsStack.topAnchor.constraint(equalTo: root.topAnchor, constant: inputHeight),
             rowsStack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 10),
             rowsStack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -10),
         ])
@@ -184,7 +178,7 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
     /// growing to hold its keys extends it downward.
     private func barFrame() -> NSRect {
         let count = CGFloat(rows.count)
-        let rowsArea = count > 0 ? 1 + 8 + count * rowHeight + CGFloat(max(0, rows.count - 1)) * 2 + 6 : 0
+        let rowsArea = count > 0 ? count * rowHeight + CGFloat(max(0, rows.count - 1)) * 2 + 6 : 0
         let height = inputHeight + rowsArea + BarTheme.barFoot + keys.height
         let visible = ActivePolicy.presentationFrame
         let origin = NSPoint(

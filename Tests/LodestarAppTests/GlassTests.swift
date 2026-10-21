@@ -659,6 +659,78 @@ final class SlabTests: XCTestCase {
     }
 }
 
+/// The launcher: keys lead, the chosen row is the slab, and the field is a
+/// well the typing sinks into.
+final class LauncherLookTests: XCTestCase {
+    private func row(chosen: Bool) -> (NSWindow, SearcherRowView) {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 100), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: .aqua)
+        let row = SearcherRowView(rowHeight: BarTheme.rowHeight)
+        row.configure(identity: "mail", icon: { NSImage(size: NSSize(width: 32, height: 32)) }, title: "Mail",
+                      chips: ["E P"], showDot: true)
+        row.setSelected(chosen)
+        window.contentView?.addSubview(row)
+        row.frame = NSRect(x: 10, y: 10, width: 600, height: BarTheme.rowHeight)
+        window.contentView?.layoutSubtreeIfNeeded()
+        return (window, row)
+    }
+
+    func testTheKeysLeadTheRow() {
+        let (window, row) = row(chosen: true)
+        let drawn = row.drawnForTesting
+        XCTAssertEqual(drawn.keys.count, 1)
+        let key = drawn.keys[0]
+        XCTAssertLessThan(row.convert(key.bounds, from: key).maxX, drawn.icon.frame.minX, "the address stands left of the icon")
+        XCTAssertLessThan(drawn.icon.frame.maxX, drawn.name.frame.minX, "and the name after it")
+        XCTAssertLessThan(drawn.name.frame.maxX, drawn.enter.frame.minX, "⏎ ends the row")
+        XCTAssertTrue(key.lit, "the chosen row's keys are lit")
+        _ = window
+    }
+
+    func testTheNamesStandInOneColumnWhetherOrNotARowHasAnAddress() {
+        let (w1, withKeys) = row(chosen: false)
+        let bare = SearcherRowView(rowHeight: BarTheme.rowHeight)
+        bare.configure(identity: "terminal", icon: { nil }, title: "Terminal", chips: [], showDot: false)
+        w1.contentView?.addSubview(bare)
+        bare.frame = NSRect(x: 10, y: 60, width: 600, height: BarTheme.rowHeight)
+        w1.contentView?.layoutSubtreeIfNeeded()
+        XCTAssertEqual(bare.drawnForTesting.icon.frame.minX, withKeys.drawnForTesting.icon.frame.minX, accuracy: 0.5,
+                       "the key column holds its width, so the icons line up down the list")
+    }
+
+    func testAnUnchosenRowIsFlatAndTheChosenOneIsTheSlab() {
+        let (w1, flat) = row(chosen: false)
+        XCTAssertNil(flat.slabColors.face, "flat until chosen")
+        XCTAssertFalse(flat.drawnForTesting.keys[0].lit)
+        XCTAssertTrue(flat.drawnForTesting.enter.isHidden)
+        let (w2, chosen) = row(chosen: true)
+        XCTAssertNotNil(chosen.slabColors.face, "the slab when chosen")
+        XCTAssertFalse(chosen.drawnForTesting.enter.isHidden)
+        _ = (w1, w2)
+    }
+
+    func testABarsFieldSinksIntoAWell() {
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 100))
+        let well = BarTheme.installFieldWell(in: root, bandHeight: BarTheme.inputHeight)
+        root.layoutSubtreeIfNeeded()
+        XCTAssertEqual(well.frame.height, BarTheme.inputHeight - BarTheme.fieldWellMargin * 2)
+        XCTAssertEqual(well.frame.minX, BarTheme.rowInset, "ten points in, as the rows are")
+        XCTAssertEqual(well.layer?.cornerRadius, BarTheme.rowRadius, "concentric with the pane")
+        well.updateLayer()
+        var fill: CGColor?
+        well.effectiveAppearance.performAsCurrentDrawingAppearance { fill = BarTheme.well.cgColor }
+        XCTAssertEqual(well.layer?.backgroundColor, fill, "the receptacle's own fill")
+    }
+
+    func testEveryBarSinksItsFieldIntoTheWell() throws {
+        for name in ["SearcherPanel.swift", "WebBar.swift", "CommandsBar.swift"] {
+            let text = try String(contentsOf: DesignDriftTests.appSources.appendingPathComponent(name), encoding: .utf8)
+            XCTAssertTrue(text.contains("BarTheme.installFieldWell("), "\(name): the field is a receptacle")
+        }
+    }
+}
+
 /// A room's button is a key: it stands on a side, and pressed it collapses
 /// at once; the answer is the lit key.
 final class RoomButtonTests: XCTestCase {

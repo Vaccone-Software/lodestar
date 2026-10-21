@@ -584,6 +584,25 @@ enum BarTheme {
     /// never read as one run of text.
     static let rowKeyGap: CGFloat = 28
 
+    /// The well a bar's field sinks into: the field is the one place in the
+    /// bar something is put, so it is a receptacle (`BarTheme.well`, a
+    /// hairline for its edge) and not a band of the pane. Installed under
+    /// the field and its symbol, concentric with the pane the way a row is.
+    @discardableResult
+    static func installFieldWell(in root: NSView, bandHeight: CGFloat) -> ToneView {
+        let well = ToneView(fill: BarTheme.well, edge: BarTheme.hairline, edgeWidth: 0.5, radius: rowRadius)
+        well.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(well)
+        NSLayoutConstraint.activate([
+            well.topAnchor.constraint(equalTo: root.topAnchor, constant: fieldWellMargin),
+            well.heightAnchor.constraint(equalToConstant: bandHeight - fieldWellMargin * 2),
+            well.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: rowInset),
+            well.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -rowInset),
+        ])
+        return well
+    }
+    static let fieldWellMargin: CGFloat = 8
+
     /// The type scale: three sizes for every word Lodestar draws, and one
     /// for the launcher's field. Nine sizes chosen one at a time, from 10
     /// to 23, had drifted in over a year, and the smallest sat below the

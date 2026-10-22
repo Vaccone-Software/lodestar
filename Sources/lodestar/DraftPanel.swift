@@ -267,12 +267,12 @@ final class DraftPanel {
     private static let minTextHeight: CGFloat = 58
     /// The lines a speaking draft holds.
     static let compactLines = 4
-    /// The draft is prose that lands in proportional apps, so it is set as
-    /// it will be read: the draft role, the sans like any other text. The
-    /// block cursor is a plate as wide as the letter it covers, and the find
-    /// lights' semibold letters are the draft's marked role.
+    /// The draft and the editor's lens are the system's mono, where vim is:
+    /// every letter is one cell, so the block cursor, which is a plate as
+    /// wide as the letter it covers, is one cell, and the find lights'
+    /// semibold letters (the marked role) keep the line's width.
     private static var font: NSFont { BarTheme.Role.draft.font }
-    /// The width of a space: what a block cursor covers where no letter is.
+    /// The width of a space, one cell: what a block cursor covers where no letter is.
     private static var spaceWidth: CGFloat { BarTheme.spaceWidth(in: .draft) }
     /// The panel's ground, for the glyph a block cursor inverts: the
     /// equalizer scrim keeps every panel charcoal, whatever the material

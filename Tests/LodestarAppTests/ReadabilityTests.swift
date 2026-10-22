@@ -31,6 +31,19 @@ final class ReadabilityTests: XCTestCase {
         XCTAssertGreaterThan(panel.caretFrame.width, 4, "the width of the glyph")
     }
 
+    /// In mono every letter is one cell, so the block cursor is one cell on a
+    /// wide letter, on a narrow one, and past the end of a line.
+    func testTheBlockCursorIsOneCellInMono() {
+        let panel = DraftPanel()
+        defer { panel.hide() }
+        let cell = BarTheme.spaceWidth(in: .draft)
+        XCTAssertGreaterThan(cell, 4)
+        for (text, cursor) in [("Wi", 0), ("Wi", 1), ("ab\ncd", 2), ("ab", 2)] {
+            panel.show(view(text, cursor: cursor, editor: .normal))
+            XCTAssertEqual(panel.caretFrame.width, cell, accuracy: 0.6, "\(text) at \(cursor)")
+        }
+    }
+
     /// The insert bar is the accent, three points wide. Pinned to
     /// International Orange: the Mac's own accent may sit under the floor
     /// on a night, where the bar rightly falls back to the text's colour.

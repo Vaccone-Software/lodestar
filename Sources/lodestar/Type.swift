@@ -2,8 +2,9 @@ import AppKit
 import ObjectiveC
 
 /// The type contract (design/02-type.md): one family, the system's sans,
-/// on four sizes and three weights. Every word Lodestar draws is a role
-/// below; a surface names the role and never builds a font.
+/// on four sizes and three weights, except where you edit with vim: the
+/// draft and the editor's lens are the system's mono. Every word Lodestar
+/// draws is a role below; a surface names the role and never builds a font.
 ///
 /// A font cannot follow the look the way a colour does: it is a value, not
 /// an appearance-aware object. So a view holds its *role*, and the font is
@@ -45,7 +46,7 @@ extension BarTheme {
         case heading
         /// A key's letter.
         case key
-        /// The draft's text and the editor's lens.
+        /// The draft's text and the editor's lens: mono, where vim is.
         case draft
         /// The draft's lit letters.
         case draftMarked
@@ -72,6 +73,10 @@ extension BarTheme {
         /// digits hold their width. Any other role asks for it per use.
         var isFigure: Bool { self == .figure || self == .largeFigure }
 
+        /// Mono is where vim is, and nowhere else: every letter of the draft
+        /// and the editor's lens is one cell, and so is the block cursor.
+        var isMono: Bool { self == .draft || self == .draftMarked }
+
         /// Light type on a dark ground reads thinner than the same weight
         /// dark on light, so night is one step up: regular to medium,
         /// medium to semibold, semibold to bold.
@@ -90,6 +95,7 @@ extension BarTheme {
         /// number that changes in place; a figure role always does.
         func font(night: Bool, tabular: Bool = false) -> NSFont {
             let weight = weight(night: night)
+            if isMono { return NSFont.monospacedSystemFont(ofSize: size, weight: weight) }
             return tabular || isFigure
                 ? NSFont.monospacedDigitSystemFont(ofSize: size, weight: weight)
                 : NSFont.systemFont(ofSize: size, weight: weight)

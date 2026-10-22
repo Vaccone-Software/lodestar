@@ -28,15 +28,31 @@ final class TypeRolesTests: XCTestCase {
             for night in [false, true] {
                 let font = role.font(night: night)
                 let named = "\(role.rawValue) at \(night ? "night" : "day"): \(font.fontName)"
-                XCTAssertEqual(font.familyName, system, "the system's sans: \(named)")
                 XCTAssertFalse(font.fontName.lowercased().contains("newyork"), "no serif: \(named)")
-                XCTAssertFalse(font.fontDescriptor.symbolicTraits.contains(.monoSpace), "no mono: \(named)")
-                XCTAssertFalse(font.isFixedPitch, "no mono: \(named)")
+                if role.isMono {
+                    // Mono is where vim is: the draft and the editor's lens, one cell a letter.
+                    XCTAssertTrue(font.isFixedPitch, "the draft is mono: \(named)")
+                    XCTAssertTrue(["draft", "draftMarked"].contains(role.rawValue))
+                    let cells = ["i", "W", " ", "m"].map { ($0 as NSString).size(withAttributes: [.font: font]).width }
+                    XCTAssertTrue(cells.allSatisfy { abs($0 - cells[0]) < 0.001 }, "one cell a letter: \(named)")
+                } else {
+                    XCTAssertEqual(font.familyName, system, "the system's sans: \(named)")
+                    XCTAssertFalse(font.fontDescriptor.symbolicTraits.contains(.monoSpace), "no mono: \(named)")
+                    XCTAssertFalse(font.isFixedPitch, "no mono: \(named)")
+                }
                 XCTAssertTrue(Self.scale.contains(font.pointSize), "on the scale: \(named) is \(font.pointSize)")
                 XCTAssertGreaterThanOrEqual(font.pointSize, 13, "13 is the floor: \(named)")
             }
             XCTAssertTrue(Self.dayWeights.contains(weight(role.font(night: false))),
                           "\(role.rawValue) is regular, medium or semibold by day")
+        }
+    }
+
+    /// Mono is only the draft's two roles.
+    func testMonoIsOnlyTheDraft() {
+        XCTAssertEqual(Set(BarTheme.Role.allCases.filter(\.isMono)), [.draft, .draftMarked])
+        for role in BarTheme.Role.allCases where !role.isMono {
+            XCTAssertFalse(role.font(night: false, tabular: true).isFixedPitch, role.rawValue)
         }
     }
 

@@ -82,6 +82,14 @@ Each look's orange is the best version of International Orange for its own groun
 | other look's quiet on slab | 5.99  | 5.65     |
 | orange on slab (as a fill) | 4.76  | 4.38     |
 
+### Shadow
+
+A shadow is never black: by day it is clay's quiet ink, by night espresso's ground, each at the share the material contract sets. Until then they replace the old warm browns at the old shares.
+
+### Until the slab
+
+The slab is its own contract. Until it lands, a chosen row stands on the look's key step as it stood on the old raised step, and its keys light. The key step and the chosen row are then the same colour, told apart by a key's side and edge; the slab contract retires this.
+
 ## Rules
 
 1. **One theme call.** Every colour comes from the theme, which resolves the palette for the view's own look. No surface names a hex, a system colour (`labelColor`, `controlAccentColor`, `systemX`, `white`, `black`) or a material.
@@ -91,7 +99,7 @@ Each look's orange is the best version of International Orange for its own groun
 5. **Content keeps its colour.** A clip's swatch, an image, an app icon, a page preview: drawn exactly as they are, at every hour, on every ground.
 6. **Never tinted.** Colour temperature belongs to Night Shift. Lodestar moves lightness, never hue.
 7. **No gradients.** A surface is one colour. A gradient is allowed only where it is the content (an image) or a mask that never reads as a colour of its own.
-8. **The two looks are one family.** A step in one look and its counterpart in the other share a hue within about 20 degrees.
+8. **The two looks are one family.** A step in one look and its counterpart in the other share a hue within 25 degrees (the inks are the widest pair, at 22.6).
 
 ## Enforcement
 

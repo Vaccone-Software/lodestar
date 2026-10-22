@@ -104,7 +104,13 @@ The true colour at night; on clay the same hue a step deeper, because the true c
 
 ## Status
 
-Not yet built. Main still draws the previous look's palette (clay and a warm-grey night, the accent setting with the Mac's accent as default). This contract replaces both.
+Not yet built. The colour sheet rendered from main (`foundation-colour-day`, `foundation-colour-night`) shows what this contract replaces:
+
+- **The palettes are the previous ones:** a warm-grey night (ground `#18130E`, pane `#221D19`, raised `#2E2925`) and clay (ground `#EFE7DE`, pane `#F8EFE7`, raised `#FFFBF6`), with a separate dark clay key (`#2E2926`).
+- **The ceiling is broken:** a key's face, its top edge, the mark's face and the letter on the orange are pure white (`#FFFFFF`).
+- **Ink is the system's:** text is `labelColor` (`#262523` over the day pane), not a palette step.
+- **The accent is a setting,** the Mac's own by default; the orange pair already matches this contract.
+- **The glass tint** (`#EBEBEB` by day) is a neutral grey, outside the warm family.
 
 ## Prototype lessons
 

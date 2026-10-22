@@ -45,6 +45,8 @@ Every gap, inset and padding is a step of the grid:
 
 Inside a control (a key's horizontal padding, a chip's) a half-step of 6 is allowed, because 4 crowds a letter and 8 makes a short key wide.
 
+A menu or a card of plain rows insets them 12 above and below and 16 at the sides. A room (Settings, Feedback, the walk) has a margin of 32 or a section of 24, and Settings' groups are panes that inset their rows by 12.
+
 ### Sizes
 
 | Thing          | Size                    | Note                                               |
@@ -61,7 +63,7 @@ Inside a control (a key's horizontal padding, a chip's) a half-step of 6 is allo
 
 ## Rules
 
-1. **No literal geometry.** A radius, gap, inset or size in layout code names a token from this contract. A number written inline fails the build, except 0 and a hairline.
+1. **No literal geometry.** A radius, gap, inset or size in layout code names a token from this contract. A number written inline fails the build, except 0, a hairline and a factor of two. A size this contract does not list (a picture, a card's width) is a named constant beside the surface that uses it, and a name that says gap, inset, margin or padding holds a grid step. Shadows belong to the material contract.
 2. **Concentric.** Anything nested rounds at the outer radius minus its inset, never below its own rung.
 3. **On the grid.** Every gap and inset is a step; the half-step 6 only inside a control.
 4. **A column is as wide as what it holds.** A column of keys, labels or icons sizes to its widest item; no minimum width ever stretches its contents, and a column with nothing in it takes no space.
@@ -81,7 +83,7 @@ Every surface in the gallery. The geometry sheet, `foundation-geometry`, draws t
 
 ## Status
 
-Not yet built. Main rounds surfaces at 16.8, controls at 6.4 and marks at 2.5; rows round at the pane's own 16.8 and do not nest; spacing uses eighteen values; the launcher's key column has a fixed width.
+Built 22 October 2026. Before it, main rounded surfaces at 16.8, controls at 6.4 and marks at 2.5; rows rounded at the pane's own 16.8 and did not nest; spacing used eighteen values. The build moved some gaps visibly onto the grid (Keep's from 10 to 12, the draft's margin from 22 to 24, rooms' insets to 24 or 16), made Settings' groups panes of rows, and found three things drawn outside their frames on main: the launcher's rule under an empty field, the overview's ring, and the meeting's "min ago". A bar's field has no visible well yet, so its curve waits for the well contract.
 
 ## Prototype lessons
 

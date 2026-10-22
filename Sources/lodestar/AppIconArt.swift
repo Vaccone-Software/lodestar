@@ -9,7 +9,7 @@ import LodestarCore
 /// edge. No gradient, no sheen, no wash: objects in one light.
 ///
 /// One drawing for every icon: the running app's (which follows the
-/// appearance and the accent), and the files `make-icon.sh` writes for the
+/// appearance), and the files `make-icon.sh` writes for the
 /// bundle and the site, compiled beside `Mark.swift`.
 enum AppIconArt {
     enum Ground { case night, clay }
@@ -97,8 +97,8 @@ enum AppIconArt {
         NSGraphicsContext.current?.restoreGraphicsState()
     }
 
-    /// The running app's icon for the appearance and accent in force:
-    /// the person's accent, or International Orange when that is chosen.
+    /// The running app's icon for the appearance in force, the mark in
+    /// the accent (International Orange).
     static func current(dark: Bool, accent: NSColor) -> NSImage {
         let rgb = accent.usingColorSpace(.sRGB) ?? NSColor(srgbRed: 1, green: 0.31, blue: 0, alpha: 1)
         return image(canvas: 1024, ground: dark ? .night : .clay,

@@ -1408,15 +1408,6 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         case .choice(let options, let labels, let current):
             let popup = KeyPopUp()
             popup.addItems(withTitles: labels)
-            // A choice of colours wears the colours, so the two can be
-            // compared by eye where they are chosen.
-            if row.path == "appearance.accent" {
-                for (item, option) in zip(popup.itemArray, options) {
-                    if let accent = Config.Accent(rawValue: option) {
-                        item.image = BarTheme.swatch(BarTheme.accent(for: accent))
-                    }
-                }
-            }
             // Shown and greyed: an editor model this Mac is too small for
             // says what it needs rather than vanishing.
             if !row.disabledChoices.isEmpty {
@@ -2002,7 +1993,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
 
     // MARK: - Pieces
 
-    /// The mark in the person's accent, its faces shaded the way the icon
+    /// The mark in the accent, its faces shaded the way the icon
     /// is, from the one definition everything draws the mark from.
     static func markImage(size: CGFloat) -> NSImage {
         let accent = BarTheme.accent.usingColorSpace(.sRGB) ?? .orange
@@ -2272,7 +2263,7 @@ final class LandingStep: RaisedRow {}
 /// The mark's light on the light page: a faint warm pool spreading from
 /// the star under the ring, so the shadows falling away from it have a
 /// source. The night needs none; the mark already glows on Slip. The pool
-/// is the mark's own light, so it is the person's accent: a fixed orange
+/// is the mark's own light, so it is the accent: a fixed orange
 /// beside any other accent was a second light in the room.
 final class MarkPool: NSView {
     private let glow = CAGradientLayer()

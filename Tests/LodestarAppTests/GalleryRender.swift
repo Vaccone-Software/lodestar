@@ -20,12 +20,12 @@ struct GalleryLook: Equatable {
     func apply() {
         NSApplication.shared.appearance = NSAppearance(named: appearance)
         Glass.followSystemAppearance()
-        BarTheme.accentColor = { BarTheme.accent(for: .orange) }
+        BarTheme.accentColor = { BarTheme.internationalOrange }
     }
 
     static func reset() {
         NSApplication.shared.appearance = nil
-        BarTheme.accentColor = { .controlAccentColor }
+        BarTheme.accentColor = { BarTheme.internationalOrange }
         Glass.followSystemAppearance()
     }
 }

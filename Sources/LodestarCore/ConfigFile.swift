@@ -37,7 +37,6 @@ public struct ConfigFile: Sendable, Equatable {
     public var coach = Coach()
     public var keys: [String: String] = [:]
     public var graph: JSONValue = .object(JSONObject())
-    public var appearance = Appearance()
     public var draft = Draft()
     public var health = Health()
 
@@ -123,10 +122,6 @@ public struct ConfigFile: Sendable, Equatable {
         public var standAfter = 30
     }
 
-    public struct Appearance: Sendable, Equatable {
-        public var accent = Config.Accent.system
-    }
-
     public struct Draft: Sendable, Equatable {
         public var input = ""
         public var model = ""
@@ -207,7 +202,6 @@ extension ConfigFile {
               doc: "Keycode → key-name overrides for non-ANSI layouts.")
         Field("graph", \.graph, .json(jsonSchema: graphShape),
               doc: "lode + letter chains → apps. Values: app name or <browser>:<profile name>.")
-        Field("appearance", \.appearance, appearanceSection, doc: "How Lodestar looks. Never what it asks of you.")
         Field("draft", \.draft, draftSection, doc: "The draft: lode . speaks, lode ⇧. revises.")
         Field("health", \.health, healthSection,
               doc: "About you, for the health record. Local, optional, never sent.")
@@ -250,8 +244,11 @@ extension ConfigFile {
             // the attention timeline (0.17), the cheat sheet (0.22) and the
             // tabs door (0.41)
             "gestures.back-forward", "gestures.cheat-sheet", "gestures.tabs",
-            // Background (after 0.43): there is one night.
-            "appearance.background",
+            // The appearance section: Background (after 0.43) because there is
+            // one night, and Accent (Ceramic) because there is one colour,
+            // International Orange. A file that still names either loads
+            // clean and the next write does not carry the section.
+            "appearance",
             // the name nothing read, the double-tap grammar, hand-set hint
             // letters and the rescan delay (the layout is detected now), and
             // the auto-reload toggle (watching is simply how the config works)
@@ -402,12 +399,6 @@ extension ConfigFile {
         Field("stand-after", \.standAfter, .int(.range(15...120)).clampingToRange(),
               doc: "Minutes of unbroken work before the walk is due. The research supports thirty: two minutes of walking every twenty to thirty minutes.",
               unit: "min")
-    }
-    .readingNullAsEmpty()
-
-    private static let appearanceSection = section(Appearance.self, default: Appearance()) {
-        Field("accent", \.accent, .enumeration(Config.Accent.self),
-              doc: "The colour of the cursor, lit letters, and the echoed query: the Mac's accent, or Lodestar's International Orange, set deeper in light mode so it stays readable.")
     }
     .readingNullAsEmpty()
 

@@ -492,12 +492,6 @@ class GlassPanel: NSPanel {
     }
 }
 
-extension Notification.Name {
-    /// The accent in force changed: a new choice in the config, or the Mac's
-    /// own when the setting is System. Posted on the main thread.
-    static let accentDidChange = Notification.Name("lodestar.accentDidChange")
-}
-
 /// One visual system for every bar. The searcher, web bar, and menu
 /// search must feel like a single instrument — same width, rhythm, and
 /// type — so the tokens live here, where drift can't hide in literals.
@@ -781,22 +775,17 @@ enum BarTheme {
         Tone.systemDark ? NSColor(white: 0.25, alpha: 1) : NSColor(white: 0.92, alpha: 1)
     }
 
-    /// The accent the person chose, as a closure so a test can choose one.
-    static var accentColor: () -> NSColor = { .controlAccentColor }
-
-    /// Choose the accent a config asks for, and say so. A key painted in
-    /// the old accent stays that colour until something repaints it, and
-    /// the resident ones, like the ⏎ on a bar's row, are only hidden and
-    /// shown. Whoever holds the accent in a layer listens for this.
-    static func setAccent(_ choice: Config.Accent) {
-        accentColor = { accent(for: choice) }
-        NotificationCenter.default.post(name: .accentDidChange, object: nil)
-    }
+    /// The accent, as a closure so a test can try the text rule and the
+    /// floor against a colour of its own. In the app it is never anything
+    /// but International Orange: there is no setting, because a second
+    /// colour makes the same light two on one page and the one owned colour
+    /// is the stronger brand (design/01-colour.md).
+    static var accentColor: () -> NSColor = { internationalOrange }
 
     /// The one accent every surface draws with: a row's highlight, a
     /// wash over a match, the walk's star, the settings' dots. The
     /// system's colour never reaches a surface directly — a test reads
-    /// the sources for that — so the setting cannot drift.
+    /// the sources for that — so the accent cannot drift.
     static var accent: NSColor { accentColor() }
 
     /// Text drawn over the accent as a fill — a selected row, a lit chip.
@@ -811,19 +800,15 @@ enum BarTheme {
         return white >= ink ? .white : NSColor(white: 0.08, alpha: 1)
     }
 
-    /// The accent a config asks for: the Mac's, or Lodestar's own pair.
-    static func accent(for choice: Config.Accent) -> NSColor {
-        switch choice {
-        case .system: return .controlAccentColor
-        case .orange:
-            return (Tone.systemDark ? Palette.night : Palette.clay).orange.color
-        }
-    }
+    /// International Orange as the look in force wants it: #FA5617 at night,
+    /// #C83500 on clay, one value per look (Palette).
+    static var internationalOrange: NSColor { palette.orange.color }
 
     /// The accent for a mark the eye must find — the insert bar, a lit
-    /// letter, the echoed query. The accent is the person's choice, and
-    /// graphite or a deep blue can sit nearly on the ground; below the
-    /// floor it falls back to the text's own colour, which is never lost.
+    /// letter, the echoed query. International Orange clears the floor on
+    /// both grounds, so this is the accent itself; a colour that sat nearly
+    /// on the ground (a test tries one) falls back to the text's own
+    /// colour, which is never lost.
     static var readableAccent: NSColor {
         let accent = accentColor()
         guard let a = accent.usingColorSpace(.sRGB), let g = ground.usingColorSpace(.sRGB) else { return accent }
@@ -1470,28 +1455,6 @@ final class AccentSwitch: NSControl {
     override var focusRingMaskBounds: NSRect { bounds }
 }
 
-extension BarTheme {
-    /// A round swatch of a colour, for a menu that offers colours: the
-    /// choice is compared by eye, not by name. The canvas carries clear
-    /// room after the dot, because a popup sets its image hard against
-    /// its title and a dot touching a word reads as a bullet.
-    static func swatch(_ color: NSColor, diameter: CGFloat = 12, trailing: CGFloat = 7) -> NSImage {
-        let image = NSImage(size: NSSize(width: diameter + trailing, height: diameter), flipped: false) { rect in
-            let dot = NSRect(x: rect.minX, y: rect.minY, width: diameter, height: diameter).insetBy(dx: 0.5, dy: 0.5)
-            color.setFill()
-            NSBezierPath(ovalIn: dot).fill()
-            BarTheme.hairline.setStroke()
-            let rim = NSBezierPath(ovalIn: dot)
-            rim.lineWidth = 1
-            rim.stroke()
-            return true
-        }
-        image.isTemplate = false
-        return image
-    }
-}
-
-
 /// The flash's mark, read from the glyph every flash has opened with
 /// since the first one: ✕ refused, ⚠ needs you, ◎ a breath, ⌂ the
 /// clipboard, … opening, ✓ ⌖ done, and the layout family's arrows. The
@@ -1581,18 +1544,10 @@ final class KeyFace: NSView {
             heightAnchor.constraint(equalToConstant: BarTheme.chipHeight),
             widthAnchor.constraint(greaterThanOrEqualToConstant: BarTheme.chipMinWidth),
         ])
-        NotificationCenter.default.addObserver(self, selector: #selector(accentChanged),
-                                               name: .accentDidChange, object: nil)
         refresh()
     }
 
     required init?(coder: NSCoder) { nil }
-
-    deinit { NotificationCenter.default.removeObserver(self) }
-
-    /// A lit key wears the accent, and a resident one is not rebuilt when
-    /// the accent changes.
-    @objc private func accentChanged() { refresh() }
 
     override func layout() {
         super.layout()

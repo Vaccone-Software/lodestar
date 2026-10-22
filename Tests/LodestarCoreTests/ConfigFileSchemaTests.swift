@@ -33,7 +33,6 @@ final class ConfigFileSchemaTests: XCTestCase {
             ]),
             "scroll": .table(["smooth": .bool(true), "speed": .int(1800), "step": .int(60)]),
             "select": .table(["copy-on-complete": .bool(false)]),
-            "appearance": .table(["accent": .string("system")]),
             "draft": .table(["input": .string(""), "model": .string(""), "words": .table([:])]),
             "clipboard": .table([
                 "enabled": .bool(true), "max-size-mb": .int(500), "save-to": .string("~/Downloads"),
@@ -73,11 +72,11 @@ final class ConfigFileSchemaTests: XCTestCase {
 
     // MARK: - The layout
 
-    /// The sections, in the order a person reads the file; the three the
+    /// The sections, in the order a person reads the file; the two the
     /// emitter never listed come last, alphabetically.
     func testTheSectionsAreDeclaredInTheOrderOfTheFile() {
         let root = ConfigSchemaWalk.objects().first { $0.path.isEmpty }!.object
-        XCTAssertEqual(root.fields.map(\.key), ConfigStore.sectionOrder + ["appearance", "draft", "health"])
+        XCTAssertEqual(root.fields.map(\.key), ConfigStore.sectionOrder + ["draft", "health"])
     }
 
 
@@ -86,7 +85,7 @@ final class ConfigFileSchemaTests: XCTestCase {
     /// for byte.
     func testEverySectionDeclaresItsFieldsAlphabetically() {
         let sections = ConfigSchemaWalk.objects().filter { !$0.path.isEmpty }
-        XCTAssertGreaterThan(sections.count, 15)
+        XCTAssertGreaterThan(sections.count, 14)
         for (path, object) in sections {
             let keys = object.fields.map(\.key)
             XCTAssertEqual(keys, keys.sorted(), "\(path.joined(separator: ".")) is not alphabetical")
@@ -108,6 +107,7 @@ final class ConfigFileSchemaTests: XCTestCase {
             #"{"observations": {"enabled": false}}"#,
             #"{"observations": {"enabled": false, "logbook": true}}"#,
             #"{"appearance": {"background": "lodestone", "accent": "orange"}}"#,
+            #"{"appearance": {"accent": "system"}, "scroll": {"speed": 2500}}"#,
             #"{"web": {"clicks": {"trace": true, "enabled": true}}, "app": {"auto-reload": false}}"#,
             #"{"you": {"name": "x"}, "double-tap": {"cmd": "x"}, "hints": {"letters": "abc"}, "guide": {"fade": false}}"#,
             #"{"select": {"commit-on-unique": false, "copy-on-complete": true}}"#,
@@ -142,6 +142,18 @@ final class ConfigFileSchemaTests: XCTestCase {
         XCTAssertNil(gestures.value(at: jsonPath("gestures", "searcher")))
         let records = try normalized(#"{"observations": {"enabled": false, "logbook": true}}"#)
         XCTAssertEqual(records.value(at: jsonPath("observations", "logbook"))?.bool, true)
+    }
+
+    /// The accent retired: Lodestar is International Orange. A file that
+    /// still sets it is read, and what is written back no longer has the
+    /// key, nor the empty section it leaves, nor the schema a field for it.
+    func testTheRetiredAccentIsDroppedAndNeverWrittenBack() throws {
+        let file = try ConfigFile.schema.normalized(
+            JSONDocument(parsing: #"{"appearance": {"accent": "orange"}, "scroll": {"speed": 2500}}"#,
+                         options: .strict).value)
+        XCTAssertNil(file.value(at: jsonPath("appearance")), "the section goes with its last key")
+        XCTAssertNotNil(file.value(at: jsonPath("scroll", "speed")), "the rest is kept")
+        XCTAssertFalse(ConfigFile.jsonSchemaText().contains("accent"), "the schema offers no accent")
     }
 
 

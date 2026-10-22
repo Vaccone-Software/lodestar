@@ -15,7 +15,7 @@ final class DraftPanelFindTests: XCTestCase {
     override func setUp() {
         super.setUp()
         savedAccent = BarTheme.accentColor
-        BarTheme.accentColor = { BarTheme.accent(for: .orange) }
+        BarTheme.accentColor = { BarTheme.internationalOrange }
     }
     override func tearDown() {
         if let savedAccent { BarTheme.accentColor = savedAccent }

@@ -1,0 +1,70 @@
+import AppKit
+import XCTest
+@testable import lodestar
+@testable import LodestarCore
+
+/// Settings: the overview, every place, the pages behind them and a search,
+/// drawn without the window being shown.
+enum GallerySettings {
+    static func controller() -> SettingsController {
+        let settings = SettingsController()
+        var config = Config()
+        config.graph = Stage.graph()
+        settings.config = config
+        settings.machineState = {
+            var state = SettingsModel.MachineState(
+                accessibility: "Granted", screenRecording: "Not asked yet", calendars: "Granted",
+                browserRole: "Brave holds the role.", savedBrowser: "Brave  (com.brave.Browser)",
+                detectedProfiles: [
+                    .init(browser: "brave", browserLabel: "Brave", name: "Personal"),
+                    .init(browser: "brave", browserLabel: "Brave", name: "Work"),
+                    .init(browser: "chrome", browserLabel: "Chrome", name: "Default"),
+                ])
+            state.inputDevices = ["MacBook Pro Microphone", "CalDigit Thunderbolt 3 Audio"]
+            state.defaultInput = "MacBook Pro Microphone"
+            state.keyboards = [.init(id: "1452:834:0", name: "Apple Internal Keyboard", builtIn: true, attached: true),
+                               .init(id: "1:2:3", name: "Moonlander", builtIn: false, attached: true)]
+            state.isDark = Tone.systemDark
+            return state
+        }
+        settings.attachedKeyboards = { settings.machineState().keyboards }
+        settings.appChoices = { [("Safari", "com.apple.Safari"), ("Notes", "com.apple.Notes")] }
+        return settings
+    }
+
+    /// The window as it stands once opened, which is the size Settings is.
+    static func window(look: GalleryLook, _ stage: @escaping (SettingsController) -> Void) throws -> (NSView, [AnyObject]) {
+        ActivePolicy.frameOverride = Stage.screen
+        return try GalleryHost.surface(made: {
+            let settings = controller()
+            stage(settings)
+            return [settings]
+        }, settle: 0.05, where: { $0 is KeyablePanel }, frame: NSRect(x: 0, y: 0, width: 1000, height: 680))
+    }
+
+    static var shots: [GalleryShot] {
+        func settings(_ state: String, looks: [GalleryLook] = GalleryLook.all,
+                      _ stage: @escaping (SettingsController) -> Void) -> GalleryShot {
+            GalleryShot(surface: "settings", state: state, looks: looks) { look in
+                try window(look: look, stage)
+            }
+        }
+        var all: [GalleryShot] = [settings("overview") { $0.renderForTesting(place: nil) }]
+        for (index, name) in SettingsModel.placeNames.enumerated() {
+            all.append(settings(name.lowercased(), looks: GalleryLook.all) {
+                $0.renderForTesting(place: index)
+            })
+        }
+        for page in [SettingsModel.keyboardsPage, SettingsModel.wordsPage, SettingsModel.historyPage] {
+            all.append(settings("page-" + page.lowercased()) {
+                $0.renderForTesting(place: SettingsModel.placeIndex(page == SettingsModel.wordsPage ? "Write" : "General"))
+                $0.openForTesting(page: page)
+            })
+        }
+        all.append(settings("search-clipboard") {
+            $0.renderForTesting(place: nil)
+            $0.searchForTesting("clipboard")
+        })
+        return all
+    }
+}

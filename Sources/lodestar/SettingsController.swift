@@ -2223,6 +2223,8 @@ extension SettingsController {
     var pageForTesting: String? { openPage }
     /// For the tests: the place the scoped door chose.
     func openForTesting(place name: String?) { open(place: name.flatMap { SettingsModel.placeIndex($0) }) }
+    /// For the tests: a page opened from the place it was reached from.
+    func openForTesting(page name: String) { open(page: name) }
 
     /// For the tests: the switch standing for a config path right now.
     func switchView(for path: String) -> AccentSwitch? { switches[path] }

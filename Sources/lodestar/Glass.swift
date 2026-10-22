@@ -707,10 +707,10 @@ enum BarTheme {
     static var ground: NSColor { palette.pane.color }
 
     /// The step a chosen thing stands on: the launcher's chosen row, a
-    /// card being acted on. One measured step lighter than the pane, never
-    /// a colour of its own: the lit keys say it is chosen, the step says
-    /// it is lifted.
-    static var raised: NSColor { palette.raised.color }
+    /// card being acted on. One step above the pane, which is the look's
+    /// key step (the slab is a later contract), never a colour of its own:
+    /// the lit keys say it is chosen, the step says it is lifted.
+    static var raised: NSColor { palette.key.color }
 
     /// The open dot's distance from the name it belongs to.
     static let dotGap: CGFloat = 6
@@ -816,8 +816,7 @@ enum BarTheme {
         switch choice {
         case .system: return .controlAccentColor
         case .orange:
-            let pair = Tone.systemDark ? Readability.orangeOnCharcoal : Readability.orangeOnPaper
-            return NSColor(srgbRed: pair.red, green: pair.green, blue: pair.blue, alpha: 1)
+            return (Tone.systemDark ? Palette.night : Palette.clay).orange.color
         }
     }
 

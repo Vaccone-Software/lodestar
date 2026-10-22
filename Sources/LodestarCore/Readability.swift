@@ -23,24 +23,37 @@ public enum Readability {
             self.red = red; self.green = green; self.blue = blue
         }
         public var luminance: Double { Readability.luminance(red: red, green: green, blue: blue) }
+
+        /// The colour in OKLab: lightness L (0 black, 1 white) and the two
+        /// opponent axes. Lightness is how light a surface looks, which is
+        /// what the brightness ceiling is about; WCAG luminance is the
+        /// measure for contrast.
+        public var oklab: (L: Double, a: Double, b: Double) {
+            func linear(_ v: Double) -> Double { v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+            let r = linear(red), g = linear(green), b = linear(blue)
+            let l = cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+            let m = cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+            let s = cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+            return (0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+                    1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+                    0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s)
+        }
+        /// OKLab lightness, 0...1.
+        public var lightness: Double { oklab.L }
+        /// OKLab chroma.
+        public var chroma: Double { let lab = oklab; return (lab.a * lab.a + lab.b * lab.b).squareRoot() }
+        /// OKLab hue in degrees, 0..<360.
+        public var hue: Double {
+            let lab = oklab
+            let degrees = atan2(lab.b, lab.a) * 180 / .pi
+            return degrees < 0 ? degrees + 360 : degrees
+        }
     }
 
     /// The panels' grounds, as the equalizer keeps them: charcoal in
     /// dark, paper in light.
     public static let charcoal = RGB(red: 0.1, green: 0.1, blue: 0.1)
     public static let paper = RGB(red: 0.92, green: 0.92, blue: 0.92)
-
-    /// Lodestar's own accent: International Orange itself on the night,
-    /// where it clears the mark floor with room to spare, and on clay the
-    /// same hue a step deeper (#EB4900), the least change that clears it
-    /// there: the colour adapted, never replaced, because its name is part
-    /// of what it means. A pair, measured, never derived at runtime.
-    public static let orangeOnCharcoal = RGB(red: 1.0, green: 0.31, blue: 0.0)
-    /// International Orange deepened until it reads as text on clay's
-    /// pane (4.65:1, #C43B00), one accent for every use in the light look
-    /// rather than a fill and a separate text colour. White letters on it
-    /// read at 5.3:1, so a lit key takes white by measure.
-    public static let orangeOnPaper = RGB(red: 0.769, green: 0.231, blue: 0.0)
 
     /// The least contrast a mark the eye must find — a cursor, a lit
     /// letter — may have against its ground before it falls back to the

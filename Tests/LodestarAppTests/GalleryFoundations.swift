@@ -156,16 +156,14 @@ enum GalleryFoundations {
             page.heading("Colour · \(look.name)",
                          "Drawn from Palette.swift and BarTheme in the \(look.name) look. The look's pane is the sheet's own ground.")
 
-            page.heading("Palette steps", "Palette.night, Palette.clay: ground behind everything, pane a surface is made of, raised a chosen thing stands on.")
+            page.heading("Palette steps", "Palette.night, Palette.clay: ground behind everything, pane a surface is made of, key a key's face.")
             func steps(_ name: String, _ s: Palette.Steps) -> [(String, Readability.RGB, String?)] {
-                [("\(name) ground", s.ground, nil), ("\(name) pane", s.pane, nil), ("\(name) raised", s.raised, nil)]
+                [("\(name) ground", s.ground, nil), ("\(name) pane", s.pane, nil), ("\(name) key", s.key, nil)]
             }
-            page.swatches(steps("night", Palette.night) + steps("clay", Palette.clay).map { $0 }
-                          + [("clay key", Palette.clayKey, "Palette.clayKey"),
-                             ("clay key letter", Palette.clayKeyLetter, "Palette.clayKeyLetter")], perRow: 5)
+            page.swatches(steps("night", Palette.night) + steps("clay", Palette.clay), perRow: 3)
             page.heading("The accent", "International Orange: one value per look.")
-            page.swatches([("orange, night", Readability.orangeOnCharcoal, "orangeOnCharcoal"),
-                           ("orange, clay", Readability.orangeOnPaper, "orangeOnPaper"),
+            page.swatches([("orange, night", Palette.night.orange, "Palette.night.orange"),
+                           ("orange, clay", Palette.clay.orange, "Palette.clay.orange"),
                            ("in force: accent", accent, "BarTheme.accent"),
                            ("in force: on accent", themed(BarTheme.onAccent, over: accent), "BarTheme.onAccent")],
                           perRow: 5)

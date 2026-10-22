@@ -277,8 +277,7 @@ final class OnAccentTests: XCTestCase {
     }
 
     func testInternationalOrangeOnCharcoalTakesInkNotWhite() {
-        let orange = NSColor(srgbRed: Readability.orangeOnCharcoal.red, green: Readability.orangeOnCharcoal.green,
-                             blue: Readability.orangeOnCharcoal.blue, alpha: 1)
+        let orange = Palette.night.orange.color
         BarTheme.accentColor = { orange }
         XCTAssertNotEqual(BarTheme.onAccent, .white, "white on this orange is 3.3 to 1")
         XCTAssertGreaterThanOrEqual(contrast(BarTheme.onAccent, on: orange), 4.5, "reading text on a fill")
@@ -288,8 +287,7 @@ final class OnAccentTests: XCTestCase {
     /// on the pane (4.65 to 1), one accent for every use; deep enough that
     /// a lit key's letter is white (5.3 to 1). A deep blue takes white too.
     func testTheClayOrangeReadsAsTextAndTakesWhite() {
-        let deep = NSColor(srgbRed: Readability.orangeOnPaper.red, green: Readability.orangeOnPaper.green,
-                           blue: Readability.orangeOnPaper.blue, alpha: 1)
+        let deep = Palette.clay.orange.color
         BarTheme.accentColor = { deep }
         XCTAssertGreaterThanOrEqual(contrast(deep, on: Palette.clay.pane.color), 4.5, "the accent reads as text on clay")
         XCTAssertEqual(BarTheme.onAccent, .white)
@@ -500,7 +498,7 @@ final class KeyFaceTests: XCTestCase {
     func testTheGroundIsTheNightOrClay() {
         let steps = Tone.systemDark ? Palette.night : Palette.clay
         XCTAssertEqual(BarTheme.ground, steps.pane.color)
-        XCTAssertEqual(BarTheme.raised, steps.raised.color)
+        XCTAssertEqual(BarTheme.raised, steps.key.color)
     }
 }
 

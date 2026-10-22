@@ -48,8 +48,9 @@ final class ClipboardFileCardTests: XCTestCase {
     }
 
     func testTheFileNameIsSetFirmOnTheTypeScale() {
-        XCTAssertEqual(BarTheme.fileNameFont.pointSize, BarTheme.Scale.meta, "a size the scale already has")
-        XCTAssertNotEqual(BarTheme.fileNameFont, BarTheme.secondaryFont, "and firmer than the caption")
+        XCTAssertEqual(BarTheme.Role.name.size, BarTheme.Scale.meta, "a size the scale already has")
+        XCTAssertGreaterThan(BarTheme.Role.name.weight.rawValue, BarTheme.Role.meta.weight.rawValue,
+                             "and firmer than the caption")
     }
 }
 
@@ -87,7 +88,7 @@ final class ClipboardFileCardLayoutTests: XCTestCase {
                        present: [Bool]? = nil) -> (strip: ClipboardStrip, card: NSView) {
         let strip = ClipboardStrip()
         let sheets = min(Clipboard.thumbnailedFiles, clip.itemCount)
-        let card = strip.makeCard(clip: clip, key: "J", lit: true, size: size, face: BarTheme.bodyFont, lift: .float,
+        let card = strip.makeCard(clip: clip, key: "J", lit: true, size: size, face: .body, lift: .float,
                                   reading: nil, thumbnail: nil,
                                   files: .init(pictures: pictures ?? Array(repeating: nil, count: sheets), present: present),
                                   raised: false)
@@ -140,7 +141,7 @@ final class ClipboardFileCardLayoutTests: XCTestCase {
         XCTAssertEqual(sheets(in: card).first?.frame.size, NSSize(width: 64, height: 84))
         XCTAssertFalse(labels(in: card).contains { $0.hasSuffix(" files") }, "one file has no count")
         let title = texts(in: card).first { $0.stringValue == "Annual report 2026.pdf" }
-        XCTAssertEqual(title?.font, BarTheme.fileNameFont)
+        XCTAssertEqual(title?.typeStyle?.role, .name)
         XCTAssertEqual(title?.maximumNumberOfLines, 2, "the name takes two lines at most")
         XCTAssertEqual(strip.shownCaptions[made.id], "PDF document · 3 MB · just now")
     }
@@ -248,7 +249,7 @@ final class ClipboardFileCardLayoutTests: XCTestCase {
         let text = Clipboard.Clip(id: "t", kind: .text, created: Date(), sourceBundleID: nil, sourceAppName: nil,
                                   preview: "hello", bytes: 5)
         let strip = ClipboardStrip()
-        let plain = strip.makeCard(clip: text, key: "K", lit: false, size: wide, face: BarTheme.bodyFont, lift: .rest,
+        let plain = strip.makeCard(clip: text, key: "K", lit: false, size: wide, face: .body, lift: .rest,
                                    reading: nil, thumbnail: nil, raised: false)
         XCTAssertTrue(sheets(in: plain).isEmpty, "a text card draws no sheets")
         XCTAssertNil(strip.shownFiles["t"])

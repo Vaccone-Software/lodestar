@@ -1005,9 +1005,10 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         /// colour; each item names its own, in the ink and the popup's font.
         private func ink() {
             for item in itemArray where !item.isSeparatorItem {
-                item.attributedTitle = NSAttributedString(string: item.title, attributes: [
-                    .font: font ?? BarTheme.secondaryFont, .foregroundColor: BarTheme.ink])
+                item.attributedTitle = NSAttributedString(
+                    string: item.title, attributes: BarTheme.attributes(typeStyle?.role ?? .meta, color: BarTheme.ink))
             }
+            followLook()
         }
 
         override func viewDidChangeEffectiveAppearance() {
@@ -1023,8 +1024,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         }
 
         func menuNeedsUpdate(_ menu: NSMenu) {
-            let font = BarTheme.secondaryFont
-            let widest = menu.items.map { ($0.title as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
+            let widest = menu.items.map { BarTheme.width(of: $0.title, in: .meta) }.max() ?? 0
             let width = max(bounds.width, widest + 70)
             for item in menu.items where !item.isSeparatorItem {
                 item.view = ChoiceMenuItemView(item: item, chosen: item == selectedItem, width: width, popup: self)
@@ -1077,7 +1077,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             placeViews.append(tile)
         }
 
-        let title = label("Settings", size: BarTheme.Scale.title, weight: .semibold, color: BarTheme.ink)
+        let title = label("Settings", role: .roomTitle, color: BarTheme.ink)
         title.frame = NSRect(x: 0, y: 0, width: 200, height: 24)
         field.addSubview(title)
         // The room's ways are its keys, drawn as every footer draws them.
@@ -1111,10 +1111,10 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         head.alignment = .centerY
         head.spacing = 8
         head.addArrangedSubview(keycap(SettingsModel.paneKey(index, count: sections.count) ?? ""))
-        head.addArrangedSubview(label(section.name, size: BarTheme.Scale.body, weight: .medium, color: BarTheme.ink))
+        head.addArrangedSubview(label(section.name, role: .emphasis, color: BarTheme.ink))
         if section.attention { head.addArrangedSubview(Self.dot()) }
         tile.addArrangedSubview(head)
-        tile.addArrangedSubview(label(section.status, size: BarTheme.Scale.meta, weight: .regular,
+        tile.addArrangedSubview(label(section.status, role: .meta,
                                       color: BarTheme.secondaryColor))
         tile.setAccessibilityElement(true)
         tile.setAccessibilityRole(.button)
@@ -1153,7 +1153,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             block.orientation = .vertical
             block.alignment = .leading
             block.spacing = 8
-            let header = label(group.name, size: BarTheme.Scale.meta, weight: .regular, color: BarTheme.secondaryColor)
+            let header = label(group.name, role: .meta, color: BarTheme.secondaryColor)
             let headerWrap = NSStackView(views: [header])
             headerWrap.edgeInsets = NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 0)
             block.addArrangedSubview(headerWrap)
@@ -1282,11 +1282,11 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         }
         column.addArrangedSubview(card)
         column.setCustomSpacing(20, after: card)
-        let name = label(section.name, size: BarTheme.Scale.title, weight: .semibold, color: BarTheme.ink)
+        let name = label(section.name, role: .roomTitle, color: BarTheme.ink)
         column.addArrangedSubview(name)
         column.setCustomSpacing(8, after: name)
         let sentence = NSTextField(wrappingLabelWithString: section.sentence)
-        sentence.font = BarTheme.settingsSentenceFont
+        sentence.setRole(.voice)
         sentence.textColor = BarTheme.ink
         sentence.isSelectable = false
         sentence.preferredMaxLayoutWidth = Self.leftColumn
@@ -1294,7 +1294,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         column.addArrangedSubview(spacer(vertical: true))
         if let note = section.note {
             let quiet = NSTextField(wrappingLabelWithString: note)
-            quiet.font = BarTheme.secondaryFont
+            quiet.setRole(.meta)
             quiet.textColor = BarTheme.secondaryColor
             quiet.isSelectable = false
             quiet.preferredMaxLayoutWidth = Self.leftColumn
@@ -1313,8 +1313,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         line.widthAnchor.constraint(equalToConstant: width).isActive = true
         if row.dimmed { line.alphaValue = 0.45 }
 
-        let letter = label(row.letter ?? "", size: BarTheme.Scale.meta, weight: .medium,
-                           color: BarTheme.secondaryColor, mono: true)
+        let letter = label(row.letter ?? "", role: .name,
+                           color: BarTheme.secondaryColor)
         letter.translatesAutoresizingMaskIntoConstraints = false
         letter.widthAnchor.constraint(equalToConstant: 12).isActive = true
         line.addArrangedSubview(letter)
@@ -1327,13 +1327,13 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         titleRow.orientation = .horizontal
         titleRow.alignment = .centerY
         titleRow.spacing = 7
-        titleRow.addArrangedSubview(label(row.title, size: BarTheme.Scale.body, weight: .medium, color: BarTheme.ink))
+        titleRow.addArrangedSubview(label(row.title, role: .emphasis, color: BarTheme.ink))
         for cap in row.keycaps { titleRow.addArrangedSubview(keycap(cap)) }
         text.addArrangedSubview(titleRow)
         let armed = armedAction == index
         if let detail = armed ? row.action?.confirm : row.detail, !detail.isEmpty {
             let wrapped = NSTextField(wrappingLabelWithString: detail)
-            wrapped.font = BarTheme.secondaryFont
+            wrapped.setRole(.meta)
             wrapped.textColor = armed ? BarTheme.ink : BarTheme.secondaryColor
             wrapped.isSelectable = false
             wrapped.preferredMaxLayoutWidth = width - 230
@@ -1341,7 +1341,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         }
         if let problem = row.problem {
             let flagged = NSTextField(wrappingLabelWithString: problem)
-            flagged.font = BarTheme.secondaryFont
+            flagged.setRole(.meta)
             flagged.textColor = BarTheme.ink
             flagged.isSelectable = false
             flagged.preferredMaxLayoutWidth = width - 250
@@ -1435,7 +1435,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             if let at = options.firstIndex(of: current) {
                 popup.selectItem(at: at)
             }
-            popup.font = .systemFont(ofSize: BarTheme.Scale.meta)
+            popup.setRole(.meta)
             popup.target = self
             popup.action = #selector(choicePressed(_:))
             popups[index] = popup
@@ -1450,7 +1450,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             fields[index] = field
             holder.addArrangedSubview(field)
             if let unit {
-                holder.addArrangedSubview(label(unit, size: BarTheme.Scale.meta, weight: .regular,
+                holder.addArrangedSubview(label(unit, role: .meta,
                                                 color: BarTheme.secondaryColor))
             }
             return holder
@@ -1468,15 +1468,16 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             column.alignment = .trailing
             column.spacing = 3
             let read = NSTextField(wrappingLabelWithString: value)
-            read.font = .systemFont(ofSize: BarTheme.Scale.body)
+            read.setRole(.body, tabular: true)
             read.textColor = BarTheme.secondaryColor
             read.alignment = .right
             read.isSelectable = false
             read.preferredMaxLayoutWidth = 230
             column.addArrangedSubview(read)
             if let sub {
-                column.addArrangedSubview(label(sub, size: BarTheme.Scale.meta, weight: .regular,
-                                                color: BarTheme.secondaryColor, mono: true))
+                let detail = label(sub, role: .meta, color: BarTheme.secondaryColor)
+                detail.setRole(.meta, tabular: true)
+                column.addArrangedSubview(detail)
             }
             return column
         case .table:
@@ -1491,7 +1492,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             if let at = options.firstIndex(of: current) {
                 popup.selectItem(at: at)
             }
-            popup.font = .systemFont(ofSize: BarTheme.Scale.meta)
+            popup.setRole(.meta)
             popup.target = self
             popup.action = #selector(selectorPressed(_:))
             popups[index] = popup
@@ -1513,7 +1514,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         var lastHeader: String?
         for (entryIndex, entry) in entries.enumerated() {
             if let header = entry.header, header != lastHeader {
-                let title = label(header, size: BarTheme.Scale.meta, weight: .semibold,
+                let title = label(header, role: .key,
                                   color: BarTheme.secondaryColor)
                 if let last = column.arrangedSubviews.last {
                     column.setCustomSpacing(10, after: last)
@@ -1546,14 +1547,13 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                 row.addArrangedSubview(icon)
                 row.setCustomSpacing(8, after: icon)
             }
-            let name = label(display, size: BarTheme.Scale.meta, weight: .regular, color: BarTheme.ink)
+            let name = label(display, role: .meta, color: BarTheme.ink)
             row.addArrangedSubview(name)
             var subLabel: NSTextField?
             if let sub {
-                let mono = label(sub, size: BarTheme.Scale.meta, weight: .regular,
-                                 color: BarTheme.secondaryColor, mono: true)
-                subLabel = mono
-                row.addArrangedSubview(mono)
+                let detail = label(sub, role: .meta, color: BarTheme.secondaryColor)
+                subLabel = detail
+                row.addArrangedSubview(detail)
             }
             if kind == .links || kind == .routes {
                 // On the words, never the row: a recognizer spanning the
@@ -1652,7 +1652,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         }
         let popup = KeyPopUp()
         popup.addItems(withTitles: labels.isEmpty ? ["none found"] : labels)
-        popup.font = .systemFont(ofSize: BarTheme.Scale.meta)
+        popup.setRole(.meta)
         popup.widthAnchor.constraint(lessThanOrEqualToConstant: width + 40).isActive = true
         return (popup, tokens)
     }
@@ -1696,7 +1696,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         func popup(_ titles: [String], width: CGFloat = 130) -> NSPopUpButton {
             let popup = KeyPopUp()
             popup.addItems(withTitles: titles.isEmpty ? ["none found"] : titles)
-            popup.font = .systemFont(ofSize: BarTheme.Scale.meta)
+            popup.setRole(.meta)
             popup.widthAnchor.constraint(lessThanOrEqualToConstant: width + 40).isActive = true
             return popup
         }
@@ -1879,7 +1879,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         fieldRow.addArrangedSubview(keycap("/"))
         let field = NSTextField()
         field.setPlaceholder(ask == nil ? "Search every setting" : "Search, or ask in your own words")
-        field.font = BarTheme.handFont(BarTheme.Scale.title)
+        field.setRole(.title)
         field.textColor = BarTheme.ink
         field.isBordered = false
         field.drawsBackground = false
@@ -1936,12 +1936,12 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                 cap.lit = selected
                 row.addArrangedSubview(cap)
             }
-            row.addArrangedSubview(label(hit.title, size: BarTheme.Scale.body, weight: .medium, color: BarTheme.ink))
-            row.addArrangedSubview(label(hit.sectionName, size: BarTheme.Scale.meta, weight: .regular,
+            row.addArrangedSubview(label(hit.title, role: .emphasis, color: BarTheme.ink))
+            row.addArrangedSubview(label(hit.sectionName, role: .meta,
                                          color: BarTheme.secondaryColor))
             row.addArrangedSubview(spacer())
             if index == 0, suggestion != nil {
-                row.addArrangedSubview(label("Suggested", size: BarTheme.Scale.meta, weight: .regular,
+                row.addArrangedSubview(label("Suggested", role: .meta,
                                              color: BarTheme.secondaryColor))
             }
             if selected { raise(row, sides: 0, ends: 0) }
@@ -1953,11 +1953,9 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         }
         let query = searchField?.stringValue ?? ""
         if asking {
-            hitsStack.addArrangedSubview(label("Reading the question", size: BarTheme.Scale.meta,
-                                               weight: .regular, color: BarTheme.secondaryColor))
+            hitsStack.addArrangedSubview(label("Reading the question", role: .meta, color: BarTheme.secondaryColor))
         } else if shownHits.isEmpty, !query.isEmpty {
-            hitsStack.addArrangedSubview(label("Nothing matches", size: BarTheme.Scale.body,
-                                               weight: .regular, color: BarTheme.secondaryColor))
+            hitsStack.addArrangedSubview(label("Nothing matches", role: .body, color: BarTheme.secondaryColor))
         }
     }
 
@@ -2085,7 +2083,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
 
     private func editableField(_ value: String, width: CGFloat) -> NSTextField {
         let field = NSTextField(string: value)
-        field.font = BarTheme.handFont(BarTheme.Scale.meta)
+        field.setRole(.meta)
         field.textColor = BarTheme.ink
         field.delegate = self
         // No target/action on purpose: an action fires on *every* end of
@@ -2126,11 +2124,10 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         return view
     }
 
-    private func label(_ text: String, size: CGFloat, weight: NSFont.Weight,
-                       color: NSColor, mono: Bool = false) -> NSTextField {
+    private func label(_ text: String, role: BarTheme.Role,
+                       color: NSColor) -> NSTextField {
         let field = NSTextField(labelWithString: text)
-        field.font = mono ? .monospacedSystemFont(ofSize: size, weight: weight)
-                          : .systemFont(ofSize: size, weight: weight)
+        field.setRole(role)
         field.textColor = color
         field.lineBreakMode = .byTruncatingTail
         return field

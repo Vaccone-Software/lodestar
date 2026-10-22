@@ -89,7 +89,7 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
         let text = Self.width - Self.inset * 2
         textView.isRichText = false
         textView.allowsUndo = true
-        textView.font = .systemFont(ofSize: BarTheme.Scale.body)
+        textView.setRole(.body)
         textView.textColor = BarTheme.ink
         textView.insertionPointColor = BarTheme.ink
         textView.drawsBackground = false
@@ -301,17 +301,16 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
             attachRow.alignment = .centerY
             attachRow.spacing = 10
             attachRow.addArrangedSubview(attach)
-            attachRow.addArrangedSubview(label("Include a diagnostic report", size: BarTheme.Scale.body,
-                                               weight: .regular, color: BarTheme.ink))
+            attachRow.addArrangedSubview(label("Include a diagnostic report", role: .body, color: BarTheme.ink))
             attachRow.addArrangedSubview(smallLink("See what it contains", action: #selector(seeReportPressed)))
             stack.addArrangedSubview(attachRow)
             stack.setCustomSpacing(4, after: attachRow)
             stack.addArrangedSubview(wrapped(
                 "Your displays, any settings problems and recent log lines. The log can name windows you had open.",
-                size: BarTheme.Scale.meta, color: BarTheme.secondaryColor, width: text))
+                role: .meta, color: BarTheme.secondaryColor, width: text))
             if let status {
                 stack.setCustomSpacing(14, after: stack.arrangedSubviews.last!)
-                stack.addArrangedSubview(wrapped(status, size: BarTheme.Scale.body, color: BarTheme.ink, width: text))
+                stack.addArrangedSubview(wrapped(status, role: .body, color: BarTheme.ink, width: text))
             }
             stack.setCustomSpacing(18, after: stack.arrangedSubviews.last!)
 
@@ -319,7 +318,7 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
             footer.orientation = .horizontal
             footer.spacing = 12
             footer.addArrangedSubview(label("Lodestar \(Lodestar.version) · macOS \(Feedback.macosVersion)",
-                                            size: BarTheme.Scale.meta, weight: .regular,
+                                            role: .meta,
                                             color: BarTheme.secondaryColor))
             let spacer = NSView()
             spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -377,30 +376,29 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
         panel.setGlassFrame(NSRect(origin: origin, size: size), display: true)
     }
 
-    private func label(_ text: String, size: CGFloat, weight: NSFont.Weight,
+    private func label(_ text: String, role: BarTheme.Role,
                        color: NSColor) -> NSTextField {
         let field = NSTextField(labelWithString: text)
-        field.font = .systemFont(ofSize: size, weight: weight)
+        field.setRole(role)
         field.textColor = color
         return field
     }
 
     private func roomTitle(_ text: String) -> NSTextField {
         let field = NSTextField(labelWithString: text)
-        field.font = BarTheme.roomTitleFont
+        field.setRole(.roomTitle)
         field.textColor = BarTheme.ink
         return field
     }
 
     private func voice(_ text: String, width: CGFloat) -> NSTextField {
-        let field = wrapped(text, size: BarTheme.Scale.body, color: BarTheme.secondaryColor, width: width)
-        field.font = BarTheme.voiceFont
+        let field = wrapped(text, role: .voice, color: BarTheme.secondaryColor, width: width)
         return field
     }
 
-    private func wrapped(_ text: String, size: CGFloat, color: NSColor, width: CGFloat) -> NSTextField {
+    private func wrapped(_ text: String, role: BarTheme.Role, color: NSColor, width: CGFloat) -> NSTextField {
         let field = NSTextField(wrappingLabelWithString: text)
-        field.font = .systemFont(ofSize: size, weight: .regular)
+        field.setRole(role)
         field.textColor = color
         field.isSelectable = false
         field.preferredMaxLayoutWidth = width
@@ -411,7 +409,7 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
     private func smallLink(_ title: String, action: Selector) -> NSButton {
         let button = HandButton(title: title, target: self, action: action)
         button.isBordered = false
-        button.font = BarTheme.secondaryFont
+        button.setRole(.meta)
         button.contentTintColor = BarTheme.secondaryColor
         return button
     }

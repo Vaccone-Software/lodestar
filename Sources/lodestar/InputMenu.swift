@@ -48,8 +48,7 @@ final class InputMenu {
     /// Open beside `glass` (the draft's frame), level with its foot.
     func present(_ choices: [Choice], chosen: Int, beside glass: NSRect) {
         rows.forEach { $0.removeFromSuperview() }
-        let font = BarTheme.rowLabelFont
-        let widest = choices.map { ($0.title as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
+        let widest = choices.map { BarTheme.width(of: $0.title, in: .body) }.max() ?? 0
         let width = (max(220, widest + 64)).rounded(.up)
         let height = Self.inset * 2 + Self.rowHeight * CGFloat(choices.count)
         rows = choices.enumerated().map { index, choice in
@@ -128,7 +127,7 @@ final class InputMenuRow: RaisedRow {
         super.init(frame: .zero)
         setupRaised()
         label.stringValue = choice.title
-        label.font = BarTheme.rowLabelFont
+        label.setRole(.body)
         label.textColor = BarTheme.ink
         label.lineBreakMode = .byTruncatingTail
         dot.wantsLayer = true
@@ -195,7 +194,7 @@ final class InputButton: NSView {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        label.font = BarTheme.secondaryFont
+        label.setRole(.meta)
         label.textColor = BarTheme.secondaryColor
         label.lineBreakMode = .byTruncatingTail
         chevron.image = NSImage(systemSymbolName: "chevron.up.chevron.down", accessibilityDescription: nil)?

@@ -99,7 +99,7 @@ final class UninstallRoom: NSObject {
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         let title = NSTextField(labelWithString: "Uninstall Lodestar")
-        title.font = BarTheme.roomTitleFont
+        title.setRole(.roomTitle)
         title.textColor = BarTheme.ink
         stack.addArrangedSubview(title)
         stack.setCustomSpacing(12, after: title)
@@ -124,10 +124,10 @@ final class UninstallRoom: NSObject {
             removesEverything
                 ? "Settings, breaths, the clipboard, observations, the health record, downloaded models and the keys that open them go too"
                 : "Settings, breaths, the clipboard, observations, the health record and downloaded models stay, with their keys, so a reinstall finds them",
-            color: BarTheme.secondaryColor, width: text, size: BarTheme.Scale.meta))
+            color: BarTheme.secondaryColor, width: text, role: .meta))
         stack.setCustomSpacing(16, after: stack.arrangedSubviews.last!)
         stack.addArrangedSubview(wrapped(UninstallPlan.closing.trimmingCharacters(in: CharacterSet(charactersIn: ".")),
-                                         color: BarTheme.secondaryColor, width: text, size: BarTheme.Scale.meta))
+                                         color: BarTheme.secondaryColor, width: text, role: .meta))
         stack.setCustomSpacing(20, after: stack.arrangedSubviews.last!)
 
         let footer = NSStackView()
@@ -159,9 +159,9 @@ final class UninstallRoom: NSObject {
     }
 
     private func wrapped(_ text: String, color: NSColor, width: CGFloat,
-                         size: CGFloat = BarTheme.Scale.body) -> NSTextField {
+                         role: BarTheme.Role = .body) -> NSTextField {
         let field = NSTextField(wrappingLabelWithString: text)
-        field.font = size == BarTheme.Scale.body ? BarTheme.bodyFont : BarTheme.secondaryFont
+        field.setRole(role)
         field.textColor = color
         field.isSelectable = false
         field.preferredMaxLayoutWidth = width

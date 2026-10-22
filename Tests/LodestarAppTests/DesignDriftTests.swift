@@ -9,7 +9,7 @@ import LodestarCore
 /// file named, so the φ table and the type scale stay the only source.
 final class DesignDriftTests: XCTestCase {
     /// The theme's homes: the values live here and nowhere else.
-    private static let homes: Set<String> = ["Glass.swift", "ModePill.swift"]
+    private static let homes: Set<String> = ["Glass.swift", "ModePill.swift", "Type.swift"]
 
     /// Every Swift file under a folder, subfolders included: a guard that
     /// read only the top level would exempt any folder added later.
@@ -89,21 +89,21 @@ final class DesignDriftTests: XCTestCase {
         XCTAssertEqual(hits, [], "a placeholder is set through the theme, in the interface's face")
     }
 
-    func testAPlaceholderIsTheInterfaceAskingNotTheHandAnswering() {
-        let placeholder = BarTheme.placeholder("Where to?", like: BarTheme.inputFont)
+    /// A placeholder is set in its field's own role, so it is the field's size
+    /// and weight, quiet, and it follows the look like the typed text.
+    func testAPlaceholderIsTheFieldsRoleInTheQuietTone() {
+        let placeholder = BarTheme.placeholder("Where to?", role: .field)
         let font = placeholder.attribute(.font, at: 0, effectiveRange: nil) as! NSFont
-        XCTAssertFalse(font.isFixedPitch, "the sans, not the hand's mono")
-        XCTAssertEqual(font.pointSize, BarTheme.inputFont.pointSize, "at the field's size")
+        XCTAssertEqual(font.pointSize, BarTheme.Role.field.size, "at the field's size")
         let field = NSTextField()
-        field.font = BarTheme.inputFont
+        field.setRole(.field)
         field.setPlaceholder("Where to?")
         let set = field.placeholderAttributedString?.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
-        XCTAssertEqual(set?.isFixedPitch, false)
+        XCTAssertEqual(set?.pointSize, BarTheme.Role.field.size)
+        XCTAssertEqual(set, field.font, "the placeholder wears the weight the field does")
     }
 
     func testTheThemeHoldsWhatTheGuardExpects() {
-        XCTAssertEqual(BarTheme.typedFont.pointSize, 17)
-        XCTAssertGreaterThan(BarTheme.typedFont.pointSize, BarTheme.bodyFont.pointSize)
         XCTAssertEqual(BarTheme.symbol.value(forKey: "pointSize") as? CGFloat, BarTheme.Scale.meta)
     }
 
@@ -122,16 +122,57 @@ final class DesignDriftTests: XCTestCase {
         XCTAssertEqual(BarTheme.highlightRadius, BarTheme.markRadius, "a mark at the third")
     }
 
-    /// Three faces, one per speaker, never borrowed.
-    func testThreeFacesOnePerSpeaker() {
-        XCTAssertFalse(BarTheme.bodyFont.isFixedPitch, "the interface is the sans")
-        XCTAssertFalse(BarTheme.secondaryFont.isFixedPitch)
-        XCTAssertTrue(BarTheme.inputFont.isFixedPitch, "what the hand types is mono")
-        XCTAssertTrue(BarTheme.typedFont.isFixedPitch, "the pill's echo of the hand is mono")
-        XCTAssertTrue(BarTheme.readingMono.isFixedPitch, "the draft is mono")
-        XCTAssertTrue(BarTheme.voiceFont.fontName.contains("NewYork") || BarTheme.voiceFont.familyName?.contains("New York") == true,
-                      "Lodestar speaks in New York")
-        XCTAssertFalse(BarTheme.voiceFont.isFixedPitch)
+    /// What builds a font, and so belongs to the theme alone: the system's
+    /// constructors, a descriptor, a preferred text style, a font set on a
+    /// view by hand. A surface names a role (`setRole`, `BarTheme.attributes`)
+    /// and the theme builds the font, in the look of the view that draws it.
+    /// The status dot is a glyph used as a mark, not text, and keeps its own.
+    private static let fontPatterns: [(String, String)] = [
+        ("a system font", #"systemFont|monospaced\w*SystemFont|boldSystemFont|labelFont\(|messageFont\(|userFixedPitchFont"#),
+        ("a font descriptor", #"NSFontDescriptor|\.withDesign|withSymbolicTraits"#),
+        ("a text style", #"preferredFont\("#),
+        ("a font built by hand", #"NSFont\("#),
+        ("a font converted by hand", #"NSFontManager"#),
+        ("a font set on a view", #"\.font\s*=(?!\s*BarTheme\.dotFont)"#),
+    ]
+
+    /// The type contract's one family and one scale: no surface builds a
+    /// font, so none can name a serif, a mono face or a size off the scale.
+    func testNoSurfaceBuildsAFont() throws {
+        var found: [String] = []
+        for file in Self.swiftFiles(under: Self.appSources) where !Self.homes.contains(file.lastPathComponent) {
+            let raw = try String(contentsOf: file, encoding: .utf8)
+            if isDebugOnly(raw) { continue }
+            let text = Self.code(raw)
+            for (what, pattern) in Self.fontPatterns {
+                let regex = try NSRegularExpression(pattern: pattern)
+                for match in regex.matches(in: text, range: NSRange(location: 0, length: (text as NSString).length)) {
+                    found.append("\(file.lastPathComponent): \(what): \((text as NSString).substring(with: match.range))")
+                }
+            }
+        }
+        XCTAssertEqual(found, [], "name a role: field.setRole(.meta), BarTheme.attributes(.body)")
+    }
+
+    func testTheFontGuardCatchesWhatItNames() throws {
+        let samples = ["label.font = NSFont.systemFont(ofSize: 13)", "NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)",
+                       "NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular)", "x.fontDescriptor.withDesign(.serif)",
+                       "NSFont.preferredFont(forTextStyle: .body)", "NSFont(descriptor: d, size: 13)",
+                       "NSFontManager.shared.convert(f, toHaveTrait: .boldFontMask)", "field.font = face"]
+        for sample in samples {
+            let hit = try Self.fontPatterns.contains { _, pattern in
+                try NSRegularExpression(pattern: pattern)
+                    .firstMatch(in: sample, range: NSRange(location: 0, length: (sample as NSString).length)) != nil
+            }
+            XCTAssertTrue(hit, "the guard misses: \(sample)")
+        }
+        for sample in ["field.setRole(.meta)", "dotLabel.font = BarTheme.dotFont", "let font: NSFont = role.font"] {
+            let hit = try Self.fontPatterns.contains { _, pattern in
+                try NSRegularExpression(pattern: pattern)
+                    .firstMatch(in: sample, range: NSRange(location: 0, length: (sample as NSString).length)) != nil
+            }
+            XCTAssertFalse(hit, "the guard flags what the theme does: \(sample)")
+        }
     }
 
     /// A messaging timeout set on a system-wide element is the whole

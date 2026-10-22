@@ -297,7 +297,7 @@ final class HUD {
         for key in keys { titleRow.addArrangedSubview(Keycaps.cap(key)) }
         if let text {
             let titleLabel = NSTextField(labelWithString: text)
-            titleLabel.font = BarTheme.bodyFont
+            titleLabel.setRole(.body)
             titleLabel.textColor = BarTheme.ink
             if let way {
                 // The fact, then the way under it, both beside the mark;
@@ -336,7 +336,7 @@ final class HUD {
 
         if let footer {
             let footerLabel = NSTextField(labelWithString: footer)
-            footerLabel.font = BarTheme.footerFont
+            footerLabel.setRole(.meta, tabular: true)
             footerLabel.textColor = BarTheme.secondaryColor
             if let last = stack.arrangedSubviews.last {
                 stack.setCustomSpacing(10, after: last)

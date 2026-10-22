@@ -153,7 +153,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         field.isBezeled = false
         field.drawsBackground = false
         field.focusRingType = .none
-        field.font = BarTheme.inputFont
+        field.setRole(.field)
         field.textColor = BarTheme.ink
         field.setPlaceholder("Where to?")
         field.delegate = self
@@ -905,7 +905,7 @@ private final class SearcherRowView: RaisedRow {
             icon.heightAnchor.constraint(equalToConstant: 32),
         ])
 
-        name.font = BarTheme.titleFont
+        name.setRole(.title)
         name.textColor = BarTheme.ink
         name.lineBreakMode = .byTruncatingTail
         name.setContentHuggingPriority(.defaultLow, for: .horizontal)

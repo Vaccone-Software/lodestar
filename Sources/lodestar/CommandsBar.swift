@@ -48,7 +48,7 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
         field.isBezeled = false
         field.drawsBackground = false
         field.focusRingType = .none
-        field.font = BarTheme.inputFont
+        field.setRole(.field)
         field.textColor = BarTheme.ink
         field.setPlaceholder("Do what?")
         field.delegate = self
@@ -310,15 +310,15 @@ private final class CommandsRowView: RaisedRow {
         enter.lit = true
         enter.isHidden = true
 
-        title.font = BarTheme.titleFont
+        title.setRole(.title)
         title.lineBreakMode = .byTruncatingTail
         title.translatesAutoresizingMaskIntoConstraints = false
-        crumb.font = BarTheme.secondaryFont
+        crumb.setRole(.meta)
         crumb.lineBreakMode = .byTruncatingTail
         crumb.translatesAutoresizingMaskIntoConstraints = false
 
         for (box, label) in [(sourceChip, sourceLabel)] {
-            label.font = BarTheme.chipFont
+            label.setRole(.key)
             label.translatesAutoresizingMaskIntoConstraints = false
             box.wantsLayer = true
             box.layer?.cornerRadius = BarTheme.chipRadius

@@ -46,13 +46,12 @@ final class OneLightSweepTests: XCTestCase {
 
     func testTheMeetingStubReadsOnTheScale() {
         let scale: Set<CGFloat> = [BarTheme.Scale.meta, BarTheme.Scale.body, BarTheme.Scale.title]
-        for (name, font) in [("count", BarTheme.stubCountFont), ("word", BarTheme.stubWordFont),
-                             ("unit", BarTheme.stubUnitFont), ("name", BarTheme.stubTitleFont),
-                             ("line", BarTheme.stubDetailFont)] {
-            XCTAssertTrue(scale.contains(font.pointSize), "the stub's \(name) is \(font.pointSize) point")
+        for (name, role) in [("count", BarTheme.Role.figure), ("word", .emphasis),
+                             ("unit", .key), ("name", .quietVoice), ("line", .meta)] {
+            XCTAssertTrue(scale.contains(role.size), "the stub's \(name) is \(role.size) point")
         }
-        XCTAssertEqual(BarTheme.stubCountFont.pointSize, BarTheme.Scale.title)
-        XCTAssertEqual(BarTheme.stubTitleFont.pointSize, BarTheme.Scale.body)
+        XCTAssertEqual(BarTheme.Role.figure.size, BarTheme.Scale.title)
+        XCTAssertEqual(BarTheme.Role.quietVoice.size, BarTheme.Scale.body)
     }
 
     // MARK: - Grey matter in two steps

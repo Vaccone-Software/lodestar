@@ -105,7 +105,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         field.isBezeled = false
         field.drawsBackground = false
         field.focusRingType = .none
-        field.font = BarTheme.inputFont
+        field.setRole(.field)
         field.textColor = BarTheme.ink
         field.setPlaceholder("Where on the web?")
         field.delegate = self
@@ -122,7 +122,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         // Where everything goes unless a pin or a rule says otherwise: the
         // inferred profile, said once at the end of the field. A row names
         // its own profile only when it goes somewhere else.
-        inferredLabel.font = BarTheme.chipFont
+        inferredLabel.setRole(.key)
         inferredLabel.textColor = BarTheme.secondaryColor
         inferredLabel.translatesAutoresizingMaskIntoConstraints = false
         inferredChip.wantsLayer = true
@@ -562,11 +562,11 @@ private final class WebRowView: RaisedRow {
         enter.isHidden = true
 
 
-        title.font = BarTheme.titleFont
+        title.setRole(.title)
         title.lineBreakMode = .byTruncatingTail
         title.translatesAutoresizingMaskIntoConstraints = false
 
-        chipLabel.font = BarTheme.chipFont
+        chipLabel.setRole(.key)
         chipLabel.translatesAutoresizingMaskIntoConstraints = false
         chip.wantsLayer = true
         chip.layer?.cornerRadius = BarTheme.chipRadius
@@ -619,14 +619,16 @@ private final class WebRowView: RaisedRow {
             // is clipped with no ellipsis.
             let paragraph = NSMutableParagraphStyle()
             paragraph.lineBreakMode = .byTruncatingTail
-            let text = NSMutableAttributedString(string: row.title, attributes: [
-                .foregroundColor: BarTheme.ink, .font: BarTheme.titleFont, .paragraphStyle: paragraph])
+            var attributes = BarTheme.attributes(.title, color: BarTheme.ink)
+            attributes[.paragraphStyle] = paragraph
+            let text = NSMutableAttributedString(string: row.title, attributes: attributes)
             if row.kind == .link, let name = row.name, row.title.hasPrefix(name) {
                 let rest = NSRange(location: (name as NSString).length,
                                    length: (row.title as NSString).length - (name as NSString).length)
                 text.addAttribute(.foregroundColor, value: BarTheme.secondaryColor, range: rest)
             }
             title.attributedStringValue = text
+            title.followLook()
         }
         if chipLabel.stringValue != row.profile.display { chipLabel.stringValue = row.profile.display }
         chip.isHidden = !showsProfile

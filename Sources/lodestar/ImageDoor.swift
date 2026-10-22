@@ -142,7 +142,7 @@ final class ImageDoor {
         imageView.imageScaling = .scaleProportionallyUpOrDown
         imageView.imageAlignment = .alignCenter
 
-        caption.font = BarTheme.secondaryFont
+        caption.setRole(.meta, tabular: true)
         caption.textColor = BarTheme.secondaryColor
         caption.lineBreakMode = .byTruncatingTail
         root.addSubview(scroll)

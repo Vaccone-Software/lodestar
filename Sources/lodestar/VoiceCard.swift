@@ -64,7 +64,7 @@ enum GuideRows {
         }
 
         let text = NSTextField(labelWithString: guideRow.label)
-        text.font = BarTheme.rowLabelFont
+        text.setRole(.body)
         text.textColor = BarTheme.ink
         text.lineBreakMode = .byTruncatingTail
         text.setContentHuggingPriority(.defaultHigh, for: .horizontal)
@@ -143,15 +143,12 @@ enum VoiceCard {
         // one-line note is a small card, an offer with key rows takes the
         // whole measure. A wrapping label reports no width of its own, so
         // the width is measured from the words and set.
-        func natural(_ text: String, _ font: NSFont) -> CGFloat {
-            ceil((text as NSString).size(withAttributes: [.font: font]).width)
-        }
-        var width = min(BarTheme.voiceWidth, natural(sentence, BarTheme.voiceFont))
-        if let detail { width = min(BarTheme.voiceWidth, max(width, natural(detail, BarTheme.secondaryFont))) }
+        var width = min(BarTheme.voiceWidth, BarTheme.width(of: sentence, in: .voice))
+        if let detail { width = min(BarTheme.voiceWidth, max(width, BarTheme.width(of: detail, in: .meta))) }
         if !rows.isEmpty { width = BarTheme.voiceWidth }
 
         let voice = NSTextField(wrappingLabelWithString: sentence)
-        voice.font = BarTheme.voiceFont
+        voice.setRole(.voice)
         voice.textColor = BarTheme.ink
         voice.preferredMaxLayoutWidth = width
         voice.translatesAutoresizingMaskIntoConstraints = false
@@ -167,11 +164,11 @@ enum VoiceCard {
             line.spacing = 4
             for key in keymap.keys { line.addArrangedSubview(Keycaps.cap(key)) }
             let arrow = NSTextField(labelWithString: "→")
-            arrow.font = BarTheme.secondaryFont
+            arrow.setRole(.meta)
             arrow.textColor = BarTheme.secondaryColor
             line.addArrangedSubview(arrow)
             let target = NSTextField(labelWithString: keymap.target)
-            target.font = BarTheme.bodyFont
+            target.setRole(.body)
             target.textColor = BarTheme.ink
             line.addArrangedSubview(target)
             line.setCustomSpacing(8, after: line.arrangedSubviews[keymap.keys.count - 1])
@@ -181,7 +178,7 @@ enum VoiceCard {
 
         if let detail {
             let facts = NSTextField(wrappingLabelWithString: detail)
-            facts.font = BarTheme.secondaryFont
+            facts.setRole(.meta)
             facts.textColor = BarTheme.secondaryColor
             facts.preferredMaxLayoutWidth = width
             facts.translatesAutoresizingMaskIntoConstraints = false

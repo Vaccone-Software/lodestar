@@ -76,17 +76,16 @@ final class ReadabilityTests: XCTestCase {
         XCTAssertLessThan(BarTheme.Scale.meta, BarTheme.Scale.body)
         XCTAssertLessThan(BarTheme.Scale.body, BarTheme.Scale.title)
         XCTAssertLessThan(BarTheme.Scale.title, BarTheme.Scale.input)
-        for font in [BarTheme.secondaryFont, BarTheme.footerFont, BarTheme.chipFont] {
-            XCTAssertEqual(font.pointSize, BarTheme.Scale.meta, font.fontName)
+        for role in [BarTheme.Role.meta, .name, .key] {
+            XCTAssertEqual(role.size, BarTheme.Scale.meta, role.rawValue)
         }
-        for font in [BarTheme.rowLabelFont, BarTheme.bodyFont] {
-            XCTAssertEqual(font.pointSize, BarTheme.Scale.body, font.fontName)
+        for role in [BarTheme.Role.body, .quietVoice, .emphasis, .typed] {
+            XCTAssertEqual(role.size, BarTheme.Scale.body, role.rawValue)
         }
-        XCTAssertEqual(BarTheme.titleFont.pointSize, BarTheme.Scale.title)
-        XCTAssertEqual(BarTheme.readingMono.pointSize, BarTheme.Scale.body,
-                       "the draft is body text, at the size a terminal is set to")
-        XCTAssertEqual(BarTheme.readingMonoAccent.pointSize, BarTheme.readingMono.pointSize,
-                       "a lit letter must not reflow the line")
+        XCTAssertEqual(BarTheme.Role.title.size, BarTheme.Scale.title)
+        XCTAssertEqual(BarTheme.Role.draft.size, BarTheme.Scale.body, "the draft is body text")
+        XCTAssertEqual(BarTheme.Role.draftMarked.size, BarTheme.Role.draft.size,
+                       "a lit letter is a weight, never a size")
     }
 
     func testACardNamesThePageOrTheApp() {

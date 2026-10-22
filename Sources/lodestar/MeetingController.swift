@@ -463,14 +463,17 @@ final class MeetingController: NSObject {
         content.addSubview(stubView)
         let ink: NSColor = stub.lit ? BarTheme.onAccent : BarTheme.ink
         let number = NSTextField(labelWithString: stub.number)
-        number.font = stub.unit == nil ? BarTheme.stubWordFont : BarTheme.stubCountFont
+        // The countdown ticks in place, so its digits hold their width.
+        number.setRole(stub.unit == nil ? .emphasis : .figure)
         number.textColor = ink
         number.alignment = .center
         let unitField = NSTextField(labelWithString: "")
         if let unit = stub.unit {
-            unitField.attributedStringValue = NSAttributedString(string: unit.uppercased(), attributes: [
-                .font: BarTheme.stubUnitFont, .kern: 0.6,
-                .foregroundColor: stub.lit ? BarTheme.onAccent.withAlphaComponent(0.8) : BarTheme.secondaryColor])
+            var attributes = BarTheme.attributes(
+                .key, color: stub.lit ? BarTheme.onAccent.withAlphaComponent(0.8) : BarTheme.secondaryColor)
+            attributes[.kern] = 0.6
+            unitField.attributedStringValue = NSAttributedString(string: unit.uppercased(), attributes: attributes)
+            unitField.followLook()
         }
         unitField.alignment = .center
         let count = NSStackView(views: stub.unit == nil ? [number] : [number, unitField])
@@ -487,12 +490,12 @@ final class MeetingController: NSObject {
         content.addSubview(perforation)
 
         let title = NSTextField(labelWithString: occurrence.title)
-        title.font = BarTheme.stubTitleFont
+        title.setRole(.quietVoice)
         title.textColor = BarTheme.ink
         title.lineBreakMode = .byTruncatingTail
         title.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         let detail = NSTextField(labelWithString: meta)
-        detail.font = BarTheme.stubDetailFont
+        detail.setRole(.meta)
         detail.textColor = BarTheme.secondaryColor
         detail.lineBreakMode = .byTruncatingTail
         detail.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
@@ -585,7 +588,7 @@ final class MeetingController: NSObject {
         // A room: its name firm at the head, and Lodestar speaking beneath,
         // in its voice, set where a reader starts.
         let title = NSTextField(labelWithString: "Meetings")
-        title.font = BarTheme.roomTitleFont
+        title.setRole(.roomTitle)
         title.textColor = BarTheme.ink
         stack.addArrangedSubview(title)
         let body = NSTextField(wrappingLabelWithString:
@@ -593,7 +596,7 @@ final class MeetingController: NSObject {
             + "starts. Tap lode twice and you are in it, in the right app "
             + "or browser profile.\n\nmacOS asks you to allow calendar "
             + "access first. Nothing about your events leaves your Mac.")
-        body.font = BarTheme.voiceFont
+        body.setRole(.voice)
         body.textColor = BarTheme.secondaryColor
         body.alignment = .natural
         body.isSelectable = false
@@ -656,17 +659,6 @@ final class MeetingController: NSObject {
     private func notNowPressed() {
         prime.orderOut(nil)
         _ = setEnabled?(false)
-    }
-
-    // MARK: - Pieces
-
-    private func label(_ text: String, size: CGFloat, weight: NSFont.Weight,
-                       color: NSColor) -> NSTextField {
-        let field = NSTextField(labelWithString: text)
-        field.font = .systemFont(ofSize: size, weight: weight)
-        field.textColor = color
-        field.lineBreakMode = .byTruncatingTail
-        return field
     }
 
     // MARK: - Staging

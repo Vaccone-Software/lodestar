@@ -36,7 +36,7 @@ enum CoachCard {
         card.translatesAutoresizingMaskIntoConstraints = false
 
         let voice = NSTextField(wrappingLabelWithString: offer.sentence)
-        voice.font = BarTheme.coachVoiceFont
+        voice.setRole(.quietVoice)
         voice.textColor = BarTheme.ink
         voice.preferredMaxLayoutWidth = maxWidth - textInset * 2
         voice.translatesAutoresizingMaskIntoConstraints = false
@@ -64,7 +64,7 @@ enum CoachCard {
         }
         if !offer.icons.isEmpty { line.addArrangedSubview(icons) }
         let name = NSTextField(labelWithString: offer.name)
-        name.font = BarTheme.rowLabelFont
+        name.setRole(.body)
         name.textColor = BarTheme.ink
         name.lineBreakMode = .byTruncatingTail
         name.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
@@ -99,7 +99,7 @@ enum CoachCard {
         whisper.translatesAutoresizingMaskIntoConstraints = false
         card.addSubview(whisper)
         let record = NSTextField(labelWithString: offer.record)
-        record.font = BarTheme.stubDetailFont
+        record.setRole(.meta)
         record.textColor = BarTheme.secondaryColor
         record.lineBreakMode = .byTruncatingTail
         record.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -111,7 +111,7 @@ enum CoachCard {
         decline.setAccessibilityLabel("Not now")
         whisper.addArrangedSubview(decline)
         let notNow = NSTextField(labelWithString: "Not now")
-        notNow.font = BarTheme.stubDetailFont
+        notNow.setRole(.meta)
         notNow.textColor = BarTheme.secondaryColor
         whisper.addArrangedSubview(notNow)
 

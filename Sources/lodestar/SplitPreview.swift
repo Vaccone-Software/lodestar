@@ -318,10 +318,10 @@ enum SplitPreview {
         // text size, tone for hierarchy — the pill's rule, and the
         // reason this reads as a sentence rather than as a heading.
         let name = NSTextField(labelWithString: title)
-        name.font = BarTheme.rowLabelFont
+        name.setRole(.body)
         name.textColor = BarTheme.ink
         let line = NSTextField(wrappingLabelWithString: blurb)
-        line.font = BarTheme.rowLabelFont
+        line.setRole(.body)
         line.textColor = BarTheme.secondaryColor
         line.preferredMaxLayoutWidth = 330
         stack.addArrangedSubview(name)
@@ -357,16 +357,16 @@ enum SplitPreview {
         scrim.wantsLayer = true
         scrim.autoresizingMask = [.width, .height]
         let name = NSTextField(labelWithString: "Messages")
-        name.font = BarTheme.rowLabelFont
+        name.setRole(.body)
         name.textColor = BarTheme.ink
         name.translatesAutoresizingMaskIntoConstraints = false
         let mode = NSTextField(labelWithString: "INSERT")
-        mode.font = BarTheme.chipFont
+        mode.setRole(.key)
         mode.textColor = BarTheme.secondaryColor
         mode.translatesAutoresizingMaskIntoConstraints = false
         let words = NSTextField(labelWithString:
             "Run the migration for user_sessions and tail the log, then move the\nAsana card to the done column, then let the team know it landed\nand check the dashboard once the backfill has caught up.")
-        words.font = BarTheme.readingMono
+        words.setRole(.draft)
         words.textColor = BarTheme.ink
         words.maximumNumberOfLines = 3
         words.translatesAutoresizingMaskIntoConstraints = false

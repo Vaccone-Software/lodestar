@@ -89,7 +89,7 @@ final class CheatSheet {
             // The pill's rule: one text size, tone for hierarchy. A header
             // is the body voice, quiet, never caps.
             let header = NSTextField(labelWithString: section.header)
-            header.font = BarTheme.bodyFont
+            header.setRole(.body)
             header.textColor = BarTheme.secondaryColor
             column.addArrangedSubview(header)
             column.setCustomSpacing(ModePill.wordGap, after: header)
@@ -99,7 +99,7 @@ final class CheatSheet {
             }
             if section.rows.count > 14 {
                 let more = NSTextField(labelWithString: "+\(section.rows.count - 14) more")
-                more.font = BarTheme.footerFont
+                more.setRole(.meta)
                 more.textColor = BarTheme.secondaryColor
                 column.addArrangedSubview(more)
             }
@@ -118,7 +118,7 @@ final class CheatSheet {
         let chip = Keycaps.cap(row.key)
 
         let text = NSTextField(labelWithString: row.label)
-        text.font = BarTheme.rowLabelFont
+        text.setRole(.body)
         // A dormant gesture draws quiet, cap and all: the eye reads the
         // sheet for what it uses, and a row it never uses recedes.
         text.textColor = row.dimmed ? BarTheme.secondaryColor : BarTheme.ink

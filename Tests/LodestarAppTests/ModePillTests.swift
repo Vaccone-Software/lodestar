@@ -69,11 +69,16 @@ final class ModePillTests: XCTestCase {
         XCTAssertEqual(ModePill.wordGap, ModePill.height / (phi * phi * phi), accuracy: 0.001)
     }
 
-    func testTheHandsWordsAreUprightAndLargerThanTheWings() {
-        let traits = NSFontManager.shared.traits(of: ModePill.textFont)
+    /// The typed echo was a point above the body in mono; it is the body's
+    /// size in the sans, set apart from the wings by its weight alone.
+    func testTheHandsWordsAreUprightAndFirmerThanTheWings() {
+        let font = ModePill.textRole.font(night: false)
+        let traits = NSFontManager.shared.traits(of: font)
         XCTAssertFalse(traits.contains(.italicFontMask), "the italic was tried and retired")
-        XCTAssertGreaterThan(ModePill.textFont.pointSize, BarTheme.bodyFont.pointSize)
-        XCTAssertTrue(ModePill.textFont.isFixedPitch, "the hand's words wear the hand's face")
+        XCTAssertEqual(ModePill.textRole, .typed)
+        XCTAssertEqual(font.pointSize, BarTheme.Role.body.size)
+        XCTAssertGreaterThan(BarTheme.Role.typed.weight.rawValue, BarTheme.Role.body.weight.rawValue)
+        XCTAssertFalse(font.isFixedPitch, "the hand's words are the sans too")
     }
 
     func testShowAndHideOnTheGlass() {

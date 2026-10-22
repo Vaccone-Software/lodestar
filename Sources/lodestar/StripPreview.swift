@@ -465,7 +465,7 @@ enum StripPreview {
                 let text = NSTextView(frame: NSRect(origin: .zero, size: frame.size))
                 text.drawsBackground = false
                 text.textContainerInset = NSSize(width: 28, height: 56)
-                text.font = BarTheme.titleFont
+                text.setRole(.title)
                 text.textColor = dark ? NSColor(white: 0.84, alpha: 1) : NSColor(white: 0.11, alpha: 1)
                 let body = "I think teh recieve date moved again.\n\n\nThe review moved to Thursday after the standup.\nBring the Thursday notes.\n\nReply    Forward    Archive"
                 text.string = body

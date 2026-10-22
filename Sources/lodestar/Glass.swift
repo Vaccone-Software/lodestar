@@ -536,13 +536,13 @@ enum BarTheme {
     static let rowKeyGap: CGFloat = 28
 
     /// The type scale: three sizes for every word Lodestar draws, and one
-    /// for the launcher's field. Nine sizes chosen one at a time, from 10
-    /// to 23, had drifted in over a year, and the smallest sat below the
+    /// for what is typed into a bar. Nine sizes chosen one at a time, from
+    /// 10 to 23, had drifted in over a year, and the smallest sat below the
     /// floor a hand that lives at a screen should be asked to read. Meta
     /// is the caption, the key, the footer; body is what a row, a card,
-    /// or the draft says — the size the eye rests on, which is the size a
-    /// terminal is set to; title is a bar's name. The same scale on the
-    /// settings window and the walk, since an eye is one eye.
+    /// or the draft says — the size the eye rests on; title is a bar's
+    /// name. The same scale on the settings window and the walk, since an
+    /// eye is one eye. Only `Role` (Type.swift) turns a size into a font.
     enum Scale {
         static let meta: CGFloat = 13
         static let body: CGFloat = 16
@@ -550,52 +550,21 @@ enum BarTheme {
         static let input: CGFloat = 23
     }
 
-    /// The three faces, one per speaker. The interface speaks in the
-    /// system's sans. The hand speaks in mono: whatever the person types
-    /// or says wears it, in every field, in the draft, and in the pill's
-    /// echo of an aim or a search. Lodestar speaks in New York, below.
-    /// A face is never borrowed: a label is never mono, a fact is never
-    /// serif, and the hand's words are never sans.
-    static func handFont(_ size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
-        NSFont.monospacedSystemFont(ofSize: size, weight: weight)
-    }
-    static let inputFont = handFont(Scale.input)
-    /// A placeholder is the interface asking, not the hand answering, so
-    /// it wears the sans at the field's size and the quiet tone, and mono
-    /// stays reserved for what the person actually typed.
-    static func placeholder(_ text: String, like font: NSFont?) -> NSAttributedString {
-        let size = font?.pointSize ?? Scale.body
-        return NSAttributedString(string: text, attributes: [
-            .font: NSFont.systemFont(ofSize: size, weight: .regular),
-            .foregroundColor: secondaryColor,
-        ])
+    /// One family, the system's sans, in the roles of `Type.swift`
+    /// (design/02-type.md): a surface names the role a piece of text plays
+    /// and never builds a font. There is no serif and no mono, and the
+    /// hand's words are set like the interface's own.
+    ///
+    /// A placeholder is the interface asking, not the hand answering, so it
+    /// wears the field's role in the quiet tone.
+    static func placeholder(_ text: String, role: Role) -> NSAttributedString {
+        NSAttributedString(string: text, attributes: attributes(role, color: secondaryColor))
     }
     static let inputSymbol = NSImage.SymbolConfiguration(pointSize: 19, weight: .medium)
     /// The one configuration a symbol beside text wears, and its larger
     /// cousin for the strip's own controls. Weight matched to the text.
     static let symbol = NSImage.SymbolConfiguration(pointSize: Scale.meta, weight: .medium)
     static let symbolBand = NSImage.SymbolConfiguration(pointSize: 15, weight: .medium)
-    /// The hand's words in the pill: the hand's face, a point above the
-    /// body and medium, so they stand apart from the wings.
-    static let typedFont = handFont(17, weight: .medium)
-    /// Lodestar's voice: the system's serif, New York, reached by design
-    /// so nothing ships. Reserved for sentences Lodestar says when it
-    /// asks, teaches or reflects, and the note on a clip it has read;
-    /// facts, addresses, keys and the hand's words never wear it.
-    static let voiceFont: NSFont = {
-        // The title size, the size Settings speaks in: a voice card's
-        // sentence once sat at 20, a fourth reading size.
-        let size: CGFloat = Scale.title
-        let descriptor = NSFont.systemFont(ofSize: size).fontDescriptor.withDesign(.serif)
-        return descriptor.flatMap { NSFont(descriptor: $0, size: size) } ?? NSFont.systemFont(ofSize: size)
-    }()
-    /// Lodestar's voice at the title size: a place's sentence in Settings,
-    /// under its name.
-    static let settingsSentenceFont: NSFont = {
-        let size = Scale.title
-        let descriptor = NSFont.systemFont(ofSize: size).fontDescriptor.withDesign(.serif)
-        return descriptor.flatMap { NSFont(descriptor: $0, size: size) } ?? NSFont.systemFont(ofSize: size)
-    }()
     /// The mark at the centre of the settings overview.
     static let settingsMarkSize: CGFloat = 132
     /// The dot that says "yours" beside a value, and "needs you" beside a
@@ -605,32 +574,8 @@ enum BarTheme {
     /// A sentence's measure: wide enough for one thought, narrow enough
     /// to be read in a glance.
     static let voiceWidth: CGFloat = 380
-    /// The strip's search field, the index badge, and the searcher's dot:
-    /// sizes with one home each, so the drift guard can hold the line.
-    static let stripInputFont = handFont(19)
-    /// The meeting's stub, on the scale like everything read: its count at
-    /// the title's size in digits that hold their width while they change,
-    /// a word ("Now") at the body's, and the unit in small caps at meta.
-    static let stubCountFont = NSFont.monospacedDigitSystemFont(ofSize: Scale.title, weight: .semibold)
-    static let stubWordFont = NSFont.systemFont(ofSize: Scale.body, weight: .semibold)
-    static let stubUnitFont = NSFont.systemFont(ofSize: Scale.meta, weight: .semibold)
-    /// The meeting's name on its stub, in the voice at the body's size,
-    /// and the line beneath it.
-    static let stubTitleFont: NSFont = {
-        let size = Scale.body
-        let descriptor = NSFont.systemFont(ofSize: size).fontDescriptor.withDesign(.serif)
-        return descriptor.flatMap { NSFont(descriptor: $0, size: size) } ?? NSFont.systemFont(ofSize: size)
-    }()
-    /// Nothing read is set under the meta size: the coach's record and its
-    /// way out, the stub's line, were 11.5 point in grey.
-    static let stubDetailFont = NSFont.systemFont(ofSize: Scale.meta)
-    /// The coach's sentence over its row: the voice at the body's size, so
-    /// the card stays a line of type and a row.
-    static let coachVoiceFont: NSFont = {
-        let size = Scale.body
-        let descriptor = NSFont.systemFont(ofSize: size).fontDescriptor.withDesign(.serif)
-        return descriptor.flatMap { NSFont(descriptor: $0, size: size) } ?? NSFont.systemFont(ofSize: size)
-    }()
+    /// The dot that says "needs you" is a glyph used as a mark, not text
+    /// that is read, so it may sit under the scale's floor.
     static let dotFont = NSFont.systemFont(ofSize: 8)
     /// Controls and marks on the ladder: a glass chip and a settings well
     /// are controls; a match's wash on the page is a mark. The hairline
@@ -646,18 +591,6 @@ enum BarTheme {
     /// The breath's mark: air moving. A breath is taken and released,
     /// not filed, so it wears wind rather than a window.
     static let breathSymbol = "wind"
-    static let titleFont = NSFont.systemFont(ofSize: Scale.title, weight: .regular)
-    /// A room's name at its head: the title size, set firm. Every room
-    /// (Feedback, Uninstall, the calendar's question) wears this one.
-    static let roomTitleFont = NSFont.systemFont(ofSize: Scale.title, weight: .semibold)
-    /// The one look for secondary text — captions, legends, notes: meta
-    /// size, regular weight, the secondary label colour. Weight is not a
-    /// second style; a caption that needs emphasis is a caption too long.
-    static let secondaryFont = NSFont.systemFont(ofSize: Scale.meta, weight: .regular)
-    /// The one file a card shows is named in the caption's size, set firm:
-    /// it is the card's subject, where the lines beside a stack of files
-    /// are only a list.
-    static let fileNameFont = NSFont.systemFont(ofSize: Scale.meta, weight: .medium)
     /// The palette of the look an appearance is: espresso in dark, clay in
     /// light. Every colour below resolves through this, in the look of the
     /// view that draws it.
@@ -696,10 +629,10 @@ enum BarTheme {
     /// is pure black and pure white, and the ink is never either. Every word
     /// Lodestar sets as a label is made here or sets its own colour from
     /// the theme.
-    static func label(_ text: String, font: NSFont = secondaryFont, color: NSColor = ink,
+    static func label(_ text: String, role: Role = .meta, tabular: Bool = false, color: NSColor = ink,
                       truncates: Bool = false) -> NSTextField {
         let field = NSTextField(labelWithString: text)
-        field.font = font
+        field.setRole(role, tabular: tabular)
         field.textColor = color
         if truncates { field.lineBreakMode = .byTruncatingTail }
         return field
@@ -871,17 +804,6 @@ enum BarTheme {
             Readability.luminance(red: g.redComponent, green: g.greenComponent, blue: g.blueComponent))
         return ratio >= Readability.markFloor ? accent : ink
     }
-    /// What a key's row says it does — the reading size, not a caption.
-    static let rowLabelFont = NSFont.systemFont(ofSize: Scale.body, weight: .regular)
-    static let bodyFont = NSFont.systemFont(ofSize: Scale.body, weight: .regular)
-    static let chipFont = NSFont.monospacedSystemFont(ofSize: Scale.meta, weight: .semibold)
-    static let footerFont = NSFont.systemFont(ofSize: Scale.meta, weight: .regular)
-    /// The draft's face, and any other mono text the eye rests on.
-    static let readingMono = NSFont.monospacedSystemFont(ofSize: Scale.body, weight: .regular)
-    static let readingMonoAccent = NSFont.monospacedSystemFont(ofSize: Scale.body, weight: .semibold)
-    /// Mono at the caption size, for a copied value longer than a card is
-    /// wide: still the hand's face, a step down the scale.
-    static let metaMono = handFont(Scale.meta)
 }
 
 /// Chips you can move, and put back by ignoring.
@@ -1181,7 +1103,7 @@ enum Keycaps {
 
     private static func word(_ text: String, color: NSColor) -> NSTextField {
         let field = NSTextField(labelWithString: text)
-        field.font = BarTheme.secondaryFont
+        field.setRole(.meta)
         field.textColor = color
         field.lineBreakMode = .byTruncatingTail
         return field
@@ -1210,7 +1132,7 @@ final class RoomField: NSView {
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
-        field.font = BarTheme.rowLabelFont
+        field.setRole(.body)
         field.textColor = BarTheme.ink
         field.translatesAutoresizingMaskIntoConstraints = false
         field.setPlaceholder(placeholder)
@@ -1307,8 +1229,9 @@ final class RoomButton: NSButton {
         // an alarm colour: one light, no paint.
         let color: NSColor = primary ? BarTheme.onAccent : (isEnabled ? BarTheme.ink : BarTheme.secondaryColor)
         let words = super.title
-        super.attributedTitle = NSAttributedString(string: words, attributes: [
-            .font: answer ? BarTheme.bodyFont : BarTheme.secondaryFont, .foregroundColor: color])
+        super.attributedTitle = NSAttributedString(
+            string: words,
+            attributes: BarTheme.attributes(answer ? .body : .meta, color: color, in: effectiveAppearance))
         effectiveAppearance.performAsCurrentDrawingAppearance {
             if primary {
                 let face = BarTheme.accent
@@ -1341,7 +1264,7 @@ final class ChoiceMenuItemView: NSView {
         super.init(frame: NSRect(x: 0, y: 0, width: width, height: Self.height))
         wantsLayer = true
         label.stringValue = item.title
-        label.font = BarTheme.secondaryFont
+        label.setRole(.meta)
         label.textColor = item.isEnabled ? BarTheme.ink : BarTheme.secondaryColor
         label.lineBreakMode = .byTruncatingTail
         icon.image = item.image
@@ -1542,9 +1465,11 @@ enum FlashMark {
 
 
 extension NSTextField {
-    /// The one way a field takes a placeholder: in the interface's face.
+    /// The one way a field takes a placeholder: in the field's own role,
+    /// quiet, and resolved again with the look.
     func setPlaceholder(_ text: String) {
-        placeholderAttributedString = BarTheme.placeholder(text, like: font)
+        placeholderAttributedString = BarTheme.placeholder(text, role: typeStyle?.role ?? .body)
+        followLook()
     }
 }
 
@@ -1587,7 +1512,7 @@ final class KeyFace: NSView {
         layer?.shadowOpacity = 1
         if let layer { top.install(in: layer) }
         label.stringValue = text
-        label.font = BarTheme.chipFont
+        label.setRole(.key)
         label.alignment = .center
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
@@ -2051,7 +1976,6 @@ enum KeyMark {
     static let height: CGFloat = BarTheme.chipHeight
     /// The peek's numerals: the same key at a size read across the screen.
     static let peekHeight: CGFloat = 48
-    static let peekFont = NSFont.monospacedSystemFont(ofSize: 24, weight: .semibold)
     /// The neutral hairline from a displaced tag to its word.
     static var connector: NSColor { BarTheme.inkAt(Tone.systemDark ? 0.38 : 0.35) }
     /// The underline's weight: the editor's line, select's matches, a held span.
@@ -2063,11 +1987,11 @@ enum KeyMark {
     /// and the rest in the mark's ink. The label compares to what was
     /// typed without case, since it is drawn in capitals; a label the typed
     /// letters do not begin is drawn whole.
-    static func letters(_ text: String, typed: String, font: NSFont) -> NSAttributedString {
+    static func letters(_ text: String, typed: String, role: BarTheme.Role) -> NSAttributedString {
         let drawn = text.uppercased()
         let done = !typed.isEmpty && text.lowercased().hasPrefix(typed.lowercased()) ? typed.count : 0
-        let label = NSMutableAttributedString(string: drawn, attributes: [
-            .font: font, .foregroundColor: BarTheme.markLetter])
+        let label = NSMutableAttributedString(string: drawn, attributes: BarTheme.attributes(
+            role, color: BarTheme.markLetter))
         label.addAttribute(.foregroundColor, value: BarTheme.secondaryColor,
                            range: NSRange(location: 0, length: min(done, label.length)))
         return label
@@ -2079,7 +2003,8 @@ enum KeyMark {
         let height = peek ? peekHeight : height
         let radius = peek ? BarTheme.chipRadius * BarTheme.phi : BarTheme.chipRadius
         let label = NSTextField(labelWithAttributedString:
-            letters(text, typed: typed, font: peek ? peekFont : BarTheme.chipFont))
+            letters(text, typed: typed, role: peek ? .largeFigure : .key))
+        label.followLook()
         label.alignment = .center
         label.sizeToFit()
         let width = max(height, ceil(label.frame.width) + BarTheme.chipPadX * 2)
@@ -2114,7 +2039,7 @@ enum KeyMark {
         let radius = BarTheme.chipRadius + pad
         let key = KeyMark.key(letter, typed: typed)
         let label = NSTextField(labelWithString: word)
-        label.font = BarTheme.secondaryFont
+        label.setRole(.meta)
         label.textColor = BarTheme.ink
         label.sizeToFit()
         let height = key.frame.height + pad * 2

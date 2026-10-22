@@ -191,7 +191,7 @@ final class StripLayoutTests: XCTestCase {
         let found = Bring.search([Bring.Line(source: 0, text: line)],
                                  sources: [Bring.Source(app: "Ghostty", window: "", rank: 0)], query: "openai")
         let match = try XCTUnwrap(found.matches.first)
-        let drawn = ClipboardStrip.bringLine(match, face: BarTheme.bodyFont, wholeLine: false).string
+        let drawn = ClipboardStrip.bringLine(match, face: .body, wholeLine: false).string
         XCTAssertFalse(drawn.contains("1234567890"), drawn)
         XCTAssertTrue(drawn.hasSuffix("OpQr"))
         XCTAssertFalse(ClipboardStrip.spokenLine(match).contains("1234567890"))
@@ -199,7 +199,7 @@ final class StripLayoutTests: XCTestCase {
         let far = try XCTUnwrap(Bring.search([Bring.Line(source: 0, text: long)],
                                              sources: [Bring.Source(app: "A", window: "", rank: 0)],
                                              query: "needle").matches.first)
-        let shown = ClipboardStrip.bringLine(far, face: BarTheme.bodyFont, wholeLine: false).string
+        let shown = ClipboardStrip.bringLine(far, face: .body, wholeLine: false).string
         XCTAssertTrue(shown.hasPrefix("…"))
         XCTAssertLessThan((shown as NSString).range(of: "needle").location, 48)
     }

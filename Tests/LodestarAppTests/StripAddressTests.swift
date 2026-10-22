@@ -19,7 +19,10 @@ final class StripAddressTests: XCTestCase {
         stage.press("escape")
     }
 
-    func testTheBandIsTheHandsFace() {
-        XCTAssertTrue(BarTheme.stripInputFont.isFixedPitch)
+    /// The strip's field was 19 points in mono; every field is the field
+    /// role, at the input size.
+    func testTheBandIsTheFieldRole() {
+        XCTAssertEqual(BarTheme.Role.field.size, BarTheme.Scale.input)
+        XCTAssertFalse(BarTheme.Role.field.font(night: false).isFixedPitch)
     }
 }

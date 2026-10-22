@@ -60,9 +60,10 @@ enum GalleryFoundations {
 
         static var ink: NSColor { BarTheme.ink }
 
-        func text(_ string: String, at point: NSPoint, font: NSFont = BarTheme.secondaryFont,
+        func text(_ string: String, at point: NSPoint, role: BarTheme.Role = .meta,
                   color: NSColor = BarTheme.secondaryColor) {
             guard draws else { return }
+            let font = role.font(in: NSAppearance.currentDrawing())
             NSAttributedString(string: string, attributes: [.font: font, .foregroundColor: color]).draw(at: point)
         }
 
@@ -79,7 +80,7 @@ enum GalleryFoundations {
         }
 
         mutating func heading(_ title: String, _ detail: String? = nil) {
-            text(title, at: NSPoint(x: margin, y: y), font: BarTheme.roomTitleFont, color: Self.ink)
+            text(title, at: NSPoint(x: margin, y: y), role: .roomTitle, color: Self.ink)
             y += 28
             if let detail {
                 text(detail, at: NSPoint(x: margin, y: y))
@@ -98,7 +99,7 @@ enum GalleryFoundations {
                 fill(NSRect(x: origin.x, y: origin.y, width: cell - 14, height: 44), item.color)
                 text(item.name, at: NSPoint(x: origin.x, y: origin.y + 50), color: Self.ink)
                 text("\(GalleryFoundations.hex(item.color))  L \(String(format: "%.3f", GalleryFoundations.lightness(item.color)))",
-                     at: NSPoint(x: origin.x, y: origin.y + 68), font: BarTheme.metaMono)
+                     at: NSPoint(x: origin.x, y: origin.y + 68), role: .meta)
                 if let note = item.note { text(note, at: NSPoint(x: origin.x, y: origin.y + 86)) }
                 if index % perRow == perRow - 1 || index == items.count - 1 { y += item.note == nil ? 98 : 116 }
             }
@@ -110,11 +111,11 @@ enum GalleryFoundations {
         mutating func pair(_ name: String, foreground: Readability.RGB, background: Readability.RGB, floor: Double) {
             let measured = GalleryFoundations.ratio(foreground, background)
             fill(NSRect(x: margin, y: y, width: 74, height: 26), background)
-            text("Aa 12", at: NSPoint(x: margin + 8, y: y + 4), font: BarTheme.bodyFont,
+            text("Aa 12", at: NSPoint(x: margin + 8, y: y + 4), role: .body,
                  color: NSColor(srgbRed: foreground.red, green: foreground.green, blue: foreground.blue, alpha: 1))
             text(name, at: NSPoint(x: margin + 92, y: y + 4), color: Self.ink)
             text(String(format: "%.2f : 1", measured), at: NSPoint(x: width - margin - 250, y: y + 4),
-                 font: BarTheme.metaMono, color: Self.ink)
+                 role: .meta, color: Self.ink)
             text(measured >= floor ? "meets \(floor == floor.rounded() ? String(Int(floor)) : String(floor)) : 1"
                                    : "under \(floor == floor.rounded() ? String(Int(floor)) : String(floor)) : 1",
                  at: NSPoint(x: width - margin - 120, y: y + 4))
@@ -231,74 +232,48 @@ enum GalleryFoundations {
         return named.min { abs(CGFloat($0.1.rawValue) - value) < abs(CGFloat($1.1.rawValue) - value) }!.0
     }
 
-    /// The face's own kind: the system's sans, its mono, its serif.
+    /// The face's own kind: the system's sans, its serif, its mono.
     static func faceName(_ font: NSFont) -> String {
         let name = font.fontName.lowercased()
         if name.contains("newyork") { return "serif" }
-        if name.contains("monospaceddigit") { return "sans, tabular digits" }
         if font.fontDescriptor.symbolicTraits.contains(.monoSpace) { return "mono" }
+        if name.contains("monospaceddigit") || isTabular(font) { return "sans, tabular figures" }
         return "sans"
     }
 
-    /// Every font BarTheme defines (and the one KeyMark adds), by the name
-    /// the code gives it. A font added to the theme is added here.
-    static let fonts: [(name: String, font: NSFont, sample: String)] = {
-        let prose = "The quick brown fox jumps over the lazy dog"
-        let typed = "swift build -c release 0123"
-        let voice = "Notes could be one key away"
-        return [
-            ("inputFont", BarTheme.inputFont, typed),
-            ("stripInputFont", BarTheme.stripInputFont, typed),
-            ("typedFont", BarTheme.typedFont, typed),
-            ("readingMono", BarTheme.readingMono, typed),
-            ("readingMonoAccent", BarTheme.readingMonoAccent, typed),
-            ("metaMono", BarTheme.metaMono, typed),
-            ("chipFont", BarTheme.chipFont, "esc  tab  ⌘K  space"),
-            ("KeyMark.peekFont", KeyMark.peekFont, "37"),
-            ("titleFont", BarTheme.titleFont, prose),
-            ("roomTitleFont", BarTheme.roomTitleFont, "Send Feedback"),
-            ("bodyFont", BarTheme.bodyFont, prose),
-            ("rowLabelFont", BarTheme.rowLabelFont, "Safari"),
-            ("secondaryFont", BarTheme.secondaryFont, prose),
-            ("footerFont", BarTheme.footerFont, "3 found"),
-            ("fileNameFont", BarTheme.fileNameFont, "Annual report.pdf"),
-            ("voiceFont", BarTheme.voiceFont, voice),
-            ("settingsSentenceFont", BarTheme.settingsSentenceFont, "Startup, updates and look"),
-            ("coachVoiceFont", BarTheme.coachVoiceFont, voice),
-            ("stubTitleFont", BarTheme.stubTitleFont, "Product sync"),
-            ("stubCountFont", BarTheme.stubCountFont, "3:59  12"),
-            ("stubWordFont", BarTheme.stubWordFont, "Now"),
-            ("stubUnitFont", BarTheme.stubUnitFont, "min"),
-            ("stubDetailFont", BarTheme.stubDetailFont, "Zoom · 6 people"),
-            ("dotFont", BarTheme.dotFont, "● needs you"),
-        ]
-    }()
+    /// Whether every digit is as wide as every other.
+    static func isTabular(_ font: NSFont) -> Bool {
+        let widths = "0123456789".map { (String($0) as NSString).size(withAttributes: [.font: font]).width }
+        return widths.allSatisfy { abs($0 - widths[0]) < 0.001 }
+    }
+
+    /// What each role says, set in it: the sample is what the role is for.
+    static let samples: [BarTheme.Role: String] = [
+        .field: "Where to?", .voice: "Notes could be one key away", .title: "Switch to a window",
+        .roomTitle: "Send feedback", .body: "Safari  Slack  Ghostty", .quietVoice: "Product sync",
+        .typed: "swift build", .emphasis: "Now", .figure: "3:59  12", .largeFigure: "37",
+        .meta: "Zoom · 6 people · just now", .name: "Annual report.pdf", .key: "esc  tab  ⌘K  space",
+        .draft: "and tail the log, then move the card", .draftMarked: "lit letters",
+    ]
 
     static func type(look: GalleryLook) -> (NSWindow, [AnyObject]) {
         sheet(look: look, width: 1040) { page, _ in
+            let night = look.appearance == .darkAqua
             page.heading("Type · \(look.name)",
-                         "Every font BarTheme defines, set in the theme's ink. Name, size in points, weight, face. SF Symbol configurations are not shown.")
-            let sizes: [(String, CGFloat)] = [("Scale.meta", BarTheme.Scale.meta), ("Scale.body", BarTheme.Scale.body),
-                                              ("Scale.title", BarTheme.Scale.title), ("Scale.input", BarTheme.Scale.input)]
-            page.text("The scale: the system's sans at each size", at: NSPoint(x: page.margin, y: page.y), color: Page.ink)
-            page.y += 24
-            for (name, size) in sizes {
-                let font = NSFont.systemFont(ofSize: size)
-                page.text("The quick brown fox jumps over the lazy dog", at: NSPoint(x: page.margin, y: page.y),
-                          font: font, color: Page.ink)
-                page.text("\(name) · \(Int(size)) pt · \(weightName(font)) · sans",
-                          at: NSPoint(x: page.width - page.margin - 330, y: page.y + 2), font: BarTheme.metaMono)
+                         "Every role the theme defines, set in the theme's ink: name, size, weight, face. "
+                         + (night ? "At night every role is one weight heavier." : "By day: regular, medium, semibold."))
+            let appearance = NSAppearance(named: look.appearance)!
+            for role in BarTheme.Role.allCases {
+                let font = role.font(in: appearance)
+                page.text(samples[role] ?? role.rawValue, at: NSPoint(x: page.margin, y: page.y), role: role, color: Page.ink)
+                page.text("\(role.rawValue) · \(String(format: "%g", Double(font.pointSize))) pt · \(weightName(font)) · \(faceName(font))",
+                          at: NSPoint(x: page.width - page.margin - 330, y: page.y + 2), role: .meta)
                 page.y += ceil(font.ascender - font.descender + font.leading) + 10
             }
             page.y += 14
-            page.text("The theme's fonts", at: NSPoint(x: page.margin, y: page.y), color: Page.ink)
+            page.text("Every surface, to judge the voice in use, is in the pictures of the surfaces.",
+                      at: NSPoint(x: page.margin, y: page.y))
             page.y += 24
-            for item in fonts {
-                page.text(item.sample, at: NSPoint(x: page.margin, y: page.y), font: item.font, color: Page.ink)
-                page.text("\(item.name) · \(String(format: "%g", Double(item.font.pointSize))) pt · \(weightName(item.font)) · \(faceName(item.font))",
-                          at: NSPoint(x: page.width - page.margin - 400, y: page.y + 2), font: BarTheme.metaMono)
-                page.y += ceil(item.font.ascender - item.font.descender + item.font.leading) + 10
-            }
         }
     }
 

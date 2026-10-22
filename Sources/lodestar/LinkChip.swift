@@ -95,7 +95,7 @@ final class LinkChip {
         stack.spacing = 5
         stack.translatesAutoresizingMaskIntoConstraints = false
 
-        stack.addArrangedSubview(label("Link", size: BarTheme.Scale.meta, weight: .medium,
+        stack.addArrangedSubview(label("Link", role: .name,
                                        color: BarTheme.secondaryColor))
 
         let title = NSStackView()
@@ -111,7 +111,7 @@ final class LinkChip {
             ])
             title.addArrangedSubview(view)
         }
-        title.addArrangedSubview(label(destination, size: BarTheme.Scale.body, weight: .semibold,
+        title.addArrangedSubview(label(destination, role: .emphasis,
                                        color: BarTheme.ink))
         stack.addArrangedSubview(title)
 
@@ -144,10 +144,10 @@ final class LinkChip {
         if !wasVisible { onShown() }
     }
 
-    private func label(_ text: String, size: CGFloat, weight: NSFont.Weight,
+    private func label(_ text: String, role: BarTheme.Role,
                        color: NSColor) -> NSTextField {
         let field = NSTextField(labelWithString: text)
-        field.font = .systemFont(ofSize: size, weight: weight)
+        field.setRole(role)
         field.textColor = color
         field.lineBreakMode = .byTruncatingTail
         return field

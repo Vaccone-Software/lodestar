@@ -101,7 +101,7 @@ enum GalleryKeys {
 
     static func caption(_ text: String) -> NSTextField {
         let label = NSTextField(labelWithString: text)
-        label.font = BarTheme.secondaryFont
+        label.setRole(.meta)
         label.textColor = BarTheme.secondaryColor
         return label
     }

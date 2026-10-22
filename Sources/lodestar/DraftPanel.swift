@@ -267,15 +267,13 @@ final class DraftPanel {
     private static let minTextHeight: CGFloat = 58
     /// The lines a speaking draft holds.
     static let compactLines = 4
-    /// The system's mono face: a block cursor in a proportional face is
-    /// a fresh width on every character, `j` and `k` walk columns that
-    /// lie, and a lit letter's semibold reflows the line. Mono makes all
-    /// three constant — the advance survives the weight by design.
-    private static let font = BarTheme.readingMono
-    /// The find lights' weight: heavier than the text so a lit letter
-    /// reads at a glance, and in the mono face the same width, so
-    /// nothing reflows.
-    private static let accentFont = BarTheme.readingMonoAccent
+    /// The draft is prose that lands in proportional apps, so it is set as
+    /// it will be read: the draft role, the sans like any other text. The
+    /// block cursor is a plate as wide as the letter it covers, and the find
+    /// lights' semibold letters are the draft's marked role.
+    private static var font: NSFont { BarTheme.Role.draft.font }
+    /// The width of a space: what a block cursor covers where no letter is.
+    private static var spaceWidth: CGFloat { BarTheme.spaceWidth(in: .draft) }
     /// The panel's ground, for the glyph a block cursor inverts: the
     /// equalizer scrim keeps every panel charcoal, whatever the material
     /// decided, so the ground is a known dark rather than a query.
@@ -301,10 +299,10 @@ final class DraftPanel {
         gate = SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
         backdrop = Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
 
-        registerName.font = BarTheme.rowLabelFont
+        registerName.setRole(.body)
         registerName.textColor = BarTheme.ink
         registerName.lineBreakMode = .byTruncatingTail
-        registerNote.font = BarTheme.secondaryFont
+        registerNote.setRole(.meta)
         registerNote.textColor = BarTheme.secondaryColor
         registerNote.lineBreakMode = .byTruncatingTail
 
@@ -316,7 +314,9 @@ final class DraftPanel {
         textView.isEditable = false
         textView.isSelectable = false
         textView.drawsBackground = false
-        textView.font = Self.font
+        // Every run names its role, and the view sets them again when the look
+        // changes: night's weight reaches words already on screen.
+        textView.followLook()
         textView.textColor = BarTheme.ink
         textView.textContainerInset = NSSize(width: 0, height: 0)
         textView.textContainer?.lineFragmentPadding = 0
@@ -531,12 +531,10 @@ final class DraftPanel {
         // words will land, which is not necessarily the end.
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineSpacing = 3
-        let settledAttributes: [NSAttributedString.Key: Any] = [
-            .font: Self.font, .foregroundColor: BarTheme.ink, .paragraphStyle: paragraph,
-        ]
-        let ghostAttributes: [NSAttributedString.Key: Any] = [
-            .font: Self.font, .foregroundColor: BarTheme.secondaryColor, .paragraphStyle: paragraph,
-        ]
+        var settledAttributes = BarTheme.attributes(.draft, color: BarTheme.ink)
+        settledAttributes[.paragraphStyle] = paragraph
+        var ghostAttributes = BarTheme.attributes(.draft, color: BarTheme.secondaryColor)
+        ghostAttributes[.paragraphStyle] = paragraph
         let before = String(view.buffer.characters[..<view.buffer.cursor])
         let after = String(view.buffer.characters[view.buffer.cursor...])
         let attributed = NSMutableAttributedString(string: before, attributes: settledAttributes)
@@ -581,9 +579,7 @@ final class DraftPanel {
         // with no ghost standing, like the selection: the ghost shifts
         // every position after the cursor.
         if view.buffer.ghost.isEmpty {
-            let accent: [NSAttributedString.Key: Any] = [
-                .foregroundColor: BarTheme.readableAccent, .font: Self.accentFont,
-            ]
+            let accent = BarTheme.attributes(.draftMarked, color: BarTheme.readableAccent)
             let characterRange = { (range: Range<Int>) -> NSRange in
                 let lower = (String(view.buffer.characters[..<range.lowerBound]) as NSString).length
                 let upper = (String(view.buffer.characters[..<range.upperBound]) as NSString).length
@@ -821,22 +817,24 @@ final class DraftPanel {
             let bar: CGFloat = 3
             var rect: NSRect
             if attributed.length == 0 {
-                rect = NSRect(x: 0, y: 0, width: block ? 8 : bar, height: lineHeight)
+                rect = NSRect(x: 0, y: 0, width: block ? Self.spaceWidth : bar, height: lineHeight)
             } else if cursorUTF16 >= attributed.length {
                 let last = layout.lineFragmentRect(forGlyphAt: max(0, glyph - 1), effectiveRange: nil)
                 let lastLoc = layout.location(forGlyphAt: max(0, glyph - 1))
                 let lastWidth = layout.boundingRect(forGlyphRange: NSRange(location: max(0, glyph - 1), length: 1), in: container).width
                 let endsWithNewline = attributed.string.hasSuffix("\n")
                 rect = endsWithNewline
-                    ? NSRect(x: 0, y: last.maxY, width: block ? 8 : bar, height: lineHeight)
-                    : NSRect(x: lastLoc.x + lastWidth, y: last.minY, width: block ? 8 : bar, height: last.height)
+                    ? NSRect(x: 0, y: last.maxY, width: block ? Self.spaceWidth : bar, height: lineHeight)
+                    : NSRect(x: lastLoc.x + lastWidth, y: last.minY, width: block ? Self.spaceWidth : bar, height: last.height)
             } else {
                 let line = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
                 let loc = layout.location(forGlyphAt: glyph)
                 let glyphWidth = layout.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: container).width
                 let underCursor: Character = view.buffer.cursor < view.buffer.count
                     ? view.buffer.characters[view.buffer.cursor] : " "
-                let width = block ? (underCursor == "\n" ? 8 : max(4, glyphWidth)) : bar
+                // A block is as wide as the letter it covers, in the sans where
+                // every letter has its own width; at a line's end, a space.
+                let width = block ? (underCursor == "\n" ? Self.spaceWidth : max(1, glyphWidth)) : bar
                 rect = NSRect(x: loc.x, y: line.minY, width: width, height: line.height)
             }
             // Text view coordinates are flipped; the root is not.

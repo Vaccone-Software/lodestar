@@ -117,12 +117,12 @@ final class ModePill {
 
     /// The hand's words, upright: the italic was tried and did not look
     /// right on the glass. Size and weight set them apart from the wings.
-    static var textFont: NSFont { BarTheme.typedFont }
+    static let textRole = BarTheme.Role.typed
 
     // MARK: - Surface
 
     private let panel: NSPanel
-    private let root = NSView()
+    private let root = AppearanceRoot()
     private var content: NSStackView?
     private(set) var state: State?
     var isVisible: Bool { panel.isVisible }
@@ -141,6 +141,12 @@ final class ModePill {
         // Draggable by its glass, the way the coach's chip is: one home by
         // default, and a remembered displacement once the hand moves it.
         Movable.enable(panel)
+        // A change of look changes every word's weight, and the words' width
+        // with it: the glass is fitted to them again.
+        root.onAppearance = { [weak self] in
+            guard let self, self.panel.isVisible else { return }
+            self.present()
+        }
         moveObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didMoveNotification, object: panel, queue: .main
         ) { [weak self] _ in self?.noteMoved() }
@@ -295,12 +301,12 @@ final class ModePill {
             view.setContentHuggingPriority(.required, for: .horizontal)
             return view
         case .modeWord(let word):
-            return Self.label(word, font: BarTheme.bodyFont, color: BarTheme.ink)
+            return Self.label(word, role: .body, color: BarTheme.ink)
         case .offer(let offer):
             // The pill's one light, when the offer is ⏎: the key, lit.
             return Keycaps.line([.init([offer.key], offer.words, lit: offer.lit, quiet: !offer.lit)])
         case .appWord(let word):
-            return Self.label(word, font: BarTheme.bodyFont, color: BarTheme.secondaryColor)
+            return Self.label(word, role: .body, color: BarTheme.secondaryColor)
         case .appIcon:
             let view = NSImageView(image: state.icon ?? NSImage())
             view.imageScaling = .scaleProportionallyUpOrDown
@@ -315,8 +321,8 @@ final class ModePill {
         case .anchored(let word):
             // The word already taken, then a quiet dot before whatever
             // comes next: the far end's letters, or the caret waiting.
-            let label = Self.label(word, font: Self.textFont, color: BarTheme.ink)
-            let dot = Self.label("·", font: BarTheme.bodyFont, color: BarTheme.secondaryColor)
+            let label = Self.label(word, role: Self.textRole, color: BarTheme.ink)
+            let dot = Self.label("·", role: .body, color: BarTheme.secondaryColor)
             let pair = NSStackView(views: [label, dot])
             pair.orientation = .horizontal
             pair.alignment = .centerY
@@ -327,7 +333,7 @@ final class ModePill {
             // The letters and their caret, and no more: a slot reserved
             // ahead of the typing left a gap before the icon that read as
             // something missing. The pill fits what has been said.
-            let label = Self.label(text, font: Self.textFont, color: BarTheme.ink)
+            let label = Self.label(text, role: Self.textRole, color: BarTheme.ink)
             let slot = NSStackView(views: [label, Self.caret(alpha: 1)])
             slot.orientation = .horizontal
             slot.alignment = .centerY
@@ -337,9 +343,9 @@ final class ModePill {
         }
     }
 
-    private static func label(_ text: String, font: NSFont, color: NSColor) -> NSTextField {
+    private static func label(_ text: String, role: BarTheme.Role, color: NSColor) -> NSTextField {
         let field = NSTextField(labelWithString: text)
-        field.font = font
+        field.setRole(role)
         field.textColor = color
         field.maximumNumberOfLines = 1
         field.lineBreakMode = .byTruncatingTail
@@ -374,7 +380,11 @@ final class ModePill {
         root.layoutSubtreeIfNeeded()
         var size = root.fittingSize
         if keys == nil { size.height = Self.height }
-        size.width = min(max(size.width, 160), 1100)
+        // Whole points: the window lands on them anyway, and a width of
+        // words in the sans is rarely one, so a pill sized to its text that
+        // did not round up would cut the last letter by a fraction.
+        size.width = min(max(size.width.rounded(.up), 160), 1100)
+        size.height = size.height.rounded(.up)
         let rowSize = NSSize(width: size.width, height: Self.height)
         let home = Self.home(for: rowSize)
         // Home plus the hand's displacement, kept on the screen: a pill

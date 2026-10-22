@@ -38,15 +38,16 @@ final class CoachVoiceTests: XCTestCase {
         XCTAssertNil(Coach.Keymap.parse("meetings at the door"))
     }
 
-    func testTheVoiceIsTheSystemSerifAndNothingElseWearsIt() {
-        XCTAssertEqual(BarTheme.voiceFont.pointSize, BarTheme.Scale.title, "the size Settings speaks in")
-        let design = BarTheme.voiceFont.fontDescriptor.object(forKey: .init(rawValue: "NSCTFontUIUsageAttribute"))
-        XCTAssertNotNil(BarTheme.voiceFont.familyName)
-        XCTAssertTrue(BarTheme.voiceFont.familyName?.contains("New York") == true
-                      || BarTheme.voiceFont.fontName.contains("NewYork"),
-                      "the system serif: \(BarTheme.voiceFont.fontName)")
-        _ = design
-        XCTAssertFalse(BarTheme.typedFont.fontName.contains("NewYork"), "the hand's words never wear it")
-        XCTAssertFalse(BarTheme.bodyFont.fontName.contains("NewYork"), "nor does the interface")
+    /// The voice was the system serif until 21 October 2026 (design/02-type.md):
+    /// it is the sans now, at the size Settings speaks in, and the coach's
+    /// line is the same voice at the body's size.
+    func testTheVoiceIsTheSystemSansLikeEverythingElse() {
+        XCTAssertEqual(BarTheme.Role.voice.size, BarTheme.Scale.title, "the size Settings speaks in")
+        XCTAssertEqual(BarTheme.Role.quietVoice.size, BarTheme.Scale.body, "the coach's line, a size down")
+        for role in [BarTheme.Role.voice, .quietVoice] {
+            let font = role.font(night: false)
+            XCTAssertFalse(font.fontName.contains("NewYork"), "no serif: \(font.fontName)")
+            XCTAssertEqual(font.familyName, NSFont.systemFont(ofSize: 13).familyName)
+        }
     }
 }

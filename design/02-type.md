@@ -80,7 +80,7 @@ At night every role is one weight heavier: regular becomes medium, medium become
 
 ## Status
 
-Not yet built. Main defines 24 fonts in three families: 8 in mono (`inputFont`, `stripInputFont`, `typedFont`, `readingMono`, `readingMonoAccent`, `metaMono`, `chipFont`, `KeyMark.peekFont`), 4 in serif (`voiceFont`, `settingsSentenceFont`, `coachVoiceFont`, `stubTitleFont`), and the rest in sans. Weights are the same by day and night, and the strip's field is 19 points, off the scale.
+Built 22 October 2026. Before it, main defined 24 fonts in three families: 8 in mono (`inputFont`, `stripInputFont`, `typedFont`, `readingMono`, `readingMonoAccent`, `metaMono`, `chipFont`, `KeyMark.peekFont`), 4 in serif (`voiceFont`, `settingsSentenceFont`, `coachVoiceFont`, `stubTitleFont`), and the rest in sans. Weights are the same by day and night, and the strip's field is 19 points, off the scale.
 
 ## Prototype lessons
 

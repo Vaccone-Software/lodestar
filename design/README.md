@@ -21,7 +21,7 @@ Primitives are made of foundations, so the foundations are settled first.
 | #   | Contract    | Status  |
 | --- | ----------- | ------- |
 | 01  | Colour      | Built   |
-| 02  | Type        | Drafted |
+| 02  | Type        | Built   |
 | 03  | Geometry    | Planned |
 | 04  | Material    | Planned |
 | 05  | Motion      | Planned |

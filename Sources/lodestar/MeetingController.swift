@@ -469,9 +469,8 @@ final class MeetingController: NSObject {
         number.alignment = .center
         let unitField = NSTextField(labelWithString: "")
         if let unit = stub.unit {
-            var attributes = BarTheme.attributes(
+            let attributes = BarTheme.attributes(
                 .key, color: stub.lit ? BarTheme.onAccent.withAlphaComponent(0.8) : BarTheme.secondaryColor)
-            attributes[.kern] = 0.6
             unitField.attributedStringValue = NSAttributedString(string: unit.uppercased(), attributes: attributes)
             unitField.followLook()
         }

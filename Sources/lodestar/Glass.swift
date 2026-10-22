@@ -1231,7 +1231,7 @@ final class RoomButton: NSButton {
         let words = super.title
         super.attributedTitle = NSAttributedString(
             string: words,
-            attributes: BarTheme.attributes(answer ? .body : .meta, color: color, in: effectiveAppearance))
+            attributes: BarTheme.attributes(.control, color: color, in: effectiveAppearance))
         effectiveAppearance.performAsCurrentDrawingAppearance {
             if primary {
                 let face = BarTheme.accent
@@ -1264,7 +1264,7 @@ final class ChoiceMenuItemView: NSView {
         super.init(frame: NSRect(x: 0, y: 0, width: width, height: Self.height))
         wantsLayer = true
         label.stringValue = item.title
-        label.setRole(.meta)
+        label.setRole(.control)
         label.textColor = item.isEnabled ? BarTheme.ink : BarTheme.secondaryColor
         label.lineBreakMode = .byTruncatingTail
         icon.image = item.image

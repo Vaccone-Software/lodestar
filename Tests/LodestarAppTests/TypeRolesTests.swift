@@ -22,7 +22,7 @@ final class TypeRolesTests: XCTestCase {
     /// Every font the theme defines is a role; none is a serif or a mono,
     /// none is off the scale, and by day none is outside the three weights.
     func testEveryRoleIsTheSansOnTheScaleInTheThreeWeights() {
-        XCTAssertEqual(BarTheme.Role.allCases.count, 15, "the contract's table")
+        XCTAssertEqual(BarTheme.Role.allCases.count, 18, "the contract's table")
         let system = NSFont.systemFont(ofSize: 13).familyName
         for role in BarTheme.Role.allCases {
             for night in [false, true] {
@@ -47,6 +47,7 @@ final class TypeRolesTests: XCTestCase {
             (.roomTitle, 18, "semibold"), (.body, 16, "regular"), (.quietVoice, 16, "regular"),
             (.typed, 16, "semibold"), (.emphasis, 16, "semibold"), (.figure, 18, "semibold"),
             (.largeFigure, 23, "semibold"), (.meta, 13, "regular"), (.name, 13, "medium"),
+            (.label, 16, "medium"), (.control, 16, "regular"), (.heading, 13, "semibold"),
             (.key, 13, "semibold"), (.draft, 16, "regular"), (.draftMarked, 16, "semibold"),
         ]
         XCTAssertEqual(Set(table.map { $0.0 }), Set(BarTheme.Role.allCases), "every role is in the table")
@@ -206,7 +207,7 @@ final class TypeRolesTests: XCTestCase {
         }
         XCTAssertEqual(markFont(), BarTheme.Role.largeFigure.font(night: false))
         XCTAssertEqual(button.attributedTitle.attribute(.font, at: 0, effectiveRange: nil) as? NSFont,
-                       BarTheme.Role.meta.font(night: false))
+                       BarTheme.Role.control.font(night: false))
 
         GalleryLook.night.apply()
         settle()
@@ -214,8 +215,81 @@ final class TypeRolesTests: XCTestCase {
         XCTAssertEqual(fonts().marked, BarTheme.Role.draftMarked.font(night: true), "its lit letters")
         XCTAssertEqual(markFont(), BarTheme.Role.largeFigure.font(night: true), "a key mark")
         XCTAssertEqual(button.attributedTitle.attribute(.font, at: 0, effectiveRange: nil) as? NSFont,
-                       BarTheme.Role.meta.font(night: true), "a room's button")
+                       BarTheme.Role.control.font(night: true), "a room's button")
         window.close()
+    }
+
+    // MARK: - Settings and the fields
+
+    /// A list of labels is medium: on a Settings page nothing is heavier
+    /// than the room's title, a row's title is the label role, a group's
+    /// header the heading, and a value (a popup's, a status word) is control.
+    func testASettingsPageIsLabelsInMediumUnderOneRoomTitle() throws {
+        GalleryLook.day.apply()
+        var seen: Set<BarTheme.Role> = []
+        for shot in GalleryShots.all where shot.surface == "settings" && shot.looks.contains(.day) {
+            let (view, keep) = try shot.build(.day)
+            GalleryHost.settle(0.02)
+            for word in words(in: view) {
+                for style in word.styles.compactMap({ $0 }) {
+                    seen.insert(style.role)
+                    XCTAssertLessThanOrEqual(style.role.weight.rawValue, BarTheme.Role.roomTitle.weight.rawValue,
+                                             "\(shot.name(in: .day)): \"\(word.text.prefix(24))\" is \(style.role)")
+                    XCTAssertNotEqual(style.role, .emphasis, "\(shot.name(in: .day)): a row is a label, not an emphasis")
+                }
+            }
+            _ = keep
+        }
+        for role in [BarTheme.Role.label, .heading, .control, .roomTitle] {
+            XCTAssertTrue(seen.contains(role), "Settings draws \(role.rawValue)")
+        }
+        XCTAssertEqual(BarTheme.Role.label.weight, .medium)
+        XCTAssertEqual(BarTheme.Role.label.size, 16)
+        XCTAssertEqual(BarTheme.Role.control.size, 16)
+        XCTAssertEqual(BarTheme.Role.heading.size, 13)
+    }
+
+    /// A bar's field is the field role at 23; a field inside a room (Settings'
+    /// search and the values you type, Feedback's note and email) is body.
+    func testABarsFieldIs23AndARoomsFieldIsBody() throws {
+        GalleryLook.day.apply()
+        var bars = 0, rooms = 0
+        for shot in GalleryShots.all where shot.looks.contains(.day)
+            && ["launcher", "ask", "commands", "settings", "feedback"].contains(shot.surface) {
+            let (view, keep) = try shot.build(.day)
+            GalleryHost.settle(0.02)
+            for field in allViews(view).compactMap({ $0 as? NSTextField }) where field.isEditable {
+                guard let role = field.typeStyle?.role else { continue }
+                if shot.surface == "settings" || shot.surface == "feedback" {
+                    rooms += 1
+                    XCTAssertEqual(role, .body, "\(shot.name(in: .day)): a field in a room")
+                } else {
+                    bars += 1
+                    XCTAssertEqual(role, .field, "\(shot.name(in: .day)): a bar's field")
+                }
+            }
+            _ = keep
+        }
+        XCTAssertGreaterThan(bars, 0)
+        XCTAssertGreaterThan(rooms, 0)
+    }
+
+    /// Hierarchy is never letter-spacing: no text on any surface is tracked.
+    func testNoTextOnAnySurfaceIsTracked() throws {
+        GalleryLook.day.apply()
+        for shot in GalleryShots.all where shot.looks.contains(.day) {
+            let (view, keep) = try shot.build(.day)
+            GalleryHost.settle(0.02)
+            for field in allViews(view).compactMap({ $0 as? NSTextField }) where field.attributedStringValue.length > 0 {
+                var tracked = false
+                let text = field.attributedStringValue
+                text.enumerateAttribute(.kern, in: NSRange(location: 0, length: text.length)) { value, _, _ in
+                    if let value = value as? CGFloat, value != 0 { tracked = true }
+                }
+                XCTAssertFalse(tracked, "\(shot.name(in: .day)): \"\(text.string.prefix(20))\" is tracked")
+            }
+            _ = keep
+        }
     }
 
     // MARK: - Figures

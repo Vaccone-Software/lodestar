@@ -252,7 +252,8 @@ enum GalleryFoundations {
         .field: "Where to?", .voice: "Notes could be one key away", .title: "Switch to a window",
         .roomTitle: "Send feedback", .body: "Safari  Slack  Ghostty", .quietVoice: "Product sync",
         .typed: "swift build", .emphasis: "Now", .figure: "3:59  12", .largeFigure: "37",
-        .meta: "Zoom · 6 people · just now", .name: "Annual report.pdf", .key: "esc  tab  ⌘K  space",
+        .meta: "Zoom · 6 people · just now", .name: "Annual report.pdf",
+        .label: "Start at login", .control: "Under the pointer", .heading: "Sound and display", .key: "esc  tab  ⌘K  space",
         .draft: "and tail the log, then move the card", .draftMarked: "lit letters",
     ]
 

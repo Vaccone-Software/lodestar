@@ -36,6 +36,13 @@ extension BarTheme {
         case meta
         /// A name the eye lands on among captions.
         case name
+        /// A setting's title, a tile's name, a search hit: a list of these is
+        /// medium, so no row is the heaviest thing on the page.
+        case label
+        /// A popup's value, a button's title, a status word.
+        case control
+        /// A group's header.
+        case heading
         /// A key's letter.
         case key
         /// The draft's text and the editor's lens.
@@ -47,17 +54,17 @@ extension BarTheme {
             switch self {
             case .field, .largeFigure: return Scale.input
             case .voice, .title, .roomTitle, .figure: return Scale.title
-            case .body, .quietVoice, .typed, .emphasis, .draft, .draftMarked: return Scale.body
-            case .meta, .name, .key: return Scale.meta
+            case .body, .quietVoice, .typed, .emphasis, .label, .control, .draft, .draftMarked: return Scale.body
+            case .meta, .name, .heading, .key: return Scale.meta
             }
         }
 
         /// The weight by day. At night it is one step heavier.
         var weight: NSFont.Weight {
             switch self {
-            case .field, .voice, .title, .body, .quietVoice, .meta, .draft: return .regular
-            case .name: return .medium
-            case .roomTitle, .typed, .emphasis, .figure, .largeFigure, .key, .draftMarked: return .semibold
+            case .field, .voice, .title, .body, .quietVoice, .control, .meta, .draft: return .regular
+            case .name, .label: return .medium
+            case .roomTitle, .typed, .emphasis, .figure, .largeFigure, .heading, .key, .draftMarked: return .semibold
             }
         }
 

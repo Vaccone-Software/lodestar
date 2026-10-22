@@ -1006,7 +1006,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         private func ink() {
             for item in itemArray where !item.isSeparatorItem {
                 item.attributedTitle = NSAttributedString(
-                    string: item.title, attributes: BarTheme.attributes(typeStyle?.role ?? .meta, color: BarTheme.ink))
+                    string: item.title, attributes: BarTheme.attributes(typeStyle?.role ?? .control, color: BarTheme.ink))
             }
             followLook()
         }
@@ -1024,7 +1024,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         }
 
         func menuNeedsUpdate(_ menu: NSMenu) {
-            let widest = menu.items.map { BarTheme.width(of: $0.title, in: .meta) }.max() ?? 0
+            let widest = menu.items.map { BarTheme.width(of: $0.title, in: .control) }.max() ?? 0
             let width = max(bounds.width, widest + 70)
             for item in menu.items where !item.isSeparatorItem {
                 item.view = ChoiceMenuItemView(item: item, chosen: item == selectedItem, width: width, popup: self)
@@ -1111,7 +1111,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         head.alignment = .centerY
         head.spacing = 8
         head.addArrangedSubview(keycap(SettingsModel.paneKey(index, count: sections.count) ?? ""))
-        head.addArrangedSubview(label(section.name, role: .emphasis, color: BarTheme.ink))
+        head.addArrangedSubview(label(section.name, role: .label, color: BarTheme.ink))
         if section.attention { head.addArrangedSubview(Self.dot()) }
         tile.addArrangedSubview(head)
         tile.addArrangedSubview(label(section.status, role: .meta,
@@ -1153,7 +1153,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             block.orientation = .vertical
             block.alignment = .leading
             block.spacing = 8
-            let header = label(group.name, role: .meta, color: BarTheme.secondaryColor)
+            let header = label(group.name, role: .heading, color: BarTheme.secondaryColor)
             let headerWrap = NSStackView(views: [header])
             headerWrap.edgeInsets = NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 0)
             block.addArrangedSubview(headerWrap)
@@ -1327,7 +1327,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         titleRow.orientation = .horizontal
         titleRow.alignment = .centerY
         titleRow.spacing = 7
-        titleRow.addArrangedSubview(label(row.title, role: .emphasis, color: BarTheme.ink))
+        titleRow.addArrangedSubview(label(row.title, role: .label, color: BarTheme.ink))
         for cap in row.keycaps { titleRow.addArrangedSubview(keycap(cap)) }
         text.addArrangedSubview(titleRow)
         let armed = armedAction == index
@@ -1435,7 +1435,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             if let at = options.firstIndex(of: current) {
                 popup.selectItem(at: at)
             }
-            popup.setRole(.meta)
+            popup.setRole(.control)
             popup.target = self
             popup.action = #selector(choicePressed(_:))
             popups[index] = popup
@@ -1468,7 +1468,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             column.alignment = .trailing
             column.spacing = 3
             let read = NSTextField(wrappingLabelWithString: value)
-            read.setRole(.body, tabular: true)
+            read.setRole(.control, tabular: true)
             read.textColor = BarTheme.secondaryColor
             read.alignment = .right
             read.isSelectable = false
@@ -1492,7 +1492,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             if let at = options.firstIndex(of: current) {
                 popup.selectItem(at: at)
             }
-            popup.setRole(.meta)
+            popup.setRole(.control)
             popup.target = self
             popup.action = #selector(selectorPressed(_:))
             popups[index] = popup
@@ -1514,7 +1514,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         var lastHeader: String?
         for (entryIndex, entry) in entries.enumerated() {
             if let header = entry.header, header != lastHeader {
-                let title = label(header, role: .key,
+                let title = label(header, role: .heading,
                                   color: BarTheme.secondaryColor)
                 if let last = column.arrangedSubviews.last {
                     column.setCustomSpacing(10, after: last)
@@ -1652,7 +1652,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         }
         let popup = KeyPopUp()
         popup.addItems(withTitles: labels.isEmpty ? ["none found"] : labels)
-        popup.setRole(.meta)
+        popup.setRole(.control)
         popup.widthAnchor.constraint(lessThanOrEqualToConstant: width + 40).isActive = true
         return (popup, tokens)
     }
@@ -1696,7 +1696,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         func popup(_ titles: [String], width: CGFloat = 130) -> NSPopUpButton {
             let popup = KeyPopUp()
             popup.addItems(withTitles: titles.isEmpty ? ["none found"] : titles)
-            popup.setRole(.meta)
+            popup.setRole(.control)
             popup.widthAnchor.constraint(lessThanOrEqualToConstant: width + 40).isActive = true
             return popup
         }
@@ -1879,7 +1879,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         fieldRow.addArrangedSubview(keycap("/"))
         let field = NSTextField()
         field.setPlaceholder(ask == nil ? "Search every setting" : "Search, or ask in your own words")
-        field.setRole(.title)
+        field.setRole(.body)
         field.textColor = BarTheme.ink
         field.isBordered = false
         field.drawsBackground = false
@@ -1936,7 +1936,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                 cap.lit = selected
                 row.addArrangedSubview(cap)
             }
-            row.addArrangedSubview(label(hit.title, role: .emphasis, color: BarTheme.ink))
+            row.addArrangedSubview(label(hit.title, role: .label, color: BarTheme.ink))
             row.addArrangedSubview(label(hit.sectionName, role: .meta,
                                          color: BarTheme.secondaryColor))
             row.addArrangedSubview(spacer())
@@ -2083,7 +2083,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
 
     private func editableField(_ value: String, width: CGFloat) -> NSTextField {
         let field = NSTextField(string: value)
-        field.setRole(.meta)
+        field.setRole(.body)
         field.textColor = BarTheme.ink
         field.delegate = self
         // No target/action on purpose: an action fires on *every* end of

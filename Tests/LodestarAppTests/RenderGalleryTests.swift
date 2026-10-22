@@ -63,7 +63,15 @@ enum GalleryIndex {
         figure{margin:0}
         img{display:block;max-width:760px;height:auto;image-rendering:auto}
         figcaption{margin-top:6px;color:#eee;font-size:12px}
+        p.note{max-width:900px;color:#eee;font-size:13px;line-height:1.5}
         </style><h1 style="color:#fff">Lodestar gallery</h1>
+        <p class="note">Drawn offscreen from the code: day is the aqua appearance, night darkAqua, the accent
+        Lodestar's own orange, on a flat grey desktop. <b>The glass material is not in these pictures.</b> A panel's
+        Liquid Glass (NSGlassEffectView) composites out of process and AppKit does not draw it into a bitmap, so each
+        panel shows what Lodestar lays inside the glass, its veil: the pane colour at 90% over the grey. The material's
+        own frost, rim and shadow are absent where they are the material's, and Keep's cards stand without the soft
+        shadow they cast on screen. Everything Lodestar draws itself (keys, rows, text, the drawn shadow of a panel
+        that hosts one) is as the app draws it. The foundation sheets are drawn from Palette.swift and BarTheme, not typed in.</p>
         """
         for surface in surfaces {
             html += "<h2>\(surface)</h2><div class=\"grid\">"

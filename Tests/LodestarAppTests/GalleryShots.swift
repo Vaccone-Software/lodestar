@@ -4,6 +4,6 @@ import AppKit
 /// Every picture the gallery takes.
 enum GalleryShots {
     static var all: [GalleryShot] {
-        GalleryLauncher.shots + GalleryBars.shots + GallerySettings.shots + GalleryKeep.shots + GalleryChrome.shots + GalleryKeys.shots + GalleryControls.shots
+        GalleryFoundations.shots + GalleryLauncher.shots + GalleryBars.shots + GallerySettings.shots + GalleryKeep.shots + GalleryChrome.shots + GalleryKeys.shots + GalleryControls.shots
     }
 }

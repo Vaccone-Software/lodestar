@@ -1,6 +1,6 @@
 # 02 · Type
 
-One family, one scale, three weights. Every word Lodestar draws is set in the system's sans, at one of four sizes, except text that is code.
+One family, one scale, three weights. Every word Lodestar draws is set in the system's sans, at one of four sizes. There is no second face.
 
 ## What it is for
 
@@ -9,12 +9,12 @@ Type carries everything Lodestar says, and it should sound like one voice. Hiera
 ## Origin
 
 - **Three faces became one** (decided 21 October 2026). Lodestar had grown three families: the sans for most things, mono for fields, key letters, typed echoes and the draft, and a serif for the voice (the coach, Settings' sentences, the meeting's title). The canvas drew everything in one sans as a placeholder, and it read better than any pairing: the serif was a costume on a tool, and mono on a field said "terminal" where the field says "where to?".
-- **Mono came from vim.** Monospace earned its place where text is edited with motions, so columns and counts line up: the draft and the editor's lens. Everywhere else it was borrowed.
+- **Mono retires too** (22 October 2026). Mono was in the draft and the editor's lens only because they are vim-like, and vim's motions work on characters and words, not columns. What is written there is prose that lands in proportional apps, so it is set as it will be read.
 - **The scale already existed.** Readability had cut nine drifting sizes to four (meta 13, body 16, title 18, input 23) with 13 as the floor. This contract keeps that scale and makes every font a role on it.
 
 ## Values
 
-The family is the system font (SF Pro, with its optical sizes); code is the system's mono (SF Mono). Weights are regular, medium and semibold; bold appears only as semibold made heavier at night.
+The family is the system font (SF Pro, with its optical sizes). Nothing is set in mono. Weights are regular, medium and semibold; bold appears only as semibold made heavier at night.
 
 ### The scale
 
@@ -42,8 +42,8 @@ The family is the system font (SF Pro, with its optical sizes); code is the syst
 | meta         | 13   | regular  | sans | `secondaryFont`, `footerFont`, `stubDetailFont`, `metaMono` |
 | name         | 13   | medium   | sans | `fileNameFont`                                              |
 | key          | 13   | semibold | sans | `chipFont` (mono), `stubUnitFont`                           |
-| code         | 16   | regular  | mono | `readingMono`: the draft's text and the editor's lens       |
-| code, marked | 16   | semibold | mono | `readingMonoAccent`                                         |
+| draft            | 16    | regular  | sans | `readingMono`: the draft's text and the editor's lens |
+| draft, marked    | 16    | semibold | sans | `readingMonoAccent`                          |
 
 The strip's field comes up from 19 to the input size, so every field Lodestar has is one size. `metaMono` becomes meta: a caption is a caption whatever it describes.
 
@@ -57,8 +57,8 @@ At night every role is one weight heavier: regular becomes medium, medium become
 
 ## Rules
 
-1. **One family.** Every font is the system sans, except the two code roles. No serif anywhere.
-2. **Mono is for code.** Only the draft's text and the editor's lens are mono. A key letter, a field, a caption, a clip's preview and a typed echo are not code.
+1. **One family.** Every font is the system sans. No serif, no mono.
+2. **The draft is prose.** The draft and the editor's lens are set in the body role like any other text, whatever app the words are going to. Vim's motions are unchanged; the block cursor is as wide as the letter it covers.
 3. **On the scale.** Every size is 13, 16, 18 or 23. No text is below 13. A glyph used as a mark (the status dot) may be smaller, because it is not read.
 4. **Three weights by day.** Regular to read, medium for a name, semibold for what must be found first (a title, a key, a figure). Hierarchy never comes from a second face, italics or letter-spacing.
 5. **One step heavier at night,** for every role, and it follows the look when it changes, not only when a surface is built.
@@ -67,7 +67,7 @@ At night every role is one weight heavier: regular becomes medium, medium become
 
 ## Enforcement
 
-- A test reads every font the theme defines and fails on a serif, on mono outside the two code roles, on a size off the scale, or on a weight outside the three.
+- A test reads every font the theme defines and fails on a serif or a mono face, on a size off the scale, or on a weight outside the three.
 - A test builds surfaces in both looks and holds every label one weight heavier at night than by day, at the same size, including after the look changes while the surface is on screen.
 - A test fails on a changing number drawn without tabular figures (the countdown, the peek, counts).
 
@@ -78,6 +78,12 @@ At night every role is one weight heavier: regular becomes medium, medium become
 ## Status
 
 Not yet built. Main defines 24 fonts in three families: 8 in mono (`inputFont`, `stripInputFont`, `typedFont`, `readingMono`, `readingMonoAccent`, `metaMono`, `chipFont`, `KeyMark.peekFont`), 4 in serif (`voiceFont`, `settingsSentenceFont`, `coachVoiceFont`, `stubTitleFont`), and the rest in sans. Weights are the same by day and night, and the strip's field is 19 points, off the scale.
+
+### The draft without mono
+
+- **The block cursor** is a plate the width of the glyph under it, with the glyph cut out; past the end of a line it is the width of a space.
+- **Columns** stop lining up, which only blockwise visual mode notices: it still selects by character column, and its edge is ragged. Four lines of prose rarely need it.
+- **Counts and motions** (`3w`, `f,`, `ci"`) are unchanged: they act on characters and words.
 
 ## Prototype lessons
 

@@ -26,7 +26,7 @@ final class RenderGalleryTests: XCTestCase {
                 if let only, !name.contains(only) { continue }
                 do {
                     let (view, keep) = try shot.build(look)
-                    var rep = GalleryRender.bitmap(of: view)
+                    var rep = shot.bySiblings ? GalleryRender.bitmapBySiblings(of: view) : GalleryRender.bitmap(of: view)
                     if shot.trim { rep = GalleryRender.trimmed(rep) }
                     try GalleryRender.write(GalleryRender.onDesktop(rep, margin: shot.trim ? 0 : 8), name: name)
                     made.append((name + ".png", "\(shot.surface): \(shot.state) (\(look.name))", shot.surface))

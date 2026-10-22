@@ -62,6 +62,38 @@ enum GalleryRender {
         return rep
     }
 
+    /// A bitmap of a view drawn one child at a time, each with room for the
+    /// shadow it casts, laid over each other in order. A view whose children
+    /// each stand on their own glass is drawn whole by `cacheDisplay` with
+    /// only its last child in it; drawn singly, every child is there.
+    static func bitmapBySiblings(of view: NSView, scale: CGFloat = GalleryRender.scale,
+                                 room: CGFloat = 40) -> NSBitmapImageRep {
+        view.window?.contentView?.layoutSubtreeIfNeeded()
+        view.layoutSubtreeIfNeeded()
+        view.displayIfNeeded()
+        let size = view.bounds.size
+        let out = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int((size.width * scale).rounded()),
+                                   pixelsHigh: Int((size.height * scale).rounded()), bitsPerSample: 8,
+                                   samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                   colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        out.size = size
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: out)
+        for child in view.subviews where !child.isHidden {
+            let area = child.bounds.insetBy(dx: -room, dy: -room)
+            let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int((area.width * scale).rounded()),
+                                       pixelsHigh: Int((area.height * scale).rounded()), bitsPerSample: 8,
+                                       samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                       colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+            rep.size = area.size
+            child.cacheDisplay(in: area, to: rep)
+            rep.draw(in: child.frame.insetBy(dx: -room, dy: -room), from: .zero, operation: .sourceOver,
+                     fraction: 1, respectFlipped: false, hints: nil)
+        }
+        NSGraphicsContext.restoreGraphicsState()
+        return out
+    }
+
     /// The picture a person looks at: the bitmap on the neutral desktop.
     static func onDesktop(_ rep: NSBitmapImageRep, margin: CGFloat = 0) -> NSBitmapImageRep {
         let scale = CGFloat(rep.pixelsWide) / rep.size.width

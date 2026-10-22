@@ -13,6 +13,8 @@ struct GalleryShot {
     /// Cut away the transparent window around the surface (a panel handed a
     /// whole display), keeping its drawn shadow.
     var trim = false
+    /// Draw the surface's children one at a time (see `bitmapBySiblings`).
+    var bySiblings = false
     /// The view to capture, standing in a window the closure keeps alive
     /// through `keep`.
     let build: (GalleryLook) throws -> (view: NSView, keep: [AnyObject])

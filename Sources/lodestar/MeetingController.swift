@@ -615,7 +615,7 @@ final class MeetingController: NSObject {
         footer.addArrangedSubview(spacer)
         footer.addArrangedSubview(Keycaps.line([
             .init(["esc"], "Not now", action: { [weak self] in self?.notNowPressed() }),
-            .init(["⏎"], "Allow Calendar Access", action: { [weak self] in self?.allowPressed() }, lit: true),
+            .init(["⏎"], "Allow calendar access", action: { [weak self] in self?.allowPressed() }, lit: true),
         ]))
         footer.widthAnchor.constraint(equalToConstant: Self.primeWidth - 52).isActive = true
         stack.addArrangedSubview(footer)

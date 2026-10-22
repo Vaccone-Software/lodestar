@@ -598,7 +598,7 @@ public enum SettingsModel {
                 detail: "A finished selection is copied the moment its second end lands, and Escape after the first end copies that word",
                 isDefault: !config.selectCopyOnComplete, group: "Select"),
             gesture("commands", group: "Commands", detail: "The app's menu commands, by name"),
-            permission("Screen Recording", state: machine.screenRecording,
+            permission("Screen recording", state: machine.screenRecording,
                        detail: "Reading text in apps that do not share it, for select",
                        pane: "screen-recording", group: "Permission"),
         ], picture: "place-operate",
@@ -756,7 +756,7 @@ public enum SettingsModel {
                 detail: config.observationsHealth ? "Lodestar tells you when the record nears this. Health is never deleted on its own" : "Needs health",
                 isDefault: config.healthBytes == Retention.healthBytes,
                 dimmed: !config.observationsHealth, group: "Health"),
-            Row(title: "Exact Keyboard", path: "health.exact-keyboards",
+            Row(title: "Exact keyboard", path: "health.exact-keyboards",
                 control: .toggle(config.healthExactKeyboards),
                 detail: !config.observationsHealth ? "Needs health"
                     : config.healthExactKeyboards && machine.inputMonitoring != "Granted"

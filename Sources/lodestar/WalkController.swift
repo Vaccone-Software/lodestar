@@ -586,7 +586,7 @@ final class WalkController: NSObject {
                     self?.page = .welcome
                     self?.renderDoor()
                 }),
-                .init(["⏎"], prompted ? "Open System Settings" : "Allow Accessibility",
+                .init(["⏎"], prompted ? "Open System Settings" : "Allow accessibility",
                       action: { [weak self] in self?.grantAccess() }, lit: true),
             ]))
             if !administrator {

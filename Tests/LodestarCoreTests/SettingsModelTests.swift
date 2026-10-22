@@ -73,7 +73,7 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertTrue(place("Keep").rows.contains { $0.path == "app.units" }, "units read clips")
         XCTAssertTrue(place("Operate").rows.contains { $0.path == "scroll.speed" })
         XCTAssertTrue(place("Operate").rows.contains { $0.path == "gestures.scroll" })
-        XCTAssertTrue(place("Operate").rows.contains { $0.title == "Screen Recording" })
+        XCTAssertTrue(place("Operate").rows.contains { $0.title == "Screen recording" })
         XCTAssertTrue(place("General").rows.contains { $0.title == "Accessibility" })
         XCTAssertTrue(place("Keys").rows.contains { $0.path == "keys" })
         XCTAssertTrue(place("Keys").rows.contains { $0.path == "health.keyboards" })
@@ -161,14 +161,14 @@ final class SettingsModelTests: XCTestCase {
     func testPermissionsReadTheMachineAndOfferTheirPane() {
         var machine = SettingsModel.MachineState()
         machine.screenRecording = "Not asked yet"
-        let row = place("Operate", Config(), machine).rows.first { $0.title == "Screen Recording" }!
+        let row = place("Operate", Config(), machine).rows.first { $0.title == "Screen recording" }!
         XCTAssertTrue(row.path.isEmpty)
         guard case .readout(let state, _) = row.control else { return XCTFail("a readout") }
         XCTAssertEqual(state, "Not granted")
         XCTAssertEqual(row.action?.id, "open-screen-recording")
         XCTAssertTrue(place("Operate", Config(), machine).attention, "the overview marks it")
         machine.screenRecording = "Granted"
-        let granted = place("Operate", Config(), machine).rows.first { $0.title == "Screen Recording" }!
+        let granted = place("Operate", Config(), machine).rows.first { $0.title == "Screen recording" }!
         XCTAssertNil(granted.action)
     }
 

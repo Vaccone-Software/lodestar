@@ -288,7 +288,7 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
 
         switch phase {
         case .writing, .sending:
-            stack.addArrangedSubview(roomTitle("Send Feedback"))
+            stack.addArrangedSubview(roomTitle("Send feedback"))
             stack.addArrangedSubview(voice(
                 "What works, what does not, or what you wish it did. It goes straight to the person who makes Lodestar.",
                 width: text))

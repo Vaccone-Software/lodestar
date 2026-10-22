@@ -69,7 +69,7 @@ final class DesignDriftTests: XCTestCase {
     func testNoDynamicColourIsFixedOutsideItsAppearance() throws {
         let files = Self.swiftFiles(under: Self.appSources).filter { !$0.lastPathComponent.contains("Preview") }
         let hits = try offenders(
-            #"(labelColor|secondaryColor|readableAccent|secondaryLabelColor|tertiaryLabelColor|separatorColor|controlAccentColor|textColor)[^\n]*\.cgColor"#,
+            #"(BarTheme\.ink\b|secondaryColor|readableAccent|accentColor|textColor)[^\n]*\.cgColor"#,
             in: files)
         XCTAssertEqual(hits, [], "resolve it with Glass.resolved(_:in:) or draw it in a ToneView")
     }
@@ -152,6 +152,87 @@ final class DesignDriftTests: XCTestCase {
                        "the system-wide element comes from AX.systemWide()")
         XCTAssertEqual(try offenders(#"AXUIElementSetMessagingTimeout\(\s*(AX\.)?system"#, in: files), [],
                        "a timeout on the system-wide element is the process's")
+    }
+
+    // MARK: - One theme call (design/01-colour.md)
+
+    /// A file that is wholly a debug harness: it opens with `#if DEBUG` and
+    /// closes with the matching `#endif`, so a release build has none of it.
+    /// Previews stage a scene for the eye and may draw it in any colour.
+    private func isDebugOnly(_ text: String) -> Bool {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        return lines.first == "#if DEBUG" && lines.last == "#endif"
+    }
+
+    /// Files exempt from the colour rule, each for a reason that is its own:
+    /// the app icon's artwork is drawn in its own colours (and compiled
+    /// beside Mark.swift by make-icon.sh, which does not link the theme).
+    private static let colourExempt: Set<String> = ["AppIconArt.swift"]
+
+    /// What names a colour without going through the theme: a system
+    /// colour, a fixed colour, a literal in any form.
+    private static let colourPatterns: [(String, String)] = [
+        ("a system colour",
+         #"(?:\bNSColor|(?<![\w)\]?!]))\.(?:label|secondaryLabel|tertiaryLabel|quaternaryLabel|placeholderText|selectedText|selectedTextBackground|selectedContentBackground|unemphasizedSelectedContentBackground|unemphasizedSelectedText|controlAccent|control|controlText|disabledControlText|controlBackground|windowBackground|windowFrameText|textBackground|text|separator|grid|header|headerText|link|highlight|findHighlight|keyboardFocusIndicator|underPageBackground|selectedMenuItemText|selectedControl|selectedControlText|alternateSelectedControlText|scrubberTexturedBackground|shadow)Color\b"#),
+        ("a system tint", #"\.system(?:Red|Orange|Yellow|Green|Mint|Teal|Cyan|Blue|Indigo|Purple|Pink|Brown|Gray|Fill)\b"#),
+        ("white or black or a named colour",
+         #"(?:\bNSColor|\bCGColor|(?<![\w)\]?!]))\.(?:white|black|red|green|blue|orange|yellow|gray|grey|lightGray|darkGray|brown|purple|cyan|magenta)\b"#),
+        ("a grey or a colour spelled in numbers",
+         #"NSColor\(\s*(?:white|red|calibrated|deviceWhite|deviceRed|displayP3Red|hue)\w*:|(?:NSColor|CGColor)\(\s*(?:srgbRed|gray)\w*:\s*[0-9.]+"#),
+        ("a hex literal", #"0[xX][0-9A-Fa-f]{6}\b"#),
+        ("a material", #"NSVisualEffectView|NSGlassEffectView|\.material\s*="#),
+    ]
+
+    /// Every colour a surface draws comes from the theme: none names a
+    /// system colour, a literal, a pure white or black, or a material. Only
+    /// Glass.swift may build a colour, from the palette's steps, and may
+    /// name the glass material until the material contract replaces it.
+    func testNoSurfaceNamesAColourOrAMaterialOutsideTheTheme() throws {
+        var offenders: [String] = []
+        for file in Self.swiftFiles(under: Self.appSources) {
+            let name = file.lastPathComponent
+            let raw = try String(contentsOf: file, encoding: .utf8)
+            if Self.colourExempt.contains(name) || isDebugOnly(raw) { continue }
+            let text = Self.code(raw)
+            for (what, pattern) in Self.colourPatterns {
+                if what == "a material", name == "Glass.swift" { continue }
+                let regex = try NSRegularExpression(pattern: pattern)
+                for match in regex.matches(in: text, range: NSRange(location: 0, length: (text as NSString).length)) {
+                    offenders.append("\(name): \(what): \((text as NSString).substring(with: match.range))")
+                }
+            }
+        }
+        XCTAssertEqual(offenders, [], "take it from BarTheme (ink, secondaryColor, hairline, well, accent, …)")
+    }
+
+    /// The same drift test, shown to bite: each pattern catches what it names.
+    func testTheColourGuardCatchesWhatItNames() throws {
+        let samples = [
+            "label.textColor = .labelColor", "x = NSColor.controlAccentColor", "tint: .systemBlue",
+            "fill = .white", "stroke = NSColor.black", "NSColor(white: 0.5, alpha: 1)",
+            "NSColor(srgbRed: 1, green: 0.3, blue: 0, alpha: 1)", "CGColor(gray: 0, alpha: 1)",
+            "let c = 0xFA5617", "effect.material = .popover", "NSVisualEffectView()", "let glass = NSGlassEffectView()",
+        ]
+        for sample in samples {
+            let hit = try Self.colourPatterns.contains { _, pattern in
+                try NSRegularExpression(pattern: pattern)
+                    .firstMatch(in: sample, range: NSRange(location: 0, length: (sample as NSString).length)) != nil
+            }
+            XCTAssertTrue(hit, "the guard misses: \(sample)")
+        }
+        let allowed = [
+            "field.textColor = BarTheme.ink", "layer.shadowColor = BarTheme.shadow.cgColor",
+            "NSColor(srgbRed: red, green: green, blue: blue, alpha: 1)", "panel.backgroundColor = .clear",
+            "layer.borderColor = Glass.resolved(BarTheme.hairline, in: self)",
+        ]
+        for sample in allowed {
+            let hit = try Self.colourPatterns.contains { _, pattern in
+                try NSRegularExpression(pattern: pattern)
+                    .firstMatch(in: sample, range: NSRange(location: 0, length: (sample as NSString).length)) != nil
+            }
+            XCTAssertFalse(hit, "the guard flags what the theme does: \(sample)")
+        }
     }
 
     // MARK: - Objects in one light: the chrome's grammar
@@ -244,7 +325,7 @@ final class DesignDriftTests: XCTestCase {
         ]
         var offenders: [String] = []
         for (name, text) in try sources() where name != "Glass.swift" {
-            let count = text.components(separatedBy: "labelColor.withAlphaComponent(").count - 1
+            let count = text.components(separatedBy: "BarTheme.inkAt(").count - 1
             if count > notMatter[name, default: 0] { offenders.append(name) }
         }
         XCTAssertEqual(offenders, [], "use BarTheme.well or BarTheme.hairline")

@@ -58,7 +58,7 @@ enum GalleryFoundations {
         var y: CGFloat = 28
         let margin: CGFloat = 28
 
-        static var ink: NSColor { .labelColor }
+        static var ink: NSColor { BarTheme.ink }
 
         func text(_ string: String, at point: NSPoint, font: NSFont = BarTheme.secondaryFont,
                   color: NSColor = BarTheme.secondaryColor) {
@@ -143,64 +143,79 @@ enum GalleryFoundations {
 
     // MARK: - Colour
 
+    /// design/01-colour.md as a picture: every step of the look with its
+    /// hex and lightness, International Orange and the letter on it, what
+    /// the theme resolves in this look, and every pair of the measured
+    /// contrast table with its ratio and its floor. All of it is read from
+    /// Palette.swift and BarTheme, so the sheet is the code.
     static func colour(look: GalleryLook) -> (NSWindow, [AnyObject]) {
         sheet(look: look, width: 1040) { page, appearance in
-            let palette = BarTheme.palette
-            let pane = palette.pane
+            let steps = BarTheme.steps(for: appearance)
+            let night = steps == Palette.night
+            let other = night ? Palette.clay : Palette.night
+            let id = night ? "night" : "clay"
+            let pane = steps.pane
             func themed(_ color: NSColor, over background: Readability.RGB = pane) -> Readability.RGB {
                 resolved(color, over: background, in: appearance)
             }
-            let accent = themed(BarTheme.accent, over: pane)
-            let ink = themed(.labelColor)
-            let secondary = themed(BarTheme.secondaryColor)
             page.heading("Colour · \(look.name)",
-                         "Drawn from Palette.swift and BarTheme in the \(look.name) look. The look's pane is the sheet's own ground.")
+                         "\(night ? "Espresso" : "Clay") of design/01-colour.md, drawn from Palette.swift and BarTheme in the \(look.name) look. The look's pane is the sheet's own ground.")
 
-            page.heading("Palette steps", "Palette.night, Palette.clay: ground behind everything, pane a surface is made of, key a key's face.")
-            func steps(_ name: String, _ s: Palette.Steps) -> [(String, Readability.RGB, String?)] {
-                [("\(name) ground", s.ground, nil), ("\(name) pane", s.pane, nil), ("\(name) key", s.key, nil)]
-            }
-            page.swatches(steps("night", Palette.night) + steps("clay", Palette.clay), perRow: 3)
-            page.heading("The accent", "International Orange: one value per look.")
-            page.swatches([("orange, night", Palette.night.orange, "Palette.night.orange"),
-                           ("orange, clay", Palette.clay.orange, "Palette.clay.orange"),
-                           ("in force: accent", accent, "BarTheme.accent"),
-                           ("in force: on accent", themed(BarTheme.onAccent, over: accent), "BarTheme.onAccent")],
-                          perRow: 5)
+            page.heading("Steps", "Palette.\(id): ground, pane, key, side, ink, quiet ink, slab, slab side, and the hairline's share of the ink.")
+            page.swatches([
+                ("ground", steps.ground, "Palette.\(id).ground"), ("pane", steps.pane, "Palette.\(id).pane"),
+                ("key", steps.key, "Palette.\(id).key"), ("side", steps.side, "Palette.\(id).side"),
+                ("ink", steps.ink, "Palette.\(id).ink"), ("quiet ink", steps.quietInk, "Palette.\(id).quietInk"),
+                ("slab", steps.slab, "Palette.\(id).slab"), ("slab side", steps.slabSide, "Palette.\(id).slabSide"),
+                ("hairline", themed(BarTheme.hairline), "ink at \(Int((steps.hairlineAlpha * 100).rounded())) per cent"),
+            ], perRow: 5)
+
+            page.heading("International Orange", "One value per look. The letter on it is whichever of clay's key face and clay's ink measures higher.")
+            page.swatches([
+                ("orange", steps.orange, "Palette.\(id).orange"),
+                ("the other look's orange", other.orange, "on this look's slab"),
+                ("letter on the orange", steps.letterOnOrange, "Palette.\(id).letterOnOrange"),
+            ], perRow: 5)
 
             page.heading("In force in \(look.name)", "What the theme resolves in this look, laid over the pane when it is not opaque.")
             let keyFace = themed(BarTheme.keyFill)
-            let markFill = themed(BarTheme.markFill)
+            let accent = themed(BarTheme.accent)
             page.swatches([
-                ("ground (pane)", palette.pane, "BarTheme.ground"),
-                ("raised", themed(BarTheme.raised), "BarTheme.raised"),
-                ("key face", keyFace, "BarTheme.keyFill"),
-                ("key top edge", themed(BarTheme.keyTop, over: keyFace), "BarTheme.keyTop"),
-                ("key lip", themed(BarTheme.keyLip, over: pane), "BarTheme.keyLip"),
-                ("mark face", markFill, "BarTheme.markFill"),
-                ("lit key top", themed(BarTheme.litKeyTop, over: accent), "BarTheme.litKeyTop"),
-                ("lit key lip", themed(BarTheme.litKeyLip, over: accent), "BarTheme.litKeyLip"),
+                ("ink", themed(BarTheme.ink), "BarTheme.ink"),
+                ("quiet ink", themed(BarTheme.secondaryColor), "BarTheme.secondaryColor"),
+                ("hairline", themed(BarTheme.hairline), "BarTheme.hairline"),
                 ("well", themed(BarTheme.well), "ink at 5%"),
-                ("hairline", themed(BarTheme.hairline), "ink at 12%"),
-                ("ink", ink, "labelColor over pane"),
-                ("secondary ink", secondary, "BarTheme.secondaryColor"),
-                ("glass tint", themed(BarTheme.glassTint, over: pane), "BarTheme.glassTint"),
+                ("accent", accent, "BarTheme.accent"),
+                ("letter on the accent", themed(BarTheme.onAccent, over: accent), "BarTheme.onAccent"),
+                ("chosen row", themed(BarTheme.raised), "BarTheme.raised (the key step)"),
+                ("key face", keyFace, "BarTheme.keyFill"),
+                ("key side", themed(BarTheme.keyLip, over: pane), "BarTheme.keyLip"),
+                ("key letter", themed(BarTheme.keyLetter, over: keyFace), "BarTheme.keyLetter"),
+                ("key top edge", themed(BarTheme.keyTop, over: keyFace), "BarTheme.keyTop"),
+                ("lit key top edge", themed(BarTheme.litKeyTop, over: accent), "BarTheme.litKeyTop"),
+                ("lit key side", themed(BarTheme.litKeyLip, over: accent), "BarTheme.litKeyLip"),
+                ("mark face", themed(BarTheme.markFill), "BarTheme.markFill"),
+                ("shadow", themed(BarTheme.shadow), "BarTheme.shadow"),
+                ("glass tint", themed(BarTheme.glassTint), "BarTheme.glassTint (the glass stays until the material contract)"),
             ], perRow: 5)
 
-            page.heading("Text pairs", "Measured WCAG contrast, ratio : 1. Reading text is held to 4.5, a mark or a lit fill to 3.")
-            for (name, bg) in [("ground", palette.ground), ("pane", palette.pane), ("raised", themed(BarTheme.raised))] {
-                page.pair("ink on \(name)", foreground: themed(.labelColor, over: bg), background: bg, floor: 4.5)
+            page.heading("Measured contrast", "WCAG contrast, ratio : 1, each against the floor of its role: 7 for text read at length, 4.5 for other text, 3 for a fill that carries meaning.")
+            for (name, bg) in [("ground", steps.ground), ("pane", steps.pane), ("key", steps.key)] {
+                page.pair("ink on \(name)", foreground: steps.ink, background: bg, floor: 7)
             }
-            for (name, bg) in [("ground", palette.ground), ("pane", palette.pane), ("raised", themed(BarTheme.raised))] {
-                page.pair("secondary on \(name)", foreground: themed(BarTheme.secondaryColor, over: bg), background: bg, floor: 4.5)
+            for (name, bg) in [("ground", steps.ground), ("pane", steps.pane), ("key", steps.key)] {
+                page.pair("quiet ink on \(name)", foreground: steps.quietInk, background: bg, floor: 4.5)
             }
-            page.pair("accent on pane (as text)", foreground: accent, background: pane, floor: 4.5)
-            page.pair("accent on pane (as a mark)", foreground: accent, background: pane, floor: Readability.markFloor)
-            page.pair("ink on accent", foreground: themed(.labelColor, over: accent), background: accent, floor: 4.5)
-            page.pair("onAccent on accent (a lit key's letter)", foreground: themed(BarTheme.onAccent, over: accent),
-                      background: accent, floor: 4.5)
-            page.pair("key letter on key face", foreground: themed(BarTheme.keyLetter, over: keyFace), background: keyFace, floor: 4.5)
-            page.pair("mark letter on mark face", foreground: themed(BarTheme.markLetter, over: markFill), background: markFill, floor: 4.5)
+            page.pair("orange on pane (as text)", foreground: steps.orange, background: steps.pane, floor: 4.5)
+            page.pair("orange on key", foreground: steps.orange, background: steps.key, floor: 4.5)
+            page.pair("other look's ink on slab", foreground: other.ink, background: steps.slab, floor: 4.5)
+            page.pair("other look's quiet ink on slab", foreground: other.quietInk, background: steps.slab, floor: 4.5)
+            page.pair("orange on slab (as a fill)", foreground: other.orange, background: steps.slab, floor: 3)
+            page.pair("letter on orange", foreground: steps.letterOnOrange, background: steps.orange, floor: 4.5)
+            page.pair("theme: ink on pane", foreground: themed(BarTheme.ink), background: pane, floor: 7)
+            page.pair("theme: quiet ink on pane", foreground: themed(BarTheme.secondaryColor), background: pane, floor: 4.5)
+            page.pair("theme: letter on the accent", foreground: themed(BarTheme.onAccent, over: accent), background: accent, floor: 4.5)
+            page.pair("theme: key letter on key face", foreground: themed(BarTheme.keyLetter, over: keyFace), background: keyFace, floor: 7)
         }
     }
 

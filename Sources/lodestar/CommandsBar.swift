@@ -257,7 +257,7 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
     /// menus on purpose — a real harvest would photograph whatever app is
     /// frontmost on the machine taking the picture. The element is a dummy;
     /// a preview renders rows and never presses one.
-    static func preview(query: String) -> CommandsBarController {
+    static func preview(query: String, rows given: [Commands.Row]? = nil) -> CommandsBarController {
         let bar = CommandsBarController()
         let dummy = AXUIElementCreateApplication(ProcessInfo.processInfo.processIdentifier)
         func item(_ path: [String], _ shortcut: String? = nil) -> MenuItems.Item {
@@ -273,7 +273,7 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
             item(["Edit", "Copy"], "⌘C"),
             item(["Window", "Photo Browser"]),
         ]
-        bar.items = Commands.rows(menus: menus, app: "Notes")
+        bar.items = given ?? Commands.rows(menus: menus, app: "Notes")
         bar.field.stringValue = query
         bar.panel.makeKeyAndOrderFront(nil)
         bar.panel.orderFrontRegardless()

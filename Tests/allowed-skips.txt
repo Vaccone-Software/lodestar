@@ -19,6 +19,9 @@ any IntentPassLiveTests.*
 any MicBridgeLiveTests.*
 any QwenEarTests.testTokenizerFromTheFolderMatchesTransformers
 any WindowModelLiveTests.*
+# The render gallery draws every surface to PNGs for a person to look at:
+# scripts/render-gallery.sh sets LODESTAR_RENDER, and nothing else does.
+any RenderGalleryTests.*
 # Real windows moved off every display: needs Accessibility, which a hosted
 # runner never has. The desk has it and must run them.
 ci RealWindowActionsTests.*

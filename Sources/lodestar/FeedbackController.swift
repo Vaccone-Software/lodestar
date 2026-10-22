@@ -90,8 +90,8 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
         textView.isRichText = false
         textView.allowsUndo = true
         textView.font = .systemFont(ofSize: BarTheme.Scale.body)
-        textView.textColor = .labelColor
-        textView.insertionPointColor = .labelColor
+        textView.textColor = BarTheme.ink
+        textView.insertionPointColor = BarTheme.ink
         textView.drawsBackground = false
         textView.textContainerInset = NSSize(width: 8, height: 8)
         textView.isVerticallyResizable = true
@@ -302,7 +302,7 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
             attachRow.spacing = 10
             attachRow.addArrangedSubview(attach)
             attachRow.addArrangedSubview(label("Include a diagnostic report", size: BarTheme.Scale.body,
-                                               weight: .regular, color: .labelColor))
+                                               weight: .regular, color: BarTheme.ink))
             attachRow.addArrangedSubview(smallLink("See what it contains", action: #selector(seeReportPressed)))
             stack.addArrangedSubview(attachRow)
             stack.setCustomSpacing(4, after: attachRow)
@@ -311,7 +311,7 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
                 size: BarTheme.Scale.meta, color: BarTheme.secondaryColor, width: text))
             if let status {
                 stack.setCustomSpacing(14, after: stack.arrangedSubviews.last!)
-                stack.addArrangedSubview(wrapped(status, size: BarTheme.Scale.body, color: .labelColor, width: text))
+                stack.addArrangedSubview(wrapped(status, size: BarTheme.Scale.body, color: BarTheme.ink, width: text))
             }
             stack.setCustomSpacing(18, after: stack.arrangedSubviews.last!)
 
@@ -388,7 +388,7 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
     private func roomTitle(_ text: String) -> NSTextField {
         let field = NSTextField(labelWithString: text)
         field.font = BarTheme.roomTitleFont
-        field.textColor = .labelColor
+        field.textColor = BarTheme.ink
         return field
     }
 

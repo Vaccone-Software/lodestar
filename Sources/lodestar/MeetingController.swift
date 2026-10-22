@@ -461,7 +461,7 @@ final class MeetingController: NSObject {
             }
         }
         content.addSubview(stubView)
-        let ink: NSColor = stub.lit ? BarTheme.onAccent : .labelColor
+        let ink: NSColor = stub.lit ? BarTheme.onAccent : BarTheme.ink
         let number = NSTextField(labelWithString: stub.number)
         number.font = stub.unit == nil ? BarTheme.stubWordFont : BarTheme.stubCountFont
         number.textColor = ink
@@ -488,7 +488,7 @@ final class MeetingController: NSObject {
 
         let title = NSTextField(labelWithString: occurrence.title)
         title.font = BarTheme.stubTitleFont
-        title.textColor = .labelColor
+        title.textColor = BarTheme.ink
         title.lineBreakMode = .byTruncatingTail
         title.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         let detail = NSTextField(labelWithString: meta)
@@ -586,7 +586,7 @@ final class MeetingController: NSObject {
         // in its voice, set where a reader starts.
         let title = NSTextField(labelWithString: "Meetings")
         title.font = BarTheme.roomTitleFont
-        title.textColor = .labelColor
+        title.textColor = BarTheme.ink
         stack.addArrangedSubview(title)
         let body = NSTextField(wrappingLabelWithString:
             "Lodestar can offer your next meeting a few minutes before it "

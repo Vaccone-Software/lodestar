@@ -112,7 +112,7 @@ final class LinkChip {
             title.addArrangedSubview(view)
         }
         title.addArrangedSubview(label(destination, size: BarTheme.Scale.body, weight: .semibold,
-                                       color: .labelColor))
+                                       color: BarTheme.ink))
         stack.addArrangedSubview(title)
 
         stack.setCustomSpacing(9, after: stack.arrangedSubviews.last!)

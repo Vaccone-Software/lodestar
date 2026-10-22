@@ -291,11 +291,11 @@ final class ModePill {
             let image = NSImage(systemSymbolName: name, accessibilityDescription: state.mode.word)?
                 .withSymbolConfiguration(BarTheme.symbol)
             let view = NSImageView(image: image ?? NSImage())
-            view.contentTintColor = .labelColor
+            view.contentTintColor = BarTheme.ink
             view.setContentHuggingPriority(.required, for: .horizontal)
             return view
         case .modeWord(let word):
-            return Self.label(word, font: BarTheme.bodyFont, color: .labelColor)
+            return Self.label(word, font: BarTheme.bodyFont, color: BarTheme.ink)
         case .offer(let offer):
             // The pill's one light, when the offer is ⏎: the key, lit.
             return Keycaps.line([.init([offer.key], offer.words, lit: offer.lit, quiet: !offer.lit)])
@@ -315,7 +315,7 @@ final class ModePill {
         case .anchored(let word):
             // The word already taken, then a quiet dot before whatever
             // comes next: the far end's letters, or the caret waiting.
-            let label = Self.label(word, font: Self.textFont, color: .labelColor)
+            let label = Self.label(word, font: Self.textFont, color: BarTheme.ink)
             let dot = Self.label("·", font: BarTheme.bodyFont, color: BarTheme.secondaryColor)
             let pair = NSStackView(views: [label, dot])
             pair.orientation = .horizontal
@@ -327,7 +327,7 @@ final class ModePill {
             // The letters and their caret, and no more: a slot reserved
             // ahead of the typing left a gap before the icon that read as
             // something missing. The pill fits what has been said.
-            let label = Self.label(text, font: Self.textFont, color: .labelColor)
+            let label = Self.label(text, font: Self.textFont, color: BarTheme.ink)
             let slot = NSStackView(views: [label, Self.caret(alpha: 1)])
             slot.orientation = .horizontal
             slot.alignment = .centerY
@@ -351,7 +351,7 @@ final class ModePill {
     /// the band a text field, and the band must never look like a thing
     /// to click into.
     private static func caret(alpha: CGFloat) -> NSView {
-        let view = ToneView(fill: NSColor.labelColor.withAlphaComponent(alpha))
+        let view = ToneView(fill: BarTheme.inkAt(alpha))
         view.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             view.widthAnchor.constraint(equalToConstant: 1.5),

@@ -514,12 +514,12 @@ final class ClipboardStrip {
         let lead = start > 0 ? "…" : ""
         let shift = (lead as NSString).length - start
         let out = NSMutableAttributedString(string: lead + line.substring(from: start), attributes: [
-            .font: face, .foregroundColor: wholeLine ? NSColor.labelColor : BarTheme.secondaryColor,
+            .font: face, .foregroundColor: wholeLine ? BarTheme.ink : BarTheme.secondaryColor,
         ])
         if !wholeLine {
             let token = NSIntersectionRange(match.token, NSRange(location: start, length: line.length - start))
             if token.length > 0 {
-                out.addAttributes([.foregroundColor: NSColor.labelColor,
+                out.addAttributes([.foregroundColor: BarTheme.ink,
                                    .font: NSFontManager.shared.convert(face, toHaveTrait: .boldFontMask)],
                                   range: NSRange(location: token.location + shift, length: token.length))
             }
@@ -663,7 +663,7 @@ final class ClipboardStrip {
             shownReadings[clip.id] = reading
             let label = NSTextField(wrappingLabelWithString: reading)
             label.font = BarTheme.voiceFont
-            label.textColor = .labelColor
+            label.textColor = BarTheme.ink
             label.maximumNumberOfLines = 3
             label.cell?.truncatesLastVisibleLine = true
             label.frame = body
@@ -876,7 +876,7 @@ final class ClipboardStrip {
                         ? Clipboard.moreLine(count - (Clipboard.fileCardNames - 1), short: true) : line.text
                     let label = NSTextField(labelWithString: text)
                     label.font = BarTheme.secondaryFont
-                    label.textColor = line.grey ? BarTheme.secondaryColor : .labelColor
+                    label.textColor = line.grey ? BarTheme.secondaryColor : BarTheme.ink
                     label.lineBreakMode = .byTruncatingTail
                     label.sizeToFit()
                     top -= 16
@@ -899,7 +899,7 @@ final class ClipboardStrip {
                 var top = frame.maxY
                 let title = NSTextField(wrappingLabelWithString: facts.first?.name ?? names.first ?? "")
                 title.font = BarTheme.fileNameFont
-                title.textColor = .labelColor
+                title.textColor = BarTheme.ink
                 title.lineBreakMode = .byWordWrapping
                 title.maximumNumberOfLines = 2
                 title.cell?.truncatesLastVisibleLine = true
@@ -969,7 +969,7 @@ final class ClipboardStrip {
         shownNames[slot] = name
         let title = NSTextField(labelWithString: name)
         title.font = BarTheme.rowLabelFont
-        title.textColor = .labelColor
+        title.textColor = BarTheme.ink
         title.lineBreakMode = .byTruncatingTail
         title.sizeToFit()
         let room = width - leading - Self.pad
@@ -982,7 +982,7 @@ final class ClipboardStrip {
                 let mark = NSView(frame: title.frame.insetBy(dx: -2, dy: 0))
                 mark.wantsLayer = true
                 mark.layer?.cornerRadius = BarTheme.markRadius
-                mark.layer?.backgroundColor = Glass.resolved(NSColor.labelColor.withAlphaComponent(0.14), in: card)
+                mark.layer?.backgroundColor = Glass.resolved(BarTheme.inkAt(0.14), in: card)
                 card.addSubview(mark)
             }
             card.addSubview(title)
@@ -1002,7 +1002,7 @@ final class ClipboardStrip {
             shownReadings[clip.id] = reading
             let label = NSTextField(wrappingLabelWithString: reading)
             label.font = BarTheme.voiceFont
-            label.textColor = .labelColor
+            label.textColor = BarTheme.ink
             label.maximumNumberOfLines = 2
             label.cell?.truncatesLastVisibleLine = true
             label.frame = body
@@ -1275,7 +1275,7 @@ final class ClipboardStrip {
         let chipKey = Self.placedCap("⇥", at: .zero)
         let name = NSTextField(labelWithString: source ?? "All apps")
         name.font = BarTheme.secondaryFont
-        name.textColor = source == nil ? BarTheme.secondaryColor : .labelColor
+        name.textColor = source == nil ? BarTheme.secondaryColor : BarTheme.ink
         name.sizeToFit()
         shownSource = name.stringValue
         name.frame.origin = NSPoint(x: frame.width - Self.pad - name.frame.width,
@@ -1302,7 +1302,7 @@ final class ClipboardStrip {
         let field = query.isEmpty
             ? NSTextField(labelWithAttributedString: BarTheme.placeholder(placeholder, like: font))
             : NSTextField(labelWithString: query)
-        if !query.isEmpty { field.font = font; field.textColor = .labelColor }
+        if !query.isEmpty { field.font = font; field.textColor = BarTheme.ink }
         field.lineBreakMode = .byTruncatingHead
         field.sizeToFit()
         field.frame = NSRect(x: x, y: (height - field.frame.height) / 2,
@@ -1339,7 +1339,7 @@ final class ClipboardStrip {
         let typed = menu.typed.isEmpty
             ? NSTextField(labelWithAttributedString: BarTheme.placeholder("Search apps", like: BarTheme.bodyFont))
             : NSTextField(labelWithString: menu.typed)
-        if !menu.typed.isEmpty { typed.font = BarTheme.bodyFont; typed.textColor = .labelColor }
+        if !menu.typed.isEmpty { typed.font = BarTheme.bodyFont; typed.textColor = BarTheme.ink }
         typed.sizeToFit()
         let fieldY = top - fieldHeight
         typed.frame.origin = NSPoint(x: 16, y: fieldY + (fieldHeight - typed.frame.height) / 2)
@@ -1359,7 +1359,7 @@ final class ClipboardStrip {
             line.applyRaised(index == menu.selection)
             let name = NSTextField(labelWithString: row.name)
             name.font = BarTheme.bodyFont
-            name.textColor = .labelColor
+            name.textColor = BarTheme.ink
             name.lineBreakMode = .byTruncatingTail
             name.sizeToFit()
             let count = NSTextField(labelWithString: "\(row.count)")
@@ -1462,7 +1462,7 @@ final class ClipboardStrip {
             let bottom = top - Self.actionRow
             // What cannot be undone is told by its place, under the rule
             // at the menu's foot, never painted: one light, no alarm colour.
-            let tint: NSColor = .labelColor
+            let tint: NSColor = BarTheme.ink
             let icon = NSImageView(image: NSImage(
                 systemSymbolName: action.symbol, accessibilityDescription: nil)?
                 .withSymbolConfiguration(BarTheme.symbol) ?? NSImage())
@@ -1523,7 +1523,7 @@ final class ClipboardStrip {
         let font = BarTheme.stripInputFont
         let field = NSTextField(labelWithString: name.isEmpty ? offered : name)
         field.font = font
-        field.textColor = name.isEmpty ? BarTheme.secondaryColor : .labelColor
+        field.textColor = name.isEmpty ? BarTheme.secondaryColor : BarTheme.ink
         field.lineBreakMode = .byTruncatingHead
         field.sizeToFit()
         let room = place.frame.minX - 44 - 20

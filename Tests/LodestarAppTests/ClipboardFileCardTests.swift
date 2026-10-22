@@ -130,7 +130,7 @@ final class ClipboardFileCardLayoutTests: XCTestCase {
         let more = texts(in: card).first { $0.stringValue == "and 5 more" }
         XCTAssertEqual(more?.textColor, BarTheme.secondaryColor, "the count is grey")
         XCTAssertEqual(texts(in: card).first { $0.stringValue == "Report.pdf" }?.textColor,
-                       NSColor.labelColor, "and the names are the label colour")
+                       BarTheme.ink, "and the names are the ink")
     }
 
     func testOneFileStandsLargeWithItsNameFolderAndDetail() {

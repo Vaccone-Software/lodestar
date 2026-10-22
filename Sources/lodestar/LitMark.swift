@@ -58,15 +58,16 @@ final class LitMark: NSView {
 
     /// The faces still to light: a warm stone, darker at night, so the
     /// unlit star reads as the same object waiting rather than a hole.
+    /// Made of the look's own steps: at night the quiet ink most of the way
+    /// down to the pane, by day the key's side a little toward the quiet ink.
     static var stone: Mark.RGB {
-        Tone.systemDark ? Mark.RGB(hex: 0x6E655E) : Mark.RGB(hex: 0xB9AEA4)
+        let look = BarTheme.palette
+        return Tone.systemDark
+            ? BarTheme.mark(look.quietInk).mixed(with: BarTheme.mark(look.pane), 0.42)
+            : BarTheme.mark(look.side).mixed(with: BarTheme.mark(look.quietInk), 0.30)
     }
 
-    static var accent: Mark.RGB {
-        let accent = BarTheme.accent.usingColorSpace(.sRGB) ?? .orange
-        return Mark.RGB(red: Double(accent.redComponent), green: Double(accent.greenComponent),
-                        blue: Double(accent.blueComponent))
-    }
+    static var accent: Mark.RGB { BarTheme.accentMark }
 
     override func draw(_ dirtyRect: NSRect) {
         let count = Self.litCount(lit)

@@ -37,7 +37,7 @@ enum CoachCard {
 
         let voice = NSTextField(wrappingLabelWithString: offer.sentence)
         voice.font = BarTheme.coachVoiceFont
-        voice.textColor = .labelColor
+        voice.textColor = BarTheme.ink
         voice.preferredMaxLayoutWidth = maxWidth - textInset * 2
         voice.translatesAutoresizingMaskIntoConstraints = false
         card.addSubview(voice)
@@ -65,7 +65,7 @@ enum CoachCard {
         if !offer.icons.isEmpty { line.addArrangedSubview(icons) }
         let name = NSTextField(labelWithString: offer.name)
         name.font = BarTheme.rowLabelFont
-        name.textColor = .labelColor
+        name.textColor = BarTheme.ink
         name.lineBreakMode = .byTruncatingTail
         name.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         line.addArrangedSubview(name)

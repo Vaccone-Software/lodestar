@@ -543,6 +543,11 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
 
     // MARK: - Field focus
 
+    func controlTextDidBeginEditing(_ notification: Notification) {
+        // A field's editor draws its caret and its selection in the system's colours.
+        if let field = notification.object as? NSTextField { BarTheme.lightCaret(of: field) }
+    }
+
     func controlTextDidChange(_ notification: Notification) {
         guard layer == .searching, let field = searchField,
               (notification.object as? NSTextField) === field else { return }
@@ -993,6 +998,16 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             layer?.borderWidth = 1
             menu?.delegate = self
             tint()
+            ink()
+        }
+
+        /// The popup draws its chosen title in the system's control text
+        /// colour; each item names its own, in the ink and the popup's font.
+        private func ink() {
+            for item in itemArray where !item.isSeparatorItem {
+                item.attributedTitle = NSAttributedString(string: item.title, attributes: [
+                    .font: font ?? BarTheme.secondaryFont, .foregroundColor: BarTheme.ink])
+            }
         }
 
         override func viewDidChangeEffectiveAppearance() {
@@ -1036,7 +1051,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         let center = NSPoint(x: width / 2, y: height / 2 - 8)
         let rx: CGFloat = 372, ry: CGFloat = 232
 
-        let ring = ToneView(edge: NSColor.labelColor.withAlphaComponent(Tone.systemDark ? 0.06 : 0.11), edgeWidth: 1, radius: ry)
+        let ring = ToneView(edge: BarTheme.inkAt(Tone.systemDark ? 0.06 : 0.11), edgeWidth: 1, radius: ry)
         ring.frame = NSRect(x: center.x - rx, y: center.y - ry, width: rx * 2, height: ry * 2)
         field.addSubview(ring)
 
@@ -1062,7 +1077,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             placeViews.append(tile)
         }
 
-        let title = label("Settings", size: BarTheme.Scale.title, weight: .semibold, color: .labelColor)
+        let title = label("Settings", size: BarTheme.Scale.title, weight: .semibold, color: BarTheme.ink)
         title.frame = NSRect(x: 0, y: 0, width: 200, height: 24)
         field.addSubview(title)
         // The room's ways are its keys, drawn as every footer draws them.
@@ -1096,7 +1111,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         head.alignment = .centerY
         head.spacing = 8
         head.addArrangedSubview(keycap(SettingsModel.paneKey(index, count: sections.count) ?? ""))
-        head.addArrangedSubview(label(section.name, size: BarTheme.Scale.body, weight: .medium, color: .labelColor))
+        head.addArrangedSubview(label(section.name, size: BarTheme.Scale.body, weight: .medium, color: BarTheme.ink))
         if section.attention { head.addArrangedSubview(Self.dot()) }
         tile.addArrangedSubview(head)
         tile.addArrangedSubview(label(section.status, size: BarTheme.Scale.meta, weight: .regular,
@@ -1210,7 +1225,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         let height = Self.height - 50, soft: CGFloat = 28
         fade.frame = CGRect(x: 0, y: 0, width: cardWidth + 18, height: height)
         // The scroll view's layer is flipped: location 0 is the top.
-        fade.colors = [NSColor.black.cgColor, NSColor.black.cgColor, NSColor.clear.cgColor]
+        // A mask: only its alpha is read.
+        fade.colors = [BarTheme.lightest.cgColor, BarTheme.lightest.cgColor, NSColor.clear.cgColor]
         fade.locations = [0, NSNumber(value: Double(1 - soft / height)), 1]
         scroll.layer?.mask = fade
         paneScroll = scroll
@@ -1266,12 +1282,12 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         }
         column.addArrangedSubview(card)
         column.setCustomSpacing(20, after: card)
-        let name = label(section.name, size: BarTheme.Scale.title, weight: .semibold, color: .labelColor)
+        let name = label(section.name, size: BarTheme.Scale.title, weight: .semibold, color: BarTheme.ink)
         column.addArrangedSubview(name)
         column.setCustomSpacing(8, after: name)
         let sentence = NSTextField(wrappingLabelWithString: section.sentence)
         sentence.font = BarTheme.settingsSentenceFont
-        sentence.textColor = .labelColor
+        sentence.textColor = BarTheme.ink
         sentence.isSelectable = false
         sentence.preferredMaxLayoutWidth = Self.leftColumn
         column.addArrangedSubview(sentence)
@@ -1311,14 +1327,14 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         titleRow.orientation = .horizontal
         titleRow.alignment = .centerY
         titleRow.spacing = 7
-        titleRow.addArrangedSubview(label(row.title, size: BarTheme.Scale.body, weight: .medium, color: .labelColor))
+        titleRow.addArrangedSubview(label(row.title, size: BarTheme.Scale.body, weight: .medium, color: BarTheme.ink))
         for cap in row.keycaps { titleRow.addArrangedSubview(keycap(cap)) }
         text.addArrangedSubview(titleRow)
         let armed = armedAction == index
         if let detail = armed ? row.action?.confirm : row.detail, !detail.isEmpty {
             let wrapped = NSTextField(wrappingLabelWithString: detail)
             wrapped.font = BarTheme.secondaryFont
-            wrapped.textColor = armed ? .labelColor : BarTheme.secondaryColor
+            wrapped.textColor = armed ? BarTheme.ink : BarTheme.secondaryColor
             wrapped.isSelectable = false
             wrapped.preferredMaxLayoutWidth = width - 230
             text.addArrangedSubview(wrapped)
@@ -1326,13 +1342,13 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         if let problem = row.problem {
             let flagged = NSTextField(wrappingLabelWithString: problem)
             flagged.font = BarTheme.secondaryFont
-            flagged.textColor = .labelColor
+            flagged.textColor = BarTheme.ink
             flagged.isSelectable = false
             flagged.preferredMaxLayoutWidth = width - 250
             let mark = NSImageView(image: NSImage(systemSymbolName: "exclamationmark.triangle",
                                                   accessibilityDescription: "Problem") ?? NSImage())
             mark.symbolConfiguration = BarTheme.symbol
-            mark.contentTintColor = .labelColor
+            mark.contentTintColor = BarTheme.ink
             let flaggedRow = NSStackView(views: [mark, flagged])
             flaggedRow.orientation = .horizontal
             flaggedRow.alignment = .firstBaseline
@@ -1530,7 +1546,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                 row.addArrangedSubview(icon)
                 row.setCustomSpacing(8, after: icon)
             }
-            let name = label(display, size: BarTheme.Scale.meta, weight: .regular, color: .labelColor)
+            let name = label(display, size: BarTheme.Scale.meta, weight: .regular, color: BarTheme.ink)
             row.addArrangedSubview(name)
             var subLabel: NSTextField?
             if let sub {
@@ -1864,6 +1880,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         let field = NSTextField()
         field.setPlaceholder(ask == nil ? "Search every setting" : "Search, or ask in your own words")
         field.font = BarTheme.handFont(BarTheme.Scale.title)
+        field.textColor = BarTheme.ink
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
@@ -1919,7 +1936,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                 cap.lit = selected
                 row.addArrangedSubview(cap)
             }
-            row.addArrangedSubview(label(hit.title, size: BarTheme.Scale.body, weight: .medium, color: .labelColor))
+            row.addArrangedSubview(label(hit.title, size: BarTheme.Scale.body, weight: .medium, color: BarTheme.ink))
             row.addArrangedSubview(label(hit.sectionName, size: BarTheme.Scale.meta, weight: .regular,
                                          color: BarTheme.secondaryColor))
             row.addArrangedSubview(spacer())
@@ -1996,9 +2013,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     /// The mark in the accent, its faces shaded the way the icon
     /// is, from the one definition everything draws the mark from.
     static func markImage(size: CGFloat) -> NSImage {
-        let accent = BarTheme.accent.usingColorSpace(.sRGB) ?? .orange
-        let rgb = Mark.RGB(red: Double(accent.redComponent), green: Double(accent.greenComponent),
-                           blue: Double(accent.blueComponent))
+        let rgb = BarTheme.accentMark
         return NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
             let radius = rect.width / 2 * 0.96
             let center = NSPoint(x: rect.midX, y: rect.midY)
@@ -2059,7 +2074,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     }
 
     static func dot() -> NSView {
-        let dot = ToneView(fill: .labelColor, radius: BarTheme.dotRadius)
+        let dot = ToneView(fill: BarTheme.ink, radius: BarTheme.dotRadius)
         dot.translatesAutoresizingMaskIntoConstraints = false
         dot.widthAnchor.constraint(equalToConstant: BarTheme.dotDiameter).isActive = true
         dot.heightAnchor.constraint(equalToConstant: BarTheme.dotDiameter).isActive = true
@@ -2071,6 +2086,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     private func editableField(_ value: String, width: CGFloat) -> NSTextField {
         let field = NSTextField(string: value)
         field.font = BarTheme.handFont(BarTheme.Scale.meta)
+        field.textColor = BarTheme.ink
         field.delegate = self
         // No target/action on purpose: an action fires on *every* end of
         // editing, so a re-render or a tab committed half-typed values.
@@ -2296,9 +2312,9 @@ final class MarkPool: NSView {
     private func restyle() {
         glow.frame = bounds
         glow.isHidden = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        let light = BarTheme.accent.usingColorSpace(.sRGB) ?? .orange
+        let light = BarTheme.accent
         // Warmer and paler as it spreads, as the fixed pool was.
-        let spread = light.blended(withFraction: 0.18, of: .white) ?? light
+        let spread = light.blended(withFraction: 0.18, of: BarTheme.lightest) ?? light
         glow.colors = [light.withAlphaComponent(0.13).cgColor,
                        spread.withAlphaComponent(0.05).cgColor,
                        spread.withAlphaComponent(0).cgColor]

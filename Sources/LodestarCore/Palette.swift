@@ -71,6 +71,17 @@ public enum Palette {
         return onFace >= onInk ? face : ink
     }
 
+    /// What the glass is tinted toward in a look: the look's pane (the warm
+    /// family, never a neutral grey) at the lightness the tint has always
+    /// had, which is the measured number: a neutral 0.25 at night, 0.92 by
+    /// day, tuned so the panel lands on its ground (Glass.swift). Only the
+    /// hue and the little chroma change; the lightness is what was measured,
+    /// and the material goes when the material contract replaces it.
+    public static func glassTint(of look: Steps, night: Bool) -> Readability.RGB {
+        let grey = night ? 0.25 : 0.92
+        return look.pane.with(lightness: Readability.RGB(red: grey, green: grey, blue: grey).lightness)
+    }
+
     static func rgb(_ hex: Int) -> Readability.RGB {
         Readability.RGB(red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255,
                         blue: Double(hex & 0xFF) / 255)

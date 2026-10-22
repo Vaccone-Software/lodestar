@@ -154,6 +154,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         field.drawsBackground = false
         field.focusRingType = .none
         field.font = BarTheme.inputFont
+        field.textColor = BarTheme.ink
         field.setPlaceholder("Where to?")
         field.delegate = self
         field.translatesAutoresizingMaskIntoConstraints = false
@@ -905,6 +906,7 @@ private final class SearcherRowView: RaisedRow {
         ])
 
         name.font = BarTheme.titleFont
+        name.textColor = BarTheme.ink
         name.lineBreakMode = .byTruncatingTail
         name.setContentHuggingPriority(.defaultLow, for: .horizontal)
         name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -990,7 +992,7 @@ private final class SearcherRowView: RaisedRow {
     /// ones that reach this target without the launcher.
     private func restyle() {
         applyRaised(selectedState)
-        name.textColor = .labelColor
+        name.textColor = BarTheme.ink
         for key in keys { key.lit = selectedState }
         enter.isHidden = !selectedState
         // Running is a state, not where the hand goes: a quiet dot, the same

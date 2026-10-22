@@ -106,6 +106,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         field.drawsBackground = false
         field.focusRingType = .none
         field.font = BarTheme.inputFont
+        field.textColor = BarTheme.ink
         field.setPlaceholder("Where on the web?")
         field.delegate = self
         field.translatesAutoresizingMaskIntoConstraints = false
@@ -619,7 +620,7 @@ private final class WebRowView: RaisedRow {
             let paragraph = NSMutableParagraphStyle()
             paragraph.lineBreakMode = .byTruncatingTail
             let text = NSMutableAttributedString(string: row.title, attributes: [
-                .foregroundColor: NSColor.labelColor, .font: BarTheme.titleFont, .paragraphStyle: paragraph])
+                .foregroundColor: BarTheme.ink, .font: BarTheme.titleFont, .paragraphStyle: paragraph])
             if row.kind == .link, let name = row.name, row.title.hasPrefix(name) {
                 let rest = NSRange(location: (name as NSString).length,
                                    length: (row.title as NSString).length - (name as NSString).length)

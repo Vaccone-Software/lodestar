@@ -129,7 +129,7 @@ final class InputMenuRow: RaisedRow {
         setupRaised()
         label.stringValue = choice.title
         label.font = BarTheme.rowLabelFont
-        label.textColor = .labelColor
+        label.textColor = BarTheme.ink
         label.lineBreakMode = .byTruncatingTail
         dot.wantsLayer = true
         dot.layer?.cornerRadius = BarTheme.dotRadius
@@ -245,7 +245,7 @@ final class InputButton: NSView {
     }
 
     private func lit(_ on: Bool) {
-        label.textColor = on ? .labelColor : BarTheme.secondaryColor
+        label.textColor = on ? BarTheme.ink : BarTheme.secondaryColor
         chevron.contentTintColor = label.textColor
     }
 

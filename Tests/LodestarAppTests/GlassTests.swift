@@ -127,7 +127,7 @@ final class AccessibilitySettingsTests: XCTestCase {
         XCTAssertLessThan(try veilAlpha(reduce: false), Glass.opaque, "and the frost is back when it is off")
     }
 
-    func testIncreaseContrastSetsCaptionsInTheLabelColour() {
+    func testIncreaseContrastSetsCaptionsInTheInk() {
         // The grey resolves when drawn, so it is compared as drawn: in the
         // app's appearance, in sRGB.
         func drawn(_ color: NSColor) -> NSColor {
@@ -138,23 +138,20 @@ final class AccessibilitySettingsTests: XCTestCase {
             return out
         }
         Accessibility.increaseContrast = { true }
-        XCTAssertEqual(drawn(BarTheme.secondaryColor), drawn(.labelColor))
+        XCTAssertEqual(drawn(BarTheme.secondaryColor), drawn(BarTheme.ink))
         Accessibility.increaseContrast = { false }
-        XCTAssertNotEqual(drawn(BarTheme.secondaryColor), drawn(.labelColor))
-        if Tone.systemDark { XCTAssertEqual(drawn(BarTheme.secondaryColor), drawn(.secondaryLabelColor)) }
+        XCTAssertNotEqual(drawn(BarTheme.secondaryColor), drawn(BarTheme.ink))
+        XCTAssertEqual(drawn(BarTheme.secondaryColor), BarTheme.palette.quietInk.color.usingColorSpace(.sRGB),
+                       "otherwise the look's quiet ink")
     }
 
-    func testAnAccentOnItsGroundFallsBackToTheLabelColour() {
+    func testAnAccentOnItsGroundFallsBackToTheInk() {
         BarTheme.accentColor = { BarTheme.ground }
-        XCTAssertEqual(BarTheme.readableAccent, .labelColor, "no contrast at all")
-        BarTheme.accentColor = { .systemOrange }
-        if Tone.systemDark {
-            XCTAssertEqual(BarTheme.readableAccent, .systemOrange, "orange clears charcoal")
-        } else {
-            XCTAssertEqual(BarTheme.readableAccent, .labelColor, "orange does not clear paper")
-        }
-        BarTheme.accentColor = { Tone.systemDark ? .white : .black }
-        XCTAssertNotEqual(BarTheme.readableAccent, .labelColor, "a strong accent is kept as chosen")
+        XCTAssertEqual(BarTheme.readableAccent, BarTheme.ink, "no contrast at all")
+        BarTheme.accentColor = { BarTheme.internationalOrange }
+        XCTAssertEqual(BarTheme.readableAccent, BarTheme.internationalOrange, "each look's orange clears its own ground")
+        BarTheme.accentColor = { BarTheme.palette.ink.color }
+        XCTAssertNotEqual(BarTheme.readableAccent, BarTheme.ink, "a strong accent is kept as chosen")
     }
 
     func testTheInsertBarWearsTheReadableAccent() {
@@ -163,7 +160,7 @@ final class AccessibilitySettingsTests: XCTestCase {
         defer { panel.hide() }
         panel.show(DraftView(buffer: Draft.Buffer(text: "x", cursor: 0), mode: .insert, editor: .insert,
                              speech: nil, destination: ("Notes", nil), replacing: false))
-        XCTAssertEqual(panel.caretColor?.usingColorSpace(.sRGB), NSColor.labelColor.usingColorSpace(.sRGB),
+        XCTAssertEqual(panel.caretColor?.usingColorSpace(.sRGB), BarTheme.ink.usingColorSpace(.sRGB),
                        "a bar the eye could not find is drawn in the text's colour instead")
     }
 
@@ -275,28 +272,30 @@ final class OnAccentTests: XCTestCase {
     func testInternationalOrangeOnCharcoalTakesInkNotWhite() {
         let orange = Palette.night.orange.color
         BarTheme.accentColor = { orange }
-        XCTAssertNotEqual(BarTheme.onAccent, .white, "white on this orange is 3.3 to 1")
+        XCTAssertEqual(BarTheme.onAccent, Palette.clay.ink.color, "white on this orange is 3.3 to 1; the ink is 5.36")
         XCTAssertGreaterThanOrEqual(contrast(BarTheme.onAccent, on: orange), 4.5, "reading text on a fill")
     }
 
-    /// On clay the orange is the same hue deepened until it reads as text
-    /// on the pane (4.65 to 1), one accent for every use; deep enough that
-    /// a lit key's letter is white (5.3 to 1). A deep blue takes white too.
-    func testTheClayOrangeReadsAsTextAndTakesWhite() {
+    /// On clay the orange is deep enough to read as text on the pane (4.65
+    /// to 1), one accent for every use, and a lit key's letter is clay's
+    /// key face (5.01 to 1), not white. A deep blue takes the key face too.
+    func testTheClayOrangeReadsAsTextAndTakesTheKeyFace() {
         let deep = Palette.clay.orange.color
         BarTheme.accentColor = { deep }
         XCTAssertGreaterThanOrEqual(contrast(deep, on: Palette.clay.pane.color), 4.5, "the accent reads as text on clay")
-        XCTAssertEqual(BarTheme.onAccent, .white)
+        XCTAssertEqual(BarTheme.onAccent, Palette.clay.key.color)
         XCTAssertGreaterThanOrEqual(contrast(BarTheme.onAccent, on: deep), 4.5)
         BarTheme.accentColor = { NSColor(srgbRed: 0.0, green: 0.3, blue: 0.8, alpha: 1) }
-        XCTAssertEqual(BarTheme.onAccent, .white)
+        XCTAssertEqual(BarTheme.onAccent, Palette.clay.key.color)
     }
 
     func testWhicheverReadsBetterWins() {
+        let candidates = [Palette.clay.key.color, Palette.clay.ink.color]
         for fill in [NSColor.systemPurple, .systemGreen, .systemYellow, .systemBlue, .systemRed] {
             BarTheme.accentColor = { fill }
+            XCTAssertTrue(candidates.contains(BarTheme.onAccent), "only clay's key face or clay's ink, never white or black")
             let chosen = contrast(BarTheme.onAccent, on: fill)
-            let other = contrast(BarTheme.onAccent == .white ? NSColor(white: 0.08, alpha: 1) : .white, on: fill)
+            let other = contrast(BarTheme.onAccent == candidates[0] ? candidates[1] : candidates[0], on: fill)
             XCTAssertGreaterThanOrEqual(chosen, other, "\(fill)")
         }
     }
@@ -433,8 +432,8 @@ final class KeyFaceTests: XCTestCase {
             return out
         }
         let light = resolved(.aqua), dark = resolved(.darkAqua)
-        XCTAssertLessThan(light.redComponent, 0.2, "dark ink on paper")
-        XCTAssertGreaterThan(dark.redComponent, 0.8, "light ink on charcoal")
+        XCTAssertEqual(light, Palette.clay.quietInk.color.usingColorSpace(.sRGB), "clay's quiet ink on clay")
+        XCTAssertEqual(dark, Palette.night.quietInk.color.usingColorSpace(.sRGB), "espresso's on espresso")
     }
 
     /// Every surface with the drawn shadow is gated by construction: the

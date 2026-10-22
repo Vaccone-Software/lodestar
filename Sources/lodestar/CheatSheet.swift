@@ -121,7 +121,7 @@ final class CheatSheet {
         text.font = BarTheme.rowLabelFont
         // A dormant gesture draws quiet, cap and all: the eye reads the
         // sheet for what it uses, and a row it never uses recedes.
-        text.textColor = row.dimmed ? BarTheme.secondaryColor : .labelColor
+        text.textColor = row.dimmed ? BarTheme.secondaryColor : BarTheme.ink
         // Quiet the way every quiet key is: lying flat.
         chip.quiet = row.dimmed
         text.lineBreakMode = .byTruncatingTail

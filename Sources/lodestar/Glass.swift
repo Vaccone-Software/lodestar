@@ -25,7 +25,7 @@ extension Glass {
     /// it is made, in whatever look is current then, so it has to be made in
     /// the right one.
     static func resolved(_ color: @autoclosure () -> NSColor, in view: NSView? = nil) -> CGColor {
-        var resolved = CGColor(gray: 0, alpha: 0)
+        var resolved = NSColor.clear.cgColor
         (view?.effectiveAppearance ?? NSApp.effectiveAppearance).performAsCurrentDrawingAppearance {
             resolved = color().cgColor
         }
@@ -106,7 +106,7 @@ final class PictureView: NSImageView {
         guard let layer else { return }
         let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         layer.masksToBounds = false
-        layer.shadowColor = CGColor(srgbRed: 0.35, green: 0.23, blue: 0.13, alpha: 1)
+        layer.shadowColor = BarTheme.shadow.cgColor
         let width = max(bounds.width, 1)
         let direction = away ?? CGVector(dx: 0, dy: -1)
         // Cast from the mark the shadow is long and plain enough to read
@@ -178,7 +178,7 @@ final class ToneView: NSView {
         guard lifted, let layer else { return }
         let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         layer.masksToBounds = false
-        layer.shadowColor = CGColor(gray: 0, alpha: 1)
+        layer.shadowColor = BarTheme.shadow.cgColor
         layer.shadowOpacity = dark ? 0 : 0.06
         layer.shadowRadius = 3
         layer.shadowOffset = CGSize(width: 0, height: -1)
@@ -658,26 +658,51 @@ enum BarTheme {
     /// it is the card's subject, where the lines beside a stack of files
     /// are only a list.
     static let fileNameFont = NSFont.systemFont(ofSize: Scale.meta, weight: .medium)
-    /// The one colour for secondary text — and the label colour itself
-    /// when a person has asked the system for more contrast. On the
-    /// paper side the system's secondary grey measured 3.9 to 1 against
-    /// the veil, under the 4.5 that reading needs, so light mode sets
-    /// its captions a shade darker than the system would; charcoal's
-    /// secondary measured 6.2 and stays the system's own.
+    /// The palette of the look an appearance is: espresso in dark, clay in
+    /// light. Every colour below resolves through this, in the look of the
+    /// view that draws it.
+    static func steps(for appearance: NSAppearance) -> Palette.Steps {
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? Palette.night : Palette.clay
+    }
+
+    /// The ink: tinted, never pure black or pure white (the ceiling),
+    /// resolved in the look of the view that draws it. Text that takes this
+    /// and not the system's label colour is the same ink in every look.
+    static let ink = NSColor(name: "LodestarInk") { appearance in
+        steps(for: appearance).ink.color
+    }
+
+    /// The ink at a share, a colour that follows the look: a fixed alpha on
+    /// a dynamic colour is fixed when it is made, so the share is applied
+    /// inside the resolution.
+    static func inkAt(_ alpha: CGFloat) -> NSColor {
+        NSColor(name: nil) { appearance in steps(for: appearance).ink.color.withAlphaComponent(alpha) }
+    }
+
+    /// The one colour for secondary text — captions, legends, what is said
+    /// about a thing — and the ink itself when a person has asked the
+    /// system for more contrast. The palette's own quiet ink, measured on
+    /// the pane and on a key's face in both looks (5.7 to 1 and more).
     ///
     /// Resolved when it is drawn, not when it is handed out: a caption
-    /// built in light mode and kept (an attributed title, a chip made once)
-    /// otherwise stays 66% black on dark glass after the Mac turns dark
-    /// at sunset.
+    /// built in one look and kept (an attributed title, a chip made once)
+    /// otherwise stays that look's grey after the Mac turns to the other.
     static let secondaryColor = NSColor(name: "LodestarSecondary") { appearance in
-        var resolved = NSColor.secondaryLabelColor
-        appearance.performAsCurrentDrawingAppearance {
-            let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            let color: NSColor = Accessibility.increaseContrast() ? .labelColor
-                : dark ? .secondaryLabelColor : NSColor(white: 0, alpha: 0.66)
-            resolved = color.usingColorSpace(.sRGB) ?? color
-        }
-        return resolved
+        let look = steps(for: appearance)
+        return (Accessibility.increaseContrast() ? look.ink : look.quietInk).color
+    }
+
+    /// A label, in the ink unless told otherwise: the system's label colour
+    /// is pure black and pure white, and the ink is never either. Every word
+    /// Lodestar sets as a label is made here or sets its own colour from
+    /// the theme.
+    static func label(_ text: String, font: NSFont = secondaryFont, color: NSColor = ink,
+                      truncates: Bool = false) -> NSTextField {
+        let field = NSTextField(labelWithString: text)
+        field.font = font
+        field.textColor = color
+        if truncates { field.lineBreakMode = .byTruncatingTail }
+        return field
     }
 
     /// The palette in force: the night in dark mode, clay in light.
@@ -688,10 +713,7 @@ enum BarTheme {
     /// The pane as a colour that knows both looks, for a layer that must
     /// change with the look while it stands (`ToneView` resolves it).
     static func dynamicGround(alpha: CGFloat = 1) -> NSColor {
-        NSColor(name: nil) { appearance in
-            let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            return (dark ? Palette.night : Palette.clay).pane.color.withAlphaComponent(alpha)
-        }
+        NSColor(name: nil) { appearance in steps(for: appearance).pane.color.withAlphaComponent(alpha) }
     }
 
     /// The panels' ground, for anything that must be judged against it:
@@ -710,69 +732,90 @@ enum BarTheme {
     static let dotGap: CGFloat = 6
 
     /// A bar's caret is the one light in its field: the accent, wherever
-    /// the field editor would otherwise draw the system's own colour.
+    /// the field editor would otherwise draw the system's own colour. The
+    /// editor draws its selection in the system's too (the Mac's accent, and
+    /// white letters); here it is the ink at a share and the letters stay
+    /// the ink.
     static func lightCaret(of field: NSTextField) {
-        (field.currentEditor() as? NSTextView)?.insertionPointColor = readableAccent
+        guard let editor = field.currentEditor() as? NSTextView else { return }
+        editor.insertionPointColor = readableAccent
+        editor.textColor = ink
+        editor.selectedTextAttributes = [.backgroundColor: inkAt(0.3)]
     }
 
     /// A raised row's top edge catches the light, as every object in the
-    /// pictures does: a flat line, never a gradient.
+    /// pictures does: a flat line, never a gradient. By day it is the key
+    /// step, the lightest thing the look draws; at night the ink, faintly.
     static var raisedRim: NSColor {
-        Tone.systemDark ? NSColor(white: 1, alpha: 0.10) : NSColor(white: 1, alpha: 0.9)
+        Tone.systemDark ? palette.ink.color.withAlphaComponent(0.10)
+                        : palette.key.color.withAlphaComponent(0.9)
     }
 
-
-    /// The one key, resting: in the night a pale cap on the pane, in clay
-    /// one of the pictures' dark keycaps with a pale letter.
-    static var keyFill: NSColor {
-        Tone.systemDark ? NSColor.white.withAlphaComponent(0.08) : .white
-    }
-    /// In the light a key is drawn the way light keys are: a white face, a
-    /// hairline, a darker lip. In the night the lip and the lit top do it.
+    /// The one key, resting: the look's key step, in the night a pale cap
+    /// on the pane and in clay the lightest thing drawn.
+    static var keyFill: NSColor { palette.key.color }
+    /// In the light a key is drawn the way light keys are: a face, a
+    /// hairline, a deeper side. In the night the side and the lit top do it.
     static var keyEdge: NSColor? {
-        Tone.systemDark ? nil : NSColor(white: 0, alpha: 0.13)
+        Tone.systemDark ? nil : palette.ink.color.withAlphaComponent(palette.hairlineAlpha)
     }
-    /// A key laid over another app's window: the same cap made opaque, so
-    /// nothing of the window beneath shows through it, with a brighter
-    /// letter, because a mark is read against someone else's content.
-    static var markFill: NSColor {
-        Tone.systemDark ? (ground.blended(withFraction: 0.08, of: .white) ?? ground) : .white
+    /// A key laid over another app's window: the same cap, opaque, so
+    /// nothing of the window beneath shows through it, and its letter in
+    /// the ink, because a mark is read against someone else's content.
+    static var markFill: NSColor { palette.key.color }
+    static var markLetter: NSColor { palette.ink.color }
+    /// A key's letter is the look's ink.
+    static var keyLetter: NSColor { palette.ink.color }
+    /// The key's top face catches the light; the side it stands on is the
+    /// look's side step.
+    static var keyTop: NSColor {
+        Tone.systemDark ? palette.ink.color.withAlphaComponent(0.11)
+                        : palette.key.color.withAlphaComponent(0.9)
     }
-    static var markLetter: NSColor {
-        Tone.systemDark ? NSColor(white: 0.92, alpha: 1) : NSColor(white: 0.13, alpha: 1)
-    }
-    static var keyLetter: NSColor {
-        if Accessibility.increaseContrast() { return .labelColor }
-        return Tone.systemDark ? secondaryColor : NSColor(white: 0, alpha: 0.62)
-    }
-    /// The key's top face catches the light; its front lip falls in shadow.
-    static var keyTop: NSColor { NSColor.white.withAlphaComponent(Tone.systemDark ? 0.11 : 0.9) }
-    static var keyLip: NSColor { NSColor.black.withAlphaComponent(Tone.systemDark ? 0.6 : 0.16) }
+    static var keyLip: NSColor { palette.side.color }
     /// The neutral matter, two steps and no more. A well is what a field,
     /// a note box, a choice, a group's card, a chip read rather than
     /// pressed and a quiet key lie in; a hairline is an edge, a rule or a
-    /// rim. Anything grey that is not text is one of the two, and a thing
-    /// under the pointer takes the next step up, the hairline's weight,
-    /// rather than a weight of its own. Eight inline opacities, from 0.03
-    /// to 0.2, had made one material read as several near-misses.
-    static var well: NSColor { NSColor.labelColor.withAlphaComponent(0.05) }
-    static var hairline: NSColor { NSColor.labelColor.withAlphaComponent(0.12) }
+    /// rim, the ink at the look's own share (a tenth by day, less at night
+    /// where light lines read harder). Anything neutral that is not text is
+    /// one of the two, and a thing under the pointer takes the next step
+    /// up, the hairline's weight, rather than a weight of its own.
+    static var well: NSColor { inkAt(0.05) }
+    static var hairline: NSColor {
+        NSColor(name: nil) { appearance in
+            let look = steps(for: appearance)
+            return look.ink.color.withAlphaComponent(look.hairlineAlpha)
+        }
+    }
+    /// What a shadow is cast in: the night's ground, and by day the quiet
+    /// ink, the palette's nearest step to the warm brown the day's shadows
+    /// were. Opacity is the surface's; the colour is never black.
+    static var shadow: NSColor { Tone.systemDark ? Palette.night.ground.color : Palette.clay.quietInk.color }
+    /// A switch's knob: the lightest step the palette has, in both looks.
+    static var knob: NSColor { Palette.clay.key.color }
+    /// The lightest and the darkest step the palette owns, which a lit key
+    /// is shaded toward: its top edge catches the key's face, its lip falls
+    /// in the slab's side, the way the mark's faces are shaded.
+    static var lightest: NSColor { Palette.clay.key.color }
+    static var darkest: NSColor { Palette.clay.slabSide.color }
     /// A lit key is a small piece of the mark: the accent, its top edge the
     /// mark's brightest face and its lip the darkest.
-    static var litKeyTop: NSColor { accent.blended(withFraction: 0.4, of: .white) ?? accent }
-    static var litKeyLip: NSColor { accent.blended(withFraction: 0.44, of: .black) ?? accent }
+    static var litKeyTop: NSColor { accent.blended(withFraction: 0.4, of: lightest) ?? accent }
+    static var litKeyLip: NSColor { accent.blended(withFraction: 0.44, of: darkest) ?? accent }
 
-    /// What the glass is tinted toward, so that it lands on `ground`. Not
-    /// the ground itself: the material multiplies with its backdrop rather
-    /// than blending, so a tint aimed at charcoal read grey 6 over
-    /// charcoal, and black read the same. Measured 2026-09-15 with
-    /// tools/glass-sweep at the normal weight: white 0.25 lands the bar
-    /// at 25 over charcoal (the ground is 26); white 0.92 lands it at 237
-    /// over black (paper is 235). What lands over the *other* ground is
-    /// the veil's to decide, not the tint's (see `TonedGlass.veil`).
-    /// Change the number and the sweep decides, not the eye.
+    /// What the glass is tinted toward, so that it lands on `ground`: the
+    /// look's pane, in the warm family, at the lightness the tint has always
+    /// had (see `Palette.glassTint`). Not the ground itself: the material
+    /// multiplies with its backdrop rather than blending, so a tint aimed at
+    /// charcoal read grey 6 over charcoal, and black read the same.
+    /// Measured 2026-09-15 with tools/glass-sweep at the normal weight:
+    /// white 0.25 lands the bar at 25 over charcoal (the ground is 26);
+    /// white 0.92 lands it at 237 over black (paper is 235). What lands over
+    /// the *other* ground is the veil's to decide, not the tint's (see
+    /// `TonedGlass.veil`). Glass material: replaced by the material
+    /// contract.
     static var glassTint: NSColor {
-        Tone.systemDark ? NSColor(white: 0.25, alpha: 1) : NSColor(white: 0.92, alpha: 1)
+        Palette.glassTint(of: palette, night: Tone.systemDark).color
     }
 
     /// The accent, as a closure so a test can try the text rule and the
@@ -789,20 +832,31 @@ enum BarTheme {
     static var accent: NSColor { accentColor() }
 
     /// Text drawn over the accent as a fill — a selected row, a lit chip.
-    /// White reads on a deep blue and fails on International Orange, so
-    /// the choice is made by measure: whichever of white and near-black
-    /// contrasts more with the fill, decided from the fill itself.
+    /// The letter on the orange is whichever of clay's key face and clay's
+    /// ink measures higher on the fill, never pure white or pure black
+    /// (white on the night's orange is 3.3 to 1), decided from the fill
+    /// itself.
     static var onAccent: NSColor {
-        guard let fill = accent.usingColorSpace(.sRGB) else { return .white }
-        let ground = Readability.luminance(red: fill.redComponent, green: fill.greenComponent, blue: fill.blueComponent)
-        let white = Readability.contrast(1, ground)
-        let ink = Readability.contrast(Readability.luminance(red: 0.08, green: 0.08, blue: 0.08), ground)
-        return white >= ink ? .white : NSColor(white: 0.08, alpha: 1)
+        guard let fill = accent.usingColorSpace(.sRGB) else { return Palette.clay.ink.color }
+        return Palette.letter(on: Readability.RGB(red: fill.redComponent, green: fill.greenComponent,
+                                                  blue: fill.blueComponent)).color
     }
 
     /// International Orange as the look in force wants it: #FA5617 at night,
     /// #C83500 on clay, one value per look (Palette).
     static var internationalOrange: NSColor { palette.orange.color }
+
+    /// A palette step as the mark's own colour type, for the surfaces that
+    /// draw the star from `Mark`.
+    static func mark(_ color: Readability.RGB) -> Mark.RGB {
+        Mark.RGB(red: color.red, green: color.green, blue: color.blue)
+    }
+
+    /// The accent as the mark's colour, for the star on a surface.
+    static var accentMark: Mark.RGB {
+        guard let c = accent.usingColorSpace(.sRGB) else { return mark(palette.orange) }
+        return Mark.RGB(red: Double(c.redComponent), green: Double(c.greenComponent), blue: Double(c.blueComponent))
+    }
 
     /// The accent for a mark the eye must find — the insert bar, a lit
     /// letter, the echoed query. International Orange clears the floor on
@@ -815,7 +869,7 @@ enum BarTheme {
         let ratio = Readability.contrast(
             Readability.luminance(red: a.redComponent, green: a.greenComponent, blue: a.blueComponent),
             Readability.luminance(red: g.redComponent, green: g.greenComponent, blue: g.blueComponent))
-        return ratio >= Readability.markFloor ? accent : .labelColor
+        return ratio >= Readability.markFloor ? accent : ink
     }
     /// What a key's row says it does — the reading size, not a caption.
     static let rowLabelFont = NSFont.systemFont(ofSize: Scale.body, weight: .regular)
@@ -1098,7 +1152,7 @@ enum Keycaps {
 
         for (index, gesture) in gestures.enumerated() {
             if index > 0 {
-                add(word("·", color: .tertiaryLabelColor), spacingBefore: 10)
+                add(word("·", color: BarTheme.secondaryColor), spacingBefore: 10)
             }
             let caps = gesture.keys.map { cap($0) }
             for capView in caps {
@@ -1119,7 +1173,7 @@ enum Keycaps {
             // A label is a name, capitalized wherever it is written from:
             // "esc Back", never "esc back".
             let verb = word(gesture.verb.prefix(1).uppercased() + gesture.verb.dropFirst(),
-                            color: gesture.lit && !gesture.quiet ? .labelColor : BarTheme.secondaryColor)
+                            color: gesture.lit && !gesture.quiet ? BarTheme.ink : BarTheme.secondaryColor)
             add(verb, spacingBefore: 7)
         }
         return row
@@ -1157,7 +1211,7 @@ final class RoomField: NSView {
         field.drawsBackground = false
         field.focusRingType = .none
         field.font = BarTheme.rowLabelFont
-        field.textColor = .labelColor
+        field.textColor = BarTheme.ink
         field.translatesAutoresizingMaskIntoConstraints = false
         field.setPlaceholder(placeholder)
         addSubview(field)
@@ -1251,14 +1305,14 @@ final class RoomButton: NSButton {
     private func restyle() {
         // A button that cannot be undone says so in its words, never in
         // an alarm colour: one light, no paint.
-        let color: NSColor = primary ? BarTheme.onAccent : (isEnabled ? .labelColor : BarTheme.secondaryColor)
+        let color: NSColor = primary ? BarTheme.onAccent : (isEnabled ? BarTheme.ink : BarTheme.secondaryColor)
         let words = super.title
         super.attributedTitle = NSAttributedString(string: words, attributes: [
             .font: answer ? BarTheme.bodyFont : BarTheme.secondaryFont, .foregroundColor: color])
         effectiveAppearance.performAsCurrentDrawingAppearance {
             if primary {
                 let face = BarTheme.accent
-                layer?.backgroundColor = (hovering ? face.blended(withFraction: 0.10, of: .white) ?? face : face).cgColor
+                layer?.backgroundColor = (hovering ? face.blended(withFraction: 0.10, of: BarTheme.lightest) ?? face : face).cgColor
                 layer?.borderColor = BarTheme.litKeyLip.cgColor
                 light.color = BarTheme.litKeyTop
             } else {
@@ -1288,7 +1342,7 @@ final class ChoiceMenuItemView: NSView {
         wantsLayer = true
         label.stringValue = item.title
         label.font = BarTheme.secondaryFont
-        label.textColor = item.isEnabled ? .labelColor : BarTheme.secondaryColor
+        label.textColor = item.isEnabled ? BarTheme.ink : BarTheme.secondaryColor
         label.lineBreakMode = .byTruncatingTail
         icon.image = item.image
         dot.wantsLayer = true
@@ -1357,8 +1411,8 @@ final class AccentSwitch: NSControl {
         layer?.masksToBounds = false
         track.cornerRadius = Self.size.height / 2
         knob.cornerRadius = (Self.size.height - 4) / 2
-        knob.backgroundColor = NSColor.white.cgColor
-        knob.shadowColor = NSColor.black.withAlphaComponent(0.35).cgColor
+        knob.backgroundColor = BarTheme.knob.cgColor
+        knob.shadowColor = BarTheme.shadow.withAlphaComponent(0.35).cgColor
         knob.shadowOpacity = 1
         knob.shadowRadius = 1.5
         knob.shadowOffset = CGSize(width: 0, height: -0.5)
@@ -1392,7 +1446,7 @@ final class AccentSwitch: NSControl {
     /// into place must not slide into it.
     private func paint(animated: Bool = false) {
         let on = state == .on
-        let tint = Glass.resolved(on ? BarTheme.accent : NSColor.labelColor.withAlphaComponent(0.22), in: self)
+        let tint = Glass.resolved(on ? BarTheme.accent : BarTheme.inkAt(0.22), in: self)
         let knobSize = Self.size.height - 4
         let knobFrame = NSRect(x: on ? bounds.width - knobSize - 2 : 2, y: 2, width: knobSize, height: knobSize)
         let fromPosition = knob.presentation()?.position ?? knob.position
@@ -1572,10 +1626,10 @@ final class KeyFace: NSView {
         let resting = lit ? BarTheme.accent : BarTheme.keyFill
         // Under the pointer the face catches a little more light; pressed,
         // it sinks onto its lip, which is the lip's whole height gone.
-        // Light, not ink: a dark clay key blended toward the label colour
-        // barely moved, so the hover catches white in both looks.
-        // Light, not ink, in the night; in the light a white key can only darken.
-        let toward: NSColor = Tone.systemDark || lit ? .white : .black
+        // In the night, and lit, the face catches light (the ink, the
+        // lightest step); in the light a key's face is already the lightest
+        // step, so it can only darken, toward its side.
+        let toward: NSColor = Tone.systemDark || lit ? (lit ? BarTheme.lightest : BarTheme.ink) : BarTheme.keyLip
         let face = pointer == .resting ? resting
             : resting.blended(withFraction: pointer == .pressed ? 0.06 : (Tone.systemDark || lit ? 0.12 : 0.05), of: toward) ?? resting
         if quiet, !lit {
@@ -1639,7 +1693,7 @@ class RaisedRow: NSView {
         CATransaction.setDisableActions(true)
         layer?.backgroundColor = on ? BarTheme.raised.cgColor : nil
         light.color = on ? BarTheme.raisedRim : nil
-        layer?.shadowColor = NSColor.black.cgColor
+        layer?.shadowColor = BarTheme.shadow.cgColor
         layer?.shadowOpacity = on ? (Tone.systemDark ? 0.32 : 0.10) : 0
         CATransaction.commit()
     }
@@ -1658,7 +1712,9 @@ final class EdgeLight {
         stroke.fillColor = nil
         stroke.lineWidth = 1
         holder.addSublayer(stroke)
-        fade.colors = [NSColor.white.cgColor, NSColor.white.cgColor, NSColor.white.withAlphaComponent(0).cgColor]
+        // A mask: only its alpha is read, so the colour is any step.
+        let solid = BarTheme.lightest
+        fade.colors = [solid.cgColor, solid.cgColor, solid.withAlphaComponent(0).cgColor]
         fade.locations = [0, 0.3, 1]
         holder.mask = fade
     }
@@ -1802,15 +1858,13 @@ final class ObjectSurface: NSView {
         let floating = lift == .float
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        soft.shadowColor = (dark ? NSColor(srgbRed: 0.055, green: 0.027, blue: 0.008, alpha: 1)
-                                 : NSColor(srgbRed: 0.35, green: 0.23, blue: 0.13, alpha: 1)).cgColor
+        soft.shadowColor = BarTheme.shadow.cgColor
         soft.shadowOpacity = floating ? (dark ? 0.58 : 0.26) : (dark ? 0.42 : 0.16)
         soft.shadowRadius = floating ? 18 : 7
         contact.shadowColor = soft.shadowColor
         contact.shadowOpacity = dark ? 0.35 : 0.14
         contact.shadowRadius = 1
-        edge.borderColor = (dark ? NSColor(srgbRed: 1, green: 0.93, blue: 0.86, alpha: 0.11)
-                                 : NSColor(srgbRed: 0.27, green: 0.17, blue: 0.1, alpha: 0.13)).cgColor
+        edge.borderColor = Glass.resolved(BarTheme.hairline, in: self)
         CATransaction.commit()
     }
 }
@@ -1969,15 +2023,13 @@ final class ShadowHostView: NSView {
 
     private func restyle() {
         let dark = Tone.systemDark
-        soft.shadowColor = (dark ? NSColor(srgbRed: 0.055, green: 0.027, blue: 0.008, alpha: 1)
-                                 : NSColor(srgbRed: 0.35, green: 0.23, blue: 0.13, alpha: 1)).cgColor
+        soft.shadowColor = BarTheme.shadow.cgColor
         soft.shadowOpacity = dark ? 0.62 : 0.30
         soft.shadowRadius = 30
         contact.shadowColor = soft.shadowColor
         contact.shadowOpacity = dark ? 0.35 : 0.14
         contact.shadowRadius = 1
-        edge.borderColor = (dark ? NSColor(srgbRed: 1, green: 0.93, blue: 0.86, alpha: 0.11)
-                                 : NSColor(srgbRed: 0.27, green: 0.17, blue: 0.1, alpha: 0.13)).cgColor
+        edge.borderColor = Glass.resolved(BarTheme.hairline, in: self)
     }
 
     /// Only the surface takes the pointer; the shadow is not a target.
@@ -2001,7 +2053,7 @@ enum KeyMark {
     static let peekHeight: CGFloat = 48
     static let peekFont = NSFont.monospacedSystemFont(ofSize: 24, weight: .semibold)
     /// The neutral hairline from a displaced tag to its word.
-    static var connector: NSColor { NSColor.labelColor.withAlphaComponent(Tone.systemDark ? 0.38 : 0.35) }
+    static var connector: NSColor { BarTheme.inkAt(Tone.systemDark ? 0.38 : 0.35) }
     /// The underline's weight: the editor's line, select's matches, a held span.
     static let underline: CGFloat = 2.5
     /// The anchor's and the held span's heavier line.
@@ -2063,7 +2115,7 @@ enum KeyMark {
         let key = KeyMark.key(letter, typed: typed)
         let label = NSTextField(labelWithString: word)
         label.font = BarTheme.secondaryFont
-        label.textColor = .labelColor
+        label.textColor = BarTheme.ink
         label.sizeToFit()
         let height = key.frame.height + pad * 2
         let width = ceil(pad + key.frame.width + 6 + label.frame.width + 8)
@@ -2084,9 +2136,7 @@ enum KeyMark {
         holder.wantsLayer = true
         guard let layer = holder.layer else { return content }
         layer.masksToBounds = false
-        layer.shadowColor = (Tone.systemDark
-            ? NSColor(srgbRed: 0.03, green: 0.016, blue: 0.004, alpha: 0.3)
-            : NSColor(srgbRed: 0.37, green: 0.24, blue: 0.14, alpha: 0.2)).cgColor
+        layer.shadowColor = BarTheme.shadow.withAlphaComponent(Tone.systemDark ? 0.3 : 0.2).cgColor
         layer.shadowOpacity = 1
         layer.shadowRadius = 7
         layer.shadowOffset = CGSize(width: 0, height: -4)

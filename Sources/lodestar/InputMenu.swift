@@ -26,16 +26,16 @@ final class InputMenu {
     weak var owner: NSWindow?
     var onChoose: ((String?) -> Void)?
 
-    static let inset: CGFloat = 6
+    static let inset = BarTheme.paneInset
     static let rowHeight: CGFloat = 36
-    static let gap: CGFloat = 12
+    static let gap = Grid.part
 
     init() {
-        gate = SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
+        gate = SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
         // Choosing a microphone must not take the keyboard from the app the
         // draft lands in.
         panel.becomesKeyOnlyIfNeeded = true
-        Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+        Glass.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
     }
 
     var isVisible: Bool { panel.isVisible }
@@ -49,7 +49,7 @@ final class InputMenu {
     func present(_ choices: [Choice], chosen: Int, beside glass: NSRect) {
         rows.forEach { $0.removeFromSuperview() }
         let widest = choices.map { BarTheme.width(of: $0.title, in: .body) }.max() ?? 0
-        let width = (max(220, widest + 64)).rounded(.up)
+        let width = (widest + Self.inset * 2 + InputMenuRow.padding * 2 + BarTheme.dotDiameter + Grid.part).rounded(.up)
         let height = Self.inset * 2 + Self.rowHeight * CGFloat(choices.count)
         rows = choices.enumerated().map { index, choice in
             let row = InputMenuRow(choice: choice, chosen: index == chosen)
@@ -65,12 +65,12 @@ final class InputMenu {
         // right end, still off the words' line, never off the screen.
         let visible = ActivePolicy.presentationFrame
         var card = NSRect(x: glass.maxX + Self.gap, y: glass.minY, width: width, height: height)
-        if card.maxX > visible.maxX - 8 { card.origin.x = glass.minX - width - Self.gap }
-        if card.minX < visible.minX + 8 {
+        if card.maxX > visible.maxX - Grid.close { card.origin.x = glass.minX - width - Self.gap }
+        if card.minX < visible.minX + Grid.close {
             card.origin = NSPoint(x: glass.maxX - width, y: glass.maxY + Self.gap)
         }
-        card.origin.x = min(max(card.minX, visible.minX + 8), visible.maxX - 8 - width).rounded()
-        card.origin.y = min(card.minY, visible.maxY - 8 - height).rounded()
+        card.origin.x = min(max(card.minX, visible.minX + Grid.close), visible.maxX - Grid.close - width).rounded()
+        card.origin.y = min(card.minY, visible.maxY - Grid.close - height).rounded()
         panel.setFrame(SoftShadow.outset(card), display: true)
         panel.orderFrontRegardless()
         gate.start()
@@ -120,6 +120,8 @@ final class InputMenuRow: RaisedRow {
     var onPick: (() -> Void)?
     private let label = NSTextField(labelWithString: "")
     private let dot = NSView()
+    /// The row's own padding, so its words stand where a bar's rows' do.
+    static let padding = Grid.part
 
     init(choice: InputMenu.Choice, chosen: Bool) {
         self.choice = choice
@@ -146,10 +148,10 @@ final class InputMenuRow: RaisedRow {
 
     override func layout() {
         super.layout()
-        let leading: CGFloat = 14
+        let leading = Self.padding
         dot.frame = NSRect(x: leading, y: ((bounds.height - BarTheme.dotDiameter) / 2).rounded(),
                            width: BarTheme.dotDiameter, height: BarTheme.dotDiameter)
-        let text = leading + BarTheme.dotDiameter + 10
+        let text = leading + BarTheme.dotDiameter + Grid.part
         let natural = label.sizeThatFits(NSSize(width: CGFloat.greatestFiniteMagnitude,
                                                 height: CGFloat.greatestFiniteMagnitude)).height
         label.frame = NSRect(x: text, y: ((bounds.height - natural) / 2).rounded(),
@@ -182,7 +184,7 @@ final class InputButton: NSView {
     private let chevron = NSImageView()
     var onClick: (() -> Void)?
 
-    static let chevronGap: CGFloat = 5
+    static let chevronGap = Grid.tight
 
     var title: String {
         get { label.stringValue }
@@ -216,12 +218,12 @@ final class InputButton: NSView {
         // out the field's padding, and the name was cut a letter short.
         let text = label.sizeThatFits(NSSize(width: CGFloat.greatestFiniteMagnitude,
                                              height: CGFloat.greatestFiniteMagnitude)).width
-        return (text + Self.chevronGap + chevronSize.width + 1).rounded(.up)
+        return (text + Self.chevronGap + chevronSize.width + Grid.hair).rounded(.up)
     }
 
     private var chevronSize: NSSize {
-        let size = chevron.image?.size ?? NSSize(width: 8, height: 12)
-        return NSSize(width: min(size.width, 10), height: min(size.height, 12))
+        let size = chevron.image?.size ?? NSSize(width: Grid.close, height: Grid.part)
+        return NSSize(width: min(size.width, Grid.close + Grid.hair), height: min(size.height, Grid.part))
     }
 
     override func layout() {

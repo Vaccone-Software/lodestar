@@ -14,7 +14,7 @@ final class StripAddressTests: XCTestCase {
         for card in stage.engine.strip.shownCards.values {
             let cap = card.subviews.first { $0 is Keycaps.CapView }
             XCTAssertNotNil(cap, "the address is a key")
-            XCTAssertEqual(cap?.frame.height, BarTheme.chipHeight)
+            XCTAssertEqual(cap?.frame.height, BarTheme.keyHeight)
         }
         stage.press("escape")
     }

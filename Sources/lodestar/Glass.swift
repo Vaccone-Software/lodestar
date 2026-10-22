@@ -413,7 +413,7 @@ enum Glass {
         // ⌘K card could resolve white beside a charcoal launcher. Behind a
         // titled window it honors the window's appearance — the pinned
         // dark holds.
-        let frame = NSRect(x: 0, y: 0, width: 100, height: 100)
+        let frame = BarTheme.unplaced
         let style: NSWindow.StyleMask = [.titled, .fullSizeContentView, .nonactivatingPanel]
         let panel: GlassPanel = takesKeys
             ? GlassPanel(contentRect: frame, styleMask: style, backing: .buffered, defer: true)
@@ -502,38 +502,13 @@ enum BarTheme {
     /// only the time differs, and nothing moves under Reduce Motion.
     static var motion: CAMediaTimingFunction { CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1) }
 
-    static let panelWidth: CGFloat = 640
-    static let inputHeight: CGFloat = 60
-    static let rowHeight: CGFloat = 48
-    static let footerHeight: CGFloat = 24
-    /// A bar's bottom edge when nothing stands beneath its rows. The bars
-    /// carry no legend: their keys live on the sheet, behind lode ?.
-    static let barFoot: CGFloat = 6
-    /// The rounding, converged: one ladder from the pill's height, each
-    /// rung the one above over φ². A surface (a panel, a card, the pill)
-    /// rounds at the first rung, a control (a keycap, a chip, a well) at
-    /// the second, a mark (a highlight on the page) at the third. A
-    /// hairline rounds to its own half-width and is not on the ladder.
-    static let phi: CGFloat = 1.618_033_988_75
-    static let pillHeight: CGFloat = 44
-    static let surfaceRadius: CGFloat = pillHeight / (phi * phi)
-    static let controlRadius: CGFloat = surfaceRadius / (phi * phi)
-    static let markRadius: CGFloat = controlRadius / (phi * phi)
-    static let glassRadius: CGFloat = surfaceRadius
-    static let rowRadius: CGFloat = surfaceRadius
-    static let chipRadius: CGFloat = controlRadius
+    static let footerHeight: CGFloat = Grid.section
     /// One key-and-label row, shared by every surface that draws them: the
     /// chain guide, the cheat sheet, and the clipboard's actions menu. Left
     /// to themselves they drifted into three chip shapes, three keycap
-    /// sizes and three icon sizes; this is the one set.
+    /// sizes and three icon sizes; this is the one set. (A key's width and
+    /// parts are the key contract's, later.)
     static let chipMinWidth: CGFloat = 34
-    static let chipHeight: CGFloat = 22
-    static let chipPadX: CGFloat = 6
-    static let rowGap: CGFloat = 9
-    static let rowIcon: CGFloat = 17
-    /// Clear water between the longest label and the key column, so the two
-    /// never read as one run of text.
-    static let rowKeyGap: CGFloat = 28
 
     /// The type scale: three sizes for every word Lodestar draws, and one
     /// for what is typed into a bar. Nine sizes chosen one at a time, from
@@ -571,20 +546,9 @@ enum BarTheme {
     /// place's name: a mark on the page, round.
     static let dotDiameter: CGFloat = 7
     static let dotRadius: CGFloat = dotDiameter / 2
-    /// A sentence's measure: wide enough for one thought, narrow enough
-    /// to be read in a glance.
-    static let voiceWidth: CGFloat = 380
     /// The dot that says "needs you" is a glyph used as a mark, not text
     /// that is read, so it may sit under the scale's floor.
     static let dotFont = NSFont.systemFont(ofSize: 8)
-    /// Controls and marks on the ladder: a glass chip and a settings well
-    /// are controls; a match's wash on the page is a mark. The hairline
-    /// things (the draft's caret and its meter bars) round to half their
-    /// width.
-    static let glassChipRadius: CGFloat = controlRadius
-    static let wellRadius: CGFloat = controlRadius
-    static let highlightRadius: CGFloat = markRadius
-    static let hairlineRadius: CGFloat = 1
     /// The pin inside a chip whose profile was chosen, and its gap to the name.
     /// A symbol leading a bar's row, a size above the text's.
     static let symbolRow = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
@@ -660,9 +624,6 @@ enum BarTheme {
     /// key step (the slab is a later contract), never a colour of its own:
     /// the lit keys say it is chosen, the step says it is lifted.
     static var raised: NSColor { palette.key.color }
-
-    /// The open dot's distance from the name it belongs to.
-    static let dotGap: CGFloat = 6
 
     /// A bar's caret is the one light in its field: the accent, wherever
     /// the field editor would otherwise draw the system's own colour. The
@@ -861,6 +822,13 @@ enum Movable {
 /// use, rather than `resetCursorRects`, because cursor rects want a key
 /// window and these panels are deliberately never key.
 final class HandButton: NSButton {
+    /// A link is a pointer target like any other: never under 24 high.
+    override var intrinsicContentSize: NSSize {
+        var size = super.intrinsicContentSize
+        if size.height > 0 { size.height = max(size.height, BarTheme.minTarget) }
+        return size
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         for area in trackingAreas { removeTrackingArea(area) }
@@ -974,7 +942,7 @@ enum Keycaps {
             let row = NSStackView(views: caps)
             row.orientation = .horizontal
             row.alignment = .centerY
-            row.spacing = 4
+            row.spacing = Grid.tight
             self.init(content: row,
                       paint: { state in for cap in caps { cap.fill(state) } },
                       action: action)
@@ -1030,7 +998,7 @@ enum Keycaps {
         let row = NSStackView()
         row.orientation = .horizontal
         row.alignment = .centerY
-        row.spacing = 5
+        row.spacing = Grid.tight
         for part in FlashLine.parts(line) {
             switch part {
             case .words(let text):
@@ -1039,7 +1007,7 @@ enum Keycaps {
                 let group = NSStackView(views: keys.map { cap($0) })
                 group.orientation = .horizontal
                 group.alignment = .centerY
-                group.spacing = 3
+                group.spacing = Grid.hair
                 row.addArrangedSubview(group)
             }
         }
@@ -1063,7 +1031,7 @@ enum Keycaps {
         let row = NSStackView()
         row.orientation = .horizontal
         row.alignment = .centerY
-        row.spacing = 4
+        row.spacing = Grid.tight
         var previous: NSView?
 
         func add(_ view: NSView, spacingBefore: CGFloat? = nil) {
@@ -1074,7 +1042,7 @@ enum Keycaps {
 
         for (index, gesture) in gestures.enumerated() {
             if index > 0 {
-                add(word("·", color: BarTheme.secondaryColor), spacingBefore: 10)
+                add(word("·", color: BarTheme.secondaryColor), spacingBefore: Grid.close)
             }
             let caps = gesture.keys.map { cap($0) }
             for capView in caps {
@@ -1096,7 +1064,7 @@ enum Keycaps {
             // "esc Back", never "esc back".
             let verb = word(gesture.verb.prefix(1).uppercased() + gesture.verb.dropFirst(),
                             color: gesture.lit && !gesture.quiet ? BarTheme.ink : BarTheme.secondaryColor)
-            add(verb, spacingBefore: 7)
+            add(verb, spacingBefore: Grid.close)
         }
         return row
     }
@@ -1138,10 +1106,10 @@ final class RoomField: NSView {
         field.setPlaceholder(placeholder)
         addSubview(field)
         NSLayoutConstraint.activate([
-            field.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            field.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Grid.close),
+            field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Grid.close),
             field.centerYAnchor.constraint(equalTo: centerYAnchor),
-            heightAnchor.constraint(equalToConstant: 32),
+            heightAnchor.constraint(equalToConstant: BarTheme.fieldHeight),
         ])
         tint()
     }
@@ -1191,7 +1159,7 @@ final class RoomButton: NSButton {
 
     override func layout() {
         super.layout()
-        light.fit(bounds, radius: BarTheme.controlRadius, reach: BarTheme.controlRadius + 3, flipped: isFlipped)
+        light.fit(bounds, radius: BarTheme.controlRadius, flipped: isFlipped)
     }
 
     required init?(coder: NSCoder) { nil }
@@ -1203,8 +1171,8 @@ final class RoomButton: NSButton {
     override var intrinsicContentSize: NSSize {
         let text = attributedTitle.size()
         return answer
-            ? NSSize(width: (text.width + 22).rounded(.up), height: 30)
-            : NSSize(width: (text.width + 20).rounded(.up), height: 24)
+            ? NSSize(width: (text.width + Grid.section).rounded(.up), height: BarTheme.fieldHeight)
+            : NSSize(width: (text.width + Grid.section).rounded(.up), height: BarTheme.minTarget)
     }
 
     override func updateTrackingAreas() {
@@ -1259,6 +1227,12 @@ final class ChoiceMenuItemView: NSView {
     private weak var popup: NSPopUpButton?
     static let height: CGFloat = 26
 
+    /// The width a menu of these labels needs: the dot's room, the icon's if
+    /// any, the longest label, and a part to each side.
+    static func width(forLabel widest: CGFloat, withIcon icon: Bool) -> CGFloat {
+        (Grid.part + BarTheme.dotDiameter + Grid.close + (icon ? Grid.section : 0) + widest + Grid.part).rounded(.up)
+    }
+
     init(item: NSMenuItem, chosen: Bool, width: CGFloat, popup: NSPopUpButton) {
         self.popup = popup
         super.init(frame: NSRect(x: 0, y: 0, width: width, height: Self.height))
@@ -1283,13 +1257,13 @@ final class ChoiceMenuItemView: NSView {
 
     override func layout() {
         super.layout()
-        let inset: CGFloat = 12
+        let inset = Grid.part
         dot.frame = NSRect(x: inset, y: ((bounds.height - BarTheme.dotDiameter) / 2).rounded(),
                            width: BarTheme.dotDiameter, height: BarTheme.dotDiameter)
-        var x = inset + BarTheme.dotDiameter + 8
+        var x = inset + BarTheme.dotDiameter + Grid.close
         if icon.image != nil {
-            icon.frame = NSRect(x: x, y: ((bounds.height - 12) / 2).rounded(), width: 19, height: 12)
-            x += 24
+            icon.frame = NSRect(x: x, y: ((bounds.height - Grid.part) / 2).rounded(), width: Grid.section - Grid.tight, height: Grid.part)
+            x += Grid.section
         }
         let natural = label.sizeThatFits(NSSize(width: CGFloat.greatestFiniteMagnitude,
                                                 height: CGFloat.greatestFiniteMagnitude)).height
@@ -1302,8 +1276,8 @@ final class ChoiceMenuItemView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard enclosingMenuItem?.isHighlighted == true, enclosingMenuItem?.isEnabled == true else { return }
         BarTheme.raised.setFill()
-        NSBezierPath(roundedRect: bounds.insetBy(dx: 5, dy: 1), xRadius: BarTheme.controlRadius,
-                     yRadius: BarTheme.controlRadius).fill()
+        let corner = BarTheme.radius(BarTheme.paneRowRadius, height: bounds.height - Grid.hair * 2)
+        NSBezierPath(roundedRect: bounds.insetBy(dx: Grid.tight, dy: Grid.hair), xRadius: corner, yRadius: corner).fill()
     }
 
     /// A view in a menu takes the click itself: choose, close, and send
@@ -1320,7 +1294,10 @@ final class ChoiceMenuItemView: NSView {
 final class AccentSwitch: NSControl {
     private let track = CALayer()
     private let knob = CALayer()
-    static let size = NSSize(width: 30, height: 17)
+    static let size = NSSize(width: BarTheme.switchWidth, height: BarTheme.minTarget)
+    /// The track is a hairline pill the knob sits in; the control around
+    /// it is the pointer's target, never under 24 high.
+    private static let trackHeight = BarTheme.switchTrackHeight
 
     var state: NSControl.StateValue = .off {
         didSet { paint() }
@@ -1332,8 +1309,8 @@ final class AccentSwitch: NSControl {
         super.init(frame: NSRect(origin: frameRect.origin, size: Self.size))
         wantsLayer = true
         layer?.masksToBounds = false
-        track.cornerRadius = Self.size.height / 2
-        knob.cornerRadius = (Self.size.height - 4) / 2
+        track.cornerRadius = BarTheme.hairlineRadius(width: Self.trackHeight)
+        knob.cornerRadius = BarTheme.hairlineRadius(width: Self.trackHeight - Grid.tight)
         knob.backgroundColor = BarTheme.knob.cgColor
         knob.shadowColor = BarTheme.shadow.withAlphaComponent(0.35).cgColor
         knob.shadowOpacity = 1
@@ -1370,13 +1347,16 @@ final class AccentSwitch: NSControl {
     private func paint(animated: Bool = false) {
         let on = state == .on
         let tint = Glass.resolved(on ? BarTheme.accent : BarTheme.inkAt(0.22), in: self)
-        let knobSize = Self.size.height - 4
-        let knobFrame = NSRect(x: on ? bounds.width - knobSize - 2 : 2, y: 2, width: knobSize, height: knobSize)
+        let knobSize = Self.trackHeight - Grid.tight
+        let trackFrame = NSRect(x: 0, y: ((bounds.height - Self.trackHeight) / 2).rounded(),
+                                width: bounds.width, height: Self.trackHeight)
+        let knobFrame = NSRect(x: on ? bounds.width - knobSize - Grid.hair : Grid.hair,
+                               y: trackFrame.minY + Grid.hair, width: knobSize, height: knobSize)
         let fromPosition = knob.presentation()?.position ?? knob.position
         let fromTint = track.presentation()?.backgroundColor ?? track.backgroundColor
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        track.frame = bounds
+        track.frame = trackFrame
         track.backgroundColor = tint
         knob.frame = knobFrame
         layer?.opacity = isEnabled ? 1 : 0.45
@@ -1501,11 +1481,11 @@ final class KeyFace: NSView {
 
     /// `padX` widens a key whose label is a word on a long cap, the walk's
     /// space bar; every other key takes the theme's.
-    init(_ text: String, padX: CGFloat = BarTheme.chipPadX) {
+    init(_ text: String, padX: CGFloat = Grid.half) {
         super.init(frame: .zero)
         wantsLayer = true
         translatesAutoresizingMaskIntoConstraints = false
-        layer?.cornerRadius = BarTheme.chipRadius
+        layer?.cornerRadius = BarTheme.controlRadius
         layer?.masksToBounds = false
         layer?.shadowOffset = CGSize(width: 0, height: -1.5)
         layer?.shadowRadius = 0
@@ -1520,7 +1500,7 @@ final class KeyFace: NSView {
             label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: padX),
             label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -padX),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
-            heightAnchor.constraint(equalToConstant: BarTheme.chipHeight),
+            heightAnchor.constraint(equalToConstant: BarTheme.keyHeight),
             widthAnchor.constraint(greaterThanOrEqualToConstant: BarTheme.chipMinWidth),
         ])
         refresh()
@@ -1530,7 +1510,7 @@ final class KeyFace: NSView {
 
     override func layout() {
         super.layout()
-        top.fit(bounds, radius: BarTheme.chipRadius, reach: BarTheme.chipRadius + 3)
+        top.fit(bounds, radius: BarTheme.controlRadius)
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -1587,10 +1567,17 @@ final class KeyFace: NSView {
 class RaisedRow: NSView {
     private let light = EdgeLight()
     private(set) var raised = false
+    /// Where the row's corners are, before a row too short for it becomes
+    /// a stadium. A row stands one pane-inset inside its pane, so it
+    /// rounds at the pane's radius less that inset and its corners keep an
+    /// even gap from the pane's; a row set deeper says its own.
+    var radius = BarTheme.paneRowRadius {
+        didSet { if radius != oldValue { needsLayout = true } }
+    }
 
     func setupRaised() {
         wantsLayer = true
-        layer?.cornerRadius = BarTheme.rowRadius
+        layer?.cornerRadius = BarTheme.paneRowRadius
         layer?.masksToBounds = false
         if let layer { light.install(in: layer) }
         // A soft, short shadow cast by the row's own rounded shape: no line
@@ -1602,9 +1589,10 @@ class RaisedRow: NSView {
 
     override func layout() {
         super.layout()
-        light.fit(bounds, radius: BarTheme.rowRadius, reach: BarTheme.rowRadius + 4)
-        layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: BarTheme.rowRadius,
-                                   cornerHeight: BarTheme.rowRadius, transform: nil)
+        let corner = BarTheme.radius(radius, height: bounds.height)
+        layer?.cornerRadius = corner
+        light.fit(bounds, radius: corner)
+        layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: corner, cornerHeight: corner, transform: nil)
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -1656,7 +1644,8 @@ final class EdgeLight {
     /// Lay the light on a shape of `radius` filling `bounds`, fading out
     /// `reach` points below the top edge. `flipped` for a view whose layer
     /// counts from the top, as a button's does.
-    func fit(_ bounds: CGRect, radius: CGFloat, reach: CGFloat, flipped: Bool = false) {
+    func fit(_ bounds: CGRect, radius: CGFloat, flipped: Bool = false) {
+        let reach = radius + Grid.tight
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         holder.frame = bounds
@@ -1682,7 +1671,7 @@ final class EdgeLight {
 /// the host draws the shadow in that margin. Clicks in the margin land on
 /// nothing.
 enum SoftShadow {
-    static let margin: CGFloat = 64
+    static let margin = Grid.column + Grid.group
 
     /// The window's frame for a surface that should stand at `visible`.
     static func outset(_ visible: NSRect) -> NSRect { visible.insetBy(dx: -margin, dy: -margin) }
@@ -1762,8 +1751,7 @@ final class ObjectSurface: NSView {
         CATransaction.setDisableActions(true)
         edge.frame = bounds
         let floating = lift == .float
-        let softShape = bounds.insetBy(dx: floating ? 8 : 4, dy: floating ? 8 : 4)
-            .offsetBy(dx: 0, dy: floating ? -12 : -4)
+        let softShape = bounds.insetBy(dx: floating ? 8 : 4, dy: floating ? 8 : 4).offsetBy(dx: 0, dy: floating ? -12 : -4)
         if softShape.width > 0, softShape.height > 0 {
             soft.shadowPath = CGPath(roundedRect: softShape, cornerWidth: radius, cornerHeight: radius,
                                      transform: nil)
@@ -1973,9 +1961,9 @@ final class ShadowHostView: NSView {
 /// Built by hand, without layout, because a window of click hints can be
 /// four hundred of them at once.
 enum KeyMark {
-    static let height: CGFloat = BarTheme.chipHeight
+    static let height: CGFloat = BarTheme.keyHeight
     /// The peek's numerals: the same key at a size read across the screen.
-    static let peekHeight: CGFloat = 48
+    static let peekHeight: CGFloat = BarTheme.rowHeight
     /// The neutral hairline from a displaced tag to its word.
     static var connector: NSColor { BarTheme.inkAt(Tone.systemDark ? 0.38 : 0.35) }
     /// The underline's weight: the editor's line, select's matches, a held span.
@@ -2001,13 +1989,13 @@ enum KeyMark {
     /// hand has typed of the label so far; those letters dim.
     static func key(_ text: String, typed: String = "", peek: Bool = false) -> NSView {
         let height = peek ? peekHeight : height
-        let radius = peek ? BarTheme.chipRadius * BarTheme.phi : BarTheme.chipRadius
+        let radius = BarTheme.controlRadius
         let label = NSTextField(labelWithAttributedString:
             letters(text, typed: typed, role: peek ? .largeFigure : .key))
         label.followLook()
         label.alignment = .center
         label.sizeToFit()
-        let width = max(height, ceil(label.frame.width) + BarTheme.chipPadX * 2)
+        let width = max(height, ceil(label.frame.width) + Grid.half * 2)
         let view = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
         view.wantsLayer = true
         guard let layer = view.layer else { return view }
@@ -2022,7 +2010,7 @@ enum KeyMark {
         layer.shadowPath = CGPath(roundedRect: view.bounds, cornerWidth: radius, cornerHeight: radius, transform: nil)
         // The top edge catching the light.
         let top = CALayer()
-        top.frame = CGRect(x: radius * 0.8, y: height - 1, width: max(0, width - radius * 1.6), height: 1)
+        top.frame = CGRect(x: radius, y: height - 1, width: max(0, width - radius * 2), height: 1)
         top.backgroundColor = BarTheme.keyTop.cgColor
         top.cornerRadius = 0.5
         layer.addSublayer(top)
@@ -2035,21 +2023,21 @@ enum KeyMark {
     /// The editor lens's tag: the key and the fix in words, on a small
     /// surface of the palette in force, just above the word it fixes.
     static func tag(letter: String, word: String, typed: String = "") -> NSView {
-        let pad: CGFloat = 3
-        let radius = BarTheme.chipRadius + pad
+        let pad = Grid.tight
+        let radius = BarTheme.controlRadius + pad
         let key = KeyMark.key(letter, typed: typed)
         let label = NSTextField(labelWithString: word)
         label.setRole(.meta)
         label.textColor = BarTheme.ink
         label.sizeToFit()
         let height = key.frame.height + pad * 2
-        let width = ceil(pad + key.frame.width + 6 + label.frame.width + 8)
+        let width = ceil(pad + key.frame.width + Grid.half + label.frame.width + Grid.close)
         let tag = ToneView(fill: BarTheme.dynamicGround(), edge: BarTheme.hairline,
                            edgeWidth: 0.5, radius: radius)
         tag.frame = NSRect(x: 0, y: 0, width: width, height: height)
         key.frame.origin = NSPoint(x: pad, y: pad)
         tag.addSubview(key)
-        label.frame.origin = NSPoint(x: key.frame.maxX + 6, y: ((height - label.frame.height) / 2).rounded())
+        label.frame.origin = NSPoint(x: key.frame.maxX + Grid.half, y: ((height - label.frame.height) / 2).rounded())
         tag.addSubview(label)
         return standing(tag, radius: radius)
     }
@@ -2075,7 +2063,7 @@ enum KeyMark {
     /// coordinates in the view it is added to).
     static func underline(under rect: NSRect, weight: CGFloat) -> NSView {
         let line = NSView(frame: NSRect(x: rect.minX + 1, y: rect.minY - weight + 1,
-                                        width: max(2, rect.width - 2), height: weight))
+                                        width: max(Grid.hair, rect.width - Grid.hair), height: weight))
         line.wantsLayer = true
         line.layer?.backgroundColor = BarTheme.accent.cgColor
         line.layer?.cornerRadius = weight / 2

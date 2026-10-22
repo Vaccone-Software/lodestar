@@ -165,7 +165,7 @@ enum HintTargets {
                 }
                 // The pruning that makes the budget go to what is visible.
                 if let frame, frame.width > 1, frame.height > 1,
-                   !frame.intersects(windowFrame.insetBy(dx: -8, dy: -8)) {
+                   !frame.intersects(windowFrame.insetBy(dx: -Grid.close, dy: -Grid.close)) {
                     return false
                 }
 

@@ -459,9 +459,9 @@ final class ClipDoorPanelTests: XCTestCase {
         let text = (1...200).map { "line \($0)" }.joined(separator: "\n")
         panel.show(view(text))
         let screen = ActivePolicy.presentationFrame
-        XCTAssertGreaterThan(panel.frame.maxY, screen.maxY - 22 - 60, "up to the top of the display")
-        XCTAssertLessThanOrEqual(panel.frame.maxY, screen.maxY - 22 + 1, "and never past the margin")
-        XCTAssertEqual(panel.frame.minY, screen.minY + 22 + ClipboardStrip.doorFloor(in: screen), accuracy: 0.5,
+        XCTAssertGreaterThan(panel.frame.maxY, screen.maxY - Grid.section - 60, "up to the top of the display")
+        XCTAssertLessThanOrEqual(panel.frame.maxY, screen.maxY - Grid.section + 1, "and never past the margin")
+        XCTAssertEqual(panel.frame.minY, screen.minY + Grid.section + ClipboardStrip.doorFloor(in: screen), accuracy: 0.5,
                        "standing above Keep's clips")
     }
 
@@ -479,7 +479,7 @@ final class ClipDoorPanelTests: XCTestCase {
         panel.show(view(text, card: false))
         let screen = ActivePolicy.presentationFrame
         XCTAssertGreaterThan(panel.frame.height, screen.height * 0.4 + 60)
-        XCTAssertEqual(panel.frame.minY, screen.minY + 22, accuracy: 0.5)
+        XCTAssertEqual(panel.frame.minY, screen.minY + Grid.section, accuracy: 0.5)
     }
 
     func testProseKeepsTheDraftsWidthAndCodeWidensToTheScreen() {
@@ -490,8 +490,8 @@ final class ClipDoorPanelTests: XCTestCase {
         let code = String(repeating: "let value = compute(input) ", count: 4)
         let wide = panel.width(for: code)
         XCTAssertGreaterThan(wide, 720)
-        XCTAssertLessThanOrEqual(wide, screen.width - 44)
-        XCTAssertEqual(panel.width(for: String(repeating: "x", count: 5000)), screen.width - 44,
+        XCTAssertLessThanOrEqual(wide, screen.width - Grid.section * 2)
+        XCTAssertEqual(panel.width(for: String(repeating: "x", count: 5000)), screen.width - Grid.section * 2,
                        "never past the screen")
     }
 

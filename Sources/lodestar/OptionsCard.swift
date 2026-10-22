@@ -87,8 +87,8 @@ final class OptionsCard {
     init() {
         // Fed by the bar's keys, never the mouse: the drawn shadow, gated
         // shut.
-        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius, takesPointer: false)
-        Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius, takesPointer: false)
+        Glass.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
     }
 
     /// The card's frame on screen, so a second card can unfurl beside it.
@@ -101,7 +101,6 @@ final class OptionsCard {
         build(content)
         root.layoutSubtreeIfNeeded()
         var size = root.fittingSize
-        size.width = max(size.width, 210)
         panel.setGlassFrame(Self.place(size, anchor: anchor), display: true)
         panel.orderFrontRegardless()
     }
@@ -118,25 +117,25 @@ final class OptionsCard {
         let topY: CGFloat
         switch anchor {
         case .row(let row, let panelFrame):
-            x = panelFrame.maxX + 12
-            if x + size.width > visible.maxX - 8 {
-                x = panelFrame.minX - size.width - 12
+            x = panelFrame.maxX + Grid.part
+            if x + size.width > visible.maxX - Grid.close {
+                x = panelFrame.minX - size.width - Grid.part
             }
             topY = row.maxY
         case .card(let card, let panelFrame):
             // Outward from the bar, so a cascade walks away from it rather
             // than back across it.
             let rightward = card.midX >= panelFrame.midX
-            x = rightward ? card.maxX + 12 : card.minX - size.width - 12
-            if rightward, x + size.width > visible.maxX - 8 {
-                x = card.minX - size.width - 12
-            } else if !rightward, x < visible.minX + 8 {
-                x = card.maxX + 12
+            x = rightward ? card.maxX + Grid.part : card.minX - size.width - Grid.part
+            if rightward, x + size.width > visible.maxX - Grid.close {
+                x = card.minX - size.width - Grid.part
+            } else if !rightward, x < visible.minX + Grid.close {
+                x = card.maxX + Grid.part
             }
             topY = card.maxY
         }
-        let y = max(visible.minY + 8, min(topY - size.height,
-                                          visible.maxY - size.height - 8))
+        let y = max(visible.minY + Grid.close, min(topY - size.height,
+                                          visible.maxY - size.height - Grid.close))
         return NSRect(x: x, y: y, width: size.width, height: size.height)
     }
 
@@ -148,7 +147,7 @@ final class OptionsCard {
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 7
+        stack.spacing = Grid.close
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         switch content {
@@ -173,7 +172,7 @@ final class OptionsCard {
             if let note = menu.note {
                 let noteLabel = label(note, role: .meta, color: BarTheme.secondaryColor)
                 noteLabel.lineBreakMode = .byTruncatingTail
-                noteLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 340).isActive = true
+                noteLabel.widthAnchor.constraint(lessThanOrEqualToConstant: BarTheme.measure).isActive = true
                 stack.addArrangedSubview(noteLabel)
             }
             if let footer = menu.footer {
@@ -185,7 +184,7 @@ final class OptionsCard {
                                            color: BarTheme.secondaryColor))
             let bodyRow = NSStackView()
             bodyRow.orientation = .horizontal
-            bodyRow.spacing = 5
+            bodyRow.spacing = Grid.tight
             switch typing.body {
             case .keys(let letters):
                 if letters.isEmpty {
@@ -211,7 +210,7 @@ final class OptionsCard {
                                      role: .meta,
                                      color: typing.problem ? BarTheme.ink : BarTheme.secondaryColor)
             verdictLabel.lineBreakMode = .byTruncatingTail
-            verdictLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 340).isActive = true
+            verdictLabel.widthAnchor.constraint(lessThanOrEqualToConstant: BarTheme.measure).isActive = true
             stack.addArrangedSubview(verdictLabel)
             if let control = typing.control {
                 let row = actionRow(control)
@@ -222,7 +221,7 @@ final class OptionsCard {
                 let detailLabel = label(detail, role: .meta,
                                         color: BarTheme.secondaryColor)
                 detailLabel.lineBreakMode = .byTruncatingTail
-                detailLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 340).isActive = true
+                detailLabel.widthAnchor.constraint(lessThanOrEqualToConstant: BarTheme.measure).isActive = true
                 stack.addArrangedSubview(detailLabel)
             }
             stack.addArrangedSubview(Self.footerLine(typing.footer))
@@ -230,10 +229,10 @@ final class OptionsCard {
 
         root.addSubview(stack)
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 12),
-            stack.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -11),
-            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 14),
-            stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -14),
+            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: Grid.part),
+            stack.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -Grid.part),
+            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Grid.part),
+            stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -Grid.part),
         ])
         self.content = stack
     }
@@ -247,8 +246,8 @@ final class OptionsCard {
         let stack = NSStackView()
         stack.orientation = .horizontal
         stack.alignment = .centerY
-        stack.spacing = BarTheme.rowGap
-        stack.edgeInsets = NSEdgeInsets(top: 6, left: 2, bottom: 6, right: 2)
+        stack.spacing = Grid.close
+        stack.edgeInsets = NSEdgeInsets(top: Grid.tight, left: Grid.tight, bottom: Grid.tight, right: Grid.tight)
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         // Told by its place under the rule, never painted.
@@ -259,8 +258,8 @@ final class OptionsCard {
         icon.contentTintColor = tint
         icon.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            icon.widthAnchor.constraint(equalToConstant: BarTheme.rowIcon),
-            icon.heightAnchor.constraint(equalToConstant: BarTheme.rowIcon),
+            icon.widthAnchor.constraint(equalToConstant: BarTheme.symbolSize),
+            icon.heightAnchor.constraint(equalToConstant: BarTheme.symbolSize),
         ])
 
         let title = label(item.title, role: .body, color: tint)
@@ -270,7 +269,7 @@ final class OptionsCard {
         spacer.translatesAutoresizingMaskIntoConstraints = false
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
         spacer.widthAnchor.constraint(
-            greaterThanOrEqualToConstant: BarTheme.rowKeyGap).isActive = true
+            greaterThanOrEqualToConstant: Grid.section).isActive = true
 
         stack.addArrangedSubview(icon)
         stack.addArrangedSubview(title)

@@ -73,9 +73,9 @@ final class ClipboardStrip {
 
     // MARK: - Geometry
 
-    static let gap: CGFloat = 10
+    static let gap = Grid.part
     /// The space at G between the hands.
-    static let gutter: CGFloat = 26
+    static let gutter = Grid.section
     /// The narrowest a card may be and still hold a line of a command.
     /// Below it J gives up its second key, and every key keeps its card.
     static let minModule: CGFloat = 150
@@ -84,11 +84,11 @@ final class ClipboardStrip {
     /// steps, so the newest leads by a step, never by a leap.
     static let clipHeight: CGFloat = 150
     static let rise: [CGFloat] = [1.26, 1.17, 1.11, 1.06]
-    static let barHeight: CGFloat = 46
-    static let margin: CGFloat = 22
+    static let barHeight = BarTheme.pillHeight
+    static let margin = Grid.section
     /// Where Keep's top edge stands, as a share of the screen's height:
     /// the bars' own line, so every surface opens at one height.
-    static let topLine: CGFloat = 0.64
+    static let topLine = BarTheme.topLine
 
     /// Every place Keep draws, decided from the screen alone so a test can
     /// ask about any screen. Card frames by label, keepsakes by digit, and
@@ -204,10 +204,19 @@ final class ClipboardStrip {
         layout(in: screen).rowTop - screen.minY + gap
     }
 
-    private static let pad: CGFloat = 12
-    /// The key's inset from a card's top edge, and the foot's height.
-    private static let head: CGFloat = 10
-    private static let foot: CGFloat = 26
+    private static let pad = Grid.part
+    /// The key's inset from a card's top edge, the gap under it, and the
+    /// foot's height.
+    private static let head = Grid.part
+    private static let keyGap = Grid.tight
+    private static let foot = Grid.section
+
+    /// What a thing inside a card rounds at: the card's radius less the
+    /// card's inset, so the gap between the two curves is even, and never
+    /// under the thing's own rung.
+    static func insideRadius(rung: CGFloat) -> CGFloat {
+        BarTheme.nested(outer: BarTheme.surfaceRadius, inset: pad, rung: rung)
+    }
 
     init() {
         panel = Glass.makePanel(level: .statusBar)
@@ -467,7 +476,7 @@ final class ClipboardStrip {
         shownKeys[id] = key
         _ = addKey(key, lit: lit, to: card, height: size.height)
         let body = NSRect(x: Self.pad, y: Self.foot, width: size.width - Self.pad * 2,
-                          height: size.height - Self.head - BarTheme.chipHeight - 6 - Self.foot)
+                          height: size.height - Self.head - BarTheme.keyHeight - Self.keyGap - Self.foot)
         let text = Self.bringLine(match, face: face, wholeLine: wholeLine)
         let preview = NSTextField(wrappingLabelWithString: "")
         preview.lineBreakMode = .byWordWrapping
@@ -487,13 +496,13 @@ final class ClipboardStrip {
         app.setRole(.meta)
         app.textColor = BarTheme.secondaryColor
         app.sizeToFit()
-        app.frame.origin = NSPoint(x: Self.pad, y: 8)
+        app.frame.origin = NSPoint(x: Self.pad, y: Grid.close)
         card.addSubview(app)
         where_.sizeToFit()
-        let room = size.width - Self.pad - app.frame.maxX - 10
+        let room = size.width - Self.pad - app.frame.maxX - Grid.close
         if room > 24, from?.window.isEmpty == false {
             let width = min(where_.frame.width, room)
-            where_.frame = NSRect(x: size.width - Self.pad - width, y: 8, width: width, height: where_.frame.height)
+            where_.frame = NSRect(x: size.width - Self.pad - width, y: Grid.close, width: width, height: where_.frame.height)
             card.addSubview(where_)
         }
         return card
@@ -608,7 +617,8 @@ final class ClipboardStrip {
     /// list of sources — so the cards' weights read alone.
     private func surface(size: NSSize, lift: ObjectSurface.Lift, weight: Weight,
                          counted: Bool = true) -> ObjectSurface {
-        let card = SoftShadow.object(radius: BarTheme.rowRadius, lift: lift)
+        let radius = BarTheme.radius(BarTheme.surfaceRadius, height: size.height)
+        let card = SoftShadow.object(radius: radius, lift: lift)
         card.frame = NSRect(origin: .zero, size: size)
         let veil: Glass.Weight
         switch weight {
@@ -616,7 +626,7 @@ final class ClipboardStrip {
         case .highlighted: veil = .raised
         case .empty: veil = .faint
         }
-        Glass.installBackdrop(in: card, cornerRadius: BarTheme.rowRadius, weight: veil)
+        Glass.installBackdrop(in: card, cornerRadius: radius, weight: veil)
         if counted { shownWeights.append(veil) }
         card.setAccessibilityElement(true)
         card.setAccessibilityRole(.button)
@@ -624,7 +634,7 @@ final class ClipboardStrip {
     }
 
     private func addKey(_ text: String, lit: Bool, to card: NSView, height: CGFloat) -> NSView {
-        let cap = Self.placedCap(text, at: NSPoint(x: Self.pad, y: height - BarTheme.chipHeight - Self.head))
+        let cap = Self.placedCap(text, at: NSPoint(x: Self.pad, y: height - BarTheme.keyHeight - Self.head))
         (cap as? KeyFace)?.lit = lit
         card.addSubview(cap)
         return cap
@@ -639,11 +649,11 @@ final class ClipboardStrip {
         let card = surface(size: size, lift: lift, weight: raised ? .highlighted : .normal)
         shownCards[clip.id] = card
         let width = size.width, height = size.height
-        let line = height - Self.head - BarTheme.chipHeight / 2
+        let line = height - Self.head - BarTheme.keyHeight / 2
         var leading = Self.pad
         if let key {
             shownKeys[clip.id] = key
-            leading = addKey(key, lit: lit, to: card, height: height).frame.maxX + 8
+            leading = addKey(key, lit: lit, to: card, height: height).frame.maxX + Grid.close
         }
         // A copy of several things says so beside its key.
         if let items = clip.itemsLabel {
@@ -657,7 +667,7 @@ final class ClipboardStrip {
 
         // Every card's text starts the same distance below its top edge.
         let body = NSRect(x: Self.pad, y: Self.foot, width: width - Self.pad * 2,
-                          height: height - Self.head - BarTheme.chipHeight - 6 - Self.foot)
+                          height: height - Self.head - BarTheme.keyHeight - Self.keyGap - Self.foot)
         if let reading {
             // Held `⌃`: the card shows what it would paste, in Lodestar's
             // voice, where the clip was.
@@ -685,11 +695,11 @@ final class ClipboardStrip {
             // too narrow for it: never cut short.
             let moment = now()
             var read = time.note(local: localZone, zones: timeZones, now: moment)
-            if Self.lineWidth(read.local) > body.width - 6 {
+            if Self.lineWidth(read.local) > body.width - Grid.tight {
                 read = time.note(local: localZone, zones: timeZones, now: moment, compact: true)
             }
             let room = body.height - Self.previewHeight(shown(clip).string, width: body.width) - Self.noteGap
-            let rows = max(1, Int((room - Self.voiceHeight - 2) / Self.metaHeight))
+            let rows = max(1, Int((room - Self.voiceHeight - Grid.hair) / Self.metaHeight))
             // UTC is there for anyone; a zone you kept is there because you
             // asked. Short of rows, UTC gives way before a zone you kept.
             var lines = Self.pack([read.local] + read.zones, width: body.width)
@@ -730,7 +740,7 @@ final class ClipboardStrip {
             // Finder and not worth an ellipsis where the size is a word.
             let age = Clipboard.age(of: clip)
             let missing = Clipboard.allMissing(files.present)
-            let beside = width - Self.pad * 2 - 8 - Self.minimumSource
+            let beside = width - Self.pad * 2 - Grid.close - Self.minimumSource
             caption = Clipboard.fileCaption(of: clip, age: age, missing: missing)
             if Self.lineWidth(caption) > beside {
                 caption = Clipboard.fileCaption(of: clip, age: age, withKind: false, missing: missing)
@@ -743,7 +753,7 @@ final class ClipboardStrip {
         age.setRole(.meta, tabular: true)
         age.textColor = BarTheme.secondaryColor
         age.sizeToFit()
-        age.frame.origin = NSPoint(x: width - age.frame.width - Self.pad, y: 8)
+        age.frame.origin = NSPoint(x: width - age.frame.width - Self.pad, y: Grid.close)
         card.addSubview(age)
         if showsSource, let origin = clip.sourceHost ?? clip.sourceAppName {
             let source = NSTextField(labelWithString: origin)
@@ -751,11 +761,11 @@ final class ClipboardStrip {
             source.textColor = BarTheme.secondaryColor
             source.lineBreakMode = .byTruncatingTail
             source.sizeToFit()
-            let room = age.frame.minX - 8 - Self.pad
+            let room = age.frame.minX - Grid.close - Self.pad
             // A card of files names its source whole or not at all: it is
             // nearly always the Finder, and "Find…" is no name.
             if clip.kind == .file, source.frame.width > room { return card }
-            source.frame = NSRect(x: Self.pad, y: 8, width: max(0, min(source.frame.width, room)),
+            source.frame = NSRect(x: Self.pad, y: Grid.close, width: max(0, min(source.frame.width, room)),
                                   height: source.frame.height)
             card.addSubview(source)
             shownSources[clip.id] = origin
@@ -784,15 +794,15 @@ final class ClipboardStrip {
     static let sheet = NSSize(width: 50, height: 64)
     static let soloSheet = NSSize(width: 64, height: 84)
     /// Each sheet behind the first stands this far right and up.
-    static let cascadeStep = NSSize(width: 14, height: 7)
+    static let cascadeStep = NSSize(width: Grid.group, height: Grid.close)
 
     /// Where the sheets of a stack stand in a card's body, the first at the
     /// lower left in front, each of the others a step up and to the right
     /// and behind it. Whole points.
     static func cascadeSheets(count: Int, in body: NSRect) -> [NSRect] {
         (0..<max(0, count)).map { index in
-            NSRect(x: body.minX + 4 + cascadeStep.width * CGFloat(index),
-                   y: body.minY + 2 + cascadeStep.height * CGFloat(index),
+            NSRect(x: body.minX + Grid.tight + cascadeStep.width * CGFloat(index),
+                   y: body.minY + Grid.hair + cascadeStep.height * CGFloat(index),
                    width: sheet.width, height: sheet.height)
         }
     }
@@ -821,11 +831,11 @@ final class ClipboardStrip {
     /// in it, with the drawn soft shadow of an object resting on the card.
     private func makeSheet(frame: NSRect, picture: NSImage?, fact: Clipboard.FileFact?, name: String?,
                            in card: NSView) -> NSView {
-        let sheet = SoftShadow.object(radius: BarTheme.markRadius, lift: .rest)
+        let sheet = SoftShadow.object(radius: Self.insideRadius(rung: BarTheme.markRadius), lift: .rest)
         sheet.frame = frame
         let face = NSView(frame: sheet.bounds)
         face.wantsLayer = true
-        face.layer?.cornerRadius = BarTheme.markRadius
+        face.layer?.cornerRadius = Self.insideRadius(rung: BarTheme.markRadius)
         face.layer?.masksToBounds = true
         face.layer?.backgroundColor = Glass.resolved(BarTheme.raised, in: card)
         // The file's own face is cropped to the sheet, as a print is; an
@@ -834,7 +844,7 @@ final class ClipboardStrip {
         let image = picture ?? Self.icon(type: fact?.type, name: name)
         if let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
             let art = CALayer()
-            art.frame = ownFace ? face.bounds : face.bounds.insetBy(dx: 7, dy: 7)
+            art.frame = ownFace ? face.bounds : face.bounds.insetBy(dx: Grid.close, dy: Grid.close)
             art.contents = cg
             art.contentsGravity = ownFace ? .resizeAspectFill : .resizeAspect
             art.masksToBounds = true
@@ -863,14 +873,14 @@ final class ClipboardStrip {
                                        fact: facts.indices.contains(index) ? facts[index] : nil,
                                        name: names.indices.contains(index) ? names[index] : nil, in: card))
             }
-            let left = (sheets.last?.maxX ?? body.minX) + 10
+            let left = (sheets.last?.maxX ?? body.minX) + Grid.part
             let room = body.maxX - left
             var lines: [String] = []
             // A card too narrow for the names keeps the stack alone: the
             // count beside the key and VoiceOver still say them. A name cut
             // to its first letters names nothing, so the room must hold one.
             if room >= Self.minimumNamesBeside {
-                var top = body.maxY - 14
+                var top = body.maxY - Grid.part
                 for line in Clipboard.nameLines(names: names, total: count) {
                     // "and 5 more" is never cut: where it does not fit, the
                     // number alone says it.
@@ -881,9 +891,9 @@ final class ClipboardStrip {
                     label.textColor = line.grey ? BarTheme.secondaryColor : BarTheme.ink
                     label.lineBreakMode = .byTruncatingTail
                     label.sizeToFit()
-                    top -= 16
-                    label.frame = NSRect(x: left, y: top, width: min(label.frame.width, room), height: 16)
-                    top -= 3
+                    top -= Self.metaHeight
+                    label.frame = NSRect(x: left, y: top, width: min(label.frame.width, room), height: Self.metaHeight)
+                    top -= Grid.hair
                     drawn.append(label)
                     lines.append(text)
                 }
@@ -894,7 +904,7 @@ final class ClipboardStrip {
             let frame = Self.soloSheetFrame(in: body)
             drawn.append(makeSheet(frame: frame, picture: art.pictures.first.flatMap { $0 }, fact: facts.first,
                                    name: names.first, in: card))
-            let left = frame.maxX + 10
+            let left = frame.maxX + Grid.part
             let room = body.maxX - left
             var lines: [String] = []
             if room >= Self.minimumNames {
@@ -906,7 +916,7 @@ final class ClipboardStrip {
                 title.maximumNumberOfLines = 2
                 title.cell?.truncatesLastVisibleLine = true
                 let height = ceil(title.sizeThatFits(NSSize(width: room, height: .greatestFiniteMagnitude)).height)
-                let titleHeight = min(height, 2 * 16)
+                let titleHeight = min(height, 2 * Self.metaHeight)
                 top -= titleHeight
                 title.frame = NSRect(x: left, y: top, width: room, height: titleHeight)
                 drawn.append(title)
@@ -919,8 +929,8 @@ final class ClipboardStrip {
                     label.setRole(.meta)
                     label.textColor = BarTheme.secondaryColor
                     label.lineBreakMode = .byTruncatingTail
-                    top -= 16 + 2
-                    label.frame = NSRect(x: left, y: top + 2, width: room, height: 16)
+                    top -= Self.metaHeight + Grid.hair
+                    label.frame = NSRect(x: left, y: top + Grid.hair, width: room, height: Self.metaHeight)
                     drawn.append(label)
                     lines.append(text)
                 }
@@ -963,9 +973,9 @@ final class ClipboardStrip {
         var leading = Self.pad
         if let key {
             shownKeys[clip.id] = key
-            leading = addKey(key, lit: false, to: card, height: height).frame.maxX + 8
+            leading = addKey(key, lit: false, to: card, height: height).frame.maxX + Grid.close
         }
-        let line = height - Self.head - BarTheme.chipHeight / 2
+        let line = height - Self.head - BarTheme.keyHeight / 2
 
         let name = naming?.text ?? Clipboard.name(of: clip)
         shownNames[slot] = name
@@ -981,7 +991,7 @@ final class ClipboardStrip {
             if naming.selected {
                 // The offered name stands selected, in a quiet grey:
                 // typing replaces it. The accent is the caret's alone.
-                let mark = NSView(frame: title.frame.insetBy(dx: -2, dy: 0))
+                let mark = NSView(frame: title.frame.insetBy(dx: -Grid.hair, dy: 0))
                 mark.wantsLayer = true
                 mark.layer?.cornerRadius = BarTheme.markRadius
                 mark.layer?.backgroundColor = Glass.resolved(BarTheme.inkAt(0.14), in: card)
@@ -989,8 +999,9 @@ final class ClipboardStrip {
             }
             card.addSubview(title)
             let glyphs = BarTheme.width(of: name, in: .body)
-            let caret = NSView(frame: NSRect(x: title.frame.minX + min(glyphs, room) + 1,
-                                             y: line - 9, width: 1.5, height: 18))
+            let caret = NSView(frame: NSRect(x: title.frame.minX + min(glyphs, room) + Grid.hair,
+                                             y: line - BarTheme.bodyCaretHeight / 2,
+                                             width: BarTheme.caretWidth, height: BarTheme.bodyCaretHeight))
             caret.wantsLayer = true
             caret.layer?.backgroundColor = Glass.resolved(BarTheme.readableAccent)
             card.addSubview(caret)
@@ -999,7 +1010,7 @@ final class ClipboardStrip {
         }
 
         let body = NSRect(x: Self.pad, y: Self.head, width: width - Self.pad * 2,
-                          height: height - Self.head * 2 - BarTheme.chipHeight - 6)
+                          height: height - Self.head * 2 - BarTheme.keyHeight - Self.keyGap)
         if let reading {
             shownReadings[clip.id] = reading
             let label = NSTextField(wrappingLabelWithString: reading)
@@ -1038,14 +1049,14 @@ final class ClipboardStrip {
         if wearsKey {
             let cap = addKey("\(slot)", lit: false, to: card, height: size.height)
             (cap as? KeyFace)?.quiet = true
-            leading = cap.frame.maxX + 8
+            leading = cap.frame.maxX + Grid.close
         }
         let label = NSTextField(labelWithString: "Keep here")
         label.setRole(.meta)
         label.textColor = BarTheme.secondaryColor
         label.sizeToFit()
         label.frame.origin = NSPoint(x: leading,
-                                     y: size.height - Self.head - BarTheme.chipHeight / 2 - label.frame.height / 2)
+                                     y: size.height - Self.head - BarTheme.keyHeight / 2 - label.frame.height / 2)
         card.addSubview(label)
         card.setAccessibilityLabel("Keepsake \(slot), free")
         return card
@@ -1089,9 +1100,9 @@ final class ClipboardStrip {
         var labels: [NSTextField] = []
         // Beside its note, smaller on a narrow card, so the name's longest
         // word always fits on one line and no word is ever broken.
-        let roomy = voice.map { Self.widestWord($0) <= body.width - 50 } ?? true
-        let swatchSide: CGFloat = roomy ? 40 : 26
-        if color != nil { x += swatchSide + (roomy ? 10 : 8) }
+        let roomy = voice.map { Self.widestWord($0) <= body.width - Self.swatch - Grid.part } ?? true
+        let swatchSide = roomy ? Self.swatch : Self.smallSwatch
+        if color != nil { x += swatchSide + (roomy ? Grid.part : Grid.close) }
         let width = body.maxX - x
         if let voice {
             let label = NSTextField(wrappingLabelWithString: voice)
@@ -1127,7 +1138,7 @@ final class ClipboardStrip {
             if isVoice { voiceBottom = y }
             label.frame.origin = NSPoint(x: isVoice || !under ? x : body.minX, y: y)
             card.addSubview(label)
-            y += label.frame.height + (index == 1 && voice != nil ? 2 : 0)
+            y += label.frame.height + (index == 1 && voice != nil ? Grid.hair : 0)
         }
         var top = y
         if let color {
@@ -1136,7 +1147,7 @@ final class ClipboardStrip {
             let swatch = NSView(frame: NSRect(x: body.minX, y: max(floor, middle - swatchSide / 2),
                                               width: swatchSide, height: swatchSide))
             swatch.wantsLayer = true
-            swatch.layer?.cornerRadius = BarTheme.wellRadius
+            swatch.layer?.cornerRadius = Self.insideRadius(rung: BarTheme.controlRadius)
             swatch.layer?.backgroundColor = NSColor(srgbRed: color.red, green: color.green, blue: color.blue,
                                                     alpha: color.alpha).cgColor
             swatch.layer?.borderWidth = 0.5
@@ -1156,7 +1167,7 @@ final class ClipboardStrip {
     /// The widest single word of a note, as the voice draws it.
     private static func widestWord(_ text: String) -> CGFloat {
         text.split(separator: " ").map {
-            BarTheme.width(of: String($0), in: .voice) + 4
+            BarTheme.width(of: String($0), in: .voice) + Grid.tight
         }.max() ?? 0
     }
 
@@ -1200,11 +1211,13 @@ final class ClipboardStrip {
     /// The bar a secret's middle draws as: one rounded bar at the capital
     /// height in the text's own grey, the same width for every secret.
     private static func secretBar(role: BarTheme.Role) -> NSAttributedString {
-        let size = NSSize(width: 33, height: ceil(role.font.capHeight))
+        let size = NSSize(width: Grid.margin, height: ceil(role.font.capHeight))
         let attachment = NSTextAttachment()
         attachment.image = NSImage(size: size, flipped: false) { rect in
             BarTheme.secondaryColor.setFill()
-            NSBezierPath(roundedRect: rect.insetBy(dx: 1.5, dy: 0), xRadius: 2, yRadius: 2).fill()
+            let bar = rect.insetBy(dx: Grid.hair, dy: 0)
+            let corner = BarTheme.radius(BarTheme.markRadius, height: bar.height)
+            NSBezierPath(roundedRect: bar, xRadius: corner, yRadius: corner).fill()
             return true
         }
         attachment.bounds = NSRect(origin: .zero, size: size)
@@ -1233,15 +1246,20 @@ final class ClipboardStrip {
         return ceil(preview.sizeThatFits(NSSize(width: width, height: .greatestFiniteMagnitude)).height)
     }
 
-    private static let noteGap: CGFloat = 8
+    private static let noteGap = Grid.close
+    /// The most of the save band a folder's path may take.
+    private static let placeShare: CGFloat = 0.4
+    /// A colour's swatch beside its note, and its small size on a narrow card.
+    private static let swatch = BarTheme.rowHeight - Grid.close
+    private static let smallSwatch = Grid.section
     private static var bodyLine: CGFloat { lineHeight(of: .body) }
     /// The height of a line of a role, as a label sets it.
     private static func lineHeight(of role: BarTheme.Role) -> CGFloat {
         let font = role.font
         return ceil(font.ascender - font.descender + font.leading)
     }
-    private static var metaHeight: CGFloat { 16 }
-    private static var voiceHeight: CGFloat { ceil(BarTheme.Role.voice.font.ascender - BarTheme.Role.voice.font.descender) + 2 }
+    private static var metaHeight: CGFloat { lineHeight(of: .meta) }
+    private static var voiceHeight: CGFloat { ceil(BarTheme.Role.voice.font.ascender - BarTheme.Role.voice.font.descender) + Grid.hair }
 
     /// The shared keycap, sized by its own constraints and then placed by
     /// frame, which is how a frame-laid card holds an Auto Layout view.
@@ -1250,7 +1268,7 @@ final class ClipboardStrip {
         cap.layoutSubtreeIfNeeded()
         let size = cap.fittingSize
         cap.translatesAutoresizingMaskIntoConstraints = true
-        cap.frame = NSRect(origin: origin, size: NSSize(width: size.width, height: BarTheme.chipHeight))
+        cap.frame = NSRect(origin: origin, size: NSSize(width: size.width, height: BarTheme.keyHeight))
         return cap
     }
 
@@ -1274,7 +1292,7 @@ final class ClipboardStrip {
         bar.setAccessibilityLabel(placeholder)
         bar.setAccessibilityValue(query)
         let height = frame.height
-        let slash = Self.placedCap(key, at: NSPoint(x: Self.pad, y: (height - BarTheme.chipHeight) / 2))
+        let slash = Self.placedCap(key, at: NSPoint(x: Grid.group, y: (height - BarTheme.keyHeight) / 2))
         bar.addSubview(slash)
 
         // The source chip at the right: ⇥ and the app the clips come from.
@@ -1284,14 +1302,14 @@ final class ClipboardStrip {
         name.textColor = source == nil ? BarTheme.secondaryColor : BarTheme.ink
         name.sizeToFit()
         shownSource = name.stringValue
-        name.frame.origin = NSPoint(x: frame.width - Self.pad - name.frame.width,
+        name.frame.origin = NSPoint(x: frame.width - Grid.group - name.frame.width,
                                     y: (height - name.frame.height) / 2)
-        chipKey.frame.origin = NSPoint(x: name.frame.minX - 6 - chipKey.frame.width,
-                                       y: (height - BarTheme.chipHeight) / 2)
+        chipKey.frame.origin = NSPoint(x: name.frame.minX - Grid.close - chipKey.frame.width,
+                                       y: (height - BarTheme.keyHeight) / 2)
         bar.addSubview(chipKey)
         bar.addSubview(name)
 
-        var right = chipKey.frame.minX - 14
+        var right = chipKey.frame.minX - Grid.group
         if let text = countText {
             shownCount = text
             let count = NSTextField(labelWithString: text)
@@ -1300,10 +1318,10 @@ final class ClipboardStrip {
             count.sizeToFit()
             count.frame.origin = NSPoint(x: right - count.frame.width, y: (height - count.frame.height) / 2)
             bar.addSubview(count)
-            right = count.frame.minX - 14
+            right = count.frame.minX - Grid.group
         }
 
-        let x = slash.frame.maxX + 10
+        let x = slash.frame.maxX + Grid.part
         let field = query.isEmpty
             ? NSTextField(labelWithAttributedString: BarTheme.placeholder(placeholder, role: .field))
             : NSTextField(labelWithString: query)
@@ -1315,8 +1333,9 @@ final class ClipboardStrip {
         bar.addSubview(field)
         // A still caret in the accent, never a blinking one.
         let glyphs = query.isEmpty ? 0 : BarTheme.width(of: query, in: .field)
-        let caret = NSView(frame: NSRect(x: x + min(glyphs, field.frame.width) + (query.isEmpty ? 0 : 2),
-                                         y: (height - 20) / 2, width: 1.5, height: 20))
+        let caret = NSView(frame: NSRect(x: x + min(glyphs, field.frame.width) + (query.isEmpty ? 0 : Grid.hair),
+                                         y: (height - BarTheme.caretHeight) / 2,
+                                         width: BarTheme.caretWidth, height: BarTheme.caretHeight))
         caret.wantsLayer = true
         caret.layer?.backgroundColor = Glass.resolved(BarTheme.readableAccent)
         bar.addSubview(caret)
@@ -1327,38 +1346,39 @@ final class ClipboardStrip {
     /// cards: its own field, All apps above a rule, then the apps
     /// alphabetically with how many clips each holds.
     private func addSourceMenu(_ menu: SourceMenu, under bar: NSRect) {
-        let rowHeight: CGFloat = 30, fieldHeight: CGFloat = 38, width: CGFloat = 270
+        let rowHeight = Self.menuRow, fieldHeight = Self.menuField, width = Self.menuWidth
         let visible = 9
         let start = max(0, min(menu.selection - visible / 2, menu.rows.count - visible))
         let rows = Array(menu.rows.enumerated().dropFirst(start).prefix(visible))
         let ruled = rows.first?.offset == 0 && rows.count > 1
-        let height = fieldHeight + 8 + CGFloat(rows.count) * rowHeight + (ruled ? 9 : 0) + 8
-        let frame = NSRect(x: bar.maxX - width, y: bar.minY - 6 - height, width: width, height: height)
+        let height = BarTheme.paneInset * 2 + fieldHeight + Grid.close + CGFloat(rows.count) * rowHeight + (ruled ? Grid.close : 0)
+        let frame = NSRect(x: bar.maxX - width, y: bar.minY - Grid.close - height, width: width, height: height)
         let plate = surface(size: frame.size, lift: .float, weight: .highlighted, counted: false)
         plate.frame = frame
         plate.setAccessibilityRole(.list)
         plate.setAccessibilityLabel("Sources")
 
-        var top = height - 8
+        var top = height - BarTheme.paneInset
         let typed = menu.typed.isEmpty
             ? NSTextField(labelWithAttributedString: BarTheme.placeholder("Search apps", role: .body))
             : NSTextField(labelWithString: menu.typed)
         if menu.typed.isEmpty { typed.followLook() } else { typed.setRole(.body); typed.textColor = BarTheme.ink }
         typed.sizeToFit()
         let fieldY = top - fieldHeight
-        typed.frame.origin = NSPoint(x: 16, y: fieldY + (fieldHeight - typed.frame.height) / 2)
+        typed.frame.origin = NSPoint(x: BarTheme.fieldInset, y: fieldY + (fieldHeight - typed.frame.height) / 2)
         plate.addSubview(typed)
         let glyphs = menu.typed.isEmpty ? 0 : BarTheme.width(of: menu.typed, in: .body)
-        let caret = NSView(frame: NSRect(x: 16 + glyphs + (menu.typed.isEmpty ? -3 : 2),
-                                         y: fieldY + (fieldHeight - 18) / 2, width: 1.5, height: 18))
+        let caret = NSView(frame: NSRect(x: BarTheme.fieldInset + glyphs + (menu.typed.isEmpty ? -Grid.tight : Grid.hair),
+                                         y: fieldY + (fieldHeight - BarTheme.bodyCaretHeight) / 2,
+                                         width: BarTheme.caretWidth, height: BarTheme.bodyCaretHeight))
         caret.wantsLayer = true
         caret.layer?.backgroundColor = Glass.resolved(BarTheme.readableAccent)
         plate.addSubview(caret)
-        top = fieldY - 8
+        top = fieldY - Grid.close
 
         for (index, row) in rows {
             let y = top - rowHeight
-            let line = RaisedLine(frame: NSRect(x: 6, y: y, width: width - 12, height: rowHeight))
+            let line = RaisedLine(frame: NSRect(x: BarTheme.paneInset, y: y, width: width - BarTheme.paneInset * 2, height: rowHeight))
             line.setupRaised()
             line.applyRaised(index == menu.selection)
             let name = NSTextField(labelWithString: row.name)
@@ -1370,10 +1390,10 @@ final class ClipboardStrip {
             count.setRole(.meta, tabular: true)
             count.textColor = BarTheme.secondaryColor
             count.sizeToFit()
-            count.frame.origin = NSPoint(x: line.frame.width - 10 - count.frame.width,
+            count.frame.origin = NSPoint(x: line.frame.width - Grid.part - count.frame.width,
                                          y: (rowHeight - count.frame.height) / 2)
-            name.frame = NSRect(x: 10, y: (rowHeight - name.frame.height) / 2,
-                                width: min(name.frame.width, count.frame.minX - 18), height: name.frame.height)
+            name.frame = NSRect(x: Grid.part, y: (rowHeight - name.frame.height) / 2,
+                                width: min(name.frame.width, count.frame.minX - Grid.part - Grid.close), height: name.frame.height)
             line.addSubview(name)
             line.addSubview(count)
             line.setAccessibilityElement(true)
@@ -1382,11 +1402,11 @@ final class ClipboardStrip {
             shownSourceRows.append(row.name)
             top = y
             if index == 0, ruled {
-                let rule = NSView(frame: NSRect(x: 16, y: top - 5, width: width - 32, height: 1))
+                let rule = NSView(frame: NSRect(x: BarTheme.paneInset, y: top - Grid.tight, width: width - BarTheme.paneInset * 2, height: 1))
                 rule.wantsLayer = true
                 rule.layer?.backgroundColor = Glass.resolved(BarTheme.hairline)
                 plate.addSubview(rule)
-                top -= 9
+                top -= Grid.close
             }
         }
         root.addSubview(plate)
@@ -1395,13 +1415,17 @@ final class ClipboardStrip {
     // MARK: - Actions
 
     private static let actionRow: CGFloat = 32
-    private static let actionPadY: CGFloat = 12
-    private static let actionInset: CGFloat = 14
-    private static let actionChipGap = BarTheme.rowGap
-    private static let actionKeyGap = BarTheme.rowKeyGap
-    private static let actionIcon = BarTheme.rowIcon
-    private static let actionSeparator: CGFloat = 11
-    private static let actionChip = NSSize(width: BarTheme.chipMinWidth, height: BarTheme.chipHeight)
+    /// The source list: its rows, its field, its width.
+    private static let menuRow: CGFloat = 32
+    private static let menuField: CGFloat = 40
+    private static let menuWidth: CGFloat = 272
+    private static let actionPadY = Grid.part
+    private static let actionInset = Grid.group
+    private static let actionChipGap = Grid.close
+    private static let actionKeyGap = Grid.section
+    private static let actionIcon = BarTheme.symbolSize
+    private static let actionSeparator = Grid.part
+    private static let actionChip = NSSize(width: BarTheme.chipMinWidth, height: BarTheme.keyHeight)
     private static let actionRole = BarTheme.Role.body
 
     private func actionLabelWidth(_ text: String) -> CGFloat {
@@ -1424,7 +1448,7 @@ final class ClipboardStrip {
             + widest + Self.actionKeyGap + Self.actionChip.width
         var height = CGFloat(actions.count) * Self.actionRow + Self.actionPadY * 2
         if separatorIndex(actions) != nil { height += Self.actionSeparator }
-        return NSSize(width: min(max(width, 220), 340), height: height)
+        return NSSize(width: min(width, BarTheme.measure), height: height)
     }
 
     /// The menu stands over the card it acts on, its left edge on the
@@ -1511,7 +1535,8 @@ final class ClipboardStrip {
             accessibilityDescription: nil)?
             .withSymbolConfiguration(BarTheme.symbolBand) ?? NSImage())
         symbol.contentTintColor = BarTheme.secondaryColor
-        symbol.frame = NSRect(x: 16, y: (height - 18) / 2, width: 18, height: 18)
+        symbol.frame = NSRect(x: Grid.group, y: (height - BarTheme.symbolSize) / 2,
+                              width: BarTheme.symbolSize, height: BarTheme.symbolSize)
         plate.addSubview(symbol)
 
         let place = NSTextField(labelWithString: "→ " + folder)
@@ -1519,8 +1544,8 @@ final class ClipboardStrip {
         place.textColor = BarTheme.secondaryColor
         place.lineBreakMode = .byTruncatingMiddle
         place.sizeToFit()
-        let placeWidth = min(place.frame.width, width * 0.4)
-        place.frame = NSRect(x: width - 16 - placeWidth, y: (height - place.frame.height) / 2,
+        let placeWidth = min(place.frame.width, width * Self.placeShare)
+        place.frame = NSRect(x: width - Grid.group - placeWidth, y: (height - place.frame.height) / 2,
                              width: placeWidth, height: place.frame.height)
         plate.addSubview(place)
 
@@ -1529,15 +1554,17 @@ final class ClipboardStrip {
         field.textColor = name.isEmpty ? BarTheme.secondaryColor : BarTheme.ink
         field.lineBreakMode = .byTruncatingHead
         field.sizeToFit()
-        let room = place.frame.minX - 44 - 20
-        field.frame = NSRect(x: 44, y: (height - field.frame.height) / 2,
+        let fieldX = Grid.group + BarTheme.symbolSize + Grid.part
+        let room = place.frame.minX - fieldX - Grid.section
+        field.frame = NSRect(x: fieldX, y: (height - field.frame.height) / 2,
                              width: min(field.frame.width, room), height: field.frame.height)
         plate.addSubview(field)
 
         let shown = name.isEmpty ? offered : name
         let glyphs = BarTheme.width(of: shown, in: .field)
-        let caret = NSView(frame: NSRect(x: field.frame.minX + min(glyphs, field.frame.width) + 2,
-                                         y: (height - 20) / 2, width: 1.5, height: 20))
+        let caret = NSView(frame: NSRect(x: field.frame.minX + min(glyphs, field.frame.width) + Grid.hair,
+                                         y: (height - BarTheme.caretHeight) / 2,
+                                         width: BarTheme.caretWidth, height: BarTheme.caretHeight))
         caret.wantsLayer = true
         caret.layer?.backgroundColor = Glass.resolved(BarTheme.readableAccent)
         plate.addSubview(caret)

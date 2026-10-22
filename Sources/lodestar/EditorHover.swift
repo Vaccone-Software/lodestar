@@ -85,14 +85,14 @@ final class EditorHover: NSObject {
     static func mark(at point: CGPoint, in marks: [EditorController.Mark]) -> EditorController.Mark? {
         marks.first { mark in
             let r = mark.rect
-            return CGRect(x: r.minX - 2, y: r.minY - 2, width: r.width + 4, height: r.height + 7).contains(point)
+            return CGRect(x: r.minX - Grid.hair, y: r.minY - Grid.hair, width: r.width + Grid.tight, height: r.height + Grid.close).contains(point)
         }
     }
 
     func moved() {
         let point = pointer()
         if let shown {
-            let overCard = cardFrame.insetBy(dx: -6, dy: -6).contains(point)
+            let overCard = cardFrame.insetBy(dx: -Grid.close, dy: -Grid.close).contains(point)
             let overWord = Self.mark(at: point, in: [shown]) != nil
             if overCard || overWord { leaveWork?.cancel(); leaveWork = nil; return }
         }
@@ -163,20 +163,20 @@ final class EditorHover: NSObject {
         } else {
             panel = Glass.makePanel(level: NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue + 1))
             // The drawn shadow, hosted once; each card is built into it.
-            SoftShadow.host(holder, in: panel, cornerRadius: BarTheme.glassRadius)
+            SoftShadow.host(holder, in: panel, cornerRadius: BarTheme.surfaceRadius)
             self.panel = panel
         }
         holder.subviews.forEach { $0.removeFromSuperview() }
         let root = NSView(frame: holder.bounds)
         root.autoresizingMask = [.width, .height]
         holder.addSubview(root)
-        Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+        Glass.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
 
         let words = Self.answers(for: mark.issue)
         let answers = NSStackView()
         answers.orientation = .horizontal
         answers.alignment = .centerY
-        answers.spacing = 6
+        answers.spacing = Grid.tight
         answers.translatesAutoresizingMaskIntoConstraints = false
         func button(_ title: String, _ action: Selector, lit: Bool = false) -> RoomButton {
             let button = RoomButton(frame: .zero)
@@ -197,7 +197,7 @@ final class EditorHover: NSObject {
         learnButton?.setAccessibilityLabel("Learn \(EditorController.word(mark.issue))")
 
         root.addSubview(answers)
-        let inset: CGFloat = 8
+        let inset = Grid.close
         NSLayoutConstraint.activate([
             answers.topAnchor.constraint(equalTo: root.topAnchor, constant: inset),
             answers.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: inset),
@@ -213,10 +213,10 @@ final class EditorHover: NSObject {
         let height = primary.frame.maxY
         let screen = NSScreen.screens.first { $0.frame.contains(NSPoint(x: mark.rect.midX, y: height - mark.rect.midY)) }
             ?? primary
-        var top = (mark.rect.minY - 6 - size.height).rounded()
-        if top < height - screen.visibleFrame.maxY { top = (mark.rect.maxY + 8).rounded() }
-        let x = min(max((mark.rect.minX - inset - 2).rounded(), screen.visibleFrame.minX + 4),
-                    screen.visibleFrame.maxX - size.width - 4)
+        var top = (mark.rect.minY - Grid.close - size.height).rounded()
+        if top < height - screen.visibleFrame.maxY { top = (mark.rect.maxY + Grid.close).rounded() }
+        let x = min(max((mark.rect.minX - inset - Grid.hair).rounded(), screen.visibleFrame.minX + Grid.tight),
+                    screen.visibleFrame.maxX - size.width - Grid.tight)
         cardFrame = CGRect(x: x, y: top, width: size.width, height: size.height)
         panel.setGlassFrame(NSRect(x: x, y: height - top - size.height, width: size.width, height: size.height),
                             display: true)

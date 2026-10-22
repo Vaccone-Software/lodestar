@@ -107,21 +107,6 @@ final class DesignDriftTests: XCTestCase {
         XCTAssertEqual(BarTheme.symbol.value(forKey: "pointSize") as? CGFloat, BarTheme.Scale.meta)
     }
 
-    /// One ladder from the pill's height, each rung the one above over φ².
-    func testRoundingConvergesOnOneLadder() {
-        let phi = BarTheme.phi
-        XCTAssertEqual(BarTheme.surfaceRadius, BarTheme.pillHeight / (phi * phi), accuracy: 0.001)
-        XCTAssertEqual(BarTheme.controlRadius, BarTheme.surfaceRadius / (phi * phi), accuracy: 0.001)
-        XCTAssertEqual(BarTheme.markRadius, BarTheme.controlRadius / (phi * phi), accuracy: 0.001)
-        for surface in [BarTheme.glassRadius, BarTheme.rowRadius, ModePill.radius] {
-            XCTAssertEqual(surface, BarTheme.surfaceRadius, "every surface rounds at the first rung")
-        }
-        for control in [BarTheme.chipRadius, BarTheme.glassChipRadius, BarTheme.wellRadius] {
-            XCTAssertEqual(control, BarTheme.controlRadius, "every control at the second")
-        }
-        XCTAssertEqual(BarTheme.highlightRadius, BarTheme.markRadius, "a mark at the third")
-    }
-
     /// What builds a font, and so belongs to the theme alone: the system's
     /// constructors, a descriptor, a preferred text style, a font set on a
     /// view by hand. A surface names a role (`setRole`, `BarTheme.attributes`)
@@ -433,7 +418,7 @@ final class DesignDriftTests: XCTestCase {
     private func keyShapes(in root: NSView) -> [NSView] {
         var out: [NSView] = []
         func walk(_ view: NSView) {
-            if view.layer?.cornerRadius == BarTheme.chipRadius, !(view is KeyFace) { out.append(view) }
+            if view.layer?.cornerRadius == BarTheme.controlRadius, !(view is KeyFace) { out.append(view) }
             view.subviews.forEach(walk)
         }
         walk(root)

@@ -204,7 +204,7 @@ enum EditorAX {
         }
         return direct.map { rect in
             guard let rect else { return nil }
-            if let frame = field.frame, !frame.insetBy(dx: -2, dy: -2).contains(rect) { return nil }
+            if let frame = field.frame, !frame.insetBy(dx: -Grid.hair, dy: -Grid.hair).contains(rect) { return nil }
             if let window = field.windowFrame, !window.intersects(rect) { return nil }
             return rect
         }

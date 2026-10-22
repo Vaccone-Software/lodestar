@@ -17,8 +17,8 @@ final class CheatSheet {
     init() {
         panel = Glass.makePanel(level: .statusBar, takesKeys: false)
         // Shown, never touched: the drawn shadow, and no mouse anywhere.
-        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius, takesPointer: false)
-        Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius, takesPointer: false)
+        Glass.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
     }
 
     var isVisible: Bool { panel.isVisible }
@@ -48,10 +48,10 @@ final class CheatSheet {
         // lens's own proportions.
         root.addSubview(stack)
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: ModePill.inset),
-            stack.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -ModePill.inset),
-            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: ModePill.inset),
-            stack.trailingAnchor.constraint(lessThanOrEqualTo: root.trailingAnchor, constant: -ModePill.inset),
+            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: Grid.section),
+            stack.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -Grid.section),
+            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Grid.section),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: root.trailingAnchor, constant: -Grid.section),
         ])
         content = stack
 
@@ -73,7 +73,7 @@ final class CheatSheet {
         columns.alignment = .top
         // The pill's inset between columns: inside a bar the width is
         // the bar's, and the sections have to share it.
-        columns.spacing = ModePill.inset
+        columns.spacing = Grid.section
         columns.translatesAutoresizingMaskIntoConstraints = false
         // Inside a bar the glass has a width of its own: the stacks give
         // way before the glass does, and a long label truncates.
@@ -83,7 +83,7 @@ final class CheatSheet {
             let column = NSStackView()
             column.orientation = .vertical
             column.alignment = .leading
-            column.spacing = 6
+            column.spacing = Grid.close
             column.setClippingResistancePriority(.init(900), for: .horizontal)
 
             // The pill's rule: one text size, tone for hierarchy. A header
@@ -92,7 +92,7 @@ final class CheatSheet {
             header.setRole(.body)
             header.textColor = BarTheme.secondaryColor
             column.addArrangedSubview(header)
-            column.setCustomSpacing(ModePill.wordGap, after: header)
+            column.setCustomSpacing(Grid.part, after: header)
 
             for row in section.rows.prefix(14) {
                 column.addArrangedSubview(makeRow(row))
@@ -112,7 +112,7 @@ final class CheatSheet {
         let container = NSStackView()
         container.orientation = .horizontal
         container.alignment = .centerY
-        container.spacing = BarTheme.rowGap
+        container.spacing = Grid.close
 
         // The one key, the launcher's.
         let chip = Keycaps.cap(row.key)
@@ -133,8 +133,8 @@ final class CheatSheet {
             let iconView = NSImageView(image: icon)
             iconView.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
-                iconView.widthAnchor.constraint(equalToConstant: BarTheme.rowIcon),
-                iconView.heightAnchor.constraint(equalToConstant: BarTheme.rowIcon),
+                iconView.widthAnchor.constraint(equalToConstant: BarTheme.symbolSize),
+                iconView.heightAnchor.constraint(equalToConstant: BarTheme.symbolSize),
             ])
             container.addArrangedSubview(iconView)
         }

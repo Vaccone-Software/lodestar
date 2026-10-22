@@ -1360,8 +1360,8 @@ final class SelectController {
     private func dragSelect(_ rects: [CGRect]) -> Bool {
         guard let first = rects.first, let last = rects.last,
               first.width > 4, last.width > 4 else { return false }
-        let start = CGPoint(x: first.minX + 2, y: first.midY)
-        let end = CGPoint(x: last.maxX - 2, y: last.midY)
+        let start = CGPoint(x: first.minX + Grid.hair, y: first.midY)
+        let end = CGPoint(x: last.maxX - Grid.hair, y: last.midY)
         guard focusedFrame.contains(start), focusedFrame.contains(end) else {
             Log.info("select", ["copy": "drag refused", "reason": "outside the focused window"])
             return false
@@ -1695,7 +1695,7 @@ final class SelectController {
                 }
                 // The pruning that makes depth affordable.
                 if let frame, frame.width > 1, frame.height > 1,
-                   !frame.intersects(windowFrame.insetBy(dx: -8, dy: -8)) {
+                   !frame.intersects(windowFrame.insetBy(dx: -Grid.close, dy: -Grid.close)) {
                     return
                 }
 
@@ -1892,7 +1892,7 @@ final class SelectController {
             let charWidth = frame.width / CGFloat(length)
             return [CGRect(x: frame.minX + charWidth * CGFloat(range.location),
                            y: frame.minY,
-                           width: max(6, charWidth * CGFloat(range.length)),
+                           width: max(Grid.close, charWidth * CGFloat(range.length)),
                            height: frame.height)]
         }
         if case .lines(let frame) = unit.geometry {

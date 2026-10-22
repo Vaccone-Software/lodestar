@@ -41,7 +41,7 @@ enum GalleryHost {
     static func pane(size: NSSize, weight: Glass.Weight = .normal, look: GalleryLook,
                      _ fill: (NSView) -> Void) -> NSWindow {
         let root = NSView(frame: NSRect(origin: .zero, size: size))
-        Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius, weight: weight)
+        Glass.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius, weight: weight)
         fill(root)
         return window(root, size: size, look: look)
     }
@@ -158,7 +158,7 @@ enum GalleryKeys {
             // those beside it, only wider.
             column.addArrangedSubview(caption("the walk's keyboard row: the space bar is the chip's size, wider"))
             let board = ["fn", "⌃", "⌥", "⌘", "space", "⌘", "⌥"].map { legend -> KeyFace in
-                KeyFace(legend, padX: legend == "space" ? 22 : BarTheme.chipPadX)
+                KeyFace(legend, padX: legend == "space" ? 22 : Grid.half)
             }
             board[4].lit = true
             board[5].lit = true

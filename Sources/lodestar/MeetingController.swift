@@ -79,24 +79,25 @@ final class MeetingController: NSObject {
     private let root = NSView()
     /// The prime card: mouse-first and keyable, in the door's family.
     private let prime = KeyablePanel(
-        contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+        contentRect: BarTheme.unplaced,
         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
     private let primeRoot = NSView()
-    private static let primeWidth: CGFloat = 440
+    private static let primeWidth = BarTheme.measure + Grid.margin * 2
+    private static let primeText = BarTheme.measure
 
     override init() {
         super.init()
-        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
         Movable.enable(panel)
-        _ = Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+        _ = Glass.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
         prime.level = .modalPanel
         prime.isOpaque = false
         prime.backgroundColor = .clear
         prime.isReleasedWhenClosed = false
         prime.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
-        SoftShadow.host(primeRoot, in: prime, cornerRadius: BarTheme.glassRadius)
+        SoftShadow.host(primeRoot, in: prime, cornerRadius: BarTheme.surfaceRadius)
         Movable.enable(prime)
-        _ = Glass.installBackdrop(in: primeRoot, cornerRadius: BarTheme.glassRadius)
+        _ = Glass.installBackdrop(in: primeRoot, cornerRadius: BarTheme.surfaceRadius)
         prime.onKeyDown = { [weak self] event in
             guard let self, let key = Keys.name(for: Int64(event.keyCode)),
                   self.prime.isVisible, self.prime.isKeyWindow else { return false }
@@ -412,8 +413,14 @@ final class MeetingController: NSObject {
     /// the door the stub lights, and the light is the message.
     private var chipContent: NSView?
 
-    static let chipHeight: CGFloat = 48
-    static let stubWidth: CGFloat = 52
+    static let chipHeight = BarTheme.rowHeight
+    /// The stub is one width for the meeting's whole life, the width of the
+    /// longest thing it ever says, so it never jumps beside the work.
+    static var stubWidth: CGFloat {
+        ceil(BarTheme.width(of: "MIN AGO", in: .key)) + Grid.close * 2
+    }
+    /// The most the meeting's title and its place may take beside the stub.
+    private static let bodyWidth: CGFloat = 184
 
     /// What the stub says and whether it is lit: minutes while the
     /// meeting is minutes away (quiet), seconds at the door, then how long
@@ -453,7 +460,7 @@ final class MeetingController: NSObject {
         let stubView = NSView()
         stubView.translatesAutoresizingMaskIntoConstraints = false
         stubView.wantsLayer = true
-        stubView.layer?.cornerRadius = BarTheme.glassRadius
+        stubView.layer?.cornerRadius = BarTheme.surfaceRadius
         stubView.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner]
         if stub.lit {
             stubView.effectiveAppearance.performAsCurrentDrawingAppearance {
@@ -478,7 +485,7 @@ final class MeetingController: NSObject {
         let count = NSStackView(views: stub.unit == nil ? [number] : [number, unitField])
         count.orientation = .vertical
         count.alignment = .centerX
-        count.spacing = 2
+        count.spacing = Grid.hair
         count.translatesAutoresizingMaskIntoConstraints = false
         stubView.addSubview(count)
 
@@ -501,7 +508,7 @@ final class MeetingController: NSObject {
         let body = NSStackView(views: [title, detail])
         body.orientation = .vertical
         body.alignment = .leading
-        body.spacing = 3
+        body.spacing = Grid.hair
         body.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(body)
 
@@ -531,14 +538,14 @@ final class MeetingController: NSObject {
             count.centerXAnchor.constraint(equalTo: stubView.centerXAnchor),
             count.centerYAnchor.constraint(equalTo: stubView.centerYAnchor),
             perforation.leadingAnchor.constraint(equalTo: stubView.trailingAnchor, constant: -1),
-            perforation.widthAnchor.constraint(equalToConstant: 2),
+            perforation.widthAnchor.constraint(equalToConstant: Grid.hair),
             perforation.topAnchor.constraint(equalTo: content.topAnchor),
             perforation.bottomAnchor.constraint(equalTo: content.bottomAnchor),
-            body.leadingAnchor.constraint(equalTo: stubView.trailingAnchor, constant: 12),
+            body.leadingAnchor.constraint(equalTo: stubView.trailingAnchor, constant: Grid.part),
             body.centerYAnchor.constraint(equalTo: content.centerYAnchor),
-            body.widthAnchor.constraint(lessThanOrEqualToConstant: 180),
-            join.leadingAnchor.constraint(equalTo: body.trailingAnchor, constant: 14),
-            join.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -10),
+            body.widthAnchor.constraint(lessThanOrEqualToConstant: Self.bodyWidth),
+            join.leadingAnchor.constraint(equalTo: body.trailingAnchor, constant: Grid.part),
+            join.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -Grid.part),
             join.centerYAnchor.constraint(equalTo: content.centerYAnchor),
         ])
         // Said whole to VoiceOver, since the stub alone is a number.
@@ -551,8 +558,8 @@ final class MeetingController: NSObject {
         let wasVisible = panel.isVisible
         Movable.place(panel, size: size) {
             let visible = ActivePolicy.presentationFrame
-            return NSPoint(x: (visible.maxX - size.width - 20).rounded(),
-                           y: (visible.maxY - size.height - 20).rounded())
+            return NSPoint(x: (visible.maxX - size.width - Grid.section).rounded(),
+                           y: (visible.maxY - size.height - Grid.section).rounded())
         }
         panel.orderFrontRegardless()
         // Only on the way up: render is called again to retitle a chip that
@@ -581,7 +588,7 @@ final class MeetingController: NSObject {
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 10
+        stack.spacing = Grid.close
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         // A room: its name firm at the head, and Lodestar speaking beneath,
@@ -599,10 +606,10 @@ final class MeetingController: NSObject {
         body.textColor = BarTheme.secondaryColor
         body.alignment = .natural
         body.isSelectable = false
-        body.preferredMaxLayoutWidth = Self.primeWidth - 52
-        body.widthAnchor.constraint(lessThanOrEqualToConstant: Self.primeWidth - 52).isActive = true
+        body.preferredMaxLayoutWidth = Self.primeText
+        body.widthAnchor.constraint(lessThanOrEqualToConstant: Self.primeText).isActive = true
         stack.addArrangedSubview(body)
-        stack.setCustomSpacing(16, after: body)
+        stack.setCustomSpacing(Grid.group, after: body)
 
         // The card's actions are its keys, pressed or clicked: the system's
         // default button wore the Mac's accent, not Lodestar's.
@@ -616,22 +623,22 @@ final class MeetingController: NSObject {
             .init(["esc"], "Not now", action: { [weak self] in self?.notNowPressed() }),
             .init(["⏎"], "Allow calendar access", action: { [weak self] in self?.allowPressed() }, lit: true),
         ]))
-        footer.widthAnchor.constraint(equalToConstant: Self.primeWidth - 52).isActive = true
+        footer.widthAnchor.constraint(equalToConstant: Self.primeText).isActive = true
         stack.addArrangedSubview(footer)
 
         primeRoot.addSubview(stack)
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: primeRoot.topAnchor, constant: 28),
-            stack.leadingAnchor.constraint(equalTo: primeRoot.leadingAnchor, constant: 26),
-            stack.trailingAnchor.constraint(equalTo: primeRoot.trailingAnchor, constant: -26),
+            stack.topAnchor.constraint(equalTo: primeRoot.topAnchor, constant: Grid.margin),
+            stack.leadingAnchor.constraint(equalTo: primeRoot.leadingAnchor, constant: Grid.margin),
+            stack.trailingAnchor.constraint(equalTo: primeRoot.trailingAnchor, constant: -Grid.margin),
         ])
         primeRoot.layoutSubtreeIfNeeded()
         let size = NSSize(width: Self.primeWidth,
-                          height: stack.fittingSize.height + 28 + 24)
+                          height: stack.fittingSize.height + Grid.margin * 2)
         Movable.place(prime, size: size) {
             let visible = ActivePolicy.presentationFrame
             return NSPoint(x: visible.midX - size.width / 2,
-                           y: visible.midY - size.height / 2 + 40)
+                           y: visible.midY - size.height / 2 + Grid.margin)
         }
         prime.makeKeyAndOrderFront(nil)
     }
@@ -763,8 +770,8 @@ final class PerforationView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let path = NSBezierPath()
-        path.move(to: NSPoint(x: bounds.midX, y: bounds.minY + 5))
-        path.line(to: NSPoint(x: bounds.midX, y: bounds.maxY - 5))
+        path.move(to: NSPoint(x: bounds.midX, y: bounds.minY + Grid.tight))
+        path.line(to: NSPoint(x: bounds.midX, y: bounds.maxY - Grid.tight))
         path.lineWidth = 1.5
         path.setLineDash([3, 3], count: 2, phase: 0)
         ink.setStroke()

@@ -35,9 +35,9 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
         panel.delegate = self
-        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
 
-        Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+        Glass.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
 
         symbol.image = NSImage(systemSymbolName: "menubar.rectangle", accessibilityDescription: "menus")
         symbol.symbolConfiguration = BarTheme.inputSymbol
@@ -58,7 +58,7 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
         separator.translatesAutoresizingMaskIntoConstraints = false
 
         rowsStack.orientation = .vertical
-        rowsStack.spacing = 2
+        rowsStack.spacing = Grid.hair
         rowsStack.translatesAutoresizingMaskIntoConstraints = false
         keys.install(root: root, below: rowsStack)
 
@@ -67,17 +67,17 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
         root.addSubview(separator)
         root.addSubview(rowsStack)
         NSLayoutConstraint.activate([
-            symbol.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 22),
+            symbol.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: BarTheme.fieldInset),
             symbol.centerYAnchor.constraint(equalTo: root.topAnchor, constant: inputHeight / 2),
-            field.leadingAnchor.constraint(equalTo: symbol.trailingAnchor, constant: 12),
-            field.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -22),
+            field.leadingAnchor.constraint(equalTo: symbol.trailingAnchor, constant: Grid.part),
+            field.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -BarTheme.fieldInset),
             field.centerYAnchor.constraint(equalTo: root.topAnchor, constant: inputHeight / 2),
             separator.topAnchor.constraint(equalTo: root.topAnchor, constant: inputHeight),
-            separator.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 14),
-            separator.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -14),
-            rowsStack.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 8),
-            rowsStack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 10),
-            rowsStack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -10),
+            separator.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: BarTheme.paneInset),
+            separator.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -BarTheme.paneInset),
+            rowsStack.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: Grid.close),
+            rowsStack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: BarTheme.paneInset),
+            rowsStack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -BarTheme.paneInset),
         ])
     }
 
@@ -184,17 +184,20 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
     /// growing to hold its keys extends it downward.
     private func barFrame() -> NSRect {
         let count = CGFloat(rows.count)
-        let rowsArea = count > 0 ? 1 + 8 + count * rowHeight + CGFloat(max(0, rows.count - 1)) * 2 + 6 : 0
-        let height = inputHeight + rowsArea + BarTheme.barFoot + keys.height
+        let rowsArea = BarTheme.rowsArea(count: rows.count)
+        let height = inputHeight + rowsArea + keys.height
         let visible = ActivePolicy.presentationFrame
         let origin = NSPoint(
             x: visible.midX - panelWidth / 2,
-            y: visible.minY + visible.height * 0.64 - height
+            y: visible.minY + visible.height * BarTheme.topLine - height
         )
         return NSRect(origin: origin, size: NSSize(width: panelWidth, height: height))
     }
 
     private func reposition() {
+        // The rule under the field is the top of the rows: with none, it would
+        // hang below the bar.
+        separator.isHidden = rows.isEmpty
         panel.setFrame(SoftShadow.outset(barFrame()), display: true)
     }
 
@@ -321,14 +324,14 @@ private final class CommandsRowView: RaisedRow {
             label.setRole(.key)
             label.translatesAutoresizingMaskIntoConstraints = false
             box.wantsLayer = true
-            box.layer?.cornerRadius = BarTheme.chipRadius
+            box.layer?.cornerRadius = BarTheme.controlRadius
             box.translatesAutoresizingMaskIntoConstraints = false
             box.addSubview(label)
             NSLayoutConstraint.activate([
-                label.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: 6),
-                label.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -6),
-                label.topAnchor.constraint(equalTo: box.topAnchor, constant: 2),
-                label.bottomAnchor.constraint(equalTo: box.bottomAnchor, constant: -2),
+                label.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: Grid.half),
+                label.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -Grid.half),
+                label.topAnchor.constraint(equalTo: box.topAnchor, constant: Grid.hair),
+                label.bottomAnchor.constraint(equalTo: box.bottomAnchor, constant: -Grid.hair),
             ])
         }
 
@@ -336,7 +339,7 @@ private final class CommandsRowView: RaisedRow {
         // chip appears only when the list mixes feeds, and the shortcut
         // chip only when the app printed one.
         trailing.orientation = .horizontal
-        trailing.spacing = 8
+        trailing.spacing = Grid.close
         trailing.translatesAutoresizingMaskIntoConstraints = false
         trailing.addArrangedSubview(sourceChip)
         trailing.addArrangedSubview(chip)
@@ -346,16 +349,16 @@ private final class CommandsRowView: RaisedRow {
         addSubview(crumb)
         addSubview(trailing)
         NSLayoutConstraint.activate([
-            title.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
-            title.topAnchor.constraint(equalTo: topAnchor, constant: 6),
-            crumb.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
-            crumb.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 1),
-            trailing.centerYAnchor.constraint(equalTo: centerYAnchor),
-            trailing.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            title.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Grid.part),
+            title.topAnchor.constraint(equalTo: topAnchor, constant: Grid.tight),
+            crumb.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Grid.part),
+            crumb.topAnchor.constraint(equalTo: title.bottomAnchor, constant: Grid.hair),
+            trailing.centerYAnchor.constraint(equalTo: title.centerYAnchor),
+            trailing.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Grid.part),
             title.trailingAnchor.constraint(lessThanOrEqualTo: trailing.leadingAnchor,
-                                            constant: -12),
+                                            constant: -Grid.part),
             crumb.trailingAnchor.constraint(lessThanOrEqualTo: trailing.leadingAnchor,
-                                            constant: -12),
+                                            constant: -Grid.part),
         ])
         restyle()
     }

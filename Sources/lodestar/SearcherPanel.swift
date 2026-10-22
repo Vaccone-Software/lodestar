@@ -111,7 +111,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     private let rowHeight = BarTheme.rowHeight
     /// The bar has no legend. The footer's band exists only while a note
     /// stands in it: the coach's toll on a closed road.
-    private var footerHeight: CGFloat { footerShown ? BarTheme.footerHeight : BarTheme.barFoot }
+    private var footerHeight: CGFloat { footerShown ? BarTheme.footerHeight : 0 }
 
     init(appIndex: AppIndex, actions: Actions, model: WindowModel) {
         self.appIndex = appIndex
@@ -131,7 +131,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
         panel.delegate = self
-        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
         panel.onKeyEquivalent = { [weak self] event in
             self?.handleKeyEquivalent(event) ?? false
         }
@@ -139,7 +139,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
             self?.handleMenuKey(event) ?? false
         }
 
-        Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+        Glass.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
 
         magnifier.image = NSImage(
             systemSymbolName: "macwindow.on.rectangle",
@@ -163,13 +163,13 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         separator.translatesAutoresizingMaskIntoConstraints = false
 
         rowsStack.orientation = .vertical
-        rowsStack.spacing = 2
+        rowsStack.spacing = Grid.hair
         rowsStack.translatesAutoresizingMaskIntoConstraints = false
         keys.install(root: root, below: rowsStack)
 
         footer.orientation = .horizontal
         footer.alignment = .centerY
-        footer.spacing = 8
+        footer.spacing = Grid.close
         footer.translatesAutoresizingMaskIntoConstraints = false
 
         root.addSubview(magnifier)
@@ -178,20 +178,20 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         root.addSubview(rowsStack)
         root.addSubview(footer)
         NSLayoutConstraint.activate([
-            magnifier.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 22),
+            magnifier.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: BarTheme.fieldInset),
             magnifier.centerYAnchor.constraint(equalTo: root.topAnchor, constant: inputHeight / 2),
-            field.leadingAnchor.constraint(equalTo: magnifier.trailingAnchor, constant: 12),
-            field.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -22),
+            field.leadingAnchor.constraint(equalTo: magnifier.trailingAnchor, constant: Grid.part),
+            field.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -BarTheme.fieldInset),
             field.centerYAnchor.constraint(equalTo: root.topAnchor, constant: inputHeight / 2),
             separator.topAnchor.constraint(equalTo: root.topAnchor, constant: inputHeight),
-            separator.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 14),
-            separator.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -14),
-            rowsStack.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 8),
-            rowsStack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 10),
-            rowsStack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -10),
-            footer.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 14),
-            footer.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -14),
-            footer.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -7),
+            separator.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: BarTheme.paneInset),
+            separator.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -BarTheme.paneInset),
+            rowsStack.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: Grid.close),
+            rowsStack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: BarTheme.paneInset),
+            rowsStack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -BarTheme.paneInset),
+            footer.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: BarTheme.fieldInset),
+            footer.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -BarTheme.fieldInset),
+            footer.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -Grid.tight),
         ])
     }
 
@@ -355,17 +355,20 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     /// growing to hold its keys extends it downward.
     private func barFrame() -> NSRect {
         let count = CGFloat(rows.count)
-        let rowsArea = count > 0 ? 1 + 8 + count * rowHeight + CGFloat(max(0, rows.count - 1)) * 2 + 6 : 0
+        let rowsArea = BarTheme.rowsArea(count: rows.count)
         let height = inputHeight + rowsArea + footerHeight + keys.height
         let visible = ActivePolicy.presentationFrame
         let origin = NSPoint(
             x: visible.midX - panelWidth / 2,
-            y: visible.minY + visible.height * 0.64 - height
+            y: visible.minY + visible.height * BarTheme.topLine - height
         )
         return NSRect(origin: origin, size: NSSize(width: panelWidth, height: height))
     }
 
     private func reposition() {
+        // The rule under the field is the top of the rows: with none, it would
+        // hang below the bar.
+        separator.isHidden = rows.isEmpty
         panel.setFrame(SoftShadow.outset(barFrame()), display: true)
     }
 
@@ -901,8 +904,8 @@ private final class SearcherRowView: RaisedRow {
 
         icon.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            icon.widthAnchor.constraint(equalToConstant: 32),
-            icon.heightAnchor.constraint(equalToConstant: 32),
+            icon.widthAnchor.constraint(equalToConstant: BarTheme.appIconSize),
+            icon.heightAnchor.constraint(equalToConstant: BarTheme.appIconSize),
         ])
 
         name.setRole(.title)
@@ -913,8 +916,8 @@ private final class SearcherRowView: RaisedRow {
 
         stack.orientation = .horizontal
         stack.alignment = .centerY
-        stack.spacing = 10
-        stack.edgeInsets = NSEdgeInsets(top: 0, left: 12, bottom: 0, right: 16)
+        stack.spacing = Grid.part
+        stack.edgeInsets = NSEdgeInsets(top: 0, left: Grid.part, bottom: 0, right: Grid.part)
         stack.translatesAutoresizingMaskIntoConstraints = false
         // Absorbs the slack so the address chips land at the trailing edge,
         // in one column down the list — the same place the guides and the
@@ -923,7 +926,7 @@ private final class SearcherRowView: RaisedRow {
         spacer.translatesAutoresizingMaskIntoConstraints = false
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
         spacer.widthAnchor.constraint(
-            greaterThanOrEqualToConstant: BarTheme.rowKeyGap).isActive = true
+            greaterThanOrEqualToConstant: Grid.section).isActive = true
 
         stack.addArrangedSubview(icon)
         stack.addArrangedSubview(name)
@@ -975,7 +978,7 @@ private final class SearcherRowView: RaisedRow {
                 dot = dotLabel
                 let afterName = (stack.arrangedSubviews.firstIndex(of: name) ?? 0) + 1
                 stack.insertArrangedSubview(dotLabel, at: afterName)
-                stack.setCustomSpacing(BarTheme.dotGap, after: name)
+                stack.setCustomSpacing(Grid.close, after: name)
             }
             restyle()
         }
@@ -1050,7 +1053,7 @@ enum SearcherRowPreview {
     static func show() -> NSPanel {
         let panel = Glass.makePanel(level: .statusBar)
         let root = NSView(frame: NSRect(x: 0, y: 0, width: BarTheme.panelWidth, height: 230))
-        Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+        Glass.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
 
         let stack = NSStackView()
         stack.orientation = .vertical
@@ -1084,7 +1087,7 @@ enum SearcherRowPreview {
             stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 10),
             stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -10),
         ])
-        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
         panel.setFrame(SoftShadow.outset(NSRect(x: 400, y: 400, width: BarTheme.panelWidth, height: 230)),
                        display: true)
         panel.orderFrontRegardless()

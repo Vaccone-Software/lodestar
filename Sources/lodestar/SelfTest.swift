@@ -32,7 +32,8 @@ enum SelfTest {
 
         group.enter()
         Thread {
-            let point = CGPoint(x: 100, y: 100)
+            let probe: CGFloat = 100
+            let point = CGPoint(x: probe, y: probe)
             var i = 0
             while Date() < deadline {
                 let now = Date()

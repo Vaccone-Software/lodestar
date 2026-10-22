@@ -16,8 +16,8 @@ final class ClipboardFileCardTests: XCTestCase {
         XCTAssertTrue(sheets.allSatisfy { $0.size == NSSize(width: 50, height: 64) }, "50 by 64")
         XCTAssertEqual(sheets[0].origin, NSPoint(x: 16, y: 28), "the first file at the lower left")
         for index in 1..<4 {
-            XCTAssertEqual(sheets[index].minX - sheets[index - 1].minX, 14, "each next 14 to the right")
-            XCTAssertEqual(sheets[index].minY - sheets[index - 1].minY, 7, "and 7 higher (y is up)")
+            XCTAssertEqual(sheets[index].minX - sheets[index - 1].minX, Grid.group, "each next a group to the right")
+            XCTAssertEqual(sheets[index].minY - sheets[index - 1].minY, Grid.close, "and a step higher (y is up)")
         }
     }
 
@@ -175,7 +175,7 @@ final class ClipboardFileCardLayoutTests: XCTestCase {
     func testTheMoreLineIsNeverCutAndBecomesTheNumberWhereItDoesNotFit() {
         let names = (1...130).map { "File \($0).pdf" }
         let made = clip(names.map { fact($0) })
-        let (strip, _) = build(made, size: NSSize(width: 210, height: 150))
+        let (strip, _) = build(made, size: NSSize(width: 218, height: 150))
         XCTAssertEqual(strip.shownFiles[made.id]?.last, "+128", "no room for \"and 128 more\" whole")
         let (roomy, _) = build(made, size: wide)
         XCTAssertEqual(roomy.shownFiles[made.id]?.last, "and 128 more")

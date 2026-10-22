@@ -159,7 +159,7 @@ enum SplitPreview {
             // Nothing at all below a width that can hold its own corner
             // radius: a sliver narrower than its curve merges into the
             // draft as a lump on the edge rather than as a panel leaving.
-            for panel in [left, right] { panel.isHidden = w < BarTheme.glassRadius * 2 }
+            for panel in [left, right] { panel.isHidden = w < BarTheme.surfaceRadius * 2 }
             // The rows appear only once the panel is its full width. They
             // used to be drawn into whatever width the panel had reached,
             // which sliced them mid-word on the way out and, worse, on
@@ -304,7 +304,7 @@ enum SplitPreview {
                               _ sections: [CheatSheet.Section])
         -> (NSGlassEffectView, NSView, NSSize) {
         let view = NSGlassEffectView()
-        view.cornerRadius = BarTheme.glassRadius
+        view.cornerRadius = BarTheme.surfaceRadius
         view.tintColor = veil
         let host = NSView()
         host.wantsLayer = true
@@ -312,7 +312,7 @@ enum SplitPreview {
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = ModePill.inset
+        stack.spacing = Grid.section
         stack.translatesAutoresizingMaskIntoConstraints = false
         // The mode says what it is before it says what its keys are. One
         // text size, tone for hierarchy — the pill's rule, and the
@@ -325,7 +325,7 @@ enum SplitPreview {
         line.textColor = BarTheme.secondaryColor
         line.preferredMaxLayoutWidth = 330
         stack.addArrangedSubview(name)
-        stack.setCustomSpacing(ModePill.wordGap, after: name)
+        stack.setCustomSpacing(Grid.part, after: name)
         stack.addArrangedSubview(line)
         if !entry.isEmpty {
             // A named group, not a headerless one: an empty header still
@@ -351,7 +351,7 @@ enum SplitPreview {
 
     private static func draftGlass() -> NSGlassEffectView {
         let view = NSGlassEffectView()
-        view.cornerRadius = BarTheme.glassRadius
+        view.cornerRadius = BarTheme.surfaceRadius
         view.tintColor = veil
         let scrim = NSView()
         scrim.wantsLayer = true

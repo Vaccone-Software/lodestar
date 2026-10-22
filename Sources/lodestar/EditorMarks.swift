@@ -37,7 +37,7 @@ final class EditorMarks: EditorMarksDrawing {
         canvas.lines = rects.map { rect in
             // The rectangle's bottom edge is the text's descent: the line
             // sits just inside it, where an underline belongs.
-            let y = primary.frame.maxY - rect.maxY - frame.minY + 1.5
+            let y = primary.frame.maxY - rect.maxY - frame.minY + Grid.hair
             return (x: rect.minX - frame.minX, width: rect.width, y: y)
         }
         canvas.needsDisplay = true

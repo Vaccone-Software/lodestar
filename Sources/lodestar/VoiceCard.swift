@@ -22,7 +22,7 @@ enum GuideRows {
         let grid = NSStackView()
         grid.orientation = .horizontal
         grid.alignment = .top
-        grid.spacing = 30
+        grid.spacing = Grid.section
 
         for column in 0..<columns {
             let start = column * perColumn
@@ -34,7 +34,7 @@ enum GuideRows {
             // key sit at the same trailing edge instead of trailing its own
             // label.
             columnStack.alignment = .width
-            columnStack.spacing = 6
+            columnStack.spacing = Grid.close
             for row in slice {
                 columnStack.addArrangedSubview(GuideRows.row(row, reserveIcon: hasIcons))
             }
@@ -47,7 +47,7 @@ enum GuideRows {
         let row = NSStackView()
         row.orientation = .horizontal
         row.alignment = .centerY
-        row.spacing = BarTheme.rowGap
+        row.spacing = Grid.close
 
         // Icon, name, then key — the order the clipboard's actions menu
         // reads in. The icon's slot is held even when a row has none, so
@@ -57,8 +57,8 @@ enum GuideRows {
             let view = NSImageView(image: guideRow.icon ?? NSImage())
             view.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
-                view.widthAnchor.constraint(equalToConstant: BarTheme.rowIcon),
-                view.heightAnchor.constraint(equalToConstant: BarTheme.rowIcon),
+                view.widthAnchor.constraint(equalToConstant: BarTheme.symbolSize),
+                view.heightAnchor.constraint(equalToConstant: BarTheme.symbolSize),
             ])
             iconView = view
         }
@@ -75,7 +75,7 @@ enum GuideRows {
         spacer.translatesAutoresizingMaskIntoConstraints = false
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
         spacer.widthAnchor.constraint(
-            greaterThanOrEqualToConstant: BarTheme.rowKeyGap).isActive = true
+            greaterThanOrEqualToConstant: Grid.section).isActive = true
 
         // One cap per press, through the shared shape. A row whose keys are
         // alternatives rather than a sequence passes them as one string and
@@ -94,7 +94,7 @@ enum GuideRows {
             let group = NSStackView(views: caps)
             group.orientation = .horizontal
             group.alignment = .centerY
-            group.spacing = 4
+            group.spacing = Grid.tight
             group.setContentHuggingPriority(.required, for: .horizontal)
             chip = group
         }
@@ -129,23 +129,23 @@ enum VoiceCard {
 
     /// The mark to the words: a little more than a wing, so the picture
     /// reads as standing beside the sentence rather than a glyph in it.
-    static let markGap: CGFloat = 16
+    static let markGap = Grid.group
 
     private static func words(sentence: String, keymap: Coach.Keymap?, detail: String?,
                               rows: [GuideRow]) -> NSStackView {
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = ModePill.wordGap
+        stack.spacing = Grid.part
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         // The card is as wide as its longest line up to the measure: a
         // one-line note is a small card, an offer with key rows takes the
         // whole measure. A wrapping label reports no width of its own, so
         // the width is measured from the words and set.
-        var width = min(BarTheme.voiceWidth, BarTheme.width(of: sentence, in: .voice))
-        if let detail { width = min(BarTheme.voiceWidth, max(width, BarTheme.width(of: detail, in: .meta))) }
-        if !rows.isEmpty { width = BarTheme.voiceWidth }
+        var width = min(BarTheme.measure, BarTheme.width(of: sentence, in: .voice))
+        if let detail { width = min(BarTheme.measure, max(width, BarTheme.width(of: detail, in: .meta))) }
+        if !rows.isEmpty { width = BarTheme.measure }
 
         let voice = NSTextField(wrappingLabelWithString: sentence)
         voice.setRole(.voice)
@@ -161,7 +161,7 @@ enum VoiceCard {
             let line = NSStackView()
             line.orientation = .horizontal
             line.alignment = .centerY
-            line.spacing = 4
+            line.spacing = Grid.tight
             for key in keymap.keys { line.addArrangedSubview(Keycaps.cap(key)) }
             let arrow = NSTextField(labelWithString: "→")
             arrow.setRole(.meta)
@@ -171,8 +171,8 @@ enum VoiceCard {
             target.setRole(.body)
             target.textColor = BarTheme.ink
             line.addArrangedSubview(target)
-            line.setCustomSpacing(8, after: line.arrangedSubviews[keymap.keys.count - 1])
-            line.setCustomSpacing(8, after: arrow)
+            line.setCustomSpacing(Grid.close, after: line.arrangedSubviews[keymap.keys.count - 1])
+            line.setCustomSpacing(Grid.close, after: arrow)
             stack.addArrangedSubview(line)
         }
 
@@ -188,7 +188,7 @@ enum VoiceCard {
 
         if !rows.isEmpty {
             let columns = GuideRows.columns(rows)
-            if let last = stack.arrangedSubviews.last { stack.setCustomSpacing(ModePill.wingGap, after: last) }
+            if let last = stack.arrangedSubviews.last { stack.setCustomSpacing(Grid.section, after: last) }
             stack.addArrangedSubview(columns)
             columns.widthAnchor.constraint(equalToConstant: width).isActive = true
         }

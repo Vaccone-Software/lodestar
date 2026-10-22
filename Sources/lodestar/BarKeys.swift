@@ -12,9 +12,9 @@ final class BarKeys {
     private(set) var isShown = false
 
     /// The columns' inset from the glass, the field's own.
-    static let inset: CGFloat = 22
+    static let inset = BarTheme.fieldInset
     /// Air between the last row and the columns, the pill's own.
-    static let above: CGFloat = ModePill.inset
+    static let above: CGFloat = Grid.section
 
     func install(root: NSView, below rows: NSView) {
         self.root = root
@@ -24,7 +24,7 @@ final class BarKeys {
     /// The height the bar owes its keys: zero while they are away.
     var height: CGFloat {
         guard isShown, let view else { return 0 }
-        return Self.above + view.fittingSize.height + ModePill.inset
+        return Self.above + view.fittingSize.height + Grid.section
     }
 
     /// Builds the keys in place, invisible, and reports the view so the

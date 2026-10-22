@@ -99,8 +99,8 @@ final class HUD {
         self.clock = clock
         panel = Glass.makePanel(level: .statusBar, takesKeys: false)
         // Shut until it offers something: the coach's chip.
-        gate = SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius, takesPointer: false)
-        Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+        gate = SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius, takesPointer: false)
+        Glass.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
     }
 
     // MARK: - Public surface
@@ -242,7 +242,7 @@ final class HUD {
         voiceSentence = sentence
         let stack = VoiceCard.build(sentence: sentence, keymap: keymap, detail: detail, rows: rows, mark: voiceMark)
         root.addSubview(stack)
-        let inset = ModePill.inset
+        let inset = Grid.section
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: root.topAnchor, constant: inset),
             stack.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -inset),
@@ -263,13 +263,13 @@ final class HUD {
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 6
+        stack.spacing = Grid.close
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         let titleRow = NSStackView()
         titleRow.orientation = .horizontal
         titleRow.alignment = .centerY
-        titleRow.spacing = 4
+        titleRow.spacing = Grid.tight
         // The mark, in the pill's configuration: what kind of line this
         // is, drawn the way the pill draws its mode.
         var markView: NSView?
@@ -279,18 +279,18 @@ final class HUD {
             view.contentTintColor = BarTheme.ink
             view.setContentHuggingPriority(.required, for: .horizontal)
             titleRow.addArrangedSubview(view)
-            titleRow.setCustomSpacing(ModePill.wordGap, after: view)
+            titleRow.setCustomSpacing(Grid.part, after: view)
             markView = view
         }
         if let titleIcon {
             let iconView = NSImageView(image: titleIcon)
             iconView.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
-                iconView.widthAnchor.constraint(equalToConstant: 20),
-                iconView.heightAnchor.constraint(equalToConstant: 20),
+                iconView.widthAnchor.constraint(equalToConstant: BarTheme.titleIconSize),
+                iconView.heightAnchor.constraint(equalToConstant: BarTheme.titleIconSize),
             ])
             titleRow.addArrangedSubview(iconView)
-            titleRow.setCustomSpacing(8, after: iconView)
+            titleRow.setCustomSpacing(Grid.close, after: iconView)
         }
         // A chain's header is its keys; a flash's is its words, in the
         // interface's face. Neither is the hand's text, so neither is mono.
@@ -305,7 +305,7 @@ final class HUD {
                 let column = NSStackView(views: [titleLabel, Keycaps.sentence(way)])
                 column.orientation = .vertical
                 column.alignment = .leading
-                column.spacing = 5
+                column.spacing = Grid.tight
                 titleRow.alignment = .top
                 titleRow.addArrangedSubview(column)
                 if let markView {
@@ -315,7 +315,7 @@ final class HUD {
                     holder.translatesAutoresizingMaskIntoConstraints = false
                     holder.addSubview(markView)
                     titleRow.insertArrangedSubview(holder, at: 0)
-                    titleRow.setCustomSpacing(ModePill.wordGap, after: holder)
+                    titleRow.setCustomSpacing(Grid.part, after: holder)
                     NSLayoutConstraint.activate([
                         holder.widthAnchor.constraint(equalTo: markView.widthAnchor),
                         holder.heightAnchor.constraint(equalTo: titleLabel.heightAnchor),
@@ -330,7 +330,7 @@ final class HUD {
         stack.addArrangedSubview(titleRow)
 
         if !rows.isEmpty {
-            stack.setCustomSpacing(ModePill.wingGap, after: titleRow)
+            stack.setCustomSpacing(Grid.section, after: titleRow)
             stack.addArrangedSubview(GuideRows.columns(rows))
         }
 
@@ -339,17 +339,17 @@ final class HUD {
             footerLabel.setRole(.meta, tabular: true)
             footerLabel.textColor = BarTheme.secondaryColor
             if let last = stack.arrangedSubviews.last {
-                stack.setCustomSpacing(10, after: last)
+                stack.setCustomSpacing(Grid.close, after: last)
             }
             stack.addArrangedSubview(footerLabel)
         }
 
         root.addSubview(stack)
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 14),
-            stack.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -14),
-            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 18),
-            stack.trailingAnchor.constraint(lessThanOrEqualTo: root.trailingAnchor, constant: -18),
+            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: Grid.group),
+            stack.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -Grid.group),
+            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Grid.group),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: root.trailingAnchor, constant: -Grid.group),
         ])
         content = stack
     }
@@ -357,8 +357,8 @@ final class HUD {
     private func present() {
         root.layoutSubtreeIfNeeded()
         var size = root.fittingSize
-        size.width = min(max(size.width, showingFlash || voiceSentence != nil ? 0 : 200), 1100)
-        size.height = max(size.height, 44)
+        size.width = min(size.width.rounded(.up), ModePill.mostWidth)
+        size.height = max(size.height, BarTheme.pillHeight)
 
         // A chip redrawn in place keeps where it was put; anything else
         // takes the panel's home. Without the second half, a chip dragged
@@ -369,7 +369,7 @@ final class HUD {
         } else {
             let visible = ActivePolicy.presentationFrame
             panel.setGlassFrame(NSRect(origin: NSPoint(x: visible.midX - size.width / 2,
-                                                  y: visible.minY + 96),
+                                                  y: visible.minY + ModePill.rise),
                                   size: size), display: true)
         }
         panel.orderFrontRegardless()

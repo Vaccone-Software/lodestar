@@ -61,12 +61,13 @@ final class ModePillTests: XCTestCase {
         XCTAssertEqual(ModePill.layout(for: state).last, .appWord("Ghostty"))
     }
 
-    func testEveryDimensionIsTheHeightOverAPowerOfPhi() {
-        let phi = ModePill.phi
-        XCTAssertEqual(ModePill.radius, ModePill.height / (phi * phi), accuracy: 0.001)
-        XCTAssertEqual(ModePill.inset, ModePill.height / phi, accuracy: 0.001)
-        XCTAssertEqual(ModePill.wingGap, ModePill.height / phi, accuracy: 0.001)
-        XCTAssertEqual(ModePill.wordGap, ModePill.height / (phi * phi * phi), accuracy: 0.001)
+    /// The pill is 44 tall and fully round, and its gaps are steps of the grid.
+    func testThePillIsAStadiumAndItsGapsAreOnTheGrid() {
+        XCTAssertEqual(ModePill.height, 44)
+        XCTAssertEqual(BarTheme.surfaceRadius, ModePill.height / 2, "its ends are the surface radius")
+        for gap in [ModePill.inset, ModePill.wingGap, ModePill.wordGap] {
+            XCTAssertTrue(Grid.steps.contains(gap), "\(gap) is a step")
+        }
     }
 
     /// The typed echo was a point above the body in mono; it is the body's

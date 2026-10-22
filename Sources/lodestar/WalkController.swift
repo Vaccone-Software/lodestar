@@ -56,7 +56,7 @@ final class WalkController: NSObject {
     /// The door: keyable on purpose — pre-grant, AppKit key handling is
     /// the only keyboard there is.
     private let door = KeyablePanel(
-        contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+        contentRect: BarTheme.unplaced,
         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
     private let doorRoot = NSView()
 
@@ -66,9 +66,11 @@ final class WalkController: NSObject {
 
     private static let welcomeWidth: CGFloat = 660
     private static let doorWidth: CGFloat = 480
-    private static let cardWidth: CGFloat = 340
-    private static let inset: CGFloat = 26
-    private static let cardText: CGFloat = cardWidth - 40
+    private static let cardWidth: CGFloat = 348
+    private static let inset = Grid.section
+    /// A door's picture is four by three.
+    private static let pictureAspect: CGFloat = 0.75
+    private static let cardText: CGFloat = cardWidth - inset * 2
 
     /// Which of the door's pages is showing.
     private enum Page { case welcome, permission, waiting }
@@ -121,14 +123,14 @@ final class WalkController: NSObject {
         door.backgroundColor = .clear
         door.isReleasedWhenClosed = false
         door.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
-        SoftShadow.host(doorRoot, in: door, cornerRadius: BarTheme.glassRadius)
-        _ = Glass.installBackdrop(in: doorRoot, cornerRadius: BarTheme.glassRadius)
+        SoftShadow.host(doorRoot, in: door, cornerRadius: BarTheme.surfaceRadius)
+        _ = Glass.installBackdrop(in: doorRoot, cornerRadius: BarTheme.surfaceRadius)
         door.onKeyDown = { [weak self] event in
             guard let self, let key = Keys.name(for: Int64(event.keyCode)) else { return false }
             return self.doorKey(key)
         }
-        SoftShadow.host(cardRoot, in: card, cornerRadius: BarTheme.glassRadius)
-        _ = Glass.installBackdrop(in: cardRoot, cornerRadius: BarTheme.glassRadius)
+        SoftShadow.host(cardRoot, in: card, cornerRadius: BarTheme.surfaceRadius)
+        _ = Glass.installBackdrop(in: cardRoot, cornerRadius: BarTheme.surfaceRadius)
         Movable.enable(door)
         Movable.enable(card)
     }
@@ -538,29 +540,35 @@ final class WalkController: NSObject {
         for view in doorRoot.subviews where view is NSStackView { view.removeFromSuperview() }
         let width = page == .welcome ? Self.welcomeWidth : Self.doorWidth
         let text = width - Self.inset * 2
+        var inTrack: [NSTextField] = []
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 10
+        stack.spacing = Grid.close
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         switch page {
         case .welcome:
             stack.addArrangedSubview(heading("Welcome to Lodestar"))
             stack.addArrangedSubview(voice("What would you like to do first? Lodestar starts with that one.", width: text))
-            stack.setCustomSpacing(18, after: stack.arrangedSubviews.last!)
+            stack.setCustomSpacing(Grid.group, after: stack.arrangedSubviews.last!)
             stack.addArrangedSubview(tiles(width: text))
-            stack.setCustomSpacing(18, after: stack.arrangedSubviews.last!)
+            stack.setCustomSpacing(Grid.group, after: stack.arrangedSubviews.last!)
             let footer = NSStackView()
             footer.orientation = .horizontal
-            footer.spacing = 12
-            footer.addArrangedSubview(wrapped(chosen == nil
-                    ? "Choose one. The other three wait until they would help."
-                    : "The other three wait. Lodestar brings up each one later, when it would help.",
-                role: .meta, color: BarTheme.secondaryColor, alignment: .left, width: text - 150))
-            let spacer = NSView()
-            spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-            footer.addArrangedSubview(spacer)
+            footer.spacing = Grid.part
+            // The sentence takes the room the keys leave and wraps in it: no
+            // width is computed from the text's, so it can never be cut.
+            let note = NSTextField(wrappingLabelWithString: chosen == nil
+                ? "Choose one. The other three wait until they would help."
+                : "The other three wait. Lodestar brings up each one later, when it would help.")
+            note.setRole(.meta)
+            note.textColor = BarTheme.secondaryColor
+            note.isSelectable = false
+            note.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            note.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            footer.addArrangedSubview(note)
+            inTrack = [note]
             // The room's actions are its keys, pressed or clicked.
             footer.addArrangedSubview(Keycaps.line([
                 .init(["esc"], "Not now", action: { [weak self] in self?.notNow() }),
@@ -580,7 +588,7 @@ final class WalkController: NSObject {
             stack.addArrangedSubview(wrapped(
                 "Nothing else is asked for now. Anything more is asked the first time you use the thing that needs it.",
                 role: .meta, color: BarTheme.secondaryColor, alignment: .left, width: text))
-            stack.setCustomSpacing(16, after: stack.arrangedSubviews.last!)
+            stack.setCustomSpacing(Grid.group, after: stack.arrangedSubviews.last!)
             stack.addArrangedSubview(Keycaps.line([
                 .init(["esc"], "Back", action: { [weak self] in
                     self?.page = .welcome
@@ -601,7 +609,7 @@ final class WalkController: NSObject {
                 role: .body, color: BarTheme.ink, alignment: .left, width: text))
             stack.addArrangedSubview(wrapped("No restart needed.", role: .meta,
                                              color: BarTheme.secondaryColor, alignment: .left, width: text))
-            stack.setCustomSpacing(16, after: stack.arrangedSubviews.last!)
+            stack.setCustomSpacing(Grid.group, after: stack.arrangedSubviews.last!)
             stack.addArrangedSubview(Keycaps.line([
                 .init(["esc"], "Cancel", action: { [weak self] in self?.stopWaiting(granted: false) }),
             ]))
@@ -613,6 +621,11 @@ final class WalkController: NSObject {
             stack.leadingAnchor.constraint(equalTo: doorRoot.leadingAnchor, constant: Self.inset),
             stack.trailingAnchor.constraint(equalTo: doorRoot.trailingAnchor, constant: -Self.inset),
         ])
+        // A sentence beside the keys wraps in the room they leave: laid out
+        // once to find that room, then told it, so its height is its lines'.
+        doorRoot.setFrameSize(NSSize(width: width, height: doorRoot.frame.height))
+        doorRoot.layoutSubtreeIfNeeded()
+        for field in inTrack { field.preferredMaxLayoutWidth = field.frame.width }
         doorRoot.layoutSubtreeIfNeeded()
         presentDoor(width: width, height: stack.fittingSize.height + Self.inset * 2)
     }
@@ -623,8 +636,8 @@ final class WalkController: NSObject {
         let size = NSSize(width: width, height: height)
         let visible = ActivePolicy.presentationFrame
         let origin = page == .waiting
-            ? NSPoint(x: visible.maxX - size.width - 20, y: visible.midY - size.height / 2)
-            : NSPoint(x: visible.midX - size.width / 2, y: visible.midY - size.height / 2 + 40)
+            ? NSPoint(x: visible.maxX - size.width - Grid.section, y: visible.midY - size.height / 2)
+            : NSPoint(x: visible.midX - size.width / 2, y: visible.midY - size.height / 2 + Grid.margin)
         door.setGlassFrame(NSRect(origin: origin, size: size), display: true)
         door.orderFrontRegardless()
     }
@@ -635,31 +648,34 @@ final class WalkController: NSObject {
     private func tiles(width: CGFloat) -> NSView {
         let row = NSStackView()
         row.orientation = .horizontal
-        row.spacing = 10
+        row.spacing = Grid.part
         row.distribution = .fillEqually
-        let tileWidth = (width - 30) / 4
+        let doors = Walk.Door.allCases.count
+        let tileWidth = (width - row.spacing * CGFloat(doors - 1)) / CGFloat(doors)
+        let tileInset = Grid.part
         for (index, option) in Walk.Door.allCases.enumerated() {
             let selected = option == chosen
             let column = NSStackView()
             column.orientation = .vertical
             column.alignment = .leading
-            column.spacing = 4
-            column.edgeInsets = NSEdgeInsets(top: 10, left: 10, bottom: 12, right: 10)
+            column.spacing = Grid.tight
+            column.edgeInsets = NSEdgeInsets(top: tileInset, left: tileInset, bottom: tileInset, right: tileInset)
             if let picture = Self.picture(option) {
                 let image = PictureView()
                 image.image = picture
                 image.imageScaling = .scaleProportionallyUpOrDown
                 image.translatesAutoresizingMaskIntoConstraints = false
-                image.widthAnchor.constraint(equalToConstant: tileWidth - 20).isActive = true
-                image.heightAnchor.constraint(equalToConstant: (tileWidth - 20) * 0.75).isActive = true
+                image.widthAnchor.constraint(equalToConstant: tileWidth - tileInset * 2).isActive = true
+                image.heightAnchor.constraint(equalToConstant: (tileWidth - tileInset * 2) * Self.pictureAspect).isActive = true
                 column.addArrangedSubview(image)
             }
             column.addArrangedSubview(label(option.name, role: .emphasis,
                                             color: BarTheme.ink))
             column.addArrangedSubview(wrapped(Self.doorLine(option), role: .meta,
-                                              color: BarTheme.secondaryColor, alignment: .left, width: tileWidth - 20))
+                                              color: BarTheme.secondaryColor, alignment: .left, width: tileWidth - tileInset * 2))
             column.wantsLayer = true
-            column.layer?.cornerRadius = BarTheme.surfaceRadius
+            column.layer?.cornerRadius = BarTheme.nested(outer: BarTheme.surfaceRadius, inset: Self.inset,
+                                                         rung: BarTheme.controlRadius)
             column.layer?.borderWidth = selected ? 1.5 : 1
             column.layer?.borderColor = Glass.resolved(selected ? BarTheme.accent : BarTheme.hairline)
             column.layer?.backgroundColor = Glass.resolved(selected ? BarTheme.accent.withAlphaComponent(0.08)
@@ -914,7 +930,7 @@ final class WalkController: NSObject {
             stack = VoiceCard.build(sentence: card.sentence, detail: card.detail, rows: rows)
         }
         cardRoot.addSubview(stack)
-        let inset = ModePill.inset
+        let inset = Grid.section
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: cardRoot.topAnchor, constant: inset),
             stack.bottomAnchor.constraint(equalTo: cardRoot.bottomAnchor, constant: -inset),
@@ -925,8 +941,8 @@ final class WalkController: NSObject {
         let size = cardRoot.fittingSize
         Movable.place(card, size: size) {
             let visible = ActivePolicy.presentationFrame
-            return NSPoint(x: visible.maxX - size.width - 20,
-                           y: visible.maxY - size.height - 20)
+            return NSPoint(x: visible.maxX - size.width - Grid.section,
+                           y: visible.maxY - size.height - Grid.section)
         }
         card.orderFrontRegardless()
     }
@@ -951,7 +967,7 @@ final class WalkController: NSObject {
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 8
+        stack.spacing = Grid.close
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         if let header {
@@ -963,9 +979,9 @@ final class WalkController: NSObject {
                                          color: BarTheme.secondaryColor, alignment: .left,
                                          width: Self.cardText))
         if let illustration = content.illustration {
-            stack.setCustomSpacing(14, after: stack.arrangedSubviews.last!)
+            stack.setCustomSpacing(Grid.group, after: stack.arrangedSubviews.last!)
             stack.addArrangedSubview(illustration)
-            stack.setCustomSpacing(14, after: illustration)
+            stack.setCustomSpacing(Grid.group, after: illustration)
         }
         for row in content.keys {
             stack.addArrangedSubview(keyMeaningRow(cap: row.cap, meaning: row.meaning,
@@ -976,26 +992,26 @@ final class WalkController: NSObject {
         // dismissed. The click target exists because lode ⌫ requires the
         // very key a first card may still be teaching. The finished card
         // trades it for a close, and is never on a clock.
-        stack.setCustomSpacing(12, after: stack.arrangedSubviews.last!)
+        stack.setCustomSpacing(Grid.part, after: stack.arrangedSubviews.last!)
         stack.addArrangedSubview(smallLink(footer.title, action: footer.action))
 
         cardRoot.addSubview(stack)
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: cardRoot.topAnchor, constant: 18),
-            stack.leadingAnchor.constraint(equalTo: cardRoot.leadingAnchor, constant: 20),
-            stack.trailingAnchor.constraint(equalTo: cardRoot.trailingAnchor, constant: -20),
+            stack.topAnchor.constraint(equalTo: cardRoot.topAnchor, constant: Self.inset),
+            stack.leadingAnchor.constraint(equalTo: cardRoot.leadingAnchor, constant: Self.inset),
+            stack.trailingAnchor.constraint(equalTo: cardRoot.trailingAnchor, constant: -Self.inset),
         ])
 
         cardRoot.layoutSubtreeIfNeeded()
         let size = NSSize(width: Self.cardWidth,
-                          height: stack.fittingSize.height + 18 + 16)
+                          height: stack.fittingSize.height + Self.inset * 2)
         // Top-right corner: the launcher owns the middle, the HUD, the
         // draft and the clipboard own the bottom, so this is the quiet
         // quarter.
         Movable.place(card, size: size) {
             let visible = ActivePolicy.presentationFrame
-            return NSPoint(x: visible.maxX - size.width - 20,
-                           y: visible.maxY - size.height - 20)
+            return NSPoint(x: visible.maxX - size.width - Grid.section,
+                           y: visible.maxY - size.height - Grid.section)
         }
         card.orderFrontRegardless()
     }
@@ -1005,12 +1021,12 @@ final class WalkController: NSObject {
     private func heading(_ text: String) -> NSView {
         let row = NSStackView()
         row.orientation = .horizontal
-        row.spacing = 10
+        row.spacing = Grid.part
         if let icon = NSApp.applicationIconImage {
             let image = NSImageView(image: icon)
             image.translatesAutoresizingMaskIntoConstraints = false
-            image.widthAnchor.constraint(equalToConstant: 30).isActive = true
-            image.heightAnchor.constraint(equalToConstant: 30).isActive = true
+            image.widthAnchor.constraint(equalToConstant: BarTheme.appIconSize).isActive = true
+            image.heightAnchor.constraint(equalToConstant: BarTheme.appIconSize).isActive = true
             row.addArrangedSubview(image)
         }
         row.addArrangedSubview(label(text, role: .roomTitle, color: BarTheme.ink))
@@ -1057,7 +1073,7 @@ final class WalkController: NSObject {
     /// The one key, the launcher's: lit as the launcher lights a key, and
     /// the space bar only wider.
     private func keycap(_ text: String, lit: Bool = false, wide: Bool = false) -> NSView {
-        let key = KeyFace(text, padX: wide ? 22 : BarTheme.chipPadX)
+        let key = KeyFace(text, padX: wide ? Grid.section : Grid.half)
         key.lit = lit
         // A cap is exactly as wide as its key. Without this the row stack
         // elects the lowest-hugging view to soak up its slack, and a letter
@@ -1069,7 +1085,7 @@ final class WalkController: NSObject {
     private func capsRow(_ caps: [(String, Bool)]) -> NSView {
         let row = NSStackView()
         row.orientation = .horizontal
-        row.spacing = 6
+        row.spacing = Grid.tight
         row.setContentHuggingPriority(.required, for: .horizontal)
         for (text, lit) in caps { row.addArrangedSubview(keycap(text, lit: lit)) }
         return row
@@ -1081,11 +1097,11 @@ final class WalkController: NSObject {
         let column = NSStackView()
         column.orientation = .vertical
         column.alignment = .leading
-        column.spacing = 6
+        column.spacing = Grid.close
 
         let row = NSStackView()
         row.orientation = .horizontal
-        row.spacing = 4
+        row.spacing = Grid.tight
         row.addArrangedSubview(keycap("fn"))
         row.addArrangedSubview(keycap("⌃"))
         row.addArrangedSubview(keycap("⌥"))
@@ -1102,11 +1118,11 @@ final class WalkController: NSObject {
         let column = NSStackView()
         column.orientation = .vertical
         column.alignment = .leading
-        column.spacing = 5
+        column.spacing = Grid.tight
         for option in options {
             let row = NSStackView()
             row.orientation = .horizontal
-            row.spacing = 8
+            row.spacing = Grid.close
             row.setContentHuggingPriority(.required, for: .horizontal)
             for letter in option.path.split(separator: " ") {
                 row.addArrangedSubview(keycap(String(letter).uppercased(), lit: true))
@@ -1122,11 +1138,11 @@ final class WalkController: NSObject {
         let column = NSStackView()
         column.orientation = .vertical
         column.alignment = .leading
-        column.spacing = 5
+        column.spacing = Grid.tight
         for proposal in proposals {
             let row = NSStackView()
             row.orientation = .horizontal
-            row.spacing = 8
+            row.spacing = Grid.close
             row.setContentHuggingPriority(.required, for: .horizontal)
             row.addArrangedSubview(keycap(proposal.letter.uppercased(), lit: true))
             row.addArrangedSubview(label(proposal.app, role: .body,
@@ -1140,7 +1156,7 @@ final class WalkController: NSObject {
                                action: (() -> Void)? = nil) -> NSView {
         let row = NSStackView()
         row.orientation = .horizontal
-        row.spacing = 8
+        row.spacing = Grid.close
         row.setContentHuggingPriority(.required, for: .horizontal)
         let box = keycap(cap)
         if let action, let face = box as? KeyFace {

@@ -10,7 +10,7 @@ import LodestarCore
 /// `R` turns the switch, and the plan above it changes to say so.
 final class UninstallRoom: NSObject {
     private let panel = KeyablePanel(
-        contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+        contentRect: BarTheme.unplaced,
         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
     private let root = NSView()
     /// Settings' own switch, not the system's checkbox.
@@ -22,7 +22,7 @@ final class UninstallRoom: NSObject {
     var onUninstall: ((Bool) -> Void)?
 
     private static let width: CGFloat = 480
-    private static let inset: CGFloat = 26
+    private static let inset = Grid.section
 
     var isVisible: Bool { panel.isVisible }
     var removesEverything: Bool { everything.state == .on }
@@ -34,8 +34,8 @@ final class UninstallRoom: NSObject {
         panel.backgroundColor = .clear
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
-        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
-        _ = Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
+        _ = Glass.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
         panel.onKeyDown = { [weak self] event in self?.key(event) ?? false }
         Movable.enable(panel)
         everything.state = .off
@@ -95,26 +95,26 @@ final class UninstallRoom: NSObject {
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 6
+        stack.spacing = Grid.close
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         let title = NSTextField(labelWithString: "Uninstall Lodestar")
         title.setRole(.roomTitle)
         title.textColor = BarTheme.ink
         stack.addArrangedSubview(title)
-        stack.setCustomSpacing(12, after: title)
+        stack.setCustomSpacing(Grid.part, after: title)
 
         let current = plan(removesEverything)
         for step in current.steps {
             let first = step.name.prefix(1).uppercased() + step.name.dropFirst()
             stack.addArrangedSubview(wrapped(first, color: BarTheme.ink, width: text))
         }
-        stack.setCustomSpacing(16, after: stack.arrangedSubviews.last!)
+        stack.setCustomSpacing(Grid.group, after: stack.arrangedSubviews.last!)
 
         let choice = NSStackView()
         choice.orientation = .horizontal
         choice.alignment = .centerY
-        choice.spacing = 10
+        choice.spacing = Grid.close
         choice.addArrangedSubview(everything)
         choice.addArrangedSubview(Keycaps.line([
             .init(["R"], "Also remove everything Lodestar has kept", action: { [weak self] in self?.toggle() }),
@@ -125,14 +125,14 @@ final class UninstallRoom: NSObject {
                 ? "Settings, breaths, the clipboard, observations, the health record, downloaded models and the keys that open them go too"
                 : "Settings, breaths, the clipboard, observations, the health record and downloaded models stay, with their keys, so a reinstall finds them",
             color: BarTheme.secondaryColor, width: text, role: .meta))
-        stack.setCustomSpacing(16, after: stack.arrangedSubviews.last!)
+        stack.setCustomSpacing(Grid.group, after: stack.arrangedSubviews.last!)
         stack.addArrangedSubview(wrapped(UninstallPlan.closing.trimmingCharacters(in: CharacterSet(charactersIn: ".")),
                                          color: BarTheme.secondaryColor, width: text, role: .meta))
-        stack.setCustomSpacing(20, after: stack.arrangedSubviews.last!)
+        stack.setCustomSpacing(Grid.section, after: stack.arrangedSubviews.last!)
 
         let footer = NSStackView()
         footer.orientation = .horizontal
-        footer.spacing = 12
+        footer.spacing = Grid.part
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         footer.addArrangedSubview(spacer)
@@ -154,7 +154,7 @@ final class UninstallRoom: NSObject {
         let visible = ActivePolicy.presentationFrame
         let origin = panel.isVisible
             ? NSPoint(x: panel.glassFrame.minX, y: panel.glassFrame.maxY - size.height)
-            : NSPoint(x: visible.midX - size.width / 2, y: visible.midY - size.height / 2 + 40)
+            : NSPoint(x: visible.midX - size.width / 2, y: visible.midY - size.height / 2 + Grid.margin)
         panel.setGlassFrame(NSRect(origin: origin, size: size), display: true)
     }
 

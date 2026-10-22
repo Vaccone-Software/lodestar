@@ -15,7 +15,7 @@ final class IndexBadges {
         for item in items.prefix(10) {
             // The one key at peek size, on room for its shadow.
             let key = KeyMark.key("\(item.index)", peek: true)
-            let margin: CGFloat = 16
+            let margin = Grid.group
             let size = key.frame.width + margin * 2
             let origin = NSPoint(
                 x: (item.frame.midX - size / 2).rounded(),

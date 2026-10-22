@@ -86,7 +86,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
         panel.delegate = self
-        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
         panel.onKeyEquivalent = { [weak self] event in
             self?.handleKeyEquivalent(event) ?? false
         }
@@ -94,7 +94,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             self?.handleMenuKey(event) ?? false
         }
 
-        Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+        Glass.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
 
         globe.image = NSImage(systemSymbolName: "network", accessibilityDescription: "links and the web")
         globe.symbolConfiguration = BarTheme.inputSymbol
@@ -115,7 +115,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         separator.translatesAutoresizingMaskIntoConstraints = false
 
         rowsStack.orientation = .vertical
-        rowsStack.spacing = 2
+        rowsStack.spacing = Grid.hair
         rowsStack.translatesAutoresizingMaskIntoConstraints = false
         keys.install(root: root, below: rowsStack)
 
@@ -126,7 +126,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         inferredLabel.textColor = BarTheme.secondaryColor
         inferredLabel.translatesAutoresizingMaskIntoConstraints = false
         inferredChip.wantsLayer = true
-        inferredChip.layer?.cornerRadius = BarTheme.chipRadius
+        inferredChip.layer?.cornerRadius = BarTheme.controlRadius
         inferredChip.translatesAutoresizingMaskIntoConstraints = false
         inferredChip.addSubview(inferredLabel)
 
@@ -136,23 +136,23 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         root.addSubview(separator)
         root.addSubview(rowsStack)
         NSLayoutConstraint.activate([
-            globe.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 22),
+            globe.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: BarTheme.fieldInset),
             globe.centerYAnchor.constraint(equalTo: root.topAnchor, constant: inputHeight / 2),
-            field.leadingAnchor.constraint(equalTo: globe.trailingAnchor, constant: 12),
-            field.trailingAnchor.constraint(equalTo: inferredChip.leadingAnchor, constant: -12),
-            inferredChip.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -22),
+            field.leadingAnchor.constraint(equalTo: globe.trailingAnchor, constant: Grid.part),
+            field.trailingAnchor.constraint(equalTo: inferredChip.leadingAnchor, constant: -Grid.part),
+            inferredChip.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -BarTheme.fieldInset),
             inferredChip.centerYAnchor.constraint(equalTo: field.centerYAnchor),
-            inferredLabel.leadingAnchor.constraint(equalTo: inferredChip.leadingAnchor, constant: 6),
-            inferredLabel.trailingAnchor.constraint(equalTo: inferredChip.trailingAnchor, constant: -6),
-            inferredLabel.topAnchor.constraint(equalTo: inferredChip.topAnchor, constant: 2),
-            inferredLabel.bottomAnchor.constraint(equalTo: inferredChip.bottomAnchor, constant: -2),
+            inferredLabel.leadingAnchor.constraint(equalTo: inferredChip.leadingAnchor, constant: Grid.half),
+            inferredLabel.trailingAnchor.constraint(equalTo: inferredChip.trailingAnchor, constant: -Grid.half),
+            inferredLabel.topAnchor.constraint(equalTo: inferredChip.topAnchor, constant: Grid.hair),
+            inferredLabel.bottomAnchor.constraint(equalTo: inferredChip.bottomAnchor, constant: -Grid.hair),
             field.centerYAnchor.constraint(equalTo: root.topAnchor, constant: inputHeight / 2),
             separator.topAnchor.constraint(equalTo: root.topAnchor, constant: inputHeight),
-            separator.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 14),
-            separator.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -14),
-            rowsStack.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 8),
-            rowsStack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 10),
-            rowsStack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -10),
+            separator.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: BarTheme.paneInset),
+            separator.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -BarTheme.paneInset),
+            rowsStack.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: Grid.close),
+            rowsStack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: BarTheme.paneInset),
+            rowsStack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -BarTheme.paneInset),
         ])
     }
 
@@ -292,17 +292,20 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     /// growing to hold its keys extends it downward.
     private func barFrame() -> NSRect {
         let count = CGFloat(rows.count)
-        let rowsArea = count > 0 ? 1 + 8 + count * rowHeight + CGFloat(max(0, rows.count - 1)) * 2 + 6 : 0
-        let height = inputHeight + rowsArea + BarTheme.barFoot + keys.height
+        let rowsArea = BarTheme.rowsArea(count: rows.count)
+        let height = inputHeight + rowsArea + keys.height
         let visible = ActivePolicy.presentationFrame
         let origin = NSPoint(
             x: visible.midX - panelWidth / 2,
-            y: visible.minY + visible.height * 0.64 - height
+            y: visible.minY + visible.height * BarTheme.topLine - height
         )
         return NSRect(origin: origin, size: NSSize(width: panelWidth, height: height))
     }
 
     private func reposition() {
+        // The rule under the field is the top of the rows: with none, it would
+        // hang below the bar.
+        separator.isHidden = rows.isEmpty
         panel.setFrame(SoftShadow.outset(barFrame()), display: true)
     }
 
@@ -569,7 +572,7 @@ private final class WebRowView: RaisedRow {
         chipLabel.setRole(.key)
         chipLabel.translatesAutoresizingMaskIntoConstraints = false
         chip.wantsLayer = true
-        chip.layer?.cornerRadius = BarTheme.chipRadius
+        chip.layer?.cornerRadius = BarTheme.controlRadius
         chip.translatesAutoresizingMaskIntoConstraints = false
         chip.addSubview(chipLabel)
 
@@ -578,19 +581,19 @@ private final class WebRowView: RaisedRow {
         addSubview(enter)
         NSLayoutConstraint.activate([
             // Where the commands bar's rows start their words.
-            title.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            title.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Grid.part),
             title.centerYAnchor.constraint(equalTo: centerYAnchor),
-            chipLabel.leadingAnchor.constraint(equalTo: chip.leadingAnchor, constant: 6),
-            chipLabel.trailingAnchor.constraint(equalTo: chip.trailingAnchor, constant: -6),
-            chipLabel.topAnchor.constraint(equalTo: chip.topAnchor, constant: 2),
-            chipLabel.bottomAnchor.constraint(equalTo: chip.bottomAnchor, constant: -2),
+            chipLabel.leadingAnchor.constraint(equalTo: chip.leadingAnchor, constant: Grid.half),
+            chipLabel.trailingAnchor.constraint(equalTo: chip.trailingAnchor, constant: -Grid.half),
+            chipLabel.topAnchor.constraint(equalTo: chip.topAnchor, constant: Grid.hair),
+            chipLabel.bottomAnchor.constraint(equalTo: chip.bottomAnchor, constant: -Grid.hair),
             chip.centerYAnchor.constraint(equalTo: centerYAnchor),
             enter.centerYAnchor.constraint(equalTo: centerYAnchor),
-            enter.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
-            chip.trailingAnchor.constraint(equalTo: enter.leadingAnchor, constant: -8),
+            enter.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Grid.part),
+            chip.trailingAnchor.constraint(equalTo: enter.leadingAnchor, constant: -Grid.close),
         ])
-        titleToChip = title.trailingAnchor.constraint(lessThanOrEqualTo: chip.leadingAnchor, constant: -12)
-        titleToEnter = title.trailingAnchor.constraint(lessThanOrEqualTo: enter.leadingAnchor, constant: -12)
+        titleToChip = title.trailingAnchor.constraint(lessThanOrEqualTo: chip.leadingAnchor, constant: -Grid.part)
+        titleToEnter = title.trailingAnchor.constraint(lessThanOrEqualTo: enter.leadingAnchor, constant: -Grid.part)
         titleToChip.isActive = true
         restyle()
     }

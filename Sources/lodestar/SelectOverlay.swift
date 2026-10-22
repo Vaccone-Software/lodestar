@@ -173,11 +173,11 @@ final class SelectOverlay {
             }
             let key = KeyMark.key(chip.label, typed: typed)
             let width = key.frame.width, height = key.frame.height
-            let x = min(max(target.minX - 2, 0), panel.frame.width - width)
+            let x = min(max(target.minX - Grid.hair, 0), panel.frame.width - width)
             // A match's key floats just above the word; a target's pins to
             // the frame's top-left corner, overlapping it — attached to the
             // box it fires, however large the box.
-            let raw = chip.style == .match ? target.maxY + 2 : target.maxY - height + 4
+            let raw = chip.style == .match ? target.maxY + Grid.hair : target.maxY - height + Grid.tight
             let y = min(max(raw, 0), panel.frame.height - height)
             key.frame.origin = NSPoint(x: x, y: y)
             chipHost.addSubview(key)
@@ -191,8 +191,8 @@ final class SelectOverlay {
     /// runs clear of the tags beneath it. An undisturbed tag needs none.
     static func place(_ size: NSSize, above target: NSRect, avoiding placed: [NSRect],
                       within bounds: NSRect) -> (frame: NSRect, connectorX: CGFloat?) {
-        let gap: CGFloat = 4
-        let x = min(max(target.minX - 3, bounds.minX), bounds.maxX - size.width)
+        let gap = Grid.tight
+        let x = min(max(target.minX - Grid.tight, bounds.minX), bounds.maxX - size.width)
         var frame = NSRect(x: x, y: target.maxY + gap, width: size.width, height: size.height)
         var steps = 0
         while steps < 4, placed.contains(where: { $0.insetBy(dx: -gap / 2, dy: -gap / 2).intersects(frame) }) {
@@ -203,13 +203,13 @@ final class SelectOverlay {
         guard steps > 0 else { return (frame, nil) }
         // The line drops from the tag's foot to the word; it starts near
         // the word's front and moves right past any tag it would cross.
-        var lineX = target.minX + 8
+        var lineX = target.minX + Grid.close
         for other in placed.sorted(by: { $0.minX < $1.minX })
         where other.minY < frame.minY && other.maxY > target.maxY && other.minX <= lineX && other.maxX >= lineX {
-            lineX = other.maxX + 4
+            lineX = other.maxX + Grid.tight
         }
-        lineX = min(lineX, max(target.minX + 2, target.maxX - 2))
-        lineX = min(max(lineX, frame.minX + 6), frame.maxX - 6)
+        lineX = min(lineX, max(target.minX + Grid.hair, target.maxX - Grid.hair))
+        lineX = min(max(lineX, frame.minX + Grid.close), frame.maxX - Grid.close)
         return (frame, lineX.rounded())
     }
 

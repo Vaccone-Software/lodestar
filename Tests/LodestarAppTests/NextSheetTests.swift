@@ -60,7 +60,7 @@ final class NextSheetTests: XCTestCase {
         XCTAssertNotNil(view)
         XCTAssertEqual(view?.alphaValue, 0, "built invisible; the glass grows first, then the keys fade in")
         XCTAssertTrue(keys.isShown)
-        XCTAssertGreaterThan(keys.height, BarKeys.above + ModePill.inset,
+        XCTAssertGreaterThan(keys.height, BarKeys.above + Grid.section,
                              "the bar grows by the columns and their air")
         let going = keys.hide()
         XCTAssertTrue(going === view, "the same view is handed back to fade out")

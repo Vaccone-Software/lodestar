@@ -440,7 +440,7 @@ final class KeyFaceTests: XCTestCase {
     /// shadow's margin passes the pointer through, the glass takes it.
     func testAHostedSurfaceTakesThePointerOnlyOverItsGlass() {
         let panel = Glass.makePanel(level: .floating)
-        let gate = SoftShadow.host(NSView(), in: panel, cornerRadius: BarTheme.glassRadius)
+        let gate = SoftShadow.host(NSView(), in: panel, cornerRadius: BarTheme.surfaceRadius)
         let glass = NSRect(x: 300, y: 300, width: 400, height: 120)
         panel.setFrame(SoftShadow.outset(glass), display: false)
         panel.orderFrontRegardless()

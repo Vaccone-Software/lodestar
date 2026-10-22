@@ -23,9 +23,9 @@ enum CoachCard {
     }
 
     /// The glass's own inset around the row, so the surface hugs it.
-    static let inset: CGFloat = 6
+    static let inset = BarTheme.paneInset
     /// The sentence and the whisper sit in from the row's edge by this.
-    static let textInset: CGFloat = 10
+    static let textInset = Grid.part
     /// Wide enough for one sentence of the voice on a line, a row's worth;
     /// a breath's two names and longer address may take it to `maxWidth`.
     static let width: CGFloat = 428
@@ -48,18 +48,18 @@ enum CoachCard {
         let line = NSStackView()
         line.orientation = .horizontal
         line.alignment = .centerY
-        line.spacing = 10
+        line.spacing = Grid.part
         line.translatesAutoresizingMaskIntoConstraints = false
         row.addSubview(line)
         // A breath's apps overlap the way their windows will stand together.
         let icons = NSStackView()
         icons.orientation = .horizontal
-        icons.spacing = -6
+        icons.spacing = -Grid.half
         for image in offer.icons.prefix(2) {
             let view = NSImageView(image: image)
             view.translatesAutoresizingMaskIntoConstraints = false
-            view.widthAnchor.constraint(equalToConstant: 26).isActive = true
-            view.heightAnchor.constraint(equalToConstant: 26).isActive = true
+            view.widthAnchor.constraint(equalToConstant: Grid.section).isActive = true
+            view.heightAnchor.constraint(equalToConstant: Grid.section).isActive = true
             icons.addArrangedSubview(view)
         }
         if !offer.icons.isEmpty { line.addArrangedSubview(icons) }
@@ -72,7 +72,7 @@ enum CoachCard {
         // The address on offer, quiet: what you would press later, not now.
         let address = NSStackView()
         address.orientation = .horizontal
-        address.spacing = 3
+        address.spacing = Grid.hair
         for key in offer.address {
             let cap = Keycaps.cap(key)
             cap.quiet = true
@@ -95,7 +95,7 @@ enum CoachCard {
         let whisper = NSStackView()
         whisper.orientation = .horizontal
         whisper.alignment = .centerY
-        whisper.spacing = 6
+        whisper.spacing = Grid.close
         whisper.translatesAutoresizingMaskIntoConstraints = false
         card.addSubview(whisper)
         let record = NSTextField(labelWithString: offer.record)
@@ -118,20 +118,20 @@ enum CoachCard {
         NSLayoutConstraint.activate([
             card.widthAnchor.constraint(greaterThanOrEqualToConstant: width),
             card.widthAnchor.constraint(lessThanOrEqualToConstant: maxWidth),
-            voice.topAnchor.constraint(equalTo: card.topAnchor, constant: 12 - inset),
+            voice.topAnchor.constraint(equalTo: card.topAnchor, constant: Grid.part),
             voice.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: textInset),
             voice.trailingAnchor.constraint(lessThanOrEqualTo: card.trailingAnchor, constant: -textInset),
-            row.topAnchor.constraint(equalTo: voice.bottomAnchor, constant: 9),
+            row.topAnchor.constraint(equalTo: voice.bottomAnchor, constant: Grid.close),
             row.leadingAnchor.constraint(equalTo: card.leadingAnchor),
             row.trailingAnchor.constraint(equalTo: card.trailingAnchor),
             row.heightAnchor.constraint(equalToConstant: BarTheme.rowHeight),
-            line.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 11),
-            line.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -10),
+            line.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: Grid.part),
+            line.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -Grid.part),
             line.centerYAnchor.constraint(equalTo: row.centerYAnchor),
-            whisper.topAnchor.constraint(equalTo: row.bottomAnchor, constant: 8),
+            whisper.topAnchor.constraint(equalTo: row.bottomAnchor, constant: Grid.close),
             whisper.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: textInset),
             whisper.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -textInset),
-            whisper.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -3),
+            whisper.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -Grid.tight),
         ])
         card.setAccessibilityElement(true)
         card.setAccessibilityRole(.group)

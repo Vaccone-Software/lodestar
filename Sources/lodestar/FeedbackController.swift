@@ -24,7 +24,7 @@ import StoicHTTP
 final class FeedbackController: NSObject, NSTextViewDelegate {
     /// Keyable on purpose: this is a place to type.
     private let panel = KeyablePanel(
-        contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+        contentRect: BarTheme.unplaced,
         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
     private let root = NSView()
 
@@ -68,7 +68,7 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
     var report: () -> String = { diagnoseReport() }
 
     private static let width: CGFloat = 520
-    private static let inset: CGFloat = 26
+    private static let inset = Grid.section
     private static let noteHeight: CGFloat = 150
 
     var isVisible: Bool { panel.isVisible }
@@ -81,8 +81,8 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
         panel.backgroundColor = .clear
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
-        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
-        _ = Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
+        _ = Glass.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
         panel.onKeyDown = { [weak self] event in self?.key(event) ?? false }
         Movable.enable(panel)
 
@@ -93,7 +93,7 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
         textView.textColor = BarTheme.ink
         textView.insertionPointColor = BarTheme.ink
         textView.drawsBackground = false
-        textView.textContainerInset = NSSize(width: 8, height: 8)
+        textView.textContainerInset = NSSize(width: Grid.close, height: Grid.close)
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
@@ -107,17 +107,17 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
         scroll.borderType = .noBorder
         // The frame is its own view: a scroll view's clip view paints over
         // any layer the scroll view itself is given.
-        noteBox.layer?.cornerRadius = BarTheme.surfaceRadius
+        noteBox.layer?.cornerRadius = BarTheme.nested(outer: BarTheme.surfaceRadius, inset: Self.inset, rung: BarTheme.controlRadius)
         noteBox.translatesAutoresizingMaskIntoConstraints = false
         noteBox.widthAnchor.constraint(equalToConstant: text).isActive = true
         noteBox.heightAnchor.constraint(equalToConstant: Self.noteHeight).isActive = true
         scroll.translatesAutoresizingMaskIntoConstraints = false
         noteBox.addSubview(scroll)
         NSLayoutConstraint.activate([
-            scroll.topAnchor.constraint(equalTo: noteBox.topAnchor, constant: 2),
-            scroll.bottomAnchor.constraint(equalTo: noteBox.bottomAnchor, constant: -2),
-            scroll.leadingAnchor.constraint(equalTo: noteBox.leadingAnchor, constant: 2),
-            scroll.trailingAnchor.constraint(equalTo: noteBox.trailingAnchor, constant: -2),
+            scroll.topAnchor.constraint(equalTo: noteBox.topAnchor, constant: Grid.hair),
+            scroll.bottomAnchor.constraint(equalTo: noteBox.bottomAnchor, constant: -Grid.hair),
+            scroll.leadingAnchor.constraint(equalTo: noteBox.leadingAnchor, constant: Grid.hair),
+            scroll.trailingAnchor.constraint(equalTo: noteBox.trailingAnchor, constant: -Grid.hair),
         ])
 
         replyBox.widthAnchor.constraint(equalToConstant: text).isActive = true
@@ -283,7 +283,7 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 10
+        stack.spacing = Grid.close
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         switch phase {
@@ -292,31 +292,31 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
             stack.addArrangedSubview(voice(
                 "What works, what does not, or what you wish it did. It goes straight to the person who makes Lodestar.",
                 width: text))
-            stack.setCustomSpacing(16, after: stack.arrangedSubviews.last!)
+            stack.setCustomSpacing(Grid.group, after: stack.arrangedSubviews.last!)
             stack.addArrangedSubview(noteBox)
             stack.addArrangedSubview(replyBox)
-            stack.setCustomSpacing(14, after: replyBox)
+            stack.setCustomSpacing(Grid.group, after: replyBox)
             let attachRow = NSStackView()
             attachRow.orientation = .horizontal
             attachRow.alignment = .centerY
-            attachRow.spacing = 10
+            attachRow.spacing = Grid.close
             attachRow.addArrangedSubview(attach)
             attachRow.addArrangedSubview(label("Include a diagnostic report", role: .body, color: BarTheme.ink))
             attachRow.addArrangedSubview(smallLink("See what it contains", action: #selector(seeReportPressed)))
             stack.addArrangedSubview(attachRow)
-            stack.setCustomSpacing(4, after: attachRow)
+            stack.setCustomSpacing(Grid.tight, after: attachRow)
             stack.addArrangedSubview(wrapped(
                 "Your displays, any settings problems and recent log lines. The log can name windows you had open.",
                 role: .meta, color: BarTheme.secondaryColor, width: text))
             if let status {
-                stack.setCustomSpacing(14, after: stack.arrangedSubviews.last!)
+                stack.setCustomSpacing(Grid.group, after: stack.arrangedSubviews.last!)
                 stack.addArrangedSubview(wrapped(status, role: .body, color: BarTheme.ink, width: text))
             }
-            stack.setCustomSpacing(18, after: stack.arrangedSubviews.last!)
+            stack.setCustomSpacing(Grid.group, after: stack.arrangedSubviews.last!)
 
             let footer = NSStackView()
             footer.orientation = .horizontal
-            footer.spacing = 12
+            footer.spacing = Grid.part
             footer.addArrangedSubview(label("Lodestar \(Lodestar.version) · macOS \(Feedback.macosVersion)",
                                             role: .meta,
                                             color: BarTheme.secondaryColor))
@@ -340,7 +340,7 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
         case .saved:
             stack.addArrangedSubview(roomTitle("Saved"))
             stack.addArrangedSubview(voice(Self.savedSentence, width: text))
-            stack.setCustomSpacing(18, after: stack.arrangedSubviews.last!)
+            stack.setCustomSpacing(Grid.group, after: stack.arrangedSubviews.last!)
             // Quiet, and the way out lit: the note is safe, so copying it is
             // only for the person who wants it somewhere else too.
             stack.addArrangedSubview(Keycaps.line([
@@ -353,7 +353,7 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
                     ? "Your note arrived and will be read. Any reply goes to the address you gave."
                     : "Your note arrived and will be read.",
                 width: text))
-            stack.setCustomSpacing(18, after: stack.arrangedSubviews.last!)
+            stack.setCustomSpacing(Grid.group, after: stack.arrangedSubviews.last!)
             stack.addArrangedSubview(Keycaps.line([
                 .init(["⏎"], "Close", action: { [weak self] in self?.closePressed() }, lit: true),
             ]))
@@ -372,7 +372,7 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
         let visible = ActivePolicy.presentationFrame
         let origin = panel.isVisible
             ? NSPoint(x: panel.glassFrame.minX, y: panel.glassFrame.maxY - size.height)
-            : NSPoint(x: visible.midX - size.width / 2, y: visible.midY - size.height / 2 + 40)
+            : NSPoint(x: visible.midX - size.width / 2, y: visible.midY - size.height / 2 + Grid.margin)
         panel.setGlassFrame(NSRect(origin: origin, size: size), display: true)
     }
 

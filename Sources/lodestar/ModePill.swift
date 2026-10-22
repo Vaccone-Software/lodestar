@@ -105,15 +105,19 @@ final class ModePill {
 
     // MARK: - Proportion
 
-    static let phi: CGFloat = BarTheme.phi
+    /// The pill is 44 tall and fully round: its ends are the surface
+    /// radius, 22. Wings stand a section apart; a glyph stands a part from
+    /// its own word.
     static let height: CGFloat = BarTheme.pillHeight
-    static var radius: CGFloat { BarTheme.surfaceRadius }
-    static var inset: CGFloat { height / phi }
-    static var wingGap: CGFloat { height / phi }
-    static var wordGap: CGFloat { height / (phi * phi * phi) }
+    static let inset = Grid.section
+    static let wingGap = Grid.section
+    static let wordGap = Grid.part
     /// The band's home: the guide's, a little above the bottom edge.
     static let rise: CGFloat = 96
-    static let iconSize: CGFloat = 16
+    static let iconSize = BarTheme.symbolSize
+    /// The glass is never narrower than this, nor wider than that.
+    static let leastWidth: CGFloat = 160
+    static let mostWidth: CGFloat = 1100
 
     /// The hand's words, upright: the italic was tried and did not look
     /// right on the glass. Size and weight set them apart from the wings.
@@ -136,8 +140,8 @@ final class ModePill {
 
     init() {
         panel = Glass.makePanel(level: .statusBar, takesKeys: false)
-        SoftShadow.host(root, in: panel, cornerRadius: Self.radius)
-        _ = Glass.installBackdrop(in: root, cornerRadius: Self.radius)
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
+        _ = Glass.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
         // Draggable by its glass, the way the coach's chip is: one home by
         // default, and a remembered displacement once the hand moves it.
         Movable.enable(panel)
@@ -337,7 +341,7 @@ final class ModePill {
             let slot = NSStackView(views: [label, Self.caret(alpha: 1)])
             slot.orientation = .horizontal
             slot.alignment = .centerY
-            slot.spacing = 3
+            slot.spacing = Grid.tight
             slot.translatesAutoresizingMaskIntoConstraints = false
             return slot
         }
@@ -360,8 +364,8 @@ final class ModePill {
         let view = ToneView(fill: BarTheme.inkAt(alpha))
         view.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            view.widthAnchor.constraint(equalToConstant: 1.5),
-            view.heightAnchor.constraint(equalToConstant: 18),
+            view.widthAnchor.constraint(equalToConstant: BarTheme.caretWidth),
+            view.heightAnchor.constraint(equalToConstant: BarTheme.bodyCaretHeight),
         ])
         return view
     }
@@ -383,7 +387,7 @@ final class ModePill {
         // Whole points: the window lands on them anyway, and a width of
         // words in the sans is rarely one, so a pill sized to its text that
         // did not round up would cut the last letter by a fraction.
-        size.width = min(max(size.width.rounded(.up), 160), 1100)
+        size.width = min(max(size.width.rounded(.up), Self.leastWidth), Self.mostWidth)
         size.height = size.height.rounded(.up)
         let rowSize = NSSize(width: size.width, height: Self.height)
         let home = Self.home(for: rowSize)

@@ -55,7 +55,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     var ask: ((String, [SettingsModel.Section], @escaping (String?) -> Void) -> Void)?
 
     private let panel = KeyablePanel(
-        contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+        contentRect: BarTheme.unplaced,
         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
     private let root = NSView()
 
@@ -138,11 +138,28 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     private var doctorCache: (machine: SettingsModel.MachineState,
                               problems: [String], at: Date)?
     private weak var paneScroll: NSScrollView?
+    /// The wrapping sentences of the page being built, each told the room its
+    /// track gives it once the page is laid out: no width is computed for them.
+    private var inTrack: [NSTextField] = []
 
     private static let width: CGFloat = 1000
     private static let height: CGFloat = 680
+    /// The room's margin, and what is left inside it.
+    private static let margin = Grid.margin
+    private static let contentWidth = width - margin * 2
+    private static let contentHeight = height - margin * 2
     /// The place's own column: its picture, name and sentence.
-    private static let leftColumn: CGFloat = 228
+    private static let leftColumn: CGFloat = 224
+    /// The place's picture on its page, and a place's on the overview.
+    private static let pageCard = NSSize(width: leftColumn, height: 176)
+    private static let pagePicture = NSSize(width: 192, height: 144)
+    private static let placePicture = NSSize(width: 120, height: 90)
+    private static let placeTile = NSSize(width: 224, height: 136)
+    /// The ring the ten places stand on, around the mark.
+    private static let ring = NSSize(width: 372, height: 228)
+    private static let poolReach = CGSize(width: 1.1, height: 1.25)
+    /// The most a readout's value takes before it wraps.
+    private static let readoutWidth: CGFloat = 224
 
     override init() {
         super.init()
@@ -159,8 +176,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         panel.autorecalculatesKeyViewLoop = true
         panel.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
         // A room floats like every other object, on its own drawn shadow.
-        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
-        _ = Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
+        _ = Glass.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
         panel.onKeyDown = { [weak self] event in
             guard let self, let key = Keys.name(for: Int64(event.keyCode)) else { return false }
             return self.handle(key: key, event: event)
@@ -216,7 +233,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         render()
         let visible = ActivePolicy.presentationFrame
         panel.setGlassFrame(NSRect(x: visible.midX - Self.width / 2,
-                              y: visible.midY - Self.height / 2 + 20,
+                              y: visible.midY - Self.height / 2 + Grid.section,
                               width: Self.width, height: Self.height), display: true)
         SystemEvents.activateLodestar()
         watchClicks()
@@ -940,6 +957,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         labeled = [:]
         placeViews = []
         paneScroll = nil
+        inTrack = []
         for view in root.subviews where view.identifier?.rawValue == "settings.content" { view.removeFromSuperview() }
 
         let content: NSView
@@ -954,13 +972,17 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         content.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(content)
         NSLayoutConstraint.activate([
-            content.topAnchor.constraint(equalTo: root.topAnchor, constant: 26),
-            content.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -24),
-            content.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 32),
-            content.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -32),
+            content.topAnchor.constraint(equalTo: root.topAnchor, constant: Self.margin),
+            content.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -Self.margin),
+            content.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Self.margin),
+            content.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -Self.margin),
         ])
+        // A sentence that shares a row with a control wraps in the room the
+        // control leaves: laid out once to find it, then told it.
+        root.layoutSubtreeIfNeeded()
+        for field in inTrack where field.frame.width > 0 { field.preferredMaxLayoutWidth = field.frame.width }
+        root.layoutSubtreeIfNeeded()
         if keepScroll, let offset, let paneScroll {
-            root.layoutSubtreeIfNeeded()
             paneScroll.contentView.scroll(to: offset)
             paneScroll.reflectScrolledClipView(paneScroll.contentView)
         }
@@ -1025,7 +1047,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
 
         func menuNeedsUpdate(_ menu: NSMenu) {
             let widest = menu.items.map { BarTheme.width(of: $0.title, in: .control) }.max() ?? 0
-            let width = max(bounds.width, widest + 70)
+            let width = max(bounds.width, ChoiceMenuItemView.width(forLabel: widest, withIcon: menu.items.contains { $0.image != nil }))
             for item in menu.items where !item.isSeparatorItem {
                 item.view = ChoiceMenuItemView(item: item, chosen: item == selectedItem, width: width, popup: self)
             }
@@ -1045,18 +1067,20 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     /// needs the person wears a dot beside its name; nothing points.
     private func buildOverview() -> NSView {
         let field = FlippedView()
-        let width = Self.width - 64, height = Self.height - 50
+        let width = Self.contentWidth, height = Self.contentHeight
         // Sized so neighbours never touch: down the sides the places sit
         // 2·ry·sin 18° apart (143), and a place stands 136 tall.
-        let center = NSPoint(x: width / 2, y: height / 2 - 8)
-        let rx: CGFloat = 372, ry: CGFloat = 232
+        let center = NSPoint(x: width / 2, y: height / 2 - Grid.part)
+        let rx = Self.ring.width, ry = Self.ring.height
 
         let ring = ToneView(edge: BarTheme.inkAt(Tone.systemDark ? 0.06 : 0.11), edgeWidth: 1, radius: ry)
         ring.frame = NSRect(x: center.x - rx, y: center.y - ry, width: rx * 2, height: ry * 2)
         field.addSubview(ring)
 
-        field.addSubview(MarkPool(frame: NSRect(x: center.x - rx * 1.1, y: center.y - ry * 1.25,
-                                                width: rx * 2.2, height: ry * 2.5)))
+        // The pool the mark floats in reaches a little past the ring.
+        let reach = Self.poolReach
+        field.addSubview(MarkPool(frame: NSRect(x: center.x - rx * reach.width, y: center.y - ry * reach.height,
+                                                width: rx * reach.width * 2, height: ry * reach.height * 2)))
 
         let markSize = BarTheme.settingsMarkSize
         let mark = NSImageView(frame: NSRect(x: center.x - markSize / 2, y: center.y - markSize / 2,
@@ -1072,19 +1096,22 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             // y grows down here and up in the picture.)
             let tile = buildPlaceTile(section, index: index, away: CGVector(dx: cos(angle), dy: -sin(angle)))
             // The picture sits on the ring; its name and line hang below.
-            tile.frame = NSRect(x: point.x - 110, y: point.y - 45, width: 220, height: 148)
+            tile.frame = NSRect(x: point.x - Self.placeTile.width / 2, y: point.y - Self.placePicture.height / 2,
+                                width: Self.placeTile.width, height: Self.placeTile.height)
             field.addSubview(tile)
             placeViews.append(tile)
         }
 
         let title = label("Settings", role: .roomTitle, color: BarTheme.ink)
-        title.frame = NSRect(x: 0, y: 0, width: 200, height: 24)
+        title.sizeToFit()
+        title.frame.origin = .zero
         field.addSubview(title)
         // The room's ways are its keys, drawn as every footer draws them.
         let searchRow = Keycaps.line([
             .init(["/"], "Search", action: { [weak self] in self?.searchPressed() }),
         ])
-        searchRow.frame = NSRect(x: width - 120, y: 0, width: 120, height: 24)
+        let searchSize = searchRow.fittingSize
+        searchRow.frame = NSRect(x: width - searchSize.width, y: 0, width: searchSize.width, height: searchSize.height)
         field.addSubview(searchRow)
 
         field.translatesAutoresizingMaskIntoConstraints = false
@@ -1097,19 +1124,19 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         let tile = HandStack()
         tile.orientation = .vertical
         tile.alignment = .centerX
-        tile.spacing = 5
+        tile.spacing = Grid.tight
         let picture = PictureView()
         picture.away = away
         picture.image = Self.picture(section.picture)
         picture.imageScaling = .scaleProportionallyUpOrDown
         picture.translatesAutoresizingMaskIntoConstraints = false
-        picture.widthAnchor.constraint(equalToConstant: 120).isActive = true
-        picture.heightAnchor.constraint(equalToConstant: 90).isActive = true
+        picture.widthAnchor.constraint(equalToConstant: Self.placePicture.width).isActive = true
+        picture.heightAnchor.constraint(equalToConstant: Self.placePicture.height).isActive = true
         tile.addArrangedSubview(picture)
         let head = NSStackView()
         head.orientation = .horizontal
         head.alignment = .centerY
-        head.spacing = 8
+        head.spacing = Grid.close
         head.addArrangedSubview(keycap(SettingsModel.paneKey(index, count: sections.count) ?? ""))
         head.addArrangedSubview(label(section.name, role: .label, color: BarTheme.ink))
         if section.attention { head.addArrangedSubview(Self.dot()) }
@@ -1133,13 +1160,13 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         let columns = NSStackView()
         columns.orientation = .horizontal
         columns.alignment = .top
-        columns.spacing = 36
+        columns.spacing = Grid.column
         columns.addArrangedSubview(buildPlaceColumn(section))
 
         let list = NSStackView()
         list.orientation = .vertical
         list.alignment = .leading
-        list.spacing = 22
+        list.spacing = Grid.section
         list.translatesAutoresizingMaskIntoConstraints = false
         var groups: [(name: String, rows: [Int])] = []
         for (index, row) in section.rows.enumerated() {
@@ -1147,15 +1174,24 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             if groups.last?.name == name { groups[groups.count - 1].rows.append(index) }
             else { groups.append((name, [index])) }
         }
-        let cardWidth = Self.width - 64 - Self.leftColumn - 36 - 18
+        // The scroll view takes what the left column and the gap leave; the
+        // cards stand a step inside it, so a landing's reach is never cut.
+        let scrollWidth = Self.contentWidth - Self.leftColumn - Grid.column
+        let cardWidth = scrollWidth - Grid.close * 2
+        // The cards' rows are a pane's rows: a step in from the card, and
+        // their words a step in from the row.
+        let rowsWidth = cardWidth - BarTheme.paneInset * 2
+        // The letters of this place are one column, as wide as its widest.
+        let letters = section.rows.compactMap(\.letter)
+        let letterWidth = ceil(letters.map { BarTheme.width(of: $0, in: .name) }.max() ?? 0)
         for group in groups {
             let block = NSStackView()
             block.orientation = .vertical
             block.alignment = .leading
-            block.spacing = 8
+            block.spacing = Grid.close
             let header = label(group.name, role: .heading, color: BarTheme.secondaryColor)
             let headerWrap = NSStackView(views: [header])
-            headerWrap.edgeInsets = NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 0)
+            headerWrap.edgeInsets = NSEdgeInsets(top: 0, left: BarTheme.fieldInset, bottom: 0, right: 0)
             block.addArrangedSubview(headerWrap)
             let card = Self.card()
             let rowsStack = NSStackView()
@@ -1165,28 +1201,28 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             rowsStack.translatesAutoresizingMaskIntoConstraints = false
             card.addSubview(rowsStack)
             NSLayoutConstraint.activate([
-                rowsStack.topAnchor.constraint(equalTo: card.topAnchor),
-                rowsStack.bottomAnchor.constraint(equalTo: card.bottomAnchor),
-                rowsStack.leadingAnchor.constraint(equalTo: card.leadingAnchor),
-                rowsStack.trailingAnchor.constraint(equalTo: card.trailingAnchor),
+                rowsStack.topAnchor.constraint(equalTo: card.topAnchor, constant: BarTheme.paneInset),
+                rowsStack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -BarTheme.paneInset),
+                rowsStack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: BarTheme.paneInset),
+                rowsStack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -BarTheme.paneInset),
                 card.widthAnchor.constraint(equalToConstant: cardWidth),
             ])
             for (position, index) in group.rows.enumerated() {
-                if position > 0 { rowsStack.addArrangedSubview(Self.hairline(width: cardWidth)) }
+                if position > 0 { rowsStack.addArrangedSubview(Self.hairline(width: rowsWidth)) }
                 let row = section.rows[index]
                 if let letter = row.letter { labeled[letter] = index }
-                let line = buildRow(row, index: index, width: cardWidth)
-                // The row's breathing room, held by its own container: a
-                // stack's insets gave way to the card's fitting height.
+                let line = buildRow(row, index: index, width: rowsWidth, letterWidth: letterWidth)
+                // The row's own container, which a landing rises behind.
                 let view = NSView()
                 view.translatesAutoresizingMaskIntoConstraints = false
                 view.addSubview(line)
                 NSLayoutConstraint.activate([
-                    line.topAnchor.constraint(equalTo: view.topAnchor, constant: 12),
-                    line.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -12),
+                    line.topAnchor.constraint(equalTo: view.topAnchor),
+                    line.bottomAnchor.constraint(equalTo: view.bottomAnchor),
                     line.leadingAnchor.constraint(equalTo: view.leadingAnchor),
                     line.trailingAnchor.constraint(equalTo: view.trailingAnchor),
                 ])
+                view.identifier = NSUserInterfaceItemIdentifier("settings.row")
                 rowViews[index] = view
                 rowsStack.addArrangedSubview(view)
                 if index == landedRow { addLanding(to: view) }
@@ -1215,15 +1251,15 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
-        scroll.documentView = FlippedView.wrapping(list, width: cardWidth + 18)
-        scroll.widthAnchor.constraint(equalToConstant: cardWidth + 18).isActive = true
-        scroll.heightAnchor.constraint(equalToConstant: Self.height - 50).isActive = true
+        scroll.documentView = FlippedView.wrapping(list, width: scrollWidth)
+        scroll.widthAnchor.constraint(equalToConstant: scrollWidth).isActive = true
+        scroll.heightAnchor.constraint(equalToConstant: Self.contentHeight).isActive = true
         // A long place fades into the window's foot rather than being cut
         // by it: the last few points go soft, and scrolling brings them up.
         scroll.wantsLayer = true
         let fade = CAGradientLayer()
-        let height = Self.height - 50, soft: CGFloat = 28
-        fade.frame = CGRect(x: 0, y: 0, width: cardWidth + 18, height: height)
+        let height = Self.contentHeight, soft = Grid.margin
+        fade.frame = CGRect(x: 0, y: 0, width: scrollWidth, height: height)
         // The scroll view's layer is flipped: location 0 is the top.
         // A mask: only its alpha is read.
         fade.colors = [BarTheme.lightest.cgColor, BarTheme.lightest.cgColor, NSColor.clear.cgColor]
@@ -1241,7 +1277,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         column.spacing = 0
         column.translatesAutoresizingMaskIntoConstraints = false
         column.widthAnchor.constraint(equalToConstant: Self.leftColumn).isActive = true
-        column.heightAnchor.constraint(equalToConstant: Self.height - 50).isActive = true
+        column.heightAnchor.constraint(equalToConstant: Self.contentHeight).isActive = true
 
         let backTo = openPage == nil ? "Settings" : (pageReturn.map { sections[$0].name } ?? section.parent ?? "Settings")
         let backRow = Keycaps.line([
@@ -1251,7 +1287,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             }),
         ])
         column.addArrangedSubview(backRow)
-        column.setCustomSpacing(20, after: backRow)
+        column.setCustomSpacing(Grid.section, after: backRow)
 
         // The place's picture floats on its own shadow, as it does on the
         // overview: a picture is an object with no floor, never one set in
@@ -1259,7 +1295,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         let card = NSView()
         card.translatesAutoresizingMaskIntoConstraints = false
         card.widthAnchor.constraint(equalToConstant: Self.leftColumn).isActive = true
-        card.heightAnchor.constraint(equalToConstant: 172).isActive = true
+        card.heightAnchor.constraint(equalToConstant: Self.pageCard.height).isActive = true
         let picture = PictureView()
         picture.image = Self.picture(section.picture)
         picture.imageScaling = .scaleProportionallyUpOrDown
@@ -1268,23 +1304,23 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         NSLayoutConstraint.activate([
             picture.centerXAnchor.constraint(equalTo: card.centerXAnchor),
             picture.centerYAnchor.constraint(equalTo: card.centerYAnchor),
-            picture.widthAnchor.constraint(equalToConstant: 186),
-            picture.heightAnchor.constraint(equalToConstant: 140),
+            picture.widthAnchor.constraint(equalToConstant: Self.pagePicture.width),
+            picture.heightAnchor.constraint(equalToConstant: Self.pagePicture.height),
         ])
         if openPage == nil, let place {
             let digit = keycap(SettingsModel.paneKey(place, count: sections.count) ?? "")
             digit.translatesAutoresizingMaskIntoConstraints = false
             card.addSubview(digit)
             NSLayoutConstraint.activate([
-                digit.topAnchor.constraint(equalTo: card.topAnchor, constant: 10),
-                digit.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 10),
+                digit.topAnchor.constraint(equalTo: card.topAnchor, constant: Grid.part),
+                digit.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: Grid.part),
             ])
         }
         column.addArrangedSubview(card)
-        column.setCustomSpacing(20, after: card)
+        column.setCustomSpacing(Grid.section, after: card)
         let name = label(section.name, role: .roomTitle, color: BarTheme.ink)
         column.addArrangedSubview(name)
-        column.setCustomSpacing(8, after: name)
+        column.setCustomSpacing(Grid.close, after: name)
         let sentence = NSTextField(wrappingLabelWithString: section.sentence)
         sentence.setRole(.voice)
         sentence.textColor = BarTheme.ink
@@ -1303,31 +1339,30 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         return column
     }
 
-    private func buildRow(_ row: SettingsModel.Row, index: Int, width: CGFloat) -> NSView {
-        let line = NSStackView()
-        line.orientation = .horizontal
-        line.alignment = .centerY
-        line.spacing = 14
-        line.edgeInsets = NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
+    /// One setting: its letter, its title with whatever follows it, and its
+    /// control. The leading letter, the title and the trailing parts stand
+    /// on the centre of the title's first line, however many lines of
+    /// detail follow, so a row that grows grows downward and nothing slides
+    /// to its middle. Laid out by constraints, not a stack: a stack centres
+    /// every part on the whole row.
+    private func buildRow(_ row: SettingsModel.Row, index: Int, width: CGFloat, letterWidth: CGFloat) -> NSView {
+        let line = NSView()
         line.translatesAutoresizingMaskIntoConstraints = false
         line.widthAnchor.constraint(equalToConstant: width).isActive = true
         if row.dimmed { line.alphaValue = 0.45 }
-
-        let letter = label(row.letter ?? "", role: .name,
-                           color: BarTheme.secondaryColor)
-        letter.translatesAutoresizingMaskIntoConstraints = false
-        letter.widthAnchor.constraint(equalToConstant: 12).isActive = true
-        line.addArrangedSubview(letter)
+        let padding = Grid.part
 
         let text = NSStackView()
         text.orientation = .vertical
         text.alignment = .leading
-        text.spacing = 2
+        text.spacing = Grid.hair
+        text.translatesAutoresizingMaskIntoConstraints = false
         let titleRow = NSStackView()
         titleRow.orientation = .horizontal
         titleRow.alignment = .centerY
-        titleRow.spacing = 7
-        titleRow.addArrangedSubview(label(row.title, role: .label, color: BarTheme.ink))
+        titleRow.spacing = Grid.close
+        let title = label(row.title, role: .label, color: BarTheme.ink)
+        titleRow.addArrangedSubview(title)
         for cap in row.keycaps { titleRow.addArrangedSubview(keycap(cap)) }
         text.addArrangedSubview(titleRow)
         let armed = armedAction == index
@@ -1336,15 +1371,14 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             wrapped.setRole(.meta)
             wrapped.textColor = armed ? BarTheme.ink : BarTheme.secondaryColor
             wrapped.isSelectable = false
-            wrapped.preferredMaxLayoutWidth = width - 230
             text.addArrangedSubview(wrapped)
+            inTrack.append(wrapped)
         }
         if let problem = row.problem {
             let flagged = NSTextField(wrappingLabelWithString: problem)
             flagged.setRole(.meta)
             flagged.textColor = BarTheme.ink
             flagged.isSelectable = false
-            flagged.preferredMaxLayoutWidth = width - 250
             let mark = NSImageView(image: NSImage(systemSymbolName: "exclamationmark.triangle",
                                                   accessibilityDescription: "Problem") ?? NSImage())
             mark.symbolConfiguration = BarTheme.symbol
@@ -1352,28 +1386,31 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             let flaggedRow = NSStackView(views: [mark, flagged])
             flaggedRow.orientation = .horizontal
             flaggedRow.alignment = .firstBaseline
-            flaggedRow.spacing = 6
+            flaggedRow.spacing = Grid.close
             text.addArrangedSubview(flaggedRow)
+            inTrack.append(flagged)
         }
         if !row.presets.isEmpty {
             let presetRow = NSStackView()
             presetRow.orientation = .horizontal
-            presetRow.spacing = 7
+            presetRow.spacing = Grid.close
             for preset in row.presets {
                 let button = RoomButton(title: preset.label, target: self, action: #selector(presetPressed(_:)))
                 button.identifier = NSUserInterfaceItemIdentifier("preset|\(row.path)|\(preset.value)")
                 presetRow.addArrangedSubview(button)
             }
-            text.setCustomSpacing(8, after: text.arrangedSubviews.last!)
+            text.setCustomSpacing(Grid.close, after: text.arrangedSubviews.last!)
             text.addArrangedSubview(presetRow)
         }
         if case .table(let kind, let entries) = row.control {
-            text.setCustomSpacing(8, after: text.arrangedSubviews.last!)
+            text.setCustomSpacing(Grid.close, after: text.arrangedSubviews.last!)
             text.addArrangedSubview(buildTable(kind: kind, entries: entries, paneRow: index))
         }
-        line.addArrangedSubview(text)
-        line.addArrangedSubview(spacer())
-        // Yours: a value you set wears a mark and the way back, beside it.
+        line.addSubview(text)
+
+        // The parts at the trailing edge, in the order they read: the way
+        // back for a value that is yours and its mark, then the control.
+        var trailing: [NSView] = []
         if !row.isDefault, !row.path.isEmpty {
             switch row.control {
             case .choice, .number, .text:
@@ -1381,23 +1418,72 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                 // to be clickable.
                 let reset = RoomButton(title: "Reset", target: self, action: #selector(resetPressed(_:)))
                 reset.identifier = NSUserInterfaceItemIdentifier(row.path)
-                line.addArrangedSubview(reset)
+                trailing.append(reset)
             default:
                 break
             }
-            if case .table = row.control {} else { line.addArrangedSubview(Self.dot()) }
+            if case .table = row.control {} else { trailing.append(Self.dot()) }
         }
+        var readout: (column: NSView, first: NSView)?
         if let action = row.action {
             let button = RoomButton(title: armed ? "Confirm" : action.label, target: self,
                                     action: #selector(actionPressed(_:)))
             button.destructive = armed
             if case .readout(let value, _) = row.control, !value.isEmpty {
-                line.addArrangedSubview(buildControl(row, index: index))
+                let control = buildControl(row, index: index)
+                readout = (control as? NSStackView)?.arrangedSubviews.first.map { (control, $0) }
+                trailing.append(control)
             }
-            line.addArrangedSubview(button)
+            trailing.append(button)
+        } else if case .table = row.control {
+            // The table renders under the title: nothing stands at the edge.
         } else {
-            line.addArrangedSubview(buildControl(row, index: index))
+            let control = buildControl(row, index: index)
+            if case .readout = row.control {
+                readout = (control as? NSStackView)?.arrangedSubviews.first.map { (control, $0) }
+            }
+            trailing.append(control)
         }
+
+        var constraints = [
+            text.topAnchor.constraint(equalTo: line.topAnchor, constant: padding),
+            text.bottomAnchor.constraint(equalTo: line.bottomAnchor, constant: -padding),
+        ]
+        // The letter column holds no room when no row in the place has one.
+        if letterWidth > 0 {
+            let letter = label(row.letter ?? "", role: .name, color: BarTheme.secondaryColor)
+            letter.translatesAutoresizingMaskIntoConstraints = false
+            line.addSubview(letter)
+            constraints += [
+                letter.leadingAnchor.constraint(equalTo: line.leadingAnchor, constant: padding),
+                letter.widthAnchor.constraint(equalToConstant: letterWidth),
+                letter.centerYAnchor.constraint(equalTo: title.centerYAnchor),
+                text.leadingAnchor.constraint(equalTo: letter.trailingAnchor, constant: padding),
+            ]
+        } else {
+            constraints.append(text.leadingAnchor.constraint(equalTo: line.leadingAnchor, constant: padding))
+        }
+        var next: NSLayoutXAxisAnchor = line.trailingAnchor
+        var edge = padding
+        for part in trailing.reversed() {
+            part.translatesAutoresizingMaskIntoConstraints = false
+            part.setContentHuggingPriority(.required, for: .horizontal)
+            part.setContentCompressionResistancePriority(.required, for: .horizontal)
+            line.addSubview(part)
+            // A readout's value stands where the title does and hangs down
+            // as it wraps; every other part is centred on the first line.
+            let first = part === readout?.column ? readout!.first : part
+            constraints += [
+                part.trailingAnchor.constraint(equalTo: next, constant: -edge),
+                first.centerYAnchor.constraint(equalTo: title.centerYAnchor),
+                part.topAnchor.constraint(greaterThanOrEqualTo: line.topAnchor, constant: Grid.hair),
+                part.bottomAnchor.constraint(lessThanOrEqualTo: line.bottomAnchor, constant: -Grid.hair),
+            ]
+            next = part.leadingAnchor
+            edge = Grid.part
+        }
+        constraints.append(text.trailingAnchor.constraint(lessThanOrEqualTo: next, constant: -edge))
+        NSLayoutConstraint.activate(constraints)
         line.setAccessibilityElement(true)
         line.setAccessibilityLabel([row.title, row.detail].compactMap { $0 }.joined(separator: ". "))
         line.setAccessibilityHelp(row.letter.map { "Press \($0)" })
@@ -1444,8 +1530,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             let holder = NSStackView()
             holder.orientation = .horizontal
             holder.alignment = .centerY
-            holder.spacing = 6
-            let field = editableField(String(value), width: 68)
+            holder.spacing = Grid.close
+            let field = editableField(String(value), width: BarTheme.Field.number)
             field.identifier = NSUserInterfaceItemIdentifier(row.path)
             fields[index] = field
             holder.addArrangedSubview(field)
@@ -1456,7 +1542,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             return holder
         case .text(let value, let placeholder):
             // As wide as what it holds: a year, a folder, an address.
-            let width: CGFloat = row.path == "web.search-url" ? 280 : row.path == "health.born" ? 72 : 180
+            let width = row.path == "web.search-url" ? BarTheme.Field.wide
+                : row.path == "health.born" ? BarTheme.Field.number : BarTheme.Field.regular
             let field = editableField(value, width: width)
             field.identifier = NSUserInterfaceItemIdentifier(row.path)
             field.setPlaceholder(placeholder)
@@ -1466,13 +1553,13 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             let column = NSStackView()
             column.orientation = .vertical
             column.alignment = .trailing
-            column.spacing = 3
+            column.spacing = Grid.hair
             let read = NSTextField(wrappingLabelWithString: value)
             read.setRole(.control, tabular: true)
             read.textColor = BarTheme.secondaryColor
             read.alignment = .right
             read.isSelectable = false
-            read.preferredMaxLayoutWidth = 230
+            read.preferredMaxLayoutWidth = Self.readoutWidth
             column.addArrangedSubview(read)
             if let sub {
                 let detail = label(sub, role: .meta, color: BarTheme.secondaryColor)
@@ -1510,14 +1597,14 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         let column = NSStackView()
         column.orientation = .vertical
         column.alignment = .leading
-        column.spacing = 6
+        column.spacing = Grid.close
         var lastHeader: String?
         for (entryIndex, entry) in entries.enumerated() {
             if let header = entry.header, header != lastHeader {
                 let title = label(header, role: .heading,
                                   color: BarTheme.secondaryColor)
                 if let last = column.arrangedSubviews.last {
-                    column.setCustomSpacing(10, after: last)
+                    column.setCustomSpacing(Grid.close, after: last)
                 }
                 column.addArrangedSubview(title)
                 lastHeader = header
@@ -1530,7 +1617,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             let row = NSStackView()
             row.orientation = .horizontal
             row.alignment = .centerY
-            row.spacing = 10
+            row.spacing = Grid.close
             var display = entry.display
             let sub = entry.sub
             if kind == .excludeApps || kind == .editorSkipApps {
@@ -1541,11 +1628,11 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                 let icon = NSImageView(image: appIcon(entry.key) ?? NSImage())
                 icon.translatesAutoresizingMaskIntoConstraints = false
                 NSLayoutConstraint.activate([
-                    icon.widthAnchor.constraint(equalToConstant: BarTheme.rowIcon),
-                    icon.heightAnchor.constraint(equalToConstant: BarTheme.rowIcon),
+                    icon.widthAnchor.constraint(equalToConstant: BarTheme.symbolSize),
+                    icon.heightAnchor.constraint(equalToConstant: BarTheme.symbolSize),
                 ])
                 row.addArrangedSubview(icon)
-                row.setCustomSpacing(8, after: icon)
+                row.setCustomSpacing(Grid.close, after: icon)
             }
             let name = label(display, role: .meta, color: BarTheme.ink)
             row.addArrangedSubview(name)
@@ -1574,7 +1661,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             // does: the raised step and its lit edge, never the accent
             // washed across it.
             if let focus = listFocus, focus.row == paneRow, focus.entry == entryIndex {
-                raise(row, sides: 8, ends: 3)
+                raise(row, sides: Grid.close, ends: Grid.tight)
             }
             column.addArrangedSubview(row)
         }
@@ -1583,7 +1670,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         // them back.
         if inlineEdit?.kind != "\(kind)" {
             if let last = column.arrangedSubviews.last {
-                column.setCustomSpacing(10, after: last)
+                column.setCustomSpacing(Grid.close, after: last)
             }
             column.addArrangedSubview(buildAddBar(kind: kind))
         }
@@ -1643,7 +1730,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     /// The detected profiles as popup rows: labels for the eye, tokens
     /// for the write. A token *is* the value the config stores —
     /// `brave:Xonar` — so choosing is writing, with nothing in between.
-    private func profilePopup(extra: [String] = [], width: CGFloat = 150)
+    private func profilePopup(extra: [String] = [], width: CGFloat = BarTheme.Field.profile)
         -> (popup: NSPopUpButton, tokens: [String]) {
         let detected = machineState().detectedProfiles
         let labels = extra + detected.map { "\($0.browserLabel) · \($0.name)" }
@@ -1653,7 +1740,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         let popup = KeyPopUp()
         popup.addItems(withTitles: labels.isEmpty ? ["none found"] : labels)
         popup.setRole(.control)
-        popup.widthAnchor.constraint(lessThanOrEqualToConstant: width + 40).isActive = true
+        popup.widthAnchor.constraint(lessThanOrEqualToConstant: width).isActive = true
         return (popup, tokens)
     }
 
@@ -1686,25 +1773,25 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         let bar = NSStackView()
         bar.orientation = .horizontal
         bar.alignment = .centerY
-        bar.spacing = 7
+        bar.spacing = Grid.close
         func field(_ placeholder: String, width: CGFloat) -> NSTextField {
             let field = editableField("", width: width)
             field.setPlaceholder(placeholder)
             field.identifier = NSUserInterfaceItemIdentifier("bar|\(addKey(kind))")
             return field
         }
-        func popup(_ titles: [String], width: CGFloat = 130) -> NSPopUpButton {
+        func popup(_ titles: [String], width: CGFloat = BarTheme.Field.profile) -> NSPopUpButton {
             let popup = KeyPopUp()
             popup.addItems(withTitles: titles.isEmpty ? ["none found"] : titles)
             popup.setRole(.control)
-            popup.widthAnchor.constraint(lessThanOrEqualToConstant: width + 40).isActive = true
+            popup.widthAnchor.constraint(lessThanOrEqualToConstant: width).isActive = true
             return popup
         }
         switch kind {
         case .links:
-            let name = field("Name", width: 110)
-            let url = field("URL", width: 180)
-            let (profile, tokens) = profilePopup(extra: ["inherit"], width: 130)
+            let name = field("Name", width: BarTheme.Field.short)
+            let url = field("URL", width: BarTheme.Field.regular)
+            let (profile, tokens) = profilePopup(extra: ["inherit"])
             bar.addArrangedSubview(name)
             bar.addArrangedSubview(url)
             bar.addArrangedSubview(profile)
@@ -1713,40 +1800,40 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             addInputs["links.profile"] = profile
             popupTokens["links.profile"] = tokens
         case .routes:
-            let pattern = field("Pattern", width: 150)
-            let (profile, tokens) = profilePopup(width: 130)
+            let pattern = field("Pattern", width: BarTheme.Field.regular)
+            let (profile, tokens) = profilePopup()
             bar.addArrangedSubview(pattern)
             bar.addArrangedSubview(profile)
             addInputs[addKey(kind)] = pattern
             addInputs["routes.profile"] = profile
             popupTokens["routes.profile"] = tokens
         case .calendars:
-            let calendar = popup(calendarChoices(), width: 170)
-            let (profile, tokens) = profilePopup(width: 130)
+            let calendar = popup(calendarChoices(), width: BarTheme.Field.menu)
+            let (profile, tokens) = profilePopup()
             bar.addArrangedSubview(calendar)
             bar.addArrangedSubview(profile)
             addInputs[addKey(kind)] = calendar
             addInputs["calendars.profile"] = profile
             popupTokens["calendars.profile"] = tokens
         case .excludeApps, .editorSkipApps:
-            let app = popup(appChoices().map(\.name), width: 170)
+            let app = popup(appChoices().map(\.name), width: BarTheme.Field.menu)
             bar.addArrangedSubview(app)
             addInputs[addKey(kind)] = app
         case .excludePatterns:
-            let pattern = field("Text", width: 170)
+            let pattern = field("Text", width: BarTheme.Field.regular)
             bar.addArrangedSubview(pattern)
             addInputs[addKey(kind)] = pattern
         case .draftWords:
-            let word = field("Word", width: 170)
+            let word = field("Word", width: BarTheme.Field.regular)
             bar.addArrangedSubview(word)
             addInputs[addKey(kind)] = word
         case .clipboardTimeZones:
-            let zone = field("City or zone", width: 170)
+            let zone = field("City or zone", width: BarTheme.Field.regular)
             bar.addArrangedSubview(zone)
             addInputs[addKey(kind)] = zone
         case .keyRemaps:
-            let code = field("Keycode", width: 80)
-            let name = popup(Set(Keys.ansi.values).sorted(), width: 90)
+            let code = field("Keycode", width: BarTheme.Field.narrow)
+            let name = popup(Set(Keys.ansi.values).sorted(), width: BarTheme.Field.keyName)
             bar.addArrangedSubview(code)
             bar.addArrangedSubview(name)
             addInputs[addKey(kind)] = code
@@ -1766,11 +1853,11 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                                 action: #selector(cancelInlinePressed(_:)))
         let verbs = NSStackView(views: [commit, cancel])
         verbs.orientation = .horizontal
-        verbs.spacing = 7
+        verbs.spacing = Grid.close
         let column = NSStackView(views: [bar, verbs])
         column.orientation = .vertical
         column.alignment = .leading
-        column.spacing = 8
+        column.spacing = Grid.close
         addBars.append(column)
         return column
     }
@@ -1865,7 +1952,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         let list = NSStackView()
         list.orientation = .vertical
         list.alignment = .leading
-        list.spacing = 22
+        list.spacing = Grid.section
         let backRow = Keycaps.line([
             .init(["esc"], place.map { sections[$0].name } ?? "Settings",
                   action: { [weak self] in self?.searchBackPressed() }),
@@ -1875,7 +1962,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         let fieldRow = NSStackView()
         fieldRow.orientation = .horizontal
         fieldRow.alignment = .centerY
-        fieldRow.spacing = 12
+        fieldRow.spacing = Grid.part
         fieldRow.addArrangedSubview(keycap("/"))
         let field = NSTextField()
         field.setPlaceholder(ask == nil ? "Search every setting" : "Search, or ask in your own words")
@@ -1885,16 +1972,18 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         field.drawsBackground = false
         field.focusRingType = .none
         field.delegate = self
-        field.widthAnchor.constraint(equalToConstant: Self.width - 140).isActive = true
+        // The field takes whatever the key leaves of the row.
+        field.setContentHuggingPriority(.init(1), for: .horizontal)
+        fieldRow.widthAnchor.constraint(equalToConstant: Self.contentWidth).isActive = true
         searchField = field
         fieldRow.addArrangedSubview(field)
         list.addArrangedSubview(fieldRow)
-        list.addArrangedSubview(Self.hairline(width: Self.width - 64))
+        list.addArrangedSubview(Self.hairline(width: Self.contentWidth))
 
         let results = NSStackView()
         results.orientation = .vertical
         results.alignment = .leading
-        results.spacing = 6
+        results.spacing = Grid.tight
         results.translatesAutoresizingMaskIntoConstraints = false
         hitsStack = results
         list.addArrangedSubview(results)
@@ -1918,14 +2007,14 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     private func renderHits() {
         guard let hitsStack else { return }
         for view in hitsStack.arrangedSubviews { view.removeFromSuperview() }
-        let width = Self.width - 64
+        let width = Self.contentWidth
         for (index, hit) in shownHits.enumerated() {
             let selected = index == hitSelection
             let row = HandStack()
             row.orientation = .horizontal
             row.alignment = .centerY
-            row.spacing = 12
-            row.edgeInsets = NSEdgeInsets(top: 9, left: 14, bottom: 9, right: 14)
+            row.spacing = Grid.part
+            row.edgeInsets = NSEdgeInsets(top: Grid.close, left: Grid.part, bottom: Grid.close, right: Grid.part)
             row.translatesAutoresizingMaskIntoConstraints = false
             row.widthAnchor.constraint(equalToConstant: width).isActive = true
             let parts = hit.address.split(separator: " ").map(String.init)
@@ -1968,9 +2057,9 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     /// at once. It is a chosen row, not an alarm, so it neither glows nor
     /// settles.
     private func addLanding(to row: NSView) {
-        landing = raise(row, sides: -4, ends: -3)
+        landing = raise(row, sides: 0, ends: 0)
         DispatchQueue.main.async { [weak row] in
-            row?.scrollToVisible(row?.bounds.insetBy(dx: 0, dy: -24) ?? .zero)
+            row?.scrollToVisible(row?.bounds.insetBy(dx: 0, dy: -Grid.section) ?? .zero)
         }
     }
 
@@ -2192,11 +2281,11 @@ private final class FlippedView: NSView {
         view.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(stack)
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: view.topAnchor, constant: 2),
-            stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 8),
-            stack.widthAnchor.constraint(equalToConstant: width - 16),
+            stack.topAnchor.constraint(equalTo: view.topAnchor, constant: Grid.hair),
+            stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: Grid.close),
+            stack.widthAnchor.constraint(equalToConstant: width - Grid.close * 2),
             view.widthAnchor.constraint(equalToConstant: width),
-            view.bottomAnchor.constraint(greaterThanOrEqualTo: stack.bottomAnchor, constant: 32),
+            view.bottomAnchor.constraint(greaterThanOrEqualTo: stack.bottomAnchor, constant: Grid.margin),
         ])
         return view
     }

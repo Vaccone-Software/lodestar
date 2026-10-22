@@ -37,9 +37,9 @@ final class LinkChip {
     private var expiry: Timer?
 
     init() {
-        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
+        SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
         Movable.enable(panel)
-        _ = Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+        _ = Glass.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
     }
 
     var isUp: Bool { panel.isVisible }
@@ -92,7 +92,7 @@ final class LinkChip {
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 5
+        stack.spacing = Grid.tight
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         stack.addArrangedSubview(label("Link", role: .name,
@@ -101,13 +101,13 @@ final class LinkChip {
         let title = NSStackView()
         title.orientation = .horizontal
         title.alignment = .centerY
-        title.spacing = 7
+        title.spacing = Grid.close
         if let icon {
             let view = NSImageView(image: icon)
             view.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
-                view.widthAnchor.constraint(equalToConstant: 18),
-                view.heightAnchor.constraint(equalToConstant: 18),
+                view.widthAnchor.constraint(equalToConstant: BarTheme.symbolSize),
+                view.heightAnchor.constraint(equalToConstant: BarTheme.symbolSize),
             ])
             title.addArrangedSubview(view)
         }
@@ -115,7 +115,7 @@ final class LinkChip {
                                        color: BarTheme.ink))
         stack.addArrangedSubview(title)
 
-        stack.setCustomSpacing(9, after: stack.arrangedSubviews.last!)
+        stack.setCustomSpacing(Grid.close, after: stack.arrangedSubviews.last!)
         // Verbs stay short because the line is width-bound: four caps and
         // two words have about 298pt inside a 330pt chip, and the labels
         // truncate rather than wrap. "goes there" measured 299.8.
@@ -126,17 +126,17 @@ final class LinkChip {
 
         root.addSubview(stack)
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 13),
-            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -16),
+            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: Grid.group),
+            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Grid.group),
+            stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -Grid.group),
         ])
         root.layoutSubtreeIfNeeded()
-        let size = NSSize(width: Self.width, height: stack.fittingSize.height + 13 + 12)
+        let size = NSSize(width: Self.width, height: stack.fittingSize.height + Grid.group * 2)
         let wasVisible = panel.isVisible
         Movable.place(panel, size: size) {
             let visible = ActivePolicy.presentationFrame
-            return NSPoint(x: visible.maxX - size.width - 20,
-                           y: visible.maxY - size.height - 20)
+            return NSPoint(x: visible.maxX - size.width - Grid.section,
+                           y: visible.maxY - size.height - Grid.section)
         }
         panel.orderFrontRegardless()
         // Only on the way up: a second link inside the same minute redraws

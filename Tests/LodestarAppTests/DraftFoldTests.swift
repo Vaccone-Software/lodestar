@@ -168,7 +168,7 @@ final class DraftFoldTests: XCTestCase {
         let screen = ActivePolicy.presentationFrame
         let glass = SoftShadow.inset(panel.panel.frame)
         XCTAssertEqual(glass, panel.frame, "the window is where the glass says")
-        XCTAssertEqual(glass.minY, screen.minY + 22, accuracy: 0.5)
+        XCTAssertEqual(glass.minY, screen.minY + Grid.section, accuracy: 0.5)
         XCTAssertFalse(panel.panel.hasShadow, "the shadow is drawn, not the system's")
     }
 

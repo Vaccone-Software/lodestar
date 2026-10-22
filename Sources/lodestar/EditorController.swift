@@ -498,7 +498,7 @@ final class EditorController: EditorLens {
     /// Telegram's composer names no window: its own frame, widened for the
     /// lines, is canvas enough.
     private func redraw(over field: EditorField) {
-        if let canvas = field.windowFrame ?? field.frame?.insetBy(dx: -8, dy: -8), !marks.isEmpty {
+        if let canvas = field.windowFrame ?? field.frame?.insetBy(dx: -Grid.close, dy: -Grid.close), !marks.isEmpty {
             drawing.show(marks.map(\.rect), over: canvas)
         } else {
             drawing.hide()

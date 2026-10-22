@@ -125,7 +125,7 @@ final class VoiceLight: NSView {
     /// is the middle of the edge and a length grows from there both ways.
     static func edge(in bounds: NSRect) -> CGPath {
         let inset = lineWidth / 2
-        let r = BarTheme.glassRadius - inset
+        let r = BarTheme.surfaceRadius - inset
         let left = bounds.minX + inset, right = bounds.maxX - inset, top = bounds.maxY - inset
         let path = CGMutablePath()
         path.move(to: CGPoint(x: left, y: top - r))
@@ -254,17 +254,19 @@ final class DraftPanel {
     var onChooseInput: ((String?) -> Void)?
 
     private static let width: CGFloat = 720
-    private static let margin: CGFloat = 22
-    private static let padX: CGFloat = 22
+    private static let margin = Grid.section
+    private static let padX = Grid.section
     /// The foot, under the text: where the words land, and the mic.
     private static let footHeight: CGFloat = 40
     /// The air over the text, under the light.
-    private static let padTop: CGFloat = 18
+    private static let padTop = Grid.group
     /// Air between the text and the keys: the pill's own inset, so a
     /// draft holding its keys is spaced like a bar holding its keys. The
     /// foot's own air is the air under them.
-    private static let keysAbove: CGFloat = ModePill.inset
+    private static let keysAbove: CGFloat = Grid.section
     private static let minTextHeight: CGFloat = 58
+    /// The least room the input's name is given before it gives way.
+    private static let leastInputWidth: CGFloat = 80
     /// The lines a speaking draft holds.
     static let compactLines = 4
     /// The draft and the editor's lens are the system's mono, where vim is:
@@ -296,8 +298,8 @@ final class DraftPanel {
         // The mouse reaches the foot's input menu, and only over the
         // glass. The panel never becomes key, so the app underneath
         // keeps its cursor.
-        gate = SoftShadow.host(root, in: panel, cornerRadius: BarTheme.glassRadius)
-        backdrop = Glass.installBackdrop(in: root, cornerRadius: BarTheme.glassRadius)
+        gate = SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
+        backdrop = Glass.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
 
         registerName.setRole(.body)
         registerName.textColor = BarTheme.ink
@@ -339,7 +341,7 @@ final class DraftPanel {
         // opt into Auto Layout, or the first layout pass zeroes it.
 
         caret.wantsLayer = true
-        caret.layer?.cornerRadius = BarTheme.hairlineRadius
+        caret.layer?.cornerRadius = BarTheme.markRadius
 
         // The caret sits under the text: a block cursor is a solid plate
         // with the glyph inverted over it, the way every terminal draws
@@ -737,11 +739,11 @@ final class DraftPanel {
             registerIcon.contentTintColor = BarTheme.secondaryColor
             registerName.stringValue = "Clipboard"
         }
-        place(registerIcon, x: x, width: 18, height: 18)
-        x += 26
+        place(registerIcon, x: x, width: BarTheme.symbolSize, height: BarTheme.symbolSize)
+        x += BarTheme.symbolSize + Grid.close
         registerName.sizeToFit()
         placeText(registerName, x: x, width: min(registerName.frame.width, 240))
-        x += registerName.frame.width + 14
+        x += registerName.frame.width + Grid.group
 
         // Where the text goes sits on the left; the microphone on the
         // right. The mode has no word: the caret's shape is the mode, and
@@ -781,10 +783,10 @@ final class DraftPanel {
         if inputButton.isHidden { inputMenu.hide() }
         // Sized to the name: the chevron sits beside it, not at the end of
         // the widest device.
-        let buttonWidth = min(inputButton.naturalWidth, max(80, trailing - x - 8))
+        let buttonWidth = min(inputButton.naturalWidth, max(Self.leastInputWidth, trailing - x - Grid.close))
         if !inputButton.isHidden {
-            place(inputButton, x: trailing - buttonWidth, width: buttonWidth, height: 22)
-            trailing -= buttonWidth + 8
+            place(inputButton, x: trailing - buttonWidth, width: buttonWidth, height: BarTheme.minTarget)
+            trailing -= buttonWidth + Grid.close
         }
 
         registerNote.stringValue = view.card?.detail ?? Self.note(for: view)
@@ -840,6 +842,8 @@ final class DraftPanel {
             // Text view coordinates are flipped; the root is not.
             let converted = textView.convert(rect, to: root)
             caret.frame = converted.insetBy(dx: 0, dy: 1)
+            // A block is a plate on a letter, a mark; the bar is a hairline.
+            caret.layer?.cornerRadius = block ? BarTheme.markRadius : BarTheme.hairlineRadius(width: bar)
             // A solid plate in normal mode; the system's own insertion
             // colour for the bar, which is what every field on the Mac
             // teaches the eye to look for.

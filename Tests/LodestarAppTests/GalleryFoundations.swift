@@ -278,6 +278,104 @@ enum GalleryFoundations {
         }
     }
 
+    // MARK: - Geometry
+
+    /// design/03-geometry.md as a picture, drawn from the tokens: the ladder
+    /// of radii on the pill's curve, the nesting rule on a pane and a row, the
+    /// grid's steps, and the sizes everything is cut to. A change to
+    /// Geometry.swift changes the picture.
+    static func geometry(look: GalleryLook) -> (NSWindow, [AnyObject]) {
+        sheet(look: look, width: 1040) { page, _ in
+            func round(_ rect: NSRect, _ radius: CGFloat, fill: NSColor, edge: NSColor = BarTheme.hairline) {
+                guard page.draws else { return }
+                let corner = BarTheme.radius(radius, height: rect.height)
+                let path = NSBezierPath(roundedRect: rect, xRadius: corner, yRadius: corner)
+                fill.setFill()
+                path.fill()
+                edge.setStroke()
+                path.lineWidth = 1
+                path.stroke()
+            }
+            func number(_ value: CGFloat) -> String { String(format: "%.2f", Double(value)) }
+            let margin = page.margin
+            page.heading("Geometry · \(look.name)",
+                         "One curve, one grid and the sizes everything is cut to, drawn from Geometry.swift in the \(look.name) look.")
+
+            page.heading("Radii", "Anchored on the pill's own curve, each rung the one above over φ².")
+            let ladder: [(String, CGFloat, NSSize)] = [
+                ("surface", BarTheme.surfaceRadius, NSSize(width: 200, height: 96)),
+                ("control", BarTheme.controlRadius, NSSize(width: 120, height: 48)),
+                ("mark", BarTheme.markRadius, NSSize(width: 120, height: 28)),
+            ]
+            var x = margin
+            for (name, radius, size) in ladder {
+                round(NSRect(x: x, y: page.y, width: size.width, height: size.height), radius, fill: BarTheme.well)
+                page.text("\(name) · \(number(radius))", at: NSPoint(x: x, y: page.y + size.height + 8), color: Page.ink)
+                x += size.width + Grid.section * 2
+            }
+            // The pill, whose ends the surface radius is; and a hairline, round to half its width.
+            round(NSRect(x: x, y: page.y, width: 150, height: BarTheme.pillHeight), BarTheme.surfaceRadius, fill: BarTheme.well)
+            page.text("pill · \(Int(BarTheme.pillHeight)) tall, ends \(number(BarTheme.pillHeight / 2))",
+                      at: NSPoint(x: x, y: page.y + 96 + 8), color: Page.ink)
+            round(NSRect(x: x + 190, y: page.y, width: BarTheme.caretWidth, height: BarTheme.caretHeight),
+                  BarTheme.hairlineRadius(width: BarTheme.caretWidth), fill: BarTheme.ink, edge: BarTheme.ink)
+            page.text("hairline · half its width", at: NSPoint(x: x + 170, y: page.y + 96 + 8), color: Page.ink)
+            page.y += 96 + 40
+
+            page.heading("Nesting", "A thing inside another rounds at the outer radius less its inset, never below its own rung.")
+            let pane = NSRect(x: margin, y: page.y, width: 420, height: 168)
+            round(pane, BarTheme.surfaceRadius, fill: BarTheme.well)
+            let inset = BarTheme.paneInset
+            let row = NSRect(x: pane.minX + inset, y: pane.minY + inset, width: pane.width - inset * 2, height: BarTheme.rowHeight)
+            round(row, BarTheme.paneRowRadius, fill: BarTheme.raised)
+            let field = NSRect(x: pane.minX + inset, y: row.maxY + Grid.close, width: pane.width - inset * 2,
+                               height: pane.maxY - inset - row.maxY - Grid.close)
+            round(field, BarTheme.nested(outer: BarTheme.surfaceRadius, inset: inset, rung: BarTheme.controlRadius), fill: BarTheme.well)
+            // A key inside the row stands at its own rung: the row's radius less the inset falls below it.
+            round(NSRect(x: row.maxX - Grid.part - 44, y: row.minY + (row.height - BarTheme.keyHeight) / 2, width: 44, height: BarTheme.keyHeight),
+                  BarTheme.controlRadius, fill: BarTheme.keyFill)
+            page.text("pane \(number(BarTheme.surfaceRadius)), inset \(Int(inset)): row and field \(number(BarTheme.paneRowRadius)); key keeps \(number(BarTheme.controlRadius))",
+                      at: NSPoint(x: pane.maxX + Grid.section, y: pane.minY + 4), color: Page.ink)
+            page.text("nested = max(rung, outer − inset)", at: NSPoint(x: pane.maxX + Grid.section, y: pane.minY + 28))
+            let short = NSRect(x: pane.maxX + Grid.section, y: pane.minY + 64, width: 150, height: 28)
+            round(short, BarTheme.surfaceRadius, fill: BarTheme.raised)
+            page.text("shorter than twice its radius: a stadium", at: NSPoint(x: short.minX, y: short.maxY + 8))
+            page.y += pane.height + 28
+
+            page.heading("The grid", "Every gap, inset and padding is a step. The half-step is allowed only inside a control.")
+            let names: [(String, CGFloat)] = [("hair", Grid.hair), ("tight", Grid.tight), ("close", Grid.close), ("part", Grid.part),
+                                              ("group", Grid.group), ("section", Grid.section), ("margin", Grid.margin), ("column", Grid.column),
+                                              ("half, inside a control", Grid.half)]
+            for (name, step) in names {
+                if page.draws {
+                    Page.ink.setFill()
+                    NSBezierPath(rect: NSRect(x: margin + 190, y: page.y + 3, width: step, height: 12)).fill()
+                }
+                page.text("\(name)", at: NSPoint(x: margin, y: page.y), color: Page.ink)
+                page.text("\(Int(step))", at: NSPoint(x: margin + 150, y: page.y))
+                page.y += 22
+            }
+            page.y += 14
+
+            page.heading("Sizes", "The things everything is cut to.")
+            let sizes: [(String, CGFloat)] = [
+                ("bar width", BarTheme.panelWidth), ("bar's field", BarTheme.inputHeight), ("row", BarTheme.rowHeight),
+                ("pill", BarTheme.pillHeight), ("key", BarTheme.keyHeight), ("app icon in a row", BarTheme.appIconSize),
+                ("symbol in a row", BarTheme.symbolSize), ("pointer target, at least", BarTheme.minTarget),
+                ("sentence measure", BarTheme.measure)]
+            for (name, size) in sizes {
+                page.text("\(name)", at: NSPoint(x: margin, y: page.y), color: Page.ink)
+                page.text("\(Int(size))", at: NSPoint(x: margin + 150, y: page.y))
+                if page.draws {
+                    BarTheme.inkAt(0.35).setFill()
+                    NSBezierPath(rect: NSRect(x: margin + 190, y: page.y + 5, width: min(size, 640) / 2, height: 6)).fill()
+                }
+                page.y += 22
+            }
+            page.y += 14
+        }
+    }
+
     static var shots: [GalleryShot] {
         func shot(_ surface: String, _ make: @escaping (GalleryLook) -> (NSWindow, [AnyObject])) -> GalleryShot {
             GalleryShot(surface: "foundation", state: surface, looks: GalleryLook.all) { look in
@@ -285,6 +383,6 @@ enum GalleryFoundations {
                 return (window.contentView!, keep)
             }
         }
-        return [shot("colour", colour), shot("type", type)]
+        return [shot("colour", colour), shot("type", type), shot("geometry", geometry)]
     }
 }

@@ -16,7 +16,7 @@ final class RenderGalleryTests: XCTestCase {
 
     func testRenderEverySurface() throws {
         guard let directory = GalleryRender.outputDirectory else { throw XCTSkip("set LODESTAR_RENDER to a directory") }
-        let only = ProcessInfo.processInfo.environment["LODESTAR_RENDER_ONLY"]
+        let only = ProcessInfo.processInfo.environment["LODESTAR_RENDER_ONLY"].flatMap { $0.isEmpty ? nil : $0 }
         var made: [(file: String, caption: String, surface: String)] = []
         var failed: [String] = []
         for look in GalleryLook.all {

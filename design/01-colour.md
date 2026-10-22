@@ -16,6 +16,7 @@ Colour never decorates, never sorts content into categories, and never carries m
 
 - **Grounds.** Decided on 20 October 2026 on the canvas "Lodestar Design Languages". Clay as it was leaned pink beside the night's brown, so it was warmed a few degrees toward espresso until the two read as one family. A saturated ground (sage, forest) was more striking and worse to live in; Lodestone, a cold blue-grey night, shipped and was retired for the same reason. A ground is lived in for hours, not admired.
 - **One colour.** The Mac's accent, viridian, saffron, British Racing Green and moss were all drawn beside International Orange. The one owned colour was the stronger brand and the better light. The accent setting retires.
+- **Adapted, not copied** (22 October 2026). Three pairs were drawn on both grounds: the literal pair (the true `#FF4F00` at night, the same hue deepened by day), a matched pair and a softer one. The literal night orange sits at the edge of the screen's gamut and glows on espresso; the literal day orange reads as rust. The softer pair turned coral at night. The matched pair was chosen because the eye reads it as one colour in both looks.
 - **The ceiling.** Pure white and pure black glare: positive polarity reads best (Piepenbrock, NN/g), but at full white it is the brightest thing on the screen. So nothing is pure white or pure black, and the day pane sits near 95 per cent lightness.
 
 ## Values
@@ -56,12 +57,12 @@ Every step of both looks sits between hue 53 and 78 with chroma under 0.025: one
 
 | Look  | Hex       | L     | C     | h   |
 | ----- | --------- | ----- | ----- | --- |
-| Night | `#FF4F00` | 0.670 | 0.222 | 37  |
-| Clay  | `#C43B00` | 0.550 | 0.182 | 38  |
+| Night | `#FA5617` | 0.670 | 0.210 | 38  |
+| Clay  | `#C83500` | 0.550 | 0.190 | 36  |
 
-The true colour at night; on clay the same hue a step deeper, because the true colour falls under the text floor on a light pane. One value per look: an earlier pair, a brighter orange for fills and a deeper one for text, made one light two colours on one page.
+Each look's orange is the best version of International Orange for its own ground, not the same hex. At night it steps just inside the gamut edge, so it does not glow against espresso and does not soften into coral. By day it must be deep enough to be read as text on clay, and it leans two degrees toward red, which keeps its chroma at that depth, so it reads as the bridge's red-orange rather than rust. The two are judged by eye side by side and then measured. One value per look: an earlier pair, a brighter orange for fills and a deeper one for text, made one light two colours on one page.
 
-**A letter on the orange** takes whichever of the clay key face (`#FCF8F4`) and clay ink (`#1E1814`) measures higher on it: the key face on clay's orange (5.00 : 1), the ink on night's (5.33 : 1). White on night's orange is 3.1 : 1, which is why the rule measures rather than assumes.
+**A letter on the orange** takes whichever of the clay key face (`#FCF8F4`) and clay ink (`#1E1814`) measures higher on it: the key face on clay's orange (5.01 : 1), the ink on night's (5.36 : 1). White on night's orange is 3.3 : 1, which is why the rule measures rather than assumes.
 
 **On the slab**, the things inside take the slab's look, so a lit key on the day slab is night's orange and on the night slab clay's orange.
 
@@ -75,11 +76,11 @@ The true colour at night; on clay the same hue a step deeper, because the true c
 | quiet ink on ground        | 5.44  | 7.33     |
 | quiet ink on pane          | 6.00  | 6.70     |
 | quiet ink on key           | 6.47  | 5.75     |
-| orange on pane (as text)   | 4.64  | 5.30     |
-| orange on key              | 5.00  | 4.54     |
+| orange on pane (as text)   | 4.65  | 5.33     |
+| orange on key              | 5.01  | 4.57     |
 | other look's ink on slab   | 13.18 | 14.51    |
 | other look's quiet on slab | 5.99  | 5.65     |
-| orange on slab (as a fill) | 4.74  | 4.37     |
+| orange on slab (as a fill) | 4.76  | 4.38     |
 
 ## Rules
 
@@ -109,7 +110,7 @@ Not yet built. The colour sheet rendered from main (`foundation-colour-day`, `fo
 - **The palettes are the previous ones:** a warm-grey night (ground `#18130E`, pane `#221D19`, raised `#2E2925`) and clay (ground `#EFE7DE`, pane `#F8EFE7`, raised `#FFFBF6`), with a separate dark clay key (`#2E2926`).
 - **The ceiling is broken:** a key's face, its top edge, the mark's face and the letter on the orange are pure white (`#FFFFFF`).
 - **Ink is the system's:** text is `labelColor` (`#262523` over the day pane), not a palette step.
-- **The accent is a setting,** the Mac's own by default; the orange pair already matches this contract.
+- **The accent is a setting,** the Mac's own by default, and Lodestar's orange is the literal pair (`#FF4F00`, `#C43B00`).
 - **The glass tint** (`#EBEBEB` by day) is a neutral grey, outside the warm family.
 
 ## Prototype lessons
@@ -118,7 +119,7 @@ Not yet built. The colour sheet rendered from main (`foundation-colour-day`, `fo
 - **Colours baked as CGColor go stale.** A layer colour resolved once keeps the look it was made in, so a slab row flipping to the other look left dots and chips in the old one. Resolve layer colours in the draw pass, under the view's own appearance.
 - **Measure, then judge by eye.** The values above passed every test before anyone saw them; what the tests cannot see (clay looking grey in the evening, a calmer orange reading as salmon) only showed in renders. Every change to a value is rendered before it lands.
 
-## Open
+## Decided in review
 
-- Whether espresso's key step (12.63 : 1 under ink) should come up a little so night keys stand off the pane more.
-- Whether the orange on the night slab (4.37 as a fill) needs its own step, or 3 : 1 for fills is the right floor there.
+- Night keys keep their step (`#2B2622`); the key's side, in the key contract, does the standing.
+- One orange per look, also on the slab: a lit key on the night slab is clay's orange, which clears the 3 : 1 floor for a fill (4.38) and carries its letter at 5.01.

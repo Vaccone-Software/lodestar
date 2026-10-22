@@ -41,11 +41,14 @@ The family is the system font (SF Pro, with its optical sizes). Nothing is set i
 | large figure | 23   | semibold | sans | `KeyMark.peekFont` 24 mono                                  |
 | meta         | 13   | regular  | sans | `secondaryFont`, `footerFont`, `stubDetailFont`, `metaMono` |
 | name         | 13   | medium   | sans | `fileNameFont`                                              |
+| label            | 16    | medium   | sans | a setting's title, a tile's name, a search hit |
+| control          | 16    | regular  | sans | a popup's value, a button's title, a status word |
+| heading          | 13    | semibold | sans | a group's header                             |
 | key          | 13   | semibold | sans | `chipFont` (mono), `stubUnitFont`                           |
 | draft            | 16    | regular  | sans | `readingMono`: the draft's text and the editor's lens |
 | draft, marked    | 16    | semibold | sans | `readingMonoAccent`                          |
 
-The strip's field comes up from 19 to the input size, so every field Lodestar has is one size. `metaMono` becomes meta: a caption is a caption whatever it describes.
+The strip's field comes up from 19 to the input size, so every bar's field is one size. A field inside a room (Settings' search, a value you type, Feedback's note) is body: it is part of a page, not a place you summon. `metaMono` becomes meta: a caption is a caption whatever it describes.
 
 ### Figures
 
@@ -60,7 +63,7 @@ At night every role is one weight heavier: regular becomes medium, medium become
 1. **One family.** Every font is the system sans. No serif, no mono.
 2. **The draft is prose.** The draft and the editor's lens are set in the body role like any other text, whatever app the words are going to. Vim's motions are unchanged; the block cursor is as wide as the letter it covers.
 3. **On the scale.** Every size is 13, 16, 18 or 23. No text is below 13. A glyph used as a mark (the status dot) may be smaller, because it is not read.
-4. **Three weights by day.** Regular to read, medium for a name, semibold for what must be found first (a title, a key, a figure). Hierarchy never comes from a second face, italics or letter-spacing.
+4. **Three weights by day.** Regular to read, medium for a name or a label, semibold for what must be found first (a room's title, a key, a figure, a heading). A list of labels is medium, not semibold: when every row is the heaviest thing, nothing is. Hierarchy never comes from a second face, italics or letter-spacing, so the meeting's unit loses its tracking.
 5. **One step heavier at night,** for every role, and it follows the look when it changes, not only when a surface is built.
 6. **Tabular figures** for any number that changes in place.
 7. **Sentence case** for every title and label Lodestar draws. Menu bar items follow macOS's title case, because they live in the system's menu.

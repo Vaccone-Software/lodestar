@@ -1168,9 +1168,9 @@ final class WalkController: NSObject {
     /// administrator, 24 waiting at the edge; 25…28 a door's walk from its
     /// first step (`LODESTAR_WALK_DOOR`, Switch by default), 29 its close;
     /// 30 on the curriculum's cards in order, then a proven one.
-    static func preview(_ index: Int, empty: Bool = false) -> WalkController {
+    static func preview(_ index: Int, empty: Bool = false, config given: Config? = nil) -> WalkController {
         let controller = WalkController()
-        var (config, _) = Config.load()
+        var config = given ?? Config.load().0
         if empty { config.graph = GraphNode() }
         controller.config = config
         controller.describeEngine = { AppDelegate.walkEngineAnswer($0) }

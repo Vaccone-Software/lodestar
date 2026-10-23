@@ -7,11 +7,11 @@ import LodestarCore
 final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     private let panel: KeyablePanel
     private let root = NSView()
-    private let field = NSTextField()
+    private let field = InputField()
     private let symbol = NSImageView()
     /// The field is a place you put something, so it sinks: a well one pane-inset
-    /// inside the pane, rounded as a thing nested in it.
-    private let well = WellView(cornerRadius: BarTheme.paneRowRadius)
+    /// inside the pane, rounded as every input is, at the control's radius.
+    private let well = WellView()
     private let rowsStack = NSStackView()
 
     private var items: [Commands.Row] = []
@@ -57,6 +57,7 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
         field.translatesAutoresizingMaskIntoConstraints = false
 
         well.translatesAutoresizingMaskIntoConstraints = false
+        well.hold(field)
 
         rowsStack.orientation = .vertical
         rowsStack.spacing = Grid.hair
@@ -126,7 +127,6 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
         panel.makeKeyAndOrderFront(nil)
         panel.orderFrontRegardless()
         panel.makeFirstResponder(field)
-        BarTheme.lightCaret(of: field)
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let harvested = MenuItems.items(forAppWithPID: pid)
             DispatchQueue.main.async {
@@ -281,7 +281,6 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
         bar.panel.makeKeyAndOrderFront(nil)
         bar.panel.orderFrontRegardless()
         bar.panel.makeFirstResponder(bar.field)
-        BarTheme.lightCaret(of: bar.field)
         bar.field.currentEditor()?.selectedRange = NSRange(location: query.count, length: 0)
         bar.requery()
         return bar

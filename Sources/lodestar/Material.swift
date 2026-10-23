@@ -89,6 +89,23 @@ extension BarTheme {
     /// A well's edge: the ink at 14% by day and 12% by night, firmer than a
     /// hairline.
     static let wellEdge = dynamic { $0.ink.color.withAlphaComponent($0.wellEdgeAlpha) }
+    /// The edge of the well the caret is in: the same hairline at twice the
+    /// share (28% by day, 24% by night). No ring, no accent, no fill.
+    static let wellEdgeFocused = dynamic { $0.ink.color.withAlphaComponent($0.wellFocusedEdgeAlpha) }
+    /// The one caret's colour: the accent, judged on the well it stands in
+    /// (3 : 1 at least), and the ink where the accent would fall under that.
+    /// Resolved in the look of the view that draws it, so a caret in a well
+    /// inside the slab is the slab's look's.
+    static let caretFill = NSColor(name: nil) { appearance in
+        let look = steps(for: appearance)
+        var accent: NSColor?
+        appearance.performAsCurrentDrawingAppearance { accent = BarTheme.accent.usingColorSpace(.sRGB) }
+        guard let accent else { return look.ink.color }
+        let ratio = Readability.contrast(
+            Readability.luminance(red: accent.redComponent, green: accent.greenComponent, blue: accent.blueComponent),
+            look.well.luminance)
+        return ratio >= Readability.markFloor ? accent : look.ink.color
+    }
     /// The polished rim: clay's key step by day, the ink at 10% by night.
     static let rimFill = dynamic { look in
         isNight(look) ? look.ink.color.withAlphaComponent(Ceramic.nightRimShare) : look.key.color
@@ -332,11 +349,35 @@ extension Ceramic {
 
 // MARK: - The well
 
+extension BarTheme {
+    /// A well as it is drawn, wherever it is: the pane one step down, one
+    /// colour and a half-point edge, with no side and no inner shadow. The
+    /// edge of the well the caret is in is deeper, at once.
+    static func drawWell(in bounds: NSRect, cornerRadius: CGFloat, focused: Bool) {
+        guard bounds.width > 0, bounds.height > 0 else { return }
+        let radius = BarTheme.radius(cornerRadius, height: bounds.height)
+        BarTheme.wellFill.setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
+        let line = Ceramic.Edge.line
+        let edge = NSBezierPath(roundedRect: bounds.insetBy(dx: line / 2, dy: line / 2),
+                                xRadius: max(0, radius - line / 2), yRadius: max(0, radius - line / 2))
+        edge.lineWidth = line
+        (focused ? BarTheme.wellEdgeFocused : BarTheme.wellEdge).setStroke()
+        edge.stroke()
+    }
+}
+
 /// A place you put something: one step below the pane it sits in, a
 /// half-point edge, no side and no inner shadow. Painted in the draw pass,
-/// so it follows the look it is in.
+/// so it follows the look it is in. It knows when the caret is in it
+/// (`hold` the field or text view it surrounds) and deepens its edge then.
 class WellView: NSView, CeramicDepth {
     let cornerRadius: CGFloat
+    private weak var client: NSView?
+    private var watch: FocusWatch?
+    /// A well drawn for a field Lodestar draws itself (Keep's bands): its
+    /// caret is always there, so its edge is always the deeper one.
+    var caretIsHere = false { didSet { needsDisplay = true } }
 
     init(cornerRadius: CGFloat = BarTheme.controlRadius) {
         self.cornerRadius = cornerRadius
@@ -349,23 +390,223 @@ class WellView: NSView, CeramicDepth {
     var depth: Ceramic.Depth { .sinks }
     var drawnSide: CGFloat { 0 }
 
+    /// The field or text view this well surrounds: while its caret is in
+    /// it, the well's edge is the focused one.
+    func hold(_ client: NSView) {
+        self.client = client
+        watch = FocusWatch(client) { [weak self] in self?.needsDisplay = true }
+        needsDisplay = true
+    }
+
+    /// Whether the caret is in this well now.
+    var isFocused: Bool { caretIsHere || client.map(WellText.holds) ?? false }
+
     override func draw(_ dirtyRect: NSRect) {
-        guard bounds.width > 0, bounds.height > 0 else { return }
-        let radius = BarTheme.radius(cornerRadius, height: bounds.height)
-        BarTheme.wellFill.setFill()
-        NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
-        let line = Ceramic.Edge.line
-        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: line / 2, dy: line / 2),
-                                xRadius: max(0, radius - line / 2), yRadius: max(0, radius - line / 2))
-        path.lineWidth = line
-        BarTheme.wellEdge.setStroke()
-        path.stroke()
+        BarTheme.drawWell(in: bounds, cornerRadius: cornerRadius, focused: isFocused)
     }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true
     }
+}
+
+// MARK: - The caret
+
+/// The one caret (design/12-well.md): the readable accent, 1.5 wide, as tall
+/// as the line, rounded at half its width, and still. Lodestar draws it
+/// where it draws a field itself (Keep's bands), and `WellText` places one
+/// where AppKit holds the words. It never blinks: nothing here animates.
+final class CaretMark: NSView {
+    /// Whether the caret is showing: always for a drawn field's; for a real
+    /// one, while it holds the caret.
+    var shows: () -> Bool = { true }
+
+    init(height: CGFloat) {
+        super.init(frame: NSRect(x: 0, y: 0, width: BarTheme.caretWidth, height: height))
+        setAccessibilityElement(false)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard shows() else { return }
+        let radius = BarTheme.hairlineRadius(width: bounds.width)
+        BarTheme.caretFill.setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+}
+
+/// Says when the caret comes into or leaves a field, to the well drawn round
+/// it.
+final class FocusWatch {
+    private var token: NSObjectProtocol?
+
+    init(_ client: NSView, changed: @escaping () -> Void) {
+        token = NotificationCenter.default.addObserver(forName: WellText.focusDidChange, object: client,
+                                                       queue: nil) { _ in changed() }
+    }
+
+    deinit { if let token { NotificationCenter.default.removeObserver(token) } }
+}
+
+/// The text view every Lodestar field is edited in, and the note's own: it
+/// draws the one caret and the one selection. macOS 14 and after draw the
+/// caret as `NSTextInsertionIndicator`, a system view with a width of its
+/// own that blinks, so the system's is set clear and `CaretMark` is placed
+/// at the insertion point instead, 1.5 wide and still. The selection is ink
+/// at 30% in place of the Mac's accent.
+final class WellText: NSTextView {
+    /// Posted, with the field or text view the words belong to as its
+    /// object, when the caret comes in or leaves.
+    static let focusDidChange = Notification.Name("LodestarWellFocusDidChange")
+
+    private lazy var caret: CaretMark = {
+        let mark = CaretMark(height: BarTheme.bodyCaretHeight)
+        mark.shows = { [unowned self] in holdsCaret }
+        addSubview(mark)
+        return mark
+    }()
+    private var keyWatch: [NSObjectProtocol] = []
+    private weak var client: NSView?
+
+    /// The one field editor of a window, which every Lodestar field's cell
+    /// hands back.
+    static func fieldEditor(in window: NSWindow?) -> WellText {
+        if let window, let made = objc_getAssociatedObject(window, &editorKey) as? WellText { return made }
+        let made = WellText(frame: .zero)
+        made.isFieldEditor = true
+        if let window { objc_setAssociatedObject(window, &editorKey, made, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+        return made
+    }
+
+    /// Whether the caret of `client` (a field, or the text view itself) is
+    /// in it now: it is what the window types into, and the window has the
+    /// keys. A window nobody can see is drawn as the render draws it, with
+    /// the keys, since there is no one to tell it apart.
+    static func holds(_ client: NSView) -> Bool {
+        if let text = client as? WellText { return text.holdsCaret }
+        return ((client as? NSControl)?.currentEditor() as? WellText)?.holdsCaret ?? false
+    }
+
+    var holdsCaret: Bool {
+        guard let window, window.firstResponder === self else { return false }
+        return window.isKeyWindow || !window.isVisible
+    }
+
+    /// The caret and the selection are the well's own, whatever the system
+    /// would draw.
+    private func dress() {
+        insertionPointColor = .clear
+        selectedTextAttributes = [.backgroundColor: BarTheme.selectionFill]
+    }
+
+    // MARK: Focus
+
+    override func becomeFirstResponder() -> Bool {
+        guard super.becomeFirstResponder() else { return false }
+        client = isFieldEditor ? delegate as? NSView : self
+        dress()
+        announce()
+        return true
+    }
+
+    override func resignFirstResponder() -> Bool {
+        guard super.resignFirstResponder() else { return false }
+        announce()
+        return true
+    }
+
+    private func announce() {
+        placeCaret()
+        caret.needsDisplay = true
+        NotificationCenter.default.post(name: Self.focusDidChange, object: client)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        dress()
+        keyWatch.forEach(NotificationCenter.default.removeObserver)
+        keyWatch = []
+        guard let window else { return }
+        keyWatch = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map {
+            NotificationCenter.default.addObserver(forName: $0, object: window, queue: nil) { [weak self] _ in
+                self?.announce()
+            }
+        }
+        placeCaret()
+    }
+
+    // MARK: Place
+
+    override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
+        super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
+        placeCaret()
+    }
+
+    override func didChangeText() {
+        super.didChangeText()
+        placeCaret()
+    }
+
+    override func layout() {
+        super.layout()
+        placeCaret()
+    }
+
+    /// The caret stands at the insertion point, as tall as the words' line,
+    /// on whole device pixels.
+    private func placeCaret() {
+        guard let window, selectedRange().length == 0 else { caret.isHidden = true; return }
+        let onScreen = firstRect(forCharacterRange: selectedRange(), actualRange: nil)
+        guard onScreen.height > 0 else { return }
+        let rect = convert(window.convertFromScreen(onScreen), from: nil)
+        let height = BarTheme.caretHeight(forPointSize: font?.pointSize ?? BarTheme.Scale.body)
+        let scale = window.backingScaleFactor
+        let origin = NSPoint(x: (rect.minX * scale).rounded() / scale,
+                             y: ((rect.midY - height / 2) * scale).rounded() / scale)
+        caret.frame = NSRect(origin: origin, size: NSSize(width: BarTheme.caretWidth, height: height))
+        caret.isHidden = false
+        if subviews.last !== caret { addSubview(caret, positioned: .above, relativeTo: nil) }
+        caret.needsDisplay = true
+    }
+}
+
+private var editorKey = 0
+
+/// A text field's cell that edits in the one field editor.
+class InputCell: NSTextFieldCell {
+    override func fieldEditor(for controlView: NSView) -> NSTextView? {
+        WellText.fieldEditor(in: controlView.window)
+    }
+}
+
+/// A one-line field with no costume of its own: no bezel, no border, no
+/// ground, no focus ring, edited in the one field editor. What surrounds it
+/// is a well (`WellView`, `WellField`), and the well says which one has the
+/// caret.
+class InputField: NSTextField {
+    override class var cellClass: AnyClass? {
+        get { InputCell.self }
+        set {}
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        isBordered = false
+        isBezeled = false
+        drawsBackground = false
+        focusRingType = .none
+    }
+
+    required init?(coder: NSCoder) { nil }
 }
 
 // MARK: - Standing up
@@ -572,20 +813,19 @@ final class PaneShadow {
 /// A one-line field that is a well: the pane one step down with a hairline,
 /// drawn in the field's own draw pass, its words standing a control's
 /// padding inside. Where a room asks for a value, this is the place it goes.
-final class WellField: NSTextField, CeramicDepth {
+final class WellField: InputField, CeramicDepth {
     override class var cellClass: AnyClass? {
         get { WellFieldCell.self }
         set {}
     }
 
+    private var watch: FocusWatch?
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        isBordered = false
-        isBezeled = false
-        drawsBackground = false
-        focusRingType = .none
         translatesAutoresizingMaskIntoConstraints = false
         heightAnchor.constraint(equalToConstant: BarTheme.fieldHeight).isActive = true
+        watch = FocusWatch(self) { [weak self] in self?.needsDisplay = true }
     }
 
     required init?(coder: NSCoder) { nil }
@@ -594,15 +834,7 @@ final class WellField: NSTextField, CeramicDepth {
     var drawnSide: CGFloat { 0 }
 
     override func draw(_ dirtyRect: NSRect) {
-        let radius = BarTheme.radius(BarTheme.controlRadius, height: bounds.height)
-        BarTheme.wellFill.setFill()
-        NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
-        let line = Ceramic.Edge.line
-        let edge = NSBezierPath(roundedRect: bounds.insetBy(dx: line / 2, dy: line / 2),
-                                xRadius: max(0, radius - line / 2), yRadius: max(0, radius - line / 2))
-        edge.lineWidth = line
-        BarTheme.wellEdge.setStroke()
-        edge.stroke()
+        BarTheme.drawWell(in: bounds, cornerRadius: BarTheme.controlRadius, focused: WellText.holds(self))
         super.draw(dirtyRect)
     }
 
@@ -614,7 +846,7 @@ final class WellField: NSTextField, CeramicDepth {
 
 /// Words stand `wordPadding` inside the well, in the middle of its height,
 /// drawn and edited alike.
-final class WellFieldCell: NSTextFieldCell {
+final class WellFieldCell: InputCell {
     /// The words' rect: padded at the sides, and a line tall in the middle of
     /// the well's height, which a borderless cell does not do of its own.
     override func drawingRect(forBounds rect: NSRect) -> NSRect {

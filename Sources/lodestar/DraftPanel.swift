@@ -823,7 +823,7 @@ final class DraftPanel {
             // A thin bar between characters in insert mode; a block over the
             // character under the cursor otherwise, the width of that glyph.
             let block = view.editor != .insert
-            let bar: CGFloat = 3
+            let bar = BarTheme.draftBarWidth
             var rect: NSRect
             if attributed.length == 0 {
                 rect = NSRect(x: 0, y: 0, width: block ? Self.spaceWidth : bar, height: lineHeight)
@@ -851,9 +851,9 @@ final class DraftPanel {
             caret.frame = converted.insetBy(dx: 0, dy: 1)
             // A block is a plate on a letter, a mark; the bar is a hairline.
             caret.layer?.cornerRadius = block ? BarTheme.markRadius : BarTheme.hairlineRadius(width: bar)
-            // A solid plate in normal mode; the system's own insertion
-            // colour for the bar, which is what every field on the Mac
-            // teaches the eye to look for.
+            // A solid plate in normal mode; the bar in the readable accent,
+            // as every well's caret is. The draft is a page, not a well, so
+            // its bar keeps its own width (design/12-well.md).
             // Resolved in the panel's own appearance: a dynamic colour turned
             // into a layer's colour takes whatever appearance is current at
             // the call, and off the draw pass that was the dark one, so the

@@ -30,9 +30,9 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
 
     // Made once and carried across renders, so nothing typed is lost when
     // the window redraws around it.
-    private let textView = NSTextView()
+    private let textView = WellText(frame: .zero)
     private let scroll = NSScrollView()
-    private let noteBox = WellView(cornerRadius: BarTheme.nested(outer: BarTheme.surfaceRadius, inset: FeedbackController.inset, rung: BarTheme.controlRadius))
+    private let noteBox = WellView()
     private let replyBox = RoomField(placeholder: "Your email, if you would like a reply")
     private var reply: NSTextField { replyBox.field }
     /// Settings' own switch, not the system's checkbox: a room's controls
@@ -91,9 +91,13 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
         textView.allowsUndo = true
         textView.setRole(.body)
         textView.textColor = BarTheme.ink
-        textView.insertionPointColor = BarTheme.ink
         textView.drawsBackground = false
-        textView.textContainerInset = NSSize(width: Grid.close, height: Grid.close)
+        // The note's words stand 12 inside its well, as a field's do: the
+        // scroll view's hair, the container's inset, and no padding of the
+        // line fragment's own.
+        textView.textContainerInset = NSSize(width: BarTheme.wordPadding - Grid.hair,
+                                             height: BarTheme.wordPadding - Grid.hair)
+        textView.textContainer?.lineFragmentPadding = 0
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
@@ -105,6 +109,10 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
         scroll.borderType = .noBorder
+        // The note's place is its well: no system ring round the text.
+        textView.focusRingType = .none
+        scroll.focusRingType = .none
+        noteBox.hold(textView)
         // The frame is its own view: a scroll view's clip view paints over
         // any layer the scroll view itself is given.
         noteBox.translatesAutoresizingMaskIntoConstraints = false

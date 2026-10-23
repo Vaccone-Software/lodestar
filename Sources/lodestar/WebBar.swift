@@ -39,11 +39,11 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
     private let panel: KeyablePanel
     private let root = NSView()
-    private let field = NSTextField()
+    private let field = InputField()
     private let globe = NSImageView()
     /// The field is a place you put something, so it sinks: a well one pane-inset
-    /// inside the pane, rounded as a thing nested in it.
-    private let well = WellView(cornerRadius: BarTheme.paneRowRadius)
+    /// inside the pane, rounded as every input is, at the control's radius.
+    private let well = WellView()
     private let rowsStack = NSStackView()
 
     /// Wired by the app delegate; refreshed on config reload.
@@ -114,6 +114,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         field.translatesAutoresizingMaskIntoConstraints = false
 
         well.translatesAutoresizingMaskIntoConstraints = false
+        well.hold(field)
 
         rowsStack.orientation = .vertical
         rowsStack.spacing = Grid.hair
@@ -191,7 +192,6 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         panel.makeKeyAndOrderFront(nil)
         panel.orderFrontRegardless()
         panel.makeFirstResponder(field)
-        BarTheme.lightCaret(of: field)
     }
 
     func hide() {

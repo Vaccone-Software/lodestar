@@ -559,11 +559,6 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
 
     // MARK: - Field focus
 
-    func controlTextDidBeginEditing(_ notification: Notification) {
-        // A field's editor draws its caret and its selection in the system's colours.
-        if let field = notification.object as? NSTextField { BarTheme.lightCaret(of: field) }
-    }
-
     func controlTextDidChange(_ notification: Notification) {
         guard layer == .searching, let field = searchField,
               (notification.object as? NSTextField) === field else { return }
@@ -2033,26 +2028,35 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         ])
         list.addArrangedSubview(backRow)
 
-        let fieldRow = NSStackView()
-        fieldRow.orientation = .horizontal
-        fieldRow.alignment = .centerY
-        fieldRow.spacing = Grid.part
-        fieldRow.addArrangedSubview(Keycaps.cap("/"))
-        let field = NSTextField()
+        // The search is a field like every other: a well 32 tall holding the
+        // key that opens it, 12 in, and the words 12 after it.
+        let well = WellView()
+        let field = InputField()
         field.setPlaceholder(ask == nil ? "Search every setting" : "Search, or ask in your own words")
         field.setRole(.body)
         field.textColor = BarTheme.ink
         field.isBordered = false
+        field.isBezeled = false
         field.drawsBackground = false
         field.focusRingType = .none
         field.delegate = self
-        // The field takes whatever the key leaves of the row.
-        field.setContentHuggingPriority(.init(1), for: .horizontal)
-        fieldRow.widthAnchor.constraint(equalToConstant: Self.contentWidth).isActive = true
+        field.translatesAutoresizingMaskIntoConstraints = false
+        let slash = Keycaps.cap("/")
+        slash.translatesAutoresizingMaskIntoConstraints = false
+        well.addSubview(slash)
+        well.addSubview(field)
+        well.hold(field)
+        NSLayoutConstraint.activate([
+            well.widthAnchor.constraint(equalToConstant: Self.contentWidth),
+            well.heightAnchor.constraint(equalToConstant: BarTheme.fieldHeight),
+            slash.leadingAnchor.constraint(equalTo: well.leadingAnchor, constant: BarTheme.wordPadding),
+            slash.centerYAnchor.constraint(equalTo: well.centerYAnchor),
+            field.leadingAnchor.constraint(equalTo: slash.trailingAnchor, constant: BarTheme.wordPadding),
+            field.trailingAnchor.constraint(equalTo: well.trailingAnchor, constant: -BarTheme.wordPadding),
+            field.centerYAnchor.constraint(equalTo: well.centerYAnchor),
+        ])
         searchField = field
-        fieldRow.addArrangedSubview(field)
-        list.addArrangedSubview(fieldRow)
-        list.addArrangedSubview(Self.hairline(width: Self.contentWidth))
+        list.addArrangedSubview(well)
 
         let results = NSStackView()
         results.orientation = .vertical
@@ -2392,6 +2396,8 @@ extension SettingsController {
     func searchForTesting(_ query: String) {
         searchPressed()
         searchField?.stringValue = query
+        // As typed: the caret stands at the end of the words.
+        searchField?.currentEditor()?.selectedRange = NSRange(location: (query as NSString).length, length: 0)
         hits = SettingsModel.search(query, in: sections)
         hitSelection = 0
         renderHits()

@@ -46,7 +46,7 @@ final class RenderGalleryTests: XCTestCase {
             look.apply()
             for shot in GalleryShots.all where shot.looks.contains(look) {
                 let name = shot.name(in: look)
-                if let only, !name.contains(only) { continue }
+                if let only, !only.split(separator: ",").contains(where: { name.contains($0) }) { continue }
                 // The level is the one place the theme reads; a variant is the
                 // same surface built and drawn with it set.
                 EyeComfortState.shared.set(enabled: shot.level < 1 || shot.receded, level: shot.level)

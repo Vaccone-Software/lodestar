@@ -284,6 +284,8 @@ enum GalleryLauncher {
         panel.orderOut(nil)
         if !query.isEmpty, let field = find(NSTextField.self, in: panel.contentView, where: { $0.isEditable }) {
             field.stringValue = query
+            // As typed: the caret stands at the end of the words.
+            field.currentEditor()?.selectedRange = NSRange(location: (query as NSString).length, length: 0)
             searcher.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
         }
         for _ in 0..<chosen {

@@ -342,6 +342,11 @@ enum BarTheme {
         steps(for: appearance).ink.color
     }
 
+    /// The one selection: ink at 30%, behind the words, in every well and in
+    /// Keep's naming (design/12-well.md).
+    static let selectionShare: CGFloat = 0.3
+    static var selectionFill: NSColor { inkAt(selectionShare) }
+
     /// The ink at a share, a colour that follows the look: a fixed alpha on
     /// a dynamic colour is fixed when it is made, so the share is applied
     /// inside the resolution.
@@ -395,18 +400,6 @@ enum BarTheme {
     /// is paler than the table it lies on. It is content, drawn as it is.
     /// Never what marks a chosen thing: that is the slab (design/11-slab.md).
     static var sheet: NSColor { palette.key.color }
-
-    /// A bar's caret is the one light in its field: the accent, wherever
-    /// the field editor would otherwise draw the system's own colour. The
-    /// editor draws its selection in the system's too (the Mac's accent, and
-    /// white letters); here it is the ink at a share and the letters stay
-    /// the ink.
-    static func lightCaret(of field: NSTextField) {
-        guard let editor = field.currentEditor() as? NSTextView else { return }
-        editor.insertionPointColor = readableAccent
-        editor.textColor = ink
-        editor.selectedTextAttributes = [.backgroundColor: inkAt(0.3)]
-    }
 
     /// The one key, resting: the look's key step, in the night a pale cap
     /// on the pane and in clay the lightest thing drawn.
@@ -838,11 +831,12 @@ enum Keycaps {
 /// the theme's control rounding, around a borderless field. The bezelled field is a system
 /// control in costume, and its focus ring wears the Mac's accent.
 final class RoomField: WellView {
-    let field = NSTextField()
+    let field = InputField()
 
     init(placeholder: String) {
         super.init(cornerRadius: BarTheme.controlRadius)
         field.isBordered = false
+        field.isBezeled = false
         field.drawsBackground = false
         field.focusRingType = .none
         field.setRole(.body)
@@ -850,6 +844,7 @@ final class RoomField: WellView {
         field.translatesAutoresizingMaskIntoConstraints = false
         field.setPlaceholder(placeholder)
         addSubview(field)
+        hold(field)
         NSLayoutConstraint.activate([
             field.leadingAnchor.constraint(equalTo: leadingAnchor, constant: BarTheme.wordPadding),
             field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -BarTheme.wordPadding),

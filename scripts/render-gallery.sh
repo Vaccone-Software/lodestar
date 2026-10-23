@@ -11,6 +11,7 @@
 #   scripts/render-gallery.sh [outdir]       default .build/gallery
 #   LODESTAR_RENDER_ONLY=launcher scripts/render-gallery.sh
 #                                            only the pictures whose name has that
+#                                            (a comma between several: launcher,keep-source)
 #
 # Files are <surface>-<state>-<look>.png (look: day, night);
 # gallery/index.html is the page to review them on.

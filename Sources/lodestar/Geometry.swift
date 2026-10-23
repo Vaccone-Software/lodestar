@@ -34,6 +34,12 @@ extension BarTheme {
     /// A row, a card or a field one pane-inset inside a pane: 22 − 12 = 10.
     static let paneRowRadius: CGFloat = nested(outer: surfaceRadius, inset: Grid.part, rung: controlRadius)
 
+    /// A band that holds only a field (Keep's search and save bands) rounds
+    /// at the field's radius and the field's inset to the band, so the gap
+    /// between the two curves stays even: 8.4 + 4 = 12.4 (design/12-well.md).
+    static let bandInset: CGFloat = Grid.tight
+    static let bandRadius: CGFloat = controlRadius + bandInset
+
     /// A view shorter than twice its radius is a stadium: its ends are
     /// half its height.
     static func radius(_ rung: CGFloat, height: CGFloat) -> CGFloat { min(rung, height / 2) }
@@ -142,6 +148,8 @@ extension BarTheme {
     static let minTarget: CGFloat = 24
     /// A room's one-line field, and a button's taller answer.
     static let fieldHeight: CGFloat = 32
+    /// A band that holds only a field: the field, and the band's inset round it.
+    static let bandHeight: CGFloat = fieldHeight + bandInset * 2
     /// Where a window stands before it has content: sized by what it holds,
     /// not by this.
     static let unplaced = NSRect(x: 0, y: 0, width: 100, height: 100)
@@ -151,6 +159,14 @@ extension BarTheme {
     static let caretWidth: CGFloat = 1.5
     static let caretHeight: CGFloat = 20
     static let bodyCaretHeight: CGFloat = 18
+    /// The caret is as tall as the line of words it stands in: 20 beside the
+    /// field role's words, 18 beside the body's.
+    static func caretHeight(forPointSize size: CGFloat) -> CGFloat {
+        size >= Scale.input ? caretHeight : bodyCaretHeight
+    }
+    /// The draft's insert bar, which is the draft's own mode and not a well's
+    /// caret: three points, a bar between two letters.
+    static let draftBarWidth: CGFloat = 3
     /// A switch: a pointer target 24 high around a track 16 high.
     static let switchWidth: CGFloat = 32
     static let switchTrackHeight: CGFloat = 16

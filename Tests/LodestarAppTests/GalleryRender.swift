@@ -41,6 +41,23 @@ enum GalleryRender {
     }
 
     static let scale: CGFloat = 2
+
+    /// Whether a window that is typed in has the keys while it is drawn: a
+    /// caret and a selection are drawn only in the key window, so a picture
+    /// of a field with the caret in it needs one. The panel is brought in,
+    /// drawn and put away at once, as showing a surface already does, and
+    /// the app is never activated.
+    static func holdingKeys(_ view: NSView) -> NSWindow? {
+        guard let window = view.window, window.canBecomeKey, !window.isKeyWindow,
+              window.firstResponder is WellText else { return nil }
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        // A window that activates the app (Settings) cannot take the keys
+        // while the app is not active: it stays away, and is drawn as a
+        // window nobody can see is (`WellText.holds`).
+        guard window.isKeyWindow else { window.orderOut(nil); return nil }
+        return window
+    }
     /// The grey a window stands on, neither the day's ground nor the night's.
     static let desktop = NSColor(srgbRed: 0.5, green: 0.5, blue: 0.5, alpha: 1)
 
@@ -49,6 +66,8 @@ enum GalleryRender {
     /// the look is the window's, and every layer a view paints (a face, a
     /// lip, a row's rim, a shadow) is drawn by the same pass the screen takes.
     static func bitmap(of view: NSView, scale: CGFloat = GalleryRender.scale) -> NSBitmapImageRep {
+        let keyed = holdingKeys(view)
+        defer { keyed?.orderOut(nil) }
         // The compositor lays a pane's rim and edge over its content by
         // position; this draws view by view, so they are brought to the front.
         Ceramic.frontEdges(in: view)
@@ -71,6 +90,8 @@ enum GalleryRender {
     /// only its last child in it; drawn singly, every child is there.
     static func bitmapBySiblings(of view: NSView, scale: CGFloat = GalleryRender.scale,
                                  room: CGFloat = 40) -> NSBitmapImageRep {
+        let keyed = holdingKeys(view)
+        defer { keyed?.orderOut(nil) }
         Ceramic.frontEdges(in: view)
         view.window?.contentView?.layoutSubtreeIfNeeded()
         view.layoutSubtreeIfNeeded()

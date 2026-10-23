@@ -49,6 +49,10 @@ public enum Palette {
         /// A well's edge is the ink at this share, firmer than a hairline so
         /// the well reads as one.
         public let wellEdgeAlpha: Double
+        /// The edge of the well the caret is in: twice the resting share
+        /// (design/12-well.md), so which well is typed in reads at a glance,
+        /// with no ring, no accent and no change of fill.
+        public var wellFocusedEdgeAlpha: Double { wellEdgeAlpha * 2 }
         /// Whether this is the dark look. Said by the palette, not found by
         /// comparing it with `Palette.night`, because Eye comfort resolves
         /// the same look at other levels (design/06-eye-comfort.md).

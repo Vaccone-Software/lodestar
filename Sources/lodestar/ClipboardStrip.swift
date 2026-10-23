@@ -283,6 +283,12 @@ final class ClipboardStrip {
         bandFrame = nil
 
         shownRecents = Array(recents.prefix(Self.labels.count))
+        // The one card that is chosen is the slab: the card being named or
+        // acted on, else what ⏎ would paste, the newest until a search moves
+        // it. With the list of sources open the choice is in the list.
+        let chosenID: String? = sourceMenu != nil ? nil
+            : naming?.id ?? actingOn ?? (shownRecents.indices.contains(query != nil ? selection : 0)
+                                         ? shownRecents[query != nil ? selection : 0].id : nil)
         // Last-wins, never a trap: a hand-edited index can hold two clips
         // claiming one place, and Keep opening is the wrong place to die.
         shownPins = Dictionary(pins.compactMap { clip in
@@ -309,13 +315,16 @@ final class ClipboardStrip {
             let reading = held == .control ? readingText(clip) : nil
             let key = keyText(label: label, rank: rank, searching: query != nil,
                               held: held, hasReading: reading != nil, selection: selection)
-            let lit = key != nil && (query != nil ? rank == selection : rank == 0)
+            // The key that pastes lights on the chosen card, and only while
+            // pasting is what a key does: with a menu open the keys answer it.
+            let chosen = clip.id == chosenID
+            let lit = key != nil && chosen && actingOn == nil && sourceMenu == nil
             let files = fileArt(for: clip, picture: fileThumbnail, present: filesPresent)
             let card = makeCard(clip: clip, key: key, lit: lit, size: place.size,
                                 face: rank == 0 && layout.wideJ ? .title : .body,
                                 reading: reading,
                                 thumbnail: clip.kind == .image ? thumbnail(clip.id) : nil,
-                                files: files, raised: clip.id == actingOn)
+                                files: files, chosen: chosen)
             card.frame = local(place)
             card.setAccessibilityLabel(spoken(clip, rank: rank, label: label, files: files))
             root.addSubview(card)
@@ -335,7 +344,7 @@ final class ClipboardStrip {
                                         thumbnail: clip.kind == .image ? thumbnail(clip.id)
                                             : clip.kind == .file ? fileThumbnail(clip.id, 0) : nil,
                                         naming: naming?.id == clip.id ? naming : nil,
-                                        raised: clip.id == actingOn)
+                                        chosen: clip.id == chosenID)
                     card.setAccessibilityLabel("Keepsake \(slot), \(Clipboard.name(of: clip))")
                     ranked.append(card)
                 } else {
@@ -374,7 +383,7 @@ final class ClipboardStrip {
                 let size = NSSize(width: min(layout.bar.width, layout.module * 2 + Self.gap),
                                   height: layout.bar.height)
                 let card = makeKeepsake(clip: clip, slot: 0, key: nil, size: size, reading: nil,
-                                        thumbnail: nil, naming: naming, raised: true)
+                                        thumbnail: nil, naming: naming, chosen: true)
                 card.frame = local(NSRect(origin: layout.bar.origin, size: size))
                 root.addSubview(card)
             }
@@ -638,10 +647,11 @@ final class ClipboardStrip {
         case .well:
             card = WellView(cornerRadius: radius)
             card.translatesAutoresizingMaskIntoConstraints = true
-        case .pane, .key:
+        case .pane, .slab:
             let object = SoftShadow.object(radius: radius)
-            Ceramic.installPane(in: object, cornerRadius: radius, fill: fill == .key ? .key : .pane,
+            Ceramic.installPane(in: object, cornerRadius: radius, fill: fill == .slab ? .slab : .pane,
                                 side: stands ? Self.cardSide : 0)
+            object.chosen = fill == .slab
             card = object
         }
         card.frame = NSRect(origin: .zero, size: size)
@@ -663,8 +673,8 @@ final class ClipboardStrip {
     func makeCard(clip: Clipboard.Clip, key: String?, lit: Bool, size: NSSize,
                   face: BarTheme.Role = .body,
                   reading: String?,
-                  thumbnail: NSImage?, files: FileArt? = nil, raised: Bool) -> NSView {
-        let card = surface(size: size, fill: raised ? .key : .pane)
+                  thumbnail: NSImage?, files: FileArt? = nil, chosen: Bool) -> NSView {
+        let card = surface(size: size, fill: chosen ? .slab : .pane)
         shownCards[clip.id] = card
         let width = size.width, height = size.height
         let line = height - Self.head - Self.keyLine
@@ -856,7 +866,7 @@ final class ClipboardStrip {
         face.wantsLayer = true
         face.layer?.cornerRadius = Self.insideRadius(rung: BarTheme.markRadius)
         face.layer?.masksToBounds = true
-        face.layer?.backgroundColor = Ceramic.resolved(BarTheme.raised, in: card)
+        face.layer?.backgroundColor = Ceramic.resolved(BarTheme.sheet, in: card)
         // The file's own face is cropped to the sheet, as a print is; an
         // icon is whole, with room around it.
         let ownFace = fact?.pictured == true && picture != nil
@@ -985,8 +995,8 @@ final class ClipboardStrip {
     /// It rests where a passing clip floats.
     private func makeKeepsake(clip: Clipboard.Clip, slot: Int, key: String?, size: NSSize,
                               reading: String?, thumbnail: NSImage?, naming: Naming?,
-                              raised: Bool) -> NSView {
-        let card = surface(size: size, fill: raised || naming != nil ? .key : .pane)
+                              chosen: Bool) -> NSView {
+        let card = surface(size: size, fill: chosen || naming != nil ? .slab : .pane)
         shownCards[clip.id] = card
         let width = size.width, height = size.height
         var leading = Self.pad
@@ -1396,9 +1406,9 @@ final class ClipboardStrip {
 
         for (index, row) in rows {
             let y = top - rowHeight
-            let line = RaisedLine(frame: NSRect(x: BarTheme.paneInset, y: y, width: width - BarTheme.paneInset * 2, height: rowHeight))
-            line.setupRaised()
-            line.applyRaised(index == menu.selection)
+            let line = SlabLine(frame: NSRect(x: BarTheme.paneInset, y: y, width: width - BarTheme.paneInset * 2, height: rowHeight))
+            line.setupSlab()
+            line.choose(index == menu.selection)
             let name = NSTextField(labelWithString: row.name)
             name.setRole(.body)
             name.textColor = BarTheme.ink
@@ -1589,15 +1599,15 @@ final class ClipboardStrip {
         root.addSubview(plate)
     }
 
-    /// What a card is made of: the pane, the key step for the one the hand
-    /// is on, or a well for a free place.
+    /// What a card is made of: the pane, the slab for the one the hand is on
+    /// (design/11-slab.md), or a well for a free place.
     enum CardFill {
-        case pane, key, well
+        case pane, slab, well
     }
 }
 
-/// A row of the source list: the bars' raised step.
-private final class RaisedLine: RaisedRow {}
+/// A row of the source list: the slab when it is the one chosen.
+private final class SlabLine: SlabRow {}
 
 /// A file's sheet on a card: content, drawn as it is, resting on the card
 /// with a short soft shadow cast from its own outline, as a picture does.

@@ -96,10 +96,10 @@ enum GalleryMaterial {
         let lit = Key("⏎")
         lit.lit = true
         let open = RoomButton(title: "Open", target: nil, action: nil)
-        let chosen = RaisedRow(frame: .zero)
+        let chosen = SlabRow(frame: .zero)
         chosen.translatesAutoresizingMaskIntoConstraints = false
-        chosen.setupRaised()
-        chosen.applyRaised(true)
+        chosen.setupSlab()
+        chosen.choose(true)
         let chosenWord = caption("The chosen row", color: BarTheme.ink, role: .body)
         chosen.addSubview(chosenWord)
         NSLayoutConstraint.activate([

@@ -291,10 +291,11 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
 
 /// One reusable commands row: title over breadcrumb, a source chip when the
 /// list mixes feeds, and the native-shortcut chip at the edge.
-private final class CommandsRowView: RaisedRow {
+private final class CommandsRowView: SlabRow {
     private let title = NSTextField(labelWithString: "")
     private let crumb = NSTextField(labelWithString: "")
-    /// The app's own shortcut for the command, a real key: lit when chosen.
+    /// The app's own shortcut for the command, a real key, at rest: ⏎ is the
+    /// key that acts.
     private let chip = Key("")
     /// ⏎ on the chosen row, lit: the key that runs it.
     private let enter = Key("⏎")
@@ -307,7 +308,7 @@ private final class CommandsRowView: RaisedRow {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         heightAnchor.constraint(equalToConstant: height).isActive = true
-        setupRaised()
+        setupSlab()
         enter.lit = true
         enter.isHidden = true
 
@@ -381,14 +382,14 @@ private final class CommandsRowView: RaisedRow {
         restyle()
     }
 
-    /// Chosen, the row rises and its keys light: the app's shortcut and
-    /// ⏎. Which feed it came from is a fact, not a key, so it stays quiet.
+    /// Chosen, the row is the slab and ⏎ lights: the key that runs it. The
+    /// app's shortcut rests, and which feed it came from is a fact, not a
+    /// key, so it stays quiet.
     private func restyle() {
-        applyRaised(selectedState)
+        choose(selectedState)
         title.textColor = BarTheme.ink
         crumb.textColor = BarTheme.secondaryColor
         sourceLabel.textColor = BarTheme.secondaryColor
-        chip.lit = selectedState
         enter.isHidden = !selectedState
     }
 }

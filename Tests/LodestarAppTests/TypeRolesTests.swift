@@ -332,6 +332,8 @@ final class TypeRolesTests: XCTestCase {
         let fonts: [NSFont?]
         let styles: [BarTheme.Style?]
         let editable: Bool
+        /// The look the word is drawn in: a word on a slab is in the other one.
+        let appearance: NSAppearance
     }
 
     private func styles(in text: NSAttributedString) -> (fonts: [NSFont?], styles: [BarTheme.Style?]) {
@@ -351,24 +353,24 @@ final class TypeRolesTests: XCTestCase {
                 if !field.stringValue.isEmpty {
                     if let style = field.typeStyle {
                         out.append(Word(kind: "field", text: field.stringValue, fonts: [field.font], styles: [style],
-                                        editable: field.isEditable))
+                                        editable: field.isEditable, appearance: field.effectiveAppearance))
                     } else {
                         let found = styles(in: field.attributedStringValue)
                         out.append(Word(kind: "field", text: field.stringValue, fonts: found.fonts, styles: found.styles,
-                                        editable: field.isEditable))
+                                        editable: field.isEditable, appearance: field.effectiveAppearance))
                     }
                 } else if let placeholder = field.placeholderAttributedString, placeholder.length > 0 {
                     let found = styles(in: placeholder)
                     out.append(Word(kind: "placeholder", text: placeholder.string, fonts: found.fonts,
-                                    styles: found.styles, editable: true))
+                                    styles: found.styles, editable: true, appearance: field.effectiveAppearance))
                 }
             } else if let button = view as? NSButton, !button.title.isEmpty || button.attributedTitle.length > 0 {
                 if let style = button.typeStyle {
-                    out.append(Word(kind: "button", text: button.title, fonts: [button.font], styles: [style], editable: false))
+                    out.append(Word(kind: "button", text: button.title, fonts: [button.font], styles: [style], editable: false, appearance: button.effectiveAppearance))
                 } else {
                     let found = styles(in: button.attributedTitle)
                     out.append(Word(kind: "button", text: button.attributedTitle.string, fonts: found.fonts,
-                                    styles: found.styles, editable: false))
+                                    styles: found.styles, editable: false, appearance: view.effectiveAppearance))
                 }
                 // The button draws its own title: whatever it is made of inside
                 // is the button's, not a word of its own.
@@ -376,7 +378,7 @@ final class TypeRolesTests: XCTestCase {
             } else if let textView = view as? NSTextView, !textView.isFieldEditor, let storage = textView.textStorage,
                       storage.length > 0 {
                 let found = styles(in: storage)
-                out.append(Word(kind: "text view", text: storage.string, fonts: found.fonts, styles: found.styles, editable: false))
+                out.append(Word(kind: "text view", text: storage.string, fonts: found.fonts, styles: found.styles, editable: false, appearance: view.effectiveAppearance))
             }
             view.subviews.forEach(visit)
         }
@@ -412,8 +414,9 @@ final class TypeRolesTests: XCTestCase {
                 }
                 for (font, style) in zip(word.fonts, word.styles) {
                     guard let style else { continue }
-                    if font != style.font(in: appearance) {
-                        wrong.append("\(name) is \(font?.fontName ?? "no font"), not \(style.role.rawValue) in \(look.name)")
+                    // A word on a slab is drawn in the other look, and is held to it.
+                    if font != style.font(in: word.appearance) {
+                        wrong.append("\(name) is \(font?.fontName ?? "no font"), not \(style.role.rawValue) in \(BarTheme.isNight(word.appearance) ? "night" : "day")")
                     }
                 }
             }

@@ -7,8 +7,8 @@ import LodestarCore
 /// grey, and is the one control on the glass that is a system window in
 /// costume. Here the name sits quietly in the foot, and choosing opens a
 /// small card beside the draft — beside, never over, so the words stay
-/// in view — whose rows rise under the pointer like the bars' rows, with
-/// the accent marking the microphone that is chosen.
+/// in view — whose row under the pointer is the slab, the bars' chosen
+/// row, with a dot marking the microphone in use.
 final class InputMenu {
     struct Choice: Equatable {
         let title: String
@@ -41,8 +41,12 @@ final class InputMenu {
     var isVisible: Bool { panel.isVisible }
     /// The rows' titles, top to bottom, and which is chosen, for the tests.
     var titles: [String] { rows.map(\.choice.title) }
-    var chosenTitle: String? { rows.first(where: \.chosen)?.choice.title }
-    /// The card's glass, without the shadow's margin.
+    var currentTitle: String? { rows.first(where: \.current)?.choice.title }
+    /// The row the pointer has chosen, which is the slab, for the tests.
+    var slabTitle: String? { rows.first(where: \.chosen)?.choice.title }
+    /// The rows, for the tests.
+    var slabRows: [SlabRow] { rows }
+    /// The card, without the shadow's margin.
     var frame: NSRect { SoftShadow.inset(panel.frame) }
 
     /// Open beside `glass` (the draft's frame), level with its foot.
@@ -52,7 +56,7 @@ final class InputMenu {
         let width = (widest + Self.inset * 2 + InputMenuRow.padding * 2 + BarTheme.dotDiameter + Grid.part).rounded(.up)
         let height = Self.inset * 2 + Self.rowHeight * CGFloat(choices.count)
         rows = choices.enumerated().map { index, choice in
-            let row = InputMenuRow(choice: choice, chosen: index == chosen)
+            let row = InputMenuRow(choice: choice, current: index == chosen)
             row.frame = NSRect(x: Self.inset, y: height - Self.inset - Self.rowHeight * CGFloat(index + 1),
                                width: width - Self.inset * 2, height: Self.rowHeight)
             row.onPick = { [weak self] in self?.pick(choice) }
@@ -111,37 +115,35 @@ final class InputMenu {
     }
 }
 
-/// One microphone: its name, and the accent's dot before it when chosen.
-/// Rises under the pointer, the bars' raised row, because the pointer is
-/// where the hand is going.
-final class InputMenuRow: RaisedRow {
+/// One microphone: its name, and a dot before it when it is the one in use.
+/// The row under the pointer is the slab, the bars' chosen row, because the
+/// pointer is where the hand is going and this card takes no keys.
+final class InputMenuRow: SlabRow {
     let choice: InputMenu.Choice
-    let chosen: Bool
+    /// The microphone the draft is using.
+    let current: Bool
     var onPick: (() -> Void)?
     private let label = NSTextField(labelWithString: "")
-    private let dot = NSView()
+    private let dot = ToneView(fill: BarTheme.ink, radius: BarTheme.dotRadius)
     /// The row's own padding, so its words stand where a bar's rows' do.
     static let padding = Grid.part
 
-    init(choice: InputMenu.Choice, chosen: Bool) {
+    init(choice: InputMenu.Choice, current: Bool) {
         self.choice = choice
-        self.chosen = chosen
+        self.current = current
         super.init(frame: .zero)
-        setupRaised()
+        setupSlab()
         label.stringValue = choice.title
         label.setRole(.body)
         label.textColor = BarTheme.ink
         label.lineBreakMode = .byTruncatingTail
-        dot.wantsLayer = true
-        dot.layer?.cornerRadius = BarTheme.dotRadius
-        dot.layer?.backgroundColor = BarTheme.accent.cgColor
-        dot.isHidden = !chosen
+        dot.isHidden = !current
         addSubview(dot)
         addSubview(label)
         setAccessibilityElement(true)
         setAccessibilityRole(.menuItem)
         setAccessibilityLabel(choice.title)
-        setAccessibilitySelected(chosen)
+        setAccessibilitySelected(current)
     }
 
     required init?(coder: NSCoder) { nil }
@@ -168,10 +170,11 @@ final class InputMenuRow: RaisedRow {
 
     /// The card is never key: the first click is the choice.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func mouseEntered(with event: NSEvent) { applyRaised(true) }
-    override func mouseExited(with event: NSEvent) { applyRaised(false) }
+    override func mouseEntered(with event: NSEvent) { choose(true) }
+    override func mouseExited(with event: NSEvent) { choose(false) }
     override func cursorUpdate(with event: NSEvent) { NSCursor.pointingHand.set() }
     override func mouseUp(with event: NSEvent) {
+        super.mouseUp(with: event)
         if bounds.contains(convert(event.locationInWindow, from: nil)) { onPick?() }
     }
     override func accessibilityPerformPress() -> Bool { onPick?(); return true }

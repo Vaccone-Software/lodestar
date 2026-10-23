@@ -323,7 +323,7 @@ final class GeometryTests: XCTestCase {
                             }
                         }
                     }
-                    if view is RaisedRow, !(view is RaisedRow && String(describing: type(of: view)).contains("Landing")) {
+                    if view is SlabRow, !(view is SlabRow && String(describing: type(of: view)).contains("Landing")) {
                         var title: NSTextField?
                         walk(view) { if title == nil, let field = $0 as? NSTextField, field.typeStyle?.role == .title, !field.isHidden { title = field } }
                         guard let title else { return }
@@ -414,12 +414,12 @@ final class GeometryTests: XCTestCase {
             return out
         }
         let row = BarTheme.paneRowRadius
-        let launcher = try radii(of: "launcher", state: "results-second-chosen") { $0 is RaisedRow }
+        let launcher = try radii(of: "launcher", state: "results-second-chosen") { $0 is SlabRow }
         XCTAssertFalse(launcher.isEmpty)
         XCTAssertTrue(launcher.allSatisfy { abs($0 - row) < 0.01 }, "a launcher row is 12 inside the pane: \(launcher)")
-        let commands = try radii(of: "commands", state: "typed-pa") { $0 is RaisedRow }
+        let commands = try radii(of: "commands", state: "typed-pa") { $0 is SlabRow }
         XCTAssertTrue(commands.allSatisfy { abs($0 - row) < 0.01 }, "and so is a commands row: \(commands)")
-        let settings = try radii(of: "settings", state: "general") { $0 is RaisedRow }
+        let settings = try radii(of: "settings", state: "general") { $0 is SlabRow }
         XCTAssertTrue(settings.allSatisfy { abs($0 - row) < 0.01 }, "and a settings row: \(settings)")
         XCTAssertEqual(ClipboardStrip.insideRadius(rung: BarTheme.controlRadius), row, "a swatch in a Keep card")
         XCTAssertEqual(ClipboardStrip.insideRadius(rung: BarTheme.markRadius), row, "and a sheet in it")

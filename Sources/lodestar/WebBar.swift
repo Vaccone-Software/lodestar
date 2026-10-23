@@ -518,7 +518,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 }
 
 /// One reusable web-bar row: symbol, destination, profile chip.
-private final class WebRowView: RaisedRow {
+private final class WebRowView: SlabRow {
     private let title = NSTextField(labelWithString: "")
     private let chipLabel = NSTextField(labelWithString: "")
     private let chip = FlatChip()
@@ -536,7 +536,7 @@ private final class WebRowView: RaisedRow {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         heightAnchor.constraint(equalToConstant: height).isActive = true
-        setupRaised()
+        setupSlab()
         enter.lit = true
         enter.isHidden = true
 
@@ -624,11 +624,11 @@ private final class WebRowView: RaisedRow {
         restyle()
     }
 
-    /// Chosen, the row rises and ⏎ lights beside it. The profile is a
+    /// Chosen, the row is the slab and ⏎ lights on it. The profile is a
     /// fact about where the link goes, not a key, so it stays a quiet
     /// label whether chosen or not.
     private func restyle() {
-        applyRaised(selectedState)
+        choose(selectedState)
         chipLabel.textColor = BarTheme.secondaryColor
         enter.isHidden = !selectedState
     }

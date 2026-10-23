@@ -193,7 +193,8 @@ enum GalleryFoundations {
                 ("well", themed(BarTheme.well), "the pane darkened by 0.05 L by day, 0.04 by night"),
                 ("accent", accent, "BarTheme.accent"),
                 ("letter on the accent", themed(BarTheme.onAccent, over: accent), "BarTheme.onAccent"),
-                ("chosen row", themed(BarTheme.raised), "BarTheme.raised (the key step)"),
+                ("the slab", themed(BarTheme.dynamic { $0.slab.color }), "the slab step: the other look's ground"),
+                ("the slab's side", themed(BarTheme.dynamic { $0.slabSide.color }), "the slab's side step"),
                 ("key face", keyFace, "BarTheme.keyFill"),
                 ("key side", themed(BarTheme.sideFill, over: pane), "BarTheme.sideFill"),
                 ("key letter", themed(BarTheme.keyLetter, over: keyFace), "BarTheme.keyLetter"),
@@ -336,7 +337,7 @@ enum GalleryFoundations {
             round(pane, BarTheme.surfaceRadius, fill: BarTheme.well)
             let inset = BarTheme.paneInset
             let row = NSRect(x: pane.minX + inset, y: pane.minY + inset, width: pane.width - inset * 2, height: BarTheme.rowHeight)
-            round(row, BarTheme.paneRowRadius, fill: BarTheme.raised)
+            round(row, BarTheme.paneRowRadius, fill: BarTheme.dynamic { $0.slab.color })
             let field = NSRect(x: pane.minX + inset, y: row.maxY + Grid.close, width: pane.width - inset * 2,
                                height: pane.maxY - inset - row.maxY - Grid.close)
             round(field, BarTheme.nested(outer: BarTheme.surfaceRadius, inset: inset, rung: BarTheme.controlRadius), fill: BarTheme.well)
@@ -347,7 +348,7 @@ enum GalleryFoundations {
                       at: NSPoint(x: pane.maxX + Grid.section, y: pane.minY + 4), color: Page.ink)
             page.text("nested = max(rung, outer − inset)", at: NSPoint(x: pane.maxX + Grid.section, y: pane.minY + 28))
             let short = NSRect(x: pane.maxX + Grid.section, y: pane.minY + 64, width: 150, height: 28)
-            round(short, BarTheme.surfaceRadius, fill: BarTheme.raised)
+            round(short, BarTheme.surfaceRadius, fill: BarTheme.dynamic { $0.slab.color })
             page.text("shorter than twice its radius: a stadium", at: NSPoint(x: short.minX, y: short.maxY + 8))
             page.y += pane.height + 28
 

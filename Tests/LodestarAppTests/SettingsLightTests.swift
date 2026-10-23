@@ -35,21 +35,23 @@ final class SettingsLightTests: XCTestCase {
         XCTAssertTrue(settings.shownTextsForTesting.contains("com.example.gone"))
     }
 
-    /// The picked result rises onto the step the launcher's row stands on,
-    /// its keys lit; no other result does, and none is outlined.
-    func testThePickedSearchResultRisesWithItsKeysLit() throws {
+    /// The picked result is the slab, the launcher's chosen row, and ⏎ on it
+    /// the one lit key; no other result is, and none is outlined.
+    func testThePickedSearchResultIsTheSlabWithOnlyEnterLit() throws {
         let settings = settings()
         settings.renderForTesting(place: nil)
         settings.searchForTesting("clipboard")
         let rows = settings.searchRowsForTesting.filter { !($0 is NSTextField) }
         XCTAssertGreaterThan(rows.count, 1, "the query finds several rows")
         let risen = rows.map { row in row.subviews.contains { $0 is LandingStep } }
-        XCTAssertEqual(risen.first, true, "the picked result rises")
+        XCTAssertEqual(risen.first, true, "the picked result is the slab")
         XCTAssertEqual(risen.dropFirst().filter { $0 }.count, 0, "and only it")
         let picked = try XCTUnwrap(rows.first)
         let caps = picked.subviews.compactMap { $0 as? Key }
         XCTAssertFalse(caps.isEmpty)
-        XCTAssertTrue(caps.allSatisfy(\.lit), "its keys light where the hand goes next")
+        XCTAssertEqual(caps.filter(\.lit).map(\.legend), ["⏎"], "the key that lands there lights, the address rests")
+        XCTAssertTrue(rows.dropFirst().allSatisfy { $0.subviews.compactMap { $0 as? Key }.allSatisfy { !$0.lit } },
+                      "no other result lights a key")
         XCTAssertTrue(rows.allSatisfy { ($0.layer?.borderWidth ?? 0) == 0 }, "nothing outlined in the accent")
     }
 

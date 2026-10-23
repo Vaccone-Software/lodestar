@@ -62,13 +62,16 @@ final class PaneTests: XCTestCase {
         }
     }
 
-    func testTheKeyStepPaneIsTheKeyStepOpaque() throws {
+    /// The pane the hand is on is the slab, drawn from inside the look the slab
+    /// holds: the other look's ground, as the host look's slab step.
+    func testTheSlabPaneIsTheHostLooksSlabStepOpaque() throws {
         for look in GalleryLook.all {
             let steps = look == .night ? Palette.night : Palette.clay
-            let (window, root, _, _) = pane(in: look, fill: .key)
+            let (window, root, _, _) = pane(in: look, fill: .slab)
+            root.appearance = Slab.inside(NSAppearance(named: look.appearance)!)
             let drawn = try pixel(GalleryRender.bitmap(of: root), x: 80, y: 60)
             XCTAssertEqual(drawn.alphaComponent, 1, accuracy: 0.001)
-            near(drawn, steps.key, "\(look.name): the one the hand is on is the key step")
+            near(drawn, steps.slab, "\(look.name): the one the hand is on is the slab step")
             _ = window
         }
     }
@@ -319,20 +322,21 @@ final class PaneTests: XCTestCase {
         }
     }
 
-    func testTheStripsCardsAreStandingPanesAndOnlyTheActedOnOneIsTheKeyStep() {
+    func testTheStripsCardsAreStandingPanesAndOnlyTheChosenOneIsTheSlab() {
         let stage = Stage()
         let a = stage.seedClip("one")
         stage.seedClip("two")
         stage.openStrip()
         let cards = stage.engine.strip.shownFills.filter { $0 != .well }
-        XCTAssertEqual(Set(cards), [.pane], "no card is the one acted on; the empty slot is a well")
+        XCTAssertEqual(cards.filter { $0 == .slab }.count, 1, "the newest, until a key moves the choice")
+        XCTAssertEqual(cards.filter { $0 == .pane }.count, cards.count - 1, "the empty slot is a well")
         for card in stage.engine.strip.shownCards.values {
             XCTAssertNotNil(card.subviews.first { $0 is CeramicPane }, "an opaque pane under its words")
             XCTAssertNil(card.subviews.first { String(describing: type(of: $0)).contains("Glass") })
         }
         stage.chord("k", .maskCommand)
         let fills = stage.engine.strip.shownFills.filter { $0 != .well }
-        XCTAssertEqual(fills.filter { $0 == .key }.count, 1, "the card the actions act on")
+        XCTAssertEqual(fills.filter { $0 == .slab }.count, 1, "the card the actions act on")
         XCTAssertEqual(fills.filter { $0 == .pane }.count, fills.count - 1)
         _ = a
         stage.press("escape")
@@ -499,6 +503,9 @@ final class AccentDriftTests: XCTestCase {
 final class OnAccentTests: XCTestCase {
     override func tearDown() { BarTheme.accentColor = { BarTheme.internationalOrange } }
 
+    /// The letter as it resolves where it is drawn here.
+    private var onAccent: NSColor { BarTheme.onAccent.usingColorSpace(.sRGB)! }
+
     private func contrast(_ text: NSColor, on fill: NSColor) -> Double {
         let t = text.usingColorSpace(.sRGB)!, f = fill.usingColorSpace(.sRGB)!
         return Readability.contrast(
@@ -509,8 +516,8 @@ final class OnAccentTests: XCTestCase {
     func testInternationalOrangeOnCharcoalTakesInkNotWhite() {
         let orange = Palette.night.orange.color
         BarTheme.accentColor = { orange }
-        XCTAssertEqual(BarTheme.onAccent, Palette.clay.ink.color, "white on this orange is 3.3 to 1; the ink is 5.36")
-        XCTAssertGreaterThanOrEqual(contrast(BarTheme.onAccent, on: orange), 4.5, "reading text on a fill")
+        XCTAssertEqual(onAccent, Palette.clay.ink.color.usingColorSpace(.sRGB), "white on this orange is 3.3 to 1; the ink is 5.36")
+        XCTAssertGreaterThanOrEqual(contrast(onAccent, on: orange), 4.5, "reading text on a fill")
     }
 
     /// On clay the orange is deep enough to read as text on the pane (4.65
@@ -520,19 +527,19 @@ final class OnAccentTests: XCTestCase {
         let deep = Palette.clay.orange.color
         BarTheme.accentColor = { deep }
         XCTAssertGreaterThanOrEqual(contrast(deep, on: Palette.clay.pane.color), 4.5, "the accent reads as text on clay")
-        XCTAssertEqual(BarTheme.onAccent, Palette.clay.key.color)
-        XCTAssertGreaterThanOrEqual(contrast(BarTheme.onAccent, on: deep), 4.5)
+        XCTAssertEqual(onAccent, Palette.clay.key.color.usingColorSpace(.sRGB))
+        XCTAssertGreaterThanOrEqual(contrast(onAccent, on: deep), 4.5)
         BarTheme.accentColor = { NSColor(srgbRed: 0.0, green: 0.3, blue: 0.8, alpha: 1) }
-        XCTAssertEqual(BarTheme.onAccent, Palette.clay.key.color)
+        XCTAssertEqual(onAccent, Palette.clay.key.color.usingColorSpace(.sRGB))
     }
 
     func testWhicheverReadsBetterWins() {
         let candidates = [Palette.clay.key.color, Palette.clay.ink.color]
         for fill in [NSColor.systemPurple, .systemGreen, .systemYellow, .systemBlue, .systemRed] {
             BarTheme.accentColor = { fill }
-            XCTAssertTrue(candidates.contains(BarTheme.onAccent), "only clay's key face or clay's ink, never white or black")
-            let chosen = contrast(BarTheme.onAccent, on: fill)
-            let other = contrast(BarTheme.onAccent == candidates[0] ? candidates[1] : candidates[0], on: fill)
+            XCTAssertTrue(candidates.map { $0.usingColorSpace(.sRGB)! }.contains(onAccent), "only clay's key face or clay's ink, never white or black")
+            let chosen = contrast(onAccent, on: fill)
+            let other = contrast(onAccent == candidates[0].usingColorSpace(.sRGB) ? candidates[1] : candidates[0], on: fill)
             XCTAssertGreaterThanOrEqual(chosen, other, "\(fill)")
         }
     }
@@ -696,7 +703,7 @@ final class KeyColourTests: XCTestCase {
     func testTheGroundIsTheNightOrClay() {
         let steps = Tone.systemDark ? Palette.night : Palette.clay
         XCTAssertEqual(BarTheme.ground, steps.pane.color)
-        XCTAssertEqual(BarTheme.raised, steps.key.color)
+        XCTAssertEqual(BarTheme.sheet, steps.key.color)
     }
 }
 

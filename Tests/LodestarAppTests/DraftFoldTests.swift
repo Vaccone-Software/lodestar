@@ -217,7 +217,7 @@ final class DraftFoldTests: XCTestCase {
         let menu = panel.inputMenuForTests
         XCTAssertTrue(menu.isVisible)
         XCTAssertEqual(menu.titles, ["System (AirPods)", "MacBook Pro Microphone", "AirPods"])
-        XCTAssertEqual(menu.chosenTitle, "MacBook Pro Microphone")
+        XCTAssertEqual(menu.currentTitle, "MacBook Pro Microphone")
         XCTAssertFalse(menu.frame.intersects(panel.frame), "beside the draft, never over its words")
         XCTAssertEqual(menu.frame.minY, panel.frame.minY, accuracy: 0.5, "level with the foot")
         menu.choose("System (AirPods)")

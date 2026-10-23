@@ -1108,7 +1108,15 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             let widest = menu.items.map { BarTheme.width(of: $0.title, in: .control) }.max() ?? 0
             let width = max(bounds.width, ChoiceMenuItemView.width(forLabel: widest, withIcon: menu.items.contains { $0.image != nil }))
             for item in menu.items where !item.isSeparatorItem {
-                item.view = ChoiceMenuItemView(item: item, chosen: item == selectedItem, width: width, popup: self)
+                item.view = ChoiceMenuItemView(item: item, current: item == selectedItem, width: width, popup: self)
+            }
+        }
+
+        /// The menu's choice moves with the pointer and the arrow keys alike:
+        /// the slab is on the row it has highlighted, and on no other.
+        func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
+            for other in menu.items {
+                (other.view as? ChoiceMenuItemView)?.choose(other === item)
             }
         }
     }
@@ -1724,9 +1732,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                                     action: #selector(removePressed(_:)))
             button.identifier = NSUserInterfaceItemIdentifier("\(addKey(kind))|\(entry.key)")
             row.addArrangedSubview(button)
-            // The entry the keys are on rises, as the launcher's chosen row
-            // does: the raised step and its lit edge, never the accent
-            // washed across it.
+            // The entry the keys are on is the slab, as the launcher's chosen
+            // row is, never the accent washed across it.
             if let focus = listFocus, focus.row == paneRow, focus.entry == entryIndex {
                 raise(row, sides: Grid.close, ends: Grid.tight)
             }
@@ -2085,12 +2092,10 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             row.translatesAutoresizingMaskIntoConstraints = false
             row.widthAnchor.constraint(equalToConstant: width).isActive = true
             let parts = hit.address.split(separator: " ").map(String.init)
-            // The chosen result is the launcher's chosen row: it rises, and
-            // its keys light where the hand goes next.
+            // The chosen result is the launcher's chosen row: the slab, and
+            // ⏎ on it, the key that lands there, lit. The address rests.
             for part in parts {
-                let cap = Keycaps.cap(part)
-                cap.lit = selected
-                row.addArrangedSubview(cap)
+                row.addArrangedSubview(Keycaps.cap(part))
             }
             row.addArrangedSubview(label(hit.title, role: .label, color: BarTheme.ink))
             row.addArrangedSubview(label(hit.sectionName, role: .meta,
@@ -2100,7 +2105,12 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                 row.addArrangedSubview(label("Suggested", role: .meta,
                                              color: BarTheme.secondaryColor))
             }
-            if selected { raise(row, sides: 0, ends: 0) }
+            if selected {
+                let enter = Keycaps.cap("⏎")
+                enter.lit = true
+                row.addArrangedSubview(enter)
+                raise(row, sides: 0, ends: 0)
+            }
             row.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(hitClicked(_:))))
             row.setAccessibilityElement(true)
             row.setAccessibilityRole(.button)
@@ -2119,10 +2129,9 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
 
     private weak var landing: NSView?
 
-    /// The row a search landed on rises, the way a bar's chosen row
-    /// does: the raised step with its lit top edge, there at once and gone
-    /// at once. It is a chosen row, not an alarm, so it neither glows nor
-    /// settles.
+    /// The row a search landed on is the slab, the way a bar's chosen row
+    /// is: there at once and gone at once. It is a chosen row, not an alarm,
+    /// so it neither glows nor settles.
     private func addLanding(to row: NSView) {
         landing = raise(row, sides: 0, ends: 0)
         DispatchQueue.main.async { [weak row] in
@@ -2130,17 +2139,17 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         }
     }
 
-    /// Raise a row onto the bars' step, the one way this window says
-    /// chosen: a landing, the entry the keys are on, the result picked.
-    /// The step reaches `sides` past the row's sides and `ends` past its
-    /// top and bottom; a negative reach tucks it inside. The side stands
-    /// inside the step's frame, as every side does.
+    /// Make a row the slab, the one way this window says chosen: a landing,
+    /// the entry the keys are on, the result picked. The step reaches `sides`
+    /// past the row's sides and `ends` past its top and bottom; a negative
+    /// reach tucks it inside. The side stands inside the step's frame, as
+    /// every side does.
     @discardableResult
     private func raise(_ row: NSView, sides: CGFloat, ends: CGFloat) -> NSView {
         let step = LandingStep()
         step.translatesAutoresizingMaskIntoConstraints = false
-        step.setupRaised()
-        step.applyRaised(true)
+        step.setupSlab()
+        step.choose(true)
         row.addSubview(step, positioned: .below, relativeTo: nil)
         NSLayoutConstraint.activate([
             step.topAnchor.constraint(equalTo: row.topAnchor, constant: -ends),
@@ -2407,7 +2416,29 @@ extension SettingsController {
 }
 
 
-/// The step a Settings row rises onto when a search lands on it: the bars'
-/// own raised row.
-final class LandingStep: RaisedRow {}
+/// The slab a Settings row is when a search lands on it or the keys are on
+/// it: the bars' own chosen row. It lies behind the row's own content, which
+/// someone else built, so it takes the row into the look inside a slab, and
+/// gives it back when it goes.
+final class LandingStep: SlabRow {
+    private var held: Slab.Flip?
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        flipsLook = false
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func viewDidMoveToSuperview() {
+        held?.active = false
+        held = superview.map { Slab.Flip($0, active: true) }
+        super.viewDidMoveToSuperview()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        held?.settle()
+    }
+}
 

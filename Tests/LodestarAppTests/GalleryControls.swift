@@ -95,7 +95,7 @@ enum GalleryControls {
             menu.translatesAutoresizingMaskIntoConstraints = false
             root.addSubview(menu)
             for (index, item) in popup.itemArray.enumerated() {
-                let row = ChoiceMenuItemView(item: item, chosen: index == 1, width: 244, popup: popup)
+                let row = ChoiceMenuItemView(item: item, current: index == 1, width: 244, popup: popup)
                 menu.addArrangedSubview(row)
                 made.append(row)
             }

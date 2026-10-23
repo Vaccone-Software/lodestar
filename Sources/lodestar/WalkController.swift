@@ -643,8 +643,8 @@ final class WalkController: NSObject {
     }
 
     /// The four doors, side by side: each its picture, its name and one
-    /// line, the chosen one ringed in the accent. Clickable, and 1 to 4
-    /// and the arrows choose from the keys.
+    /// line, the chosen one the slab. Clickable, and 1 to 4 and the arrows
+    /// choose from the keys.
     private func tiles(width: CGFloat) -> NSView {
         let row = NSStackView()
         row.orientation = .horizontal
@@ -667,6 +667,8 @@ final class WalkController: NSObject {
                 let image = PictureView()
                 image.image = picture
                 image.imageScaling = .scaleProportionallyUpOrDown
+                // A picture is content: on the slab it stays as it is.
+                image.heldInSlab = selected
                 image.translatesAutoresizingMaskIntoConstraints = false
                 image.widthAnchor.constraint(equalToConstant: tileWidth - tileInset * 2).isActive = true
                 image.heightAnchor.constraint(equalToConstant: (tileWidth - tileInset * 2) * Self.pictureAspect).isActive = true
@@ -682,7 +684,7 @@ final class WalkController: NSObject {
             column.widthAnchor.constraint(equalToConstant: tileWidth).isActive = true
 
             // The whole tile is the target: a borderless button over it.
-            let hit = HandButton(title: "", target: self, action: #selector(tilePressed(_:)))
+            let hit = TileHit(title: "", target: self, action: #selector(tilePressed(_:)))
             hit.isBordered = false
             hit.tag = index
             hit.setAccessibilityLabel(option.name)
@@ -1229,11 +1231,15 @@ final class WalkController: NSObject {
 }
 
 /// One door's tile: a thing you press to choose, so it stands on a side
-/// inside its frame. The chosen one is ringed in the accent, as it was.
-private final class TileColumn: NSStackView, CeramicDepth {
+/// inside its frame. The chosen one is the slab (design/11-slab.md): the
+/// other look's ground, and everything on it, its words and its keys, in the
+/// other look, its picture as it is.
+private final class TileColumn: NSStackView, CeramicDepth, SlabSurface {
     private let standing = Standing(rest: Ceramic.Side.row)
     private let chosen: Bool
+    private lazy var flip = Slab.Flip(self, active: chosen)
     var radius = BarTheme.controlRadius { didSet { needsLayout = true } }
+    var isSlab: Bool { chosen }
 
     init(chosen: Bool) {
         self.chosen = chosen
@@ -1241,7 +1247,6 @@ private final class TileColumn: NSStackView, CeramicDepth {
         wantsLayer = true
         layer?.masksToBounds = false
         if let layer { standing.install(in: layer) }
-        standing.edgeWidth = chosen ? Ceramic.Edge.line * 3 : Ceramic.Edge.line
         paint()
     }
 
@@ -1250,9 +1255,37 @@ private final class TileColumn: NSStackView, CeramicDepth {
     var depth: Ceramic.Depth { .standsUp(side: standing.side) }
     var drawnSide: CGFloat { standing.visibleSide }
 
+    /// Held down by the pointer: the side is a point and the face, and what
+    /// is on it, lie lower by what it gave up.
+    func press(_ down: Bool) {
+        guard down != standing.pressed else { return }
+        standing.pressed = down
+        refit()
+    }
+
     override func layout() {
         super.layout()
-        standing.fit(bounds, radius: radius, flipped: isFlipped)
+        refit()
+    }
+
+    /// The content stands on the face wherever the face stands: the layers
+    /// move by what the face moved, and the face is laid back by the same.
+    private func refit() {
+        let moved = standing.lift - Ceramic.Side.row / 2
+        layer?.sublayerTransform = CATransform3DMakeTranslation(0, moved, 0)
+        standing.fit(bounds.offsetBy(dx: 0, dy: -moved), radius: radius, flipped: isFlipped)
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        flip.settle()
+        paint()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        flip.settle()
+        paint()
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -1261,11 +1294,17 @@ private final class TileColumn: NSStackView, CeramicDepth {
     }
 
     private func paint() {
-        let face = chosen
-            ? BarTheme.dynamic { look in
-                look.key.color.blended(withFraction: 0.08, of: BarTheme.accent) ?? look.key.color }
-            : BarTheme.faceFill
-        standing.paint(in: self, face: face, side: BarTheme.sideFill, rim: BarTheme.rimFill,
-                       edge: chosen ? BarTheme.accent : BarTheme.faceEdge)
+        standing.paint(in: self, face: chosen ? BarTheme.slabFill : BarTheme.faceFill,
+                       side: chosen ? BarTheme.slabSideFill : BarTheme.sideFill, rim: BarTheme.rimFill,
+                       edge: chosen ? BarTheme.hairline : BarTheme.faceEdge)
+    }
+}
+
+/// The whole tile is the target: a borderless button over it, which presses
+/// the tile while it is held.
+private final class TileHit: HandButton {
+    override func highlight(_ flag: Bool) {
+        super.highlight(flag)
+        (superview as? TileColumn)?.press(flag)
     }
 }

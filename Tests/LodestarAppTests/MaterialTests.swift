@@ -217,9 +217,9 @@ final class MaterialTests: XCTestCase {
                     } else if view is AccentSwitch {
                         counts["switches", default: 0] += 1
                         expect(.standsUp(side: 0), as: "switch's knob")
-                    } else if let row = view as? RaisedRow {
+                    } else if let row = view as? SlabRow {
                         counts["rows", default: 0] += 1
-                        expect(row.raised ? .standsUp(side: 0) : .flat, as: "row")
+                        expect(row.chosen ? .standsUp(side: 0) : .flat, as: "row")
                     } else if let pane = view as? CeramicPane, pane.side > 0 {
                         counts["cards", default: 0] += 1
                         expect(.standsUp(side: 0), as: "card")

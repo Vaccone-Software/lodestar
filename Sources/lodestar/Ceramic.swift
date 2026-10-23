@@ -84,6 +84,15 @@ final class AppearanceRoot: NSView {
 /// down. The night casts none.
 final class PictureView: NSImageView {
     var away: CGVector? { didSet { restyle() } }
+    /// Held inside a slab: a picture is content, drawn as it is, so it takes
+    /// the look around the slab and not the one inside it.
+    var heldInSlab = false { didSet { pin.active = heldInSlab } }
+    private lazy var pin = Slab.Flip(self)
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        pin.settle()
+    }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
@@ -382,11 +391,10 @@ enum BarTheme {
     /// the pane of the palette in force, which every surface is made of.
     static var ground: NSColor { palette.pane.color }
 
-    /// The step a chosen thing stands on: the launcher's chosen row, a
-    /// card being acted on. One step above the pane, which is the look's
-    /// key step (the slab is a later contract), never a colour of its own:
-    /// the lit keys say it is chosen, the step says it is lifted.
-    static var raised: NSColor { palette.key.color }
+    /// What a file's sheet lies in on a card: the look's key step, as a page
+    /// is paler than the table it lies on. It is content, drawn as it is.
+    /// Never what marks a chosen thing: that is the slab (design/11-slab.md).
+    static var sheet: NSColor { palette.key.color }
 
     /// A bar's caret is the one light in its field: the accent, wherever
     /// the field editor would otherwise draw the system's own colour. The
@@ -453,16 +461,20 @@ enum BarTheme {
     /// the sources for that — so the accent cannot drift.
     static var accent: NSColor { accentColor() }
 
-    /// Text drawn over the accent as a fill — a selected row, a lit chip.
-    /// The letter on the orange is whichever of clay's key face and clay's
-    /// ink measures higher on the fill, never pure white or pure black
-    /// (white on the night's orange is 3.3 to 1), decided from the fill
-    /// itself.
+    /// Text drawn over the accent as a fill — a lit key's letter. The letter
+    /// on the orange is whichever of clay's key face and clay's ink measures
+    /// higher on the fill, never pure white or pure black (white on the
+    /// night's orange is 3.3 to 1), decided from the fill itself, in the look
+    /// the letter is drawn in: a lit key on a slab is the slab's look's.
     static var onAccent: NSColor {
-        let light = clayInForce
-        guard let fill = accent.usingColorSpace(.sRGB) else { return light.ink.color }
-        return Palette.letter(on: Readability.RGB(red: fill.redComponent, green: fill.greenComponent,
-                                                  blue: fill.blueComponent), face: light.key, ink: light.ink).color
+        NSColor(name: "LodestarOnAccent") { appearance in
+            let light = clayInForce
+            var fill: NSColor?
+            appearance.performAsCurrentDrawingAppearance { fill = accent.usingColorSpace(.sRGB) }
+            guard let fill else { return light.ink.color }
+            return Palette.letter(on: Readability.RGB(red: fill.redComponent, green: fill.greenComponent,
+                                                      blue: fill.blueComponent), face: light.key, ink: light.ink).color
+        }
     }
 
     /// International Orange exactly as Palette holds it for the look in
@@ -471,8 +483,12 @@ enum BarTheme {
     static var brandOrange: NSColor { (Tone.systemDark ? Palette.night : Palette.clay).orange.color }
 
     /// International Orange as the look in force wants it: #FA5617 at night,
-    /// #C83500 on clay, one value per look (Palette).
-    static var internationalOrange: NSColor { palette.orange.color }
+    /// #C83500 on clay, one value per look (Palette). Resolved in the look
+    /// of the view that draws it, so a lit key on a slab, which stands in the
+    /// other look, is that look's orange.
+    static var internationalOrange: NSColor {
+        NSColor(name: "LodestarOrange") { appearance in steps(for: appearance).orange.color }
+    }
 
     /// A palette step as the mark's own colour type, for the surfaces that
     /// draw the star from `Mark`.
@@ -555,7 +571,7 @@ enum Movable {
 /// whether they are allowed to touch. Same tracking-area route as the caps
 /// use, rather than `resetCursorRects`, because cursor rects want a key
 /// window and these panels are deliberately never key.
-final class HandButton: NSButton {
+class HandButton: NSButton {
     /// A link is a pointer target like any other: never under 24 high.
     override var intrinsicContentSize: NSSize {
         var size = super.intrinsicContentSize
@@ -948,15 +964,22 @@ final class RoomButton: NSButton, CeramicDepth {
 }
 
 /// A row in a room's choice menu, drawn by Lodestar: the system's menu
-/// highlights in the Mac's accent, so each item wears this view, which
-/// rises under the pointer or the arrow keys like the bars' rows and marks
-/// the current choice with the accent's dot.
+/// highlights in the Mac's accent, so each item wears this view. The row the
+/// menu has chosen, by the pointer or the arrow keys alike, is the slab, as
+/// the bars' chosen row is, and the one in use is marked with a dot.
 final class ChoiceMenuItemView: NSView {
+    /// The row inside the item's frame: the slab when chosen, holding the
+    /// dot, the icon and the words.
+    private final class Row: SlabRow {}
+    private let step = Row()
     private let label = NSTextField(labelWithString: "")
     private let icon = NSImageView()
-    private let dot = NSView()
+    private let dot = ToneView(fill: BarTheme.ink, radius: BarTheme.dotRadius)
     private weak var popup: NSPopUpButton?
     static let height: CGFloat = 26
+    /// A test's say on whether the row is the chosen one; the menu's own
+    /// highlight says it otherwise.
+    var highlighted: Bool? { didSet { sync() } }
 
     /// The width a menu of these labels needs: the dot's room, the icon's if
     /// any, the longest label, and a part to each side.
@@ -964,7 +987,7 @@ final class ChoiceMenuItemView: NSView {
         (Grid.part + BarTheme.dotDiameter + Grid.close + (icon ? Grid.section : 0) + widest + Grid.part).rounded(.up)
     }
 
-    init(item: NSMenuItem, chosen: Bool, width: CGFloat, popup: NSPopUpButton) {
+    init(item: NSMenuItem, current: Bool, width: CGFloat, popup: NSPopUpButton) {
         self.popup = popup
         super.init(frame: NSRect(x: 0, y: 0, width: width, height: Self.height))
         wantsLayer = true
@@ -973,49 +996,64 @@ final class ChoiceMenuItemView: NSView {
         label.textColor = item.isEnabled ? BarTheme.ink : BarTheme.secondaryColor
         label.lineBreakMode = .byTruncatingTail
         icon.image = item.image
-        dot.wantsLayer = true
-        dot.layer?.cornerRadius = BarTheme.dotRadius
-        dot.layer?.backgroundColor = BarTheme.accent.cgColor
-        dot.isHidden = !chosen
-        [dot, icon, label].forEach(addSubview)
+        dot.isHidden = !current
+        step.setupSlab()
+        addSubview(step)
+        [dot, icon, label].forEach(step.addSubview)
         setAccessibilityElement(true)
         setAccessibilityRole(.menuItem)
         setAccessibilityLabel(item.title)
-        setAccessibilitySelected(chosen)
+        setAccessibilitySelected(current)
     }
 
     required init?(coder: NSCoder) { nil }
 
+    /// Whether this row is the chosen one now.
+    var isChosen: Bool { step.chosen }
+
+    /// The slab's frame and side, for the tests.
+    var slab: SlabRow { step }
+
     override func layout() {
         super.layout()
-        let inset = Grid.part
-        // Centred on the face, which stands a side's half-height above the middle.
-        let lift = Ceramic.Side.control / 2
-        dot.frame = NSRect(x: inset, y: ((bounds.height - BarTheme.dotDiameter) / 2 + lift).rounded(),
+        step.frame = bounds.insetBy(dx: Grid.tight, dy: Grid.hair)
+        let inset = Grid.part - Grid.tight
+        let room = step.bounds
+        dot.frame = NSRect(x: inset, y: ((room.height - BarTheme.dotDiameter) / 2).rounded(),
                            width: BarTheme.dotDiameter, height: BarTheme.dotDiameter)
         var x = inset + BarTheme.dotDiameter + Grid.close
         if icon.image != nil {
-            icon.frame = NSRect(x: x, y: ((bounds.height - Grid.part) / 2 + lift).rounded(), width: Grid.section - Grid.tight, height: Grid.part)
+            icon.frame = NSRect(x: x, y: ((room.height - Grid.part) / 2).rounded(), width: Grid.section - Grid.tight, height: Grid.part)
             x += Grid.section
         }
         let natural = label.sizeThatFits(NSSize(width: CGFloat.greatestFiniteMagnitude,
                                                 height: CGFloat.greatestFiniteMagnitude)).height
-        label.frame = NSRect(x: x, y: ((bounds.height - natural) / 2 + lift).rounded(),
-                             width: max(0, bounds.width - x - inset), height: natural)
+        label.frame = NSRect(x: x, y: ((room.height - natural) / 2).rounded(),
+                             width: max(0, room.width - x - inset), height: natural)
     }
 
-    /// Lit by the menu's own highlight, which follows the pointer and the
-    /// arrow keys alike: the chosen row stands up on its side.
-    override func draw(_ dirtyRect: NSRect) {
-        guard enclosingMenuItem?.isHighlighted == true, enclosingMenuItem?.isEnabled == true else { return }
-        let rect = bounds.insetBy(dx: Grid.tight, dy: Grid.hair)
-        Ceramic.drawStanding(in: rect, radius: BarTheme.radius(BarTheme.paneRowRadius, height: rect.height),
-                             side: Ceramic.Side.control)
+    /// Choose the row, or let it go, as the menu's highlight moves.
+    func choose(_ on: Bool) {
+        step.choose(on && (enclosingMenuItem?.isEnabled ?? true))
+    }
+
+    private func sync() {
+        choose(highlighted ?? enclosingMenuItem?.isHighlighted ?? false)
+    }
+
+    override func viewWillDraw() {
+        super.viewWillDraw()
+        sync()
     }
 
     /// A view in a menu takes the click itself: choose, close, and send
     /// the popup's action as the system's item would.
+    override func mouseDown(with event: NSEvent) {
+        step.mouseDown(with: event)
+    }
+
     override func mouseUp(with event: NSEvent) {
+        step.mouseUp(with: event)
         guard let item = enclosingMenuItem, item.isEnabled, let menu = item.menu else { return }
         menu.cancelTracking()
         let index = menu.index(of: item)
@@ -1227,58 +1265,6 @@ final class FlatChip: NSView, CeramicDepth {
     }
 }
 
-/// A row that stands up when it is chosen: its face on a side in the key
-/// step, its rim catching the light, and its keys lit by whoever subclasses
-/// it. The bars' rows share it, so the launcher, Ask and the commands bar
-/// choose a row the same way. The row's frame holds the side, and its
-/// content is centred on the face, half a side above the frame's middle.
-class RaisedRow: NSView, CeramicDepth {
-    /// The side a chosen row stands on, which its content is lifted half of.
-    static let side = Ceramic.Side.row
-    private let standing = Standing(rest: Ceramic.Side.row)
-    private(set) var raised = false
-    /// Where the row's corners are, before a row too short for it becomes
-    /// a stadium. A row stands one pane-inset inside its pane, so it
-    /// rounds at the pane's radius less that inset and its corners keep an
-    /// even gap from the pane's; a row set deeper says its own.
-    var radius = BarTheme.paneRowRadius {
-        didSet { if radius != oldValue { needsLayout = true } }
-    }
-
-    func setupRaised() {
-        wantsLayer = true
-        layer?.cornerRadius = BarTheme.paneRowRadius
-        layer?.masksToBounds = false
-        // The content stands on the face, not on the face and its side: the
-        // row's layers rise by half the side, and the face and side are laid
-        // lower by the same, so they stay where the frame says.
-        layer?.sublayerTransform = CATransform3DMakeTranslation(0, Self.side / 2, 0)
-        if let layer { standing.install(in: layer) }
-        applyRaised(false)
-    }
-
-    var depth: Ceramic.Depth { raised ? .standsUp(side: standing.side) : .flat }
-    var drawnSide: CGFloat { raised ? standing.visibleSide : 0 }
-
-    override func layout() {
-        super.layout()
-        let corner = BarTheme.radius(radius, height: bounds.height)
-        layer?.cornerRadius = corner
-        standing.fit(bounds.offsetBy(dx: 0, dy: -Self.side / 2), radius: corner)
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        applyRaised(raised)
-    }
-
-    func applyRaised(_ on: Bool) {
-        raised = on
-        standing.hidden = !on
-        standing.paint(in: self, face: BarTheme.faceFill, side: BarTheme.sideFill, rim: BarTheme.rimFill, edge: nil)
-    }
-}
-
 /// A surface's own shadow: the one shadow a floating pane casts, following
 /// its outline. The system's window shadow cannot be shaped, so the panel
 /// grows by `margin` on every side, the surface sits inset inside it, and
@@ -1323,9 +1309,26 @@ extension SoftShadow {
 
 /// The pane's shadow, cast by one object rather than by a window: the same
 /// shadow a hosted surface casts, from the object's own outline.
-final class ObjectSurface: NSView {
+///
+/// An object that is chosen is the slab (design/11-slab.md), whole: it takes
+/// the look inside a slab, so its face, its words, its keys and its rim and
+/// edge are the other look's, while the shadow it casts is the look around it:
+/// the desktop beneath is that look's, not the slab's.
+final class ObjectSurface: NSView, SlabSurface {
     let radius: CGFloat
     private let casting = PaneShadow()
+    private lazy var flip = Slab.Flip(self)
+    /// Whether the object is the slab.
+    var chosen = false {
+        didSet {
+            guard chosen != oldValue else { return }
+            flip.active = chosen
+            if !chosen { press(false) }
+            paintShadow()
+        }
+    }
+    var isSlab: Bool { chosen }
+    private(set) var pressed = false
 
     init(radius: CGFloat) {
         self.radius = radius
@@ -1333,7 +1336,38 @@ final class ObjectSurface: NSView {
         wantsLayer = true
         layer?.masksToBounds = false
         layer?.insertSublayer(casting.layer, at: 0)
-        casting.paint(in: self)
+        paintShadow()
+    }
+
+    /// The pane inside, whose face this object's side belongs to.
+    var pane: CeramicPane? { subviews.compactMap { $0 as? CeramicPane }.first }
+
+    /// Pressed: the slab's side falls to a point and the face, and everything
+    /// on it, lies lower by what the side gave up. At once.
+    func press(_ down: Bool) {
+        guard down != pressed, let pane, pane.rest > 0 else { return }
+        pressed = down
+        pane.pressed = down
+        let drop = pane.rest - Ceramic.Side.pressed
+        for content in subviews where !(content is CeramicPane) && !(content is PaneEdge) {
+            content.frame.origin.y += down ? -drop : drop
+        }
+    }
+
+    /// The shadow in the look around the object, and under a slab its caster
+    /// in the slab's own side.
+    private func paintShadow() {
+        if chosen, let host = superview ?? window?.contentView {
+            casting.paint(in: host, under: Ceramic.resolved(BarTheme.slabSideFill, in: self))
+        } else {
+            casting.paint(in: self)
+        }
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        flip.settle()
+        paintShadow()
     }
 
     required init?(coder: NSCoder) { nil }
@@ -1352,12 +1386,13 @@ final class ObjectSurface: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        casting.paint(in: self)
+        paintShadow()
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        casting.paint(in: self)
+        flip.settle()
+        paintShadow()
     }
 }
 

@@ -91,7 +91,7 @@ final class ClipboardFileCardLayoutTests: XCTestCase {
         let card = strip.makeCard(clip: clip, key: "J", lit: true, size: size, face: .body,
                                   reading: nil, thumbnail: nil,
                                   files: .init(pictures: pictures ?? Array(repeating: nil, count: sheets), present: present),
-                                  raised: false)
+                                  chosen: false)
         return (strip, card)
     }
 
@@ -250,7 +250,7 @@ final class ClipboardFileCardLayoutTests: XCTestCase {
                                   preview: "hello", bytes: 5)
         let strip = ClipboardStrip()
         let plain = strip.makeCard(clip: text, key: "K", lit: false, size: wide, face: .body,
-                                   reading: nil, thumbnail: nil, raised: false)
+                                   reading: nil, thumbnail: nil, chosen: false)
         XCTAssertTrue(sheets(in: plain).isEmpty, "a text card draws no sheets")
         XCTAssertNil(strip.shownFiles["t"])
     }

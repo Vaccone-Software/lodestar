@@ -68,7 +68,11 @@ extension BarTheme {
     /// draws it: resolved in the view's appearance at the draw, never fixed
     /// when it is made.
     static func dynamic(_ pick: @escaping (Palette.Steps) -> NSColor) -> NSColor {
-        NSColor(name: nil) { appearance in pick(steps(for: appearance)) }
+        NSColor(name: nil) { appearance in
+            var color = NSColor.clear
+            appearance.performAsCurrentDrawingAppearance { color = pick(steps(for: appearance)) }
+            return color
+        }
     }
 
     static func isNight(_ look: Palette.Steps) -> Bool { look.isDark }
@@ -125,21 +129,6 @@ extension BarTheme {
 }
 
 extension Ceramic {
-    /// A standing face drawn in a draw pass, in the look it is drawn in: a
-    /// side, the face over it, and the rim clipped to the face's top. For a
-    /// view that draws its own highlight (a menu's chosen row).
-    static func drawStanding(in rect: NSRect, radius: CGFloat, side: CGFloat) {
-        let band = NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: max(0, rect.height - side))
-        BarTheme.sideFill.setFill()
-        NSBezierPath(roundedRect: band, xRadius: radius, yRadius: radius).fill()
-        let face = NSRect(x: rect.minX, y: rect.minY + side, width: rect.width, height: max(0, rect.height - side))
-        BarTheme.faceFill.setFill()
-        NSBezierPath(roundedRect: face, xRadius: radius, yRadius: radius).fill()
-        BarTheme.rimFill.setFill()
-        let path = NSBezierPath(cgPath: rimPath(in: face, radius: radius))
-        path.fill()
-    }
-
     /// The ink share of the night's rim.
     static let nightRimShare: CGFloat = 0.10
 }
@@ -154,23 +143,30 @@ extension Ceramic {
 /// are `PaneEdge`, laid over the content (see there).
 ///
 /// A pane with a `side` is a card you press (Keep's): its face stands on a
-/// visible side, inside the frame.
+/// visible side, inside the frame. The card the hand is on is the slab
+/// (design/11-slab.md): its face is the other look's ground, and the pane is
+/// drawn inside the card, which is held in that look.
 final class CeramicPane: NSView, CeramicDepth {
-    /// What the pane is made of: the pane step, or the key step for the one
-    /// the hand is on.
-    enum Fill { case pane, key }
+    /// What the pane is made of: the pane step, or the slab for the card
+    /// that is chosen.
+    enum Fill { case pane, slab }
 
     var fill: Fill { didSet { if fill != oldValue { needsDisplay = true } } }
     let cornerRadius: CGFloat
-    /// The height of the side beneath the face, 0 for a pane that lies flat.
-    var side: CGFloat { didSet { if side != oldValue { needsDisplay = true; edge?.needsDisplay = true } } }
+    /// The height of the side beneath the face at rest, 0 for a pane that
+    /// lies flat.
+    let rest: CGFloat
+    /// Held down: the side is one point and the face lies lower by the rest.
+    var pressed = false { didSet { if pressed != oldValue { needsDisplay = true; edge?.needsDisplay = true } } }
+    /// The side showing now.
+    var side: CGFloat { pressed && rest > 0 ? Ceramic.Side.pressed : rest }
     /// The rim and edge laid over the content.
     private(set) weak var edge: PaneEdge?
 
     init(cornerRadius: CGFloat, fill: Fill = .pane, side: CGFloat = 0) {
         self.cornerRadius = cornerRadius
         self.fill = fill
-        self.side = side
+        self.rest = side
         super.init(frame: .zero)
         wantsLayer = true
         translatesAutoresizingMaskIntoConstraints = false
@@ -181,8 +177,9 @@ final class CeramicPane: NSView, CeramicDepth {
     var depth: Ceramic.Depth { side > 0 ? .standsUp(side: side) : .flat }
     var drawnSide: CGFloat { side }
 
-    /// The face: the pane less the side beneath it.
-    var face: NSRect { NSRect(x: 0, y: side, width: bounds.width, height: max(0, bounds.height - side)) }
+    /// The face: the pane less the side at rest, standing as high as the side
+    /// showing.
+    var face: NSRect { NSRect(x: 0, y: side, width: bounds.width, height: max(0, bounds.height - rest)) }
     var faceRadius: CGFloat { BarTheme.radius(cornerRadius, height: face.height) }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -193,13 +190,13 @@ final class CeramicPane: NSView, CeramicDepth {
     /// The pane's fill and its side, in this view's look.
     override func draw(_ dirtyRect: NSRect) {
         guard bounds.width > 0, bounds.height > 0 else { return }
-        if side > 0 {
-            BarTheme.sideFill.setFill()
-            let band = NSRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - side))
+        if rest > 0 {
+            (fill == .slab ? BarTheme.slabSideFill : BarTheme.sideFill).setFill()
+            let band = NSRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - rest))
             let radius = BarTheme.radius(cornerRadius, height: band.height)
             NSBezierPath(roundedRect: band, xRadius: radius, yRadius: radius).fill()
         }
-        (fill == .key ? BarTheme.faceFill : BarTheme.paneFill).setFill()
+        (fill == .slab ? BarTheme.slabFill : BarTheme.paneFill).setFill()
         NSBezierPath(roundedRect: face, xRadius: faceRadius, yRadius: faceRadius).fill()
     }
 
@@ -556,11 +553,14 @@ final class PaneShadow {
     /// In the look of `view`: the ink, at the look's share. The caster is
     /// filled with the pane's own colour, so it is something to draw and its
     /// whole shape lies beneath the pane that stands on it, out of sight.
-    func paint(in view: NSView) {
+    ///
+    /// A caster under a slab is filled with the slab's own side, so no pane
+    /// colour shows at its curved edges.
+    func paint(in view: NSView, under caster: CGColor? = nil) {
         let night = view.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        layer.backgroundColor = Ceramic.resolved(BarTheme.paneFill, in: view)
+        layer.backgroundColor = caster ?? Ceramic.resolved(BarTheme.paneFill, in: view)
         layer.shadowColor = Ceramic.resolved(BarTheme.shadowInk, in: view)
         layer.shadowOpacity = Float(Ceramic.Shadow.share(night: night))
         CATransaction.commit()

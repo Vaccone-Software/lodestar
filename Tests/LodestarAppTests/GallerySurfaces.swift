@@ -175,12 +175,12 @@ enum GalleryKeys {
             group("a chord is one key, as macOS writes it · alternatives and ways stand 8 apart",
                   chords + [alternatives, ways] as [NSView], spacing: Grid.section)
 
-            // The same keys on a chosen row, the raised step.
-            column.addArrangedSubview(caption("on the chosen row"))
-            let chosen = RaisedRow(frame: .zero)
+            // The same keys on a chosen row, the slab: keys of the other look.
+            column.addArrangedSubview(caption("on the chosen row, the slab"))
+            let chosen = SlabRow(frame: .zero)
             chosen.translatesAutoresizingMaskIntoConstraints = false
-            chosen.setupRaised()
-            chosen.applyRaised(true)
+            chosen.setupSlab()
+            chosen.choose(true)
             column.addArrangedSubview(chosen)
             let (onRow, made) = row(legends)
             let (litOnRow, litMade) = row(legends) { $0.lit = true }

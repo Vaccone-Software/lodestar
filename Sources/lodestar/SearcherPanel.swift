@@ -884,12 +884,12 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
 
 /// A reusable searcher row. The icon is loaded once per identity; selection
 /// is a repaint, not a rebuild.
-private final class SearcherRowView: RaisedRow {
+private final class SearcherRowView: SlabRow {
     private let icon = NSImageView()
     private let name = NSTextField(labelWithString: "")
     private let stack = NSStackView()
     private var keys: [KeyStrokes] = []
-    /// ⏎ on the chosen row: the key that opens it, lit with its letters.
+    /// ⏎ on the chosen row: the key that opens it, the only one that lights.
     private let enter = Key("⏎")
     private var dot: NSTextField?
     private var identity = ""
@@ -900,7 +900,7 @@ private final class SearcherRowView: RaisedRow {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         heightAnchor.constraint(equalToConstant: rowHeight).isActive = true
-        setupRaised()
+        setupSlab()
 
         icon.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
@@ -991,13 +991,13 @@ private final class SearcherRowView: RaisedRow {
         restyle()
     }
 
-    /// Chosen, the row rises and its keys light, ⏎ among them: the light
-    /// lands where the hand goes next, and the letters it shows are the
-    /// ones that reach this target without the launcher.
+    /// Chosen, the row is the slab and ⏎ lights on it: the light lands on the
+    /// key that acts. The letters the row shows are the ones that reach this
+    /// target without the launcher; they rest, since the slab already says
+    /// which row is chosen.
     private func restyle() {
-        applyRaised(selectedState)
+        choose(selectedState)
         name.textColor = BarTheme.ink
-        for strokes in keys { strokes.lit = selectedState }
         enter.isHidden = !selectedState
         // Running is a state, not where the hand goes: a quiet dot, the same
         // on every row, as the Dock marks a running app.

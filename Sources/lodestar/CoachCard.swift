@@ -8,9 +8,10 @@ import LodestarCore
 /// row you take: the app's icon, its name, the address on offer in quiet keys, and
 /// the chord that accepts it lit at the end. Nothing else on the card is
 /// lit, so the one light means yes. Beneath the row, in the quiet register
-/// the chrome whispers in, the record on the left and the way out on the
-/// right. It replaced a card of five equal blocks that said the address
-/// twice and spent a whole row on each of two words.
+/// the chrome whispers in, the record on the left, which wraps and is never
+/// cut, and the way out on the right, on the record's first line. It replaced
+/// a card of five equal blocks that said the address twice and spent a whole
+/// row on each of two words.
 enum CoachCard {
     struct Offer {
         var sentence: String
@@ -58,25 +59,29 @@ enum CoachCard {
         row.setTrailing([accept])
         card.addSubview(row)
 
-        // The whisper: the record, and the way out, both quiet, on the baseline
-        // of the keys they stand beside. The record stays one line, cut at the
-        // tail only past the card's width.
-        let whisper = NSStackView()
-        whisper.orientation = .horizontal
-        whisper.alignment = .centerY
-        whisper.spacing = Grid.close
-        whisper.translatesAutoresizingMaskIntoConstraints = false
-        card.addSubview(whisper)
+        // The whisper: the record, and the way out, both quiet. The record is a
+        // sentence, so it wraps within its own column, from the card's inset to
+        // 8 before the way out, and is never cut; the way out stands at the
+        // trailing end on the record's first line, its words on the baseline of
+        // the keys they stand beside. The card grows to hold every line.
         let decline = Keycaps.CapGroup(strokes: Keycaps.strokes(["lode", "⌫"]), action: offer.decline)
         decline.setAccessibilityLabel("Not now")
+        let notNow = KeyWords("Not now")
+        notNow.setContentCompressionResistancePriority(.required, for: .horizontal)
+        let way = NSStackView(views: [decline, notNow])
+        way.orientation = .horizontal
+        way.alignment = .centerY
+        way.spacing = Grid.close
+        way.translatesAutoresizingMaskIntoConstraints = false
+        card.addSubview(way)
         let record = KeyWords(offer.record)
-        record.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        whisper.addArrangedSubview(record)
-        let gap = NSView()
-        gap.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        whisper.addArrangedSubview(gap)
-        whisper.addArrangedSubview(decline)
-        whisper.addArrangedSubview(KeyWords("Not now"))
+        record.column = { [unowned way] in maxWidth - textInset * 2 - way.fittingSize.width - Grid.close }
+        record.setContentCompressionResistancePriority(.required, for: .horizontal)
+        card.addSubview(record)
+        // On one line the record keeps 16 from the way out, as it always has;
+        // only a record that must wrap gives up the other 8.
+        let ease = record.trailingAnchor.constraint(lessThanOrEqualTo: way.leadingAnchor, constant: -Grid.close * 2)
+        ease.priority = NSLayoutConstraint.Priority(700)
 
         NSLayoutConstraint.activate([
             card.widthAnchor.constraint(greaterThanOrEqualToConstant: width),
@@ -87,10 +92,13 @@ enum CoachCard {
             row.topAnchor.constraint(equalTo: voice.bottomAnchor, constant: Grid.close),
             row.leadingAnchor.constraint(equalTo: card.leadingAnchor),
             row.trailingAnchor.constraint(equalTo: card.trailingAnchor),
-            whisper.topAnchor.constraint(equalTo: row.bottomAnchor, constant: Grid.close),
-            whisper.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: textInset),
-            whisper.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -textInset),
-            whisper.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -Grid.tight),
+            record.topAnchor.constraint(equalTo: row.bottomAnchor, constant: Grid.close),
+            record.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: textInset),
+            record.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -Grid.tight),
+            record.trailingAnchor.constraint(lessThanOrEqualTo: way.leadingAnchor, constant: -Grid.close),
+            ease,
+            way.topAnchor.constraint(equalTo: record.topAnchor),
+            way.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -textInset),
         ])
         card.setAccessibilityElement(true)
         card.setAccessibilityRole(.group)

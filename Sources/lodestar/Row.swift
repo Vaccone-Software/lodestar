@@ -119,9 +119,11 @@ final class KeyWords: NSView {
     let label: NSTextField
     let role: BarTheme.Role
     private let size = KeySize.standard
+    private let truncates: Bool
 
     init(_ text: String, role: BarTheme.Role = .meta, color: NSColor = BarTheme.secondaryColor,
          truncates: Bool = true) {
+        self.truncates = truncates
         self.role = role
         label = NSTextField(labelWithString: text)
         super.init(frame: .zero)
@@ -153,8 +155,64 @@ final class KeyWords: NSView {
 
     override var alignmentRectInsets: NSEdgeInsets { size.hang }
     override var intrinsicContentSize: NSSize {
-        NSSize(width: label.intrinsicContentSize.width, height: size.faceHeight)
+        guard let limit = wrapWidth else {
+            return NSSize(width: label.intrinsicContentSize.width, height: size.faceHeight)
+        }
+        // A sentence: on one line when it fits the column, else wrapped within
+        // it, never cut. The first line stands where a single line does, and
+        // further lines hang beneath it.
+        let natural = naturalWidth
+        guard natural > limit else {
+            setWrapping(false)
+            return NSSize(width: natural, height: size.faceHeight)
+        }
+        setWrapping(true, within: limit)
+        let height = label.intrinsicContentSize.height
+        return NSSize(width: limit, height: max(size.faceHeight, firstLineFromTop + height - label.firstBaselineOffsetFromTop))
     }
+
+    /// The column a sentence of words wraps within, asked when the words are
+    /// measured (what it depends on, a neighbour's width, is known then and not
+    /// before), or nil for one line cut at the tail. Set for a record, a
+    /// sentence beside keys (design/13-row.md, rules 4 and 5).
+    var column: (() -> CGFloat)? {
+        didSet {
+            if column == nil { setWrapping(false) }
+            invalidateIntrinsicContentSize()
+            needsLayout = true
+        }
+    }
+
+    private var wrapWidth: CGFloat? { column?() }
+
+    /// The words' width on one line.
+    var naturalWidth: CGFloat {
+        let wasWrapping = label.cell?.wraps ?? false
+        setWrapping(false)
+        let width = label.intrinsicContentSize.width
+        if wasWrapping, let limit = wrapWidth, width > limit { setWrapping(true, within: limit) }
+        return width
+    }
+
+    private func setWrapping(_ on: Bool, within width: CGFloat = 0) {
+        if on {
+            label.cell?.wraps = true
+            label.cell?.isScrollable = false
+            label.lineBreakMode = .byWordWrapping
+            label.maximumNumberOfLines = 0
+            label.cell?.truncatesLastVisibleLine = false
+            label.preferredMaxLayoutWidth = width
+        } else {
+            label.cell?.wraps = false
+            label.lineBreakMode = truncates ? .byTruncatingTail : .byClipping
+            label.maximumNumberOfLines = 1
+            label.preferredMaxLayoutWidth = 0
+        }
+    }
+
+    /// Where the first line's baseline stands, counted down from the top of
+    /// the face: the single line's own place.
+    private var firstLineFromTop: CGFloat { size.faceHeight - (baseline - size.side) }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
@@ -182,9 +240,21 @@ final class KeyWords: NSView {
     }
 
     private func place() {
+        if label.cell?.wraps == true, label.lineBreakMode == .byWordWrapping { return placeWrapped() }
         let frame = label.frame(forAlignmentRect: NSRect(x: 0, y: 0, width: bounds.width, height: label.intrinsicContentSize.height))
         let scale = window?.backingScaleFactor ?? 2
         let y = ((baseline - label.baselineOffsetFromBottom) * scale).rounded() / scale
+        label.frame = NSRect(x: frame.minX, y: y, width: frame.width, height: frame.height)
+    }
+
+    /// Wrapped: the label is as wide as the column and as tall as its lines, its
+    /// first baseline on the line a single line stands on.
+    private func placeWrapped() {
+        let scale = window?.backingScaleFactor ?? 2
+        let height = label.intrinsicContentSize.height
+        let frame = label.frame(forAlignmentRect: NSRect(x: 0, y: 0, width: bounds.width, height: height))
+        let top = bounds.height - firstLineFromTop + label.firstBaselineOffsetFromTop
+        let y = ((top - frame.height) * scale).rounded() / scale
         label.frame = NSRect(x: frame.minX, y: y, width: frame.width, height: frame.height)
     }
 

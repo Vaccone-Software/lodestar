@@ -76,6 +76,48 @@ final class GeometryTests: XCTestCase {
         XCTAssertEqual(ModePill.height, BarTheme.pillHeight)
     }
 
+    // MARK: - The four rows (design/13-row.md)
+
+    /// A row is 48, or 52 with a line beneath; a setting at least 48; a line 32;
+    /// a legend 24, the key's height. Rows stand 2 apart, lines touch and stand
+    /// 8 inside their menu (a chosen line's slab rounds at 22 - 8 = 14), legends
+    /// stand 8 apart. Words and icons stand 12 in, detail 2 under its title,
+    /// trailing parts 8 apart, a card's icon 24 (a bar's 32, a symbol's 16), the
+    /// dot 7 across in a column 16 wide. The 36, the 32s and the 428 are named.
+    func testTheFourRowsAreTheContractsHeightsAndGaps() throws {
+        XCTAssertEqual(BarTheme.rowHeight, 48)
+        XCTAssertEqual(BarTheme.detailRowHeight, 52)
+        XCTAssertEqual(BarTheme.detailRowHeight - BarTheme.rowHeight, Ceramic.Side.row, "the face stays 48")
+        XCTAssertEqual(BarTheme.settingMinimumHeight, 48)
+        XCTAssertEqual(BarTheme.lineHeight, 32)
+        XCTAssertEqual(BarTheme.legendHeight, 24)
+        XCTAssertEqual(BarTheme.legendHeight, KeySize.standard.height)
+        XCTAssertEqual(BarTheme.rowGap, 2)
+        XCTAssertEqual(BarTheme.lineInset, 8)
+        XCTAssertEqual(BarTheme.legendGap, 8)
+        XCTAssertEqual(BarTheme.lineRadius, 14, accuracy: 0.0001, "22 - 8")
+        XCTAssertEqual(BarTheme.lineRadius, BarTheme.surfaceRadius - BarTheme.lineInset, accuracy: 0.0001)
+        XCTAssertEqual(BarTheme.detailGap, 2)
+        XCTAssertEqual(BarTheme.dotDiameter, 7)
+        XCTAssertEqual(BarTheme.dotColumnWidth, 16)
+        XCTAssertEqual(BarTheme.appIconSize, 32, "an icon in a bar")
+        XCTAssertEqual(BarTheme.titleIconSize, 24, "an icon in a card")
+        XCTAssertEqual(BarTheme.symbolSize, 16)
+        XCTAssertEqual(BarTheme.titleIconOverlap, 6, "the coach's two overlap by 6")
+        XCTAssertEqual(BarTheme.offerWidth, 428)
+        XCTAssertEqual(BarTheme.offerMaxWidth, 540)
+        XCTAssertEqual(InputMenu.rowHeight, BarTheme.lineHeight, "the input menu's lines are 32, not 36")
+        XCTAssertEqual(ChoiceMenuItemView.height, BarTheme.lineHeight)
+        XCTAssertEqual(CoachCard.width, BarTheme.offerWidth)
+        XCTAssertEqual(CoachCard.maxWidth, BarTheme.offerMaxWidth)
+        for file in DesignDriftTests.swiftFiles(under: DesignDriftTests.appSources)
+        where ["InputMenu.swift", "ClipboardStrip.swift", "CoachCard.swift", "Ceramic.swift"].contains(file.lastPathComponent) {
+            let text = DesignDriftTests.code(try String(contentsOf: file, encoding: .utf8))
+            XCTAssertNil(text.range(of: #"static let \w+(?::\s*CGFloat)?\s*=\s*(?:32|36|428|540)\b"#, options: .regularExpression),
+                         "\(file.lastPathComponent): a height or a width is a token, not a number")
+        }
+    }
+
     // MARK: - No literal geometry
 
     /// Files whose numbers are not layout: the tokens themselves, and

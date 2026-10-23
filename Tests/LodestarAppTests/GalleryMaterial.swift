@@ -96,18 +96,10 @@ enum GalleryMaterial {
         let lit = Key("⏎")
         lit.lit = true
         let open = RoomButton(title: "Open", target: nil, action: nil)
-        let chosen = SlabRow(frame: .zero)
-        chosen.translatesAutoresizingMaskIntoConstraints = false
-        chosen.setupSlab()
+        let chosen = ListRow(height: BarTheme.rowHeight, titleRole: .body)
+        chosen.title.stringValue = "The chosen row"
         chosen.choose(true)
-        let chosenWord = caption("The chosen row", color: BarTheme.ink, role: .body)
-        chosen.addSubview(chosenWord)
-        NSLayoutConstraint.activate([
-            chosen.widthAnchor.constraint(equalToConstant: 250),
-            chosen.heightAnchor.constraint(equalToConstant: BarTheme.rowHeight),
-            chosenWord.leadingAnchor.constraint(equalTo: chosen.leadingAnchor, constant: Grid.part),
-            chosenWord.centerYAnchor.constraint(equalTo: chosen.centerYAnchor),
-        ])
+        chosen.widthAnchor.constraint(equalToConstant: 250).isActive = true
         let stands = column([caption("Stands up: a face on a side"), row([rest, lit, open]), chosen], spacing: Grid.part)
 
         // Sinks: where you put something.

@@ -111,14 +111,13 @@ final class DesignDriftTests: XCTestCase {
     /// constructors, a descriptor, a preferred text style, a font set on a
     /// view by hand. A surface names a role (`setRole`, `BarTheme.attributes`)
     /// and the theme builds the font, in the look of the view that draws it.
-    /// The status dot is a glyph used as a mark, not text, and keeps its own.
     private static let fontPatterns: [(String, String)] = [
         ("a system font", #"systemFont|monospaced\w*SystemFont|boldSystemFont|labelFont\(|messageFont\(|userFixedPitchFont"#),
         ("a font descriptor", #"NSFontDescriptor|\.withDesign|withSymbolicTraits"#),
         ("a text style", #"preferredFont\("#),
         ("a font built by hand", #"NSFont\("#),
         ("a font converted by hand", #"NSFontManager"#),
-        ("a font set on a view", #"\.font\s*=(?!\s*BarTheme\.dotFont)"#),
+        ("a font set on a view", #"\.font\s*=(?!=)"#),
     ]
 
     /// The type contract's one family and one scale: no surface builds a
@@ -151,7 +150,7 @@ final class DesignDriftTests: XCTestCase {
             }
             XCTAssertTrue(hit, "the guard misses: \(sample)")
         }
-        for sample in ["field.setRole(.meta)", "dotLabel.font = BarTheme.dotFont", "let font: NSFont = role.font"] {
+        for sample in ["field.setRole(.meta)", "let font: NSFont = role.font"] {
             let hit = try Self.fontPatterns.contains { _, pattern in
                 try NSRegularExpression(pattern: pattern)
                     .firstMatch(in: sample, range: NSRange(location: 0, length: (sample as NSString).length)) != nil
@@ -738,5 +737,146 @@ final class DesignDriftTests: XCTestCase {
         let hits = try offenders(#"bezelStyle\s*=|checkboxWithTitle|radioButtonWithTitle|NSSwitch\("#,
                                  in: surfaces())
         XCTAssertEqual(hits, [], "draw it: RoomButton, RoomField, AccentSwitch, or a key")
+    }
+
+    // MARK: - Quiet, never faded; and the dot is drawn (design/13-row.md)
+
+    /// What would draw a row, a card or a control translucent: an alpha or a
+    /// layer opacity set to anything but 1. A thing that cannot act is drawn
+    /// in the quiet ink, opaque. (Motion has no fades, so there is no
+    /// exception: the knob's slide moves a position.)
+    private static let translucencyPatterns: [(String, String)] = [
+        ("a view's alpha", #"\balphaValue\s*=(?!=)(?!\s*1(?:\.0+)?\s*(?:[;\n}]|$))"#),
+        ("a layer's opacity", #"\.opacity\s*=(?!=)(?!\s*1(?:\.0+)?\s*(?:[;\n}]|$))"#),
+    ]
+
+    func testNoRowCardOrControlIsDrawnTranslucent() throws {
+        var found: [String] = []
+        for file in Self.swiftFiles(under: Self.appSources) {
+            let raw = try String(contentsOf: file, encoding: .utf8)
+            if isDebugOnly(raw) { continue }
+            let text = Self.code(raw)
+            for (what, pattern) in Self.translucencyPatterns {
+                let regex = try NSRegularExpression(pattern: pattern)
+                for match in regex.matches(in: text, range: NSRange(location: 0, length: (text as NSString).length)) {
+                    let line = (text as NSString).substring(with: (text as NSString).lineRange(for: match.range))
+                    found.append("\(file.lastPathComponent): \(what): \(line.trimmingCharacters(in: .whitespaces))")
+                }
+            }
+        }
+        XCTAssertEqual(found, [], "quiet ink, never a fade: draw it in BarTheme.secondaryColor, opaque")
+    }
+
+    func testTheTranslucencyGuardBites() throws {
+        for sample in ["line.alphaValue = 0.45", "content.alphaValue = shown", "layer?.opacity = isEnabled ? 1 : 0.45",
+                       "toggle.layer.opacity = 0.2", "view.alphaValue = 0"] {
+            let hit = try Self.translucencyPatterns.contains { _, pattern in
+                try NSRegularExpression(pattern: pattern)
+                    .firstMatch(in: sample, range: NSRange(location: 0, length: (sample as NSString).length)) != nil
+            }
+            XCTAssertTrue(hit, "the guard misses: \(sample)")
+        }
+        for sample in ["view.alphaValue = 1", "layer.opacity = 1.0", "layer.shadowOpacity = Float(share)",
+                       "if view.alphaValue == 0.45 {", "view.alphaValue = 1\n"] {
+            let hit = try Self.translucencyPatterns.contains { _, pattern in
+                try NSRegularExpression(pattern: pattern)
+                    .firstMatch(in: sample, range: NSRange(location: 0, length: (sample as NSString).length)) != nil
+            }
+            XCTAssertFalse(hit, "the guard flags what is opaque: \(sample)")
+        }
+    }
+
+    /// On every gallery surface, in both looks, nothing a row, a card or a
+    /// control is made of is drawn at less than full strength: no view, no
+    /// layer under it. A row that cannot act, a switch on and unavailable and
+    /// Keep's missing-file card are among the pictures.
+    func testNothingOnAnySurfaceIsTranslucent() throws {
+        var found: [String] = []
+        var checked = 0
+        func walkLayers(_ layer: CALayer, _ path: String, _ report: (String) -> Void) {
+            if layer.opacity < 1 { report("\(path) layer at \(layer.opacity)") }
+            for (index, sub) in (layer.sublayers ?? []).enumerated() { walkLayers(sub, "\(path)/\(index)", report) }
+        }
+        for look in GalleryLook.all {
+            look.apply()
+            for shot in GalleryShots.all where shot.looks.contains(look) && shot.level == 1 && !shot.receded {
+                guard let (root, keep) = try? shot.build(look) else { continue }
+                root.window?.contentView?.layoutSubtreeIfNeeded()
+                let name = shot.name(in: look)
+                func visit(_ view: NSView) {
+                    if !view.isHidden {
+                        checked += 1
+                        if view.alphaValue < 1 { found.append("\(name): \(type(of: view)) at \(view.alphaValue)") }
+                        if let layer = view.layer, layer.opacity < 1 { found.append("\(name): \(type(of: view)) layer at \(layer.opacity)") }
+                        // The layers a view draws with itself (a switch's track and knob, a key's
+                        // face and side), not its subviews' layers, which are visited as views;
+                        // and not the system's own scroll bars, which the Mac shows and hides.
+                        if let layer = view.layer, !(view is NSScrollView), !(view is NSScroller) {
+                            let theirs = Set(view.subviews.compactMap(\.layer).map(ObjectIdentifier.init))
+                            for sub in layer.sublayers ?? [] where !theirs.contains(ObjectIdentifier(sub)) {
+                                walkLayers(sub, "\(name): \(type(of: view))") { found.append($0) }
+                            }
+                        }
+                    }
+                    view.subviews.forEach(visit)
+                }
+                visit(root)
+                _ = keep
+            }
+        }
+        XCTAssertGreaterThan(checked, 10_000, "every view of every surface was looked at")
+        XCTAssertEqual(Array(Set(found)).sorted(), [], "nothing is drawn translucent: opaque, in the quiet ink")
+    }
+
+    /// The dot is drawn, 7 across (`RowDot`), never a glyph set in a font.
+    private static let dotGlyphPatterns: [(String, String)] = [
+        ("a dot glyph", #"[●⬤⏺◉⚫]"#),
+        ("the old dot font", #"\bdotFont\b"#),
+        ("a dot drawn by hand", #"radius:\s*BarTheme\.dotRadius"#),
+    ]
+
+    func testTheDotIsDrawnAndNeverAGlyph() throws {
+        var found: [String] = []
+        for file in Self.swiftFiles(under: Self.appSources) where file.lastPathComponent != "Row.swift" {
+            let text = Self.code(try String(contentsOf: file, encoding: .utf8))
+            for (what, pattern) in Self.dotGlyphPatterns {
+                let regex = try NSRegularExpression(pattern: pattern)
+                for match in regex.matches(in: text, range: NSRange(location: 0, length: (text as NSString).length)) {
+                    found.append("\(file.lastPathComponent): \(what): \((text as NSString).substring(with: match.range))")
+                }
+            }
+        }
+        XCTAssertEqual(found, [], "a dot is RowDot (ink for the current choice or your own setting, quiet for a running app)")
+        for sample in ["let dotLabel = NSTextField(labelWithString: \"●\")", "dotLabel.font = BarTheme.dotFont",
+                       "let mark = \"⏺\"", "ToneView(fill: BarTheme.ink, radius: BarTheme.dotRadius)"] {
+            let hit = try Self.dotGlyphPatterns.contains { _, pattern in
+                try NSRegularExpression(pattern: pattern)
+                    .firstMatch(in: sample, range: NSRange(location: 0, length: (sample as NSString).length)) != nil
+            }
+            XCTAssertTrue(hit, "the guard misses: \(sample)")
+        }
+        for sample in ["titleLine.addArrangedSubview(RowDot(.quiet))", "let separator = \" · \""] {
+            let hit = try Self.dotGlyphPatterns.contains { _, pattern in
+                try NSRegularExpression(pattern: pattern)
+                    .firstMatch(in: sample, range: NSRange(location: 0, length: (sample as NSString).length)) != nil
+            }
+            XCTAssertFalse(hit, "the guard flags what draws the dot: \(sample)")
+        }
+        // And on every surface: no field holds a dot glyph.
+        for look in GalleryLook.all {
+            look.apply()
+            for shot in GalleryShots.all where shot.looks.contains(look) && shot.level == 1 && !shot.receded {
+                guard let (root, keep) = try? shot.build(look) else { continue }
+                func visit(_ view: NSView) {
+                    if let field = view as? NSTextField, field.stringValue.range(of: "[●⬤⏺◉⚫]", options: .regularExpression) != nil {
+                        found.append("\(shot.name(in: look)): a field says \"\(field.stringValue)\"")
+                    }
+                    view.subviews.forEach(visit)
+                }
+                visit(root)
+                _ = keep
+            }
+        }
+        XCTAssertEqual(found, [])
     }
 }

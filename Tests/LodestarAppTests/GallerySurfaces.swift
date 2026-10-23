@@ -177,9 +177,7 @@ enum GalleryKeys {
 
             // The same keys on a chosen row, the slab: keys of the other look.
             column.addArrangedSubview(caption("on the chosen row, the slab"))
-            let chosen = SlabRow(frame: .zero)
-            chosen.translatesAutoresizingMaskIntoConstraints = false
-            chosen.setupSlab()
+            let chosen = ListRow(height: BarTheme.rowHeight)
             chosen.choose(true)
             column.addArrangedSubview(chosen)
             let (onRow, made) = row(legends)
@@ -187,18 +185,8 @@ enum GalleryKeys {
             let enter = Key("⏎")
             enter.lit = true
             keys += made + [enter]
-            let both = NSStackView(views: [onRow, enter])
-            both.orientation = .horizontal
-            both.alignment = .centerY
-            both.spacing = Grid.section
-            both.translatesAutoresizingMaskIntoConstraints = false
-            chosen.addSubview(both)
-            NSLayoutConstraint.activate([
-                chosen.widthAnchor.constraint(equalToConstant: 1070),
-                chosen.heightAnchor.constraint(equalToConstant: BarTheme.rowHeight),
-                both.leadingAnchor.constraint(equalTo: chosen.leadingAnchor, constant: Grid.part),
-                both.centerYAnchor.constraint(equalTo: chosen.centerYAnchor),
-            ])
+            chosen.setTrailing([onRow, enter])
+            chosen.widthAnchor.constraint(equalToConstant: 1070).isActive = true
 
             // The walk's keyboard: separate keys, 8 apart, each as wide as its legend.
             column.addArrangedSubview(caption("a keyboard row, as the walk draws it: each key as wide as what it says"))

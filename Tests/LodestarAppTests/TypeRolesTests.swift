@@ -74,8 +74,8 @@ final class TypeRolesTests: XCTestCase {
         }
     }
 
-    /// The theme builds no font outside the roles. The status dot is a
-    /// glyph used as a mark, not read, and is the one exception.
+    /// The theme builds no font outside the roles. The dot is drawn, 7 across,
+    /// never a glyph (design/13-row.md), so there is no exception.
     func testTheThemeDefinesNoFontOutsideTheRoles() throws {
         let regex = try NSRegularExpression(pattern: #"static\s+(?:let|var|func)\s+(\w+)[^\n]*NSFont"#)
         var names: [String] = []
@@ -86,8 +86,7 @@ final class TypeRolesTests: XCTestCase {
                 names.append((text as NSString).substring(with: match.range(at: 1)))
             }
         }
-        XCTAssertEqual(names, ["dotFont"])
-        XCTAssertEqual(BarTheme.dotFont.pointSize, 8)
+        XCTAssertEqual(names, [])
     }
 
     // MARK: - Night
@@ -406,7 +405,7 @@ final class TypeRolesTests: XCTestCase {
     func testEveryWordOnEverySurfaceIsARoleInTheLookItIsDrawnIn() throws {
         var unnamed: [String] = [], wrong: [String] = []
         try surfaces { shot, look, words, appearance in
-            for word in words where word.text != "●" {
+            for word in words {
                 let name = "\(shot.name(in: look)): \(word.kind) \"\(word.text.prefix(30))\""
                 if word.styles.isEmpty || word.styles.contains(where: { $0 == nil }) {
                     unnamed.append(name)

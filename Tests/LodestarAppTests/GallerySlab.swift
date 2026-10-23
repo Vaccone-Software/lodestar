@@ -10,23 +10,27 @@ import XCTest
 enum GallerySlab {
     static let size = NSSize(width: 720, height: 520)
 
-    /// One row of the pane: an icon, a name, a note in quiet words, a dot and
-    /// a chip, the address keys at rest, and ⏎ when it is the one chosen.
+    /// One row of the pane, a row of the row contract: an icon, a name, a note
+    /// in quiet words, a dot and a chip, the address keys at rest, and ⏎ when
+    /// it is the one chosen.
     static func row(_ name: String, note: String, chosen: Bool, pressed: Bool = false,
                     width: CGFloat = 640) -> (SlabRow, [AnyObject]) {
-        let row = SlabRow(frame: .zero)
-        row.translatesAutoresizingMaskIntoConstraints = false
-        row.setupSlab()
+        let row = ListRow(height: BarTheme.rowHeight)
         row.choose(chosen)
         let icon = NSImageView(image: NSImage(systemSymbolName: "envelope", accessibilityDescription: nil)?
             .withSymbolConfiguration(BarTheme.symbolRow) ?? NSImage())
         icon.contentTintColor = BarTheme.ink
-        let title = BarTheme.label(name, role: .title, color: BarTheme.ink)
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            icon.widthAnchor.constraint(equalToConstant: BarTheme.appIconSize),
+            icon.heightAnchor.constraint(equalToConstant: BarTheme.appIconSize),
+        ])
+        row.setLead(icon)
+        row.title.stringValue = name
         let quiet = BarTheme.label(note, role: .meta, color: BarTheme.secondaryColor)
-        let dot = ToneView(fill: BarTheme.secondaryColor, radius: BarTheme.dotRadius)
-        dot.translatesAutoresizingMaskIntoConstraints = false
-        dot.widthAnchor.constraint(equalToConstant: BarTheme.dotDiameter).isActive = true
-        dot.heightAnchor.constraint(equalToConstant: BarTheme.dotDiameter).isActive = true
+        row.titleLine.addArrangedSubview(quiet)
+        row.titleLine.setCustomSpacing(Grid.part, after: row.title)
+        row.titleLine.addArrangedSubview(RowDot(.quiet))
         let chip = FlatChip()
         chip.translatesAutoresizingMaskIntoConstraints = false
         let chipWord = BarTheme.label("Work", role: .key, color: BarTheme.secondaryColor)
@@ -38,28 +42,12 @@ enum GallerySlab {
             chipWord.topAnchor.constraint(equalTo: chip.topAnchor, constant: Grid.hair),
             chipWord.bottomAnchor.constraint(equalTo: chip.bottomAnchor, constant: -Grid.hair),
         ])
-        let spacer = NSView()
-        spacer.translatesAutoresizingMaskIntoConstraints = false
-        spacer.setContentHuggingPriority(.init(1), for: .horizontal)
         let address = KeyStrokes(["e", "p"])
         let enter = Key("⏎")
         enter.lit = true
         enter.isHidden = !chosen
-        let stack = NSStackView(views: [icon, title, quiet, dot, chip, spacer, address, enter])
-        stack.orientation = .horizontal
-        stack.alignment = .centerY
-        stack.spacing = Grid.part
-        stack.edgeInsets = NSEdgeInsets(top: 0, left: Grid.part, bottom: 0, right: Grid.part)
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        row.addSubview(stack)
-        NSLayoutConstraint.activate([
-            row.widthAnchor.constraint(equalToConstant: width),
-            row.heightAnchor.constraint(equalToConstant: BarTheme.rowHeight),
-            stack.topAnchor.constraint(equalTo: row.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: row.bottomAnchor),
-            stack.leadingAnchor.constraint(equalTo: row.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: row.trailingAnchor),
-        ])
+        row.setTrailing([chip, address, enter])
+        row.widthAnchor.constraint(equalToConstant: width).isActive = true
         if pressed { row.press(true) }
         return (row, [row, enter])
     }
@@ -72,7 +60,7 @@ enum GallerySlab {
             let column = NSStackView()
             column.orientation = .vertical
             column.alignment = .leading
-            column.spacing = 0
+            column.spacing = BarTheme.rowGap
             column.translatesAutoresizingMaskIntoConstraints = false
             let rows = [("Safari", "Browser", false), ("Mail", "Inbox · 3 new", true), ("Notes", "Quick notes", false)]
             for (name, note, chosen) in rows {

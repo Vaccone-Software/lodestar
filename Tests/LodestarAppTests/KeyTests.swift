@@ -270,6 +270,83 @@ final class KeyTests: XCTestCase {
         XCTAssertEqual(pressed.state, .pressed)
     }
 
+    // MARK: - The quiet key: a resting key left unfilled
+
+    /// The pixel at a point of a key's own coordinates (y up) in a render of
+    /// it standing 8 points inside a transparent host, as an un-premultiplied
+    /// colour and its alpha.
+    private static func pixel(_ rep: NSBitmapImageRep, x: CGFloat, y: CGFloat, hostHeight: CGFloat)
+        -> (alpha: CGFloat, color: NSColor)? {
+        let scale = CGFloat(rep.pixelsWide) / rep.size.width
+        let column = Int((x * scale).rounded(.down)), row = Int(((hostHeight - y) * scale).rounded(.down))
+        guard let color = rep.colorAt(x: column, y: row)?.usingColorSpace(.sRGB) else { return nil }
+        return (color.alphaComponent, color)
+    }
+
+    /// A quiet key keeps the resting key's size, shape and baseline: the same
+    /// frame, the same 21-point face on 3 of side, the same legend centred on
+    /// the face. It leaves the face unfilled and outlines it by a hairline, and
+    /// stands on a side drawn in the hairline's tone, not the side colour. Read
+    /// off the pixels, in both looks, at both sizes.
+    func testAQuietKeyIsTheRestingKeysShapeLeftUnfilled() {
+        for look in GalleryLook.all {
+            look.apply()
+            for size in [KeySize.standard, .large] {
+                let resting = Key("e", size: size), quiet = Key("e", size: size, state: .quiet)
+                XCTAssertEqual(quiet.frameSize, resting.frameSize, "\(look.name) \(size): the same size")
+                XCTAssertEqual(quiet.width, resting.width)
+                XCTAssertEqual(quiet.alignmentRectInsets.bottom, resting.alignmentRectInsets.bottom)
+                let margin: CGFloat = 8
+                let drawnResting = Self.draw("e", state: .resting, size: size, look: look)
+                let drawnQuiet = Self.draw("e", state: .quiet, size: size, look: look)
+                XCTAssertEqual(drawnQuiet.face, drawnResting.face, "\(look.name) \(size): the same face")
+                XCTAssertEqual(drawnQuiet.ink.midX, drawnResting.ink.midX, accuracy: 0.5, "\(look.name) \(size): the legend across")
+                XCTAssertEqual(drawnQuiet.ink.minY, drawnResting.ink.minY, accuracy: 0.01, "\(look.name) \(size): the legend's baseline")
+                XCTAssertEqual(drawnQuiet.ink.midY, drawnQuiet.face.midY, accuracy: 0.5, "\(look.name) \(size): centred on the face")
+
+                // Pixels: drawn on its own over nothing.
+                let host = NSView(frame: NSRect(x: 0, y: 0, width: quiet.width + margin * 2, height: quiet.size.height + margin * 2))
+                quiet.translatesAutoresizingMaskIntoConstraints = true
+                quiet.frame = NSRect(x: margin, y: margin, width: quiet.width, height: quiet.size.height)
+                host.addSubview(quiet)
+                let window = GalleryHost.window(host, size: host.frame.size, look: look)
+                defer { window.close() }
+                quiet.legend = ""
+                let rep = GalleryRender.bitmap(of: host)
+                let face = quiet.face, side = quiet.size.side
+                func at(_ x: CGFloat, _ y: CGFloat) -> (alpha: CGFloat, color: NSColor)? {
+                    Self.pixel(rep, x: margin + x, y: margin + y, hostHeight: host.frame.height)
+                }
+                // No fill: the middle of the face, and beside where a legend stands, is clear.
+                for x in [quiet.width * 0.3, quiet.width * 0.5, quiet.width * 0.7] {
+                    XCTAssertEqual(at(x, face.midY)?.alpha ?? 1, 0, accuracy: 0.01, "\(look.name) \(size): the face has no fill at \(x)")
+                }
+                // Outlined: the face's top edge is drawn, in a hairline's share of the ink.
+                let share = BarTheme.steps(for: window.effectiveAppearance).hairlineAlpha
+                let edge = at(quiet.width / 2, face.maxY - 0.25)?.alpha ?? 0
+                XCTAssertGreaterThan(edge, 0.3 * share, "\(look.name) \(size): the face is outlined")
+                XCTAssertLessThan(edge, 3 * share)
+                // The side: the band beneath the face, in the hairline's tone and nothing like the side colour.
+                let band = at(quiet.width / 2, side / 2)
+                XCTAssertEqual(band?.alpha ?? 0, share, accuracy: 0.03, "\(look.name) \(size): a side of the hairline's share of the ink")
+                let ink = BarTheme.steps(for: window.effectiveAppearance).ink.color.usingColorSpace(.sRGB)!
+                if let color = band?.color {
+                    XCTAssertEqual(color.redComponent, ink.redComponent, accuracy: 0.05, "\(look.name) \(size): in the ink's tone")
+                    XCTAssertEqual(color.blueComponent, ink.blueComponent, accuracy: 0.05)
+                }
+                XCTAssertEqual(at(quiet.width / 2, side + 1.25)?.alpha ?? 1, 0, accuracy: 0.01, "\(look.name) \(size): and no band under the face itself")
+                XCTAssertEqual(at(quiet.width / 2, -0.5)?.alpha ?? 0, 0, accuracy: 0.01, "\(look.name) \(size): nothing below the frame")
+                // The side is as tall as a resting key's: 3 and 5 points.
+                var tall: CGFloat = 0
+                for step in 0..<Int(side * 4) {
+                    let y = CGFloat(step) / 4 + 0.125
+                    if (at(quiet.width / 2, y)?.alpha ?? 0) > share * 0.5 { tall += 0.25 }
+                }
+                XCTAssertEqual(tall, side, accuracy: 0.5, "\(look.name) \(size): the side is \(side) points")
+            }
+        }
+    }
+
     func testAPressedKeysLegendGoesDownWithItsFace() {
         for look in GalleryLook.all {
             let resting = Self.draw("e", state: .resting, look: look), pressed = Self.draw("e", state: .pressed, look: look)

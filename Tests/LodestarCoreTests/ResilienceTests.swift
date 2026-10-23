@@ -58,6 +58,87 @@ final class StateStoreTests: XCTestCase {
         XCTAssertEqual(reloaded.parkedSpots[42], CGRect(x: 10, y: 20, width: 300, height: 400))
     }
 
+    /// The id is only meaningful in the login that parked the window. The
+    /// app and the title are what a later login can match, and only against
+    /// a window that is still in the corner.
+    func testAParkedWindowKeepsItsAppAndTitle() {
+        let frame = CGRect(x: 10, y: 20, width: 300, height: 400)
+        let store = SealedFixture.stateStore(file)
+        store.setParked([42: ParkedWindow(frame: frame, bundleID: "com.example.slack",
+                                          appName: "Slack", title: "general")])
+        let reloaded = SealedFixture.stateStore(file)
+        reloaded.load()
+        XCTAssertEqual(reloaded.parkedSpots[42], frame)
+        XCTAssertEqual(reloaded.parkedRecords[42]?.title, "general")
+        XCTAssertEqual(reloaded.parkedRecords[42]?.bundleID, "com.example.slack")
+        XCTAssertTrue(Lodestar.parksBelongToThisLogin(reloaded.state.parkedSession))
+    }
+
+    func testAnEarlierLoginDoesNotDonateItsWindowIds() {
+        let frame = CGRect(x: 10, y: 20, width: 300, height: 400)
+        let store = SealedFixture.stateStore(file)
+        store.setParked([42: ParkedWindow(frame: frame, bundleID: "com.example.slack",
+                                          appName: "Slack", title: "general")])
+        store.noteParkingSession("login:1")
+
+        let reloaded = SealedFixture.stateStore(file)
+        reloaded.load()
+        XCTAssertTrue(reloaded.parkedSpots.isEmpty, "that id may belong to a different window now")
+        XCTAssertTrue(reloaded.strandedParks.isEmpty, "until the old map is lifted out of the id table")
+
+        reloaded.takeOverEarlierParks()
+        reloaded.takeOverEarlierParks()
+        XCTAssertEqual(reloaded.strandedParks, [
+            ParkedWindow(frame: frame, bundleID: "com.example.slack", appName: "Slack", title: "general"),
+        ])
+        XCTAssertTrue(reloaded.state.parked.isEmpty)
+        XCTAssertEqual(reloaded.state.parkedSession, Lodestar.loginSession)
+
+        let again = SealedFixture.stateStore(file)
+        again.load()
+        XCTAssertEqual(again.strandedParks.count, 1)
+        XCTAssertEqual(again.strandedParks.first?.frame, frame)
+        again.consumeStranded(again.strandedParks)
+        XCTAssertTrue(SealedFixture.stateStore(file).strandedParks.isEmpty)
+    }
+
+    func testAnEarlierLoginWithNoIdentityDropsTheIds() {
+        let store = SealedFixture.stateStore(file)
+        store.setParked([7: CGRect(x: 1, y: 2, width: 3, height: 4)])
+        store.noteParkingSession("login:1")
+        let reloaded = SealedFixture.stateStore(file)
+        reloaded.load()
+        reloaded.takeOverEarlierParks()
+        XCTAssertTrue(reloaded.parkedSpots.isEmpty)
+        XCTAssertTrue(reloaded.strandedParks.isEmpty, "nothing names the window, so the frame is not aimed at a new id")
+        XCTAssertTrue(reloaded.state.parked.isEmpty)
+    }
+
+    func testALegacyBootStampFromThisBootStillOwnsItsIds() throws {
+        try XCTSkipIf(Lodestar.bootSession == "unknown", "no boot time to be a legacy stamp")
+        let frame = CGRect(x: 4, y: 5, width: 6, height: 7)
+        let store = SealedFixture.stateStore(file)
+        store.setParked([9: ParkedWindow(frame: frame, bundleID: "com.example.app",
+                                         appName: "App", title: "t")])
+        store.noteParkingSession(Lodestar.bootSession)
+        let reloaded = SealedFixture.stateStore(file)
+        reloaded.load()
+        XCTAssertEqual(reloaded.parkedSpots[9], frame, "this boot's ids are still this login's")
+        reloaded.takeOverEarlierParks()
+        XCTAssertEqual(reloaded.state.parkedSession, Lodestar.loginSession,
+                       "the next logout must not inherit a stamp that only names the boot")
+        XCTAssertEqual(reloaded.parkedSpots[9], frame)
+        XCTAssertTrue(reloaded.strandedParks.isEmpty)
+    }
+
+    func testParkIdsFollowTheLogin() {
+        XCTAssertTrue(Lodestar.parksBelongToThisLogin(Lodestar.loginSession))
+        XCTAssertFalse(Lodestar.parksBelongToThisLogin("login:1"))
+        XCTAssertFalse(Lodestar.parksBelongToThisLogin(nil))
+        XCTAssertFalse(Lodestar.parksBelongToThisLogin("unknown"))
+        XCTAssertFalse(Lodestar.parksBelongToThisLogin("10"), "a boot from 1970 is not this one")
+    }
+
     func testRoundTripStampsVersion() {
         let store = SealedFixture.stateStore(file)
         store.setBreath(makeBreath("q"))

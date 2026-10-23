@@ -1,11 +1,76 @@
 import AppKit
 import CoreGraphics
 
+/// Who a parked window was, without the id. The id dies with the login;
+/// the app and the title are how a later one recognizes the sliver.
+public struct ParkedIdentity: Codable, Sendable, Equatable {
+    public var bundleID: String?
+    public var appName: String
+    public var title: String
+
+    public init(bundleID: String?, appName: String, title: String) {
+        self.bundleID = bundleID
+        self.appName = appName
+        self.title = title
+    }
+}
+
+/// A window's real frame, and enough to find the window again after its
+/// id has been handed out to someone else.
+public struct ParkedWindow: Codable, Sendable, Equatable {
+    public var frame: CGRect
+    public var bundleID: String?
+    public var appName: String
+    public var title: String
+
+    public init(frame: CGRect, bundleID: String?, appName: String, title: String) {
+        self.frame = frame
+        self.bundleID = bundleID
+        self.appName = appName
+        self.title = title
+    }
+
+    public var identity: ParkedIdentity {
+        ParkedIdentity(bundleID: bundleID, appName: appName, title: title)
+    }
+
+    /// A frame with no app behind it cannot be matched to a live window,
+    /// and must not be aimed at whatever window now holds the old id.
+    public var isRecognizable: Bool {
+        if let bundleID, !bundleID.isEmpty { return true }
+        return !appName.isEmpty
+    }
+}
+
 /// Sliver parking — the hide mechanism slice 0 proved macOS allows.
 /// Fully off-screen is clamped by AppKit on every path, so a hidden window
 /// keeps a 1px-wide, title-bar-tall corner on its display's bottom-right.
 public final class ParkingLot {
-    public private(set) var spots: [CGWindowID: CGRect] = [:]
+    /// A live window a stranded frame might belong to.
+    public struct Candidate: Equatable, Sendable {
+        public var id: CGWindowID
+        public var frame: CGRect
+        public var bundleID: String?
+        public var appName: String
+        public var title: String
+
+        public init(id: CGWindowID, frame: CGRect, bundleID: String?, appName: String, title: String) {
+            self.id = id
+            self.frame = frame
+            self.bundleID = bundleID
+            self.appName = appName
+            self.title = title
+        }
+    }
+
+    private var remembered: [CGWindowID: ParkedWindow] = [:]
+    /// Bumped whenever a window's record is replaced, so a refusal for an
+    /// older unpark cannot write its frame back over a newer one.
+    private var tickets: [CGWindowID: UInt] = [:]
+
+    public var spots: [CGWindowID: CGRect] {
+        remembered.mapValues(\.frame)
+    }
 
     private let mover: WindowMoving
     private let bounds: () -> [CGRect]
@@ -14,6 +79,13 @@ public final class ParkingLot {
     /// frame moves use, so a park queued before a move lands before it.
     /// Nil runs them inline, which is the tests' world.
     private let moveQueue: DispatchQueue?
+    private let revisionLock = NSLock()
+    private var revisions: [() -> Void] = []
+
+    /// A queued refusal changed the books. It runs on the main thread, or
+    /// inside `waitForWrites` when a caller is waiting, so a save that
+    /// already recorded the optimistic bookkeeping can be rewritten.
+    public var onRevision: (() -> Void)?
 
     public init(mover: WindowMoving = AXMover(), bounds: @escaping () -> [CGRect] = Displays.allBounds,
                 moveQueue: DispatchQueue? = nil) {
@@ -26,13 +98,16 @@ public final class ParkingLot {
         CGPoint(x: display.maxX - 1, y: display.maxY - 30)
     }
 
-    public func isParked(_ id: CGWindowID) -> Bool { spots[id] != nil }
+    /// The displays a park or a corner match would use right now.
+    public var screenBounds: [CGRect] { bounds() }
+
+    public func isParked(_ id: CGWindowID) -> Bool { remembered[id] != nil }
 
     /// Remember the window's real frame and slide it to the corner sliver of
     /// the display it currently occupies.
     @discardableResult
     public func park(_ window: WindowModel.Window) -> Bool {
-        guard spots[window.id] == nil else { return true }
+        guard remembered[window.id] == nil else { return true }
         guard window.isAlive else { return false }
         let allBounds = bounds()
         // A real display, or nowhere. The union used to be the fallback,
@@ -56,48 +131,87 @@ public final class ParkingLot {
         // and forgotten again if the write comes back refused.
         let target = Self.parkPosition(on: display)
         let original = window.frame
-        spots[window.id] = original
+        let saved = ParkedWindow(frame: original, bundleID: window.bundleID,
+                                 appName: window.appName, title: window.title)
         let id = window.id
+        bump(id)
+        remembered[id] = saved
         let ok = write({ [mover] in mover.setPosition(window, target) }) { [weak self] in
-            guard let self, self.spots[id] == original else { return }
-            self.spots.removeValue(forKey: id)
+            guard let self, self.remembered[id]?.frame == original else { return }
+            self.remembered.removeValue(forKey: id)
+            self.onRevision?()
         }
-        if !ok { spots.removeValue(forKey: id) }
+        if !ok, remembered[id]?.frame == original { remembered.removeValue(forKey: id) }
         return ok
     }
 
     /// One write on the lane. Inline it answers honestly; queued it
-    /// answers "queued" and reports a refusal on the main thread later,
-    /// which is the only shape a write off the tap can have.
+    /// answers "accepted" and reports a refusal later — on the main
+    /// thread, and also inside `waitForWrites`, so a caller that waits
+    /// sees the refusal before it reports success. "Accepted" is not
+    /// "the window moved."
     private func write(_ work: @escaping () -> Bool, onFailure: @escaping () -> Void) -> Bool {
         guard let moveQueue else { return work() }
-        moveQueue.async {
-            if !work() { DispatchQueue.main.async(execute: onFailure) }
+        moveQueue.async { [weak self] in
+            guard !work() else { return }
+            self?.enqueueRevision(onFailure)
         }
         return true
     }
 
-    /// Every write queued so far has landed. The shutdown path restores
-    /// the parked windows and then exits, and an exit with parks still in
-    /// the lane would strand them in the corner.
+    private func enqueueRevision(_ revision: @escaping () -> Void) {
+        revisionLock.lock()
+        revisions.append(revision)
+        revisionLock.unlock()
+        DispatchQueue.main.async { [weak self] in self?.applyRevisions() }
+    }
+
+    private func applyRevisions() {
+        revisionLock.lock()
+        let pending = revisions
+        revisions.removeAll()
+        revisionLock.unlock()
+        pending.forEach { $0() }
+    }
+
+    /// Every write queued so far has landed, and so has the bookkeeping a
+    /// refusal owes. The shutdown path restores the parked windows and
+    /// then exits, and an exit with parks still in the lane — or a refusal
+    /// still waiting on the main thread — would strand them in the corner.
     public func waitForWrites() {
         moveQueue?.sync {}
+        applyRevisions()
     }
 
     /// Restore a parked window to its remembered frame (size-position-size,
     /// in case the original frame lives on another display).
+    ///
+    /// The record leaves the books as the intent and comes back if the
+    /// move is refused, which is the shape park already has. Inline, the
+    /// returned bool is the move's own answer. On the lane it is only
+    /// "accepted": the frame is put back when the refusal arrives, and
+    /// `waitForWrites` is when a caller can see which one it was.
     @discardableResult
     public func unpark(_ window: WindowModel.Window) -> Bool {
-        guard let original = spots[window.id] else { return true }
+        guard let saved = remembered[window.id] else { return true }
+        let id = window.id
+        let ticket = bump(id)
         guard window.isAlive else {
-            spots.removeValue(forKey: window.id)
+            remembered.removeValue(forKey: id)
             return false
         }
-        spots.removeValue(forKey: window.id)
-        let frame = restorable(original)
-        return write({ [mover] in mover.setFrame(window, frame) }) {
-            Log.error("unpark: the app refused the frame", ["window": window.id])
+        remembered.removeValue(forKey: id)
+        let frame = restorable(saved.frame)
+        let ok = write({ [mover] in mover.setFrame(window, frame) }) { [weak self] in
+            guard let self, self.tickets[id] == ticket, self.remembered[id] == nil else { return }
+            self.remembered[id] = saved
+            Log.error("unpark: the app refused the frame", ["window": id])
+            self.onRevision?()
         }
+        if !ok, tickets[id] == ticket, remembered[id] == nil {
+            remembered[id] = saved
+        }
+        return ok
     }
 
     /// The remembered frame, made reachable on the displays that exist now.
@@ -133,16 +247,113 @@ public final class ParkingLot {
     /// Drop bookkeeping for a window without moving it (e.g. it was summoned
     /// into a layout and will be framed explicitly).
     public func claim(_ id: CGWindowID) {
-        spots.removeValue(forKey: id)
+        bump(id)
+        remembered.removeValue(forKey: id)
     }
 
     public func forget(_ id: CGWindowID) {
-        spots.removeValue(forKey: id)
+        bump(id)
+        remembered.removeValue(forKey: id)
     }
 
     public func snapshot() -> [CGWindowID: CGRect] { spots }
 
+    public func records() -> [CGWindowID: ParkedWindow] { remembered }
+
     public func adopt(_ state: [CGWindowID: CGRect]) {
-        spots.merge(state) { current, _ in current }
+        for (id, frame) in state where remembered[id] == nil {
+            remembered[id] = ParkedWindow(frame: frame, bundleID: nil, appName: "", title: "")
+        }
+    }
+
+    public func adopt(_ records: [CGWindowID: ParkedWindow]) {
+        for (id, record) in records where remembered[id] == nil {
+            remembered[id] = record
+        }
+    }
+
+    @discardableResult
+    private func bump(_ id: CGWindowID) -> UInt {
+        let next = (tickets[id] ?? 0) &+ 1
+        tickets[id] = next
+        return next
+    }
+
+    /// Pair frames left behind by an unclean exit with windows that are
+    /// still sitting in a parking corner.
+    ///
+    /// A window that is not in a corner is never a candidate: a recycled
+    /// id, or a window the user has since placed, keeps the frame it has.
+    /// App and title have to agree, and the two sides have to be the same
+    /// length, so a missing window is not guessed. One window of an app
+    /// whose title changed while it was a sliver is the exception — there
+    /// is nothing to confuse it with. Same-title windows are paired in a
+    /// stable order and can swap frames; both leave the corner.
+    public static func reattach(_ stranded: [ParkedWindow], onto windows: [Candidate],
+                                displays: [CGRect]) -> [CGWindowID: ParkedWindow] {
+        let recognizable = windows.filter {
+            $0.isRecognizable && isParkedCorner($0.frame, on: displays)
+        }
+        var pool = recognizable
+        var left = stranded.filter(\.isRecognizable)
+        var paired: [CGWindowID: ParkedWindow] = [:]
+
+        func take(_ wants: [ParkedWindow], from haves: [Candidate]) {
+            guard wants.count == haves.count, !wants.isEmpty else { return }
+            let orderedWants = wants.sorted {
+                ($0.frame.minX, $0.frame.minY, $0.title) < ($1.frame.minX, $1.frame.minY, $1.title)
+            }
+            let orderedHaves = haves.sorted { $0.id < $1.id }
+            for (record, window) in zip(orderedWants, orderedHaves) {
+                paired[window.id] = record
+                pool.removeAll { $0.id == window.id }
+                if let index = left.firstIndex(of: record) { left.remove(at: index) }
+            }
+        }
+
+        for key in Set(left.map { identity($0, title: true) }) {
+            take(left.filter { identity($0, title: true) == key },
+                 from: pool.filter { identity($0, title: true) == key })
+        }
+        for key in Set(left.map { identity($0, title: false) }) {
+            let wants = left.filter { identity($0, title: false) == key }
+            let haves = pool.filter { identity($0, title: false) == key }
+            guard wants.count == 1, haves.count == 1 else { continue }
+            take(wants, from: haves)
+        }
+        return paired
+    }
+
+    /// Whether `frame` is sitting on a display's park position. The y
+    /// slack is the title-bar clamp: the corner we ask for and the corner
+    /// AppKit actually keeps are a few dozen points apart, and a window
+    /// someone placed by hand is not.
+    public static func isParkedCorner(_ frame: CGRect, on displays: [CGRect]) -> Bool {
+        guard frame.isOnAScreensScale else { return false }
+        for display in displays {
+            let park = parkPosition(on: display)
+            if abs(frame.minX - park.x) <= 4, abs(frame.minY - park.y) <= 80 { return true }
+        }
+        return false
+    }
+
+    private static func identity(_ window: ParkedWindow, title: Bool) -> String {
+        appKey(window.bundleID, window.appName) + (title ? "\t\(window.title)" : "")
+    }
+
+    private static func identity(_ window: Candidate, title: Bool) -> String {
+        appKey(window.bundleID, window.appName) + (title ? "\t\(window.title)" : "")
+    }
+
+    private static func appKey(_ bundleID: String?, _ appName: String) -> String {
+        if let bundleID, !bundleID.isEmpty { return "b:\(bundleID.lowercased())" }
+        return "n:\(appName.lowercased())"
+    }
+}
+
+extension ParkingLot.Candidate {
+    fileprivate var isRecognizable: Bool {
+        if let bundleID, !bundleID.isEmpty { return true }
+        return !appName.isEmpty
     }
 }

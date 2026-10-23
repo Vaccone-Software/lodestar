@@ -83,6 +83,42 @@ final class SweepTests: XCTestCase {
         XCTAssertEqual(layout.members(on: 1), [10])
     }
 
+    /// Undo of a sweep unparks on the move lane. The lane accepts the
+    /// write before the window moves, and a refusal used to be logged
+    /// with the frame already gone. The frame has to be back once the
+    /// lane has answered, so the undo is not reported as a restore.
+    func testARefusedSweepUndoKeepsTheFrame() {
+        let model = SweepFakeWindows()
+        let mover = SweepFakeMover(model: model)
+        let lane = DispatchQueue(label: "test.sweep.undo")
+        let parking = ParkingLot(mover: mover, bounds: { [self.display] }, moveQueue: lane)
+        let oracle = DisplayOracle(
+            ordered: { [Displays.DisplayInfo(id: 1, bounds: self.display)] },
+            visibleFrame: { _ in self.display },
+            displayContaining: { _ in Displays.DisplayInfo(id: 1, bounds: self.display) },
+            uuid: { _ in "uuid" })
+        let layout = LayoutController(model: model, parking: parking, mover: mover,
+                                      displays: oracle, moveQueue: lane)
+        layout.reconcileDisplays()
+        model.addWindow(10)
+        model.addWindow(20)
+        let home = model.windows[20]!.frame
+
+        layout.replace(with: 10, on: 1, sweeping: [20])
+        lane.sync {}
+        XCTAssertEqual(parking.snapshot()[20], home)
+
+        mover.acceptFrames = false
+        var revised = 0
+        parking.onRevision = { revised += 1 }
+        XCTAssertNotNil(layout.undo())
+        parking.waitForWrites()
+        XCTAssertTrue(parking.isParked(20), "the refused restore is still a park")
+        XCTAssertEqual(parking.snapshot()[20], home)
+        XCTAssertNotEqual(model.windows[20]?.frame, home, "the window did not move")
+        XCTAssertEqual(revised, 1, "the books change again when the refusal lands")
+    }
+
     func testSweepNeverParksTheSummonedWindow() {
         makeWorld()
         model.addWindow(10)
@@ -111,8 +147,10 @@ private final class SweepFakeWindows: WindowQuerying {
 
 private final class SweepFakeMover: WindowMoving {
     let model: SweepFakeWindows
+    var acceptFrames = true
     init(model: SweepFakeWindows) { self.model = model }
     func setFrame(_ window: WindowModel.Window, _ frame: CGRect) -> Bool {
+        guard acceptFrames else { return false }
         model.windows[window.id]?.frame = frame
         return true
     }

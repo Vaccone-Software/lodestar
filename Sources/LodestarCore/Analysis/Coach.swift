@@ -704,6 +704,10 @@ public enum Coach {
             }
             accept = "Accept saves them side by side"
             sentence = "\(display) could stand side by side with one key"
+            // The record is the count the hand can check: how often the two
+            // travelled together. The lift is the report's, and a card's one
+            // line has no room for it beside two long names.
+            evidence = rec.detail.components(separatedBy: " at lift").first ?? rec.detail
         case .bind, .shorten, .rebind, .flatten:
             // All land on "the address you will type next", which for a
             // supersede is the new chain rather than the one being given

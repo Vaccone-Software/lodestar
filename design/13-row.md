@@ -87,7 +87,31 @@ The record under the coach's offer stays one line beside `lode ⌫` and "Not now
 
 ## Status
 
-Planned.
+Built 23 October 2026. Before it, every list laid out its own rows: ten heights (48, 52, 36, 32, about 44, about 40, 24), the input menu at 36 and the choice menu, Keep's lists and the guides at 32, gaps of 0, 2, 4, 8 and 12, a launcher dot set as a "●" glyph in an 8-point font and the others drawn, Settings' letter a grey word in a column sized by its widest letter, a Settings row 44 tall, a search result's address keys 12 apart and leading its title, a disabled row faded to 45% and its switch to 20% (about 20% together), Keep's missing-file card faded to 45%, and the coach's record, its "Not now" and every footer's words 1.5 to 2.5 points below their keys' letters.
+
+Now `Row.swift` and the tokens in `Geometry.swift` hold the four rows. `ListRow` (a row: 48, 52 with its detail line) and `ListLine` (a line: 32) are `SlabRow`s that lay out their parts the one way; `LegendRow` is a legend on a 24-tall frame; a setting is `SettingsController.buildRow`, which now keeps to the same parts. `RowDot` is the one drawn dot, 7 across, in a 16-wide `DotColumn` in a line. `KeyWords` sets the words beside a key. The launcher, Ask, the commands bar, the coach's offer and Settings' search results are `ListRow`s; the input menu, a popup's choices, Keep's source list and card actions, the ⌘K card and the guides are `ListLine`s; the footers, a flash's way, the cheat sheet, the walk's key rows, a chain's header and a keymap are legends. The 36, the 32s, the 428 and 540 and the card icons' 24 and 6 are named tokens. Settings' dimmed row, `AccentSwitch`'s disabled opacity and Keep's missing-file card draw quiet: words and keys in the quiet ink, the switch's on track the quiet ink, opaque.
+
+Measured by laying out and drawing every gallery surface in both looks and reading it back (`RowTests`, `GeometryTests`, `KeyTests`, `DesignDriftTests`):
+
+- **Every list line is one of the four** (a sweep of every surface): a row is 48, or 52 with its detail; its icon 12 in and 32 or 24; its words 12 after the icon, or 12 in; its detail 2 under its title; its trailing parts 8 apart, the last 12 from the edge, each centred on the title's first line (a key by its face) and the lit key last; rows stand 2 apart. A line is 32, its words 12 in, 12 after its dot column or symbol, its parts 8 apart and on its line, touching its neighbours (or a rule's 16 between), its slab rounded at 14. A setting is at least 48 and its letters stand in one column with the titles after it. A legend is 24, its words 8 after its keys, and the cheat sheet's legends 8 apart.
+- **Names are cut at the tail and sentences wrap**: every row's title and detail, every line's words, the words beside a key and every setting's title end in "…" on one line; every setting's detail, problem and readout wraps. Today's ⌘K card cut nothing and overflowed; its names now cut, and the card is never wider than a sentence's measure.
+- **Words beside a key stand on its line**, read from the ink: the coach's record and "Not now", a footer's four words and a Settings title's capital are within half a point, day and night; before, the same measure put them 1 to 2.5 points low. Moving the shared baseline by one point makes the test fail.
+- **The coach's records** (a bind, a shorten, a flatten, a retire, a route, a nudge, a meeting, a breath, at the longest app names the gallery uses and the biggest numbers) stand whole on one line at the card's widest.
+- **The quiet key** is the resting key's frame, face, baseline and centred legend, its face clear with a hairline round it, its side the hairline's share of the ink and as tall as a resting key's (3, and 5 large), in both looks.
+- **Nothing is translucent**: no alpha or layer opacity below 1 in the sources, and none on any view or layer of any surface; no dot glyph in the sources or on a surface. Each guard has a sample it is shown to catch.
+
+**Decided in the build** (each worth the owner's eye):
+
+- **Words at the legend's size stand on the baseline lowercase legends share**, not on the baseline of whichever key they follow: an x-height centred on the face is where mostly-lowercase words look centred, and it puts every word of a line, and `esc` and `lode` beside them, on one baseline. Following the nearest key put "Cancel" and "Send" a point apart in one footer. Larger words centre their capital height on the face.
+- **A quiet key is `outlined` to the depth sweep**, neither flat (it has a side) nor standing up (it cannot be pressed and wears no side colour).
+- **A key is aligned by its face**: the side hangs beneath it (`alignmentRectInsets`), so a row's trailing keys, a title's keys and the letter all stand with their faces on the title's first line, 1.5 points higher than when the whole frame was centred. A stack of keys is 21 tall to layout, so a legend (and a chain's header, a keymap, the walk's key rows) is put on a 24-tall frame, or the side would eat the gap beneath it.
+- **A Settings result leads with its title and trails its address keys** (4 apart) and ⏎, as every row does; it led with the keys. The coach's offer likewise trails its quiet address beside the lit chord.
+- **A guide's lines stand on the card's own inset**, not 12 inside a line of their own: a guide has no slab and nothing in it is chosen, so its words stay under the card's title. Its key is at least 12 from the name, where it was 24.
+- **A flash's words stand 8 from the keys beside them**, as a footer's do (4 before).
+- **The breath's record is the count** ("Messages and Mail travel together 12×"). The lift went to the report: it is not a count the hand can check, and two long app names left no room for it on the card's one line. It is a typed `Recommendation.record`, tested in Core.
+- **Keep's source list stands its field and its lines 8 inside the menu**, and the rule between "All apps" and the rest takes 16 (8 above, 8 below). Keep's missing-file card is quiet: its words and key in the quiet ink, its sheets as they are (content).
+- **A popup's disabled item keeps the quiet ink and never becomes the slab**; a dimmed Settings row's popup and fields show their value in the quiet ink.
+- **`keep-missing-file-dimmed` is `keep-missing-file-quiet`**, and the new sheets are `foundation-row`, `settings-observations-waiting`, `optionscard-*` and `cheatsheet-two-sections`.
 
 ## Prototype lessons
 

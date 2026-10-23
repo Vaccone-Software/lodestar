@@ -50,7 +50,7 @@ Every height is on the size table; Keep's source list's 40-tall field becomes a 
 
 - **The draft.** It is a page you write on, not a field you fill; its insert bar (3 points) and block cursor belong to the draft's own modes and stay as they are, the 3 becoming a token.
 - **The pill's echo** repeats what you typed elsewhere; nothing goes into it.
-- **A value you can read but not change now** is flat: words on the pane, or a flat chip. A well is drawn only where something can go now; a Settings row that is off dims whole (the row, contract 13).
+- **A value you can read but not change now** is flat: words on the pane, or a flat chip. A well is drawn only where something can go now; a Settings row that cannot act now is drawn quiet, opaque, never faded (the row, contract 13).
 - **A choice, a switch, a group's card, a read-only chip:** stand up or flat, by material.
 
 ### Where it is

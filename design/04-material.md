@@ -31,7 +31,7 @@ The rim is the shape less itself moved down by 1.5: a crescent along the top tha
 | --------- | ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
 | stands up | anything you press: a key, a button, a popup, a switch's knob, the chosen thing                        | a face on a visible side, the look's side colour beneath it                         |
 | sinks     | a place you put something: a field, an empty keepsake, a drop target                                   | a well: one step below the pane it sits in, a 0.5 pt edge, no side, no inner shadow |
-| flat      | everything else: panes, cards that are not pressed, groups, chips that only say something, a quiet key | the surface's own fill, at most a hairline                                          |
+| flat      | everything else: panes, cards that are not pressed, groups, chips that only say something | the surface's own fill, at most a hairline                                          |
 
 **The side.** A band of the side colour beneath the face, as tall as its size calls for: 3 points at a control's size, 4 at a row's, 5 at a large key's. Pressing collapses it to 1 point at once, the face moving down by what the side gave up. The side sits inside the thing's frame (geometry, rule 6).
 
@@ -40,6 +40,8 @@ The rim is the shape less itself moved down by 1.5: a crescent along the top tha
 ### Weights retire
 
 Glass had three weights (normal, raised, faint), each a different opacity. An opaque material has none: a surface is a pane, a key step, or the ground, by its role.
+
+A **quiet key** is not in the table: it cannot be pressed, so it does not stand up, and it is not flat either, since it keeps a resting key's shape. It is outlined: its face unfilled with a hairline round it, and a side in the hairline's tone (design/10-key.md). The depth sweep calls it `outlined`.
 
 ## Rules
 

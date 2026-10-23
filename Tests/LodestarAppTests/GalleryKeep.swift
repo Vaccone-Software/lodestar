@@ -42,6 +42,25 @@ enum GalleryKeep {
          clip("r6", "AB12CD34EF", minutes: 300)]
     }
 
+    /// Every place full: a clip being kept has no place of its own until a
+    /// number is chosen, so its name is written on the band's place.
+    private static var pinsFull: [Clipboard.Clip] {
+        pins + [clip("p3", "https://example.com/pricing", slot: 3)]
+    }
+
+    /// What Bring finds in another window: three lines holding "inv", the
+    /// foot of each saying which app and window.
+    static func bring(_ strip: ClipboardStrip, query: String, source: String? = nil) {
+        let sources = [Bring.Source(app: "Mail", window: "Inbox, 3 new", rank: 0),
+                       Bring.Source(app: "Safari", window: "Billing", rank: 1)]
+        let lines = [Bring.Line(source: 0, text: "Invoice 2026-0412 is attached"),
+                     Bring.Line(source: 0, text: "Please pay the invoice by 30 October"),
+                     Bring.Line(source: 1, text: "Download invoice (PDF)")]
+        let found = Bring.search(lines, sources: sources, query: query)
+        strip.showBring(query: query, matches: found.matches, total: found.total, sources: sources,
+                        reading: false, source: source, sourceMenu: nil)
+    }
+
     static func strip(look: GalleryLook, _ show: @escaping (ClipboardStrip) -> Void) throws -> (NSView, [AnyObject]) {
         ActivePolicy.frameOverride = NSRect(x: 0, y: 0, width: 1500, height: 820)
         return try GalleryHost.surface(made: {
@@ -88,6 +107,32 @@ enum GalleryKeep {
                                                              .init(name: "Ghostty", count: 71), .init(name: "Mail", count: 6),
                                                              .init(name: "Notes", count: 12)], selection: 1))
             },
+            keep("search-empty") {
+                $0.show(recents: Array(recents.prefix(4)), pins: pins, thumbnail: thumbnail, band: .search(""),
+                        selection: 0, matches: nil)
+            },
+            keep("save-band") {
+                $0.show(recents: Array(recents.prefix(4)), pins: pins, thumbnail: thumbnail,
+                        band: .save(name: "", offered: "Screenshot 2026-10-23 at 14.02", folder: "Pictures"), selection: 0)
+            },
+            keep("save-band-typed") {
+                $0.show(recents: Array(recents.prefix(4)), pins: pins, thumbnail: thumbnail,
+                        band: .save(name: "wireframe", offered: "Screenshot 2026-10-23 at 14.02", folder: "Pictures"),
+                        selection: 0)
+            },
+            keep("naming-keepsake") {
+                $0.show(recents: Array(recents.prefix(4)), pins: pins, thumbnail: thumbnail, band: .none, selection: 0,
+                        naming: .init(id: "p1", text: "Lodestar site", selected: true))
+            },
+            keep("naming-keepsake-typed") {
+                $0.show(recents: Array(recents.prefix(4)), pins: pins, thumbnail: thumbnail, band: .none, selection: 0,
+                        naming: .init(id: "p2", text: "My email", selected: false))
+            },
+            keep("naming-unkept-clip") {
+                $0.show(recents: Array(recents.prefix(4)), pins: pinsFull, thumbnail: thumbnail, band: .none,
+                        selection: 0, naming: .init(id: "r0", text: "Release build", selected: false))
+            },
+            keep("bring-search") { bring($0, query: "inv") },
             keep("card-actions") {
                 $0.show(recents: recents, pins: pins, thumbnail: thumbnail,
                         band: .actions(HotkeyEngine.panelActions(for: recents[0])), selection: 0, actingOn: "r0")

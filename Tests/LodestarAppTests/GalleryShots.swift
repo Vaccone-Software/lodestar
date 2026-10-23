@@ -4,7 +4,7 @@ import AppKit
 /// Every picture the gallery takes.
 enum GalleryShots {
     static var all: [GalleryShot] {
-        let base = GalleryFoundations.shots + GalleryMaterial.shots + GallerySlab.shots + GalleryLauncher.shots + GalleryBars.shots + GallerySettings.shots + GalleryKeep.shots + GalleryChrome.shots + GalleryKeys.shots + GalleryHints.shots + GalleryControls.shots
+        let base = GalleryFoundations.shots + GalleryMaterial.shots + GallerySlab.shots + GalleryWell.shots + GalleryLauncher.shots + GalleryBars.shots + GallerySettings.shots + GalleryKeep.shots + GalleryChrome.shots + GalleryKeys.shots + GalleryHints.shots + GalleryControls.shots
         return base + eyeComfort(of: base)
     }
 
@@ -21,7 +21,7 @@ enum GalleryShots {
         let dimmed: [(surface: String, state: String)] = [
             ("foundation", "colour"), ("launcher", "results-second-chosen"), ("settings", "general"),
             ("keep", "clips-newest-chosen"), ("pill", "scroll-standing"), ("pill", "offer"),
-            ("foundation", "slab"), ("settings", "search-clipboard"), ("commands", "typed-pa"),
+            ("foundation", "slab"), ("foundation", "well"), ("settings", "search-clipboard"), ("commands", "typed-pa"),
             ("walk", "welcome-tile-chosen"), ("coach", "one-app"),
         ]
         let receded: [(surface: String, state: String)] = [

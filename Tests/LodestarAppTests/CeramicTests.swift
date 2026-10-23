@@ -322,6 +322,28 @@ final class PaneTests: XCTestCase {
         }
     }
 
+    /// The well the caret is in draws its edge at twice its resting weight, at
+    /// once: day ink 28% against 14%, night ink 24% against 12%. No ring, no
+    /// accent, no change of fill (design/12-well.md).
+    func testTheFocusedWellsEdgeIsTwiceTheRestingWeightInEachLook() throws {
+        XCTAssertEqual(Palette.clay.wellFocusedEdgeAlpha, 0.28, accuracy: 0.0001)
+        XCTAssertEqual(Palette.night.wellFocusedEdgeAlpha, 0.24, accuracy: 0.0001)
+        for look in GalleryLook.all {
+            look.apply()
+            let steps = look == .night ? Palette.night : Palette.clay
+            var resting = NSColor.clear, focused = NSColor.clear
+            NSAppearance(named: look.appearance)?.performAsCurrentDrawingAppearance {
+                resting = BarTheme.wellEdge.usingColorSpace(.sRGB) ?? .clear
+                focused = BarTheme.wellEdgeFocused.usingColorSpace(.sRGB) ?? .clear
+            }
+            XCTAssertEqual(focused.alphaComponent, resting.alphaComponent * 2, accuracy: 0.002,
+                           "\(look.name): twice the resting weight")
+            XCTAssertEqual(focused.alphaComponent, steps.wellFocusedEdgeAlpha, accuracy: 0.002)
+            near(focused, steps.ink, "\(look.name): still the ink, never an accent", tolerance: 0.01)
+            XCTAssertEqual(Ceramic.Edge.line, 0.5, "the same half point: the share doubles, not the line")
+        }
+    }
+
     func testTheStripsCardsAreStandingPanesAndOnlyTheChosenOneIsTheSlab() {
         let stage = Stage()
         let a = stage.seedClip("one")

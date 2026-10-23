@@ -398,6 +398,10 @@ class WellView: NSView, CeramicDepth {
         needsDisplay = true
     }
 
+    /// Whether this well is a place a field's words go (a field, a note or a
+    /// drawn field), as against a place a thing waits for (an empty slot).
+    var holdsField: Bool { client != nil || caretIsHere }
+
     /// Whether the caret is in this well now.
     var isFocused: Bool { caretIsHere || client.map(WellText.holds) ?? false }
 
@@ -468,7 +472,8 @@ final class WellText: NSTextView {
     /// object, when the caret comes in or leaves.
     static let focusDidChange = Notification.Name("LodestarWellFocusDidChange")
 
-    private lazy var caret: CaretMark = {
+    /// The one caret, placed at the insertion point while the text holds it.
+    private(set) lazy var caret: CaretMark = {
         let mark = CaretMark(height: BarTheme.bodyCaretHeight)
         mark.shows = { [unowned self] in holdsCaret }
         addSubview(mark)
@@ -505,7 +510,7 @@ final class WellText: NSTextView {
     /// would draw.
     private func dress() {
         insertionPointColor = .clear
-        selectedTextAttributes = [.backgroundColor: BarTheme.selectionFill]
+        selectedTextAttributes = [.backgroundColor: BarTheme.wash]
     }
 
     // MARK: Focus
@@ -561,13 +566,30 @@ final class WellText: NSTextView {
         placeCaret()
     }
 
+    /// Where the insertion point is, in this view's coordinates, from the text
+    /// layout itself: a window nobody can see (a render's) has no screen to ask.
+    private var insertionRect: NSRect? {
+        let at = selectedRange().location
+        if let layout = textLayoutManager, let content = layout.textContentManager,
+           let location = content.location(content.documentRange.location, offsetBy: at) {
+            var found: NSRect?
+            layout.enumerateTextSegments(in: NSTextRange(location: location), type: .standard,
+                                         options: [.rangeNotRequired]) { _, frame, _, _ in
+                found = frame
+                return false
+            }
+            if let found { return found.offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y) }
+        }
+        guard let window else { return nil }
+        let onScreen = firstRect(forCharacterRange: selectedRange(), actualRange: nil)
+        guard onScreen.height > 0 else { return nil }
+        return convert(window.convertFromScreen(onScreen), from: nil)
+    }
+
     /// The caret stands at the insertion point, as tall as the words' line,
     /// on whole device pixels.
     private func placeCaret() {
-        guard let window, selectedRange().length == 0 else { caret.isHidden = true; return }
-        let onScreen = firstRect(forCharacterRange: selectedRange(), actualRange: nil)
-        guard onScreen.height > 0 else { return }
-        let rect = convert(window.convertFromScreen(onScreen), from: nil)
+        guard let window, selectedRange().length == 0, let rect = insertionRect else { caret.isHidden = true; return }
         let height = BarTheme.caretHeight(forPointSize: font?.pointSize ?? BarTheme.Scale.body)
         let scale = window.backingScaleFactor
         let origin = NSPoint(x: (rect.minX * scale).rounded() / scale,
@@ -580,6 +602,49 @@ final class WellText: NSTextView {
 }
 
 private var editorKey = 0
+
+/// A note: a well that holds a text view, the words 12 inside it as a
+/// field's are. The well is a view of its own, drawn under the scroll view:
+/// a scroll view's clip view paints over any layer the scroll view itself is
+/// given. The text scrolls inside the edge, never over it.
+final class NoteWell: WellView {
+    let text = WellText(frame: .zero)
+    private let scroll = NSScrollView()
+
+    init(height: CGFloat) {
+        super.init(cornerRadius: BarTheme.controlRadius)
+        text.drawsBackground = false
+        // The words stand 12 inside the well: the scroll view's hair, the
+        // container's inset, and no padding of the line fragment's own.
+        text.textContainerInset = NSSize(width: BarTheme.wordPadding - Grid.hair,
+                                         height: BarTheme.wordPadding - Grid.hair)
+        text.textContainer?.lineFragmentPadding = 0
+        text.isVerticallyResizable = true
+        text.isHorizontallyResizable = false
+        text.autoresizingMask = [.width]
+        text.textContainer?.widthTracksTextView = true
+        // The note's place is its well: no system ring round the text.
+        text.focusRingType = .none
+        scroll.focusRingType = .none
+        scroll.documentView = text
+        scroll.drawsBackground = false
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.borderType = .noBorder
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(scroll)
+        NSLayoutConstraint.activate([
+            heightAnchor.constraint(equalToConstant: height),
+            scroll.topAnchor.constraint(equalTo: topAnchor, constant: Grid.hair),
+            scroll.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Grid.hair),
+            scroll.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Grid.hair),
+            scroll.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Grid.hair),
+        ])
+        hold(text)
+    }
+
+    required init?(coder: NSCoder) { nil }
+}
 
 /// A text field's cell that edits in the one field editor.
 class InputCell: NSTextFieldCell {

@@ -84,7 +84,9 @@ final class ClipboardStrip {
     /// steps, so the newest leads by a step, never by a leap.
     static let clipHeight: CGFloat = 150
     static let rise: [CGFloat] = [1.26, 1.17, 1.11, 1.06]
-    static let barHeight = BarTheme.pillHeight
+    /// The band over the right hand holds one field, a well 32 tall with the
+    /// band's inset round it (design/12-well.md).
+    static let barHeight = BarTheme.bandHeight
     static let margin = Grid.section
     /// Where Keep's top edge stands, as a share of the screen's height:
     /// the bars' own line, so every surface opens at one height.
@@ -188,6 +190,10 @@ final class ClipboardStrip {
     /// The bar's count and source, as drawn.
     private(set) var shownCount: String?
     private(set) var shownSource: String?
+    /// The band over the right hand and the field well in it, as drawn.
+    private(set) var shownBand: (plate: NSView, field: WellView)?
+    /// The field well of the list of sources, as drawn.
+    private(set) var shownSourceField: WellView?
     private(set) var shownSourceRows: [String] = []
     /// The zones a timestamp is read into beside yours and UTC.
     var timeZones: [TimeZone] = []
@@ -279,6 +285,8 @@ final class ClipboardStrip {
         shownNames = [:]
         shownCount = nil
         shownSource = nil
+        shownBand = nil
+        shownSourceField = nil
         shownSourceRows = []
         bandFrame = nil
 
@@ -317,7 +325,9 @@ final class ClipboardStrip {
                               held: held, hasReading: reading != nil, selection: selection)
             // The key that pastes lights on the chosen card, and only while
             // pasting is what a key does: with a menu open the keys answer it.
-            let chosen = clip.id == chosenID
+            // A clip named before it has a place is named on the band's own
+            // card, which is the slab; its card in the row is not a second one.
+            let chosen = clip.id == chosenID && naming?.id != clip.id
             let lit = key != nil && chosen && actingOn == nil && sourceMenu == nil
             let files = fileArt(for: clip, picture: fileThumbnail, present: filesPresent)
             let card = makeCard(clip: clip, key: key, lit: lit, size: place.size,
@@ -360,7 +370,7 @@ final class ClipboardStrip {
             case .search(let query):
                 bandFrame = layout.bar
                 addSearchBar(query: query, source: source, matches: matches,
-                             shown: shownRecents.count, frame: local(layout.bar))
+                             shown: shownRecents.count, frame: local(layout.bar), holdsCaret: sourceMenu == nil)
             case .save(let name, let offered, let folder):
                 bandFrame = layout.bar
                 shownSave = (name, offered, folder)
@@ -429,6 +439,8 @@ final class ClipboardStrip {
         shownFreePlaces = [:]
         shownCount = nil
         shownSource = nil
+        shownBand = nil
+        shownSourceField = nil
         shownSourceRows = []
         bandFrame = layout.bar
         shownBring = Array(matches.prefix(Self.labels.count))
@@ -469,7 +481,7 @@ final class ClipboardStrip {
             count = total > shownBring.count ? "\(shownBring.count) of \(total)" : "\(total) found"
         }
         addBar(key: "=", query: query, placeholder: "Type what you saw in another window",
-               count: count, source: source, frame: local(layout.bar))
+               count: count, source: source, frame: local(layout.bar), holdsCaret: sourceMenu == nil)
         if let sourceMenu { addSourceMenu(sourceMenu, under: local(layout.bar)) }
 
         root.setAccessibilityChildren(ranked + root.subviews.filter { !ranked.contains($0) && $0.isAccessibilityElement() })
@@ -640,8 +652,9 @@ final class ClipboardStrip {
     /// not a card (`stands: false`: the bar, a menu, the list of sources)
     /// is a floating pane that lies flat, and so its fills read alone. A
     /// free place is a well, a place to put something, with no shadow.
-    private func surface(size: NSSize, fill: CardFill, stands: Bool = true) -> NSView {
-        let radius = BarTheme.radius(BarTheme.surfaceRadius, height: size.height)
+    private func surface(size: NSSize, fill: CardFill, stands: Bool = true,
+                         rung: CGFloat = BarTheme.surfaceRadius) -> NSView {
+        let radius = BarTheme.radius(rung, height: size.height)
         let card: NSView
         switch fill {
         case .well:
@@ -1013,28 +1026,42 @@ final class ClipboardStrip {
         title.textColor = BarTheme.ink
         title.lineBreakMode = .byTruncatingTail
         title.sizeToFit()
-        let room = width - leading - Self.pad
-        title.frame = NSRect(x: leading, y: line - title.frame.height / 2,
-                             width: min(title.frame.width, room), height: title.frame.height)
         if let naming {
+            // While it is written the name line is a field, a well beside the
+            // key. The card is the slab, so the well is the slab's look's, and
+            // so is the selection's wash and the caret: they resolve where
+            // they are drawn. A card too short for its line (the band's own
+            // height) centres the well on its face.
+            let centre = max(line, Self.cardSide + BarTheme.fieldHeight / 2 + Grid.hair)
+            let well = addFieldWell(to: card, in: NSRect(x: leading, y: centre - BarTheme.fieldHeight / 2,
+                                                          width: width - leading - Self.pad,
+                                                          height: BarTheme.fieldHeight))
+            let room = well.bounds.width - BarTheme.wordPadding * 2
+            // The words are set in the slab's look, which is the other look
+            // and a step heavier by night, so they are measured in it. A name
+            // that outgrows the well scrolls as a field's does: the end, where
+            // the caret is, stays in view; the offered name shows its head.
+            let glyphs = BarTheme.width(of: name, in: .body, night: !Tone.systemDark)
+            title.lineBreakMode = naming.selected ? .byTruncatingTail : .byTruncatingHead
+            title.frame = NSRect(x: BarTheme.wordPadding, y: (well.bounds.height - title.frame.height) / 2,
+                                 width: room, height: title.frame.height)
             if naming.selected {
-                // The offered name stands selected, in a quiet grey:
-                // typing replaces it. The accent is the caret's alone.
-                let mark = NSView(frame: title.frame.insetBy(dx: -Grid.hair, dy: 0))
+                // The offered name stands selected: typing replaces it. The
+                // selection is the one wash, ink at 30%, as in every well.
+                let mark = NSView(frame: NSRect(x: title.frame.minX - Grid.hair, y: title.frame.minY,
+                                                width: min(glyphs, room) + Grid.hair * 2, height: title.frame.height))
                 mark.wantsLayer = true
                 mark.layer?.cornerRadius = BarTheme.markRadius
-                mark.layer?.backgroundColor = Ceramic.resolved(BarTheme.inkAt(0.14), in: card)
-                card.addSubview(mark)
+                mark.layer?.backgroundColor = Ceramic.resolved(BarTheme.wash, in: card)
+                well.addSubview(mark)
             }
-            card.addSubview(title)
-            let glyphs = BarTheme.width(of: name, in: .body)
-            let caret = NSView(frame: NSRect(x: title.frame.minX + min(glyphs, room) + Grid.hair,
-                                             y: line - BarTheme.bodyCaretHeight / 2,
-                                             width: BarTheme.caretWidth, height: BarTheme.bodyCaretHeight))
-            caret.wantsLayer = true
-            caret.layer?.backgroundColor = Ceramic.resolved(BarTheme.readableAccent)
-            card.addSubview(caret)
+            well.addSubview(title)
+            if !naming.selected {
+                addCaret(to: well, at: title.frame.minX + min(glyphs, room), role: .body)
+            }
         } else {
+            title.frame = NSRect(x: leading, y: line - title.frame.height / 2,
+                                 width: min(title.frame.width, width - leading - Self.pad), height: title.frame.height)
             card.addSubview(title)
         }
 
@@ -1302,26 +1329,54 @@ final class ClipboardStrip {
 
     // MARK: - The bar
 
+    /// The field of a band or a menu, drawn: a well of a field's height, the
+    /// caret in it, so its edge is the deeper one. Its words and its caret
+    /// are laid in it by the caller, in its own coordinates.
+    private func addFieldWell(to plate: NSView, in rect: NSRect, holdsCaret: Bool = true) -> WellView {
+        let well = WellView()
+        well.translatesAutoresizingMaskIntoConstraints = true
+        well.frame = rect
+        well.caretIsHere = holdsCaret
+        plate.addSubview(well)
+        return well
+    }
+
+    /// The caret of a drawn field, at the insertion point `x` on the line
+    /// the words stand on, as tall as that role's line.
+    private func addCaret(to well: NSView, at x: CGFloat, role: BarTheme.Role) {
+        let height = BarTheme.caretHeight(forPointSize: role.size)
+        let caret = CaretMark(height: height)
+        caret.frame.origin = NSPoint(x: x, y: (well.bounds.height - height) / 2)
+        well.addSubview(caret)
+    }
+
     /// The search over the right hand: `/`, what was typed, how many
     /// match, and the source the clips are filtered to.
-    private func addSearchBar(query: String, source: String?, matches: Int?, shown: Int, frame: NSRect) {
+    private func addSearchBar(query: String, source: String?, matches: Int?, shown: Int, frame: NSRect,
+                              holdsCaret: Bool) {
         let count = matches.map { $0 == 0 ? "No matches" : $0 > shown ? "\(shown) of \($0)" : "\($0) found" }
-        addBar(key: "/", query: query, placeholder: "Search clips", count: count, source: source, frame: frame)
+        addBar(key: "/", query: query, placeholder: "Search clips", count: count, source: source, frame: frame,
+               holdsCaret: holdsCaret)
     }
 
     /// The bar over the right hand, Keep's search and Bring's alike: the
     /// key that opened it, what was typed, how many answer, and the app
-    /// the answers are filtered to.
+    /// the answers are filtered to. The caret is in it unless the list of
+    /// sources is open, which has a field of its own.
     private func addBar(key: String, query: String, placeholder: String, count countText: String?,
-                        source: String?, frame: NSRect) {
-        let bar = surface(size: frame.size, fill: .pane, stands: false)
+                        source: String?, frame: NSRect, holdsCaret: Bool) {
+        // The band holds one field and rounds a field's inset beyond it.
+        let bar = surface(size: frame.size, fill: .pane, stands: false, rung: BarTheme.bandRadius)
         bar.frame = frame
         bar.setAccessibilityRole(.textField)
         bar.setAccessibilityLabel(placeholder)
         bar.setAccessibilityValue(query)
-        let height = frame.height
-        let slash = Self.placedCap(key, at: NSPoint(x: Grid.group, y: (height - BarTheme.keyHeight) / 2))
-        bar.addSubview(slash)
+        let well = addFieldWell(to: bar, in: bar.bounds.insetBy(dx: BarTheme.bandInset, dy: BarTheme.bandInset),
+                                holdsCaret: holdsCaret)
+        shownBand = (bar, well)
+        let width = well.bounds.width, height = well.bounds.height
+        let slash = Self.placedCap(key, at: NSPoint(x: BarTheme.wordPadding, y: (height - BarTheme.keyHeight) / 2))
+        well.addSubview(slash)
 
         // The source chip at the right: ⇥ and the app the clips come from.
         let chipKey = Self.placedCap("⇥", at: .zero)
@@ -1330,12 +1385,12 @@ final class ClipboardStrip {
         name.textColor = source == nil ? BarTheme.secondaryColor : BarTheme.ink
         name.sizeToFit()
         shownSource = name.stringValue
-        name.frame.origin = NSPoint(x: frame.width - Grid.group - name.frame.width,
+        name.frame.origin = NSPoint(x: width - BarTheme.wordPadding - name.frame.width,
                                     y: (height - name.frame.height) / 2)
         chipKey.frame.origin = NSPoint(x: name.frame.minX - Grid.close - chipKey.frame.width,
                                        y: (height - BarTheme.keyHeight) / 2)
-        bar.addSubview(chipKey)
-        bar.addSubview(name)
+        well.addSubview(chipKey)
+        well.addSubview(name)
 
         var right = chipKey.frame.minX - Grid.group
         if let text = countText {
@@ -1345,11 +1400,11 @@ final class ClipboardStrip {
             count.textColor = BarTheme.secondaryColor
             count.sizeToFit()
             count.frame.origin = NSPoint(x: right - count.frame.width, y: (height - count.frame.height) / 2)
-            bar.addSubview(count)
+            well.addSubview(count)
             right = count.frame.minX - Grid.group
         }
 
-        let x = slash.frame.maxX + Grid.part
+        let x = slash.frame.maxX + BarTheme.wordPadding
         let field = query.isEmpty
             ? NSTextField(labelWithAttributedString: BarTheme.placeholder(placeholder, role: .field))
             : NSTextField(labelWithString: query)
@@ -1358,15 +1413,10 @@ final class ClipboardStrip {
         field.sizeToFit()
         field.frame = NSRect(x: x, y: (height - field.frame.height) / 2,
                              width: min(field.frame.width, max(0, right - x)), height: field.frame.height)
-        bar.addSubview(field)
-        // A still caret in the accent, never a blinking one.
+        well.addSubview(field)
+        // The one caret, at the end of the words, where the placeholder starts.
         let glyphs = query.isEmpty ? 0 : BarTheme.width(of: query, in: .field)
-        let caret = NSView(frame: NSRect(x: x + min(glyphs, field.frame.width) + (query.isEmpty ? 0 : Grid.hair),
-                                         y: (height - BarTheme.caretHeight) / 2,
-                                         width: BarTheme.caretWidth, height: BarTheme.caretHeight))
-        caret.wantsLayer = true
-        caret.layer?.backgroundColor = Ceramic.resolved(BarTheme.readableAccent)
-        bar.addSubview(caret)
+        if holdsCaret { addCaret(to: well, at: x + min(glyphs, field.frame.width), role: .field) }
         root.addSubview(bar)
     }
 
@@ -1374,7 +1424,7 @@ final class ClipboardStrip {
     /// cards: its own field, All apps above a rule, then the apps
     /// alphabetically with how many clips each holds.
     private func addSourceMenu(_ menu: SourceMenu, under bar: NSRect) {
-        let rowHeight = Self.menuRow, fieldHeight = Self.menuField, width = Self.menuWidth
+        let rowHeight = Self.menuRow, fieldHeight = BarTheme.fieldHeight, width = Self.menuWidth
         let visible = 9
         let start = max(0, min(menu.selection - visible / 2, menu.rows.count - visible))
         let rows = Array(menu.rows.enumerated().dropFirst(start).prefix(visible))
@@ -1387,21 +1437,20 @@ final class ClipboardStrip {
         plate.setAccessibilityLabel("Sources")
 
         var top = height - BarTheme.paneInset
+        // Its own field, a well like every field: a line of words 12 inside it.
+        let fieldY = top - fieldHeight
+        let well = addFieldWell(to: plate, in: NSRect(x: BarTheme.paneInset, y: fieldY,
+                                                       width: width - BarTheme.paneInset * 2, height: fieldHeight))
+        shownSourceField = well
         let typed = menu.typed.isEmpty
             ? NSTextField(labelWithAttributedString: BarTheme.placeholder("Search apps", role: .body))
             : NSTextField(labelWithString: menu.typed)
         if menu.typed.isEmpty { typed.followLook() } else { typed.setRole(.body); typed.textColor = BarTheme.ink }
         typed.sizeToFit()
-        let fieldY = top - fieldHeight
-        typed.frame.origin = NSPoint(x: BarTheme.fieldInset, y: fieldY + (fieldHeight - typed.frame.height) / 2)
-        plate.addSubview(typed)
+        typed.frame.origin = NSPoint(x: BarTheme.wordPadding, y: (fieldHeight - typed.frame.height) / 2)
+        well.addSubview(typed)
         let glyphs = menu.typed.isEmpty ? 0 : BarTheme.width(of: menu.typed, in: .body)
-        let caret = NSView(frame: NSRect(x: BarTheme.fieldInset + glyphs + (menu.typed.isEmpty ? -Grid.tight : Grid.hair),
-                                         y: fieldY + (fieldHeight - BarTheme.bodyCaretHeight) / 2,
-                                         width: BarTheme.caretWidth, height: BarTheme.bodyCaretHeight))
-        caret.wantsLayer = true
-        caret.layer?.backgroundColor = Ceramic.resolved(BarTheme.readableAccent)
-        plate.addSubview(caret)
+        addCaret(to: well, at: BarTheme.wordPadding + glyphs, role: .body)
         top = fieldY - Grid.close
 
         for (index, row) in rows {
@@ -1445,7 +1494,6 @@ final class ClipboardStrip {
     private static let actionRow: CGFloat = 32
     /// The source list: its rows, its field, its width.
     private static let menuRow: CGFloat = 32
-    private static let menuField: CGFloat = 40
     private static let menuWidth: CGFloat = 272
     private static let actionPadY = Grid.part
     private static let actionInset = Grid.group
@@ -1554,18 +1602,20 @@ final class ClipboardStrip {
     /// offered name stands in the field until something is typed, so `⏎`
     /// alone is a complete answer; the folder is named at the right.
     private func addSaveField(name: String, offered: String, folder: String, frame: NSRect) {
-        let plate = surface(size: frame.size, fill: .pane, stands: false)
+        let plate = surface(size: frame.size, fill: .pane, stands: false, rung: BarTheme.bandRadius)
         plate.frame = frame
-        let width = frame.width, height = frame.height
+        let well = addFieldWell(to: plate, in: plate.bounds.insetBy(dx: BarTheme.bandInset, dy: BarTheme.bandInset))
+        shownBand = (plate, well)
+        let width = well.bounds.width, height = well.bounds.height
 
         let symbol = NSImageView(image: NSImage(
             systemSymbolName: "square.and.arrow.down",
             accessibilityDescription: nil)?
             .withSymbolConfiguration(BarTheme.symbolBand) ?? NSImage())
         symbol.contentTintColor = BarTheme.secondaryColor
-        symbol.frame = NSRect(x: Grid.group, y: (height - BarTheme.symbolSize) / 2,
+        symbol.frame = NSRect(x: BarTheme.wordPadding, y: (height - BarTheme.symbolSize) / 2,
                               width: BarTheme.symbolSize, height: BarTheme.symbolSize)
-        plate.addSubview(symbol)
+        well.addSubview(symbol)
 
         let place = NSTextField(labelWithString: "→ " + folder)
         place.setRole(.meta)
@@ -1573,29 +1623,24 @@ final class ClipboardStrip {
         place.lineBreakMode = .byTruncatingMiddle
         place.sizeToFit()
         let placeWidth = min(place.frame.width, width * Self.placeShare)
-        place.frame = NSRect(x: width - Grid.group - placeWidth, y: (height - place.frame.height) / 2,
+        place.frame = NSRect(x: width - BarTheme.wordPadding - placeWidth, y: (height - place.frame.height) / 2,
                              width: placeWidth, height: place.frame.height)
-        plate.addSubview(place)
+        well.addSubview(place)
 
         let field = NSTextField(labelWithString: name.isEmpty ? offered : name)
         field.setRole(.field)
         field.textColor = name.isEmpty ? BarTheme.secondaryColor : BarTheme.ink
         field.lineBreakMode = .byTruncatingHead
         field.sizeToFit()
-        let fieldX = Grid.group + BarTheme.symbolSize + Grid.part
+        let fieldX = symbol.frame.maxX + BarTheme.wordPadding
         let room = place.frame.minX - fieldX - Grid.section
         field.frame = NSRect(x: fieldX, y: (height - field.frame.height) / 2,
                              width: min(field.frame.width, room), height: field.frame.height)
-        plate.addSubview(field)
+        well.addSubview(field)
 
         let shown = name.isEmpty ? offered : name
         let glyphs = BarTheme.width(of: shown, in: .field)
-        let caret = NSView(frame: NSRect(x: field.frame.minX + min(glyphs, field.frame.width) + Grid.hair,
-                                         y: (height - BarTheme.caretHeight) / 2,
-                                         width: BarTheme.caretWidth, height: BarTheme.caretHeight))
-        caret.wantsLayer = true
-        caret.layer?.backgroundColor = Ceramic.resolved(BarTheme.readableAccent)
-        plate.addSubview(caret)
+        addCaret(to: well, at: field.frame.minX + min(glyphs, field.frame.width), role: .field)
         root.addSubview(plate)
     }
 

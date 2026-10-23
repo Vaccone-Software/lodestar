@@ -271,9 +271,10 @@ enum StripPreview {
             app.run()
         }
 
-        // 45…47 Send Feedback: the note being written, one that could not
-        // be sent, and the thanks (see `FeedbackController.preview`).
-        if (45...47).contains(variant) {
+        // 45…48 Send Feedback: the note being written, one that could not
+        // be sent, the thanks, and the reply being typed (see
+        // `FeedbackController.preview`).
+        if (45...48).contains(variant) {
             let held = FeedbackController.preview(variant)
             _ = held
             app.run()

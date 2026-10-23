@@ -42,21 +42,39 @@ enum GalleryRender {
 
     static let scale: CGFloat = 2
 
+    /// A window that has the keys while it is drawn, and where it came from.
+    struct Keyed {
+        let window: NSWindow
+        let origin: NSPoint
+
+        /// Put it away where it was.
+        func release() {
+            window.orderOut(nil)
+            window.setFrameOrigin(origin)
+        }
+    }
+
+    /// Where a window stands while it holds the keys for a picture: off every
+    /// display, so nothing reaches a screen.
+    static let away = NSPoint(x: -30000, y: -30000)
+
     /// Whether a window that is typed in has the keys while it is drawn: a
     /// caret and a selection are drawn only in the key window, so a picture
-    /// of a field with the caret in it needs one. The panel is brought in,
-    /// drawn and put away at once, as showing a surface already does, and
-    /// the app is never activated.
-    static func holdingKeys(_ view: NSView) -> NSWindow? {
+    /// of a field with the caret in it needs one. The panel is brought in
+    /// away from every display, drawn and put away, and the app is never
+    /// activated.
+    static func holdingKeys(_ view: NSView) -> Keyed? {
         guard let window = view.window, window.canBecomeKey, !window.isKeyWindow,
               window.firstResponder is WellText else { return nil }
+        let keyed = Keyed(window: window, origin: window.frame.origin)
+        window.setFrameOrigin(away)
         window.makeKeyAndOrderFront(nil)
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         // A window that activates the app (Settings) cannot take the keys
         // while the app is not active: it stays away, and is drawn as a
         // window nobody can see is (`WellText.holds`).
-        guard window.isKeyWindow else { window.orderOut(nil); return nil }
-        return window
+        guard window.isKeyWindow else { keyed.release(); return nil }
+        return keyed
     }
     /// The grey a window stands on, neither the day's ground nor the night's.
     static let desktop = NSColor(srgbRed: 0.5, green: 0.5, blue: 0.5, alpha: 1)
@@ -67,7 +85,7 @@ enum GalleryRender {
     /// lip, a row's rim, a shadow) is drawn by the same pass the screen takes.
     static func bitmap(of view: NSView, scale: CGFloat = GalleryRender.scale) -> NSBitmapImageRep {
         let keyed = holdingKeys(view)
-        defer { keyed?.orderOut(nil) }
+        defer { keyed?.release() }
         // The compositor lays a pane's rim and edge over its content by
         // position; this draws view by view, so they are brought to the front.
         Ceramic.frontEdges(in: view)
@@ -91,7 +109,7 @@ enum GalleryRender {
     static func bitmapBySiblings(of view: NSView, scale: CGFloat = GalleryRender.scale,
                                  room: CGFloat = 40) -> NSBitmapImageRep {
         let keyed = holdingKeys(view)
-        defer { keyed?.orderOut(nil) }
+        defer { keyed?.release() }
         Ceramic.frontEdges(in: view)
         view.window?.contentView?.layoutSubtreeIfNeeded()
         view.layoutSubtreeIfNeeded()

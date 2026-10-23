@@ -345,7 +345,6 @@ final class DesignDriftTests: XCTestCase {
     func testGreyMatterIsAWellOrAHairline() throws {
         let notMatter: [String: Int] = [
             "DraftPanel.swift": 1,      // the draft's selection
-            "ClipboardStrip.swift": 1,  // an offered name standing selected
             "ModePill.swift": 1,        // the band's still caret
             "SettingsController.swift": 1, // the overview's ring
         ]
@@ -626,6 +625,108 @@ final class DesignDriftTests: XCTestCase {
         let before = SystemEvents.heldBack
         SystemEvents.post(CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true), tap: .cghidEventTap)
         XCTAssertGreaterThanOrEqual(SystemEvents.heldBack, before + 1)
+    }
+
+    // MARK: - The well (design/12-well.md)
+
+    /// What a text field of a room may be made of: Lodestar's own field,
+    /// which draws no bezel, border, ground or focus ring and is edited in the
+    /// one editor, never the system's.
+    private static let fieldOffenders: [(String, String)] = [
+        ("a bezel left on", #"\bisBezeled\s*=\s*true"#),
+        ("a focus ring", #"focusRingType\s*=\s*\.(?:default|exterior)"#),
+        ("a plain text field", #"\bNSTextField\(\s*\)|\bNSTextField\(frame:|NSSearchField\(|NSSecureTextField\("#),
+        ("a plain text view", #"\bNSTextView\(\s*\)|\bNSTextView\(frame:"#),
+    ]
+
+    /// A field that is made borderless says it has no bezel either: a field
+    /// that leaves `isBezeled` on draws one whatever `isBordered` says.
+    static func fieldsLeavingABezel(in text: String) -> [String] {
+        var found: [String] = []
+        let whole = NSRange(location: 0, length: (text as NSString).length)
+        let borderless = try! NSRegularExpression(pattern: #"\b(\w+)\.isBordered\s*=\s*false"#)
+        for match in borderless.matches(in: text, range: whole) {
+            let receiver = (text as NSString).substring(with: match.range(at: 1))
+            // Only a text field has a bezel; a button's isBordered is its own.
+            let isField = try! NSRegularExpression(
+                pattern: #"(?:let|var)\s+"# + receiver + #"\b[^\n=]*=\s*(?:NSTextField|InputField|WellField)\((?!\s*(?:label|wrapping|string))"#)
+            guard isField.firstMatch(in: text, range: whole) != nil else { continue }
+            let bare = try! NSRegularExpression(pattern: #"\b"# + receiver + #"\.isBezeled\s*=\s*false"#)
+            if bare.firstMatch(in: text, range: whole) == nil { found.append(receiver) }
+        }
+        return found
+    }
+
+    /// No surface leaves a bezel on a text field, draws a focus ring, or makes
+    /// a text field or a text view of the system's plain kind: a field is an
+    /// `InputField` (or a `WellField`), a note a `NoteWell`.
+    func testNoTextFieldLeavesItsBezelOnOrDrawsAFocusRing() throws {
+        var found: [String] = []
+        for file in Self.swiftFiles(under: Self.appSources) where !Self.homes.contains(file.lastPathComponent) {
+            let raw = try String(contentsOf: file, encoding: .utf8)
+            if isDebugOnly(raw) { continue }
+            let text = Self.code(raw)
+            for (what, pattern) in Self.fieldOffenders {
+                // The draft is a page you write on, not a field you fill: its
+                // text view is the one plain text view, and it is not editable.
+                if what == "a plain text view", file.lastPathComponent == "DraftPanel.swift" { continue }
+                let regex = try NSRegularExpression(pattern: pattern)
+                for match in regex.matches(in: text, range: NSRange(location: 0, length: (text as NSString).length)) {
+                    found.append("\(file.lastPathComponent): \(what): \((text as NSString).substring(with: match.range))")
+                }
+            }
+            for receiver in Self.fieldsLeavingABezel(in: text) {
+                found.append("\(file.lastPathComponent): \(receiver) is borderless and still bezeled")
+            }
+        }
+        XCTAssertEqual(found, [], "make it an InputField, set isBezeled = false, and focusRingType = .none")
+    }
+
+    func testTheFieldGuardCatchesWhatItNames() throws {
+        let samples = ["field.isBezeled = true", "field.focusRingType = .default", "let field = NSTextField()",
+                       "NSTextField(frame: .zero)", "let search = NSSearchField()", "let text = NSTextView()"]
+        for sample in samples {
+            let hit = try Self.fieldOffenders.contains { _, pattern in
+                try NSRegularExpression(pattern: pattern)
+                    .firstMatch(in: sample, range: NSRange(location: 0, length: (sample as NSString).length)) != nil
+            }
+            XCTAssertTrue(hit, "the guard misses: \(sample)")
+        }
+        for sample in ["field.focusRingType = .none", "let field = InputField()", "NSTextField(labelWithString: \"x\")",
+                       "field.isBezeled = false", "let well = WellField(frame: .zero)"] {
+            let hit = try Self.fieldOffenders.contains { _, pattern in
+                try NSRegularExpression(pattern: pattern)
+                    .firstMatch(in: sample, range: NSRange(location: 0, length: (sample as NSString).length)) != nil
+            }
+            XCTAssertFalse(hit, "the guard flags what a field does: \(sample)")
+        }
+        XCTAssertEqual(Self.fieldsLeavingABezel(in: "let field = InputField()\nfield.isBordered = false"), ["field"])
+        XCTAssertEqual(Self.fieldsLeavingABezel(in: "let field = NSTextField()\nfield.isBordered = false\nfield.isBezeled = false"), [])
+        XCTAssertEqual(Self.fieldsLeavingABezel(in: "let button = NSButton()\nbutton.isBordered = false"), [],
+                       "a button's border is not a text field's bezel")
+    }
+
+    /// A field's height is on the size table: no surface names its own
+    /// (Keep's source list had a field of 40), and the table's rows are the
+    /// ones the contract gives.
+    static let fieldHeightLiterals = #"(?:static\s+(?:let|var)\s+\w*[Ff]ield\w*\s*(?::\s*CGFloat)?\s*=\s*[0-9])|(?:[Ff]ield\w*[^\n]*(?:heightAnchor\.constraint\(equalToConstant:|height:)\s*[0-9])"#
+
+    func testNoFieldHeightIsALiteralOffTheSizeTable() throws {
+        let files = Self.swiftFiles(under: Self.appSources).filter { $0.lastPathComponent != "Geometry.swift" }
+        XCTAssertEqual(try offenders(Self.fieldHeightLiterals, in: files), [],
+                       "a field is BarTheme.fieldHeight (32), a bar's BarTheme.inputHeight (60), a band's BarTheme.bandHeight")
+        for sample in ["private static let menuField: CGFloat = 40", "field.heightAnchor.constraint(equalToConstant: 36)",
+                       "let field = NSRect(x: 0, y: 0, width: 10, height: 36)"] {
+            XCTAssertNotNil(sample.range(of: Self.fieldHeightLiterals, options: .regularExpression), "the guard misses: \(sample)")
+        }
+        for sample in ["field.heightAnchor.constraint(equalToConstant: BarTheme.fieldHeight)",
+                       "static let barHeight = BarTheme.bandHeight"] {
+            XCTAssertNil(sample.range(of: Self.fieldHeightLiterals, options: .regularExpression), "flags the table: \(sample)")
+        }
+        XCTAssertEqual(BarTheme.fieldHeight, 32)
+        XCTAssertEqual(BarTheme.inputHeight, 60)
+        XCTAssertEqual(BarTheme.bandHeight, 40, "a field and its 4-point inset round it")
+        XCTAssertEqual(ClipboardStrip.barHeight, BarTheme.bandHeight)
     }
 
     /// A room's actions are its keys, and its controls are Lodestar's: no

@@ -169,6 +169,7 @@ enum GalleryChrome {
             chrome("guide", "chain-with-icons") { try guide(withIcons: true) },
             chrome("guide", "keys-no-icons-lit-row") { try guide(withIcons: false) },
             chrome("feedback", "writing") { try feedback(45) },
+            chrome("feedback", "writing-reply-typed") { try feedback(48) },
             chrome("feedback", "saved-not-sent") { try feedback(46) },
             chrome("feedback", "thanks") { try feedback(47) },
             chrome("walk", "welcome-tiles-none-chosen") { try walk(0) },

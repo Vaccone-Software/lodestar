@@ -111,10 +111,14 @@ final class SlabTests: XCTestCase {
         case "launcher": return state.contains("no-match") ? 0 : 1
         case "commands": return 1
         case "ask": return nil
-        case "keep": return state == "empty-keepsakes-no-clips" ? 0 : 1
+        // Bring's cards are not yet a chosen thing (the slab contract's table
+        // does not list them), and an empty keepsake wall has no card.
+        case "keep": return ["empty-keepsakes-no-clips", "bring-search"].contains(state) ? 0 : 1
         case "coach": return 1
         case "walk": return state.hasPrefix("welcome-tile-chosen") ? 1 : (state.hasPrefix("welcome") ? 0 : nil)
-        case "settings": return state.hasPrefix("search") || state == "landing-row" ? 1 : nil
+        case "settings":
+            // A search with nothing typed yet has no result to choose.
+            return state == "search-empty" ? 0 : (state.hasPrefix("search") || state == "landing-row" ? 1 : nil)
         case "choice", "inputmenu": return 1
         case "foundation": return state.hasPrefix("slab") ? 3 : nil
         default: return nil

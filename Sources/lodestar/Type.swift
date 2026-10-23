@@ -140,8 +140,8 @@ extension BarTheme {
     /// The width of a text in a role, in whole points. A sans is rarely a
     /// whole number wide, and a container sized to its text that does not
     /// round up truncates the text by a fraction of a point.
-    static func width(of text: String, in role: Role, tabular: Bool = false) -> CGFloat {
-        ceil((text as NSString).size(withAttributes: [.font: role.font(night: Tone.systemDark, tabular: tabular)]).width)
+    static func width(of text: String, in role: Role, tabular: Bool = false, night: Bool = Tone.systemDark) -> CGFloat {
+        ceil((text as NSString).size(withAttributes: [.font: role.font(night: night, tabular: tabular)]).width)
     }
 
     /// The width of a space in a role: what a block cursor covers where

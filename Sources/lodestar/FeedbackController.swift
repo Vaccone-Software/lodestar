@@ -30,9 +30,8 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
 
     // Made once and carried across renders, so nothing typed is lost when
     // the window redraws around it.
-    private let textView = WellText(frame: .zero)
-    private let scroll = NSScrollView()
-    private let noteBox = WellView()
+    private let noteBox = NoteWell(height: FeedbackController.noteHeight)
+    private var textView: WellText { noteBox.text }
     private let replyBox = RoomField(placeholder: "Your email, if you would like a reply")
     private var reply: NSTextField { replyBox.field }
     /// Settings' own switch, not the system's checkbox: a room's controls
@@ -91,41 +90,12 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
         textView.allowsUndo = true
         textView.setRole(.body)
         textView.textColor = BarTheme.ink
-        textView.drawsBackground = false
-        // The note's words stand 12 inside its well, as a field's do: the
-        // scroll view's hair, the container's inset, and no padding of the
-        // line fragment's own.
-        textView.textContainerInset = NSSize(width: BarTheme.wordPadding - Grid.hair,
-                                             height: BarTheme.wordPadding - Grid.hair)
-        textView.textContainer?.lineFragmentPadding = 0
-        textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = false
-        textView.autoresizingMask = [.width]
-        textView.textContainer?.widthTracksTextView = true
+        // What is typed names its role, as every word does.
+        textView.typingAttributes = BarTheme.attributes(.body, color: BarTheme.ink)
         textView.delegate = self
         textView.setAccessibilityLabel("Your note")
-        scroll.documentView = textView
-        scroll.drawsBackground = false
-        scroll.hasVerticalScroller = true
-        scroll.autohidesScrollers = true
-        scroll.borderType = .noBorder
-        // The note's place is its well: no system ring round the text.
-        textView.focusRingType = .none
-        scroll.focusRingType = .none
-        noteBox.hold(textView)
-        // The frame is its own view: a scroll view's clip view paints over
-        // any layer the scroll view itself is given.
         noteBox.translatesAutoresizingMaskIntoConstraints = false
         noteBox.widthAnchor.constraint(equalToConstant: text).isActive = true
-        noteBox.heightAnchor.constraint(equalToConstant: Self.noteHeight).isActive = true
-        scroll.translatesAutoresizingMaskIntoConstraints = false
-        noteBox.addSubview(scroll)
-        NSLayoutConstraint.activate([
-            scroll.topAnchor.constraint(equalTo: noteBox.topAnchor, constant: Grid.hair),
-            scroll.bottomAnchor.constraint(equalTo: noteBox.bottomAnchor, constant: -Grid.hair),
-            scroll.leadingAnchor.constraint(equalTo: noteBox.leadingAnchor, constant: Grid.hair),
-            scroll.trailingAnchor.constraint(equalTo: noteBox.trailingAnchor, constant: -Grid.hair),
-        ])
 
         replyBox.widthAnchor.constraint(equalToConstant: text).isActive = true
         attach.state = .off
@@ -426,9 +396,18 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
     #if DEBUG
     /// For the tests: fill the window as a person would.
     func fill(message: String, replyTo: String = "", attachReport: Bool = false) {
-        textView.string = message
+        textView.textStorage?.setAttributedString(NSAttributedString(string: message,
+                                                                     attributes: textView.typingAttributes))
         reply.stringValue = replyTo
         attach.state = attachReport ? .on : .off
+    }
+
+    /// The note written, and the reply being typed: the caret stands in the
+    /// reply, at the end of its words, as a person leaves it.
+    func writeReply(note: String, reply typed: String) {
+        fill(message: note, replyTo: typed)
+        panel.makeFirstResponder(reply)
+        reply.currentEditor()?.selectedRange = NSRange(location: (typed as NSString).length, length: 0)
     }
 
     func pressSend() { send() }
@@ -442,7 +421,8 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
     var noteText: String { textView.string }
 
     /// `lodestar __strip-preview 45` the note being written, 46 a note
-    /// that is saved and not yet sent, 47 the thanks.
+    /// that is saved and not yet sent, 47 the thanks, 48 the note written
+    /// and the reply being typed.
     static func preview(_ index: Int) -> FeedbackController {
         let transport = ScriptedTransport()
         transport.on(.post(Feedback.path, body: [], contentType: "application/json"),
@@ -454,6 +434,11 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
         DispatchQueue.main.async {
             controller.show()
             guard index > 45 else { return }
+            if index == 48 {
+                controller.writeReply(note: "The launcher opened on the wrong screen after I unplugged the display.",
+                                      reply: "someone@exam")
+                return
+            }
             controller.fill(message: "The launcher opened on the wrong screen after I unplugged the display.",
                             replyTo: index == 47 ? "someone@example.com" : "")
             controller.send()

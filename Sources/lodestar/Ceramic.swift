@@ -344,8 +344,8 @@ enum BarTheme {
 
     /// The one selection: ink at 30%, behind the words, in every well and in
     /// Keep's naming (design/12-well.md).
-    static let selectionShare: CGFloat = 0.3
-    static var selectionFill: NSColor { inkAt(selectionShare) }
+    static let washShare: CGFloat = 0.3
+    static var wash: NSColor { inkAt(washShare) }
 
     /// The ink at a share, a colour that follows the look: a fixed alpha on
     /// a dynamic colour is fixed when it is made, so the share is applied

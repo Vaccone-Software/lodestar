@@ -103,9 +103,9 @@ public struct WebContext {
     public var profileKeys: [String] { profiles.keys.sorted() }
 
     /// The profile a destination opens in: explicit pin, then rules (longest
-    /// substring match), then the fallback, then the browser you were last
-    /// in. The last resort is any known profile, so a destination always
-    /// has somewhere to go.
+    /// match — whole labels of a host, whole words of a query), then the
+    /// fallback, then the browser you were last in. The last resort is any
+    /// known profile, so a destination always has somewhere to go.
     public func resolve(pinned: String?, routedOn text: String) -> ProfileResolution {
         if let pinned, let profile = profiles[pinned] {
             return ProfileResolution(profile: profile, source: .pinned)

@@ -659,7 +659,7 @@ public enum SettingsModel {
                 problem: problem(at: "web.links")),
             Row(title: "Routes", path: "web.routes",
                 control: .table(kind: .routes, entries: routeEntries),
-                detail: "Pattern → profile, matched against anything you type or click",
+                detail: "Pattern → profile. A host matches on whole labels; a search matches on whole words",
                 isDefault: config.webRoutes.isEmpty, group: "Links and routes",
                 problem: problem(at: "web.routes")),
             Row(title: "Route clicked links", path: "web.clicks.enabled",

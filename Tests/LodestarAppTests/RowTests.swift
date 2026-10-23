@@ -455,8 +455,7 @@ extension RowTests {
             ("breath", Recommendation(kind: .breath, target: "\(first) + \(second)",
                                       detail: "\(first) and \(second) travel together 9999× at lift 99.9 · composed side by side 99× · a breath would bring them back with one key",
                                       secondsPerWeek: 4000, probability: 0.9, evidence: [], display: "\(first) + \(second)",
-                                      edit: .composeBreath(apps: [first, second], path: "b"),
-                                      record: "\(first) and \(second) travel together 9999×")),
+                                      edit: .composeBreath(apps: [first, second], path: "b"))),
         ]
         var wrong: [String] = []
         for look in GalleryLook.all {

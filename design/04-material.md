@@ -35,7 +35,7 @@ The rim is clipped to the pane's corners, so it thins into the curve where the s
 
 **The side.** A band of the side colour beneath the face, as tall as its size calls for: 3 points at a control's size, 4 at a row's, 5 at a large key's. Pressing collapses it to 1 point at once, the face moving down by what the side gave up. The side sits inside the thing's frame (geometry, rule 6).
 
-**The well** by day is the pane darkened by 0.025 in lightness (about `#EEE7E0` in a clay pane); by night it is the pane darkened by 0.02, never below the ground.
+**The well** by day is the pane darkened by 0.05 in lightness (`#E6DED6` in a clay pane), with its edge at ink 14%; by night it is the pane darkened by 0.04 (`#14100D` in an espresso pane), never below the ground, with its edge at ink 12%. A placeholder in quiet ink still clears 5 : 1 in it.
 
 ### Weights retire
 
@@ -74,3 +74,4 @@ Built 22 October 2026. Before it, main's panels were glass (`TonedGlass`, an `NS
 ## Decided in review
 
 - Night panes cast a faint shadow (espresso ground at 40%), so a pane separates from a dark desktop as well as by its edge (22 October 2026).
+- Wells sink twice as far as first built, with a firmer edge: a step of 0.025 read almost flat (Feedback's note was the example).

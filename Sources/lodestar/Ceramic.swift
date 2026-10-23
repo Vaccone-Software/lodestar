@@ -270,12 +270,6 @@ class CeramicPanel: NSPanel {
 /// type — so the tokens live here, where drift can't hide in literals.
 enum BarTheme {
     static let footerHeight: CGFloat = Grid.section
-    /// One key-and-label row, shared by every surface that draws them: the
-    /// chain guide, the cheat sheet, and the clipboard's actions menu. Left
-    /// to themselves they drifted into three chip shapes, three keycap
-    /// sizes and three icon sizes; this is the one set. (A key's width and
-    /// parts are the key contract's, later.)
-    static let chipMinWidth: CGFloat = 34
 
     /// The type scale: three sizes for every word Lodestar draws, and one
     /// for what is typed into a bar. Nine sizes chosen one at a time, from
@@ -596,7 +590,10 @@ enum Keycaps {
     /// the surface can be reached by mouse as well as by hand — the same
     /// thing the keys would have done.
     struct Gesture {
+        /// The keystrokes, one key each, as typed: `e`, `p`, `⌘K`, `esc`.
         let keys: [String]
+        /// The last key tapped twice: one key and `×2`, never two keys.
+        var double = false
         let verb: String
         let action: (() -> Void)?
         /// A room's own verb: its keys lit, as the launcher lights the keys
@@ -606,9 +603,10 @@ enum Keycaps {
         /// sending): drawn receded, and not clickable.
         var quiet = false
 
-        init(_ keys: [String], _ verb: String, action: (() -> Void)? = nil, lit: Bool = false,
-             quiet: Bool = false) {
+        init(_ keys: [String], _ verb: String, double: Bool = false, action: (() -> Void)? = nil,
+             lit: Bool = false, quiet: Bool = false) {
             self.keys = keys
+            self.double = double
             self.verb = verb
             self.action = action
             self.lit = lit
@@ -630,9 +628,6 @@ enum Keycaps {
             }
         }
     }
-
-    /// A cap is the one key: `KeyFace`, which a pointer can refill.
-    typealias CapView = KeyFace
 
     /// The caps of one gesture, made pressable.
     ///
@@ -677,13 +672,10 @@ enum Keycaps {
             ])
         }
 
-        /// The common case: the shared caps, lit together.
-        convenience init(caps: [CapView], action: @escaping () -> Void) {
-            let row = NSStackView(views: caps)
-            row.orientation = .horizontal
-            row.alignment = .centerY
-            row.spacing = Grid.tight
-            self.init(content: row,
+        /// The common case: the keys of one gesture, lit together.
+        convenience init(strokes: KeyStrokes, action: @escaping () -> Void) {
+            let caps = strokes.caps
+            self.init(content: strokes,
                       paint: { state in for cap in caps { cap.fill(state) } },
                       action: action)
         }
@@ -744,29 +736,43 @@ enum Keycaps {
             case .words(let text):
                 row.addArrangedSubview(word(text, color: BarTheme.secondaryColor))
             case .keys(let keys):
-                let group = NSStackView(views: keys.map { cap($0) })
-                group.orientation = .horizontal
-                group.alignment = .centerY
-                group.spacing = Grid.hair
-                row.addArrangedSubview(group)
+                // One key per keystroke, 4 apart, as typed.
+                row.addArrangedSubview(strokes(keys))
             }
         }
         row.setAccessibilityLabel(FlashLine.plain(line))
         return row
     }
 
-    /// A single cap: the one key, the launcher's, so a key never looks
-    /// like two different things on two surfaces.
-    static func cap(_ text: String) -> CapView {
-        let cap = KeyFace(text)
-        cap.setContentHuggingPriority(.required, for: .horizontal)
-        return cap
+    /// The keystrokes a written group of keys is: a key by name or a chord
+    /// is one (`esc`, `⌘K`, `⇧F`, `a…z`), and a run of letters and symbols
+    /// is one each (`zo` is `z` then `o`).
+    static func keystrokes(of written: String) -> [String] {
+        let modifiers = Set("⇧⌘⌥⌃")
+        if written.count == 1 || written.contains("…") || written.first.map({ modifiers.contains($0) }) == true {
+            return [written]
+        }
+        let named: Set<String> = ["esc", "tab", "space", "lode", "fn", "return", "delete"]
+        if named.contains(written) { return [written] }
+        return written.map(String.init)
     }
 
-    /// A chip's gesture line: caps and the words that say what they do,
-    /// with a middot between gestures. Tight inside a gesture and open
-    /// between them, so `lode lode` reads as one thing done twice rather
-    /// than two things.
+    /// A single key: the one key, so a key never looks like two different
+    /// things on two surfaces.
+    static func cap(_ legend: String, size: KeySize = .standard) -> Key {
+        Key(legend, size: size)
+    }
+
+    /// The keys of one gesture: a key per keystroke, 4 apart; a double tap
+    /// is one key and `×2`.
+    static func strokes(_ legends: [String], double: Bool = false, lit: Bool = false,
+                        quiet: Bool = false) -> KeyStrokes {
+        KeyStrokes(legends, double: double, lit: lit, quiet: quiet)
+    }
+
+    /// A chip's gesture line: keys and the words that say what they do, with
+    /// a middot between gestures. Keys within a gesture stand 4 apart, a
+    /// double tap is one key and `×2`, and separate gestures 8 apart.
     static func line(_ gestures: [Gesture]) -> NSView {
         let row = NSStackView()
         row.orientation = .horizontal
@@ -784,21 +790,15 @@ enum Keycaps {
             if index > 0 {
                 add(word("·", color: BarTheme.secondaryColor), spacingBefore: Grid.close)
             }
-            let caps = gesture.keys.map { cap($0) }
-            for capView in caps {
-                capView.lit = gesture.lit && !gesture.quiet
-                capView.quiet = gesture.quiet
-            }
+            let keys = strokes(gesture.keys, double: gesture.double, lit: gesture.lit && !gesture.quiet,
+                               quiet: gesture.quiet)
             if let action = gesture.action, !gesture.quiet {
-                // One view for the whole gesture, so hover lights both caps
+                // One view for the whole gesture, so hover lights its keys
                 // at once: `lode ⌫` is one press of two keys, not two
                 // things that happen to sit together.
-                add(CapGroup(caps: caps, action: action),
-                    spacingBefore: index > 0 ? 10 : nil)
+                add(CapGroup(strokes: keys, action: action), spacingBefore: index > 0 ? Grid.close : nil)
             } else {
-                for (position, capView) in caps.enumerated() {
-                    add(capView, spacingBefore: index > 0 && position == 0 ? 10 : nil)
-                }
+                add(keys, spacingBefore: index > 0 ? Grid.close : nil)
             }
             // A label is a name, capitalized wherever it is written from:
             // "esc Back", never "esc back".
@@ -1195,94 +1195,6 @@ extension Readability.RGB {
     var color: NSColor { NSColor(srgbRed: red, green: green, blue: blue, alpha: 1) }
 }
 
-/// The one key Lodestar draws: a face on a visible side. Lit, it is a piece
-/// of the mark: the accent, with the mark's brightest face for its rim and
-/// its darkest for its side, and the letter in whichever ink reads on it.
-/// Resting, it is a quiet cap; in clay, the pictures' pale keycap. Pressed,
-/// its side falls to a point and the face follows it down, at once.
-final class KeyFace: NSView, CeramicDepth {
-    let label = NSTextField(labelWithString: "")
-    var lit = false { didSet { if lit != oldValue { refresh() } } }
-    /// A key you could press but are not being asked to: the address the
-    /// coach offers for later, a cheat sheet's unused gesture, an action
-    /// not available yet. It lies flat: no side and no fill, a hairline and
-    /// the quiet ink for its letter. Depth carries the importance, never a
-    /// fade: a translucent key is not a thing a light falls on, and on clay
-    /// it all but vanished.
-    var quiet = false { didSet { if quiet != oldValue { refresh() } } }
-    /// What a pointer is doing to a key that can be clicked: it brightens
-    /// under the pointer and stands down onto its side when pressed.
-    private var pointer = Keycaps.CapState.resting
-    let standing = Standing(rest: Ceramic.Side.control)
-    private var labelCentre: NSLayoutConstraint?
-
-    /// `padX` widens a key whose label is a word on a long cap, the walk's
-    /// space bar; every other key takes the theme's.
-    init(_ text: String, padX: CGFloat = Grid.half) {
-        super.init(frame: .zero)
-        wantsLayer = true
-        translatesAutoresizingMaskIntoConstraints = false
-        layer?.masksToBounds = false
-        if let layer { standing.install(in: layer) }
-        label.stringValue = text
-        label.setRole(.key)
-        label.alignment = .center
-        label.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(label)
-        let centre = label.centerYAnchor.constraint(equalTo: centerYAnchor)
-        labelCentre = centre
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: padX),
-            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -padX),
-            centre,
-            heightAnchor.constraint(equalToConstant: BarTheme.keyHeight),
-            widthAnchor.constraint(greaterThanOrEqualToConstant: BarTheme.chipMinWidth),
-        ])
-        refresh()
-    }
-
-    required init?(coder: NSCoder) { nil }
-
-    var depth: Ceramic.Depth { standing.flat ? .flat : .standsUp(side: standing.side) }
-    var drawnSide: CGFloat { standing.visibleSide }
-
-    override func layout() {
-        super.layout()
-        standing.fit(bounds, radius: BarTheme.controlRadius)
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        refresh()
-    }
-
-    /// Refill for the pointer, as `Keycaps.CapGroup` does for its caps.
-    func fill(_ state: Keycaps.CapState) {
-        guard state != pointer else { return }
-        pointer = state
-        refresh()
-    }
-
-    func refresh() {
-        let flat = quiet && !lit
-        standing.flat = flat
-        standing.pressed = pointer == .pressed
-        if flat {
-            standing.paint(in: self, face: nil, side: nil, rim: nil, edge: BarTheme.hairline)
-            label.textColor = BarTheme.secondaryColor
-        } else {
-            standing.paint(in: self, face: BarTheme.face(lit: lit, state: pointer),
-                           side: lit ? BarTheme.litSideFill : BarTheme.sideFill,
-                           rim: lit ? BarTheme.litRimFill : BarTheme.rimFill,
-                           edge: lit ? nil : BarTheme.faceEdge)
-            label.textColor = lit ? BarTheme.onAccent : BarTheme.keyLetter
-        }
-        // The letter stays on the face, wherever the face stands.
-        // (An anchor's constant counts the other way from the view's own y.)
-        labelCentre?.constant = -standing.lift
-    }
-}
-
 /// A chip that only says something lies flat: a hairline outline with no
 /// fill and no side, set again whenever the appearance changes, since a
 /// layer keeps the colour it was given.
@@ -1595,124 +1507,5 @@ final class ShadowHostView: NSView {
         let local = convert(point, from: superview)
         guard content.frame.contains(local) else { return nil }
         return super.hitTest(point)
-    }
-}
-
-/// A mark's key: the one key laid over another app's window, built by hand
-/// without layout, so it stands on its side in its own layer.
-final class MarkKey: NSView, CeramicDepth {
-    let standing: Standing
-
-    init(frame: NSRect, rest: CGFloat) {
-        standing = Standing(rest: rest)
-        super.init(frame: frame)
-        wantsLayer = true
-        layer?.masksToBounds = false
-        if let layer { standing.install(in: layer) }
-        paint()
-    }
-
-    required init?(coder: NSCoder) { nil }
-
-    var depth: Ceramic.Depth { .standsUp(side: standing.side) }
-    var drawnSide: CGFloat { standing.visibleSide }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        paint()
-    }
-
-    private func paint() {
-        standing.paint(in: self, face: BarTheme.markFill, side: BarTheme.sideFill, rim: BarTheme.rimFill,
-                       edge: BarTheme.hairline)
-    }
-}
-
-/// Marks laid over another app's window, drawn as the one key: the pale cap
-/// on its side, with a hairline so it reads over any app, light or dark. A mark the hand has begun typing
-/// stays the resting key and keeps its width: the letters already typed
-/// dim in its label, and the ones still to press keep the mark's ink.
-/// Built by hand, without layout, because a window of click hints can be
-/// four hundred of them at once.
-enum KeyMark {
-    static let height: CGFloat = BarTheme.keyHeight
-    /// The peek's numerals: the same key at a size read across the screen.
-    static let peekHeight: CGFloat = BarTheme.rowHeight
-    /// The neutral hairline from a displaced tag to its word.
-    static var connector: NSColor { BarTheme.inkAt(Tone.systemDark ? 0.38 : 0.35) }
-    /// The underline's weight: the editor's line, select's matches, a held span.
-    static let underline: CGFloat = 2.5
-    /// The anchor's and the held span's heavier line.
-    static let heavyUnderline: CGFloat = 3.5
-
-    /// A label with its first `typed` letters dimmed, in the caption grey,
-    /// and the rest in the mark's ink. The label compares to what was
-    /// typed without case, since it is drawn in capitals; a label the typed
-    /// letters do not begin is drawn whole.
-    static func letters(_ text: String, typed: String, role: BarTheme.Role) -> NSAttributedString {
-        let drawn = text.uppercased()
-        let done = !typed.isEmpty && text.lowercased().hasPrefix(typed.lowercased()) ? typed.count : 0
-        let label = NSMutableAttributedString(string: drawn, attributes: BarTheme.attributes(
-            role, color: BarTheme.markLetter))
-        label.addAttribute(.foregroundColor, value: BarTheme.secondaryColor,
-                           range: NSRange(location: 0, length: min(done, label.length)))
-        return label
-    }
-
-    /// One key, origin at zero, sized to its letters. `typed` is what the
-    /// hand has typed of the label so far; those letters dim. It stands on
-    /// a side inside its frame, three points at a key's size and five at the
-    /// peek's, and wears a hairline so it reads over any app.
-    static func key(_ text: String, typed: String = "", peek: Bool = false) -> NSView {
-        let height = peek ? peekHeight : height
-        let side = peek ? Ceramic.Side.large : Ceramic.Side.control
-        let radius = BarTheme.controlRadius
-        let label = NSTextField(labelWithAttributedString:
-            letters(text, typed: typed, role: peek ? .largeFigure : .key))
-        label.followLook()
-        label.alignment = .center
-        label.sizeToFit()
-        let width = max(height, ceil(label.frame.width) + Grid.half * 2)
-        let view = MarkKey(frame: NSRect(x: 0, y: 0, width: width, height: height), rest: side)
-        view.standing.fit(view.bounds, radius: radius)
-        // The letter stands on the face: the frame less the side.
-        label.frame = NSRect(x: 0, y: (side + (height - side - label.frame.height) / 2).rounded(), width: width,
-                             height: label.frame.height)
-        view.addSubview(label)
-        return view
-    }
-
-    /// The editor lens's tag: the key and the fix in words, on a small
-    /// pane of the palette in force, just above the word it fixes. It
-    /// floats over another app's text, so it casts the pane's shadow.
-    static func tag(letter: String, word: String, typed: String = "") -> NSView {
-        let pad = Grid.tight
-        let radius = BarTheme.controlRadius + pad
-        let key = KeyMark.key(letter, typed: typed)
-        let label = NSTextField(labelWithString: word)
-        label.setRole(.meta)
-        label.textColor = BarTheme.ink
-        label.sizeToFit()
-        let height = key.frame.height + pad * 2
-        let width = ceil(pad + key.frame.width + Grid.half + label.frame.width + Grid.close)
-        let tag = ObjectSurface(radius: radius)
-        tag.frame = NSRect(x: 0, y: 0, width: width, height: height)
-        Ceramic.installPane(in: tag, cornerRadius: radius)
-        key.frame.origin = NSPoint(x: pad, y: pad)
-        tag.addSubview(key)
-        label.frame.origin = NSPoint(x: key.frame.maxX + Grid.half, y: ((height - label.frame.height) / 2).rounded())
-        tag.addSubview(label)
-        return tag
-    }
-
-    /// An underline in the accent along the foot of `rect` (AppKit
-    /// coordinates in the view it is added to).
-    static func underline(under rect: NSRect, weight: CGFloat) -> NSView {
-        let line = NSView(frame: NSRect(x: rect.minX + 1, y: rect.minY - weight + 1,
-                                        width: max(Grid.hair, rect.width - Grid.hair), height: weight))
-        line.wantsLayer = true
-        line.layer?.backgroundColor = BarTheme.accent.cgColor
-        line.layer?.cornerRadius = weight / 2
-        return line
     }
 }

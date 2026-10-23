@@ -237,10 +237,11 @@ public final class GraphNode {
         children.keys.sorted().map { key in
             let child = children[key]!
             if let target = child.target, child.children.isEmpty {
-                return (key.uppercased(), target.label)
+                return (key, target.label)
             }
-            let letters = child.children.keys.sorted().map { $0.uppercased() }.joined(separator: " ")
-            return (key.uppercased(), "→ \(letters)")
+            // As typed: a bare key is lowercase.
+            let letters = child.children.keys.sorted().joined(separator: " ")
+            return (key, "→ \(letters)")
         }
     }
 }

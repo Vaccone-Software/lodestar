@@ -14,12 +14,12 @@ final class IndexBadges {
 
         for item in items.prefix(10) {
             // The one key at peek size, on room for its shadow.
-            let key = KeyMark.key("\(item.index)", peek: true)
+            let key = KeyMark.peek("\(item.index)")
             let margin = Grid.group
-            let size = key.frame.width + margin * 2
+            let size = NSSize(width: key.frame.width + margin * 2, height: key.frame.height + margin * 2)
             let origin = NSPoint(
-                x: (item.frame.midX - size / 2).rounded(),
-                y: (primaryHeight - item.frame.midY - size / 2).rounded()
+                x: (item.frame.midX - size.width / 2).rounded(),
+                y: (primaryHeight - item.frame.midY - size.height / 2).rounded()
             )
             let panel = Ceramic.makePanel(level: .statusBar, takesKeys: false)
             panel.ignoresMouseEvents = true
@@ -29,7 +29,7 @@ final class IndexBadges {
             key.frame.origin = NSPoint(x: margin, y: margin)
             root.addSubview(key)
 
-            panel.setFrame(NSRect(origin: origin, size: NSSize(width: size, height: size)), display: true)
+            panel.setFrame(NSRect(origin: origin, size: size), display: true)
             panel.orderFrontRegardless()
             panels.append(panel)
         }

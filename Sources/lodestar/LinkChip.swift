@@ -120,7 +120,7 @@ final class LinkChip {
         // two words have about 298pt inside a 330pt chip, and the labels
         // truncate rather than wrap. "goes there" measured 299.8.
         stack.addArrangedSubview(Keycaps.line([
-            .init(["lode", "lode"], "Go", action: { [weak self] in _ = self?.take() }),
+            .init(["lode"], "Go", double: true, action: { [weak self] in _ = self?.take() }),
             .init(["lode", "⌫"], "Dismiss", action: { [weak self] in _ = self?.dismiss() }),
         ]))
 

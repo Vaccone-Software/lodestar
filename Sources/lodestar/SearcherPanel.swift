@@ -73,8 +73,8 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     private let actions: Actions
     private let model: WindowModel
 
-    /// lowercased app name -> graph chain (e.g. "proton mail" -> "E P")
-    var graphAddress: (String) -> String? = { _ in nil }
+    /// lowercased app name -> graph chain, one entry per keystroke (e.g. "proton mail" -> ["e", "p"])
+    var graphAddress: (String) -> [String]? = { _ in nil }
     /// lowercased app name -> every chain bound to it (lowercased letters)
     var graphChains: (String) -> [[String]] = { _ in [] }
     /// Everything the graph binds for a browser — the bare app name and
@@ -300,8 +300,9 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         }
     }
 
+    /// A chain written into a sentence, as it is typed.
     private static func display(_ chain: [String]) -> String {
-        chain.map { $0.uppercased() }.joined(separator: " ")
+        chain.joined(separator: " ")
     }
 
     /// Reuse row views by identity — typing repaints, it never rebuilds, so
@@ -326,7 +327,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     private func configure(_ view: SearcherRowView, row: Row) {
         switch row {
         case .app(let entry):
-            var chips: [String] = []
+            var chips: [[String]] = []
             if let address = graphAddress(entry.name.lowercased()) {
                 chips.append(address)
             }
@@ -473,7 +474,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
             // address that takes none. The row already names the app and
             // lights its ⏎, so the footer draws no ⏎ of its own. "Again",
             // not "twice": the first press is what brought the note up.
-            let address = (["lode"] + chain.map { $0.uppercased() }).map { "[\($0)]" }.joined()
+            let address = (["lode"] + chain).map { "[\($0)]" }.joined()
             setFooter(("Press again to open", address))
             reposition()
             return
@@ -887,9 +888,9 @@ private final class SearcherRowView: RaisedRow {
     private let icon = NSImageView()
     private let name = NSTextField(labelWithString: "")
     private let stack = NSStackView()
-    private var keys: [KeyFace] = []
+    private var keys: [KeyStrokes] = []
     /// ⏎ on the chosen row: the key that opens it, lit with its letters.
-    private let enter = KeyFace("⏎")
+    private let enter = Key("⏎")
     private var dot: NSTextField?
     private var identity = ""
     private var trailingSignature = ""
@@ -946,14 +947,14 @@ private final class SearcherRowView: RaisedRow {
     required init?(coder: NSCoder) { nil }
 
     func configure(identity: String, icon iconLoader: () -> NSImage?, title: String,
-                   chips: [String], showDot: Bool) {
+                   chips: [[String]], showDot: Bool) {
         if identity != self.identity {
             self.identity = identity
             icon.image = iconLoader()
         }
         name.stringValue = title
 
-        let signature = chips.joined(separator: "|") + (showDot ? "|●" : "")
+        let signature = chips.map { $0.joined(separator: ",") }.joined(separator: "|") + (showDot ? "|●" : "")
         if signature != trailingSignature {
             trailingSignature = signature
             for view in keys { stack.removeArrangedSubview(view); view.removeFromSuperview() }
@@ -966,9 +967,10 @@ private final class SearcherRowView: RaisedRow {
             // The address keys, then ⏎ (shown only when chosen), then the dot.
             let enterIndex = stack.arrangedSubviews.firstIndex(of: enter) ?? stack.arrangedSubviews.count
             for (offset, chip) in chips.enumerated() {
-                let key = KeyFace(chip)
-                keys.append(key)
-                stack.insertArrangedSubview(key, at: enterIndex + offset)
+                // One key per keystroke, 4 apart.
+                let strokes = KeyStrokes(chip)
+                keys.append(strokes)
+                stack.insertArrangedSubview(strokes, at: enterIndex + offset)
             }
             // The open dot belongs to the app, so it sits beside its name.
             if showDot {
@@ -995,7 +997,7 @@ private final class SearcherRowView: RaisedRow {
     private func restyle() {
         applyRaised(selectedState)
         name.textColor = BarTheme.ink
-        for key in keys { key.lit = selectedState }
+        for strokes in keys { strokes.lit = selectedState }
         enter.isHidden = !selectedState
         // Running is a state, not where the hand goes: a quiet dot, the same
         // on every row, as the Dock marks a running app.
@@ -1063,10 +1065,10 @@ enum SearcherRowPreview {
             FileManager.default.fileExists(atPath: path)
                 ? NSWorkspace.shared.icon(forFile: path) : nil
         }
-        let samples: [(String, String, [String], Bool)] = [
-            ("/Applications/Safari.app", "Safari", ["W"], false),
-            ("/System/Applications/Mail.app", "Mail", ["E P"], true),
-            ("/System/Applications/Notes.app", "Notes", ["N"], false),
+        let samples: [(String, String, [[String]], Bool)] = [
+            ("/Applications/Safari.app", "Safari", [["w"]], false),
+            ("/System/Applications/Mail.app", "Mail", [["e", "p"]], true),
+            ("/System/Applications/Notes.app", "Notes", [["n"]], false),
             ("/System/Applications/Utilities/Terminal.app", "Terminal", [], false),
         ]
         for (offset, sample) in samples.enumerated() {

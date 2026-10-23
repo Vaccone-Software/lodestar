@@ -92,8 +92,8 @@ enum GalleryMaterial {
 
         let roles = NSView(frame: .zero)
         // Stands up: what you press.
-        let rest = KeyFace("esc")
-        let lit = KeyFace("⏎")
+        let rest = Key("esc")
+        let lit = Key("⏎")
         lit.lit = true
         let open = RoomButton(title: "Open", target: nil, action: nil)
         let chosen = RaisedRow(frame: .zero)
@@ -122,7 +122,7 @@ enum GalleryMaterial {
         let sinks = column([caption("Sinks: a well, an edge, nothing more"), field, note], spacing: Grid.part)
 
         // Flat: everything else.
-        let quiet = KeyFace("tab")
+        let quiet = Key("tab")
         quiet.quiet = true
         let chip = FlatChip()
         let chipWord = caption("chip", role: .key)
@@ -164,19 +164,13 @@ enum GalleryMaterial {
         root.addSubview(keysGround)
         let keys = NSView(frame: .zero)
         func pair(_ legend: String, lit: Bool = false) -> NSView {
-            let resting = KeyFace(legend), pressed = KeyFace(legend)
+            let resting = Key(legend), pressed = Key(legend)
             resting.lit = lit
             pressed.lit = lit
             pressed.fill(.pressed)
             return column([row([resting, pressed], spacing: Grid.part)], spacing: Grid.tight)
         }
-        let large = KeyMark.key("7", peek: true)
-        large.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            large.widthAnchor.constraint(equalToConstant: large.frame.width),
-            large.heightAnchor.constraint(equalToConstant: large.frame.height),
-        ])
-        let largeRow = row([large], spacing: Grid.part)
+        let largeRow = row([Key("7", size: .large)], spacing: Grid.part)
         let legend = row([
             caption("a key resting, then pressed: the side gives up two points and the face goes down by them"),
         ])

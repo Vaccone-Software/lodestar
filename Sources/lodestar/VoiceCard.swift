@@ -77,27 +77,10 @@ enum GuideRows {
         spacer.widthAnchor.constraint(
             greaterThanOrEqualToConstant: Grid.section).isActive = true
 
-        // One cap per press, through the shared shape. A row whose keys are
-        // alternatives rather than a sequence passes them as one string and
-        // still gets one cap, which is what `J K` — either one — needs.
-        let chip: NSView
-        let caps = guideRow.keys.map { key -> KeyFace in
-            let cap = Keycaps.cap(key)
-            cap.lit = guideRow.lit
-            return cap
-        }
-        if let action = guideRow.action {
-            chip = Keycaps.CapGroup(caps: caps, action: action)
-        } else if caps.count == 1 {
-            chip = caps[0]
-        } else {
-            let group = NSStackView(views: caps)
-            group.orientation = .horizontal
-            group.alignment = .centerY
-            group.spacing = Grid.tight
-            group.setContentHuggingPriority(.required, for: .horizontal)
-            chip = group
-        }
+        // One key per keystroke, through the one key; groups that are not one
+        // sequence (alternatives) stand apart.
+        let strokes = KeyStrokes(groups: guideRow.groups, double: guideRow.double, lit: guideRow.lit)
+        let chip: NSView = guideRow.action.map { Keycaps.CapGroup(strokes: strokes, action: $0) } ?? strokes
 
         if let iconView { row.addArrangedSubview(iconView) }
         row.addArrangedSubview(text)
@@ -162,7 +145,7 @@ enum VoiceCard {
             line.orientation = .horizontal
             line.alignment = .centerY
             line.spacing = Grid.tight
-            for key in keymap.keys { line.addArrangedSubview(Keycaps.cap(key)) }
+            line.addArrangedSubview(Keycaps.strokes(keymap.keys))
             let arrow = NSTextField(labelWithString: "→")
             arrow.setRole(.meta)
             arrow.textColor = BarTheme.secondaryColor
@@ -171,7 +154,7 @@ enum VoiceCard {
             target.setRole(.body)
             target.textColor = BarTheme.ink
             line.addArrangedSubview(target)
-            line.setCustomSpacing(Grid.close, after: line.arrangedSubviews[keymap.keys.count - 1])
+            line.setCustomSpacing(Grid.close, after: line.arrangedSubviews[0])
             line.setCustomSpacing(Grid.close, after: arrow)
             stack.addArrangedSubview(line)
         }

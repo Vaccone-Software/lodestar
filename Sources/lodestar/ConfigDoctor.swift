@@ -576,7 +576,7 @@ func runObservations(clear: Bool, logbookOnly: Bool = false, healthOnly: Bool = 
     if !bound.isEmpty {
         print("addresses")
         for leaf in bound.sorted(by: { $0.chain.joined() < $1.chain.joined() }) {
-            let shown = "lode " + leaf.chain.map { $0.uppercased() }.joined(separator: " ")
+            let shown = "lode " + leaf.chain.joined(separator: " ")
             let record = o.addresses[Observations.key(leaf.chain)]
             var columns = [pad(shown, 16), pad(leaf.target.label, 18)]
             columns.append(pad("\(record?.completions ?? 0) uses", 10))
@@ -596,7 +596,7 @@ func runObservations(clear: Bool, logbookOnly: Bool = false, healthOnly: Bool = 
                 var note = "\(record.wrongKeys) wrong keys"
                 if let (letter, count) = record.confusion.max(by: { $0.value < $1.value }),
                    count > 1 {
-                    note += " (mostly \(letter.uppercased()))"
+                    note += " (mostly \(letter))"
                 }
                 notes.append(note)
             }

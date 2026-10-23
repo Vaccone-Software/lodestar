@@ -47,7 +47,7 @@ final class SettingsLightTests: XCTestCase {
         XCTAssertEqual(risen.first, true, "the picked result rises")
         XCTAssertEqual(risen.dropFirst().filter { $0 }.count, 0, "and only it")
         let picked = try XCTUnwrap(rows.first)
-        let caps = picked.subviews.compactMap { $0 as? KeyFace }
+        let caps = picked.subviews.compactMap { $0 as? Key }
         XCTAssertFalse(caps.isEmpty)
         XCTAssertTrue(caps.allSatisfy(\.lit), "its keys light where the hand goes next")
         XCTAssertTrue(rows.allSatisfy { ($0.layer?.borderWidth ?? 0) == 0 }, "nothing outlined in the accent")

@@ -64,7 +64,7 @@ enum SurfaceWiring {
                 keymap: keymap,
                 detail: keymap == nil ? Coach.sentenceCase("\(chip.headline) · \(chip.evidence)") : chip.evidence,
                 rows: [
-                    GuideRow(keys: ["lode", "lode"], label: "Accept",
+                    GuideRow(keys: ["lode"], double: true, label: "Accept",
                              action: { [weak coach] in coach?.lodeDoubleTapped() }, lit: true),
                     GuideRow(keys: ["lode", "⌫"], label: "Decline",
                              action: { [weak coach] in _ = coach?.lodeDelete() }),

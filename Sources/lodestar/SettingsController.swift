@@ -1204,7 +1204,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         head.orientation = .horizontal
         head.alignment = .centerY
         head.spacing = Grid.close
-        head.addArrangedSubview(keycap(SettingsModel.paneKey(index, count: sections.count) ?? ""))
+        head.addArrangedSubview(Keycaps.cap(SettingsModel.paneKey(index, count: sections.count) ?? ""))
         head.addArrangedSubview(label(section.name, role: .label, color: BarTheme.ink))
         if section.attention { head.addArrangedSubview(Self.dot()) }
         tile.addArrangedSubview(head)
@@ -1375,7 +1375,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             picture.heightAnchor.constraint(equalToConstant: Self.pagePicture.height),
         ])
         if openPage == nil, let place {
-            let digit = keycap(SettingsModel.paneKey(place, count: sections.count) ?? "")
+            let digit = Keycaps.cap(SettingsModel.paneKey(place, count: sections.count) ?? "")
             digit.translatesAutoresizingMaskIntoConstraints = false
             card.addSubview(digit)
             NSLayoutConstraint.activate([
@@ -1430,7 +1430,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         titleRow.spacing = Grid.close
         let title = label(row.title, role: .label, color: BarTheme.ink)
         titleRow.addArrangedSubview(title)
-        for cap in row.keycaps { titleRow.addArrangedSubview(keycap(cap)) }
+        for cap in row.keycaps { titleRow.addArrangedSubview(Keycaps.cap(cap)) }
         text.addArrangedSubview(titleRow)
         let armed = armedAction == index
         if let detail = armed ? row.action?.confirm : row.detail, !detail.isEmpty {
@@ -2030,7 +2030,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         fieldRow.orientation = .horizontal
         fieldRow.alignment = .centerY
         fieldRow.spacing = Grid.part
-        fieldRow.addArrangedSubview(keycap("/"))
+        fieldRow.addArrangedSubview(Keycaps.cap("/"))
         let field = NSTextField()
         field.setPlaceholder(ask == nil ? "Search every setting" : "Search, or ask in your own words")
         field.setRole(.body)
@@ -2252,28 +2252,6 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         field.widthAnchor.constraint(equalToConstant: width).isActive = true
         editableFields.append(field)
         return field
-    }
-
-    /// A key you can press is drawn as the key it is: the shared cap. A
-    /// lit cap is the pane or row that is current, lit as the launcher
-    /// lights the keys of its chosen row.
-    private func chip(_ text: String, lit: Bool) -> NSView {
-        let cap = Keycaps.cap(text)
-        cap.lit = lit
-        return cap
-    }
-
-    /// A row's own keys, beside its title: the shared cap.
-    private func keycap(_ text: String) -> NSView {
-        Keycaps.cap(text)
-    }
-
-    private func chipSpacer() -> NSView {
-        let view = NSView()
-        view.translatesAutoresizingMaskIntoConstraints = false
-        view.widthAnchor.constraint(equalToConstant: BarTheme.chipMinWidth).isActive = true
-        view.setContentHuggingPriority(.required, for: .horizontal)
-        return view
     }
 
     private func spacer(vertical: Bool = false) -> NSView {

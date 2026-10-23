@@ -12,7 +12,7 @@ final class StripAddressTests: XCTestCase {
         stage.seedClip("two")
         stage.openStrip()
         for card in stage.engine.strip.shownCards.values {
-            let cap = card.subviews.first { $0 is Keycaps.CapView }
+            let cap = card.subviews.first { $0 is Key }
             XCTAssertNotNil(cap, "the address is a key")
             XCTAssertEqual(cap?.frame.height, BarTheme.keyHeight)
         }

@@ -612,7 +612,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 // A ledger fact, not a write: the accepted entry the coach
                 // records next is the closure, and `Coach.roadClosed`
                 // reads it back until the address's curve bends.
-                let keys = (["lode"] + chain.map { $0.uppercased() }).map { "[\($0)]" }.joined()
+                let keys = (["lode"] + chain).map { "[\($0)]" }.joined()
                 self.hud.flash("✓ The launcher asks twice for \(app)\nUntil \(keys) is in your hands")
                 return nil
             }
@@ -1123,10 +1123,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// lowercased app name -> graph chain display ("proton mail" -> "E P"),
     /// shown as teaching chips in the searcher.
-    private var graphAddressByApp: [String: String] = [:]
+    private var graphAddressByApp: [String: [String]] = [:]
 
     private func rebuildGraphAddresses() {
-        var map: [String: String] = [:]
+        var map: [String: [String]] = [:]
         for (chain, target) in config.graph.leaves() {
             // A profile binding is an address for its browser's row: the
             // chip teaches the shortest way to some window of the app.
@@ -1135,11 +1135,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             case .app(let name): key = name.lowercased()
             case .browserProfile(let profile): key = profile.browser.appName.lowercased()
             }
-            let address = chain.map { $0.uppercased() }.joined(separator: " ")
             // Shortest chain wins; ties break on the sorted walk, so the
-            // chip an app shows is stable across launches.
-            if map[key].map({ $0.count > address.count }) ?? true {
-                map[key] = address
+            // address an app shows is stable across launches.
+            if map[key].map({ $0.count > chain.count }) ?? true {
+                map[key] = chain
             }
         }
         graphAddressByApp = map
@@ -1673,7 +1672,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// from what a hand edit would have.
     private func acceptStarterGraph(_ proposals: [StarterGraph.Proposal]) -> String? {
         guard !proposals.isEmpty else { return nil }
-        let shown = proposals.map { $0.letter.uppercased() }.joined(separator: " ")
+        let shown = proposals.map(\.letter).joined(separator: " ")
         return rewriteConfig(flash: "✓ graph: \(shown)", logged: "starter graph \(proposals.count)") { tree in
             var updated = tree
             for proposal in proposals {
@@ -2029,11 +2028,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // in case a verb ever moves back onto a letter — which is exactly
         // why the message no longer names particular letters.
         if Config.reservedTopLevel.contains(first) {
-            return "\(first.uppercased()) is reserved for a fixed verb"
+            return "\(first) is reserved for a fixed verb"
         }
         for depth in 1...letters.count {
             let prefix = Array(letters[0..<depth])
-            let shown = prefix.map { $0.uppercased() }.joined(separator: " ")
+            let shown = prefix.joined(separator: " ")
             switch config.graph.resolve(prefix) {
             case .leaf(let target):
                 return "lode \(shown) is \(target.label)"
@@ -2104,7 +2103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .problem(let problem): return problem
         case .ok(let value, let label):
             if let problem = chainProblem(letters) { return problem }
-            let shown = letters.map { $0.uppercased() }.joined(separator: " ")
+            let shown = letters.joined(separator: " ")
             return rewriteConfig(flash: "✓ lode \(shown) → \(label)") {
                 try GraphJsonEditor.addingPath(letters, target: value, in: $0)
             }
@@ -2113,7 +2112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func addAppToGraph(_ letters: [String], entry: AppIndex.Entry) -> String? {
         if let problem = chainProblem(letters) { return problem }
-        let shown = letters.map { $0.uppercased() }.joined(separator: " ")
+        let shown = letters.joined(separator: " ")
         return rewriteConfig(flash: "✓ lode \(shown) → \(entry.name)") {
             try GraphJsonEditor.addingPath(letters, target: entry.name, in: $0)
         }
@@ -2130,8 +2129,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .ok(let resolved, let name): (value, label) = (resolved, name)
         }
         if let problem = chainProblem(new) { return problem }
-        let from = old.map { $0.uppercased() }.joined(separator: " ")
-        let to = new.map { $0.uppercased() }.joined(separator: " ")
+        let from = old.joined(separator: " ")
+        let to = new.joined(separator: " ")
         return rewriteConfig(flash: "✓ lode \(from) → lode \(to) · \(label)") {
             // Old out first. A replacement is not required to be shorter,
             // so the two addresses can share a prefix — superseding X with
@@ -2145,7 +2144,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func removeChainFromGraph(_ letters: [String]) -> String? {
-        let shown = letters.map { $0.uppercased() }.joined(separator: " ")
+        let shown = letters.joined(separator: " ")
         return rewriteConfig(flash: "✓ removed lode \(shown)") {
             try GraphJsonEditor.deletingPath(letters, in: $0)
         }

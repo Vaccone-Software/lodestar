@@ -67,12 +67,12 @@ final class GeometryTests: XCTestCase {
         XCTAssertEqual(BarTheme.inputHeight, 60)
         XCTAssertEqual(BarTheme.rowHeight, 48)
         XCTAssertEqual(BarTheme.pillHeight, 44)
-        XCTAssertEqual(BarTheme.keyHeight, 22)
+        XCTAssertEqual(BarTheme.keyHeight, 24)
         XCTAssertEqual(BarTheme.appIconSize, 32)
         XCTAssertEqual(BarTheme.symbolSize, 16)
         XCTAssertGreaterThanOrEqual(BarTheme.minTarget, 24)
         XCTAssertEqual(BarTheme.measure, 380)
-        XCTAssertEqual(KeyFace("a").fittingSize.height, BarTheme.keyHeight)
+        XCTAssertEqual(Key("a").fittingSize.height, BarTheme.keyHeight)
         XCTAssertEqual(ModePill.height, BarTheme.pillHeight)
     }
 
@@ -285,19 +285,13 @@ final class GeometryTests: XCTestCase {
                     }
                 }
 
-                // A key is as wide as its legend needs, or as wide as the widest
-                // key it shares a column with: no minimum stretches it.
-                var groups: [ObjectIdentifier: [KeyFace]] = [:]
+                // A key is as wide as its legend needs and no wider, square at
+                // the least: nothing stretches it.
                 walk(root) { view in
-                    if let key = view as? KeyFace, !key.isHidden, let parent = view.superview {
-                        groups[ObjectIdentifier(parent), default: []].append(key)
-                    }
-                }
-                for group in groups.values {
+                    guard let key = view as? Key, !key.isHidden else { return }
                     counts["key columns", default: 0] += 1
-                    let widest = group.map { $0.fittingSize.width }.max() ?? 0
-                    for key in group where key.frame.width > widest + 0.5 {
-                        keys.append("\(name): key \"\(key.label.stringValue)\" is \(key.frame.width) wide, its column needs \(widest)")
+                    if key.frame.width > key.width + 0.5 {
+                        keys.append("\(name): key \"\(key.legend)\" is \(key.frame.width) wide, its legend needs \(key.width)")
                     }
                 }
 
@@ -336,8 +330,8 @@ final class GeometryTests: XCTestCase {
                         counts["raised rows", default: 0] += 1
                         let centre = frame(of: title, in: root).midY
                         walk(view) { part in
-                            guard !part.isHidden, part is KeyFace || (part is NSImageView && !(part.superview is NSTextField)) else { return }
-                            if part is NSImageView, part.superview?.superview is KeyFace { return }
+                            guard !part.isHidden, part is Key || (part is NSImageView && !(part.superview is NSTextField)) else { return }
+                            if part is NSImageView, part.superview?.superview is Key { return }
                             let mid = frame(of: part, in: root).midY
                             if abs(mid - centre) > 0.5 {
                                 rows.append("\(name): \(type(of: part)) \(mid) is off the title's \(centre)")

@@ -1709,7 +1709,7 @@ public struct EngineCore {
     }
 
     static func display(_ letters: [String]) -> String {
-        letters.map { $0.uppercased() }.joined(separator: " ")
+        letters.joined(separator: " ")
     }
 
     /// An address as a flash writes it, its keys drawn: `[lode][B][X]`.

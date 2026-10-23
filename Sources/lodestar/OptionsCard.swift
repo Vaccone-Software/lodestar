@@ -19,8 +19,7 @@ final class OptionsCard {
         /// The chain a remove targets, drawn as keycaps beside the key.
         var chain: [String] = []
         /// A word that qualifies the row — the browser a profile belongs to.
-        /// A chip, not a keycap: it is read, not pressed, so it keeps its
-        /// own case instead of being shouted in caps.
+        /// Shown, not pressed: a quiet key, in its own case.
         var detail: String?
     }
 
@@ -191,7 +190,9 @@ final class OptionsCard {
                     bodyRow.addArrangedSubview(label("type letters", role: .title,
                                                      color: BarTheme.secondaryColor))
                 } else {
-                    bodyRow.addArrangedSubview(keycap("lode", quiet: true, caps: false))
+                    // What was typed is a sequence: lode, then a key for each
+                    // keystroke, 4 apart.
+                    bodyRow.addArrangedSubview(keycap("lode", quiet: true))
                     for letter in letters {
                         bodyRow.addArrangedSubview(keycap(letter))
                     }
@@ -274,7 +275,7 @@ final class OptionsCard {
         stack.addArrangedSubview(icon)
         stack.addArrangedSubview(title)
         if let detail = item.detail {
-            stack.addArrangedSubview(keycap(detail, quiet: true, caps: false))
+            stack.addArrangedSubview(keycap(detail, quiet: true))
         }
         // Several bindings carry the same title and differ only by chain, so
         // the chain travels with the title it distinguishes. Only the key
@@ -296,15 +297,10 @@ final class OptionsCard {
         return container
     }
 
-    /// The chip every other surface draws. It used to wear a border here, to
-    /// separate "press this" from the searcher's informational chips — but
-    /// the guides and the clipboard's menu now draw the pressable key flat
-    /// too, so the border was the one thing out of step.
-    private func keycap(_ text: String, quiet: Bool = false, caps: Bool = true) -> NSView {
-        let key = KeyFace(caps ? text.uppercased() : text)
-        key.setContentHuggingPriority(.required, for: .horizontal)
-        key.quiet = quiet
-        return key
+    /// The one key, as typed: lowercase for a bare keystroke. Quiet where it
+    /// is shown, not pressed.
+    private func keycap(_ text: String, quiet: Bool = false) -> Key {
+        Key(text, state: quiet ? .quiet : .resting)
     }
 
     /// A footer's keys, drawn as keys. Footers arrive as "key verb" pairs
@@ -348,7 +344,7 @@ extension OptionsCard {
         case 4:
             card.present(.typing(Typing(header: "Add Microsoft Outlook to graph",
                                         body: .keys(["e", "o"]),
-                                        verdict: "adds lode E O",
+                                        verdict: "adds lode e o",
                                         footer: "⌫ back up    esc back")), anchor: anchor)
         case 5:
             // The web bar's pair, cascading: the name being typed, with its

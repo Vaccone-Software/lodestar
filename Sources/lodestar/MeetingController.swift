@@ -537,12 +537,8 @@ final class MeetingController: NSObject {
         // Join, drawn as the chord that does it, lit: the one thing the
         // chip is for. Dismiss stays on lode ⌫, pressed three times in
         // fifty-four meetings, and is not drawn.
-        let caps = ["lode", "lode"].map { key -> Keycaps.CapView in
-            let cap = Keycaps.cap(key)
-            cap.lit = true
-            return cap
-        }
-        let join = Keycaps.CapGroup(caps: caps, action: { [weak self] in _ = self?.join() })
+        let join = Keycaps.CapGroup(strokes: Keycaps.strokes(["lode"], double: true, lit: true),
+                                    action: { [weak self] in _ = self?.join() })
         join.translatesAutoresizingMaskIntoConstraints = false
         join.setAccessibilityLabel("Join")
         content.addSubview(join)

@@ -114,16 +114,15 @@ final class CheatSheet {
         container.alignment = .centerY
         container.spacing = Grid.close
 
-        // The one key, the launcher's.
-        let chip = Keycaps.cap(row.key)
+        // The one key: a key per keystroke, groups that are not one sequence apart.
+        // A dormant gesture draws quiet, as every quiet key is: lying flat.
+        let chip = KeyStrokes(groups: row.groups, double: row.double, quiet: row.dimmed)
 
         let text = NSTextField(labelWithString: row.label)
         text.setRole(.body)
         // A dormant gesture draws quiet, cap and all: the eye reads the
         // sheet for what it uses, and a row it never uses recedes.
         text.textColor = row.dimmed ? BarTheme.secondaryColor : BarTheme.ink
-        // Quiet the way every quiet key is: lying flat.
-        chip.quiet = row.dimmed
         text.lineBreakMode = .byTruncatingTail
         text.setContentCompressionResistancePriority(.init(500), for: .horizontal)
         container.setClippingResistancePriority(.init(900), for: .horizontal)

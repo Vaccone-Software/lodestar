@@ -551,19 +551,19 @@ final class SettingsSwitchSurvivalTests: XCTestCase {
 }
 
 /// The one key: resting a quiet cap, lit a piece of the mark.
-final class KeyFaceTests: XCTestCase {
+final class KeyColourTests: XCTestCase {
     func testALitKeyIsTheAccentWithItsReadableInk() {
         let saved = BarTheme.accentColor
         BarTheme.accentColor = { BarTheme.internationalOrange }
         defer { BarTheme.accentColor = saved }
-        let key = KeyFace("E")
+        let key = Key("e")
         key.frame = NSRect(x: 0, y: 0, width: 40, height: BarTheme.keyHeight)
         key.layout()
         let standing: Standing? = key.standing
         XCTAssertNotEqual(standing?.faceColor, BarTheme.accent.cgColor, "resting is not lit")
         key.lit = true
         XCTAssertEqual(standing?.faceColor, BarTheme.accent.cgColor)
-        XCTAssertEqual(key.label.textColor, BarTheme.onAccent)
+        XCTAssertEqual(key.legendColor, BarTheme.onAccent)
         XCTAssertEqual(key.drawnSide, Ceramic.Side.control, accuracy: 0.01, "the side stands beneath the face")
         XCTAssertNotNil(standing?.sideColor, "in a darker shade of the accent")
         XCTAssertNotEqual(standing?.sideColor, standing?.faceColor)

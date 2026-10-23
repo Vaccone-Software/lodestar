@@ -557,12 +557,12 @@ public enum Advisor {
             out.append(Candidate(rec: Recommendation(
                 kind: .bind, target: app,
                 detail: "\(app) is searched \(String(format: "%.1f", demand.perWeek))×/week"
-                    + " with no address · lode \(slot.uppercased()) would pay for itself",
+                    + " with no address · lode \(slot) would pay for itself",
                 secondsPerWeek: value.secondsPerWeek, probability: value.probability,
                 evidence: [
                     "\(record.searcher) launcher reaches across \(o.observedWeeks(app: app, now: context.now)) weeks",
                     String(format: "launcher costs %.2fs; lode %@ predicted %.2fs",
-                           launcherSeconds, slot.uppercased(), chainSeconds),
+                           launcherSeconds, slot, chainSeconds),
                     String(format: "learning bill ≈ %.0fs, from your own curves", learningCost),
                 ], edit: .bindTarget(chain: [slot], target: app)), p: 1 - value.probability,
                 offerable: value.probability >= probabilityGate))
@@ -602,13 +602,13 @@ public enum Advisor {
             let shown = key.isEmpty
                 ? "lode"
                 : "lode " + key.split(separator: " ")
-                    .map { $0.uppercased() }.joined(separator: " ")
+                    .joined(separator: " ")
             let weeks = o.observedWeeks(addressKey: key, now: context.now)
             let weekly = Double(record.wrongKeys) / Double(weeks) * 1.5
-            var detail = "at \(shown) your hand keeps pressing \(letter.uppercased()) · "
+            var detail = "at \(shown) your hand keeps pressing \(letter) · "
                 + "the name in your head disagrees with the graph"
             var evidence = ["\(count) of \(record.wrongKeys) wrong keys were "
-                + letter.uppercased()]
+                + letter]
             var edit: ConfigEdit?
             var display: String?
             let prefix = key.isEmpty ? [] : key.split(separator: " ").map(String.init)
@@ -617,7 +617,7 @@ public enum Advisor {
                                                context: context, proposed: proposed) {
                 edit = resolved.edit
                 display = resolved.label
-                let shownNew = proposed.map { $0.uppercased() }.joined(separator: " ")
+                let shownNew = proposed.joined(separator: " ")
                 detail = "your hand keeps pressing lode \(shownNew) for \(resolved.label) · "
                     + "the graph could agree with it"
                 evidence.append(resolved.evidence)
@@ -752,11 +752,11 @@ public enum Advisor {
                                    usesPerWeekSE: (weekly / weeks).squareRoot(),
                                    oneOffCost: learningCost,
                                    seed: seed(key))
-            let shown = "lode " + leaf.chain.map { $0.uppercased() }.joined(separator: " ")
+            let shown = "lode " + leaf.chain.joined(separator: " ")
             out.append(Candidate(rec: Recommendation(
                 kind: .shorten, target: key,
                 detail: "\(shown) fires \(Int(weekly))×/week · it has earned "
-                    + "lode \(slot.uppercased())",
+                    + "lode \(slot)",
                 secondsPerWeek: value.secondsPerWeek, probability: value.probability,
                 evidence: [String(format: "%.2fs now vs %.2fs shortened, %d completions",
                                   current, proposed, record.completions)],
@@ -840,11 +840,11 @@ public enum Advisor {
                                    usesPerWeekSE: (weekly / weeks).squareRoot(),
                                    oneOffCost: learningCost,
                                    seed: seed("flatten " + key))
-            let shown = "lode " + leaf.chain.map { $0.uppercased() }.joined(separator: " ")
+            let shown = "lode " + leaf.chain.joined(separator: " ")
             let detail: String
             if let slot {
                 detail = "\(shown) misfires \(Int((rate * 100).rounded()))% of its starts · "
-                    + "lode \(slot.uppercased()) would end the stumbles"
+                    + "lode \(slot) would end the stumbles"
             } else {
                 detail = "\(shown) misfires \(Int((rate * 100).rounded()))% of its starts · "
                     + "no letter is free to move it to"
@@ -887,7 +887,7 @@ public enum Advisor {
             let key = Observations.key(chain)
             if let added = addedAt[key],
                context.now.timeIntervalSince(added) < 28 * 86_400 { return nil }
-            let shown = "lode " + chain.map { $0.uppercased() }.joined(separator: " ")
+            let shown = "lode " + chain.joined(separator: " ")
             // No p: a retirement rejects no null. "Four weeks, zero
             // completions" is a fact the rules above establish, and the
             // constant stand-in p it used to carry sat inside the BH
@@ -941,7 +941,7 @@ public enum Advisor {
             // exist; the share and Wilson floors gate the offer, never
             // the family.
             let p = Maths.binomialTail(atLeast: record.searcher, n: record.reaches, p: 0.5)
-            let shown = "lode " + leaf.chain.map { $0.uppercased() }.joined(separator: " ")
+            let shown = "lode " + leaf.chain.joined(separator: " ")
             var evidence = [String(format: "%d%% of %d reaches went through the launcher",
                                    Int(share * 100), record.reaches)]
             // Abandons are recorded under the full prefix where the hand

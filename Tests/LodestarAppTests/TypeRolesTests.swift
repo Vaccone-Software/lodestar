@@ -208,7 +208,7 @@ final class TypeRolesTests: XCTestCase {
         XCTAssertEqual(fonts().plain, BarTheme.Role.draft.font(night: false))
         XCTAssertEqual(fonts().marked, BarTheme.Role.draftMarked.font(night: false))
 
-        let mark = KeyMark.key("37", peek: true)
+        let mark = KeyMark.peek("37")
         let button = RoomButton(title: "Send", target: nil, action: nil)
         let host = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
         host.addSubview(mark)
@@ -218,8 +218,7 @@ final class TypeRolesTests: XCTestCase {
         window.contentView = host
         settle()
         func markFont() -> NSFont? {
-            (allViews(mark).compactMap { $0 as? NSTextField }.first)?.attributedStringValue
-                .attribute(.font, at: 0, effectiveRange: nil) as? NSFont
+            (allViews(mark).compactMap { $0 as? Key }.first)?.legendFont
         }
         XCTAssertEqual(markFont(), BarTheme.Role.largeFigure.font(night: false))
         XCTAssertEqual(button.attributedTitle.attribute(.font, at: 0, effectiveRange: nil) as? NSFont,
@@ -450,9 +449,8 @@ final class TypeRolesTests: XCTestCase {
     /// meeting's countdown, and the counts on Keep's bar and source list.
     func testTheCountdownThePeekAndTheCountsAreTabular() throws {
         GalleryLook.day.apply()
-        let peek = KeyMark.key("37", peek: true)
-        let peekText = allViews(peek).compactMap { $0 as? NSTextField }.first?.attributedStringValue
-        let peekFont = peekText?.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
+        let peek = KeyMark.peek("37")
+        let peekFont = allViews(peek).compactMap { $0 as? Key }.first?.legendFont
         XCTAssertTrue(peekFont.map(GalleryFoundations.isTabular) ?? false, "the peek")
         XCTAssertEqual(peekFont?.pointSize, BarTheme.Scale.input)
 

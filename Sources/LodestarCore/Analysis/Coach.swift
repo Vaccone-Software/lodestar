@@ -537,7 +537,7 @@ public enum Coach {
             if let accepted, Observations.week(now) - accepted >= supersedeCutoffWeeks {
                 return nil
             }
-            return chain.split(separator: " ").map { $0.uppercased() }.joined(separator: " ")
+            return chain.split(separator: " ").joined(separator: " ")
         }
         if let entry = observations.ledger.first(where: {
             $0.target == key && $0.status == "accepted"
@@ -682,7 +682,7 @@ public enum Coach {
             // The chip names the address the hand will type, and the
             // verb says what the launcher will do afterwards.
             if case .closeRoad(_, let chain)? = rec.edit {
-                let shown = chain.map { $0.uppercased() }.joined(separator: " ")
+                let shown = chain.joined(separator: " ")
                 headline = "lode \(shown) → \(display)"
             } else {
                 headline = rec.target
@@ -698,7 +698,7 @@ public enum Coach {
             // The one accept that composes rather than writes: the apps
             // arrange side by side and the layout saves at the address.
             if case .composeBreath(_, let path)? = rec.edit {
-                headline = "lode ' \(path.uppercased()) → \(display)"
+                headline = "lode ' \(path) → \(display)"
             } else {
                 headline = rec.target
             }
@@ -715,7 +715,7 @@ public enum Coach {
             default: landing = nil
             }
             if let (chain, target) = landing {
-                let shown = chain.map { $0.uppercased() }.joined(separator: " ")
+                let shown = chain.joined(separator: " ")
                 // The label, never the config value: a chip saying
                 // "lode X → brave:xonar" quotes the machinery at someone
                 // who only ever asked for their browser.
@@ -730,7 +730,7 @@ public enum Coach {
             // afterwards, so the two surfaces tell one story.
             if case .supersede(_, let new, _)? = rec.edit {
                 accept = "Accept moves it"
-                let shown = new.map { $0.uppercased() }.joined(separator: " ")
+                let shown = new.joined(separator: " ")
                 sentence = rec.kind == .shorten
                     ? "\(landing.map { rec.display ?? $0.target } ?? display) could be reached with fewer keys"
                     : "\(landing.map { rec.display ?? $0.target } ?? display) could move to lode \(shown)"
@@ -751,7 +751,7 @@ public enum Coach {
             } else if rec.kind == .shorten,
                       let record = observations.addresses[rec.target] {
                 let shownOld = rec.target.split(separator: " ")
-                    .map { $0.uppercased() }.joined(separator: " ")
+                    .joined(separator: " ")
                 evidence = "lode \(shownOld) has fired \(record.completions) times"
                     + secondsClause(rec.secondsPerWeek)
             } else if rec.kind == .flatten {
@@ -768,13 +768,13 @@ public enum Coach {
                         stumbles += road.wrongKeys + road.abandons
                     }
                 }
-                let shownOld = letters.map { $0.uppercased() }.joined(separator: " ")
+                let shownOld = letters.joined(separator: " ")
                 evidence = "the road to lode \(shownOld) has misfired \(stumbles) times"
                     + secondsClause(rec.secondsPerWeek)
             }
         case .retire:
             let shown = rec.target.split(separator: " ")
-                .map { $0.uppercased() }.joined(separator: " ")
+                .joined(separator: " ")
             headline = "retire lode \(shown)"
             evidence = "bound and never typed · the letter frees up"
             accept = "Accept retires it"

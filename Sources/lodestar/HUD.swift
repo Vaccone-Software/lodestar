@@ -1,14 +1,14 @@
 import AppKit
 import LodestarCore
 
-/// One line of the chain guide: keycap → destination, with its app icon.
+/// One line of the chain guide: keys → destination, with its app icon.
 struct GuideRow {
-    /// One entry per cap. A row whose keys are *alternatives* ("J K" —
-    /// either one) passes a single string and gets a single cap; a row
-    /// that is a *sequence* ("lode" then "lode") passes them separately
-    /// and gets one cap each. The distinction cannot be read off the
-    /// string, so the caller states it.
-    let keys: [String]
+    /// The keys, as groups. A group is one sequence, one key per keystroke
+    /// (`z` then `o`); groups stand apart because they are not one
+    /// sequence: alternatives (`h` `j` `k` `l`), or two ways ("zo zc").
+    let groups: [[String]]
+    /// The last key tapped twice: one key and `×2` ("lode" twice).
+    var double = false
     let label: String
     let icon: NSImage?
     /// What the caps do when clicked instead of typed. Only offers set it;
@@ -20,11 +20,18 @@ struct GuideRow {
     /// cheat sheet, with the line that would retire it in its label.
     let dimmed: Bool
 
-    var key: String { keys.joined(separator: " ") }
+    /// Every key in order.
+    var keys: [String] { groups.flatMap { $0 } }
 
+    /// The keys as written, groups apart by a space.
+    var key: String { groups.map { $0.joined() }.joined(separator: " ") }
+
+    /// A row written as its keys: spaces separate groups, and a group's
+    /// keystrokes are read off it (`zo` is `z` then `o`; `esc`, `⌘K`, `a…z`
+    /// and `⇧F` are each one key).
     init(key: String, label: String, icon: NSImage? = nil,
          action: (() -> Void)? = nil, dimmed: Bool = false) {
-        self.keys = [key]
+        self.groups = key.split(separator: " ").map { Keycaps.keystrokes(of: String($0)) }
         self.label = label
         self.icon = icon
         self.action = action
@@ -35,9 +42,17 @@ struct GuideRow {
     /// lights the keys of the row the hand is about to take.
     var lit = false
 
-    init(keys: [String], label: String, icon: NSImage? = nil,
+    /// One sequence, a key for each keystroke.
+    init(keys: [String], double: Bool = false, label: String, icon: NSImage? = nil,
          action: (() -> Void)? = nil, lit: Bool = false) {
-        self.keys = keys
+        self.init(groups: [keys], double: double, label: label, icon: icon, action: action, lit: lit)
+    }
+
+    /// Sequences standing apart: alternatives, or two ways to the same end.
+    init(groups: [[String]], double: Bool = false, label: String, icon: NSImage? = nil,
+         action: (() -> Void)? = nil, lit: Bool = false) {
+        self.groups = groups
+        self.double = double
         self.label = label
         self.icon = icon
         self.action = action

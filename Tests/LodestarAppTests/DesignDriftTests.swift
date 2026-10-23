@@ -410,7 +410,7 @@ final class DesignDriftTests: XCTestCase {
     private func keyShapes(in root: NSView) -> [NSView] {
         var out: [NSView] = []
         func walk(_ view: NSView) {
-            if view.layer?.cornerRadius == BarTheme.controlRadius, !(view is KeyFace) { out.append(view) }
+            if view.layer?.cornerRadius == BarTheme.controlRadius, !(view is Key) { out.append(view) }
             view.subviews.forEach(walk)
         }
         walk(root)
@@ -418,17 +418,17 @@ final class DesignDriftTests: XCTestCase {
     }
 
     /// There is one key, the launcher's: a guide, a gesture line and a
-    /// card's footer draw `KeyFace`, never a grey chip of their own.
+    /// card's footer draw `Key`, never a grey chip of their own.
     func testTheGuidesAndLinesDrawTheOneKey() {
         let guide = CheatSheet.columns(HotkeyEngine.draftSections(editor: .normal, card: false))
         XCTAssertEqual(keyShapes(in: guide).count, 0, "a guide's keys are the one key")
         let line = Keycaps.line([.init(["lode", "lode"], "go"), .init(["esc"], "back")])
         XCTAssertEqual(keyShapes(in: line).count, 0)
-        XCTAssertTrue(Keycaps.cap("A") is KeyFace)
+        XCTAssertTrue(Keycaps.cap("A") is Key)
         let footer = OptionsCard.footerLine("⌫ back up    esc back")
         XCTAssertEqual(keyShapes(in: footer).count, 0)
         var keys = 0
-        func count(_ view: NSView) { if view is KeyFace { keys += 1 }; view.subviews.forEach(count) }
+        func count(_ view: NSView) { if view is Key { keys += 1 }; view.subviews.forEach(count) }
         count(footer)
         XCTAssertEqual(keys, 2, "a footer's keys are drawn as keys")
     }
@@ -441,7 +441,7 @@ final class DesignDriftTests: XCTestCase {
         let offenders = try sources()
             .filter { $0.text.contains("BarTheme.chipFont") && !allowed.contains($0.name) }
             .map(\.name)
-        XCTAssertEqual(offenders, [], "draw a key with KeyFace (Keycaps.cap), not a chip of your own")
+        XCTAssertEqual(offenders, [], "draw a key with Key (Keycaps.cap), not a chip of your own")
     }
 
     /// Keys are drawn, never typed into a sentence: "esc back" as letters

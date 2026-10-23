@@ -98,7 +98,7 @@ final class ClipboardFileCardLayoutTests: XCTestCase {
     /// What the card shows of its files is one view; the sheets and the
     /// names are in it. Everything else on the card is its own.
     private func content(of card: NSView) -> NSView? {
-        card.subviews.first { !($0 is SheetView) && !($0 is NSTextField) && !($0 is KeyFace) && $0.subviews.contains { $0 is SheetView } }
+        card.subviews.first { !($0 is SheetView) && !($0 is NSTextField) && !($0 is Key) && $0.subviews.contains { $0 is SheetView } }
     }
     private func sheets(in card: NSView) -> [NSView] { content(of: card)?.subviews.filter { $0 is SheetView } ?? [] }
     private func texts(in card: NSView) -> [NSTextField] {

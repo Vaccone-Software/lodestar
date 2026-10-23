@@ -212,7 +212,7 @@ final class GraphBuildTests: XCTestCase {
         }}
         """)
         let rows = node.guideRows().map { "\($0.0)=\($0.1)" }
-        XCTAssertEqual(rows, ["E=→ O P", "S=Slack"])
+        XCTAssertEqual(rows, ["e=→ o p", "s=Slack"])
     }
 
     // MARK: - Leaf walk (the searcher's chips and the ⌘K card ride on this)

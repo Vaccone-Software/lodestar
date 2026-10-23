@@ -380,7 +380,9 @@ final class Standing {
     /// it is chosen.
     var edgeWidth = Ceramic.Edge.line { didSet { if edgeWidth != oldValue { layout() } } }
 
-    /// A thing lying flat has no side: its face is the whole of it.
+    /// A thing lying flat shows no side and is never pressed: its face stands
+    /// where the resting face stands, so what is drawn on it keeps its place
+    /// beside a key that does stand.
     var flat = false { didSet { if flat != oldValue { layout() } } }
 
     /// A control that draws its own words in its own layer (a button, a
@@ -410,16 +412,19 @@ final class Standing {
     }
 
     /// The side showing now.
-    var side: CGFloat { flat ? 0 : (pressed ? Ceramic.Side.pressed : rest) }
+    var side: CGFloat { flat ? 0 : faceRise }
+
+    /// How far the face's lower edge stands above the frame's: the rest of
+    /// the side, or what is left of it pressed.
+    private var faceRise: CGFloat { pressed && !flat ? Ceramic.Side.pressed : rest }
 
     /// How far the face's middle is above the frame's middle: what a label
     /// on the face moves by to stay on it.
-    var lift: CGFloat { side - (flat ? 0 : rest) / 2 }
+    var lift: CGFloat { faceRise - rest / 2 }
 
     /// The face's frame, in the host's unflipped coordinates.
     var faceFrame: CGRect {
-        let height = flat ? bounds.height : max(0, bounds.height - rest)
-        return CGRect(x: bounds.minX, y: bounds.minY + side, width: bounds.width, height: height)
+        CGRect(x: bounds.minX, y: bounds.minY + faceRise, width: bounds.width, height: max(0, bounds.height - rest))
     }
 
     /// The part of the side that shows beneath the face.

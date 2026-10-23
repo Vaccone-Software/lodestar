@@ -295,10 +295,9 @@ private final class CommandsRowView: RaisedRow {
     private let title = NSTextField(labelWithString: "")
     private let crumb = NSTextField(labelWithString: "")
     /// The app's own shortcut for the command, a real key: lit when chosen.
-    private let chip = KeyFace("")
-    private var chipLabel: NSTextField { chip.label }
+    private let chip = Key("")
     /// ⏎ on the chosen row, lit: the key that runs it.
-    private let enter = KeyFace("⏎")
+    private let enter = Key("⏎")
     private let sourceLabel = NSTextField(labelWithString: "")
     private let sourceChip = FlatChip()
     private let trailing = NSStackView()
@@ -372,7 +371,7 @@ private final class CommandsRowView: RaisedRow {
         if sourceLabel.stringValue != source { sourceLabel.stringValue = source }
         sourceChip.isHidden = source.isEmpty
         let shortcut = row.shortcut ?? ""
-        if chipLabel.stringValue != shortcut { chipLabel.stringValue = shortcut }
+        chip.legend = shortcut
         chip.isHidden = shortcut.isEmpty
     }
 

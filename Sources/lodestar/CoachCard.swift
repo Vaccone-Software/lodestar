@@ -70,24 +70,12 @@ enum CoachCard {
         name.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         line.addArrangedSubview(name)
         // The address on offer, quiet: what you would press later, not now.
-        let address = NSStackView()
-        address.orientation = .horizontal
-        address.spacing = Grid.hair
-        for key in offer.address {
-            let cap = Keycaps.cap(key)
-            cap.quiet = true
-            address.addArrangedSubview(cap)
-        }
-        line.addArrangedSubview(address)
+        line.addArrangedSubview(Keycaps.strokes(offer.address, quiet: true))
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         line.addArrangedSubview(spacer)
-        let yes = ["lode", "lode"].map { key -> Keycaps.CapView in
-            let cap = Keycaps.cap(key)
-            cap.lit = true
-            return cap
-        }
-        let accept = Keycaps.CapGroup(caps: yes, action: offer.accept)
+        let accept = Keycaps.CapGroup(strokes: Keycaps.strokes(["lode"], double: true, lit: true),
+                                      action: offer.accept)
         accept.setAccessibilityLabel("Accept")
         line.addArrangedSubview(accept)
 
@@ -107,7 +95,7 @@ enum CoachCard {
         let gap = NSView()
         gap.setContentHuggingPriority(.defaultLow, for: .horizontal)
         whisper.addArrangedSubview(gap)
-        let decline = Keycaps.CapGroup(caps: ["lode", "⌫"].map { Keycaps.cap($0) }, action: offer.decline)
+        let decline = Keycaps.CapGroup(strokes: Keycaps.strokes(["lode", "⌫"]), action: offer.decline)
         decline.setAccessibilityLabel("Not now")
         whisper.addArrangedSubview(decline)
         let notNow = NSTextField(labelWithString: "Not now")

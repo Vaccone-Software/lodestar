@@ -205,7 +205,7 @@ final class MaterialTests: XCTestCase {
                             wrong.append("\(name): a \(kind) is \(depth.depth), not \(role)")
                         }
                     }
-                    if let key = view as? KeyFace {
+                    if let key = view as? Key {
                         if key.quiet && !key.lit { counts["quiet keys", default: 0] += 1; expect(.flat, as: "quiet key") }
                         else { counts["keys", default: 0] += 1; expect(.standsUp(side: 0), as: "key") }
                     } else if view is RoomButton {
@@ -269,12 +269,12 @@ final class MaterialTests: XCTestCase {
 
     func testPressingCollapsesAKeysSideToAPointAndTheFaceFollowsItDown() {
         GalleryLook.day.apply()
-        let key = KeyFace("a")
+        let key = Key("a")
         let window = GalleryHost.window(key, size: NSSize(width: 60, height: BarTheme.keyHeight), look: .day)
         func laidOut() { key.needsLayout = true; key.layoutSubtreeIfNeeded() }
         laidOut()
         let resting = key.standing.faceFrame
-        let letter = key.label.frame.midY
+        let letter = key.placement.band.lowerBound
         XCTAssertEqual(key.drawnSide, Ceramic.Side.control, "3 points at a control's size")
         XCTAssertEqual(key.depth, .standsUp(side: 3))
         key.fill(.pressed)
@@ -285,7 +285,7 @@ final class MaterialTests: XCTestCase {
         XCTAssertEqual(pressed.height, resting.height, "the face keeps its size")
         XCTAssertEqual(resting.minY - pressed.minY, Ceramic.Side.control - Ceramic.Side.pressed,
                        "it moves down by what the side gave up")
-        XCTAssertEqual(letter - key.label.frame.midY, Ceramic.Side.control - Ceramic.Side.pressed, accuracy: 0.01,
+        XCTAssertEqual(letter - key.placement.band.lowerBound, Ceramic.Side.control - Ceramic.Side.pressed, accuracy: 0.01,
                        "and its letter goes with it")
         XCTAssertNil(key.layer?.animationKeys(), "nothing animates")
         key.fill(.resting)
@@ -306,14 +306,14 @@ final class MaterialTests: XCTestCase {
         button.highlight(false)
         XCTAssertEqual(button.drawnSide, Ceramic.Side.control)
         _ = window
-        let large = KeyMark.key("7", peek: true) as? MarkKey
+        let large = KeyMark.peek("7").subviews.first as? Key
         XCTAssertEqual(large?.drawnSide, Ceramic.Side.large, "5 points at a large key")
         XCTAssertEqual(Ceramic.Side.row, 4, "4 at a row's size")
     }
 
     func testAQuietKeyLiesFlatWithAHairline() {
         GalleryLook.day.apply()
-        let key = KeyFace("a")
+        let key = Key("a")
         key.quiet = true
         XCTAssertEqual(key.depth, .flat)
         XCTAssertEqual(key.drawnSide, 0, "no side, and no well beneath it")

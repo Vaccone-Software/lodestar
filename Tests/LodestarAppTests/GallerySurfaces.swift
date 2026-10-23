@@ -90,9 +90,9 @@ enum GalleryKeys {
     static let legends = ["a", "e", "g", "s", "y", "A", "⏎", "⇧", "1", "9", "esc", "⌘K", "tab", "⌫", "↑", "space", "'", "`", ";", "/"]
 
     /// A row of keys in a stack, centred on the face of whatever carries it.
-    static func row(_ legends: [String], configure: (KeyFace) -> Void = { _ in }) -> (NSStackView, [KeyFace]) {
-        let keys = legends.map { legend -> KeyFace in
-            let key = KeyFace(legend)
+    static func row(_ legends: [String], configure: (Key) -> Void = { _ in }) -> (NSStackView, [Key]) {
+        let keys = legends.map { legend -> Key in
+            let key = Key(legend)
             configure(key)
             return key
         }
@@ -115,7 +115,7 @@ enum GalleryKeys {
     /// and on a chosen row, and the walk's keyboard row.
     static func sheet(look: GalleryLook) -> (NSWindow, [AnyObject]) {
         let size = NSSize(width: 1000, height: 480)
-        var keys: [KeyFace] = []
+        var keys: [Key] = []
         let window = GalleryHost.pane(size: size, look: look) { root in
             let column = NSStackView()
             column.orientation = .vertical
@@ -127,7 +127,7 @@ enum GalleryKeys {
                 column.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
                 column.topAnchor.constraint(equalTo: root.topAnchor, constant: 22),
             ])
-            func line(_ title: String, _ legends: [String], _ configure: @escaping (KeyFace) -> Void = { _ in }) {
+            func line(_ title: String, _ legends: [String], _ configure: @escaping (Key) -> Void = { _ in }) {
                 column.addArrangedSubview(caption(title))
                 let (stack, made) = row(legends, configure: configure)
                 keys += made
@@ -162,8 +162,8 @@ enum GalleryKeys {
             // The walk's keyboard: the space bar is a key of the same size as
             // those beside it, only wider.
             column.addArrangedSubview(caption("the walk's keyboard row: the space bar is the chip's size, wider"))
-            let board = ["fn", "⌃", "⌥", "⌘", "space", "⌘", "⌥"].map { legend -> KeyFace in
-                KeyFace(legend, padX: legend == "space" ? 22 : Grid.half)
+            let board = ["fn", "⌃", "⌥", "⌘", "space", "⌘", "⌥"].map { legend -> Key in
+                Key(legend)
             }
             board[4].lit = true
             board[5].lit = true
@@ -218,8 +218,8 @@ final class GalleryWorld {
 
 enum GalleryLauncher {
     /// The addresses the sample graph teaches.
-    static let addresses = ["safari": "s", "mail": "e p", "notes": "n", "messages": "m", "calendar": "c",
-                            "terminal": "t", "system settings": "g s"]
+    static let addresses = ["safari": ["s"], "mail": ["e", "p"], "notes": ["n"], "messages": ["m"], "calendar": ["c"],
+                            "terminal": ["t"], "system settings": ["g", "s"]]
 
     static func find<T: NSView>(_ type: T.Type, in view: NSView?, where match: (T) -> Bool = { _ in true }) -> T? {
         guard let view else { return nil }

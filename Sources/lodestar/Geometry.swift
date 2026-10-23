@@ -131,8 +131,9 @@ extension BarTheme {
     /// side inside its frame, and two lines need as much face as one line
     /// had frame.
     static let detailRowHeight: CGFloat = rowHeight + Grid.tight
-    /// A key's height; the key contract sets its width and parts.
-    static let keyHeight: CGFloat = 22
+    /// A key's height: 21 of face on 3 of side. The key contract sets its
+    /// width (its legend and a step each side) and parts (design/10-key.md).
+    static let keyHeight: CGFloat = KeySize.standard.height
     /// An app's icon in a row; its artwork carries its own margin.
     static let appIconSize: CGFloat = 32
     /// A symbol leading a row, at the body's size.

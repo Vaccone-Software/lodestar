@@ -893,7 +893,7 @@ public enum SettingsModel {
             var what: String
             if entry.path.count > rowDepth {
                 let key = entry.path.first == "graph"
-                    ? "lode " + entry.path.dropFirst().map { $0.uppercased() }.joined(separator: " ")
+                    ? "lode " + entry.path.dropFirst().joined(separator: " ")
                     : entry.path.dropFirst(rowDepth).joined(separator: ".")
                 if entry.old == nil { what = "Added \(key)" }
                 else if entry.new == nil { what = "Removed \(key)" }

@@ -565,17 +565,19 @@ final class ClipboardStrip {
     /// a card wears only a key that is true.
     private func keyText(label: String, rank: Int, searching: Bool, held: Held,
                          hasReading: Bool, selection: Int) -> String? {
-        let letter = label.uppercased()
+        // As typed: a bare key is lowercase, and a letter after a modifier
+        // is a capital, as macOS writes a chord.
+        let bare = label.lowercased(), chord = label.uppercased()
         switch held {
-        case .control: return hasReading ? "⌃" + letter : nil
-        case .option: return searching ? "⌥" + letter : letter
-        case .shift: return searching ? nil : "⇧" + letter
+        case .control: return hasReading ? "⌃" + chord : nil
+        case .option: return searching ? "⌥" + chord : bare
+        case .shift: return searching ? nil : "⇧" + chord
         case .none:
             // While searching the letters are the query, so every match
             // wears the chord that takes it without leaving the search,
             // and the one ⏎ would take wears ⏎.
-            if searching { return rank == selection ? "⏎" : "⌥" + letter }
-            return letter
+            if searching { return rank == selection ? "⏎" : "⌥" + chord }
+            return bare
         }
     }
 
@@ -644,9 +646,9 @@ final class ClipboardStrip {
         return card
     }
 
-    private func addKey(_ text: String, lit: Bool, to card: NSView, height: CGFloat) -> NSView {
+    private func addKey(_ text: String, lit: Bool, to card: NSView, height: CGFloat) -> Key {
         let cap = Self.placedCap(text, at: NSPoint(x: Self.pad, y: height - BarTheme.keyHeight - Self.head))
-        (cap as? KeyFace)?.lit = lit
+        cap.lit = lit
         card.addSubview(cap)
         return cap
     }
@@ -1061,7 +1063,7 @@ final class ClipboardStrip {
         var leading = Self.pad
         if wearsKey {
             let cap = addKey("\(slot)", lit: false, to: card, height: size.height)
-            (cap as? KeyFace)?.quiet = true
+            cap.quiet = true
             leading = cap.frame.maxX + Grid.close
         }
         let label = NSTextField(labelWithString: "Keep here")
@@ -1274,14 +1276,12 @@ final class ClipboardStrip {
     private static var metaHeight: CGFloat { lineHeight(of: .meta) }
     private static var voiceHeight: CGFloat { ceil(BarTheme.Role.voice.font.ascender - BarTheme.Role.voice.font.descender) + Grid.hair }
 
-    /// The shared keycap, sized by its own constraints and then placed by
-    /// frame, which is how a frame-laid card holds an Auto Layout view.
-    static func placedCap(_ text: String, at origin: NSPoint) -> NSView {
+    /// The one key, sized by its legend and placed by frame, which is how a
+    /// frame-laid card holds it.
+    static func placedCap(_ text: String, at origin: NSPoint) -> Key {
         let cap = Keycaps.cap(text)
-        cap.layoutSubtreeIfNeeded()
-        let size = cap.fittingSize
         cap.translatesAutoresizingMaskIntoConstraints = true
-        cap.frame = NSRect(origin: origin, size: NSSize(width: size.width, height: BarTheme.keyHeight))
+        cap.frame = NSRect(origin: origin, size: cap.intrinsicContentSize)
         return cap
     }
 
@@ -1438,7 +1438,6 @@ final class ClipboardStrip {
     private static let actionKeyGap = Grid.section
     private static let actionIcon = BarTheme.symbolSize
     private static let actionSeparator = Grid.part
-    private static let actionChip = NSSize(width: BarTheme.chipMinWidth, height: BarTheme.keyHeight)
     private static let actionRole = BarTheme.Role.body
 
     private func actionLabelWidth(_ text: String) -> CGFloat {
@@ -1457,8 +1456,10 @@ final class ClipboardStrip {
 
     private func actionSize(_ actions: [Action]) -> NSSize {
         let widest = actions.map { actionLabelWidth($0.label) }.max() ?? 0
+        // The keys stand in one column, as wide as the widest of them.
+        let widestKey = actions.map { Key.width(of: $0.key) }.max() ?? 0
         let width = Self.actionInset * 2 + Self.actionIcon + Self.actionChipGap
-            + widest + Self.actionKeyGap + Self.actionChip.width
+            + widest + Self.actionKeyGap + widestKey
         var height = CGFloat(actions.count) * Self.actionRow + Self.actionPadY * 2
         if separatorIndex(actions) != nil { height += Self.actionSeparator }
         return NSSize(width: min(width, BarTheme.measure), height: height)
@@ -1519,16 +1520,15 @@ final class ClipboardStrip {
             label.lineBreakMode = .byTruncatingTail
             label.sizeToFit()
             let labelX = Self.actionInset + Self.actionIcon + Self.actionChipGap
-            let keyX = frame.width - Self.actionInset - Self.actionChip.width
+            let chip = Self.placedCap(action.key, at: .zero)
+            let keyX = frame.width - Self.actionInset - chip.frame.width
             label.frame = NSRect(x: labelX,
                                  y: bottom + (Self.actionRow - label.frame.height) / 2,
                                  width: max(0, keyX - Self.actionKeyGap - labelX),
                                  height: label.frame.height)
             plate.addSubview(label)
 
-            let chip = Self.placedCap(action.key.uppercased(), at: NSPoint(
-                x: keyX, y: bottom + (Self.actionRow - Self.actionChip.height) / 2))
-            chip.frame.size.width = max(chip.frame.width, Self.actionChip.width)
+            chip.frame.origin = NSPoint(x: keyX, y: bottom + (Self.actionRow - chip.frame.height) / 2)
             plate.addSubview(chip)
             top = bottom
         }

@@ -140,6 +140,6 @@ public enum GraphJsonEditor {
     }
 
     private static func describe(_ letters: [String]) -> String {
-        letters.map { $0.uppercased() }.joined(separator: " ")
+        letters.joined(separator: " ")
     }
 }

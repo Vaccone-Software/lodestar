@@ -726,12 +726,15 @@ final class WalkController: NSObject {
     }
 
     private struct KeyRow {
-        let cap: String
+        /// One key per keystroke; `double` taps the last twice.
+        let keys: [String]
+        let double: Bool
         let meaning: String
         let action: (() -> Void)?
 
-        init(_ cap: String, _ meaning: String, action: (() -> Void)? = nil) {
-            self.cap = cap
+        init(_ keys: [String], double: Bool = false, _ meaning: String, action: (() -> Void)? = nil) {
+            self.keys = keys
+            self.double = double
             self.meaning = meaning
             self.action = action
         }
@@ -752,9 +755,9 @@ final class WalkController: NSObject {
                 body: "Apps you open often can each have a letter of their own. These are "
                     + "suggestions, drafted from the apps you have open.",
                 illustration: proposalList(proposals),
-                keys: [KeyRow("lode lode", "Tap lode twice to keep these",
+                keys: [KeyRow(["lode"], double: true, "Tap lode twice to keep these",
                               action: { [weak self] in self?.assent() }),
-                       KeyRow("lode ⌫", "Not these",
+                       KeyRow(["lode", "⌫"], "Not these",
                               action: { [weak self] in _ = self?.pass() })])
         case .graphGo(let options):
             return CardContent(
@@ -772,16 +775,16 @@ final class WalkController: NSObject {
                 title: "Rest the pointer on the line",
                 body: "The fix appears, lit. Click it to put the word right, or click your own word to leave it. "
                     + "A word Lodestar does not know can be learned.",
-                keys: [KeyRow("lode ⇥", "Or put a letter on each mark from the keys")])
+                keys: [KeyRow(["lode", "⇥"], "Or put a letter on each mark from the keys")])
         case .grammar(let engine):
             return CardContent(
                 title: "Fixed where you wrote it",
                 body: "No line means nothing needs your attention.\n\n"
                     + "For grammar, Lodestar can read each sentence closely with a language "
                     + "model that runs on this Mac. A download continues in the background.",
-                keys: [KeyRow("lode lode", describeEngine(engine),
+                keys: [KeyRow(["lode"], double: true, describeEngine(engine),
                               action: { [weak self] in self?.assent() }),
-                       KeyRow("lode ⌫", "Spelling only for now",
+                       KeyRow(["lode", "⌫"], "Spelling only for now",
                               action: { [weak self] in _ = self?.pass() })])
         case .copy:
             return CardContent(
@@ -790,9 +793,9 @@ final class WalkController: NSObject {
         case .strip:
             return CardContent(
                 title: "Press ⇧⌘V",
-                body: "Everything you copied, along the bottom of the screen. Press A and "
-                    + "the newest pastes where you were typing.",
-                illustration: capsRow([("⇧⌘V", true), ("A", false)]))
+                body: "Everything you copied, along the bottom of the screen. Then press a, "
+                    + "and the newest pastes where you were typing.",
+                illustration: capsRow([("⇧⌘V", true), ("a", false)]))
         case .draft:
             return CardContent(
                 title: "Hold right ⌘ and press period",
@@ -815,7 +818,7 @@ final class WalkController: NSObject {
                     + "its key now: hold it whenever you want to see what it can reach.\n\n"
                     + "The other three stay out of the way. Lodestar brings up each one later, "
                     + "when it would help.",
-                keys: [KeyRow("lode ⌫", "Close this card",
+                keys: [KeyRow(["lode", "⌫"], "Close this card",
                               action: { [weak self] in _ = self?.pass() })])
         }
     }
@@ -829,15 +832,25 @@ final class WalkController: NSObject {
         let detail: String
         let rows: [Row]
         struct Row: Equatable {
-            let keys: [String]
+            /// Sequences, apart from each other: alternatives are groups.
+            let groups: [[String]]
+            var double = false
             let label: String
+
+            var keys: [String] { groups.flatMap { $0 } }
         }
     }
 
     static func lessonCard(_ lesson: Curriculum.Lesson) -> LessonCard {
         let (position, total) = Curriculum.position(of: lesson)
         let count = "Lesson \(position) of \(total)"
-        func row(_ keys: [String], _ label: String) -> LessonCard.Row { .init(keys: keys, label: label) }
+        func row(_ keys: [String], _ label: String, double: Bool = false) -> LessonCard.Row {
+            .init(groups: [keys], double: double, label: label)
+        }
+        /// Keys that are each a way to do it, not one sequence.
+        func either(_ keys: [String], _ label: String) -> LessonCard.Row {
+            .init(groups: keys.map { [$0] }, label: label)
+        }
         switch lesson {
         case .launcher:
             return LessonCard(sentence: "Any app, from one line",
@@ -846,7 +859,7 @@ final class WalkController: NSObject {
         case .editor:
             return LessonCard(sentence: "Spelling and grammar, checked as you type",
                               detail: "A thin line under what reads wrong, in every app, read on this Mac. \(count)",
-                              rows: [row(["lode", "lode"], "Turn it on")])
+                              rows: [row(["lode"], "Turn it on", double: true)])
         case .inside:
             return LessonCard(sentence: "Buttons and links can wear a letter",
                               detail: "Press the letter to click what wears it. \(count)",
@@ -873,12 +886,12 @@ final class WalkController: NSObject {
         case .scroll:
             return LessonCard(sentence: "Scrolling without a mouse",
                               detail: "Hold to move, release to stop. \(count)",
-                              rows: [row(["lode", "`"], "Scroll"), row(["J", "K"], "Down and up"),
-                                     row(["D", "U"], "Half a page"), row(["/"], "Scroll where a word is")])
+                              rows: [row(["lode", "`"], "Scroll"), either(["j", "k"], "Down and up"),
+                                     either(["d", "u"], "Half a page"), row(["/"], "Scroll where a word is")])
         case .clipboard:
             return LessonCard(sentence: "Everything copied is kept",
                               detail: "The newest clip pastes as plain text. The one gesture with no held key, because pasting happens mid-sentence. \(count)",
-                              rows: [row(["⇧⌘V"], "Clipboard"), row(["A"], "Paste the newest")])
+                              rows: [row(["⇧⌘V"], "Clipboard"), row(["a"], "Paste the newest")])
         case .sheet:
             return LessonCard(sentence: "Review any of the keymaps",
                               detail: "One sheet lists every key Lodestar answers to. Inside a mode or a bar it lists the keys of that place. \(count)",
@@ -901,8 +914,8 @@ final class WalkController: NSObject {
                            later: @escaping () -> Void) -> [GuideRow] {
         var rows = card.rows.enumerated().map { index, row in
             answerable && index == 0
-                ? GuideRow(keys: row.keys, label: row.label, action: answer, lit: true)
-                : GuideRow(keys: row.keys, label: row.label, lit: index == 0)
+                ? GuideRow(groups: row.groups, double: row.double, label: row.label, action: answer, lit: true)
+                : GuideRow(groups: row.groups, double: row.double, label: row.label, lit: index == 0)
         }
         rows.append(GuideRow(keys: ["lode", "⌫"], label: "Later", action: later))
         return rows
@@ -982,7 +995,7 @@ final class WalkController: NSObject {
             stack.setCustomSpacing(Grid.group, after: illustration)
         }
         for row in content.keys {
-            stack.addArrangedSubview(keyMeaningRow(cap: row.cap, meaning: row.meaning,
+            stack.addArrangedSubview(keyMeaningRow(keys: row.keys, double: row.double, meaning: row.meaning,
                                                    action: row.action))
         }
 
@@ -1068,24 +1081,12 @@ final class WalkController: NSObject {
         return button
     }
 
-    /// The one key, the launcher's: lit as the launcher lights a key, and
-    /// the space bar only wider.
-    private func keycap(_ text: String, lit: Bool = false, wide: Bool = false) -> NSView {
-        let key = KeyFace(text, padX: wide ? Grid.section : Grid.half)
-        key.lit = lit
-        // A cap is exactly as wide as its key. Without this the row stack
-        // elects the lowest-hugging view to soak up its slack, and a letter
-        // arrives on a keycap the width of the card.
-        key.setContentHuggingPriority(.required, for: .horizontal)
-        return key
-    }
-
     private func capsRow(_ caps: [(String, Bool)]) -> NSView {
         let row = NSStackView()
         row.orientation = .horizontal
         row.spacing = Grid.tight
         row.setContentHuggingPriority(.required, for: .horizontal)
-        for (text, lit) in caps { row.addArrangedSubview(keycap(text, lit: lit)) }
+        for (text, lit) in caps { row.addArrangedSubview(Key(text, state: lit ? .lit : .resting)) }
         return row
     }
 
@@ -1097,16 +1098,14 @@ final class WalkController: NSObject {
         column.alignment = .leading
         column.spacing = Grid.close
 
+        // Separate keys, not one sequence: 8 apart.
         let row = NSStackView()
         row.orientation = .horizontal
-        row.spacing = Grid.tight
-        row.addArrangedSubview(keycap("fn"))
-        row.addArrangedSubview(keycap("⌃"))
-        row.addArrangedSubview(keycap("⌥"))
-        row.addArrangedSubview(keycap("⌘"))
-        row.addArrangedSubview(keycap("space", lit: true, wide: true))
-        row.addArrangedSubview(keycap("⌘", lit: true))
-        row.addArrangedSubview(keycap("⌥"))
+        row.spacing = Grid.close
+        for (legend, lit) in [("fn", false), ("⌃", false), ("⌥", false), ("⌘", false), ("space", true),
+                              ("⌘", true), ("⌥", false)] {
+            row.addArrangedSubview(Key(legend, state: lit ? .lit : .resting))
+        }
         column.addArrangedSubview(row)
         column.addArrangedSubview(label("the right ⌘ is lode", role: .meta, color: BarTheme.secondaryColor))
         return column
@@ -1122,9 +1121,8 @@ final class WalkController: NSObject {
             row.orientation = .horizontal
             row.spacing = Grid.close
             row.setContentHuggingPriority(.required, for: .horizontal)
-            for letter in option.path.split(separator: " ") {
-                row.addArrangedSubview(keycap(String(letter).uppercased(), lit: true))
-            }
+            row.addArrangedSubview(Keycaps.strokes(option.path.split(separator: " ").map { String($0).lowercased() },
+                                                   lit: true))
             row.addArrangedSubview(label(option.label, role: .body,
                                          color: BarTheme.ink))
             column.addArrangedSubview(row)
@@ -1142,7 +1140,7 @@ final class WalkController: NSObject {
             row.orientation = .horizontal
             row.spacing = Grid.close
             row.setContentHuggingPriority(.required, for: .horizontal)
-            row.addArrangedSubview(keycap(proposal.letter.uppercased(), lit: true))
+            row.addArrangedSubview(Key(proposal.letter.lowercased(), state: .lit))
             row.addArrangedSubview(label(proposal.app, role: .body,
                                          color: BarTheme.ink))
             column.addArrangedSubview(row)
@@ -1150,20 +1148,20 @@ final class WalkController: NSObject {
         return column
     }
 
-    private func keyMeaningRow(cap: String, meaning: String,
+    private func keyMeaningRow(keys: [String], double: Bool, meaning: String,
                                action: (() -> Void)? = nil) -> NSView {
         let row = NSStackView()
         row.orientation = .horizontal
         row.spacing = Grid.close
         row.setContentHuggingPriority(.required, for: .horizontal)
-        let box = keycap(cap)
-        if let action, let face = box as? KeyFace {
+        let strokes = Keycaps.strokes(keys, double: double)
+        if let action {
             // The one key, pressable: its own three states, which keep the
             // letter on its face in both looks. Repainting the face with a
             // faint wash left clay's pale letter on a pale ground.
-            row.addArrangedSubview(Keycaps.CapGroup(caps: [face], action: action))
+            row.addArrangedSubview(Keycaps.CapGroup(strokes: strokes, action: action))
         } else {
-            row.addArrangedSubview(box)
+            row.addArrangedSubview(strokes)
         }
         row.addArrangedSubview(label(meaning, role: .meta,
                                      color: BarTheme.secondaryColor))

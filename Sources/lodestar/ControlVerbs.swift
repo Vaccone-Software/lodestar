@@ -231,7 +231,7 @@ struct ControlVerbs {
             // real breaths rather than nothing at all.
             incomplete = "a prefix of longer breath addresses, not a breath:"
         }
-        let address = letters.joined().uppercased()
+        let address = letters.joined()
         switch step {
         case .done(let flash):
             return ["ok": true, "message": flash ?? "◎ \(begun) breath \(address)",

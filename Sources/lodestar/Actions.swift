@@ -466,19 +466,19 @@ final class Actions {
         }
     }
 
-    /// Every graph leaf flattened for the cheat sheet ("E O" → Outlook).
+    /// Every graph leaf flattened for the cheat sheet (`e` `o` → Outlook).
     func graphCheatRows(_ node: GraphNode, prefix: [String] = []) -> [GuideRow] {
         var rows: [GuideRow] = []
         for letter in node.children.keys.sorted() {
             let child = node.children[letter]!
-            let path = prefix + [letter.uppercased()]
+            let path = prefix + [letter]
             if let target = child.target, child.children.isEmpty {
                 let rowIcon: NSImage?
                 switch target {
                 case .app(let name): rowIcon = icon(forAppNamed: name)
                 case .browserProfile(let profile): rowIcon = icon(forAppNamed: profile.browser.appName)
                 }
-                rows.append(GuideRow(key: path.joined(separator: " "), label: target.label, icon: rowIcon))
+                rows.append(GuideRow(keys: path, label: target.label, icon: rowIcon))
             } else {
                 rows.append(contentsOf: graphCheatRows(child, prefix: path))
             }
@@ -586,13 +586,12 @@ final class Actions {
             .filter { $0.path.hasPrefix(prefix) && $0.path != prefix }
             .sorted { $0.path < $1.path }
             .map { record in
-                let remaining = record.path.dropFirst(prefix.count)
-                    .uppercased().map(String.init).joined(separator: " ")
+                let remaining = record.path.dropFirst(prefix.count).lowercased().map(String.init)
                 // The row is the layout: its apps, in their order. No count
                 // and no icon, because the names already say both.
                 let names = record.members.map(\.appName).joined(separator: " · ")
                 let clipped = names.count > 48 ? String(names.prefix(48)) : names
-                return GuideRow(key: remaining, label: clipped)
+                return GuideRow(keys: remaining, label: clipped)
             }
     }
 
@@ -631,12 +630,12 @@ final class Actions {
             OffTap.run { [weak self] in
                 guard let self else { return }
                 _ = self.store.deleteBreath(at: path)
-                self.hud.flash("◎ Breath \(path.uppercased()) deleted")
+                self.hud.flash("◎ Breath \(path) deleted")
             }
             return .done(flash: nil)
         }
         if store.isBreathPrefix(path) { return .continuing(hint: nil) }
-        return .failed(flash: "✕ no breath at \(path.uppercased())")
+        return .failed(flash: "✕ no breath at \(path)")
     }
 
     // MARK: - Breaths
@@ -670,7 +669,7 @@ final class Actions {
         let path = letters.joined()
         if let refusal = Self.breathPathRefusal(path) { return .failed(flash: refusal) }
         if let shadowed = store.breathWouldShadow(path) {
-            return .failed(flash: "✕ \(path.uppercased()) would shadow breath \(shadowed.uppercased())")
+            return .failed(flash: "✕ \(path) would shadow breath \(shadowed)")
         }
         // The shadow check above is the only decision the grammar needs
         // now. The gather is a window-server sweep and the save a full
@@ -681,7 +680,7 @@ final class Actions {
                               BreathRecord(path: path, orientation: orientation,
                                            members: members)
                           },
-                          done: { "◎ Breath \(path.uppercased()) saved with \($0) window\($0 == 1 ? "" : "s")" })
+                          done: { "◎ Breath \(path) saved with \($0) window\($0 == 1 ? "" : "s")" })
         return .done(flash: nil)
     }
 
@@ -696,7 +695,7 @@ final class Actions {
                               record.orientation = orientation
                               return record
                           },
-                          done: { "◎ Breath \(latest.uppercased()) updated with \($0) window\($0 == 1 ? "" : "s")" })
+                          done: { "◎ Breath \(latest) updated with \($0) window\($0 == 1 ? "" : "s")" })
         return .done(flash: nil)
     }
 
@@ -709,10 +708,10 @@ final class Actions {
     /// taken (the coach must not overwrite an address a hand chose).
     func composeBreath(apps: [String], path: String) -> String? {
         guard store.breath(at: path) == nil else {
-            return "breath \(path.uppercased()) is already saved"
+            return "breath \(path) is already saved"
         }
         if let shadowed = store.breathWouldShadow(path) {
-            return "\(path.uppercased()) would shadow breath \(shadowed.uppercased())"
+            return "\(path) would shadow breath \(shadowed)"
         }
         var windows: [WindowModel.Window] = []
         for name in apps {
@@ -745,7 +744,7 @@ final class Actions {
                 self.store.setBreath(BreathRecord(path: path,
                                                   orientation: orientation.rawValue,
                                                   members: members))
-                self.hud.flash("◎ Breath \(path.uppercased()) saved with "
+                self.hud.flash("◎ Breath \(path) saved with "
                     + Self.spoken(apps))
             }
         }
@@ -830,7 +829,7 @@ final class Actions {
 
         if !missing.isEmpty {
             let names = Self.spoken(missing.map(\.appName))
-            hud.flash("◎ Breath \(record.path.uppercased()) is relaunching \(names)",
+            hud.flash("◎ Breath \(record.path) is relaunching \(names)",
                       icon: missing.first.flatMap { icon(forAppNamed: $0.appName) })
             for (index, member) in missing.enumerated() {
                 relaunchIntoBreath(member, path: record.path, orientation: orientation,

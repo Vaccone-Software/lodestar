@@ -530,7 +530,7 @@ private final class WebRowView: RaisedRow {
     private var kind: WebBarController.WebRow.Kind?
     private var selectedState = false
     /// ⏎ on the chosen row, lit: the key that opens it.
-    private let enter = KeyFace("⏎")
+    private let enter = Key("⏎")
 
     init(height: CGFloat) {
         super.init(frame: .zero)

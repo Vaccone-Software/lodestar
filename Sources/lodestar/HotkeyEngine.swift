@@ -1782,10 +1782,6 @@ final class HotkeyEngine {
 
     // MARK: - Guide
 
-    private func display(_ letters: [String]) -> String {
-        letters.map { $0.uppercased() }.joined(separator: " ")
-    }
-
     /// How long this guide paint should wait. Zero for everything except
     /// a clean mid-chain graph guide over a learned subtree — and zero
     /// whenever the panel already shows a guide, because delaying an
@@ -1802,7 +1798,7 @@ final class HotkeyEngine {
     }
 
     private func showGuide(kind: ChainKind, letters: [String], deleting: Bool, note: String?) {
-        let typed = letters.map { $0.uppercased() }
+        let typed = letters
         switch kind {
         case .graph:
             var rows: [GuideRow] = []
@@ -2392,47 +2388,47 @@ extension HotkeyEngine: EngineWorld {
     /// it.
     static func panelActions(for clip: Clipboard.Clip, finderInFront: Bool = false) -> [ClipboardStrip.Action] {
         var actions = [ClipboardStrip.Action(
-            key: "K",
+            key: "k",
             label: clip.isPinned ? "Let go" : "Keep",
             symbol: clip.isPinned ? "pin.slash" : "pin"
         )]
         if clip.isPinned {
-            actions.append(.init(key: "R", label: "Rename", symbol: "character.cursor.ibeam"))
+            actions.append(.init(key: "r", label: "Rename", symbol: "character.cursor.ibeam"))
         }
         // Text cards open in the draft; a copy of files carries paths as
         // its text, and an image has none — it opens large instead, and
         // can be written to disk under a name.
         if clip.isEditable {
-            actions.append(.init(key: "E", label: "Edit", symbol: "square.and.pencil"))
+            actions.append(.init(key: "e", label: "Edit", symbol: "square.and.pencil"))
         }
         if clip.kind == .image {
-            actions.append(.init(key: "E", label: "View",
+            actions.append(.init(key: "e", label: "View",
                                  symbol: "arrow.up.left.and.arrow.down.right"))
-            actions.append(.init(key: "S", label: "Save as",
+            actions.append(.init(key: "s", label: "Save as",
                                  symbol: "square.and.arrow.down"))
         }
         // One file is viewed large on the image door's glass; a group is not,
         // for the reason it does not open.
         if clip.pastesAsFiles, clip.itemCount == 1 {
-            actions.append(.init(key: "E", label: "View",
+            actions.append(.init(key: "e", label: "View",
                                  symbol: "arrow.up.left.and.arrow.down.right"))
         }
         // Files: where they are, what one opens in (a group does not open),
         // and, with the Finder in front, a move into the folder it shows,
         // which is the Finder's own Move Item Here, undone with ⌘Z there.
         if clip.pastesAsFiles {
-            actions.append(.init(key: "F", label: "Show in Finder", symbol: "folder"))
+            actions.append(.init(key: "f", label: "Show in Finder", symbol: "folder"))
             if clip.itemCount == 1 {
-                actions.append(.init(key: "O", label: "Open", symbol: "arrow.up.forward.app"))
+                actions.append(.init(key: "o", label: "Open", symbol: "arrow.up.forward.app"))
             }
             if finderInFront {
-                actions.append(.init(key: "M", label: "Move here", symbol: "arrow.right.doc.on.clipboard"))
+                actions.append(.init(key: "m", label: "Move here", symbol: "arrow.right.doc.on.clipboard"))
             }
         }
-        actions.append(.init(key: "D", label: "Delete", symbol: "trash",
+        actions.append(.init(key: "d", label: "Delete", symbol: "trash",
                              isDestructive: true))
         if clip.sourceAppName != nil {
-            actions.append(.init(key: "X", label: "Never save from this app",
+            actions.append(.init(key: "x", label: "Never save from this app",
                                  symbol: "hand.raised", isDestructive: true))
         }
         return actions

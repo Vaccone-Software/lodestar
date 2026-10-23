@@ -129,7 +129,7 @@ enum GalleryControls {
             column.addArrangedSubview(labelled("hint marks", [
                 ("one", shown(KeyMark.key("a"))), ("two", shown(KeyMark.key("jk"))),
                 ("typed j", shown(KeyMark.key("jk", typed: "j"))), ("g", shown(KeyMark.key("g"))),
-                ("digit", shown(KeyMark.key("7"))), ("peek", shown(KeyMark.key("3", peek: true))),
+                ("digit", shown(KeyMark.key("7"))), ("peek", shown(KeyMark.peek("3"))),
             ]))
             column.addArrangedSubview(labelled("the lens's tag", [
                 ("fix", shown(KeyMark.tag(letter: "a", word: "receive"))),

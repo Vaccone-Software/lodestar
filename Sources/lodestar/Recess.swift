@@ -21,7 +21,7 @@ enum Attention {
 
 /// Receding (design/06-eye-comfort.md): the pill and the meeting's chip stay
 /// on screen while the work is elsewhere, and after twenty seconds without
-/// attention their ink moves toward their pane, to 5.5 to 1, and their quiet
+/// attention their ink moves toward their pane, to 7 to 1, and their quiet
 /// ink to 4.5 to 1. Attention is a hover, a key, a change of state or the
 /// meeting becoming due; it brings them back at once. A lit key never
 /// recedes, and with Eye comfort off nothing does. Instant, as the motion

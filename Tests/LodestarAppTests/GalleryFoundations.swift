@@ -163,9 +163,9 @@ enum GalleryFoundations {
                 resolved(color, over: background, in: appearance)
             }
             page.heading("Colour · \(look.name)" + (level < 1 ? " · eye comfort at \(Int((level * 100).rounded()))%" : ""),
-                         "\(night ? "Espresso" : "Clay") of design/01-colour.md, drawn from Palette.swift and BarTheme in the \(look.name) look"
-                         + (level < 1 ? ", dimmed to \(Int((level * 100).rounded()))% of its luminance by design/06-eye-comfort.md." : ".")
-                         + " The look's pane is the sheet's own ground.")
+                         "\(night ? "Espresso" : "Clay") of design/01-colour.md in the \(look.name) look"
+                         + (level < 1 ? ", dimmed to \(Int((level * 100).rounded()))% of its luminance (design/06)." : ", from Palette.swift and BarTheme.")
+                         + " The pane is the sheet's ground.")
 
             page.heading("Steps", "Palette.\(id): ground, pane, key, side, ink, quiet ink, slab, slab side, and the hairline's share of the ink.")
             page.swatches([
@@ -212,7 +212,7 @@ enum GalleryFoundations {
                 page.pair("quiet ink on \(name)", foreground: steps.quietInk, background: bg, floor: 4.5)
             }
             page.pair("orange on pane (as text)", foreground: steps.orange, background: steps.pane, floor: 4.5)
-            page.pair("orange on key", foreground: steps.orange, background: steps.key, floor: 4.5)
+            page.pair("orange on key (a lit fill)", foreground: steps.orange, background: steps.key, floor: 3)
             page.pair("other look's ink on slab", foreground: other.ink, background: steps.slab, floor: 4.5)
             page.pair("other look's quiet ink on slab", foreground: other.quietInk, background: steps.slab, floor: 4.5)
             page.pair("orange on slab (as a fill)", foreground: other.orange, background: steps.slab, floor: 3)
@@ -224,7 +224,7 @@ enum GalleryFoundations {
             page.pair("quiet ink on well", foreground: steps.quietInk, background: steps.well, floor: 4.5)
             page.pair("orange as a lit fill on key", foreground: steps.orange, background: steps.key, floor: 3)
             let receded = Receding.inks(of: steps)
-            page.pair("receded ink on pane (the pill, the chip)", foreground: receded.ink, background: steps.pane, floor: 5.5)
+            page.pair("receded ink on pane (the pill, the chip)", foreground: receded.ink, background: steps.pane, floor: 7)
             page.pair("receded quiet ink on pane", foreground: receded.quietInk, background: steps.pane, floor: 4.5)
         }
     }

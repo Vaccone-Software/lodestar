@@ -128,7 +128,7 @@ final class ModePill {
     private let panel: NSPanel
     private let root = AppearanceRoot()
     /// The pill recedes when left alone (design/06-eye-comfort.md): its ink
-    /// to 5.5 to 1 and its quiet ink to 4.5 to 1 after twenty seconds without
+    /// to 7 to 1 and its quiet ink to 4.5 to 1 after twenty seconds without
     /// attention, back at once on the pointer, a key or a change of state.
     let recess = Recess()
     private var hover: RecessHover?

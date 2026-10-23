@@ -78,7 +78,7 @@ final class MeetingController: NSObject {
     private let panel = Ceramic.makePanel(level: .floating)
     private let root = NSView()
     /// The chip recedes when left alone (design/06-eye-comfort.md): its ink
-    /// to 5.5 to 1 and its quiet ink to 4.5 to 1 on its pane after twenty
+    /// to 7 to 1 and its quiet ink to 4.5 to 1 on its pane after twenty
     /// seconds without attention, back at once on the pointer, a key, or the
     /// meeting becoming due. The lit stub never recedes.
     let recess = Recess()

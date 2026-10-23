@@ -335,14 +335,14 @@ public enum EyeComfort {
 
 /// Receding: a surface that stays on screen while the work is elsewhere
 /// grows quieter. After twenty seconds without attention the pill's and the
-/// meeting chip's ink moves toward their pane, to 5.5 to 1, and their quiet
+/// meeting chip's ink moves toward their pane, to 7 to 1, and their quiet
 /// ink to 4.5 to 1, so the two keep their order; they come back at once. A
 /// colour already quieter than its floor is left as it is: receding never
 /// raises a contrast. Hue and saturation are unchanged, as in the schedule.
 public enum Receding {
     /// How long a surface is left alone before it recedes.
     public static let idleSeconds: TimeInterval = 20
-    public static let inkContrast = 5.5
+    public static let inkContrast = 7.0
     public static let quietInkContrast = 4.5
     static let margin = 0.002
 

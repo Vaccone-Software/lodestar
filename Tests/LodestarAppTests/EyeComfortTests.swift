@@ -284,7 +284,7 @@ final class EyeComfortTests: XCTestCase {
 
     private let scroll = ModePill.State(mode: .scroll, app: "Notes", icon: nil, listening: false, text: nil)
 
-    /// After twenty seconds alone the pill's ink moves to 5.5 to 1 on its
+    /// After twenty seconds alone the pill's ink moves to 7 to 1 on its
     /// pane and its quiet ink to 4.5, the two keeping their order, in both
     /// looks and at every level; one touch, a key, or a new state brings
     /// them back at once.
@@ -311,7 +311,7 @@ final class EyeComfortTests: XCTestCase {
                 pill.recess.idled()
                 XCTAssertTrue(pill.recess.receded, "\(look.name) \(level)")
                 now = inks()
-                XCTAssertEqual(contrast(now.ink, full.pane), 5.5, accuracy: 0.01, "\(look.name) \(level): ink to 5.5")
+                XCTAssertEqual(contrast(now.ink, full.pane), 7, accuracy: 0.01, "\(look.name) \(level): ink to 7")
                 XCTAssertEqual(contrast(now.quiet, full.pane), 4.5, accuracy: 0.01, "quiet ink to 4.5")
                 XCTAssertGreaterThanOrEqual(contrast(now.quiet, full.pane), 4.5, "never under the floor")
                 XCTAssertGreaterThan(contrast(now.ink, full.pane), contrast(now.quiet, full.pane), "they keep their order")
@@ -388,7 +388,7 @@ final class EyeComfortTests: XCTestCase {
         pill.hide()
     }
 
-    /// The meeting's chip: ink to 5.5, quiet ink to 4.5, back at once when
+    /// The meeting's chip: ink to 7, quiet ink to 4.5, back at once when
     /// the meeting is due, and a lit stub never recedes.
     func testTheChipRecedesAndTheDueMeetingBringsItBackAndALitOneNeverRecedes() throws {
         on(0.88)
@@ -410,7 +410,7 @@ final class EyeComfortTests: XCTestCase {
         controller.recess.idled()
         XCTAssertTrue(controller.recess.receded)
         var now = inks()
-        XCTAssertEqual(contrast(now.ink, full.pane), 5.5, accuracy: 0.01)
+        XCTAssertEqual(contrast(now.ink, full.pane), 7, accuracy: 0.01)
         XCTAssertEqual(contrast(now.quiet, full.pane), 4.5, accuracy: 0.01)
         XCTAssertGreaterThan(contrast(now.ink, full.pane), contrast(now.quiet, full.pane))
 

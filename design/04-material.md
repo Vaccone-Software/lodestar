@@ -21,7 +21,7 @@ Material is what a surface is made of, and so how it shows what it is: a pane yo
 | fill   | clay pane `#F6EFE8`, opaque                  | espresso pane `#1D1916`, opaque  |
 | rim    | 1.5 pt along the top, clay key step          | 1.5 pt along the top, ink at 10% |
 | edge   | 0.5 pt all round, ink at 10%                 | 0.5 pt all round, ink at 8%      |
-| shadow | one, soft: quiet ink at 14%, 24 blur, 8 down | none                             |
+| shadow   | one, soft: quiet ink at 14%, 24 blur, 8 down | one, faint: espresso ground at 40%, 24 blur, 8 down |
 
 The rim is clipped to the pane's corners, so it thins into the curve where the surface turns away from the light. The edge is drawn above the pane's content, so a picture that fills the pane does not cover it. The shadow follows the pane's outline.
 
@@ -46,7 +46,7 @@ Glass had three weights (normal, raised, faint), each a different opacity. An op
 1. **Opaque.** Nothing Lodestar draws lets the desktop through. No glass, no blur, no vibrancy, no transparency setting to honour, because there is nothing to make opaque.
 2. **One light, from above.** Every rim is on a top edge, every side beneath a face, every shadow falls down. Nothing is lit from the side or below.
 3. **Depth follows role.** Stands up, sinks, or flat, by what the thing does. Nothing sinks only to make its neighbour look raised, and nothing stands up that cannot be pressed.
-4. **Thickness over shadow.** Pressability is a side, never a shadow. A shadow only separates a floating pane from the desktop, and only by day.
+4. **Thickness over shadow.** Pressability is a side, never a shadow. A shadow only separates a floating pane from the desktop: soft by day, faint at night.
 5. **No gradients, no inner shadows, no glows.** A face is one colour; a well is one colour and an edge.
 6. **The edge is on top.** A pane's hairline and rim are drawn above its content.
 7. **Content is not material.** Pictures, app icons and previews are drawn as they are, with no rim, edge or side of their own unless they are a key.
@@ -71,6 +71,6 @@ Not yet built. Main's panels are glass (`TonedGlass`, an `NSGlassEffectView`, wi
 - **One edge per object.** A pane hosted inside a card that draws its own edge drew two; the inner one must stand down.
 - **Repaint in the view's own look.** A layer colour set once keeps the look it was set in; the pane paints in its draw pass under its own appearance.
 
-## Open
+## Decided in review
 
-- Whether night panes want a faint shadow (espresso ground at 40%) over a dark desktop, or the hairline alone is enough.
+- Night panes cast a faint shadow (espresso ground at 40%), so a pane separates from a dark desktop as well as by its edge (22 October 2026).

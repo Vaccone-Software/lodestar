@@ -43,7 +43,7 @@ Every gap, inset and padding is a step of the grid:
 | 7    | 32     | a room's outer margin                                       |
 | 8    | 48     | between a room's columns                                    |
 
-Inside a control (a key's horizontal padding, a chip's) a half-step of 6 is allowed, because 4 crowds a letter and 8 makes a short key wide.
+Inside a key or a chip, a half-step of 6 is allowed for the horizontal padding, because 4 crowds a letter and 8 makes a short key wide. A control that holds words (a popup, a button) pads 12 at the sides, and a popup's chevron sits 8 from its words: 6 put the words against the border (owner's review, 22 October 2026).
 
 A menu or a card of plain rows insets them 12 above and below and 16 at the sides. A room (Settings, Feedback, the walk) has a margin of 32 or a section of 24, and Settings' groups are panes that inset their rows by 12.
 

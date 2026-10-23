@@ -86,9 +86,9 @@ Each look's orange is the best version of International Orange for its own groun
 
 A shadow is never black: by day it is clay's quiet ink, by night espresso's ground, each at the share the material contract sets. Until then they replace the old warm browns at the old shares.
 
-### Until the slab
+### The slab
 
-The slab is its own contract. Until it lands, a chosen row stands on the look's key step as it stood on the old raised step, and its keys light. The key step and the chosen row are then the same colour, told apart by a key's side and edge; the slab contract retires this.
+The chosen thing is a slab of the other look's ground, and everything inside it is drawn in that look (design/11-slab.md). It replaced the interim in which a chosen row stood on the look's key step, told from the key step beside it only by a key's side and edge, with every key on it lit.
 
 ## Rules
 

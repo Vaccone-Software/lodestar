@@ -49,7 +49,7 @@ A key is as wide as its legend plus 8 at each side (a grid step), and never narr
 | pressed | as before           | 1, face down by the rest | as before     | while it is down, at once                |
 | quiet   | none, a hairline    | none                     | quiet ink     | shown but not pressable now, or disabled |
 
-On the slab (the chosen row) a key takes the slab's look; the slab contract sets it.
+On the slab (the chosen row) a key takes the slab's look, face, side and hairline (a key on the day slab is a night key, on the night slab a clay key), and the lit key is that look's orange with its letter. Only the key that acts is lit on a slab, and the address keys rest (design/11-slab.md).
 
 ## Rules
 

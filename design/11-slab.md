@@ -93,7 +93,45 @@ Menus drawn by macOS itself (the menu bar's menu) keep the system's highlight; L
 
 ## Status
 
-Not yet built. Main marks the chosen row by raising it onto the key step (`RaisedRow` in Ceramic.swift) and lights every key on it (address and ⏎). The launcher, Ask, the commands, web and searcher bars, Keep's action menu, the input menu, the coach's offer row and Settings' landing step use `RaisedRow`. Keep's chosen card, Settings' chosen row and the walk's tiles mark the choice in their own ways.
+Built 23 October 2026. Before it, main marked the chosen row by raising it onto the key step (`RaisedRow` in Ceramic.swift) and lit every key on it (address and ⏎). The launcher, Ask, the commands, web and searcher bars, Keep's source list, the input menu, the coach's offer row and Settings' landing step used `RaisedRow`; Keep's card being acted on stood on the key step, the newest card had only its key lit, the walk's chosen tile was ringed in the accent, and Settings' popups drew the key-step row in a draw pass.
+
+Now `Slab.swift` holds the primitive. `SlabRow` replaces `RaisedRow`; a chosen `ObjectSurface` is a Keep card, `TileColumn` the walk's tile, `ChoiceMenuItemView` a Settings popup's row and `LandingStep` the step behind a Settings row. The slab's look is an appearance: a chosen view takes the opposite of its host's (`Slab.Flip` holds it there and follows the host when the Mac turns), every colour inside resolves in it at draw time, and the slab's own face is `BarTheme.slabFill`, which asks the opposite look for its slab step. `BarTheme.accent` and `onAccent` now resolve in the look of the view that draws them, so a lit key on a slab is that look's orange.
+
+Measured by rendering every gallery surface in both looks at full, evening and bedtime levels and reading the pixels back (`SlabTests`):
+
+- **The face** is the slab step (day `#2A221D`, night `#F1E8DF`) and its side shows 4 points of `#120D0A` (`#ADA093`), inside the frame: nothing below the frame is the side's colour. Pressed, the side is 1 point and the face, and what is on it, is 3 lower.
+- **One slab per surface** on every surface of the gallery: launcher, Ask, commands, Keep (the card, or the source list's line), the coach's offer, the walk's tile, Settings' hit and landing, a Settings popup, the input menu.
+- **Words** reach their floors on the slab by measured pixel: every ink word 7 : 1, every quiet word 4.5 : 1, in both looks and at every level.
+- **No colour of the surrounding look survives:** every view inside a slab resolves in the other look; no word or layer inside holds a step of the look around it that the slab's own look does not also hold.
+- **One lit key at most, and it acts:** ⏎ in a bar's row and in a Settings result, `lode` (×2) on the coach's offer, the key that pastes on Keep's chosen card (and none while a menu is open). The address keys rest.
+
+| Slab | ink | quiet ink | orange as a fill | letter on it |
+| ---- | --- | --------- | ---------------- | ------------ |
+| day, full | 13.18 | 5.99 | 4.76 | 5.36 |
+| day, evening (88%) | 11.68 | 5.36 | 4.28 | 4.82 |
+| day, bedtime (80%) | 10.69 | 4.94 | 4.03 | 4.54 |
+| night, full | 14.51 | 5.65 | 4.38 | 5.01 |
+| night, evening (88%) | 12.87 | 5.01 | 4.25 | 4.86 |
+| night, bedtime (80%) | 11.77 | 4.93 | 4.25 | 4.86 |
+
+**Eye comfort inside the slab.** Each side of the slab keeps its own look's rule at the one level, and nothing was added for the slab. The slab's face is the slab step of the look around it, dimmed by that look's rule (the light look's slab is dark and is not dimmed; the dark look's slab is clay's family and dims with the night's bright things). What stands on it is the other look at the same level: on the day slab, the night's ink and quiet ink, dimmed by the night's rule (to 80% of their luminance at bedtime, never under 7 : 1 and 4.5 : 1 on the night's surfaces); on the night slab, clay's inks, deepened by clay's rule only as far as its floors on clay's surfaces take. That the floors then hold on the slab itself is not assumed: the slab is a little lighter or darker than the surfaces each rule was solved against, so the tests measure ink, quiet ink, the orange as a fill and its letter on the slab at full, evening and bedtime (the table). The tightest is the day slab's orange fill at bedtime, 4.03 against a floor of 3, and its letter, 4.54 against 4.5.
+
+**Decided in the build** (each worth the owner's eye):
+
+- **Not every surface in the table has a chosen row.** Keep's action menu and the ⌘K card are fired by the keys they show, and nothing in them is chosen; the table's row stands for Keep's source list, which is. They stay as they are, and nothing lights in them.
+- **A Keep card with a menu open stays the slab.** The card the actions act on is the chosen card, so it is the slab, but its paste key rests: with a menu open the keys answer the menu. With the list of sources open, the choice is in the list and no card is the slab.
+- **A Settings search result shows ⏎,** lit, at its end: the key that lands there, as the bars show ⏎ on their chosen row. Its address letters rest. A Settings row a search landed on, or the keys are on, shows no key lit: nothing on it acts.
+- **The microphone in use is a dot in the ink,** not the accent, in the input menu and in Settings' popups, as Settings' own dots are: nothing on a slab but the acting key is orange, and the colour contract keeps the orange for the key, the switch and the cursor.
+- **The naming card for a Keep is the slab,** being the thing the keys are on.
+
+## Main lessons
+
+- **Resolve in the slab's look, not at the call.** `BarTheme.accent` was fixed to the Mac's look when asked for, so a lit key inside a day slab would have been clay's orange on a dark face. The orange and the letter on it are now dynamic colours like the ink.
+- **A look changes the width of words.** The night sets text a step heavier than the day, so a day slab's night text is wider than the card was laid out for ("Ghostty" became "Ghos…"). A chosen card measures its single-line words again after it takes the other look.
+- **A slab built by someone else's rows.** Settings' rows are plain views with the step laid behind them, so the step takes the row into the other look and gives it back when it goes, and follows the window if the Mac turns while it stands.
+- **Pictures stay as they are,** and a picture that chooses a twin by the look it is drawn in (the walk's) is held in the look around the slab.
+- **The harness hid a broken sheet.** The gallery's open choice menu rendered empty on main: menu item views have a frame and no constraints, and a stack gave them no size. It now gives them one.
+- **The keys sheet lit every key on a chosen row,** which is the thing the slab forbids; it lights the one.
 
 ## Prototype lessons
 

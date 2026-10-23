@@ -84,6 +84,22 @@ enum GalleryChrome {
         }
     }
 
+    /// A breath of two long names, its record whole with the lift, so it wraps
+    /// beside `lode ⌫` and "Not now" on a card at its widest.
+    static let wrappedRecord = "Activity Monitor and Brave Browser travel together 124× at lift 12.3"
+
+    static func coachWrapped() throws -> (NSView, [AnyObject]) {
+        try hud { hud in
+            let two = [icon("/System/Applications/Utilities/Activity Monitor.app"),
+                       icon("/Applications/Brave Browser.app") ?? icon("/Applications/Safari.app")
+                           ?? icon("/System/Cryptexes/App/System/Applications/Safari.app")].compactMap { $0 }
+            hud.showCoach(CoachCard.Offer(
+                sentence: "Activity Monitor and Brave Browser could stand side by side with one key", icons: two,
+                name: "Activity Monitor and Brave Browser", address: ["lode", "'", "W"],
+                record: wrappedRecord, accept: {}, decline: {}))
+        }
+    }
+
     static func note(_ text: String, icon named: String? = nil) throws -> (NSView, [AnyObject]) {
         try hud { $0.flash(text, icon: named.flatMap(icon)) }
     }
@@ -158,6 +174,7 @@ enum GalleryChrome {
             chrome("draft", "editor-lens-marked") { try lens() },
             chrome("coach", "one-app") { try coach(false) },
             chrome("coach", "two-apps") { try coach(true) },
+            chrome("coach", "record-wraps") { try coachWrapped() },
             chrome("note", "flash-fact-and-way") {
                 try note("✕ No profile named Work in Brave\nTry [lode][,] to see the profiles")
             },

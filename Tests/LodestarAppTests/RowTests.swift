@@ -7,7 +7,7 @@ import XCTest
 /// every gallery surface is one of the four rows at its height, its words 12
 /// in and its trailing parts centred on its first line; names are cut at the
 /// tail and sentences wrap; words beside a key stand on that key's line; the
-/// coach's record stays on its line.
+/// coach's record wraps within its column and is never cut.
 final class RowTests: XCTestCase {
     override func tearDown() { GalleryLook.reset() }
 
@@ -218,7 +218,8 @@ extension RowTests {
                         checkName(row.detail, "a row's detail", name)
                     }
                     if let line = view as? ListLine { checkName(line.label, "a line's words", name) }
-                    if let words = view as? KeyWords { checkName(words.label, "the words beside a key", name) }
+                    // A record is a sentence: it wraps within its column, held by its own tests.
+                    if let words = view as? KeyWords, words.column == nil { checkName(words.label, "the words beside a key", name) }
                 }
                 _ = keep
             }
@@ -263,7 +264,7 @@ extension RowTests {
     /// The ink a text field draws, found by drawing `root` with and without its
     /// words: the rows (points up from the bottom of `root`) and columns the
     /// differing pixels span, within `columns` points of the field's start.
-    private func ink(of field: NSTextField, in root: NSView, firstPoints: CGFloat = 6) -> (low: CGFloat, high: CGFloat, left: CGFloat)? {
+    private func ink(of field: NSTextField, in root: NSView, firstPoints: CGFloat = 6, firstLine: Bool = false) -> (low: CGFloat, high: CGFloat, left: CGFloat)? {
         let with = GalleryRender.bitmap(of: root)
         let colour = field.textColor
         field.textColor = .clear
@@ -271,7 +272,10 @@ extension RowTests {
         field.textColor = colour
         guard let a = with.bitmapData, let b = without.bitmapData else { return nil }
         let scale = CGFloat(with.pixelsWide) / root.bounds.width
-        let frame = root.convert(field.alignmentRect(forFrame: field.frame), from: field.superview)
+        var frame = root.convert(field.alignmentRect(forFrame: field.frame), from: field.superview)
+        // A wrapped sentence's first line: the top of it, a line's height less the next line's reach.
+        let line = ceil((field.font?.ascender ?? 12) - (field.font?.descender ?? -4)) - 3
+        if firstLine, frame.height > line + 5 { frame = NSRect(x: frame.minX, y: frame.maxY - line, width: frame.width, height: line) }
         let first = Int((frame.minX * scale).rounded(.down)), last = Int(((frame.minX + firstPoints) * scale).rounded(.up))
         let top = Int(((root.bounds.height - frame.maxY - 2) * scale).rounded(.down))
         let bottom = Int(((root.bounds.height - frame.minY + 2) * scale).rounded(.up))
@@ -319,8 +323,10 @@ extension RowTests {
             look.apply()
 
             // The coach: the record beside `lode ⌫`'s first key, "Not now" beside the second.
-            for pair in [true, false] {
-                let (root, keep) = try GalleryChrome.coach(pair)
+            // A record that wraps stands its first line on the keys' baseline, its
+            // second under the first.
+            for variant in 0..<3 {
+                let (root, keep) = try variant == 2 ? GalleryChrome.coachWrapped() : GalleryChrome.coach(variant == 0)
                 root.window?.contentView?.layoutSubtreeIfNeeded()
                 var words: [KeyWords] = []
                 walk(root) { if let w = $0 as? KeyWords { words.append(w) } }
@@ -328,11 +334,11 @@ extension RowTests {
                 // The record and "Not now" stand on one baseline with `lode` (and `⌫`'s face).
                 for (word, legend) in zip(words, ["lode", "⌫"]) {
                     guard let key = all.first(where: { $0.legend == legend }) else { continue }
-                    guard let found = ink(of: word.label, in: root) else { wrong.append("\(look.name) coach: no ink for \"\(word.stringValue)\""); continue }
+                    guard let found = ink(of: word.label, in: root, firstLine: true) else { wrong.append("\(look.name) coach: no ink for \"\(word.stringValue)\""); continue }
                     measured += 1
                     let want = baseline(of: key, in: root)
                     if abs(found.low - want) > 0.5 {
-                        wrong.append("\(look.name) coach \"\(word.stringValue.prefix(14))\": words stand on \(found.low), the key \"\(legend)\" on \(want)")
+                        wrong.append("\(look.name) coach \(variant) \"\(word.stringValue.prefix(14))\": words stand on \(found.low), the key \"\(legend)\" on \(want)")
                     }
                 }
                 _ = keep
@@ -422,15 +428,16 @@ extension RowTests {
     }
 }
 
-// MARK: - The coach's record stays on its line
+// MARK: - The coach's record wraps and is never cut
 
 extension RowTests {
     /// Every record the coach writes (the first clause of the chip's evidence,
     /// whichever kind of offer it is), with the longest app names the gallery
-    /// uses and the biggest numbers a record carries, stands on one line beside
-    /// `lode ⌫` and "Not now" at the card's widest, 540: nothing is cut. A
-    /// record that does not fit is rewritten shorter, not wrapped or cut.
-    func testEveryCoachRecordFitsItsLineAtTheCardsWidest() throws {
+    /// uses and the biggest numbers a record carries, is whole on a card at its
+    /// widest, 540 (design/13-row.md, rule 5): nothing is cut or clipped, every
+    /// part of the card is inside its bounds, and `lode ⌫` and "Not now" stand
+    /// on the first line's baseline, with the card as tall as its lines.
+    func testEveryCoachRecordIsWholeAtTheCardsWidest() throws {
         let longest = (GalleryLauncher.addresses.keys.map(CoachCard.displayName) + ["Brave Browser", "Messages", "Mail"])
             .sorted { BarTheme.width(of: $0, in: .meta) > BarTheme.width(of: $1, in: .meta) }
         let first = longest[0], second = longest[1]
@@ -458,6 +465,7 @@ extension RowTests {
                                       edit: .composeBreath(apps: [first, second], path: "b"))),
         ]
         var wrong: [String] = []
+        var wrapped = 0
         for look in GalleryLook.all {
             look.apply()
             for (kind, recommendation) in kinds {
@@ -474,27 +482,80 @@ extension RowTests {
                 let record = CoachCard.record(from: chip.evidence)
                 let card = CoachCard.build(.init(sentence: chip.sentence, icons: [], name: "\(first) and \(second)",
                                                  address: ["lode", "'", "w"], record: record, accept: {}, decline: {}))
-                let host = NSView(frame: NSRect(x: 0, y: 0, width: BarTheme.offerMaxWidth, height: 200))
+                let host = NSView(frame: NSRect(x: 0, y: 0, width: BarTheme.offerMaxWidth, height: 300))
                 card.translatesAutoresizingMaskIntoConstraints = false
                 host.addSubview(card)
                 NSLayoutConstraint.activate([
                     card.leadingAnchor.constraint(equalTo: host.leadingAnchor),
                     card.topAnchor.constraint(equalTo: host.topAnchor),
-                    card.widthAnchor.constraint(equalToConstant: BarTheme.offerMaxWidth),
+                    card.widthAnchor.constraint(lessThanOrEqualToConstant: BarTheme.offerMaxWidth),
                 ])
                 let window = GalleryHost.window(host, size: host.frame.size, look: look)
                 host.layoutSubtreeIfNeeded()
+                let name = "\(look.name) \(kind)"
                 var words: [KeyWords] = []
                 walk(host) { if let w = $0 as? KeyWords { words.append(w) } }
-                guard let shown = words.first(where: { $0.stringValue == record }) else { wrong.append("\(kind): no record"); continue }
-                let natural = shown.label.intrinsicContentSize.width
-                if shown.frame.width < natural - 0.5 {
-                    wrong.append("\(look.name) \(kind): \"\(record)\" is cut: \(shown.frame.width) of \(natural)")
+                guard let shown = words.first(where: { $0.stringValue == record }) else { wrong.append("\(name): no record"); continue }
+                let label = shown.label
+                let lines = label.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: label.frame.width, height: 10_000)).height ?? 0
+                if lines > label.frame.height + 0.5 { wrong.append("\(name): \"\(record)\" needs \(lines), has \(label.frame.height)") }
+                if label.frame.width < label.intrinsicContentSize.width - 0.5 && label.cell?.wraps != true {
+                    wrong.append("\(name): \"\(record)\" is cut on one line")
                 }
-                if shown.frame.height > BarTheme.legendHeight + 0.5 { wrong.append("\(look.name) \(kind): \"\(record)\" wraps") }
+                if label.frame.height > 20 { wrapped += 1 }
+                // The card is as wide as the rule says, and everything on it is inside it.
+                if card.frame.width > BarTheme.offerMaxWidth + 0.5 || card.frame.width < BarTheme.offerWidth - 0.5 {
+                    wrong.append("\(name): the card is \(card.frame.width) wide")
+                }
+                walk(card) { view in
+                    guard view !== card, !view.isHidden, view.frame.width > 0 else { return }
+                    let at = card.convert(view.frame, from: view.superview)
+                    if at.minX < -0.5 || at.minY < -0.5 || at.maxX > card.bounds.width + 0.5 || at.maxY > card.bounds.height + 0.5 {
+                        wrong.append("\(name): \(type(of: view)) falls outside the card: \(at) of \(card.bounds)")
+                    }
+                }
+                // Not now's keys and words stand on the record's first line.
+                let all = keys(in: card).filter { $0.state == .resting }
+                if let key = all.first(where: { $0.legend == "⌫" }),
+                   let found = ink(of: label, in: host, firstLine: true) {
+                    let want = baseline(of: key, in: host)
+                    if abs(found.low - want) > 0.5 { wrong.append("\(name): the record's first line stands on \(found.low), the keys on \(want)") }
+                } else {
+                    wrong.append("\(name): no keys or no ink")
+                }
+                if let notNow = words.first(where: { $0.stringValue == "Not now" }) {
+                    if notNow.label.frame.width < notNow.label.intrinsicContentSize.width - 0.5 { wrong.append("\(name): \"Not now\" is cut") }
+                    let up = host.convert(label.frame, from: shown).maxY, down = host.convert(notNow.label.frame, from: notNow).maxY
+                    if down > up + 0.5 || down < up - 40 { wrong.append("\(name): \"Not now\" is not on the first line") }
+                }
                 window.close()
             }
         }
-        XCTAssertEqual(wrong, [], "the coach's records are written to fit about 55 characters")
+        XCTAssertEqual(wrong, [])
+        XCTAssertGreaterThan(wrapped, 0, "the longest breath wraps, so the wrap was measured")
+    }
+
+    /// A record that wraps keeps its second line under its first, flush with
+    /// its leading edge, and the card holds both.
+    func testAWrappedRecordsLinesStandUnderEachOther() throws {
+        for look in GalleryLook.all {
+            look.apply()
+            let (root, keep) = try GalleryChrome.coachWrapped()
+            root.window?.contentView?.layoutSubtreeIfNeeded()
+            var record: KeyWords?
+            walk(root) { if let w = $0 as? KeyWords, w.stringValue == GalleryChrome.wrappedRecord { record = w } }
+            let shown = try XCTUnwrap(record, "\(look.name): the record")
+            let label = shown.label
+            XCTAssertGreaterThan(label.frame.height, 28, "\(look.name): two lines")
+            let lines = label.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: label.frame.width, height: 10_000)).height ?? 0
+            XCTAssertLessThanOrEqual(lines, label.frame.height + 0.5, "\(look.name): every line fits its frame")
+            let card = try XCTUnwrap(GalleryLauncher.find(NSView.self, in: root, where: { $0.accessibilityRole() == .group && $0.accessibilityLabel()?.contains(GalleryChrome.wrappedRecord) == true }))
+            let at = card.convert(shown.frame, from: shown.superview)
+            XCTAssertEqual(at.minX, CoachCard.textInset, accuracy: 0.5, "\(look.name): flush with the card's inset")
+            XCTAssertEqual(card.frame.width, CoachCard.maxWidth, accuracy: 0.5, "\(look.name): a wrapped record's card is the widest")
+            XCTAssertLessThanOrEqual(at.minY, card.bounds.height, "\(look.name)")
+            XCTAssertGreaterThanOrEqual(at.minY, 0, "\(look.name): the last line is on the card")
+            _ = keep
+        }
     }
 }

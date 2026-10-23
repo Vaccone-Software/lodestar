@@ -110,10 +110,16 @@ public struct Recommendation: Codable, Equatable {
     /// The write this recommendation proposes, when it is one config line.
     /// Nil means report-only: the chip never offers what it cannot commit.
     public var edit: ConfigEdit?
+    /// What the chip's one-line record says when it is not the first clause of
+    /// `detail`: a count the hand can check, written where the detail is, so a
+    /// change of the detail's wording cannot change what the card says. Nil
+    /// means the chip reads its own record from the detail and the observations.
+    public var record: String?
 
     public init(kind: Kind, target: String, detail: String, secondsPerWeek: Double,
                 probability: Double, evidence: [String], display: String? = nil,
-                edit: ConfigEdit? = nil) {
+                edit: ConfigEdit? = nil, record: String? = nil) {
+        self.record = record
         self.kind = kind
         self.target = target
         self.detail = detail
@@ -1040,10 +1046,11 @@ public enum Advisor {
             let edit = held ? nil : breathLetter(for: pair, context: context).map {
                 ConfigEdit.composeBreath(apps: apps, path: $0)
             }
+            // The count the card's record says; the lift is the report's.
+            let together = "\(pair.from) and \(pair.to) travel together " + String(format: "%.0f×", pair.count)
             out.append(Candidate(rec: Recommendation(
                 kind: .breath, target: name,
-                detail: "\(pair.from) and \(pair.to) travel together "
-                    + String(format: "%.0f× at lift %.1f", pair.count, pair.lift)
+                detail: together + String(format: " at lift %.1f", pair.lift)
                     + String(format: " · composed side by side %.0f×", composed)
                     + (held ? " · a saved breath already holds them"
                             : " · a breath would bring them back with one key"),
@@ -1055,7 +1062,7 @@ public enum Advisor {
                 evidence: [String(format: "lift %.1f over independent use", pair.lift),
                            String(format: "composed by hand %.0f× in two weeks", composed)],
                 display: name,
-                edit: edit),
+                edit: edit, record: together),
                 p: p, offerable: offerable))
         }
         return out

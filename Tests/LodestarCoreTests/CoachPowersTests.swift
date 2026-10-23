@@ -211,6 +211,24 @@ final class CoachPowersTests: XCTestCase {
         XCTAssertEqual(next, "a")
     }
 
+    /// The card's record is the count the hand can check, set where the detail
+    /// is built: the lift stays in the report's detail and never reaches the card.
+    func testBreathRecordIsTheCountAndNotTheLift() throws {
+        let rec = try XCTUnwrap(Advisor.breathCandidates(breathContext(paths: [])).first?.rec)
+        let record = try XCTUnwrap(rec.record, "the advisor writes the record with the detail")
+        XCTAssertTrue(record.contains(" travel together "), record)
+        XCTAssertTrue(record.hasSuffix("×"), "a count: \(record)")
+        XCTAssertFalse(record.contains("lift"), record)
+        XCTAssertTrue(rec.detail.hasPrefix(record), "the detail opens with the record: \(rec.detail)")
+        XCTAssertTrue(rec.detail.contains("at lift"), "the report keeps the lift")
+        let chip = Coach.chip(for: rec, observations: Observations())
+        XCTAssertEqual(chip.evidence, Coach.sentenceCase(record), "the card says the count")
+        // A recommendation with no record of its own reads from its detail, as before.
+        var plain = rec
+        plain.record = nil
+        XCTAssertEqual(Coach.chip(for: plain, observations: Observations()).evidence, Coach.sentenceCase(rec.detail))
+    }
+
     func testBreathChipNamesTheAddressAndTheCompose() {
         guard let rec = Advisor.breathCandidates(breathContext(paths: [])).first?.rec else {
             return XCTFail()

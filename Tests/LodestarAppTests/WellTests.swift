@@ -406,6 +406,43 @@ final class WellTests: XCTestCase {
         _ = held
     }
 
+    /// Where the first line of a note sits, from the well's top edge to its
+    /// baseline, in points.
+    private func firstBaseline(of well: NoteWell) throws -> CGFloat {
+        well.layoutSubtreeIfNeeded()
+        let text = well.text
+        let layout = try XCTUnwrap(text.textLayoutManager)
+        layout.ensureLayout(for: layout.documentRange)
+        var baseline: CGFloat?
+        layout.enumerateTextLayoutFragments(from: layout.documentRange.location, options: [.ensuresLayout]) { fragment in
+            guard let line = fragment.textLineFragments.first else { return true }
+            baseline = text.textContainerOrigin.y + fragment.layoutFragmentFrame.minY + line.glyphOrigin.y
+            return false
+        }
+        let inWell = text.convert(NSPoint(x: 0, y: try XCTUnwrap(baseline)), to: well)
+        return well.bounds.height - inWell.y
+    }
+
+    /// A note's first line stands 12 from the well's top edge, its ascent
+    /// below it: on the sheet, where the note is pinned by both sides, and in
+    /// Feedback, where it has a width of its own.
+    func testANotesFirstLineStandsTwelveFromTheTopHoweverItIsConstrained() throws {
+        for look in GalleryLook.all {
+            look.apply()
+            let cell = try XCTUnwrap(GalleryWell.cells(look: look).first { $0.caption.hasPrefix("a note") })
+            let sheet = try XCTUnwrap(find(NoteWell.self, in: cell.root).first)
+            let ascent = try XCTUnwrap(sheet.text.font).ascender
+            XCTAssertEqual(try firstBaseline(of: sheet), BarTheme.wordPadding + ascent, accuracy: 1.5,
+                           "\(look.name): on the sheet")
+            let (feedback, keep) = try GalleryChrome.feedback(48)
+            feedback.layoutSubtreeIfNeeded()
+            let note = try XCTUnwrap(find(NoteWell.self, in: feedback).first)
+            XCTAssertEqual(try firstBaseline(of: note), BarTheme.wordPadding + ascent, accuracy: 1.5,
+                           "\(look.name): in Feedback")
+            _ = keep
+        }
+    }
+
     /// Keep's drawn fields hold the caret as a CaretMark, still, in the
     /// accent, at the words' line height; the list of sources' field and the
     /// name of a keepsake being written too, and the selected name is the

@@ -644,6 +644,37 @@ final class NoteWell: WellView {
     }
 
     required init?(coder: NSCoder) { nil }
+
+    /// The text view is as wide as the scroll view shows and at least as tall,
+    /// its first line at the top, however the note is constrained: a text view
+    /// made with no frame is otherwise left where the clip view finds it.
+    override func layout() {
+        super.layout()
+        // The scroll view has its frame by now but has not yet laid out its
+        // clip view: what it shows is asked once it has.
+        scroll.layoutSubtreeIfNeeded()
+        let shown = scroll.contentSize
+        guard shown.width > 0, shown.height > 0 else { return }
+        // Asking a text view for its layout manager would take it off TextKit 2.
+        var used: CGFloat = 0
+        if let layout = text.textLayoutManager {
+            layout.ensureLayout(for: layout.documentRange)
+            used = layout.usageBoundsForTextContainer.height
+        }
+        // A text view that resizes itself to its words would shrink under the
+        // clip view and be centred in it: it is never shorter than what shows.
+        text.minSize = NSSize(width: 0, height: shown.height)
+        text.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        let frame = NSRect(x: 0, y: 0, width: shown.width,
+                           height: max(shown.height, ceil(used + text.textContainerInset.height * 2)))
+        if text.frame != frame { text.frame = frame }
+        // Its first line is at the top, not above it.
+        let clip = scroll.contentView
+        if clip.bounds.origin.y < 0 {
+            clip.scroll(to: .zero)
+            scroll.reflectScrolledClipView(clip)
+        }
+    }
 }
 
 /// A text field's cell that edits in the one field editor.

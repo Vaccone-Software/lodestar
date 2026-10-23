@@ -316,9 +316,6 @@ enum BarTheme {
     /// place's name: a mark on the page, round.
     static let dotDiameter: CGFloat = 7
     static let dotRadius: CGFloat = dotDiameter / 2
-    /// The dot that says "needs you" is a glyph used as a mark, not text
-    /// that is read, so it may sit under the scale's floor.
-    static let dotFont = NSFont.systemFont(ofSize: 8)
     /// The pin inside a chip whose profile was chosen, and its gap to the name.
     /// A symbol leading a bar's row, a size above the text's.
     static let symbolRow = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
@@ -751,7 +748,8 @@ enum Keycaps {
         let row = NSStackView()
         row.orientation = .horizontal
         row.alignment = .centerY
-        row.spacing = Grid.tight
+        // Words and the keys beside them stand 8 apart, as a footer's do.
+        row.spacing = Grid.close
         // A legend is as wide as its keys and words: a column that holds it
         // must not stretch it (a tie with the column's own pull at 250).
         row.setContentHuggingPriority(.required, for: .horizontal)
@@ -774,7 +772,7 @@ enum Keycaps {
             }
         }
         row.setAccessibilityLabel(FlashLine.plain(line))
-        return row
+        return LegendRow(row)
     }
 
     /// The keystrokes a written group of keys is: a key by name or a chord
@@ -845,7 +843,7 @@ enum Keycaps {
                                 following: previousLegend)
             add(verb, spacingBefore: Grid.close)
         }
-        return row
+        return LegendRow(row)
     }
 }
 

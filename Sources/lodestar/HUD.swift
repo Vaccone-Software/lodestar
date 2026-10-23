@@ -342,10 +342,13 @@ final class HUD {
                 titleRow.addArrangedSubview(titleLabel)
             }
         }
-        stack.addArrangedSubview(titleRow)
+        // A title that is keys (a chain's header) is a legend: 24 tall, so the
+        // card measures from the key's whole frame, side included.
+        let titleView: NSView = !keys.isEmpty && way == nil ? LegendRow(titleRow) : titleRow
+        stack.addArrangedSubview(titleView)
 
         if !rows.isEmpty {
-            stack.setCustomSpacing(Grid.section, after: titleRow)
+            stack.setCustomSpacing(Grid.section, after: titleView)
             stack.addArrangedSubview(GuideRows.columns(rows))
         }
 

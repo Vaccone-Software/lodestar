@@ -93,6 +93,9 @@ final class OptionsCard {
     /// The card's frame on screen, so a second card can unfurl beside it.
     var frame: NSRect { panel.paneFrame }
 
+    /// The surface the card draws in, for the tests.
+    var surface: NSView { root }
+
     var isVisible: Bool { panel.isVisible }
 
     /// Show `content` at `anchor`, sized to itself.
@@ -226,7 +229,8 @@ final class OptionsCard {
                                                  role: .title,
                                                  color: text.isEmpty ? BarTheme.secondaryColor : BarTheme.ink))
             }
-            addWords(bodyRow)
+            // Keys are a legend, 24 tall; a name is words at the title's size.
+            if case .keys(let letters) = typing.body, !letters.isEmpty { addWords(LegendRow(bodyRow)) } else { addWords(bodyRow) }
             let verdictLabel = label("\(typing.problem ? "✕" : "↵") \(typing.verdict)",
                                      role: .meta,
                                      color: typing.problem ? BarTheme.ink : BarTheme.secondaryColor)

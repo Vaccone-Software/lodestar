@@ -193,6 +193,43 @@ final class KeyWords: NSView {
     var drawnBaseline: CGFloat { label.frame.minY + label.baselineOffsetFromBottom }
 }
 
+// MARK: - A legend
+
+/// A legend (design/13-row.md): keys first, then what they do, one line 24
+/// tall, the key's height, and legends stand 8 apart. A stack of keys and
+/// words is aligned by the keys' faces, so its own height is the face's 21; the
+/// legend is the stack on a 24-tall frame, so what holds a legend (a card's
+/// inset, the gap to the next legend) measures from the key's whole frame, the
+/// side included, and nothing hangs outside it.
+final class LegendRow: NSView {
+    let line: NSStackView
+
+    init(_ line: NSStackView) {
+        self.line = line
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        line.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(line)
+        // As wide as its line, unless a column holds it wider: the line stays at
+        // the leading edge, and nothing is stretched.
+        let tight = trailingAnchor.constraint(equalTo: line.trailingAnchor)
+        tight.priority = NSLayoutConstraint.Priority(999)
+        NSLayoutConstraint.activate([
+            heightAnchor.constraint(equalToConstant: BarTheme.legendHeight),
+            line.leadingAnchor.constraint(equalTo: leadingAnchor),
+            line.topAnchor.constraint(equalTo: topAnchor),
+            line.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
+            tight,
+        ])
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func accessibilityLabel() -> String? { line.accessibilityLabel() }
+}
+
 // MARK: - A row
 
 /// A row of a bar, a card or a list in a room: what it is leads, how to reach

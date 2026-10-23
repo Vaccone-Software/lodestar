@@ -1222,7 +1222,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         head.addArrangedSubview(Keycaps.cap(SettingsModel.paneKey(index, count: sections.count) ?? ""))
         head.addArrangedSubview(label(section.name, role: .label, color: BarTheme.ink))
         if section.attention { head.addArrangedSubview(Self.dot()) }
-        tile.addArrangedSubview(head)
+        tile.addArrangedSubview(LegendRow(head))
         tile.addArrangedSubview(label(section.status, role: .meta,
                                       color: BarTheme.secondaryColor))
         tile.setAccessibilityElement(true)
@@ -2403,6 +2403,8 @@ extension SettingsController {
 
     /// For the tests: the switch standing for a config path right now.
     func switchView(for path: String) -> AccentSwitch? { switches[path] }
+    /// For the tests: the places as the model made them.
+    var sectionsForTesting: [SettingsModel.Section] { sections }
     /// For the tests and the pictures: one setting as a place draws it.
     func settingRowForTesting(_ row: SettingsModel.Row, index: Int = 0, width: CGFloat, letterWidth: CGFloat) -> NSView {
         buildRow(row, index: index, width: width, letterWidth: letterWidth)

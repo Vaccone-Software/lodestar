@@ -130,17 +130,12 @@ enum VoiceCard {
             line.alignment = .centerY
             line.spacing = Grid.tight
             line.addArrangedSubview(Keycaps.strokes(keymap.keys))
-            let arrow = NSTextField(labelWithString: "→")
-            arrow.setRole(.meta)
-            arrow.textColor = BarTheme.secondaryColor
+            let arrow = KeyWords("→", following: keymap.keys.last)
             line.addArrangedSubview(arrow)
-            let target = NSTextField(labelWithString: keymap.target)
-            target.setRole(.body)
-            target.textColor = BarTheme.ink
-            line.addArrangedSubview(target)
+            line.addArrangedSubview(KeyWords(keymap.target, role: .body, color: BarTheme.ink))
             line.setCustomSpacing(Grid.close, after: line.arrangedSubviews[0])
             line.setCustomSpacing(Grid.close, after: arrow)
-            stack.addArrangedSubview(line)
+            stack.addArrangedSubview(LegendRow(line))
         }
 
         if let detail {

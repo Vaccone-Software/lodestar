@@ -141,6 +141,6 @@ final class CheatSheet {
             container.addArrangedSubview(iconView)
         }
         container.addArrangedSubview(text)
-        return container
+        return LegendRow(container)
     }
 }

@@ -1089,7 +1089,7 @@ final class WalkController: NSObject {
         row.spacing = Grid.tight
         row.setContentHuggingPriority(.required, for: .horizontal)
         for (text, lit) in caps { row.addArrangedSubview(Key(text, state: lit ? .lit : .resting)) }
-        return row
+        return LegendRow(row)
     }
 
     /// The bottom row of a keyboard, the right command key lit: "the lode
@@ -1108,7 +1108,7 @@ final class WalkController: NSObject {
                               ("⌘", true), ("⌥", false)] {
             row.addArrangedSubview(Key(legend, state: lit ? .lit : .resting))
         }
-        column.addArrangedSubview(row)
+        column.addArrangedSubview(LegendRow(row))
         column.addArrangedSubview(label("the right ⌘ is lode", role: .meta, color: BarTheme.secondaryColor))
         return column
     }
@@ -1125,9 +1125,8 @@ final class WalkController: NSObject {
             row.setContentHuggingPriority(.required, for: .horizontal)
             row.addArrangedSubview(Keycaps.strokes(option.path.split(separator: " ").map { String($0).lowercased() },
                                                    lit: true))
-            row.addArrangedSubview(label(option.label, role: .body,
-                                         color: BarTheme.ink))
-            column.addArrangedSubview(row)
+            row.addArrangedSubview(KeyWords(option.label, role: .body, color: BarTheme.ink))
+            column.addArrangedSubview(LegendRow(row))
         }
         return column
     }
@@ -1143,9 +1142,8 @@ final class WalkController: NSObject {
             row.spacing = Grid.close
             row.setContentHuggingPriority(.required, for: .horizontal)
             row.addArrangedSubview(Key(proposal.letter.lowercased(), state: .lit))
-            row.addArrangedSubview(label(proposal.app, role: .body,
-                                         color: BarTheme.ink))
-            column.addArrangedSubview(row)
+            row.addArrangedSubview(KeyWords(proposal.app, role: .body, color: BarTheme.ink))
+            column.addArrangedSubview(LegendRow(row))
         }
         return column
     }
@@ -1165,9 +1163,8 @@ final class WalkController: NSObject {
         } else {
             row.addArrangedSubview(strokes)
         }
-        row.addArrangedSubview(label(meaning, role: .meta,
-                                     color: BarTheme.secondaryColor))
-        return row
+        row.addArrangedSubview(KeyWords(meaning, following: keys.last))
+        return LegendRow(row)
     }
 
     // MARK: - Staging
